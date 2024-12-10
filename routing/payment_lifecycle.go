@@ -180,6 +180,9 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 		return [32]byte{}, nil, err
 	}
 
+	// Get the payment state.
+	ps := payment.GetState()
+
 	for _, a := range payment.InFlightHTLCs() {
 		a := a
 
@@ -192,7 +195,7 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// exitWithErr is a helper closure that logs and returns an error.
 	exitWithErr := func(err error) ([32]byte, *route.Route, error) {
 		log.Errorf("Payment %v with status=%v failed: %v",
-			p.identifier, payment.GetStatus(), err)
+			p.identifier, ps, err)
 		return [32]byte{}, nil, err
 	}
 
@@ -210,7 +213,7 @@ lifecycle:
 			return exitWithErr(err)
 		}
 
-		ps := payment.GetState()
+		ps = payment.GetState()
 		remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
 		log.Debugf("Payment %v: status=%v, active_shards=%v, "+

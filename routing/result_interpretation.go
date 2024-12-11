@@ -93,8 +93,27 @@ func interpretResult(rt *route.Route, success bool, failureSrcIdx *int,
 
 // processSuccess processes a successful payment attempt.
 func (i *interpretedResult) processSuccess(route *route.Route) {
-	// For successes, all nodes must have acted in the right way. Therefore
-	// we mark all of them with a success result.
+	// For successes, all nodes must have acted in the right way.
+	// Therefore we mark all of them with a success result. However we need
+	// to handle the blinded route part separately because for intermediate
+	// blinded nodes the amount field is set to zero so we use the receiver
+	// amount.
+	introIdx, isBlinded := introductionPointIndex(route)
+	if isBlinded {
+		// Report success for all the pairs until the introduction
+		// point.
+		i.successPairRange(route, 0, introIdx-1)
+
+		// Handle the blinded route part.
+		//
+		// NOTE: The introIdx index here does describe the node after
+		// the introduction point.
+		i.markBlindedRouteSuccess(route, introIdx)
+
+		return
+	}
+
+	// Mark nodes as successful in the non-blinded case of the payment.
 	i.successPairRange(route, 0, len(route.Hops)-1)
 }
 
@@ -505,13 +524,22 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 		if introIdx == len(route.Hops)-1 {
 			i.finalFailureReason = &reasonError
 		} else {
-			// If there are other hops between the recipient and
-			// introduction node, then we just penalize the last
-			// hop in the blinded route to minimize the storage of
-			// results for ephemeral keys.
-			i.failPairBalance(
-				route, len(route.Hops)-1,
-			)
+			// We penalize the final hop of the blinded route which
+			// is sufficient to not reuse this route again and is
+			// also more memory efficient because the other hops
+			// of the blinded path are ephemeral and will only be
+			// used in conjunction with the final hop. Moreover we
+			// don't want to punish the introduction node because
+			// the blinded failure does not necessarily mean that
+			// the introduction node was at fault.
+			//
+			// TODO(ziggie): Make sure we only keep mc data for
+			// blinded paths, in both the success and failure case,
+			// in memory during the time of the payment and remove
+			// it afterwards. Blinded paths and their blinded hop
+			// keys are always changing per blinded route so there
+			// is no point in persisting this data.
+			i.failBlindedRoute(route)
 		}
 
 	// In all other cases, we penalize the reporting node. These are all
@@ -621,6 +649,43 @@ func (i *interpretedResult) successPairRange(
 		pair, amt := getPair(rt, idx)
 
 		i.pairResults[pair] = successPairResult(amt)
+	}
+}
+
+// failBlindedRoute marks a blinded route as failed for the specific amount to
+// send by only punishing the last pair.
+func (i *interpretedResult) failBlindedRoute(rt *route.Route) {
+	// We fail the last pair of the route, in order to fail the complete
+	// blinded route. This is because the combination of ephemeral pubkeys
+	// is unique to the route. We fail the last pair in order to not punish
+	// the introduction node, since we don't want to disincentivize them
+	// from providing that service.
+	pair, _ := getPair(rt, len(rt.Hops)-1)
+
+	// Since all the hops along a blinded path don't have any amount set, we
+	// extract the minimal amount to punish from the value that is tried to
+	// be sent to the receiver.
+	amt := rt.Hops[len(rt.Hops)-1].AmtToForward
+
+	i.pairResults[pair] = failPairResult(amt)
+}
+
+// markBlindedRouteSuccess marks the hops of the blinded route AFTER the
+// introduction node as successful.
+//
+// NOTE: The introIdx must be the index of the first hop of the blinded route
+// AFTER the introduction node.
+func (i *interpretedResult) markBlindedRouteSuccess(rt *route.Route,
+	introIdx int) {
+
+	// For blinded hops we do not have the forwarding amount so we take the
+	// minimal amount which went through the route by looking at the last
+	// hop.
+	successAmt := rt.Hops[len(rt.Hops)-1].AmtToForward
+	for idx := introIdx; idx < len(rt.Hops); idx++ {
+		pair, _ := getPair(rt, idx)
+
+		i.pairResults[pair] = successPairResult(successAmt)
 	}
 }
 

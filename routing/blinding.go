@@ -1,16 +1,26 @@
 package routing
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// BlindedPathNUMSHex is the hex encoded version of the blinded path target
+// NUMs key (in compressed format) which has no known private key.
+// This was generated using the following script:
+// https://github.com/lightninglabs/lightning-node-connect/tree/master/
+// mailbox/numsgen, with the seed phrase "Lightning Blinded Path".
+const BlindedPathNUMSHex = "02667a98ef82ecb522f803b17a74f14508a48b25258f9831" +
+	"dd6e95f5e299dfd54e"
 
 var (
 	// ErrNoBlindedPath is returned when the blinded path in a blinded
@@ -25,6 +35,14 @@ var (
 	// ErrHTLCRestrictions is returned when a blinded path has invalid
 	// HTLC maximum and minimum values.
 	ErrHTLCRestrictions = errors.New("invalid htlc minimum and maximum")
+
+	// BlindedPathNUMSKey is a NUMS key (nothing up my sleeves number) that
+	// has no known private key.
+	BlindedPathNUMSKey = input.MustParsePubKey(BlindedPathNUMSHex)
+
+	// CompressedBlindedPathNUMSKey is the compressed version of the
+	// BlindedPathNUMSKey.
+	CompressedBlindedPathNUMSKey = BlindedPathNUMSKey.SerializeCompressed()
 )
 
 // BlindedPaymentPathSet groups the data we need to handle sending to a set of
@@ -70,7 +88,9 @@ type BlindedPaymentPathSet struct {
 }
 
 // NewBlindedPaymentPathSet constructs a new BlindedPaymentPathSet from a set of
-// BlindedPayments.
+// BlindedPayments. For blinded paths which have more than one single hop a
+// dummy hop via a NUMS key is appeneded to allow for MPP path finding via
+// multiple blinded paths.
 func NewBlindedPaymentPathSet(paths []*BlindedPayment) (*BlindedPaymentPathSet,
 	error) {
 
@@ -103,36 +123,53 @@ func NewBlindedPaymentPathSet(paths []*BlindedPayment) (*BlindedPaymentPathSet,
 		}
 	}
 
-	// Derive an ephemeral target priv key that will be injected into each
-	// blinded path final hop.
-	targetPriv, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, err
+	// Deep copy the paths to avoid mutating the original paths.
+	pathSet := make([]*BlindedPayment, len(paths))
+	for i, path := range paths {
+		pathSet[i] = path.deepCopy()
 	}
-	targetPub := targetPriv.PubKey()
 
-	var (
-		pathSet        = paths
-		finalCLTVDelta uint16
-	)
-	// If any provided blinded path only has a single hop (ie, the
-	// destination node is also the introduction node), then we discard all
-	// other paths since we know the real pub key of the destination node.
-	// We also then set the final CLTV delta to the path's delta since
-	// there are no other edge hints that will account for it. For a single
-	// hop path, there is also no need for the pseudo target pub key
-	// replacement, so our target pub key in this case just remains the
-	// real introduction node ID.
-	for _, path := range paths {
-		if len(path.BlindedPath.BlindedHops) != 1 {
-			continue
+	// For blinded paths we use the NUMS key as a target if the blinded
+	// path has more hops than just the introduction node.
+	targetPub := &BlindedPathNUMSKey
+
+	var finalCLTVDelta uint16
+
+	// In case the paths do NOT include a single hop route we append a
+	// dummy hop via a NUMS key to allow for MPP path finding via multiple
+	// blinded paths. A unified target is needed to use all blinded paths
+	// during the payment lifecycle. A dummy hop is solely added for the
+	// path finding process and is removed after the path is found. This
+	// ensures that we still populate the mission control with the correct
+	// data and also respect these mc entries when looking for a path.
+	for _, path := range pathSet {
+		pathLength := len(path.BlindedPath.BlindedHops)
+
+		// If any provided blinded path only has a single hop (ie, the
+		// destination node is also the introduction node), then we
+		// discard all other paths since we know the real pub key of the
+		// destination node. We also then set the final CLTV delta to
+		// the path's delta since there are no other edge hints that
+		// will account for it.
+		if pathLength == 1 {
+			pathSet = []*BlindedPayment{path}
+			finalCLTVDelta = path.CltvExpiryDelta
+			targetPub = path.BlindedPath.IntroductionPoint
+
+			break
 		}
 
-		pathSet = []*BlindedPayment{path}
-		finalCLTVDelta = path.CltvExpiryDelta
-		targetPub = path.BlindedPath.IntroductionPoint
-
-		break
+		lastHop := path.BlindedPath.BlindedHops[pathLength-1]
+		path.BlindedPath.BlindedHops = append(
+			path.BlindedPath.BlindedHops,
+			&sphinx.BlindedHopInfo{
+				BlindedNodePub: &BlindedPathNUMSKey,
+				// We add the last hop's cipher text so that
+				// the payload size of the final hop is equal
+				// to the real last hop.
+				CipherText: lastHop.CipherText,
+			},
+		)
 	}
 
 	return &BlindedPaymentPathSet{
@@ -198,21 +235,33 @@ func (s *BlindedPaymentPathSet) FinalCLTVDelta() uint16 {
 // LargestLastHopPayloadPath returns the BlindedPayment in the set that has the
 // largest last-hop payload. This is to be used for onion size estimation in
 // path finding.
-func (s *BlindedPaymentPathSet) LargestLastHopPayloadPath() *BlindedPayment {
+func (s *BlindedPaymentPathSet) LargestLastHopPayloadPath() (*BlindedPayment,
+	error) {
+
 	var (
 		largestPath *BlindedPayment
 		currentMax  int
 	)
+
+	if len(s.paths) == 0 {
+		return nil, fmt.Errorf("no blinded paths in the set")
+	}
+
+	// We set the largest path to make sure we always return a path even
+	// if the cipher text is empty.
+	largestPath = s.paths[0]
+
 	for _, path := range s.paths {
 		numHops := len(path.BlindedPath.BlindedHops)
 		lastHop := path.BlindedPath.BlindedHops[numHops-1]
 
 		if len(lastHop.CipherText) > currentMax {
 			largestPath = path
+			currentMax = len(lastHop.CipherText)
 		}
 	}
 
-	return largestPath
+	return largestPath, nil
 }
 
 // ToRouteHints converts the blinded path payment set into a RouteHints map so
@@ -222,7 +271,7 @@ func (s *BlindedPaymentPathSet) ToRouteHints() (RouteHints, error) {
 	hints := make(RouteHints)
 
 	for _, path := range s.paths {
-		pathHints, err := path.toRouteHints(fn.Some(s.targetPubKey))
+		pathHints, err := path.toRouteHints()
 		if err != nil {
 			return nil, err
 		}
@@ -237,6 +286,12 @@ func (s *BlindedPaymentPathSet) ToRouteHints() (RouteHints, error) {
 	}
 
 	return hints, nil
+}
+
+// IsBlindedRouteNUMSTargetKey returns true if the given public key is the
+// NUMS key used as a target for blinded path final hops.
+func IsBlindedRouteNUMSTargetKey(pk []byte) bool {
+	return bytes.Equal(pk, CompressedBlindedPathNUMSKey)
 }
 
 // BlindedPayment provides the path and payment parameters required to send a
@@ -291,6 +346,22 @@ func (b *BlindedPayment) Validate() error {
 			b.HtlcMaximum, b.HtlcMinimum)
 	}
 
+	for _, hop := range b.BlindedPath.BlindedHops {
+		// The first hop of the blinded path does not necessarily have
+		// blinded node pub key because it is the introduction point.
+		if hop.BlindedNodePub == nil {
+			continue
+		}
+
+		if IsBlindedRouteNUMSTargetKey(
+			hop.BlindedNodePub.SerializeCompressed(),
+		) {
+
+			return fmt.Errorf("blinded path cannot include NUMS "+
+				"key: %s", BlindedPathNUMSHex)
+		}
+	}
+
 	return nil
 }
 
@@ -301,11 +372,8 @@ func (b *BlindedPayment) Validate() error {
 // effectively the final_cltv_delta for the receiving introduction node). In
 // the case of multiple blinded hops, CLTV delta is fully accounted for in the
 // hints (both for intermediate hops and the final_cltv_delta for the receiving
-// node). The pseudoTarget, if provided,  will be used to override the pub key
-// of the destination node in the path.
-func (b *BlindedPayment) toRouteHints(
-	pseudoTarget fn.Option[*btcec.PublicKey]) (RouteHints, error) {
-
+// node).
+func (b *BlindedPayment) toRouteHints() (RouteHints, error) {
 	// If we just have a single hop in our blinded route, it just contains
 	// an introduction node (this is a valid path according to the spec).
 	// Since we have the un-blinded node ID for the introduction node, we
@@ -393,16 +461,77 @@ func (b *BlindedPayment) toRouteHints(
 		hints[fromNode] = []AdditionalEdge{lastEdge}
 	}
 
-	pseudoTarget.WhenSome(func(key *btcec.PublicKey) {
-		// For the very last hop on the path, switch out the ToNodePub
-		// for the pseudo target pub key.
-		lastEdge.policy.ToNodePubKey = func() route.Vertex {
-			return route.NewVertex(key)
+	return hints, nil
+}
+
+// deepCopy returns a deep copy of the BlindedPayment.
+func (b *BlindedPayment) deepCopy() *BlindedPayment {
+	if b == nil {
+		return nil
+	}
+
+	cpyPayment := &BlindedPayment{
+		BaseFee:             b.BaseFee,
+		ProportionalFeeRate: b.ProportionalFeeRate,
+		CltvExpiryDelta:     b.CltvExpiryDelta,
+		HtlcMinimum:         b.HtlcMinimum,
+		HtlcMaximum:         b.HtlcMaximum,
+	}
+
+	// Deep copy the BlindedPath if it exists
+	if b.BlindedPath != nil {
+		cpyPayment.BlindedPath = &sphinx.BlindedPath{
+			BlindedHops: make([]*sphinx.BlindedHopInfo,
+				len(b.BlindedPath.BlindedHops)),
 		}
 
-		// Then override the final hint with this updated edge.
-		hints[fromNode] = []AdditionalEdge{lastEdge}
-	})
+		if b.BlindedPath.IntroductionPoint != nil {
+			cpyPayment.BlindedPath.IntroductionPoint =
+				copyPublicKey(b.BlindedPath.IntroductionPoint)
+		}
 
-	return hints, nil
+		if b.BlindedPath.BlindingPoint != nil {
+			cpyPayment.BlindedPath.BlindingPoint =
+				copyPublicKey(b.BlindedPath.BlindingPoint)
+		}
+
+		// Copy each blinded hop info.
+		for i, hop := range b.BlindedPath.BlindedHops {
+			if hop == nil {
+				continue
+			}
+
+			cpyHop := &sphinx.BlindedHopInfo{
+				CipherText: hop.CipherText,
+			}
+
+			if hop.BlindedNodePub != nil {
+				cpyHop.BlindedNodePub =
+					copyPublicKey(hop.BlindedNodePub)
+			}
+
+			cpyHop.CipherText = make([]byte, len(hop.CipherText))
+			copy(cpyHop.CipherText, hop.CipherText)
+
+			cpyPayment.BlindedPath.BlindedHops[i] = cpyHop
+		}
+	}
+
+	// Deep copy the Features if they exist
+	if b.Features != nil {
+		cpyPayment.Features = b.Features.Clone()
+	}
+
+	return cpyPayment
+}
+
+// copyPublicKey makes a deep copy of a public key.
+//
+// TODO(ziggie): Remove this function if this is available in the btcec library.
+func copyPublicKey(pk *btcec.PublicKey) *btcec.PublicKey {
+	var result secp256k1.JacobianPoint
+	pk.AsJacobian(&result)
+	result.ToAffine()
+
+	return btcec.NewPublicKey(&result.X, &result.Y)
 }

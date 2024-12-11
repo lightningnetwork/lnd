@@ -64,14 +64,27 @@ var (
 		SourcePubKey: hops[0],
 		TotalAmount:  100,
 		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
 			{
-				PubKeyBytes:   hops[2],
-				AmtToForward:  95,
-				BlindingPoint: blindingPoint,
+				PubKeyBytes:  hops[1],
+				AmtToForward: 99,
 			},
-			{PubKeyBytes: hops[3], AmtToForward: 88},
-			{PubKeyBytes: hops[4], AmtToForward: 77},
+			{
+				PubKeyBytes: hops[2],
+				// Intermediate blinded hops don't have an
+				// amount set.
+				AmtToForward:  0,
+				BlindingPoint: genTestPubKey(),
+			},
+			{
+				PubKeyBytes: hops[3],
+				// Intermediate blinded hops don't have an
+				// amount set.
+				AmtToForward: 0,
+			},
+			{
+				PubKeyBytes:  hops[4],
+				AmtToForward: 77,
+			},
 		},
 	}
 
@@ -81,13 +94,21 @@ var (
 		SourcePubKey: hops[0],
 		TotalAmount:  100,
 		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 99},
 			{
-				PubKeyBytes:   hops[2],
-				AmtToForward:  95,
-				BlindingPoint: blindingPoint,
+				PubKeyBytes:  hops[1],
+				AmtToForward: 99,
 			},
-			{PubKeyBytes: hops[3], AmtToForward: 88},
+			{
+				PubKeyBytes: hops[2],
+				// Intermediate blinded hops don't have an
+				// amount set.
+				AmtToForward:  0,
+				BlindingPoint: genTestPubKey(),
+			},
+			{
+				PubKeyBytes:  hops[3],
+				AmtToForward: 88,
+			},
 		},
 	}
 
@@ -98,12 +119,22 @@ var (
 		TotalAmount:  100,
 		Hops: []*route.Hop{
 			{
-				PubKeyBytes:   hops[1],
-				AmtToForward:  90,
-				BlindingPoint: blindingPoint,
+				PubKeyBytes: hops[1],
+				// Intermediate blinded hops don't have an
+				// amount set.
+				AmtToForward:  0,
+				BlindingPoint: genTestPubKey(),
 			},
-			{PubKeyBytes: hops[2], AmtToForward: 75},
-			{PubKeyBytes: hops[3], AmtToForward: 58},
+			{
+				PubKeyBytes: hops[2],
+				// Intermediate blinded hops don't have an
+				// amount set.
+				AmtToForward: 0,
+			},
+			{
+				PubKeyBytes:  hops[3],
+				AmtToForward: 58,
+			},
 		},
 	}
 
@@ -113,7 +144,10 @@ var (
 		SourcePubKey: hops[0],
 		TotalAmount:  100,
 		Hops: []*route.Hop{
-			{PubKeyBytes: hops[1], AmtToForward: 95},
+			{
+				PubKeyBytes:  hops[1],
+				AmtToForward: 95,
+			},
 			{
 				PubKeyBytes:   hops[2],
 				AmtToForward:  90,
@@ -122,6 +156,12 @@ var (
 		},
 	}
 )
+
+func genTestPubKey() *btcec.PublicKey {
+	key, _ := btcec.NewPrivateKey()
+
+	return key.PubKey()
+}
 
 func getTestPair(from, to int) DirectedNodePair {
 	return NewDirectedNodePair(hops[from], hops[to])
@@ -494,7 +534,12 @@ var resultTestCases = []resultTestCase{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): successPairResult(100),
 				getTestPair(1, 2): successPairResult(99),
-				getTestPair(3, 4): failPairResult(88),
+
+				// The amount for the last hop is always the
+				// receiver amount because the amount to forward
+				// is always set to 0 for intermediate blinded
+				// hops.
+				getTestPair(3, 4): failPairResult(77),
 			},
 		},
 	},
@@ -509,7 +554,12 @@ var resultTestCases = []resultTestCase{
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
 				getTestPair(0, 1): successPairResult(100),
-				getTestPair(2, 3): failPairResult(75),
+
+				// The amount for the last hop is always the
+				// receiver amount because the amount to forward
+				// is always set to 0 for intermediate blinded
+				// hops.
+				getTestPair(2, 3): failPairResult(58),
 			},
 		},
 	},
@@ -622,6 +672,25 @@ var resultTestCases = []resultTestCase{
 			},
 			nodeFailure:        &hops[2],
 			finalFailureReason: &reasonError,
+		},
+	},
+	// Test a multi-hop blinded route and that in a success case the amounts
+	// for the blinded route part are correctly set to the receiver amount.
+	{
+		name:    "blinded multi-hop success",
+		route:   &blindedMultiToIntroduction,
+		success: true,
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+
+				// For the route blinded part of the route the
+				// success amount is determined by the receiver
+				// amount because the intermediate blinded hops
+				// set the forwarded amount to 0.
+				getTestPair(1, 2): successPairResult(58),
+				getTestPair(2, 3): successPairResult(58),
+			},
 		},
 	},
 }

@@ -3862,3 +3862,126 @@ func TestFindBlindedPaths(t *testing.T) {
 		"dave",
 	})
 }
+
+// TestGivenBlindedPaths tests the functionality of finding blinded paths
+// in a simulated Lightning Network graph. It verifies that the returned paths
+// satisfy the specified restrictions, such as minimum/maximum path length
+// and incoming channels.
+func TestGivenBlindedPaths(t *testing.T) {
+	featuresWithRouteBlinding := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.RouteBlindingOptional),
+		lnwire.Features,
+	)
+
+	policyWithRouteBlinding := &testChannelPolicy{
+		Expiry:   144,
+		FeeRate:  400,
+		MinHTLC:  1,
+		MaxHTLC:  100000000,
+		Features: featuresWithRouteBlinding,
+	}
+
+	// Set up the following graph where Dave will be our destination node.
+	// All the nodes will signal the Route Blinding feature
+	// bit.
+	//
+	// 	      A --- F
+	// 	      |	    |
+	//	G --- D --- B --- E
+	// 	      |		  |
+	// 	      C-----------/
+	//
+	testChannels := []*testChannel{
+		symmetricTestChannel(
+			"dave", "alice", 100000, policyWithRouteBlinding, 1,
+		),
+		symmetricTestChannel(
+			"dave", "bob", 100000, policyWithRouteBlinding, 2,
+		),
+		symmetricTestChannel(
+			"dave", "charlie", 100000, policyWithRouteBlinding, 3,
+		),
+		symmetricTestChannel(
+			"alice", "frank", 100000, policyWithRouteBlinding, 4,
+		),
+		symmetricTestChannel(
+			"bob", "frank", 100000, policyWithRouteBlinding, 5,
+		),
+		symmetricTestChannel(
+			"eve", "charlie", 100000, policyWithRouteBlinding, 6,
+		),
+		symmetricTestChannel(
+			"bob", "eve", 100000, policyWithRouteBlinding, 7,
+		),
+		symmetricTestChannel(
+			"dave", "george", 100000, policyWithRouteBlinding, 8,
+		),
+	}
+
+	ctx := newPathFindingTestContext(
+		t, true, testChannels, "alice", lnwire.RouteBlindingOptional,
+	)
+
+	// assertPaths checks that the set of selected paths contains all the
+	// expected paths.
+	assertPaths := func(paths [][]blindedHop, expectedPaths []string) {
+		require.Len(t, paths, len(expectedPaths))
+
+		actualPaths := make(map[string]bool)
+
+		for _, path := range paths {
+			var label string
+			for _, hop := range path {
+				label += ctx.aliasFromKey(hop.vertex) + ","
+			}
+
+			actualPaths[strings.TrimRight(label, ",")] = true
+		}
+
+		for _, path := range expectedPaths {
+			require.True(t, actualPaths[path])
+		}
+	}
+
+	// 1) Restrict the min & max path length such that we only include paths
+	// with one hop other than the destination hop and no restriction for
+	// incoming channel.
+	paths, err := ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 1,
+	})
+	require.NoError(t, err)
+
+	// We expect D->A and F->A path to be chosen.
+	assertPaths(paths, []string{
+		"dave,alice",
+		"frank,alice",
+	})
+
+	// 2) Now with the incoming channel restriction define the alice-dave
+	// as the incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              1,
+		maxNumHops:              1,
+		incomingChainedChannels: []uint64{1},
+	})
+	require.NoError(t, err)
+
+	// We expect only D->A path to be chosen.
+	assertPaths(paths, []string{
+		"dave,alice",
+	})
+
+	// 2) Extend the chained channels to include 2 hops.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              2,
+		maxNumHops:              2,
+		incomingChainedChannels: []uint64{1, 2},
+	})
+	require.NoError(t, err)
+
+	// We expect only B->D->A path to be chosen:
+	assertPaths(paths, []string{
+		"bob,dave,alice",
+	})
+}

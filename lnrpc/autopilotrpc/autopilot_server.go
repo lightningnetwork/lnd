@@ -6,6 +6,8 @@ package autopilotrpc
 import (
 	"context"
 	"encoding/hex"
+	"errors"
+	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -63,7 +65,7 @@ type ServerShell struct {
 // RPC server allows external callers to access the status of the autopilot
 // currently active within lnd, as well as configuring it at runtime.
 type Server struct {
-	started  int32 // To be used atomically.
+	injected int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
 
 	// Required by the grpc-gateway/v2 library for forward compatibility.
@@ -74,6 +76,10 @@ type Server struct {
 	cfg *Config
 
 	manager *autopilot.Manager
+
+	// This mutex should be held when accessing any fields of this struct,
+	// that can be accessed before the dependencies have been injected.
+	mu sync.Mutex
 }
 
 // A compile time check to ensure that Server fully implements the
@@ -85,33 +91,27 @@ var _ AutopilotServer = (*Server)(nil)
 // this method. If the macaroons we need aren't found in the filepath, then
 // we'll create them on start up. If we're unable to locate, or create the
 // macaroons we need, then we'll return with an error.
-func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
+func New() (*Server, lnrpc.MacaroonPerms, error) {
 	// We don't create any new macaroons for this subserver, instead reuse
 	// existing onchain/offchain permissions.
-	server := &Server{
-		cfg:     cfg,
-		manager: cfg.Manager,
-	}
-
-	return server, macPermissions, nil
-}
-
-// Start launches any helper goroutines required for the Server to function.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (s *Server) Start() error {
-	if atomic.AddInt32(&s.started, 1) != 1 {
-		return nil
-	}
-
-	return s.manager.Start()
+	return &Server{cfg: &Config{}}, macPermissions, nil
 }
 
 // Stop signals any active goroutines for a graceful closure.
 //
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Stop() error {
+	// As the Stop function could in theory in the future be called before
+	// the InjectDependencies function has been executed, we need to hold
+	// the lock here.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
+		return nil
+	}
+
+	if s.manager == nil {
 		return nil
 	}
 
@@ -124,6 +124,44 @@ func (s *Server) Stop() error {
 // NOTE: This is part of the lnrpc.SubServer interface.
 func (s *Server) Name() string {
 	return subServerName
+}
+
+// InjectDependencies populates the sub-server's dependencies. If the
+// finalizeDependencies boolean is true, then the sub-server will finalize its
+// dependencies and return an error if any required dependencies are missing.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (s *Server) InjectDependencies(
+	configRegistry lnrpc.SubServerConfigDispatcher,
+	finalizeDependencies bool) error {
+
+	if finalizeDependencies && atomic.AddInt32(&s.injected, 1) != 1 {
+		return lnrpc.ErrDependenciesFinalized
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.shutdown != 0 {
+		return errors.New("server shutting down")
+	}
+
+	cfg, err := getConfig(configRegistry, finalizeDependencies)
+	if err != nil {
+		return err
+	}
+
+	s.cfg = cfg
+
+	// If we're not finalizing the dependencies, we the manager doesn't
+	// need to be set, and would then error if we tried to start it.
+	if !finalizeDependencies && cfg.Manager == nil {
+		return nil
+	}
+
+	s.manager = cfg.Manager
+
+	return s.manager.Start()
 }
 
 // RegisterWithRootServer will be called by the root gRPC server to direct a
@@ -165,17 +203,15 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
+// CreateSubServer creates an instance of the sub-server, and returns the
+// macaroon permissions that the sub-server wishes to pass on to the root server
+// for all methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+func (r *ServerShell) CreateSubServer() (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	subServer, macPermissions, err := New()
 	if err != nil {
 		return nil, nil, err
 	}

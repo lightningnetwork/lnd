@@ -139,6 +139,23 @@ jobs:
   cross-compile:
     name: cross compilation
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        # Please keep this list in sync with make/release_flags.mk!
+        include:
+          - name: darwin
+            sys: darwin-amd64 darwin-arm64
+          - name: freebsd
+            sys: freebsd-386 freebsd-amd64 freebsd-arm
+          - name: linux
+            sys: linux-386 linux-amd64 
+          - name: linux ARM
+            sys: linux-armv6 linux-armv7 linux-arm64
+          - name: netbsd and openbsd
+            sys: netbsd-amd64 openbsd-amd64
+          - name: windows
+            sys: windows-386 windows-amd64 windows-arm
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -148,9 +165,10 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: cross-compile
+          use-build-cache: 'no'
 
       - name: build release for all architectures
-        run: make release
+        run: make release sys="${{ matrix.sys }}"
 
   ########################
   # sample configuration check

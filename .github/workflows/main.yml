@@ -220,7 +220,7 @@ jobs:
         run: make ${{ matrix.unit_type }}
 
       - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
+        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
         if: matrix.unit_type == 'btcd unit-cover'
         with:
           path-to-profile: coverage.txt
@@ -284,7 +284,7 @@ jobs:
 
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
-        uses: shogo82148/actions-goveralls@v1
+        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
         with:
           path-to-profile: coverage.txt
           flag-name: 'itest-${{ matrix.name }}'
@@ -434,6 +434,6 @@ jobs:
     needs: [unit-test, ubuntu-integration-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: shogo82148/actions-goveralls@v1
+      - uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
         with:
           parallel-finished: true

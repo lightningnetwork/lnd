@@ -3,6 +3,7 @@ package lncfg
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"testing"
 
@@ -314,5 +315,141 @@ func TestIsPrivate(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+// mockNetAddr implements the net.Addr interface for testing.
+type mockNetAddr struct {
+	network string
+	addr    string
+}
+
+func (m mockNetAddr) Network() string { return m.network }
+func (m mockNetAddr) String() string  { return m.addr }
+
+// TestIsLocalAddress tests the IsLocalAddress function with various
+// types of addresses to ensure it correctly identifies local addresses.
+func TestIsLocalAddress(t *testing.T) {
+	tests := []struct {
+		name string
+		addr net.Addr
+		want bool
+	}{
+		{
+			name: "nil address",
+			addr: nil,
+			want: false,
+		},
+		{
+			name: "unix socket",
+			addr: &mockNetAddr{
+				network: "unix",
+				addr:    "/tmp/test.sock",
+			},
+			want: true,
+		},
+		{
+			name: "localhost",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "localhost:1234",
+			},
+			want: true,
+		},
+		{
+			name: "ipv4 loopback",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "127.0.0.1:1234",
+			},
+			want: true,
+		},
+		{
+			name: "ipv6 loopback",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "[::1]:1234",
+			},
+			want: true,
+		},
+		{
+			name: "public ipv4",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "8.8.8.8:1234",
+			},
+			want: false,
+		},
+		{
+			name: "public ipv6",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "[2001:4860:4860::8888]:1234",
+			},
+			want: false,
+		},
+		{
+			name: "invalid address",
+			addr: &mockNetAddr{
+				network: "tcp",
+				addr:    "not-a-real-address:1234",
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt // Capture range variable
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := IsLocalAddress(tt.addr)
+			if got != tt.want {
+				t.Errorf("IsLocalAddress() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsLocalAddressWithRealInterfaces tests the IsLocalAddress function
+// against actual network interfaces on the system.
+func TestIsLocalAddressWithRealInterfaces(t *testing.T) {
+	// Get all network interfaces
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatalf("Failed to get network interfaces: %v", err)
+	}
+
+	for _, iface := range interfaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			t.Logf("Skipping interface %s due to error: %v", iface.Name, err)
+			continue
+		}
+
+		for _, addr := range addrs {
+			// Extract IP from addr
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			default:
+				continue
+			}
+
+			// Create a mock address with this IP
+			mockAddr := &mockNetAddr{
+				network: "tcp",
+				addr:    ip.String(),
+			}
+
+			// Test the address
+			t.Run(fmt.Sprintf("interface_%s_addr_%s", iface.Name, ip), func(t *testing.T) {
+				isLocal := IsLocalAddress(mockAddr)
+				t.Logf("Address %v on interface %s is local: %v", ip, iface.Name, isLocal)
+			})
+		}
 	}
 }

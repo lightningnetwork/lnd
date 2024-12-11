@@ -145,7 +145,7 @@ type StateMachine[Event any, Env Environment] struct {
 	// query the internal state machine state.
 	stateQuery chan stateQuery[Event, Env]
 
-	wg   fn.GoroutineManager
+	wg   *fn.GoroutineManager
 	quit chan struct{}
 
 	startOnce sync.Once
@@ -206,7 +206,7 @@ func NewStateMachine[Event any, Env Environment](
 		),
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
-		wg:             *fn.NewGoroutineManager(),
+		wg:             fn.NewGoroutineManager(),
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 		quit:           make(chan struct{}),
 	}

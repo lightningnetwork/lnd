@@ -11,6 +11,7 @@ DOCKER_RELEASE_HELPER = docker run \
   -e SKIP_VERSION_CHECK \
   lnd-release-helper
 
+# Please keep this list in sync with .github/workflows/main.yml!
 BUILD_SYSTEM = darwin-amd64 \
 darwin-arm64 \
 freebsd-386 \

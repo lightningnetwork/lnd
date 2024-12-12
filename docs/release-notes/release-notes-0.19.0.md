@@ -221,6 +221,10 @@ The underlying functionality between those two options remain the same.
 * A code refactor that [moves all the graph related DB code out of the 
   `channeldb` package](https://github.com/lightningnetwork/lnd/pull/9236) and 
   into the `graph/db` package.
+ 
+* [Improve the API](https://github.com/lightningnetwork/lnd/pull/9341) of the 
+  [GoroutineManager](https://github.com/lightningnetwork/lnd/pull/9141) so that 
+  its constructor does not take a context.
 
 ## Tooling and Documentation
 

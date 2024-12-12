@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -130,6 +131,8 @@ type stateQuery[Event any, Env Environment] struct {
 type StateMachine[Event any, Env Environment] struct {
 	cfg StateMachineCfg[Event, Env]
 
+	log btclog.Logger
+
 	// events is the channel that will be used to send new events to the
 	// FSM.
 	events chan Event
@@ -197,7 +200,10 @@ func NewStateMachine[Event any, Env Environment](
 	cfg StateMachineCfg[Event, Env]) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
-		cfg:            cfg,
+		cfg: cfg,
+		log: log.WithPrefix(
+			fmt.Sprintf("FSM(%v)", cfg.Env.Name()),
+		),
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
 		wg:             *fn.NewGoroutineManager(),
@@ -229,9 +235,7 @@ func (s *StateMachine[Event, Env]) Stop() {
 //
 // TODO(roasbeef): bool if processed?
 func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
-	log.Debugf("FSM(%v): sending event: %v", s.cfg.Env.Name(),
-		lnutils.SpewLogClosure(event),
-	)
+	s.log.Debugf("Sending event: %v", lnutils.SpewLogClosure(event))
 
 	select {
 	case s.events <- event:
@@ -269,9 +273,7 @@ func (s *StateMachine[Event, Env]) SendMessage(ctx context.Context,
 		return false
 	}
 
-	log.Debugf("FSM(%v): sending msg: %v", s.cfg.Env.Name(),
-		lnutils.SpewLogClosure(msg),
-	)
+	s.log.Debugf("Sending msg: %v", lnutils.SpewLogClosure(msg))
 
 	// Otherwise, try to map the message using the default message mapper.
 	// If we can't extract an event, then we'll return false to indicate
@@ -342,11 +344,10 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	// any preconditions as well as post-send events.
 	case *SendMsgEvent[Event]:
 		sendAndCleanUp := func() error {
-			log.Debugf("FSM(%v): sending message to target(%x): "+
-				"%v", s.cfg.Env.Name(),
+			s.log.Debugf("Sending message to target(%x): "+
+				"%v",
 				daemonEvent.TargetPeer.SerializeCompressed(),
-				lnutils.SpewLogClosure(daemonEvent.Msgs),
-			)
+				lnutils.SpewLogClosure(daemonEvent.Msgs))
 
 			err := s.cfg.Daemon.SendMessages(
 				daemonEvent.TargetPeer, daemonEvent.Msgs,
@@ -361,9 +362,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
 				launched := s.wg.Go(
 					ctx, func(ctx context.Context) {
-						log.Debugf("FSM(%v): sending "+
+						s.log.Debugf("Sending "+
 							"post-send event: %v",
-							s.cfg.Env.Name(),
 							lnutils.SpewLogClosure(event))
 
 						s.SendEvent(ctx, event)
@@ -393,8 +393,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			)
 			defer predicateTicker.Stop()
 
-			log.Infof("FSM(%v): waiting for send predicate to "+
-				"be true", s.cfg.Env.Name())
+			s.log.Infof("Waiting for send predicate to be true")
 
 			for {
 				select {
@@ -407,14 +406,13 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 					)
 
 					if canSend {
-						log.Infof("FSM(%v): send "+
-							"active predicate",
-							s.cfg.Env.Name())
+						s.log.Infof("Send active " +
+							"predicate")
 
 						err := sendAndCleanUp()
 						if err != nil {
 							//nolint:ll
-							log.Errorf("FSM(%v): unable to send message: %v", err)
+							s.log.Errorf("Unable to send message: %v", err)
 						}
 
 						return
@@ -435,8 +433,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	// If this is a broadcast transaction event, then we'll broadcast with
 	// the label attached.
 	case *BroadcastTxn:
-		log.Debugf("FSM(%v): broadcasting txn, txid=%v",
-			s.cfg.Env.Name(), daemonEvent.Tx.TxHash())
+		s.log.Debugf("Broadcasting txn, txid=%v",
+			daemonEvent.Tx.TxHash())
 
 		err := s.cfg.Daemon.BroadcastTransaction(
 			daemonEvent.Tx, daemonEvent.Label,
@@ -450,8 +448,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	// The state machine has requested a new event to be sent once a
 	// transaction spending a specified outpoint has confirmed.
 	case *RegisterSpend[Event]:
-		log.Debugf("FSM(%v): registering spend: %v", s.cfg.Env.Name(),
-			daemonEvent.OutPoint)
+		s.log.Debugf("Registering spend: %v", daemonEvent.OutPoint)
 
 		spendEvent, err := s.cfg.Daemon.RegisterSpendNtfn(
 			&daemonEvent.OutPoint, daemonEvent.PkScript,
@@ -495,8 +492,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	// The state machine has requested a new event to be sent once a
 	// specified txid+pkScript pair has confirmed.
 	case *RegisterConf[Event]:
-		log.Debugf("FSM(%v): registering conf: %v", s.cfg.Env.Name(),
-			daemonEvent.Txid)
+		s.log.Debugf("Registering conf: %v", daemonEvent.Txid)
 
 		numConfs := daemonEvent.NumConfs.UnwrapOr(1)
 		confEvent, err := s.cfg.Daemon.RegisterConfirmationsNtfn(
@@ -547,9 +543,9 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 	currentState State[Event, Env], newEvent Event) (State[Event, Env],
 	error) {
 
-	log.Debugf("FSM(%v): applying new event", s.cfg.Env.Name(),
-		lnutils.SpewLogClosure(newEvent),
-	)
+	s.log.Debugf("Applying new event: %v",
+		lnutils.SpewLogClosure(newEvent))
+
 	eventQueue := fn.NewQueue(newEvent)
 
 	// Given the next event to handle, we'll process the event, then add
@@ -560,10 +556,8 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 	//nolint:ll
 	for nextEvent := eventQueue.Dequeue(); nextEvent.IsSome(); nextEvent = eventQueue.Dequeue() {
 		err := fn.MapOptionZ(nextEvent, func(event Event) error {
-			log.Debugf("FSM(%v): processing event: %v",
-				s.cfg.Env.Name(),
-				lnutils.SpewLogClosure(event),
-			)
+			s.log.Debugf("Processing event: %v",
+				lnutils.SpewLogClosure(event))
 
 			// Apply the state transition function of the current
 			// state given this new event and our existing env.
@@ -593,14 +587,12 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 				//
 				//nolint:ll
 				for _, inEvent := range events.InternalEvent {
-					log.Debugf("FSM(%v): adding "+
+					s.log.Debugf("Adding "+
 						"new internal event "+
 						"to queue: %v",
-						s.cfg.Env.Name(),
 						lnutils.SpewLogClosure(
 							inEvent,
-						),
-					)
+						))
 
 					eventQueue.Enqueue(inEvent)
 				}
@@ -611,9 +603,8 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 				return err
 			}
 
-			log.Infof("FSM(%v): state transition: from_state=%T, "+
-				"to_state=%T",
-				s.cfg.Env.Name(), currentState,
+			s.log.Infof("State transition: from_state=%T, "+
+				"to_state=%T", currentState,
 				transition.NextState)
 
 			// With our events processed, we'll now update our
@@ -640,7 +631,7 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 // incoming events, and then drives the state machine forward until it reaches
 // a terminal state.
 func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
-	log.Debugf("FSM(%v): starting state machine", s.cfg.Env.Name())
+	s.log.Debugf("Starting state machine")
 
 	currentState := s.cfg.InitialState
 
@@ -650,7 +641,7 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 		return s.executeDaemonEvent(ctx, event)
 	})
 	if err != nil {
-		log.Errorf("unable to execute init event: %w", err)
+		s.log.Errorf("Unable to execute init event: %v", err)
 		return
 	}
 
@@ -670,7 +661,7 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 			if err != nil {
 				s.cfg.ErrorReporter.ReportError(err)
 
-				log.Errorf("unable to apply event: %v", err)
+				s.log.Errorf("Unable to apply event: %v", err)
 
 				// An error occurred, so we'll tear down the
 				// entire state machine as we can't proceed.

@@ -1471,10 +1471,11 @@ func listPayments(ctx *cli.Context) error {
 }
 
 var forwardingHistoryCommand = cli.Command{
-	Name:      "fwdinghistory",
-	Category:  "Payments",
-	Usage:     "Query the history of all forwarded HTLCs.",
-	ArgsUsage: "start_time [end_time] [index_offset] [max_events]",
+	Name:     "fwdinghistory",
+	Category: "Payments",
+	Usage:    "Query the history of all forwarded HTLCs.",
+	ArgsUsage: "start_time [end_time] [index_offset] [max_events] " +
+		"[incoming_channel_ids] [outgoing_channel_ids]",
 	Description: `
 	Query the HTLC switch's internal forwarding log for all completed
 	payment circuits (HTLCs) over a particular time range (--start_time and
@@ -1488,6 +1489,9 @@ var forwardingHistoryCommand = cli.Command{
 
 	The max number of events returned is 50k. The default number is 100,
 	callers can use the --max_events param to modify this value.
+
+	Incoming and outgoing channel IDs can be provided to further filter
+	the events. If not provided, all events will be returned.
 
 	Finally, callers can skip a series of events using the --index_offset
 	parameter. Each response will contain the offset index of the last
@@ -1516,6 +1520,16 @@ var forwardingHistoryCommand = cli.Command{
 			Name: "skip_peer_alias_lookup",
 			Usage: "skip the peer alias lookup per forwarding " +
 				"event in order to improve performance",
+		},
+		cli.Int64SliceFlag{
+			Name: "incoming_chan_ids",
+			Usage: "the short channel ids of the incoming " +
+				"channels to filter events by",
+		},
+		cli.Int64SliceFlag{
+			Name: "outgoing_chan_ids",
+			Usage: "the short channel ids of the outgoing " +
+				"channels to filter events by",
 		},
 	},
 	Action: actionDecorator(forwardingHistory),
@@ -1596,6 +1610,21 @@ func forwardingHistory(ctx *cli.Context) error {
 		IndexOffset:     indexOffset,
 		NumMaxEvents:    maxEvents,
 		PeerAliasLookup: lookupPeerAlias,
+	}
+	outgoingChannelIDs := ctx.Int64Slice("outgoing_chan_ids")
+	if len(outgoingChannelIDs) != 0 {
+		req.OutgoingChanIds = make([]uint64, len(outgoingChannelIDs))
+		for i, c := range outgoingChannelIDs {
+			req.OutgoingChanIds[i] = uint64(c)
+		}
+	}
+
+	incomingChannelIDs := ctx.Int64Slice("incoming_chan_ids")
+	if len(incomingChannelIDs) != 0 {
+		req.IncomingChanIds = make([]uint64, len(incomingChannelIDs))
+		for i, c := range incomingChannelIDs {
+			req.IncomingChanIds[i] = uint64(c)
+		}
 	}
 	resp, err := client.ForwardingHistory(ctxc, req)
 	if err != nil {

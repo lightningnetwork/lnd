@@ -475,3 +475,134 @@ func writeOldFormatEvents(db *DB, events []ForwardingEvent) error {
 		return nil
 	})
 }
+
+// TestForwardingLogQueryChanIDs tests that querying the forwarding log with
+// various combinations of incoming and/or outgoing channel IDs returns the
+// correct subset of forwarding events.
+func TestForwardingLogQueryChanIDs(t *testing.T) {
+	t.Parallel()
+
+	db, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test db")
+
+	log := ForwardingLog{db: db}
+
+	initialTime := time.Unix(1234, 0)
+	endTime := initialTime
+
+	numEvents := 10
+	incomingChanIDs := []lnwire.ShortChannelID{
+		lnwire.NewShortChanIDFromInt(2001),
+		lnwire.NewShortChanIDFromInt(2002),
+		lnwire.NewShortChanIDFromInt(2003),
+	}
+	outgoingChanIDs := []lnwire.ShortChannelID{
+		lnwire.NewShortChanIDFromInt(3001),
+		lnwire.NewShortChanIDFromInt(3002),
+		lnwire.NewShortChanIDFromInt(3003),
+	}
+
+	events := make([]ForwardingEvent, numEvents)
+	for i := 0; i < numEvents; i++ {
+		events[i] = ForwardingEvent{
+			Timestamp:      endTime,
+			IncomingChanID: incomingChanIDs[i%len(incomingChanIDs)],
+			OutgoingChanID: outgoingChanIDs[i%len(outgoingChanIDs)],
+			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
+			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
+		}
+		endTime = endTime.Add(10 * time.Minute)
+	}
+
+	require.NoError(
+		t,
+		log.AddForwardingEvents(events),
+		"unable to add events",
+	)
+
+	tests := []struct {
+		name     string
+		query    ForwardingEventQuery
+		expected func(e ForwardingEvent) bool
+	}{
+		{
+			name: "only incomingChanIDs filter",
+			query: ForwardingEventQuery{
+				StartTime: initialTime,
+				EndTime:   endTime,
+				IncomingChanIDs: fn.NewSet(
+					incomingChanIDs[0].ToUint64(),
+					incomingChanIDs[1].ToUint64(),
+				),
+				IndexOffset:  0,
+				NumMaxEvents: 10,
+			},
+			expected: func(e ForwardingEvent) bool {
+				return e.IncomingChanID == incomingChanIDs[0] ||
+					e.IncomingChanID == incomingChanIDs[1]
+			},
+		},
+		{
+			name: "only outgoingChanIDs filter",
+			query: ForwardingEventQuery{
+				StartTime: initialTime,
+				EndTime:   endTime,
+				OutgoingChanIDs: fn.NewSet(
+					outgoingChanIDs[0].ToUint64(),
+					outgoingChanIDs[1].ToUint64(),
+				),
+				IndexOffset:  0,
+				NumMaxEvents: 10,
+			},
+			expected: func(e ForwardingEvent) bool {
+				return e.OutgoingChanID == outgoingChanIDs[0] ||
+					e.OutgoingChanID == outgoingChanIDs[1]
+			},
+		},
+		{
+			name: "incoming and outgoingChanIDs filter",
+			query: ForwardingEventQuery{
+				StartTime: initialTime,
+				EndTime:   endTime,
+				IncomingChanIDs: fn.NewSet(
+					incomingChanIDs[0].ToUint64(),
+					incomingChanIDs[1].ToUint64(),
+				),
+				OutgoingChanIDs: fn.NewSet(
+					outgoingChanIDs[0].ToUint64(),
+					outgoingChanIDs[1].ToUint64(),
+				),
+				IndexOffset:  0,
+				NumMaxEvents: 10,
+			},
+			expected: func(e ForwardingEvent) bool {
+				return e.IncomingChanID ==
+					incomingChanIDs[0] ||
+					e.IncomingChanID ==
+						incomingChanIDs[1] ||
+					e.OutgoingChanID ==
+						outgoingChanIDs[0] ||
+					e.OutgoingChanID ==
+						outgoingChanIDs[1]
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := log.Query(tc.query)
+			require.NoError(t, err, "query failed")
+
+			expected := make([]ForwardingEvent, 0)
+			for _, e := range events {
+				if tc.expected(e) {
+					expected = append(expected, e)
+				}
+			}
+
+			require.Equal(t, expected, result.ForwardingEvents)
+		})
+	}
+}

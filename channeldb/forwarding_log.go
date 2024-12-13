@@ -256,6 +256,16 @@ type ForwardingEventQuery struct {
 
 	// NumMaxEvents is the max number of events to return.
 	NumMaxEvents uint32
+
+	// IncomingChanIds is the list of channels to filter HTLCs being
+	// received from a particular channel.
+	// If the list is empty, then it is ignored.
+	IncomingChanIDs fn.Set[uint64]
+
+	// OutgoingChanIds is the list of channels to filter HTLCs being
+	// forwarded to a particular channel.
+	// If the list is empty, then it is ignored.
+	OutgoingChanIDs fn.Set[uint64]
 }
 
 // ForwardingLogTimeSlice is the response to a forwarding query. It includes
@@ -323,9 +333,13 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 				return nil
 			}
 
-			// If we're not yet past the user defined offset, then
+			// If no incoming or outgoing channel IDs were provided
+			// and we're not yet past the user defined offset, then
 			// we'll continue to seek forward.
-			if recordsToSkip > 0 {
+			if recordsToSkip > 0 &&
+				q.IncomingChanIDs.IsEmpty() &&
+				q.OutgoingChanIDs.IsEmpty() {
+
 				recordsToSkip--
 				continue
 			}
@@ -349,11 +363,41 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
 				return err
 			}
 
+			// Check if the incoming channel ID matches the
+			// filter criteria. Either no filtering is
+			// applied (IsEmpty), or the ID is explicitly
+			// included.
+			incomingMatch := q.IncomingChanIDs.IsEmpty() ||
+				q.IncomingChanIDs.Contains(
+					event.IncomingChanID.ToUint64(),
+				)
+
+			// Check if the outgoing channel ID matches the
+			// filter criteria. Either no filtering is
+			// applied (IsEmpty), or  the ID is explicitly
+			// included.
+			outgoingMatch := q.OutgoingChanIDs.IsEmpty() ||
+				q.OutgoingChanIDs.Contains(
+					event.OutgoingChanID.ToUint64(),
+				)
+
+			// Skip this event if it doesn't match the
+			// filters.
+			if !incomingMatch || !outgoingMatch {
+				continue
+			}
+			// If we're not yet past the user defined offset
+			// then we'll continue to seek forward.
+			if recordsToSkip > 0 {
+				recordsToSkip--
+				continue
+			}
+
 			event.Timestamp = currentTime
 			resp.ForwardingEvents = append(
-				resp.ForwardingEvents, event,
+				resp.ForwardingEvents,
+				event,
 			)
-
 			recordOffset++
 		}
 

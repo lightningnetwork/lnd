@@ -308,7 +308,8 @@ func (h *htlcIncomingContestResolver) Resolve(
 
 		resolution, err := h.Registry.NotifyExitHopHtlc(
 			h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, currentHeight,
-			circuitKey, hodlQueue.ChanIn(), nil, payload,
+			circuitKey, hodlQueue.ChanIn(), h.htlc.CustomRecords,
+			payload,
 		)
 		if err != nil {
 			return nil, err

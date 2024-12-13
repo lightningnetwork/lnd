@@ -708,9 +708,6 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	// Return all routes, capped by the maxNumberOfRoutes.
 	allRoutes := make([]*route.Route, 0, len(routes))
 	for _, route := range routes {
-		if len(allRoutes) >= maxRoutes {
-			break
-		}
 		allRoutes = append(allRoutes, route.route)
 	}
 

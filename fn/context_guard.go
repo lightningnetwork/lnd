@@ -51,6 +51,10 @@ func (g *ContextGuard) Quit() {
 			cancel()
 		}
 
+		// Clear cancelFns. It is safe to use nil, because no write
+		// operations to it can happen after g.quit is closed.
+		g.cancelFns = nil
+
 		close(g.quit)
 	})
 }

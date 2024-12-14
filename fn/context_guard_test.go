@@ -298,6 +298,12 @@ func TestContextGuard(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("timeout")
 		}
+
+		// Cancel the context.
+		cancel()
+
+		// Make sure wg's counter gets to 0 eventually.
+		g.WgWait()
 	})
 
 	// Test that if we add the CustomTimeoutCGOpt option, then the context

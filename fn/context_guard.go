@@ -149,7 +149,7 @@ func (g *ContextGuard) Create(ctx context.Context,
 	}
 
 	if opts.blocking {
-		g.ctxBlocking(ctx, cancel)
+		g.ctxBlocking(ctx)
 
 		return ctx, cancel
 	}
@@ -196,14 +196,10 @@ func (g *ContextGuard) ctxQuitUnsafe(ctx context.Context,
 }
 
 // ctxBlocking spins off a goroutine that will block until the passed context
-// is cancelled after which it will call the passed cancel function and
-// decrement the wait group.
-func (g *ContextGuard) ctxBlocking(ctx context.Context,
-	cancel context.CancelFunc) {
-
+// is cancelled after which it will decrement the wait group.
+func (g *ContextGuard) ctxBlocking(ctx context.Context) {
 	g.wg.Add(1)
 	go func() {
-		defer cancel()
 		defer g.wg.Done()
 
 		select {

@@ -2,8 +2,11 @@ package fn
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestContextGuard tests the behaviour of the ContextGuard.
@@ -438,4 +441,37 @@ func TestContextGuard(t *testing.T) {
 			t.Fatalf("timeout")
 		}
 	})
+}
+
+// TestContextGuardCountGoroutines makes sure that ContextGuard doesn't create
+// any goroutines while waiting for contexts.
+func TestContextGuardCountGoroutines(t *testing.T) {
+	// NOTE: t.Parallel() is not called in this test because it relies on an
+	// accurate count of active goroutines. Running other tests in parallel
+	// would introduce additional goroutines, leading to unreliable results.
+
+	g := NewContextGuard()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Count goroutines before contexts are created.
+	count1 := runtime.NumGoroutine()
+
+	// Create 1000 contexts of each type.
+	for i := 0; i < 1000; i++ {
+		_, _ = g.Create(ctx)
+		_, _ = g.Create(ctx, WithBlockingCG())
+		_, _ = g.Create(ctx, WithTimeoutCG())
+		_, _ = g.Create(ctx, WithBlockingCG(), WithTimeoutCG())
+	}
+
+	// Make sure no new goroutine was launched.
+	count2 := runtime.NumGoroutine()
+	require.LessOrEqual(t, count2, count1)
+
+	// Cancel root context.
+	cancel()
+
+	// Make sure wg's counter gets to 0 eventually.
+	g.WgWait()
 }

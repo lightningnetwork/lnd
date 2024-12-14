@@ -94,6 +94,11 @@
   are now [sorted](https://github.com/lightningnetwork/lnd/pull/9337) based on
   the `InvoiceHTLC.HtlcIndex`.
 
+* [routerrpc.SendPaymentV2](https://github.com/lightningnetwork/lnd/pull/9359)
+  RPC method now applies a default timeout of 60 seconds when the
+  `timeout_seconds` field is not set. Explicitly setting `timeout_seconds` to 0
+  is no longer allowed.
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and

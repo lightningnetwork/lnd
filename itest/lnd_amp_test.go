@@ -127,7 +127,6 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: addInvoiceResp.PaymentRequest,
 		PaymentAddr:    externalPayAddr,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		Amp:            true,
 	}
@@ -417,7 +416,6 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 		Dest:           mts.bob.PubKey[:],
 		Amt:            int64(paymentAmt),
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		Amp:            true,
 	}

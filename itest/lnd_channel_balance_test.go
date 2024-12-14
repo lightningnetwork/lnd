@@ -153,7 +153,6 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 				Amt:            int64(payAmt),
 				PaymentHash:    ht.Random32Bytes(),
 				FinalCltvDelta: finalCltvDelta,
-				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
 			}
 			alice.RPC.SendPayment(req)

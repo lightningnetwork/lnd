@@ -63,6 +63,11 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
     estimateroutefee to ignore the default payment timeout.
 
+* [Make reassignment of alias channel edges atomic](
+  https://github.com/lightningnetwork/lnd/pull/8777). This fixes an edge case
+  where we might rate limit a peer because he already sent us a channel update
+  with the confirmed channel ID but the graph was still not updated.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

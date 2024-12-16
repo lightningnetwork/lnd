@@ -127,20 +127,30 @@ func TestTaprootBriefcase(t *testing.T) {
 	require.Equal(t, testCase, &decodedCase)
 }
 
+// testHtlcAuxBlobProperties is a rapid property that verifies the encoding and
+// decoding of the HTLC aux blobs.
+func testHtlcAuxBlobProperties(t *rapid.T) {
+	htlcBlobs := rapid.Make[htlcAuxBlobs]().Draw(t, "htlcAuxBlobs")
+
+	var b bytes.Buffer
+	require.NoError(t, htlcBlobs.Encode(&b))
+
+	decodedBlobs := newAuxHtlcBlobs()
+	require.NoError(t, decodedBlobs.Decode(&b))
+
+	require.Equal(t, htlcBlobs, decodedBlobs)
+}
+
 // TestHtlcAuxBlobEncodeDecode tests the encode/decode methods of the HTLC aux
 // blobs.
 func TestHtlcAuxBlobEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	rapid.Check(t, func(t *rapid.T) {
-		htlcBlobs := rapid.Make[htlcAuxBlobs]().Draw(t, "htlcAuxBlobs")
+	rapid.Check(t, testHtlcAuxBlobProperties)
+}
 
-		var b bytes.Buffer
-		require.NoError(t, htlcBlobs.Encode(&b))
-
-		decodedBlobs := newAuxHtlcBlobs()
-		require.NoError(t, decodedBlobs.Decode(&b))
-
-		require.Equal(t, htlcBlobs, decodedBlobs)
-	})
+// FuzzHtlcAuxBlobEncodeDecodeFuzz tests the encode/decode methods of the HTLC
+// aux blobs using the rapid derived fuzzer.
+func FuzzHtlcAuxBlobEncodeDecode(f *testing.F) {
+	f.Fuzz(rapid.MakeFuzz(testHtlcAuxBlobProperties))
 }

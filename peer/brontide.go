@@ -2268,8 +2268,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chan_id=%v", msg.ChanID)
 
 	case *lnwire.ChannelReady:
-		return fmt.Sprintf("chan_id=%v, next_point=%x",
-			msg.ChanID, msg.NextPerCommitmentPoint.SerializeCompressed())
+		return msg.String()
 
 	case *lnwire.Shutdown:
 		return fmt.Sprintf("chan_id=%v, script=%x", msg.ChannelID,

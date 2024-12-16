@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -169,4 +170,19 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ChannelReady) MsgType() MessageType {
 	return MsgChannelReady
+}
+
+// String returns a human-readable description of the ChannelReady msg.
+func (c *ChannelReady) String() string {
+	// Handle the case where the AliasScid is nil.
+	aliasStr := "nil"
+	if c.AliasScid != nil {
+		aliasStr = fmt.Sprintf("%v(uint=%d)",
+			c.AliasScid, c.AliasScid.ToUint64())
+	}
+
+	return fmt.Sprintf("chan_id=%v, next_point=%x, aliasSCID=%s",
+		c.ChanID, c.NextPerCommitmentPoint.SerializeCompressed(),
+		aliasStr,
+	)
 }

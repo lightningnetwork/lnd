@@ -1171,105 +1171,131 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
-	// The following checks are to make sure the parameters are used
-	// correctly, as we currently only support 2 values, one for each node.
-	aliceCfg := alice.fundingMgr.cfg
-	if len(customMinHtlc) > 0 {
-		require.Len(t, customMinHtlc, 2, "incorrect usage")
-	}
-	if len(customMaxHtlc) > 0 {
-		require.Len(t, customMaxHtlc, 2, "incorrect usage")
-	}
-	if len(baseFees) > 0 {
-		require.Len(t, baseFees, 2, "incorrect usage")
-	}
-	if len(feeRates) > 0 {
-		require.Len(t, feeRates, 2, "incorrect usage")
-	}
+	// Validate custom parameter arrays have expected length
+	validateCustomParams(
+		t, customMinHtlc, customMaxHtlc, baseFees, feeRates,
+	)
 
-	// After the ChannelReady message is sent, Alice and Bob will each send
-	// the following messages to their gossiper:
-	//	1) ChannelAnnouncement
-	//	2) ChannelUpdate
-	// The ChannelAnnouncement is kept locally, while the ChannelUpdate is
-	// sent directly to the other peer, so the edge policies are known to
-	// both peers.
 	nodes := []*testNode{alice, bob}
-	for j, node := range nodes {
-		announcements := make([]lnwire.Message, 2)
-		for i := 0; i < len(announcements); i++ {
-			select {
-			case announcements[i] = <-node.announceChan:
-			case <-time.After(time.Second * 5):
-				t.Fatalf("node didn't send announcement: %v", i)
-			}
-		}
+	for i, node := range nodes {
+		// Each node should send exactly 2 announcements
+		// ChannelAnnouncement and ChannelUpdate.
+		announcements, updates := collectGossipMsgs(t, node, 2)
+		verifyNoExtraMsgs(t, node)
 
-		gotChannelAnnouncement := false
-		gotChannelUpdate := false
-		for _, msg := range announcements {
+		require.Len(t, announcements, 1, "expected 1 "+
+			"ChannelAnnouncement from node %d", i)
+		require.Len(t, updates, 1, "expected 1 ChannelUpdate from "+
+			"node %d", i)
+		for _, update := range updates {
+			verifyChannelUpdate(
+				t, update, i, nodes,
+				node.fundingMgr.cfg, capacity, customMinHtlc,
+				customMaxHtlc, baseFees, feeRates,
+			)
+		}
+	}
+}
+
+// validateCustomParams ensures custom parameter arrays have valid length.
+func validateCustomParams(t *testing.T, params ...[]lnwire.MilliSatoshi) {
+	t.Helper()
+
+	for _, param := range params {
+		if len(param) > 0 {
+			require.Len(t, param, 2, "custom parameters must "+
+				"have length 2")
+		}
+	}
+}
+
+// collectGossipMsgs gathers the expected number of gossip messages from a node.
+func collectGossipMsgs(t *testing.T, node *testNode,
+	expectedNum int) ([]*lnwire.ChannelAnnouncement1,
+	[]*lnwire.ChannelUpdate1) {
+
+	t.Helper()
+
+	var (
+		announcements []*lnwire.ChannelAnnouncement1
+		updates       []*lnwire.ChannelUpdate1
+	)
+
+	for i := 0; i < expectedNum; i++ {
+		select {
+		case msg := <-node.announceChan:
 			switch m := msg.(type) {
 			case *lnwire.ChannelAnnouncement1:
-				gotChannelAnnouncement = true
+				announcements = append(announcements, m)
+
 			case *lnwire.ChannelUpdate1:
+				updates = append(updates, m)
 
-				// The channel update sent by the node should
-				// advertise the MinHTLC value required by the
-				// _other_ node.
-				other := (j + 1) % 2
-				otherCfg := nodes[other].fundingMgr.cfg
-
-				minHtlc := otherCfg.DefaultMinHtlcIn
-				maxHtlc := aliceCfg.RequiredRemoteMaxValue(
-					capacity,
-				)
-				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
-				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
-
-				require.EqualValues(t, 1, m.MessageFlags)
-
-				// We might expect a custom MinHTLC value.
-				if len(customMinHtlc) > 0 {
-					minHtlc = customMinHtlc[j]
-				}
-				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
-
-				// We might expect a custom MaxHltc value.
-				if len(customMaxHtlc) > 0 {
-					maxHtlc = customMaxHtlc[j]
-				}
-				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
-
-				// We might expect a custom baseFee value.
-				if len(baseFees) > 0 {
-					baseFee = baseFees[j]
-				}
-				require.EqualValues(t, baseFee, m.BaseFee)
-
-				// We might expect a custom feeRate value.
-				if len(feeRates) > 0 {
-					feeRate = feeRates[j]
-				}
-				require.EqualValues(t, feeRate, m.FeeRate)
-
-				gotChannelUpdate = true
+			default:
+				t.Fatalf("unexpected message type: %T", msg)
 			}
-		}
 
-		require.Truef(
-			t, gotChannelAnnouncement,
-			"ChannelAnnouncement from %d", j,
-		)
-		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
-
-		// Make sure no other message is sent.
-		select {
-		case <-node.announceChan:
-			t.Fatalf("received unexpected announcement")
-		case <-time.After(300 * time.Millisecond):
-			// Expected
+		case <-time.After(5 * time.Second):
+			t.Fatalf("node did not send gossip msg %d", i)
 		}
 	}
+
+	return announcements, updates
+}
+
+// verifyNoExtraMsgs ensures no unexpected msgs are sent to the gossiper.
+func verifyNoExtraMsgs(t *testing.T, node *testNode) {
+	t.Helper()
+
+	select {
+	case msg := <-node.announceChan:
+		t.Fatalf("received unexpected announcement: %v", msg)
+	case <-time.After(300 * time.Millisecond):
+		// Expected - no extra msg.
+	}
+}
+
+// verifyChannelUpdate checks that a ChannelUpdate has the expected parameters.
+func verifyChannelUpdate(t *testing.T, update *lnwire.ChannelUpdate1,
+	nodeIndex int, nodes []*testNode, nodeCfg *Config,
+	capacity btcutil.Amount, customMinHtlc, customMaxHtlc,
+	baseFees, feeRates []lnwire.MilliSatoshi) {
+
+	t.Helper()
+
+	require.EqualValues(t, 1, update.MessageFlags)
+
+	// Get parameters for the other node since each update advertises
+	// the remote node's requirements
+	otherIdx := (nodeIndex + 1) % 2
+	otherCfg := nodes[otherIdx].fundingMgr.cfg
+
+	// Set expected values, using customs if provided
+	minHtlc := otherCfg.DefaultMinHtlcIn
+	if len(customMinHtlc) > 0 {
+		minHtlc = customMinHtlc[nodeIndex]
+	}
+
+	maxHtlc := nodeCfg.RequiredRemoteMaxValue(capacity)
+	if len(customMaxHtlc) > 0 {
+		maxHtlc = customMaxHtlc[nodeIndex]
+	}
+
+	baseFee := nodeCfg.DefaultRoutingPolicy.BaseFee
+	if len(baseFees) > 0 {
+		baseFee = baseFees[nodeIndex]
+	}
+
+	feeRate := nodeCfg.DefaultRoutingPolicy.FeeRate
+	if len(feeRates) > 0 {
+		feeRate = feeRates[nodeIndex]
+	}
+
+	// Verify all parameters match expected values
+	require.Equal(t, minHtlc, update.HtlcMinimumMsat)
+	require.Equal(t, maxHtlc, update.HtlcMaximumMsat)
+	require.EqualValues(t, baseFee, update.BaseFee)
+	require.EqualValues(t, feeRate, update.FeeRate)
 }
 
 func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {

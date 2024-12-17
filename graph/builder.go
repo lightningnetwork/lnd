@@ -1206,6 +1206,16 @@ func (b *Builder) processUpdate(msg interface{},
 				"chan_id=%v", msg.ChannelID)
 		}
 
+		// Look up the funding pk script so that we can register the
+		// channel output in the UTXO filter.
+		fundingPkScript, err := makeFundingScript(
+			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
+			msg.Features, msg.TapscriptRoot,
+		)
+		if err != nil {
+			return err
+		}
+
 		// If AssumeChannelValid is present, then we are unable to
 		// perform any of the expensive checks below, so we'll
 		// short-circuit our path straight to adding the edge to our
@@ -1219,10 +1229,44 @@ func (b *Builder) processUpdate(msg interface{},
 			if err != nil {
 				return fmt.Errorf("unable to add edge: %w", err)
 			}
-			log.Tracef("New channel discovered! Link "+
-				"connects %x and %x with ChannelID(%v)",
-				msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-				msg.ChannelID)
+
+			// Use different log levels based on channel type.
+			if b.cfg.IsAlias(scid) {
+				log.Debugf("New alias channel discovered! "+
+					"Link connects %x and %x with "+
+					"ChannelID(%v)", msg.NodeKey1Bytes,
+					msg.NodeKey2Bytes,
+					msg.ChannelID)
+
+				// For alias channels, we make sure we add the
+				// channel to the UTXO filter so that we are
+				// notified if/when this channel is closed.
+				// This is safe because for zeroconf we trust
+				// the funding tx anyway. And for non-zeroconf
+				// alias channel we would only reach this point
+				// if the funding tx is confirmed.
+				//
+				//nolint:ll
+				filterUpdate := []graphdb.EdgePoint{
+					{
+						FundingPkScript: fundingPkScript,
+						OutPoint:        msg.ChannelPoint,
+					},
+				}
+				err = b.cfg.ChainView.UpdateFilter(
+					filterUpdate, b.bestHeight.Load(),
+				)
+				if err != nil {
+					return errors.Errorf("unable to "+
+						"update chain view: %v", err)
+				}
+			} else {
+				log.Tracef("New channel discovered! Link "+
+					"connects %x and %x with ChannelID(%v)",
+					msg.NodeKey1Bytes, msg.NodeKey2Bytes,
+					msg.ChannelID)
+			}
+
 			b.stats.incNumEdgesDiscovered()
 
 			break
@@ -1268,17 +1312,6 @@ func (b *Builder) processUpdate(msg interface{},
 
 			return NewErrf(ErrNoFundingTransaction, "unable to "+
 				"locate funding tx: %v", err)
-		}
-
-		// Recreate witness output to be sure that declared in channel
-		// edge bitcoin keys and channel value corresponds to the
-		// reality.
-		fundingPkScript, err := makeFundingScript(
-			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
-			msg.Features, msg.TapscriptRoot,
-		)
-		if err != nil {
-			return err
 		}
 
 		// Next we'll validate that this channel is actually well

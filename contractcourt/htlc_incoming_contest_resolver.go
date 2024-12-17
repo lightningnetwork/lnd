@@ -664,7 +664,7 @@ func (h *htlcIncomingContestResolver) findAndapplyPreimage() (bool, error) {
 	// via the preimage beacon.
 	resolution, err := h.Registry.NotifyExitHopHtlc(
 		h.htlc.RHash, h.htlc.Amt, h.htlcExpiry, 0,
-		circuitKey, nil, nil, payload,
+		circuitKey, nil, h.htlc.CustomRecords, payload,
 	)
 	if err != nil {
 		return false, err

@@ -65,3 +65,11 @@ SET preimage = $5
 WHERE a.invoice_id = $1 AND a.set_id = $2 AND a.htlc_id = (
     SELECT id FROM invoice_htlcs AS i WHERE i.chan_id = $3 AND i.htlc_id = $4
 );
+
+-- name: InsertAMPSubInvoice :exec
+INSERT INTO amp_sub_invoices (
+    set_id, state, created_at, settled_at, settle_index, invoice_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+);
+

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
@@ -14,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -171,7 +173,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg, "+
-			"delivery_script=%v", env.ChanPoint, shutdownScript)
+			"delivery_script=%x", env.ChanPoint, shutdownScript)
 
 		// From here, we'll transition to the shutdown pending state. In
 		// this state we await their shutdown message (self loop), then
@@ -287,6 +289,45 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 		}, nil
 
+	// The remote party already sent an offer. We'll go to the
+	// ChannelFlushing case, and then emit the offer as a internal event,
+	// which'll be handled as an early offer.
+	//
+	// TODO(roasbeef): test this as well
+	case *OfferReceivedEvent:
+		chancloserLog.Infof("ChannelPoint(%v): got an early offer "+
+			"in ShutdownPending, emitting as external event", env.ChanPoint)
+
+		// If the channel is *already* flushed, and the close is
+		// already in progress, then we can skip the flushing state and
+		// go straight into negotiation, as this is the RBF loop.
+		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
+		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
+			unknownBalance,
+		)
+		if finalBalances != unknownBalance {
+			channelFlushed := ProtocolEvent(&ChannelFlushed{
+				ShutdownBalances: finalBalances,
+			})
+
+			// We'll emit their sig as an internal event, then the
+			// channel flushed message to progress the state
+			// machine.
+			eventsToEmit = fn.Some(RbfEvent{
+				InternalEvent: []ProtocolEvent{
+					msg, channelFlushed,
+				},
+			})
+		}
+
+		return &CloseStateTransition{
+			NextState: &ChannelFlushing{
+				IdealFeeRate:    s.IdealFeeRate,
+				ShutdownScripts: s.ShutdownScripts,
+			},
+			NewEvents: eventsToEmit,
+		}, nil
+
 	// When we receive a shutdown from the remote party, we'll validate the
 	// shutdown message, then transition to the ChannelFlushing state.
 	case *ShutdownReceived:
@@ -337,6 +378,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		chancloserLog.Infof("ChannelPoint(%v): waiting for channel to "+
 			"be flushed...", env.ChanPoint)
+
+		// TODO(roasbeef): auto emit next upon shutdown receipt?
 
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
@@ -579,6 +622,12 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// we receive a confirmation event, or we receive a signal to restart
 	// the co-op close process.
 	switch msg := event.(type) {
+	// Ignore any potential duplicate channel flushed events.
+	case *ChannelFlushed:
+		return &CloseStateTransition{
+			NextState: c,
+		}, nil
+
 	// If we get a confirmation, then the spend request we issued when we
 	// were leaving the ChannelFlushing state has been confirmed.  We'll
 	// now transition to the StateFin state.
@@ -729,6 +778,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		return &CloseStateTransition{
 			NextState: &LocalOfferSent{
 				ProposedFee:       absoluteFee,
+				ProposedFeeRate:   msg.TargetFeeRate,
 				LocalSig:          wireSig,
 				CloseChannelTerms: l.CloseChannelTerms,
 			},
@@ -838,6 +888,7 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx: closeTx,
+				FeeRate: l.ProposedFeeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: broadcastEvent,
@@ -919,6 +970,11 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		//
 		// TODO(roasbeef): need to be able to omit an output when
 		// signing based on the above, as closing opt
+		//
+		//  * TODO(roasbeef): modify this to take from my balance
+		//     * can use the new remote vs remote options as optional
+		//       argument
+		//     * then go from there
 		rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
 			msg.SigMsg.FeeSatoshis, l.LocalDeliveryScript,
 			l.RemoteDeliveryScript, chanOpts...,
@@ -994,11 +1050,20 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			sendEvent, broadcastEvent,
 		}
 
+		// We'll also compute the final fee rate that the remote party
+		// paid based off the absolute fee and the size of the closing
+		// transaction.
+		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
+		feeRate := chainfee.SatPerVByte(
+			int64(msg.SigMsg.FeeSatoshis) / int64(vSize),
+		)
+
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx: closeTx,
+				FeeRate: feeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: daemonEvents,

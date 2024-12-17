@@ -103,4 +103,8 @@ var defaultSetDesc = setDesc{
 	lnwire.ExperimentalEndorsementOptional: {
 		SetNodeAnn: {}, // N
 	},
+	lnwire.RbfCoopCloseOptionalStaging: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

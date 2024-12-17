@@ -1811,7 +1811,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// Create liveness monitor.
-	s.createLivenessMonitor(cfg, cc, leaderElector)
+	err = s.createLivenessMonitor(
+		context.Background(), cfg, cc, leaderElector,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	listeners := make([]net.Listener, len(listenAddrs))
 	for i, listenAddr := range listenAddrs {
@@ -1928,8 +1933,8 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 //
 // If a health check has been disabled by setting attempts to 0, our monitor
 // will not run it.
-func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
-	leaderElector cluster.LeaderElector) {
+func (s *server) createLivenessMonitor(ctx context.Context, cfg *Config,
+	cc *chainreg.ChainControl, leaderElector cluster.LeaderElector) error {
 
 	chainBackendAttempts := cfg.HealthChecks.ChainCheck.Attempts
 	if cfg.Bitcoin.Node == "nochainbackend" {
@@ -2063,7 +2068,7 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 				// as the healthcheck observer will handle the
 				// timeout case for us.
 				timeoutCtx, cancel := context.WithTimeout(
-					context.Background(),
+					ctx,
 					cfg.HealthChecks.LeaderCheck.Timeout,
 				)
 				defer cancel()
@@ -2101,6 +2106,8 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 			Shutdown: srvrLog.Criticalf,
 		},
 	)
+
+	return nil
 }
 
 // Started returns true if the server has been started, and false otherwise.

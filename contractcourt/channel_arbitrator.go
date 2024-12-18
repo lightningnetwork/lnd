@@ -2994,12 +2994,18 @@ func (c *ChannelArbitrator) handleBlockbeat(beat chainio.Blockbeat) error {
 
 	// If the state is StateContractClosed, StateWaitingFullResolution, or
 	// StateFullyResolved, there's no need to read the close event channel
-	// and launch the resolvers since the arbitrator can only get to this
-	// state after processing a previous close event and launched all its
-	// resolvers.
+	// since the arbitrator can only get to this state after processing a
+	// previous close event and launched all its resolvers.
 	if c.state.IsContractClosed() {
-		log.Infof("ChannelArbitrator(%v): skipping launching "+
-			"resolvers in state=%v", c.cfg.ChanPoint, c.state)
+		log.Infof("ChannelArbitrator(%v): skipping reading close "+
+			"events in state=%v", c.cfg.ChanPoint, c.state)
+
+		// Launch all active resolvers when a new blockbeat is
+		// received, even when the contract is closed, we still need
+		// this as the resolvers may transform into new ones. For
+		// already launched resolvers this will be NOOP as they track
+		// their own `launched` states.
+		c.launchResolvers()
 
 		return nil
 	}

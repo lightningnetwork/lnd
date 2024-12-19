@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -356,6 +357,10 @@ type server struct {
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
+	// blockbeatDispatcher is a block dispatcher that notifies subscribers
+	// of new blocks.
+	blockbeatDispatcher *chainio.BlockbeatDispatcher
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -623,6 +628,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
+		blockbeatDispatcher: chainio.NewBlockbeatDispatcher(
+			cc.ChainNotifier,
+		),
 		channelNotifier: channelnotifier.New(
 			dbs.ChanStateDB.ChannelStateDB(),
 		),
@@ -663,6 +671,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
+	}
+
+	// Start the low-level services once they are initialized.
+	//
+	// TODO(yy): break the server startup into four steps,
+	// 1. init the low-level services.
+	// 2. start the low-level services.
+	// 3. init the high-level services.
+	// 4. start the high-level services.
+	if err := s.startLowLevelServices(); err != nil {
+		return nil, err
 	}
 
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
@@ -1813,6 +1832,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.connMgr = cmgr
 
+	// Finally, register the subsystems in blockbeat.
+	s.registerBlockConsumers()
+
 	return s, nil
 }
 
@@ -1843,6 +1865,25 @@ func (s *server) UpdateRoutingConfig(cfg *routing.MissionControlConfig) {
 	}
 
 	routerCfg.MaxMcHistory = cfg.MaxMcHistory
+}
+
+// registerBlockConsumers registers the subsystems that consume block events.
+// By calling `RegisterQueue`, a list of subsystems are registered in the
+// blockbeat for block notifications. When a new block arrives, the subsystems
+// in the same queue are notified sequentially, and different queues are
+// notified concurrently.
+//
+// NOTE: To put a subsystem in a different queue, create a slice and pass it to
+// a new `RegisterQueue` call.
+func (s *server) registerBlockConsumers() {
+	// In this queue, when a new block arrives, it will be received and
+	// processed in this order: chainArb -> sweeper -> txPublisher.
+	consumers := []chainio.Consumer{
+		s.chainArb,
+		s.sweeper,
+		s.txPublisher,
+	}
+	s.blockbeatDispatcher.RegisterQueue(consumers)
 }
 
 // signAliasUpdate takes a ChannelUpdate and returns the signature. This is
@@ -2067,12 +2108,41 @@ func (c cleaner) run() {
 	}
 }
 
+// startLowLevelServices starts the low-level services of the server. These
+// services must be started successfully before running the main server. The
+// services are,
+// 1. the chain notifier.
+//
+// TODO(yy): identify and add more low-level services here.
+func (s *server) startLowLevelServices() error {
+	var startErr error
+
+	cleanup := cleaner{}
+
+	cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
+	if err := s.cc.ChainNotifier.Start(); err != nil {
+		startErr = err
+	}
+
+	if startErr != nil {
+		cleanup.run()
+	}
+
+	return startErr
+}
+
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
 func (s *server) Start() error {
+	// Get the current blockbeat.
+	beat, err := s.getStartingBeat()
+	if err != nil {
+		return err
+	}
+
 	var startErr error
 
 	// If one sub system fails to start, the following code ensures that the
@@ -2126,12 +2196,6 @@ func (s *server) Start() error {
 			return
 		}
 
-		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
-		if err := s.cc.ChainNotifier.Start(); err != nil {
-			startErr = err
-			return
-		}
-
 		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
 		if err := s.cc.BestBlockTracker.Start(); err != nil {
 			startErr = err
@@ -2167,13 +2231,13 @@ func (s *server) Start() error {
 		}
 
 		cleanup = cleanup.add(s.txPublisher.Stop)
-		if err := s.txPublisher.Start(); err != nil {
+		if err := s.txPublisher.Start(beat); err != nil {
 			startErr = err
 			return
 		}
 
 		cleanup = cleanup.add(s.sweeper.Stop)
-		if err := s.sweeper.Start(); err != nil {
+		if err := s.sweeper.Start(beat); err != nil {
 			startErr = err
 			return
 		}
@@ -2218,7 +2282,7 @@ func (s *server) Start() error {
 		}
 
 		cleanup = cleanup.add(s.chainArb.Stop)
-		if err := s.chainArb.Start(); err != nil {
+		if err := s.chainArb.Start(beat); err != nil {
 			startErr = err
 			return
 		}
@@ -2459,6 +2523,17 @@ func (s *server) Start() error {
 			srvrLog.Infof("Auto peer bootstrapping is disabled")
 		}
 
+		// Start the blockbeat after all other subsystems have been
+		// started so they are ready to receive new blocks.
+		cleanup = cleanup.add(func() error {
+			s.blockbeatDispatcher.Stop()
+			return nil
+		})
+		if err := s.blockbeatDispatcher.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		// Set the active flag now that we've completed the full
 		// startup.
 		atomic.StoreInt32(&s.active, 1)
@@ -2482,6 +2557,9 @@ func (s *server) Stop() error {
 
 		// Shutdown connMgr first to prevent conns during shutdown.
 		s.connMgr.Stop()
+
+		// Stop dispatching blocks to other systems immediately.
+		s.blockbeatDispatcher.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
@@ -5151,4 +5229,36 @@ func (s *server) fetchClosedChannelSCIDs() map[lnwire.ShortChannelID]struct{} {
 	}
 
 	return closedSCIDs
+}
+
+// getStartingBeat returns the current beat. This is used during the startup to
+// initialize blockbeat consumers.
+func (s *server) getStartingBeat() (*chainio.Beat, error) {
+	// beat is the current blockbeat.
+	var beat *chainio.Beat
+
+	// We should get a notification with the current best block immediately
+	// by passing a nil block.
+	blockEpochs, err := s.cc.ChainNotifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return beat, fmt.Errorf("register block epoch ntfn: %w", err)
+	}
+	defer blockEpochs.Cancel()
+
+	// We registered for the block epochs with a nil request. The notifier
+	// should send us the current best block immediately. So we need to
+	// wait for it here because we need to know the current best height.
+	select {
+	case bestBlock := <-blockEpochs.Epochs:
+		srvrLog.Infof("Received initial block %v at height %d",
+			bestBlock.Hash, bestBlock.Height)
+
+		// Update the current blockbeat.
+		beat = chainio.NewBeat(*bestBlock)
+
+	case <-s.quit:
+		srvrLog.Debug("LND shutting down")
+	}
+
+	return beat, nil
 }

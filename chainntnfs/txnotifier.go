@@ -1757,10 +1757,6 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 	for ntfn := range n.ntfnsByConfirmHeight[height] {
 		confSet := n.confNotifications[ntfn.ConfRequest]
 
-		Log.Debugf("Dispatching %v confirmation notification for "+
-			"conf_id=%v, %v", ntfn.NumConfirmations, ntfn.ConfID,
-			ntfn.ConfRequest)
-
 		// The default notification we assigned above includes the
 		// block along with the rest of the details. However not all
 		// clients want the block, so we make a copy here w/o the block
@@ -1769,6 +1765,20 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 		if !ntfn.includeBlock {
 			confDetails.Block = nil
 		}
+
+		// If the `confDetails` has already been sent before, we'll
+		// skip it and continue processing the next one.
+		if ntfn.dispatched {
+			Log.Debugf("Skipped dispatched conf details for "+
+				"request %v conf_id=%v", ntfn.ConfRequest,
+				ntfn.ConfID)
+
+			continue
+		}
+
+		Log.Debugf("Dispatching %v confirmation notification for "+
+			"conf_id=%v, %v", ntfn.NumConfirmations, ntfn.ConfID,
+			ntfn.ConfRequest)
 
 		select {
 		case ntfn.Event.Confirmed <- &confDetails:

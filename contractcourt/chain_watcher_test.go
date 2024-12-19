@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lntest/mock"
+	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -33,8 +34,8 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
-	aliceNotifier := &mock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
+	aliceNotifier := &lnmock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
@@ -49,6 +50,20 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	require.NoError(t, err, "unable to start chain watcher")
 	defer aliceChainWatcher.Stop()
 
+	// Create a mock blockbeat and send it to Alice's BlockbeatChan.
+	mockBeat := &chainio.MockBlockbeat{}
+
+	// Mock the logger. We don't care how many times it's called as it's
+	// not critical.
+	mockBeat.On("logger").Return(log)
+
+	// Mock a fake block height - this is called based on the debuglevel.
+	mockBeat.On("Height").Return(int32(1)).Maybe()
+
+	// Mock `NotifyBlockProcessed` to be call once.
+	mockBeat.On("NotifyBlockProcessed",
+		nil, aliceChainWatcher.quit).Return().Once()
+
 	// We'll request a new channel event subscription from Alice's chain
 	// watcher.
 	chanEvents := aliceChainWatcher.SubscribeChannelEvents()
@@ -61,7 +76,19 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 		SpenderTxHash: &bobTxHash,
 		SpendingTx:    bobCommit,
 	}
-	aliceNotifier.SpendChan <- bobSpend
+
+	// Here we mock the behavior of a restart.
+	select {
+	case aliceNotifier.SpendChan <- bobSpend:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("unable to send spend details")
+	}
+
+	select {
+	case aliceChainWatcher.BlockbeatChan <- mockBeat:
+	case <-time.After(time.Second * 1):
+		t.Fatalf("unable to send blockbeat")
+	}
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.
@@ -117,7 +144,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
-	aliceNotifier := &mock.ChainNotifier{
+	aliceNotifier := &lnmock.ChainNotifier{
 		SpendChan: make(chan *chainntnfs.SpendDetail),
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
@@ -165,7 +192,32 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 		SpenderTxHash: &bobTxHash,
 		SpendingTx:    bobCommit,
 	}
-	aliceNotifier.SpendChan <- bobSpend
+
+	// Create a mock blockbeat and send it to Alice's BlockbeatChan.
+	mockBeat := &chainio.MockBlockbeat{}
+
+	// Mock the logger. We don't care how many times it's called as it's
+	// not critical.
+	mockBeat.On("logger").Return(log)
+
+	// Mock a fake block height - this is called based on the debuglevel.
+	mockBeat.On("Height").Return(int32(1)).Maybe()
+
+	// Mock `NotifyBlockProcessed` to be call once.
+	mockBeat.On("NotifyBlockProcessed",
+		nil, aliceChainWatcher.quit).Return().Once()
+
+	select {
+	case aliceNotifier.SpendChan <- bobSpend:
+	case <-time.After(1 * time.Second):
+		t.Fatalf("unable to send spend details")
+	}
+
+	select {
+	case aliceChainWatcher.BlockbeatChan <- mockBeat:
+	case <-time.After(time.Second * 1):
+		t.Fatalf("unable to send blockbeat")
+	}
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.
@@ -279,7 +331,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// With the channels created, we'll now create a chain watcher
 		// instance which will be watching for any closes of Alice's
 		// channel.
-		aliceNotifier := &mock.ChainNotifier{
+		aliceNotifier := &lnmock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
 			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
@@ -326,7 +378,34 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			SpenderTxHash: &bobTxHash,
 			SpendingTx:    bobCommit,
 		}
-		aliceNotifier.SpendChan <- bobSpend
+
+		// Create a mock blockbeat and send it to Alice's
+		// BlockbeatChan.
+		mockBeat := &chainio.MockBlockbeat{}
+
+		// Mock the logger. We don't care how many times it's called as
+		// it's not critical.
+		mockBeat.On("logger").Return(log)
+
+		// Mock a fake block height - this is called based on the
+		// debuglevel.
+		mockBeat.On("Height").Return(int32(1)).Maybe()
+
+		// Mock `NotifyBlockProcessed` to be call once.
+		mockBeat.On("NotifyBlockProcessed",
+			nil, aliceChainWatcher.quit).Return().Once()
+
+		select {
+		case aliceNotifier.SpendChan <- bobSpend:
+		case <-time.After(time.Second * 1):
+			t.Fatalf("failed to send spend notification")
+		}
+
+		select {
+		case aliceChainWatcher.BlockbeatChan <- mockBeat:
+		case <-time.After(time.Second * 1):
+			t.Fatalf("unable to send blockbeat")
+		}
 
 		// We should get a new uni close resolution that indicates we
 		// processed the DLP scenario.
@@ -453,7 +532,7 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// With the channels created, we'll now create a chain watcher
 		// instance which will be watching for any closes of Alice's
 		// channel.
-		aliceNotifier := &mock.ChainNotifier{
+		aliceNotifier := &lnmock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
 			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
@@ -497,7 +576,33 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 			SpenderTxHash: &aliceTxHash,
 			SpendingTx:    aliceCommit,
 		}
-		aliceNotifier.SpendChan <- aliceSpend
+		// Create a mock blockbeat and send it to Alice's
+		// BlockbeatChan.
+		mockBeat := &chainio.MockBlockbeat{}
+
+		// Mock the logger. We don't care how many times it's called as
+		// it's not critical.
+		mockBeat.On("logger").Return(log)
+
+		// Mock a fake block height - this is called based on the
+		// debuglevel.
+		mockBeat.On("Height").Return(int32(1)).Maybe()
+
+		// Mock `NotifyBlockProcessed` to be call once.
+		mockBeat.On("NotifyBlockProcessed",
+			nil, aliceChainWatcher.quit).Return().Once()
+
+		select {
+		case aliceNotifier.SpendChan <- aliceSpend:
+		case <-time.After(time.Second * 1):
+			t.Fatalf("unable to send spend notification")
+		}
+
+		select {
+		case aliceChainWatcher.BlockbeatChan <- mockBeat:
+		case <-time.After(time.Second * 1):
+			t.Fatalf("unable to send blockbeat")
+		}
 
 		// We should get a local force close event from Alice as she
 		// should be able to detect the close based on the commitment

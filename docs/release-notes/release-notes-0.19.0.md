@@ -99,6 +99,9 @@
   are now [sorted](https://github.com/lightningnetwork/lnd/pull/9337) based on
   the `InvoiceHTLC.HtlcIndex`.
 
+* Make sure to [set the dont_forward msg flag in the channel update msg 
+  for unannounced channels](https://github.com/lightningnetwork/lnd/pull/8582).
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and

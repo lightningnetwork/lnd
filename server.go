@@ -1425,6 +1425,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		// Update the policy data, this invalidates the signature
 		// therefore we need to resign the data.
 		ourPolicy.ChannelID = newEdgeInfo.ChannelID
+
+		// Make sure we reset the msgFlag to not set the
+		// __dont_forward__ bit. We only reassign the SCID if it is a
+		// public channel.
+		ourPolicy.MessageFlags = lnwire.ChanUpdateRequiredMaxHtlc
 		chanUpdate := netann.UnsignedChannelUpdateFromEdge(
 			newEdgeInfo, ourPolicy,
 		)

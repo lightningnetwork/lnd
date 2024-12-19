@@ -1894,7 +1894,7 @@
         "timeout_seconds": {
           "type": "integer",
           "format": "int32",
-          "description": "An upper limit on the amount of time we should spend when attempting to\nfulfill the payment. This is expressed in seconds. If we cannot make a\nsuccessful payment within this time frame, an error will be returned.\nThis field must be non-zero."
+          "description": "An optional upper limit on the amount of time we should spend when\nattempting to fulfill the payment. This is expressed in seconds. If we\ncannot make a successful payment within this time frame, an error will be\nreturned. If the field is not set, the default value of 60 seconds will be\nused. This field must be non-zero."
         },
         "fee_limit_sat": {
           "type": "string",

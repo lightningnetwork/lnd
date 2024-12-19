@@ -107,6 +107,10 @@
 * The `lncli wallet fundpsbt` command now has a [`--max_fee_ratio` argument to
   specify the max fees to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
+* [`updatechanpolicy`](https://github.com/lightningnetwork/lnd/pull/8805) will
+  now update the channel policy if the edge was not found in the graph
+  database if the `create_missing_edge` flag is set.
+
 # Improvements
 ## Functional Updates
 
@@ -252,6 +256,7 @@ The underlying functionality between those two options remain the same.
 * Elle Mouton
 * George Tsagkarelis
 * hieblmi
+* Jesse de Wit
 * Keagan McClelland
 * Oliver Gugger
 * Pins

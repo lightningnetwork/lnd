@@ -38,9 +38,9 @@ require (
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.2
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
-	github.com/lightningnetwork/lnd/kvdb v1.4.11
+	github.com/lightningnetwork/lnd/kvdb v1.4.12
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v1.0.5
+	github.com/lightningnetwork/lnd/sqldb v1.0.6
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.0
 	github.com/lightningnetwork/lnd/tor v1.1.4
@@ -202,12 +202,6 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
-
-// Use local kvdb package until new version is tagged.
-replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
-
-// Use local sqldb package until new version is tagged.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.

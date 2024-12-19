@@ -110,7 +110,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		}
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(info, edge, newSchema)
 		if err != nil {
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(info.ChannelPoint,
@@ -255,7 +255,7 @@ func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
 
 	// Validate the newly created edge policy with the user defined new
 	// schema before adding the edge to the database.
-	err = r.updateEdge(channel.FundingOutpoint, edge, newSchema)
+	err = r.updateEdge(info, edge, newSchema)
 	if err != nil {
 		return nil, nil, makeFailureItem(
 			info.ChannelPoint,
@@ -345,11 +345,11 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(chanPoint wire.OutPoint,
+func (r *Manager) updateEdge(edgeInfo *models.ChannelEdgeInfo,
 	edge *models.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
-	channel, err := r.FetchChannel(chanPoint)
+	channel, err := r.FetchChannel(edgeInfo.ChannelPoint)
 	if err != nil {
 		return err
 	}
@@ -406,6 +406,17 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 
 	// If the MaxHtlc flag wasn't already set, we can set it now.
 	edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
+
+	// If the channel is still not (yet) announced to the broader network
+	// we signal this to our peer. The edge is later persisted to disk. This
+	// is not a problem for channels which have still not reached the min
+	// depth of six blocks because a new ChanUpdate is sent out when a
+	// public channel reaches six confirmations.
+	//
+	// NOTE: This is an on-the-fly migration.
+	if edgeInfo.AuthProof == nil {
+		edge.MessageFlags |= lnwire.ChanUpdateDontForward
+	}
 
 	// Validate htlc amount constraints.
 	switch {

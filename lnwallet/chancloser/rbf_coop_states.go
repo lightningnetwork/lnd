@@ -630,6 +630,9 @@ type LocalOfferSent struct {
 	// ProposedFee is the fee we proposed to the remote party.
 	ProposedFee btcutil.Amount
 
+	// ProposedFeeRate is the fee rate we proposed to the remote party.
+	ProposedFeeRate chainfee.SatPerVByte
+
 	// LocalSig is the signature we sent to the remote party.
 	LocalSig lnwire.Sig
 }
@@ -668,6 +671,9 @@ func (l *LocalOfferSent) IsTerminal() bool {
 type ClosePending struct {
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
+
+	// FeeRate is the fee rate of the closing transaction.
+	FeeRate chainfee.SatPerVByte
 }
 
 // ShouldRouteTo returns true if the target state should process the target

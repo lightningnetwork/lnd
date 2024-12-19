@@ -117,9 +117,6 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	// Alice should one pending sweep.
 	ht.AssertNumPendingSweeps(alice, 1)
 
-	// Mine a block to trigger the sweep.
-	ht.MineBlocks(1)
-
 	// Mine 1 block to get Alice's sweeping tx confirmed.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 

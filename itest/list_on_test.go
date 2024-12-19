@@ -14,10 +14,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
-		Name:     "multi hop receiver chain claim",
-		TestFunc: testMultiHopReceiverChainClaim,
-	},
-	{
 		Name:     "external channel funding",
 		TestFunc: testExternalFundingChanPoint,
 	},
@@ -154,18 +150,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testAddPeerConfig,
 	},
 	{
-		Name:     "multi hop htlc local timeout",
-		TestFunc: testMultiHopHtlcLocalTimeout,
-	},
-	{
-		Name:     "multi hop local force close on-chain htlc timeout",
-		TestFunc: testMultiHopLocalForceCloseOnChainHtlcTimeout,
-	},
-	{
-		Name:     "multi hop remote force close on-chain htlc timeout",
-		TestFunc: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-	},
-	{
 		Name:     "private channel update policy",
 		TestFunc: testUpdateChannelPolicyForPrivateChannel,
 	},
@@ -226,11 +210,15 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 	{
-		Name:     "channel force closure",
-		TestFunc: testChannelForceClosure,
+		Name:     "channel force closure anchor",
+		TestFunc: testChannelForceClosureAnchor,
 	},
 	{
-		Name:     "failing link",
+		Name:     "channel force closure simple taproot",
+		TestFunc: testChannelForceClosureSimpleTaproot,
+	},
+	{
+		Name:     "failing channel",
 		TestFunc: testFailingChannel,
 	},
 	{
@@ -312,18 +300,6 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "REST API",
 		TestFunc: testRestAPI,
-	},
-	{
-		Name:     "multi hop htlc local chain claim",
-		TestFunc: testMultiHopHtlcLocalChainClaim,
-	},
-	{
-		Name:     "multi hop htlc remote chain claim",
-		TestFunc: testMultiHopHtlcRemoteChainClaim,
-	},
-	{
-		Name:     "multi hop htlc aggregation",
-		TestFunc: testMultiHopHtlcAggregation,
 	},
 	{
 		Name:     "revoked uncooperative close retribution",
@@ -575,10 +551,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testLookupHtlcResolution,
 	},
 	{
-		Name:     "watchtower",
-		TestFunc: testWatchtower,
-	},
-	{
 		Name:     "channel fundmax",
 		TestFunc: testChannelFundMax,
 	},
@@ -714,4 +686,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "quiescence",
 		TestFunc: testQuiescence,
 	},
+}
+
+func init() {
+	// Register subtests.
+	allTestCases = append(allTestCases, multiHopForceCloseTestCases...)
+	allTestCases = append(allTestCases, watchtowerTestCases...)
 }

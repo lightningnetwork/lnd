@@ -528,6 +528,7 @@ func Main() {
 	app.Commands = append(app.Commands, devCommands()...)
 	app.Commands = append(app.Commands, peersCommands()...)
 	app.Commands = append(app.Commands, chainCommands()...)
+	app.Commands = append(app.Commands, onionMessageCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

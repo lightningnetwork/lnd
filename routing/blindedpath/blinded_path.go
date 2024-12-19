@@ -100,6 +100,9 @@ type BuildBlindedPathCfg struct {
 	// route.
 	MinNumHops uint8
 
+	// MaxNumPaths is the maximum number of blinded paths to select.
+	MaxNumPaths uint8
+
 	// DefaultDummyHopPolicy holds the policy values that should be used for
 	// dummy hops in the cases where it cannot be derived via other means
 	// such as averaging the policy values of other hops on the path. This
@@ -132,8 +135,11 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	paths := make([]*zpay32.BlindedPaymentPath, 0, len(routes))
 
 	// For each route returned, we will construct the associated blinded
-	// payment path.
+	// payment path, until the maximum number of allowed paths.
 	for _, route := range routes {
+		if len(paths) >= int(cfg.MaxNumPaths) {
+			break
+		}
 		// Extract the information we need from the route.
 		candidatePath := extractCandidatePath(route)
 

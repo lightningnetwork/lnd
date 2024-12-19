@@ -14,8 +14,6 @@ import (
 // types (within the message type range usually reserved for protocol messages)
 // via the send and subscribe custom message APIs.
 func testCustomMessage(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	var (
 		overrideType1  uint32 = 554
 		overrideType2  uint32 = 555
@@ -27,7 +25,8 @@ func testCustomMessage(ht *lntest.HarnessTest) {
 	extraArgs := []string{
 		fmt.Sprintf(msgOverrideArg, overrideType1),
 	}
-	ht.RestartNodeWithExtraArgs(alice, extraArgs)
+	alice := ht.NewNode("Alice", extraArgs)
+	bob := ht.NewNode("Bob", nil)
 
 	// Subscribe Alice to custom messages before we send any, so that we
 	// don't miss any.

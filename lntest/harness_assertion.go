@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -62,9 +61,9 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 
 // WaitForBlockchainSyncTo waits until the node is synced to bestBlock.
 func (h *HarnessTest) WaitForBlockchainSyncTo(hn *node.HarnessNode,
-	bestBlock *wire.MsgBlock) {
+	bestBlock chainhash.Hash) {
 
-	bestBlockHash := bestBlock.BlockHash().String()
+	bestBlockHash := bestBlock.String()
 	err := wait.NoError(func() error {
 		resp := hn.RPC.GetInfo()
 		if resp.SyncedToChain {
@@ -239,59 +238,6 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 	// peers lists to reflect the connection.
 	h.AssertPeerConnected(a, b)
 	h.AssertPeerConnected(b, a)
-}
-
-// AssertNumActiveEdges checks that an expected number of active edges can be
-// found in the node specified.
-func (h *HarnessTest) AssertNumActiveEdges(hn *node.HarnessNode,
-	expected int, includeUnannounced bool) []*lnrpc.ChannelEdge {
-
-	var edges []*lnrpc.ChannelEdge
-
-	old := hn.State.Edge.Public
-	if includeUnannounced {
-		old = hn.State.Edge.Total
-	}
-
-	// filterDisabled is a helper closure that filters out disabled
-	// channels.
-	filterDisabled := func(edge *lnrpc.ChannelEdge) bool {
-		if edge.Node1Policy != nil && edge.Node1Policy.Disabled {
-			return false
-		}
-		if edge.Node2Policy != nil && edge.Node2Policy.Disabled {
-			return false
-		}
-
-		return true
-	}
-
-	err := wait.NoError(func() error {
-		req := &lnrpc.ChannelGraphRequest{
-			IncludeUnannounced: includeUnannounced,
-		}
-		resp := hn.RPC.DescribeGraph(req)
-		activeEdges := fn.Filter(resp.Edges, filterDisabled)
-		total := len(activeEdges)
-
-		if total-old == expected {
-			if expected != 0 {
-				// NOTE: assume edges come in ascending order
-				// that the old edges are at the front of the
-				// slice.
-				edges = activeEdges[old:]
-			}
-
-			return nil
-		}
-
-		return errNumNotMatched(hn.Name(), "num of channel edges",
-			expected, total-old, total, old)
-	}, DefaultTimeout)
-
-	require.NoError(h, err, "timeout while checking for edges")
-
-	return edges
 }
 
 // AssertNumEdges checks that an expected number of edges can be found in the
@@ -1567,13 +1513,14 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 				lnutils.SpewLogClosure(target.PendingHtlcs)())
 		}
 
-		for i, htlc := range target.PendingHtlcs {
+		for _, htlc := range target.PendingHtlcs {
 			if htlc.Stage == stage {
 				continue
 			}
 
-			return fmt.Errorf("HTLC %d got stage: %v, "+
-				"want stage: %v", i, htlc.Stage, stage)
+			return fmt.Errorf("HTLC %s got stage: %v, "+
+				"want stage: %v", htlc.Outpoint, htlc.Stage,
+				stage)
 		}
 
 		return nil
@@ -1682,7 +1629,7 @@ func (h *HarnessTest) AssertActiveNodesSynced() {
 
 // AssertActiveNodesSyncedTo asserts all active nodes have synced to the
 // provided bestBlock.
-func (h *HarnessTest) AssertActiveNodesSyncedTo(bestBlock *wire.MsgBlock) {
+func (h *HarnessTest) AssertActiveNodesSyncedTo(bestBlock chainhash.Hash) {
 	for _, node := range h.manager.activeNodes {
 		h.WaitForBlockchainSyncTo(node, bestBlock)
 	}
@@ -1909,6 +1856,18 @@ func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
 		)
 		if err != nil {
 			return fmt.Errorf("channel %s not found in graph: %w",
+				op, err)
+		}
+
+		// Make sure the policies are populated, otherwise this edge
+		// cannot be used for routing.
+		if resp.Node1Policy == nil {
+			return fmt.Errorf("channel %s has no policy1: %w",
+				op, err)
+		}
+
+		if resp.Node2Policy == nil {
+			return fmt.Errorf("channel %s has no policy2: %w",
 				op, err)
 		}
 

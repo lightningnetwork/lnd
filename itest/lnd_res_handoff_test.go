@@ -17,7 +17,8 @@ func testResHandoff(ht *lntest.HarnessTest) {
 		paymentAmt = 50000
 	)
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// First we'll create a channel between Alice and Bob.
 	ht.EnsureConnected(alice, bob)
@@ -93,6 +94,4 @@ func testResHandoff(ht *lntest.HarnessTest) {
 
 	// Assert that Alice's payment failed.
 	ht.AssertFirstHTLCError(alice, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE)
-
-	ht.CloseChannel(alice, chanPointAlice)
 }

@@ -212,13 +212,13 @@ func testRestAPI(ht *lntest.HarnessTest) {
 	// Make sure Alice allows all CORS origins. Bob will keep the default.
 	// We also make sure the ping/pong messages are sent very often, so we
 	// can test them without waiting half a minute.
-	alice, bob := ht.Alice, ht.Bob
-	alice.Cfg.ExtraArgs = append(
-		alice.Cfg.ExtraArgs, "--restcors=\"*\"",
+	bob := ht.NewNode("Bob", nil)
+	args := []string{
+		"--restcors=\"*\"",
 		fmt.Sprintf("--ws-ping-interval=%s", pingInterval),
 		fmt.Sprintf("--ws-pong-wait=%s", pongWait),
-	)
-	ht.RestartNode(alice)
+	}
+	alice := ht.NewNodeWithCoins("Alice", args)
 
 	for _, tc := range testCases {
 		tc := tc
@@ -237,6 +237,8 @@ func testRestAPI(ht *lntest.HarnessTest) {
 }
 
 func wsTestCaseSubscription(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
 	// Find out the current best block so we can subscribe to the next one.
 	hash, height := ht.GetBestBlock()
 
@@ -246,7 +248,7 @@ func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 		Height: uint32(height),
 	}
 	url := "/v2/chainnotifier/register/blocks"
-	c, err := openWebSocket(ht.Alice, url, "POST", req, nil)
+	c, err := openWebSocket(alice, url, "POST", req, nil)
 	require.NoError(ht, err, "websocket")
 	defer func() {
 		err := c.WriteMessage(websocket.CloseMessage, closeMsg)
@@ -326,7 +328,7 @@ func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)
@@ -411,7 +413,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)
@@ -438,7 +440,6 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 	msgChan := make(chan *lnrpc.ChannelAcceptResponse, 1)
 	errChan := make(chan error)
 	done := make(chan struct{})
-	timeout := time.After(defaultTimeout)
 
 	// We want to read messages over and over again. We just accept any
 	// channels that are opened.
@@ -504,6 +505,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 				}
 				return
 			}
+			ht.Logf("Finish writing message %s", resMsg)
 
 			// Also send the message on our message channel to make
 			// sure we count it as successful.
@@ -520,27 +522,30 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 
 	// Before we start opening channels, make sure the two nodes are
 	// connected.
-	bob := ht.Bob
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	ht.EnsureConnected(alice, bob)
 
-	// Open 3 channels to make sure multiple requests and responses can be
-	// sent over the web socket.
-	const numChannels = 3
-	for i := 0; i < numChannels; i++ {
-		chanPoint := ht.OpenChannel(
-			bob, alice, lntest.OpenChannelParams{Amt: 500000},
-		)
-		defer ht.CloseChannel(bob, chanPoint)
-
+	assertMsgReceived := func() {
 		select {
 		case <-msgChan:
 		case err := <-errChan:
 			ht.Fatalf("Received error from WS: %v", err)
 
-		case <-timeout:
+		case <-time.After(defaultTimeout):
 			ht.Fatalf("Timeout before message was received")
 		}
 	}
+
+	// Open 3 channels to make sure multiple requests and responses can be
+	// sent over the web socket.
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
+
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
+
+	ht.OpenChannel(bob, alice, lntest.OpenChannelParams{Amt: 500000})
+	assertMsgReceived()
 }
 
 func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
@@ -552,7 +557,7 @@ func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
 	// This time we send the macaroon in the special header
 	// Sec-Websocket-Protocol which is the only header field available to
 	// browsers when opening a WebSocket.
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 	mac, err := alice.ReadMacaroon(
 		alice.Cfg.AdminMacPath, defaultTimeout,
 	)

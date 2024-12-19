@@ -48,7 +48,8 @@ func testChannelBalance(ht *lntest.HarnessTest) {
 	}
 
 	// Before beginning, make sure alice and bob are connected.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 	ht.EnsureConnected(alice, bob)
 
 	chanPoint := ht.OpenChannel(
@@ -62,10 +63,6 @@ func testChannelBalance(ht *lntest.HarnessTest) {
 
 	// Ensure Bob currently has no available balance within the channel.
 	checkChannelBalance(bob, 0, amount-lntest.CalcStaticFee(cType, 0))
-
-	// Finally close the channel between Alice and Bob, asserting that the
-	// channel has been properly closed on-chain.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testChannelUnsettledBalance will test that the UnsettledBalance field
@@ -118,7 +115,7 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
 
 	// Connect Alice to Carol.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.ConnectNodes(alice, carol)
 
 	// Open a channel between Alice and Carol.
@@ -207,7 +204,4 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 	// balance that equals to the amount of invoices * payAmt. The local
 	// balance remains zero.
 	checkChannelBalance(carol, 0, aliceLocal, numInvoices*payAmt, 0)
-
-	// Force and assert the channel closure.
-	ht.ForceCloseChannel(alice, chanPointAlice)
 }

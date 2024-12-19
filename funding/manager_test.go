@@ -1158,131 +1158,14 @@ func assertAddedToGraph(t *testing.T, alice, bob *testNode,
 	assertDatabaseState(t, bob, fundingOutPoint, addedToGraph)
 }
 
-// assertChannelAnnouncements checks that alice and bob both sends the expected
-// announcements (ChannelAnnouncement, ChannelUpdate) after the funding tx has
-// confirmed. The last arguments can be set if we expect the nodes to advertise
-// custom min_htlc values as part of their ChannelUpdate. We expect Alice to
-// advertise the value required by Bob and vice versa. If they are not set the
-// advertised value will be checked against the other node's default min_htlc,
-// base fee and fee rate values.
-func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
-	capacity btcutil.Amount, customMinHtlc []lnwire.MilliSatoshi,
-	customMaxHtlc []lnwire.MilliSatoshi, baseFees []lnwire.MilliSatoshi,
-	feeRates []lnwire.MilliSatoshi) {
-
-	t.Helper()
-
-	// Validate custom parameter arrays have expected length
-	validateCustomParams(
-		t, customMinHtlc, customMaxHtlc, baseFees, feeRates,
-	)
-
-	nodes := []*testNode{alice, bob}
-	for i, node := range nodes {
-		// Each node should send exactly 2 announcements
-		// ChannelAnnouncement and ChannelUpdate.
-		announcements, updates := collectGossipMsgs(t, node, 2)
-		verifyNoExtraMsgs(t, node)
-
-		require.Len(t, announcements, 1, "expected 1 "+
-			"ChannelAnnouncement from node %d", i)
-		require.Len(t, updates, 1, "expected 1 ChannelUpdate from "+
-			"node %d", i)
-		for _, update := range updates {
-			verifyChannelUpdate(
-				t, update, i, nodes,
-				node.fundingMgr.cfg, capacity, customMinHtlc,
-				customMaxHtlc, baseFees, feeRates,
-			)
-		}
-	}
-}
-
-// assertChannelUpdate checks that a ChannelUpdate has been sent by the node
-// with the expected parameters.
-func assertChannelUpdates(t *testing.T, alice, bob *testNode,
-	capacity btcutil.Amount, customMinHtlc, customMaxHtlc,
-	baseFees, feeRates []lnwire.MilliSatoshi) {
-
-	t.Helper()
-
-	// Validate custom parameter arrays have expected length
-	validateCustomParams(
-		t, customMinHtlc, customMaxHtlc, baseFees, feeRates,
-	)
-
-	nodes := []*testNode{alice, bob}
-	for i, node := range nodes {
-		// Each node should send exactly 2 announcements
-		// ChannelAnnouncement and ChannelUpdate.
-		_, updates := collectGossipMsgs(t, node, 1)
-		verifyNoExtraMsgs(t, node)
-
-		require.Len(t, updates, 1, "expected 1 ChannelUpdate from "+
-			"node %d", i)
-		for _, update := range updates {
-			verifyChannelUpdate(
-				t, update, i, nodes,
-				node.fundingMgr.cfg, capacity, customMinHtlc,
-				customMaxHtlc, baseFees, feeRates,
-			)
-		}
-	}
-}
-
-// validateCustomParams ensures custom parameter arrays have valid length.
-func validateCustomParams(t *testing.T, params ...[]lnwire.MilliSatoshi) {
-	t.Helper()
-
-	for _, param := range params {
-		if len(param) > 0 {
-			require.Len(t, param, 2, "custom parameters must "+
-				"have length 2")
-		}
-	}
-}
-
-// collectGossipMsgs gathers the expected number of gossip messages from a node.
-func collectGossipMsgs(t *testing.T, node *testNode,
-	expectedNum int) ([]*lnwire.ChannelAnnouncement1,
-	[]*lnwire.ChannelUpdate1) {
-
-	t.Helper()
-
-	var (
-		announcements []*lnwire.ChannelAnnouncement1
-		updates       []*lnwire.ChannelUpdate1
-	)
-
-	for i := 0; i < expectedNum; i++ {
-		select {
-		case msg := <-node.announceChan:
-			switch m := msg.(type) {
-			case *lnwire.ChannelAnnouncement1:
-				announcements = append(announcements, m)
-
-			case *lnwire.ChannelUpdate1:
-				updates = append(updates, m)
-
-			default:
-				t.Fatalf("unexpected message type: %T", msg)
-			}
-
-		case <-time.After(5 * time.Second):
-			t.Fatalf("node did not send gossip msg %d", i)
-		}
-	}
-
-	return announcements, updates
-}
-
 // verifyNoExtraMsgs ensures no unexpected msgs are sent to the gossiper.
 func verifyNoExtraMsgs(t *testing.T, node *testNode) {
 	t.Helper()
 
 	select {
 	case msg := <-node.announceChan:
-		t.Fatalf("received unexpected announcement: %v", msg)
+		t.Fatalf("received unexpected announcement(type: %T): %v", msg,
+			msg)
 	case <-time.After(300 * time.Millisecond):
 		// Expected - no extra msg.
 	}
@@ -1290,38 +1173,38 @@ func verifyNoExtraMsgs(t *testing.T, node *testNode) {
 
 // verifyChannelUpdate checks that a ChannelUpdate has the expected parameters.
 func verifyChannelUpdate(t *testing.T, update *lnwire.ChannelUpdate1,
-	nodeIndex int, nodes []*testNode, nodeCfg *Config,
-	capacity btcutil.Amount, customMinHtlc, customMaxHtlc,
-	baseFees, feeRates []lnwire.MilliSatoshi) {
+	node *testNode, capacity btcutil.Amount, customMinHtlc, customMaxHtlc,
+	baseFees, feeRates lnwire.MilliSatoshi, shouldAnnounce bool) {
 
 	t.Helper()
 
-	require.EqualValues(t, 1, update.MessageFlags)
+	msgFlags := lnwire.ChanUpdateRequiredMaxHtlc
+	if !shouldAnnounce {
+		msgFlags |= lnwire.ChanUpdateDontForward
+	}
+	require.EqualValues(t, msgFlags, update.MessageFlags)
 
-	// Get parameters for the other node since each update advertises
-	// the remote node's requirements
-	otherIdx := (nodeIndex + 1) % 2
-	otherCfg := nodes[otherIdx].fundingMgr.cfg
+	nodeCfg := node.fundingMgr.cfg
 
 	// Set expected values, using customs if provided
-	minHtlc := otherCfg.DefaultMinHtlcIn
-	if len(customMinHtlc) > 0 {
-		minHtlc = customMinHtlc[nodeIndex]
+	minHtlc := nodeCfg.DefaultMinHtlcIn
+	if customMinHtlc > 0 {
+		minHtlc = customMinHtlc
 	}
 
 	maxHtlc := nodeCfg.RequiredRemoteMaxValue(capacity)
-	if len(customMaxHtlc) > 0 {
-		maxHtlc = customMaxHtlc[nodeIndex]
+	if customMaxHtlc > 0 {
+		maxHtlc = customMaxHtlc
 	}
 
 	baseFee := nodeCfg.DefaultRoutingPolicy.BaseFee
-	if len(baseFees) > 0 {
-		baseFee = baseFees[nodeIndex]
+	if baseFees > 0 {
+		baseFee = baseFees
 	}
 
 	feeRate := nodeCfg.DefaultRoutingPolicy.FeeRate
-	if len(feeRates) > 0 {
-		feeRate = feeRates[nodeIndex]
+	if feeRates > 0 {
+		feeRate = feeRates
 	}
 
 	// Verify all parameters match expected values
@@ -1331,66 +1214,95 @@ func verifyChannelUpdate(t *testing.T, update *lnwire.ChannelUpdate1,
 	require.EqualValues(t, feeRate, update.FeeRate)
 }
 
-func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
-	t.Helper()
-
-	// After the ChannelReady message is sent and six confirmations have
-	// been reached, the channel will be announced to the greater network
-	// by having the nodes exchange announcement signatures.
-	// Two distinct messages will be sent:
-	//	1) AnnouncementSignatures
-	//	2) NodeAnnouncement
-	// These may arrive in no particular order.
-	// Note that sending the NodeAnnouncement at this point is an
-	// implementation detail, and not something required by the LN spec.
-	for j, node := range []*testNode{alice, bob} {
-		announcements := make([]lnwire.Message, 2)
-		for i := 0; i < len(announcements); i++ {
-			select {
-			case announcements[i] = <-node.announceChan:
-			case <-time.After(time.Second * 5):
-				t.Fatalf("node did not send announcement %v", i)
-			}
-		}
-
-		gotAnnounceSignatures := false
-		gotNodeAnnouncement := false
-		for _, msg := range announcements {
-			switch msg.(type) {
-			case *lnwire.AnnounceSignatures1:
-				gotAnnounceSignatures = true
-			case *lnwire.NodeAnnouncement:
-				gotNodeAnnouncement = true
-			}
-		}
-
-		if !gotAnnounceSignatures {
-			t.Fatalf("did not get AnnounceSignatures from node %d",
-				j)
-		}
-		if !gotNodeAnnouncement {
-			t.Fatalf("did not get NodeAnnouncement from node %d", j)
-		}
-	}
+// announcements holds the different types of announcement messages received.
+type announcements struct {
+	channelAnn *lnwire.ChannelAnnouncement1
+	nodeAnn    *lnwire.NodeAnnouncement
+	channelUpd *lnwire.ChannelUpdate1
+	channelSig *lnwire.AnnounceSignatures1
 }
 
-func assertType[T any](t *testing.T, typ any) T {
-	value, ok := typ.(T)
-	require.True(t, ok)
-
-	return value
+// hasChannelAnnouncement checks if the announcements struct contains a channel
+// announcement message and fails the test if it's nil.
+func (a *announcements) requireChannelAnnouncement(t *testing.T) {
+	t.Helper()
+	require.NotNil(t, a.channelAnn, "expected channel announcement")
 }
 
-func assertNodeAnnSent(t *testing.T, alice, bob *testNode) {
+// hasNodeAnnouncement checks if the announcements struct contains a node
+// announcement message and fails the test if it's nil.
+func (a *announcements) requireNodeAnnouncement(t *testing.T) {
 	t.Helper()
 
-	for _, node := range []*testNode{alice, bob} {
-		nodeAnn, err := lnutils.RecvOrTimeout(
-			node.msgChan, time.Second*5,
+	require.NotNil(t, a.nodeAnn, "expected node announcement")
+}
+
+// hasChannelUpdate checks if the announcements struct contains a channel
+// update message and fails the test if it's nil.
+func (a *announcements) requireChannelUpdate(t *testing.T) {
+	t.Helper()
+
+	require.NotNil(t, a.channelUpd, "expected channel update")
+}
+
+// hasAnnounceSignatures checks if the announcements struct contains an
+// announce signatures message and fails the test if it's nil.
+func (a *announcements) requireAnnounceSignatures(t *testing.T) {
+	t.Helper()
+
+	require.NotNil(t, a.channelSig, "expected announce signatures")
+}
+
+// collectGossipMsgs collects the expected different types of gossip messages
+// from a node. Whether a particular msg type was received or not should be
+// checked afterwards.
+func collectGossipMsgs(t *testing.T, node *testNode,
+	expectedNum int) *announcements {
+
+	t.Helper()
+
+	msgs := make([]lnwire.Message, expectedNum)
+	for i := 0; i < len(msgs); i++ {
+		msg, err := lnutils.RecvOrTimeout(
+			node.announceChan, time.Second*5,
 		)
 		require.NoError(t, err)
-		assertType[*lnwire.NodeAnnouncement](t, *nodeAnn)
+		msgs[i] = *msg
 	}
+
+	ann := &announcements{}
+	for _, msg := range msgs {
+		switch msg := msg.(type) {
+		case *lnwire.AnnounceSignatures1:
+			ann.channelSig = msg
+
+		case *lnwire.NodeAnnouncement:
+			ann.nodeAnn = msg
+
+		case *lnwire.ChannelAnnouncement1:
+			ann.channelAnn = msg
+
+		case *lnwire.ChannelUpdate1:
+			ann.channelUpd = msg
+		}
+	}
+
+	return ann
+}
+
+// verifyDirectNodeAnnouncement verifies that a node announcement is sent
+// directly to the peer when a private channel is opened. It is different for
+// private channels because it is not funnelled through the gossip subsystem.
+func verifyDirectNodeAnnouncement(t *testing.T, node *testNode) {
+	t.Helper()
+
+	nodeAnn, err := lnutils.RecvOrTimeout(
+		node.msgChan, time.Second*5,
+	)
+	require.NoError(t, err)
+	// Because we're using a pointer, we need to dereference the nodeAnn
+	// before checking the type.
+	require.IsType(t, &lnwire.NodeAnnouncement{}, *nodeAnn)
 }
 
 func waitForOpenUpdate(t *testing.T, updateChan chan *lnrpc.OpenStatusUpdate) {
@@ -1532,8 +1444,9 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
 		chanType,
 	)
 
@@ -1587,7 +1500,29 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -1610,14 +1545,41 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	// announcement message at this point. These channels aren't advertised
 	// so we don't expect the other messages.
 	case isTaprootChanType(chanType):
-		assertNodeAnnSent(t, alice, bob)
+		verifyDirectNodeAnnouncement(t, alice)
+		verifyDirectNodeAnnouncement(t, bob)
 
 	// For regular channels, we'll make sure the fundingManagers exchange
 	// announcement signatures.
 	case chanType == nil:
 		fallthrough
+
 	default:
-		assertAnnouncementSignatures(t, alice, bob)
+		annAlice = collectGossipMsgs(t, alice, 3)
+		verifyNoExtraMsgs(t, alice)
+
+		annBob = collectGossipMsgs(t, bob, 3)
+		verifyNoExtraMsgs(t, bob)
+
+		annAlice.requireAnnounceSignatures(t)
+		annAlice.requireChannelUpdate(t)
+		annAlice.requireNodeAnnouncement(t)
+
+		annBob.requireAnnounceSignatures(t)
+		annBob.requireChannelUpdate(t)
+		annBob.requireNodeAnnouncement(t)
+
+		otherNode := bob
+		verifyChannelUpdate(
+			t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0,
+			true,
+		)
+
+		otherNode = alice
+		verifyChannelUpdate(
+			t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0,
+			true,
+		)
+
 	}
 
 	// The internal state-machine should now have deleted the channelStates
@@ -1831,8 +1793,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
 		nil,
 	)
 
@@ -1941,7 +1904,29 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -1961,8 +1946,30 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure the fundingManagers exchange announcement signatures.
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure the fundingManagers send the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -1990,8 +1997,9 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
 		nil,
 	)
 
@@ -2106,7 +2114,29 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -2124,9 +2154,30 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure both fundingManagers send the expected announcement
-	// signatures.
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure both fundingManagers send the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -2502,8 +2553,10 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
+		nil,
 	)
 
 	// Notify that transaction was mined
@@ -2565,7 +2618,29 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -2583,8 +2658,30 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure the fundingManagers exchange announcement signatures.
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure the fundingManagers sends the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -2615,8 +2712,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
+		nil,
 	)
 
 	// Notify that transaction was mined
@@ -2658,7 +2757,29 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -2681,9 +2802,30 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure both fundingManagers send the expected channel
-	// announcements.
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure both fundingManagers send the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -2714,8 +2856,10 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
+	publicChannel := true
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
+		nil,
 	)
 
 	// Notify that transaction was mined
@@ -2762,7 +2906,29 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
@@ -2776,9 +2942,30 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure both fundingManagers send the expected channel
-	// announcements.
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure both fundingManagers send the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, true,
+	)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -2809,8 +2996,10 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	localAmt := btcutil.Amount(500000)
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
+	publicChannel := false
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, publicChannel,
+		nil,
 	)
 
 	// Notify that transaction was mined
@@ -2852,7 +3041,29 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is a private channel, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
@@ -2867,42 +3078,10 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Since this is a private channel, we shouldn't receive the
-	// announcement signatures.
-	select {
-	case ann := <-alice.announceChan:
-		t.Fatalf("unexpectedly got channel announcement message: %v",
-			ann)
-	case <-time.After(300 * time.Millisecond):
-		// Expected
-	}
-
-	select {
-	case ann := <-bob.announceChan:
-		t.Fatalf("unexpectedly got channel announcement message: %v",
-			ann)
-	case <-time.After(300 * time.Millisecond):
-		// Expected
-	}
-
-	// We should however receive each side's node announcement.
-	select {
-	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
-			t.Fatalf("expected to receive node announcement")
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("expected to receive node announcement")
-	}
-
-	select {
-	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
-			t.Fatalf("expected to receive node announcement")
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("expected to receive node announcement")
-	}
+	// For private channels, we only expect the node announcements to be
+	// sent directly to the peer.
+	verifyDirectNodeAnnouncement(t, alice)
+	verifyDirectNodeAnnouncement(t, bob)
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -2976,8 +3155,30 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
-	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	// announcements..
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is a private channel, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, 0, 0, 0, 0, false,
+	)
 
 	// Note: We don't check for the addedToGraph state because in
 	// the private channel mode, the state is quickly changed from
@@ -2997,40 +3198,10 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Since this is a private channel, we shouldn't receive the public
-	// channel announcement messages.
-	select {
-	case ann := <-alice.announceChan:
-		t.Fatalf("unexpectedly got channel announcement message: %v",
-			ann)
-	case <-time.After(300 * time.Millisecond):
-	}
-
-	select {
-	case ann := <-bob.announceChan:
-		t.Fatalf("unexpectedly got channel announcement message: %v",
-			ann)
-	case <-time.After(300 * time.Millisecond):
-	}
-
-	// We should however receive each side's node announcement.
-	select {
-	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
-			t.Fatalf("expected to receive node announcement")
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("expected to receive node announcement")
-	}
-
-	select {
-	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
-			t.Fatalf("expected to receive node announcement")
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("expected to receive node announcement")
-	}
+	// For private channels, we only expect the node announcements to be
+	// sent directly to the peer.
+	verifyDirectNodeAnnouncement(t, alice)
+	verifyDirectNodeAnnouncement(t, bob)
 
 	// Restart Alice's fundingManager so we can prove that the public
 	// channel announcements are not sent upon restart and that the private
@@ -3410,26 +3581,24 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Alice should advertise the default MinHTLC value of
 	// 5, while bob should advertise the value minHtlc, since Alice
 	// required him to use it.
-	minHtlcArr := []lnwire.MilliSatoshi{5, minHtlcIn}
+	minHtlcAlice := lnwire.MilliSatoshi(5)
+	minHtlcBob := lnwire.MilliSatoshi(minHtlcIn)
 
 	// For maxHltc Alice should advertise the default MaxHtlc value of
 	// maxValueAcceptChannel, while bob should advertise the value
 	// maxValueInFlight since Alice required him to use it.
-	maxHtlcArr := []lnwire.MilliSatoshi{
-		maxValueAcceptChannel, maxValueInFlight,
-	}
+	maxHtlcAlice := maxValueAcceptChannel
+	maxHtlcBob := lnwire.MilliSatoshi(maxValueInFlight)
 
 	// Alice should have custom fees set whereas Bob should see his
 	// configured default fees announced.
 	defaultDelta := bob.fundingMgr.cfg.DefaultRoutingPolicy.TimeLockDelta
 	defaultBaseFee := bob.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee
 	defaultFeeRate := bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
-	baseFees := []lnwire.MilliSatoshi{
-		lnwire.MilliSatoshi(baseFee), defaultBaseFee,
-	}
-	feeRates := []lnwire.MilliSatoshi{
-		lnwire.MilliSatoshi(feeRate), defaultFeeRate,
-	}
+	baseFeeAlice := lnwire.MilliSatoshi(baseFee)
+	baseFeeBob := defaultBaseFee
+	feeRateAlice := lnwire.MilliSatoshi(feeRate)
+	feeRateBob := defaultFeeRate
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
@@ -3448,10 +3617,10 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 				return reflect.DeepEqual(
 					p, &models.ForwardingPolicy{
-						MaxHTLC:       maxHtlcArr[0],
-						MinHTLCOut:    minHtlcArr[0],
-						BaseFee:       baseFees[0],
-						FeeRate:       feeRates[0],
+						MaxHTLC:       maxHtlcAlice,
+						MinHTLCOut:    minHtlcAlice,
+						BaseFee:       baseFeeAlice,
+						FeeRate:       feeRateAlice,
 						TimeLockDelta: defaultDelta,
 					},
 				)
@@ -3460,9 +3629,31 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 			return true
 		},
 	)
-	assertChannelAnnouncements(
-		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
-		feeRates,
+
+	// The channel is confirmed, we expect the to receive the signatures
+	// and a new channel update msg.
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, minHtlcAlice,
+		maxHtlcAlice, baseFeeAlice, feeRateAlice, false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, minHtlcBob,
+		maxHtlcBob, baseFeeBob, feeRateBob, false,
 	)
 
 	// The funding transaction is now confirmed, wait for the
@@ -3478,7 +3669,32 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	assertAnnouncementSignatures(t, alice, bob)
+	// Make sure both fundingManagers send the expected msgs.
+	annAlice = collectGossipMsgs(t, alice, 3)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob = collectGossipMsgs(t, bob, 3)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireAnnounceSignatures(t)
+	annAlice.requireChannelUpdate(t)
+	annAlice.requireNodeAnnouncement(t)
+
+	annBob.requireAnnounceSignatures(t)
+	annBob.requireChannelUpdate(t)
+	annBob.requireNodeAnnouncement(t)
+
+	otherNode = bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, capacity, minHtlcAlice,
+		maxHtlcAlice, baseFeeAlice, feeRateAlice, true,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, capacity, minHtlcBob,
+		maxHtlcBob, baseFeeBob, feeRateBob, true,
+	)
 
 	// After the announcement we expect Alice and Bob to have cleared
 	// the fees for the channel from the database.
@@ -4623,8 +4839,29 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 
 	// We'll now assert that both sides send ChannelAnnouncement and
 	// ChannelUpdate messages.
-	assertChannelAnnouncements(
-		t, alice, bob, fundingAmt, nil, nil, nil, nil,
+	annAlice := collectGossipMsgs(t, alice, 2)
+	verifyNoExtraMsgs(t, alice)
+
+	annBob := collectGossipMsgs(t, bob, 2)
+	verifyNoExtraMsgs(t, bob)
+
+	annAlice.requireChannelAnnouncement(t)
+	annAlice.requireChannelUpdate(t)
+
+	annBob.requireChannelAnnouncement(t)
+	annBob.requireChannelUpdate(t)
+
+	// The channel is still not confirmed, so the channel update should set
+	// the __dont_forward__ flag.
+	otherNode := bob
+	verifyChannelUpdate(
+		t, annAlice.channelUpd, otherNode, fundingAmt, 0, 0, 0, 0,
+		false,
+	)
+
+	otherNode = alice
+	verifyChannelUpdate(
+		t, annBob.channelUpd, otherNode, fundingAmt, 0, 0, 0, 0, false,
 	)
 
 	// We'll now wait for the OpenStatusUpdate_ChanOpen update.
@@ -4651,10 +4888,35 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		Tx: fundingTx,
 	}
 
-	// For taproot channels, we don't expect them to be announced atm.
-	if !isTaprootChanType(chanType) {
-		assertChannelUpdates(
-			t, alice, bob, fundingAmt, nil, nil, nil, nil,
+	switch {
+	// For taproot channels, we expect nothing at this stage because they
+	// are private channels.
+	case isTaprootChanType(chanType):
+
+	// For regular channels, we'll make sure the fundingManagers exchange
+	// announcement signatures.
+	case chanType == nil:
+		fallthrough
+
+	default:
+		// Make sure both fundingManagers send the expected msgs.
+		// We only expect the channel update to be sent here.
+		annAlice = collectGossipMsgs(t, alice, 1)
+		verifyNoExtraMsgs(t, alice)
+
+		annBob = collectGossipMsgs(t, bob, 1)
+		verifyNoExtraMsgs(t, bob)
+
+		otherNode = bob
+		verifyChannelUpdate(
+			t, annAlice.channelUpd, otherNode, fundingAmt, 0, 0, 0,
+			0, true,
+		)
+
+		otherNode = alice
+		verifyChannelUpdate(
+			t, annBob.channelUpd, otherNode, fundingAmt, 0, 0, 0, 0,
+			true,
 		)
 	}
 
@@ -4685,14 +4947,28 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// announcement message at this point. These channels aren't advertised
 	// so we don't expect the other messages.
 	case isTaprootChanType(chanType):
-		assertNodeAnnSent(t, alice, bob)
+		verifyDirectNodeAnnouncement(t, alice)
+		verifyDirectNodeAnnouncement(t, bob)
 
 	// For regular channels, we'll make sure the fundingManagers exchange
 	// announcement signatures.
 	case chanType == nil:
 		fallthrough
+
 	default:
-		assertAnnouncementSignatures(t, alice, bob)
+		// Make sure both fundingManagers send the expected msgs.
+		annAlice = collectGossipMsgs(t, alice, 2)
+		verifyNoExtraMsgs(t, alice)
+
+		annBob = collectGossipMsgs(t, bob, 2)
+		verifyNoExtraMsgs(t, bob)
+
+		annAlice.requireAnnounceSignatures(t)
+		annAlice.requireNodeAnnouncement(t)
+
+		annBob.requireAnnounceSignatures(t)
+		annBob.requireNodeAnnouncement(t)
+
 	}
 
 	// Assert that the channel state is deleted from the fundingmanager's

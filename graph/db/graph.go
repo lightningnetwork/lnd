@@ -1130,7 +1130,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 				"for: %x: %w", edge.NodeKey1Bytes, err)
 		}
 	case node1Err != nil:
-		return err
+		return node1Err
 	}
 
 	_, node2Err := fetchLightningNode(nodes, edge.NodeKey2Bytes[:])
@@ -1146,7 +1146,7 @@ func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx,
 				"for: %x: %w", edge.NodeKey2Bytes, err)
 		}
 	case node2Err != nil:
-		return err
+		return node2Err
 	}
 
 	// If the edge hasn't been created yet, then we'll first add it to the

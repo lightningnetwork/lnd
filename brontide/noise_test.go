@@ -85,12 +85,12 @@ func establishTestConnection(t testing.TB) (net.Conn, net.Conn, error) {
 
 	remote := <-remoteConnChan
 	if remote.err != nil {
-		return nil, nil, err
+		return nil, nil, remote.err
 	}
 
 	local := <-localConnChan
 	if local.err != nil {
-		return nil, nil, err
+		return nil, nil, local.err
 	}
 
 	t.Cleanup(func() {

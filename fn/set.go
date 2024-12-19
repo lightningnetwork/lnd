@@ -95,6 +95,15 @@ func (s Set[T]) ToSlice() []T {
 	return maps.Keys(s)
 }
 
+// Copy copies s and returns the result.
+func (s Set[T]) Copy() Set[T] {
+	copy := make(Set[T])
+	for e := range s {
+		copy.Add(e)
+	}
+	return copy
+}
+
 // SetDiff returns all the items that are in the first set but not in the
 // second.
 func SetDiff[T comparable](a, b []T) []T {

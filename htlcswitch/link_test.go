@@ -2257,7 +2257,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 			for {
 				select {
 				case <-notifyUpdateChan:
-				case <-chanLink.Quit:
+				case <-chanLink.Done():
 					close(doneChan)
 					return
 				}
@@ -2326,7 +2326,7 @@ func handleStateUpdate(link *channelLink,
 	}
 	link.HandleChannelUpdate(remoteRev)
 
-	ctx, done := link.WithCtxQuitNoTimeout()
+	ctx, done := link.Create(context.Background())
 	defer done()
 
 	remoteSigs, err := remoteChannel.SignNextCommitment(ctx)
@@ -2372,7 +2372,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 		// Trigger update by ticking the batchTicker.
 		select {
 		case batchTick <- time.Now():
-		case <-link.Quit:
+		case <-link.Done():
 			return fmt.Errorf("link shutting down")
 		}
 		return handleStateUpdate(link, remoteChannel)
@@ -2380,7 +2380,7 @@ func updateState(batchTick chan time.Time, link *channelLink,
 
 	// The remote is triggering the state update, emulate this by
 	// signing and sending CommitSig to the link.
-	ctx, done := link.WithCtxQuitNoTimeout()
+	ctx, done := link.Create(context.Background())
 	defer done()
 
 	remoteSigs, err := remoteChannel.SignNextCommitment(ctx)
@@ -4946,7 +4946,7 @@ func (h *persistentLinkHarness) restartLink(
 			for {
 				select {
 				case <-notifyUpdateChan:
-				case <-chanLink.Quit:
+				case <-chanLink.Done():
 					close(doneChan)
 					return
 				}
@@ -5932,7 +5932,7 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				quitCtx, done := c.WithCtxQuitNoTimeout()
+				quitCtx, done := c.Create(context.Background())
 				defer done()
 
 				sigs, err := remoteChannel.SignNextCommitment(
@@ -5979,7 +5979,7 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Sign a commitment that will include
 				// signature for the HTLC just sent.
-				quitCtx, done := c.WithCtxQuitNoTimeout()
+				quitCtx, done := c.Create(context.Background())
 				defer done()
 
 				sigs, err := remoteChannel.SignNextCommitment(

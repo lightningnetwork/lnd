@@ -4,8 +4,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/urfave/cli"
 )
 
@@ -116,6 +118,12 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_incoming_channel_list",
+			Usage: "The chained channels (specified via channel " +
+				"id) starting from the receiver node which " +
+				"shall be used for the blinded path.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -168,7 +176,7 @@ func addInvoice(ctx *cli.Context) error {
 
 	blindedPathCfg, err := parseBlindedPathCfg(ctx)
 	if err != nil {
-		return fmt.Errorf("could not parse blinded path config: %w",
+		return fmt.Errorf("could not parse blinded path config: %v",
 			err)
 	}
 
@@ -202,7 +210,8 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_incoming_channel_list") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -237,6 +246,40 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
 		)
+	}
+
+	if ctx.IsSet("blinded_path_incoming_channel_list") {
+		channels := strings.Split(
+			ctx.String("blinded_path_incoming_channel_list"), ",",
+		)
+		for _, channelID := range channels {
+			// First try parsing as a plain number
+			chanID, err :=
+				strconv.ParseUint(channelID, 10, 64)
+			if err != nil {
+				// If that fails, try the blockHeight x txIndex
+				// x outputIndex format.
+				parts := strings.Split(channelID, "x")
+
+				if len(parts) == 1 {
+					err = fmt.Errorf("error parsing "+
+						"channelID: %v", channelID)
+					return nil, err
+				}
+
+				shortChanID, err :=
+					lnwire.NewShortChanIDFromStrings(parts)
+
+				if err != nil {
+					return nil, err
+				}
+
+				chanID = shortChanID.ToUint64()
+			}
+			blindCfg.IncomingChannelList = append(
+				blindCfg.IncomingChannelList, chanID,
+			)
+		}
 	}
 
 	return &blindCfg, nil

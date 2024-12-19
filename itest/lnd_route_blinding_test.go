@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1509,4 +1510,108 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 	case <-time.After(defaultTimeout):
 		require.Fail(ht, "timeout waiting for sending payment")
 	}
+}
+
+// testGivenBlindedRouteInvoices tests lnd's ability to:
+// 1 - assert the error when creating a blinded payment with a wrong path.
+// 2- create blinded payment path when the blinded path is (partly)
+// pre-specified. This test creates and pay two invoices: carol invoice with
+// just one incoming channel specified; dave invoice with two chained incoming
+// channels specified.
+func testGivenBlindedRouteInvoices(ht *lntest.HarnessTest) {
+	// Create a four hop network: Alice -> Bob -> Carol -> Dave.
+	chanAmt := btcutil.Amount(100000)
+	cfgs := [][]string{nil, nil, nil, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
+	chanPointAliceBob, chanPointBobCarol, chanPointCarolDave :=
+		chanPoints[0], chanPoints[1], chanPoints[2]
+
+	// Lookup full channel info so that we have channel ids for our route.
+	aliceBobChan := ht.GetChannelByChanPoint(alice, chanPointAliceBob)
+	bobCarolChan := ht.GetChannelByChanPoint(bob, chanPointBobCarol)
+	carolDaveChan := ht.GetChannelByChanPoint(carol, chanPointCarolDave)
+
+	// Let carol choose the wrong incoming channel.
+	var (
+		minNumRealHops      uint32 = 1
+		numHops             uint32 = 1
+		incomingChannelList        = []uint64{aliceBobChan.ChanId}
+	)
+
+	err := carol.RPC.AddInvoiceAssertErr(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops:      &minNumRealHops,
+			NumHops:             &numHops,
+			IncomingChannelList: incomingChannelList,
+		},
+	})
+
+	errChan := fmt.Errorf("rpc error: code = Unknown desc = required"+
+		" channel %v at position %d not found",
+		aliceBobChan.ChanId, 1)
+	require.Equal(ht, err.Error(), errChan.Error())
+
+	// Let carol change to the right incoming channel.
+	incomingChannelList = []uint64{bobCarolChan.ChanId}
+
+	invoice := carol.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops:      &minNumRealHops,
+			NumHops:             &numHops,
+			IncomingChannelList: incomingChannelList,
+		},
+	})
+
+	// Assert that it contains a single blinded path with only
+	// 2 hops, with bob as the introduction node.
+	payReq := carol.RPC.DecodePayReq(invoice.PaymentRequest)
+	require.Len(ht, payReq.BlindedPaths, 1)
+	path := payReq.BlindedPaths[0].BlindedPath
+	require.Len(ht, path.BlindedHops, 2)
+	require.EqualValues(ht, path.IntroductionNode, bob.PubKey[:])
+
+	// Now let alice pay the invoice.
+	ht.CompletePaymentRequests(alice, []string{invoice.PaymentRequest})
+
+	// Let dave choose a incoming chained channel list with
+	// bob as introduction node.
+	incomingChannelList =
+		[]uint64{carolDaveChan.ChanId, bobCarolChan.ChanId}
+
+	// The MinNumRealHops and NumHops are set to 1 to test the reset to 2
+	// due the incoming chained channels
+	invoiceDave := dave.RPC.AddInvoice(&lnrpc.Invoice{
+		Memo:      "test",
+		ValueMsat: 10_000_000,
+		IsBlinded: true,
+		BlindedPathConfig: &lnrpc.BlindedPathConfig{
+			MinNumRealHops:      &minNumRealHops,
+			NumHops:             &numHops,
+			IncomingChannelList: incomingChannelList,
+		},
+	})
+
+	// Assert that it contains a single blinded path with only
+	// 3 hops, with bob as the introduction node.
+	payReqDave := dave.RPC.DecodePayReq(invoiceDave.PaymentRequest)
+	require.Len(ht, payReqDave.BlindedPaths, 1)
+	pathDave := payReqDave.BlindedPaths[0].BlindedPath
+	require.Len(ht, pathDave.BlindedHops, 3)
+	require.EqualValues(ht, pathDave.IntroductionNode, bob.PubKey[:])
+
+	// Now let Alice pay the invoice.
+	ht.CompletePaymentRequests(alice, []string{invoiceDave.PaymentRequest})
+
+	ht.CloseChannel(alice, chanPointAliceBob)
+	ht.CloseChannel(bob, chanPointBobCarol)
+	ht.CloseChannel(carol, chanPointCarolDave)
 }

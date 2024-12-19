@@ -714,4 +714,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "quiescence",
 		TestFunc: testQuiescence,
 	},
+	{
+		Name:     "given route in blinding invoice",
+		TestFunc: testGivenBlindedRouteInvoices,
+	},
 }

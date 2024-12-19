@@ -101,7 +101,7 @@ func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
 // notification channel.
 type topologyClient struct {
 	// ntfnChan is a send-only channel that's used to propagate
-	// notification s from the channel router to an instance of a
+	// notifications from the channel router to an instance of a
 	// topologyClient client.
 	ntfnChan chan<- *TopologyChange
 

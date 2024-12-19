@@ -3214,14 +3214,31 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	require.NoError(t, err, "unable to process remote channel proof")
 
 	// Now that we've constructed our full proof, we can assert that the
-	// channel has been announced.
+	// channel has been announced. We anticipate the local ChanAnnouncement
+	// and the local ChanUpdate.
+	gotChannelAnnouncement := false
+	gotChannelUpdate := false
 	for i := 0; i < 2; i++ {
 		select {
-		case <-ctx.broadcastedMessage:
+		case gossip := <-ctx.broadcastedMessage:
+			switch msg := gossip.msg.(type) {
+			case *lnwire.ChannelUpdate1:
+				gotChannelUpdate = true
+			case *lnwire.ChannelAnnouncement1:
+				gotChannelAnnouncement = true
+			default:
+				t.Fatalf("send unexpected %v "+
+					"message", msg.MsgType())
+			}
 		case <-time.After(2 * trickleDelay):
 			t.Fatal("expected channel to be announced")
 		}
 	}
+
+	require.Truef(
+		t, gotChannelAnnouncement, "did not receive ChanAnnouncement",
+	)
+	require.Truef(t, gotChannelUpdate, "did not receive ChanUpdate")
 
 	// With the channel announced, we'll generate a new channel update. This
 	// one won't take the path of the reliable sender, as the channel has

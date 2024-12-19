@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/rand"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -59,6 +59,13 @@ var (
 		"splittranches", defaultSplitTranches, "split the test cases "+
 			"in this many tranches and run the tranche at "+
 			"0-based index specified by the -runtranche flag",
+	)
+
+	// shuffleSeedFlag is the source of randomness used to shuffle the test
+	// cases. If not specified, the test cases won't be shuffled.
+	shuffleSeedFlag = flag.Uint64(
+		"shuffleseed", 0, "if set, shuffles the test cases using this "+
+			"as the source of randomness",
 	)
 
 	// testCasesRunTranche is the 0-based index of the split test cases
@@ -102,9 +109,8 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	)
 	defer harnessTest.Stop()
 
-	// Setup standby nodes, Alice and Bob, which will be alive and shared
-	// among all the test cases.
-	harnessTest.SetupStandbyNodes()
+	// Get the current block height.
+	height := harnessTest.CurrentHeight()
 
 	// Run the subset of the test cases selected in this tranche.
 	for idx, testCase := range testCases {
@@ -119,22 +125,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			// avoid overwriting the external harness test that is
 			// tied to the parent test.
 			ht := harnessTest.Subtest(t1)
-
-			// TODO(yy): split log files.
-			cleanTestCaseName := strings.ReplaceAll(
-				testCase.Name, " ", "_",
-			)
-			ht.SetTestName(cleanTestCaseName)
-
-			logLine := fmt.Sprintf(
-				"STARTING ============ %v ============\n",
-				testCase.Name,
-			)
-
-			ht.Alice.AddToLogf(logLine)
-			ht.Bob.AddToLogf(logLine)
-
-			ht.EnsureConnected(ht.Alice, ht.Bob)
+			ht.SetTestName(testCase.Name)
 
 			ht.RunTestCase(testCase)
 		})
@@ -151,9 +142,60 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		}
 	}
 
-	height := harnessTest.CurrentHeight()
-	t.Logf("=========> tests finished for tranche: %v, tested %d "+
-		"cases, end height: %d\n", trancheIndex, len(testCases), height)
+	//nolint:forbidigo
+	fmt.Printf("=========> tranche %v finished, tested %d cases, mined "+
+		"blocks: %d\n", trancheIndex, len(testCases),
+		harnessTest.CurrentHeight()-height)
+}
+
+// maybeShuffleTestCases shuffles the test cases if the flag `shuffleseed` is
+// set and not 0. In parallel tests we want to shuffle the test cases so they
+// are executed in a random order. This is done to even out the blocks mined in
+// each test tranche so they can run faster.
+//
+// NOTE: Because the parallel tests are initialized with the same seed (job
+// ID), they will always have the same order.
+func maybeShuffleTestCases() {
+	// Exit if not set.
+	if shuffleSeedFlag == nil {
+		return
+	}
+
+	// Exit if set to 0.
+	if *shuffleSeedFlag == 0 {
+		return
+	}
+
+	// Init the seed and shuffle the test cases.
+	rand.Seed(*shuffleSeedFlag)
+	rand.Shuffle(len(allTestCases), func(i, j int) {
+		allTestCases[i], allTestCases[j] =
+			allTestCases[j], allTestCases[i]
+	})
+}
+
+// createIndices divides the number of test cases into pairs of indices that
+// specify the start and end of a tranche.
+func createIndices(numCases, numTranches uint) [][2]uint {
+	// Calculate base value and remainder.
+	base := numCases / numTranches
+	remainder := numCases % numTranches
+
+	// Generate indices.
+	indices := make([][2]uint, numTranches)
+	start := uint(0)
+
+	for i := uint(0); i < numTranches; i++ {
+		end := start + base
+		if i < remainder {
+			// Add one for the remainder.
+			end++
+		}
+		indices[i] = [2]uint{start, end}
+		start = end
+	}
+
+	return indices
 }
 
 // getTestCaseSplitTranche returns the sub slice of the test cases that should
@@ -178,13 +220,13 @@ func getTestCaseSplitTranche() ([]*lntest.TestCase, uint, uint) {
 		runTranche = 0
 	}
 
+	// Shuffle the test cases if the `shuffleseed` flag is set.
+	maybeShuffleTestCases()
+
 	numCases := uint(len(allTestCases))
-	testsPerTranche := numCases / numTranches
-	trancheOffset := runTranche * testsPerTranche
-	trancheEnd := trancheOffset + testsPerTranche
-	if trancheEnd > numCases || runTranche == numTranches-1 {
-		trancheEnd = numCases
-	}
+	indices := createIndices(numCases, numTranches)
+	index := indices[runTranche]
+	trancheOffset, trancheEnd := index[0], index[1]
 
 	return allTestCases[trancheOffset:trancheEnd], threadID,
 		trancheOffset
@@ -210,6 +252,16 @@ func getLndBinary(t *testing.T) string {
 	}
 
 	return binary
+}
+
+// isDarwin returns true if the test is running on a macOS.
+func isDarwin() bool {
+	return runtime.GOOS == "darwin"
+}
+
+// isWindowsOS returns true if the test is running on a Windows OS.
+func isWindowsOS() bool {
+	return runtime.GOOS == "windows"
 }
 
 func init() {

@@ -17,10 +17,11 @@ import (
 // would otherwise trigger force closes when they expire.
 func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// Open a channel between alice and bob.
-	alice, bob := ht.Alice, ht.Bob
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: 300000},
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil}, lntest.OpenChannelParams{Amt: 300000},
 	)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Create a non-dust hold invoice for bob.
 	var (
@@ -29,7 +30,7 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	)
 	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 		Value:      30000,
-		CltvExpiry: 40,
+		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
 	}
 	bobInvoice := bob.RPC.AddHoldInvoice(invoiceReq)
@@ -139,7 +140,4 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	// outgoing HTLCs in her channel as the only HTLC has already been
 	// canceled.
 	ht.AssertNumPendingForceClose(alice, 0)
-
-	// Clean up the channel.
-	ht.CloseChannel(alice, chanPoint)
 }

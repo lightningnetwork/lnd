@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -39,9 +38,8 @@ func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
 		"--maxbackoff=1m",
 	}
 
-	alice, bob := ht.Alice, ht.Bob
-	ht.RestartNodeWithExtraArgs(alice, args)
-	ht.RestartNodeWithExtraArgs(bob, args)
+	alice := ht.NewNodeWithCoins("Alice", args)
+	bob := ht.NewNodeWithCoins("Bob", args)
 
 	// Start by connecting Alice and Bob with no channels.
 	ht.EnsureConnected(alice, bob)
@@ -157,7 +155,6 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 			Amt: chanAmt,
 		},
 	)
-	defer ht.CloseChannel(fred, chanPointFC)
 
 	// Now that the channel is open, create an invoice for Dave which
 	// expects a payment of 1000 satoshis from Carol paid via a particular
@@ -226,9 +223,6 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// unaltered.
 	ht.AssertAmountPaid("carol => dave", carol, chanPoint, 0, 0)
 	ht.AssertAmountPaid("dave <= carol", dave, chanPoint, 0, 0)
-
-	// Cleanup by mining the force close and sweep transaction.
-	ht.ForceCloseChannel(carol, chanPoint)
 }
 
 // testListChannels checks that the response from ListChannels is correct. It
@@ -239,17 +233,11 @@ func testListChannels(ht *lntest.HarnessTest) {
 	const aliceRemoteMaxHtlcs = 50
 	const bobRemoteMaxHtlcs = 100
 
-	// Get the standby nodes and open a channel between them.
-	alice, bob := ht.Alice, ht.Bob
-
 	args := []string{fmt.Sprintf(
 		"--default-remote-max-htlcs=%v",
 		bobRemoteMaxHtlcs,
 	)}
-	ht.RestartNodeWithExtraArgs(bob, args)
-
-	// Connect Alice to Bob.
-	ht.EnsureConnected(alice, bob)
+	cfgs := [][]string{nil, args}
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
 	// being the sole funder of the channel. The minial HTLC amount is set
@@ -264,8 +252,10 @@ func testListChannels(ht *lntest.HarnessTest) {
 		MinHtlc:        customizedMinHtlc,
 		RemoteMaxHtlcs: aliceRemoteMaxHtlcs,
 	}
-	chanPoint := ht.OpenChannel(alice, bob, p)
-	defer ht.CloseChannel(alice, chanPoint)
+
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	// Alice should have one channel opened with Bob.
 	ht.AssertNodeNumChannels(alice, 1)
@@ -369,7 +359,7 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 	}
 	carol := ht.NewNode("Carol", args)
 
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.ConnectNodes(alice, carol)
 
 	carolBalance := btcutil.Amount(maxPendingChannels) * amount
@@ -425,12 +415,6 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 
 		chanPoints[i] = fundingChanPoint
 	}
-
-	// Next, close the channel between Alice and Carol, asserting that the
-	// channel has been properly closed on-chain.
-	for _, chanPoint := range chanPoints {
-		ht.CloseChannel(alice, chanPoint)
-	}
 }
 
 // testGarbageCollectLinkNodes tests that we properly garbage collect link
@@ -439,7 +423,9 @@ func testMaxPendingChannels(ht *lntest.HarnessTest) {
 func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	const chanAmt = 1000000
 
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel between Alice and Bob which will later be
 	// cooperatively closed.
@@ -467,7 +453,7 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 
 	ht.ConnectNodes(alice, dave)
-	persistentChanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		alice, dave, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -519,12 +505,6 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 	// close the channel instead.
 	ht.ForceCloseChannel(alice, forceCloseChanPoint)
 
-	// We'll need to mine some blocks in order to mark the channel fully
-	// closed.
-	ht.MineBlocks(
-		chainreg.DefaultBitcoinTimeLockDelta - defaultCSV,
-	)
-
 	// Before we test reconnection, we'll ensure that the channel has been
 	// fully cleaned up for both Carol and Alice.
 	ht.AssertNumPendingForceClose(alice, 0)
@@ -540,9 +520,6 @@ func testGarbageCollectLinkNodes(ht *lntest.HarnessTest) {
 		"did not expect to find bob in the channel graph, but did")
 	require.NotContains(ht, channelGraph.Nodes, carol.PubKeyStr,
 		"did not expect to find carol in the channel graph, but did")
-
-	// Now that the test is done, we can also close the persistent link.
-	ht.CloseChannel(alice, persistentChanPoint)
 }
 
 // testRejectHTLC tests that a node can be created with the flag --rejecthtlc.
@@ -553,7 +530,8 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 	// Alice ------> Carol ------> Bob
 	//
 	const chanAmt = btcutil.Amount(1000000)
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
 
 	// Create Carol with reject htlc flag.
 	carol := ht.NewNode("Carol", []string{"--rejecthtlc"})
@@ -568,14 +546,14 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	// Open a channel between Alice and Carol.
-	chanPointAlice := ht.OpenChannel(
+	ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
 	)
 
 	// Open a channel between Carol and Bob.
-	chanPointCarol := ht.OpenChannel(
+	ht.OpenChannel(
 		carol, bob, lntest.OpenChannelParams{
 			Amt: chanAmt,
 		},
@@ -638,10 +616,6 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 	)
 
 	ht.AssertLastHTLCError(alice, lnrpc.Failure_CHANNEL_DISABLED)
-
-	// Close all channels.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // testNodeSignVerify checks that only connected nodes are allowed to perform
@@ -649,15 +623,15 @@ func testRejectHTLC(ht *lntest.HarnessTest) {
 func testNodeSignVerify(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := btcutil.Amount(100000)
-	alice, bob := ht.Alice, ht.Bob
+	p := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+	}
 
 	// Create a channel between alice and bob.
-	aliceBobCh := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-		},
-	)
+	cfgs := [][]string{nil, nil}
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob := nodes[0], nodes[1]
 
 	// alice signs "alice msg" and sends her signature to bob.
 	aliceMsg := []byte("alice msg")
@@ -685,23 +659,23 @@ func testNodeSignVerify(ht *lntest.HarnessTest) {
 	require.False(ht, verifyResp.Valid, "carol's signature didn't validate")
 	require.Equal(ht, verifyResp.Pubkey, carol.PubKeyStr,
 		"carol's signature doesn't contain alice's pubkey.")
-
-	// Close the channel between alice and bob.
-	ht.CloseChannel(alice, aliceBobCh)
 }
 
 // testAbandonChannel abandons a channel and asserts that it is no longer open
 // and not in one of the pending closure states. It also verifies that the
 // abandoned channel is reported as closed with close type 'abandoned'.
 func testAbandonChannel(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
-
 	// First establish a channel between Alice and Bob.
 	channelParam := lntest.OpenChannelParams{
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: btcutil.Amount(100000),
 	}
-	chanPoint := ht.OpenChannel(alice, bob, channelParam)
+
+	// Create a channel between alice and bob.
+	cfgs := [][]string{nil, nil}
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, channelParam)
+	alice := nodes[0]
+	chanPoint := chanPoints[0]
 
 	// Now that the channel is open, we'll obtain its channel ID real quick
 	// so we can use it to query the graph below.
@@ -753,16 +727,13 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 	// Calling AbandonChannel again, should result in no new errors, as the
 	// channel has already been removed.
 	alice.RPC.AbandonChannel(abandonChannelRequest)
-
-	// Now that we're done with the test, the channel can be closed. This
-	// is necessary to avoid unexpected outcomes of other tests that use
-	// Bob's lnd instance.
-	ht.ForceCloseChannel(bob, chanPoint)
 }
 
 // testSendAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
 func testSendAllCoins(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+
 	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	//
@@ -789,7 +760,7 @@ func testSendAllCoins(ht *lntest.HarnessTest) {
 
 	// Ensure that we can't send coins to another user's Pubkey.
 	err = ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
+		Addr:       alice.RPC.GetInfo().IdentityPubkey,
 		SendAll:    true,
 		Label:      sendCoinsLabel,
 		TargetConf: 6,
@@ -1160,7 +1131,8 @@ func assertChannelConstraintsEqual(ht *lntest.HarnessTest,
 // on a message with a provided address.
 func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	// Using different nodes to sign the message and verify the signature.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNode("Alice,", nil)
+	bob := ht.NewNode("Bob,", nil)
 
 	// Test an lnd wallet created P2WKH address.
 	respAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
@@ -1277,7 +1249,7 @@ func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 // up with native SQL enabled, as we don't currently support migration of KV
 // invoices to the new SQL schema.
 func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
-	alice := ht.Alice
+	alice := ht.NewNode("Alice", nil)
 
 	// Make sure we run the test with SQLite or Postgres.
 	if alice.Cfg.DBBackend != node.BackendSqlite &&

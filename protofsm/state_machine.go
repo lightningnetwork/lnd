@@ -25,6 +25,9 @@ var (
 	// ErrStateMachineShutdown occurs when trying to feed an event to a
 	// StateMachine that has been asked to Stop.
 	ErrStateMachineShutdown = fmt.Errorf("StateMachine is shutting down")
+
+	// background is a shortcut for context.Background.
+	background = context.Background()
 )
 
 // EmittedEvent is a special type that can be emitted by a state transition.
@@ -200,7 +203,7 @@ func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env]
 		cfg:            cfg,
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
-		wg:             *fn.NewGoroutineManager(context.Background()),
+		wg:             *fn.NewGoroutineManager(),
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 		quit:           make(chan struct{}),
 	}
@@ -210,7 +213,7 @@ func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env]
 // the state machine to completion.
 func (s *StateMachine[Event, Env]) Start() {
 	s.startOnce.Do(func() {
-		_ = s.wg.Go(func(ctx context.Context) {
+		_ = s.wg.Go(background, func(ctx context.Context) {
 			s.driveMachine()
 		})
 	})
@@ -355,15 +358,19 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
 			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
-				launched := s.wg.Go(func(ctx context.Context) {
-					log.Debugf("FSM(%v): sending "+
-						"post-send event: %v",
-						s.cfg.Env.Name(),
-						lnutils.SpewLogClosure(event),
-					)
+				launched := s.wg.Go(
+					background, func(ctx context.Context) {
+						log.Debugf("FSM(%v): sending "+
+							"post-send event: %v",
+							s.cfg.Env.Name(),
+							lnutils.SpewLogClosure(
+								event,
+							),
+						)
 
-					s.SendEvent(event)
-				})
+						s.SendEvent(event)
+					},
+				)
 
 				if !launched {
 					return ErrStateMachineShutdown
@@ -382,7 +389,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 		// Otherwise, this has a SendWhen predicate, so we'll need
 		// launch a goroutine to poll the SendWhen, then send only once
 		// the predicate is true.
-		launched := s.wg.Go(func(ctx context.Context) {
+		launched := s.wg.Go(background, func(ctx context.Context) {
 			predicateTicker := time.NewTicker(
 				s.cfg.CustomPollInterval.UnwrapOr(pollInterval),
 			)
@@ -456,7 +463,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register spend: %w", err)
 		}
 
-		launched := s.wg.Go(func(ctx context.Context) {
+		launched := s.wg.Go(background, func(ctx context.Context) {
 			for {
 				select {
 				case spend, ok := <-spendEvent.Spend:
@@ -502,7 +509,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register conf: %w", err)
 		}
 
-		launched := s.wg.Go(func(ctx context.Context) {
+		launched := s.wg.Go(background, func(ctx context.Context) {
 			for {
 				select {
 				case <-confEvent.Confirmed:

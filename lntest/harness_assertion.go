@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -738,15 +739,19 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 		channeldb.ChanStatusLocalCloseInitiator.String(),
 		"channel not coop broadcasted")
 
+	// Get the closing txid.
+	closeTxid, err := chainhash.NewHashFromStr(resp.ClosingTxid)
+	require.NoError(h, err)
+
 	// We'll now, generate a single block, wait for the final close status
 	// update, then ensure that the closing transaction was included in the
 	// block.
-	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
+	closeTx := h.AssertTxInMempool(*closeTxid)
+	h.MineBlockWithTx(closeTx)
 
 	// Consume one close event and assert the closing txid can be found in
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
-	h.AssertTxInBlock(block, closingTxid)
 
 	// We should see zero waiting close channels and 1 pending force close
 	// channels now.
@@ -1309,58 +1314,6 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *node.HarnessNode, num int) {
 		hn.Name())
 }
 
-// AssertActiveHtlcs makes sure the node has the _exact_ HTLCs matching
-// payHashes on _all_ their channels.
-func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
-	payHashes ...[]byte) {
-
-	err := wait.NoError(func() error {
-		// We require the RPC call to be succeeded and won't wait for
-		// it as it's an unexpected behavior.
-		req := &lnrpc.ListChannelsRequest{}
-		nodeChans := hn.RPC.ListChannels(req)
-
-		for _, ch := range nodeChans.Channels {
-			// Record all payment hashes active for this channel.
-			htlcHashes := make(map[string]struct{})
-
-			for _, htlc := range ch.PendingHtlcs {
-				h := hex.EncodeToString(htlc.HashLock)
-				_, ok := htlcHashes[h]
-				if ok {
-					return fmt.Errorf("duplicate HashLock "+
-						"in PendingHtlcs: %v",
-						ch.PendingHtlcs)
-				}
-				htlcHashes[h] = struct{}{}
-			}
-
-			// Channel should have exactly the payHashes active.
-			if len(payHashes) != len(htlcHashes) {
-				return fmt.Errorf("node [%s:%x] had %v "+
-					"htlcs active, expected %v",
-					hn.Name(), hn.PubKey[:],
-					len(htlcHashes), len(payHashes))
-			}
-
-			// Make sure all the payHashes are active.
-			for _, payHash := range payHashes {
-				h := hex.EncodeToString(payHash)
-				if _, ok := htlcHashes[h]; ok {
-					continue
-				}
-
-				return fmt.Errorf("node [%s:%x] didn't have: "+
-					"the payHash %v active", hn.Name(),
-					hn.PubKey[:], h)
-			}
-		}
-
-		return nil
-	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking active HTLCs")
-}
-
 // AssertIncomingHTLCActive asserts the node has a pending incoming HTLC in the
 // given channel. Returns the HTLC if found and active.
 func (h *HarnessTest) AssertIncomingHTLCActive(hn *node.HarnessNode,
@@ -1609,8 +1562,9 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 		}
 
 		if len(target.PendingHtlcs) != num {
-			return fmt.Errorf("got %d pending htlcs, want %d",
-				len(target.PendingHtlcs), num)
+			return fmt.Errorf("got %d pending htlcs, want %d, %s",
+				len(target.PendingHtlcs), num,
+				lnutils.SpewLogClosure(target.PendingHtlcs)())
 		}
 
 		for i, htlc := range target.PendingHtlcs {
@@ -2785,4 +2739,49 @@ func (h *HarnessTest) FindSweepingTxns(txns []*wire.MsgTx,
 	require.Len(h, sweepTxns, expectedNumSweeps, "unexpected num of sweeps")
 
 	return sweepTxns
+}
+
+// AssertForceCloseAndAnchorTxnsInMempool asserts that the force close and
+// anchor sweep txns are found in the mempool and returns the force close tx
+// and the anchor sweep tx.
+func (h *HarnessTest) AssertForceCloseAndAnchorTxnsInMempool() (*wire.MsgTx,
+	*wire.MsgTx) {
+
+	// Assert there are two txns in the mempool.
+	txns := h.GetNumTxsFromMempool(2)
+
+	// isParentAndChild checks whether there is an input used in the
+	// assumed child tx by checking every input's previous outpoint against
+	// the assumed parentTxid.
+	isParentAndChild := func(parent, child *wire.MsgTx) bool {
+		parentTxid := parent.TxHash()
+
+		for _, inp := range child.TxIn {
+			if inp.PreviousOutPoint.Hash == parentTxid {
+				// Found a match, this is indeed the anchor
+				// sweeping tx so we return it here.
+				return true
+			}
+		}
+
+		return false
+	}
+
+	switch {
+	// Assume the first one is the closing tx and the second one is the
+	// anchor sweeping tx.
+	case isParentAndChild(txns[0], txns[1]):
+		return txns[0], txns[1]
+
+	// Assume the first one is the anchor sweeping tx and the second one is
+	// the closing tx.
+	case isParentAndChild(txns[1], txns[0]):
+		return txns[1], txns[0]
+
+	// Unrelated txns found, fail the test.
+	default:
+		h.Fatalf("the two txns not related: %v", txns)
+
+		return nil, nil
+	}
 }

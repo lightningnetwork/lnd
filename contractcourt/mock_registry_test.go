@@ -29,6 +29,11 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 	wireCustomRecords lnwire.CustomRecords,
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
+	// Exit early if the notification channel is nil.
+	if hodlChan == nil {
+		return r.notifyResolution, r.notifyErr
+	}
+
 	r.notifyChan <- notifyExitHopData{
 		hodlChan:      hodlChan,
 		payHash:       payHash,

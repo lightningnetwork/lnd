@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -11,9 +12,6 @@ import (
 // future, this will likely take over the duties the current BreachArbitrator
 // has.
 type breachResolver struct {
-	// resolved reflects if the contract has been fully resolved or not.
-	resolved bool
-
 	// subscribed denotes whether or not the breach resolver has subscribed
 	// to the BreachArbitrator for breach resolution.
 	subscribed bool
@@ -32,7 +30,7 @@ func newBreachResolver(resCfg ResolverConfig) *breachResolver {
 		replyChan:           make(chan struct{}),
 	}
 
-	r.initLogger(r)
+	r.initLogger(fmt.Sprintf("%T(%v)", r, r.ChanPoint))
 
 	return r
 }
@@ -46,8 +44,10 @@ func (b *breachResolver) ResolverKey() []byte {
 // Resolve queries the BreachArbitrator to see if the justice transaction has
 // been broadcast.
 //
+// NOTE: Part of the ContractResolver interface.
+//
 // TODO(yy): let sweeper handle the breach inputs.
-func (b *breachResolver) Resolve(_ bool) (ContractResolver, error) {
+func (b *breachResolver) Resolve() (ContractResolver, error) {
 	if !b.subscribed {
 		complete, err := b.SubscribeBreachComplete(
 			&b.ChanPoint, b.replyChan,
@@ -59,7 +59,7 @@ func (b *breachResolver) Resolve(_ bool) (ContractResolver, error) {
 		// If the breach resolution process is already complete, then
 		// we can cleanup and checkpoint the resolved state.
 		if complete {
-			b.resolved = true
+			b.markResolved()
 			return nil, b.Checkpoint(b)
 		}
 
@@ -72,8 +72,9 @@ func (b *breachResolver) Resolve(_ bool) (ContractResolver, error) {
 		// The replyChan has been closed, signalling that the breach
 		// has been fully resolved. Checkpoint the resolved state and
 		// exit.
-		b.resolved = true
+		b.markResolved()
 		return nil, b.Checkpoint(b)
+
 	case <-b.quit:
 	}
 
@@ -82,13 +83,8 @@ func (b *breachResolver) Resolve(_ bool) (ContractResolver, error) {
 
 // Stop signals the breachResolver to stop.
 func (b *breachResolver) Stop() {
+	b.log.Debugf("stopping...")
 	close(b.quit)
-}
-
-// IsResolved returns true if the breachResolver is fully resolved and cleanup
-// can occur.
-func (b *breachResolver) IsResolved() bool {
-	return b.resolved
 }
 
 // SupplementState adds additional state to the breachResolver.
@@ -97,7 +93,7 @@ func (b *breachResolver) SupplementState(_ *channeldb.OpenChannel) {
 
 // Encode encodes the breachResolver to the passed writer.
 func (b *breachResolver) Encode(w io.Writer) error {
-	return binary.Write(w, endian, b.resolved)
+	return binary.Write(w, endian, b.IsResolved())
 }
 
 // newBreachResolverFromReader attempts to decode an encoded breachResolver
@@ -110,11 +106,15 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		replyChan:           make(chan struct{}),
 	}
 
-	if err := binary.Read(r, endian, &b.resolved); err != nil {
+	var resolved bool
+	if err := binary.Read(r, endian, &resolved); err != nil {
 		return nil, err
 	}
+	if resolved {
+		b.markResolved()
+	}
 
-	b.initLogger(b)
+	b.initLogger(fmt.Sprintf("%T(%v)", b, b.ChanPoint))
 
 	return b, nil
 }
@@ -122,3 +122,21 @@ func newBreachResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 // A compile time assertion to ensure breachResolver meets the ContractResolver
 // interface.
 var _ ContractResolver = (*breachResolver)(nil)
+
+// Launch offers the breach outputs to the sweeper - currently it's a NOOP as
+// the outputs here are not offered to the sweeper.
+//
+// NOTE: Part of the ContractResolver interface.
+//
+// TODO(yy): implement it once the outputs are offered to the sweeper.
+func (b *breachResolver) Launch() error {
+	if b.isLaunched() {
+		b.log.Tracef("already launched")
+		return nil
+	}
+
+	b.log.Debugf("launching resolver...")
+	b.markLaunched()
+
+	return nil
+}

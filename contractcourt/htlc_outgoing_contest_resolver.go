@@ -1,7 +1,6 @@
 package contractcourt
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -36,6 +35,37 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 	}
 }
 
+// Launch will call the inner resolver's launch method if the expiry height has
+// been reached, otherwise it's a no-op.
+func (h *htlcOutgoingContestResolver) Launch() error {
+	// NOTE: we don't mark this resolver as launched as the inner resolver
+	// will set it when it's launched.
+	if h.isLaunched() {
+		h.log.Tracef("already launched")
+		return nil
+	}
+
+	h.log.Debugf("launching contest resolver...")
+
+	_, bestHeight, err := h.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	if uint32(bestHeight) < h.htlcResolution.Expiry {
+		return nil
+	}
+
+	// If the current height is >= expiry, then a timeout path spend will
+	// be valid to be included in the next block, and we can immediately
+	// return the resolver.
+	h.log.Infof("expired (height=%v, expiry=%v), transforming into "+
+		"timeout resolver and launching it", bestHeight,
+		h.htlcResolution.Expiry)
+
+	return h.htlcTimeoutResolver.Launch()
+}
+
 // Resolve commences the resolution of this contract. As this contract hasn't
 // yet timed out, we'll wait for one of two things to happen
 //
@@ -49,12 +79,11 @@ func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 // When either of these two things happens, we'll create a new resolver which
 // is able to handle the final resolution of the contract. We're only the pivot
 // point.
-func (h *htlcOutgoingContestResolver) Resolve(
-	_ bool) (ContractResolver, error) {
-
+func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 	// If we're already full resolved, then we don't have anything further
 	// to do.
-	if h.resolved {
+	if h.IsResolved() {
+		h.log.Errorf("already resolved")
 		return nil, nil
 	}
 
@@ -88,8 +117,7 @@ func (h *htlcOutgoingContestResolver) Resolve(
 			return nil, errResolverShuttingDown
 		}
 
-		// TODO(roasbeef): Checkpoint?
-		return h.claimCleanUp(commitSpend)
+		return nil, h.claimCleanUp(commitSpend)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
 	// sweeping out this output.
@@ -126,12 +154,20 @@ func (h *htlcOutgoingContestResolver) Resolve(
 			// finalized` will be returned and the broadcast will
 			// fail.
 			newHeight := uint32(newBlock.Height)
-			if newHeight >= h.htlcResolution.Expiry {
-				log.Infof("%T(%v): HTLC has expired "+
+			expiry := h.htlcResolution.Expiry
+
+			// Check if the expiry height is about to be reached.
+			// We offer this HTLC one block earlier to make sure
+			// when the next block arrives, the sweeper will pick
+			// up this input and sweep it immediately. The sweeper
+			// will handle the waiting for the one last block till
+			// expiry.
+			if newHeight >= expiry-1 {
+				h.log.Infof("HTLC about to expire "+
 					"(height=%v, expiry=%v), transforming "+
-					"into timeout resolver", h,
-					h.htlcResolution.ClaimOutpoint,
-					newHeight, h.htlcResolution.Expiry)
+					"into timeout resolver", newHeight,
+					h.htlcResolution.Expiry)
+
 				return h.htlcTimeoutResolver, nil
 			}
 
@@ -146,10 +182,10 @@ func (h *htlcOutgoingContestResolver) Resolve(
 			// party is by revealing the preimage. So we'll perform
 			// our duties to clean up the contract once it has been
 			// claimed.
-			return h.claimCleanUp(commitSpend)
+			return nil, h.claimCleanUp(commitSpend)
 
 		case <-h.quit:
-			return nil, fmt.Errorf("resolver canceled")
+			return nil, errResolverShuttingDown
 		}
 	}
 }
@@ -180,15 +216,9 @@ func (h *htlcOutgoingContestResolver) report() *ContractReport {
 //
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Stop() {
+	h.log.Debugf("stopping...")
+	defer h.log.Debugf("stopped")
 	close(h.quit)
-}
-
-// IsResolved returns true if the stored state in the resolve is fully
-// resolved. In this case the target output can be forgotten.
-//
-// NOTE: Part of the ContractResolver interface.
-func (h *htlcOutgoingContestResolver) IsResolved() bool {
-	return h.resolved
 }
 
 // Encode writes an encoded version of the ContractResolver into the passed

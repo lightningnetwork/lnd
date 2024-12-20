@@ -156,7 +156,7 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 				TimeoutSeconds: 60,
 				FeeLimitMsat:   noFeeLimitMsat,
 			}
-			alice.RPC.SendPayment(req)
+			ht.SendPaymentAssertInflight(alice, req)
 		}()
 	}
 

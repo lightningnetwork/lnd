@@ -6,18 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -583,8 +578,8 @@ func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// a transaction that will never be published.
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
-	fundingShim1, chanPoint1 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, false, commitmentType,
+	fundingShim1, chanPoint1 := ht.DeriveFundingShim(
+		carol, dave, chanSize, thawHeight, false, commitmentType,
 	)
 	ht.OpenChannelAssertPending(
 		carol, dave, lntest.OpenChannelParams{
@@ -599,8 +594,8 @@ func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// externally funded, we should still be able to open another one. Let's
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
-	fundingShim2, chanPoint2 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, true, commitmentType,
+	fundingShim2, chanPoint2 := ht.DeriveFundingShim(
+		carol, dave, chanSize, thawHeight, true, commitmentType,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
@@ -699,8 +694,8 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// a transaction that will never be published.
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
-	fundingShim1, chanPoint1 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, false, commitmentType,
+	fundingShim1, chanPoint1 := ht.DeriveFundingShim(
+		carol, dave, chanSize, thawHeight, false, commitmentType,
 	)
 	ht.OpenChannelAssertPending(carol, dave, lntest.OpenChannelParams{
 		Amt:            chanSize,
@@ -715,8 +710,8 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// externally funded, we should still be able to open another one. Let's
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
-	fundingShim2, chanPoint2 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, true, commitmentType,
+	fundingShim2, chanPoint2 := ht.DeriveFundingShim(
+		carol, dave, chanSize, thawHeight, true, commitmentType,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
@@ -1163,122 +1158,6 @@ func ensurePolicy(ht *lntest.HarnessTest, alice, peer *node.HarnessNode,
 	require.EqualValues(ht, expectedFeeRate, alicePolicy.FeeRateMilliMsat)
 }
 
-// deriveFundingShim creates a channel funding shim by deriving the necessary
-// keys on both sides.
-func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
-	chanSize btcutil.Amount, thawHeight uint32, publish bool,
-	commitType lnrpc.CommitmentType) (*lnrpc.FundingShim,
-	*lnrpc.ChannelPoint) {
-
-	keyLoc := &signrpc.KeyLocator{KeyFamily: 9999}
-	carolFundingKey := carol.RPC.DeriveKey(keyLoc)
-	daveFundingKey := dave.RPC.DeriveKey(keyLoc)
-
-	// Now that we have the multi-sig keys for each party, we can manually
-	// construct the funding transaction. We'll instruct the backend to
-	// immediately create and broadcast a transaction paying out an exact
-	// amount. Normally this would reside in the mempool, but we just
-	// confirm it now for simplicity.
-	var (
-		fundingOutput *wire.TxOut
-		musig2        bool
-		err           error
-	)
-	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		var carolKey, daveKey *btcec.PublicKey
-		carolKey, err = btcec.ParsePubKey(carolFundingKey.RawKeyBytes)
-		require.NoError(ht, err)
-		daveKey, err = btcec.ParsePubKey(daveFundingKey.RawKeyBytes)
-		require.NoError(ht, err)
-
-		_, fundingOutput, err = input.GenTaprootFundingScript(
-			carolKey, daveKey, int64(chanSize),
-			fn.None[chainhash.Hash](),
-		)
-		require.NoError(ht, err)
-
-		musig2 = true
-	} else {
-		_, fundingOutput, err = input.GenFundingPkScript(
-			carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
-			int64(chanSize),
-		)
-		require.NoError(ht, err)
-	}
-
-	var txid *chainhash.Hash
-	targetOutputs := []*wire.TxOut{fundingOutput}
-	if publish {
-		txid = ht.SendOutputsWithoutChange(targetOutputs, 5)
-	} else {
-		tx := ht.CreateTransaction(targetOutputs, 5)
-
-		txHash := tx.TxHash()
-		txid = &txHash
-	}
-
-	// At this point, we can being our external channel funding workflow.
-	// We'll start by generating a pending channel ID externally that will
-	// be used to track this new funding type.
-	pendingChanID := ht.Random32Bytes()
-
-	// Now that we have the pending channel ID, Dave (our responder) will
-	// register the intent to receive a new channel funding workflow using
-	// the pending channel ID.
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: txid[:],
-		},
-	}
-	chanPointShim := &lnrpc.ChanPointShim{
-		Amt:       int64(chanSize),
-		ChanPoint: chanPoint,
-		LocalKey: &lnrpc.KeyDescriptor{
-			RawKeyBytes: daveFundingKey.RawKeyBytes,
-			KeyLoc: &lnrpc.KeyLocator{
-				KeyFamily: daveFundingKey.KeyLoc.KeyFamily,
-				KeyIndex:  daveFundingKey.KeyLoc.KeyIndex,
-			},
-		},
-		RemoteKey:     carolFundingKey.RawKeyBytes,
-		PendingChanId: pendingChanID,
-		ThawHeight:    thawHeight,
-		Musig2:        musig2,
-	}
-	fundingShim := &lnrpc.FundingShim{
-		Shim: &lnrpc.FundingShim_ChanPointShim{
-			ChanPointShim: chanPointShim,
-		},
-	}
-	dave.RPC.FundingStateStep(&lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-
-	// If we attempt to register the same shim (has the same pending chan
-	// ID), then we should get an error.
-	dave.RPC.FundingStateStepAssertErr(&lnrpc.FundingTransitionMsg{
-		Trigger: &lnrpc.FundingTransitionMsg_ShimRegister{
-			ShimRegister: fundingShim,
-		},
-	})
-
-	// We'll take the chan point shim we just registered for Dave (the
-	// responder), and swap the local/remote keys before we feed it in as
-	// Carol's funding shim as the initiator.
-	fundingShim.GetChanPointShim().LocalKey = &lnrpc.KeyDescriptor{
-		RawKeyBytes: carolFundingKey.RawKeyBytes,
-		KeyLoc: &lnrpc.KeyLocator{
-			KeyFamily: carolFundingKey.KeyLoc.KeyFamily,
-			KeyIndex:  carolFundingKey.KeyLoc.KeyIndex,
-		},
-	}
-	fundingShim.GetChanPointShim().RemoteKey = daveFundingKey.RawKeyBytes
-
-	return fundingShim, chanPoint
-}
-
 // testChannelFundingWithUnstableUtxos tests channel openings with restricted
 // utxo selection. Internal wallet utxos might be restricted due to another
 // subsystems still using it therefore it would be unsecure to use them for
@@ -1297,6 +1176,7 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol := ht.NewNode("carol", nil)
+
 	// We'll attempt at max 2 pending channels, so Dave will need to accept
 	// two pending ones.
 	dave := ht.NewNode("dave", []string{
@@ -1375,9 +1255,6 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
-
 	// We need to wait for carol initiating the sweep of the to_remote
 	// output of chanPoint2.
 	utxo := ht.AssertNumUTXOsUnconfirmed(carol, 1)[0]
@@ -1434,9 +1311,6 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
-
-	// Mine one block to trigger the sweep transaction.
-	ht.MineEmptyBlocks(1)
 
 	// Wait for the to_remote sweep tx to show up in carol's wallet.
 	ht.AssertNumUTXOsUnconfirmed(carol, 1)

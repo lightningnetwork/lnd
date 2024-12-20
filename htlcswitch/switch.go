@@ -1606,7 +1606,7 @@ out:
 				}
 			}
 
-			log.Infof("Received outside contract resolution, "+
+			log.Debugf("Received outside contract resolution, "+
 				"mapping to: %v", spew.Sdump(pkt))
 
 			// We don't check the error, as the only failure we can

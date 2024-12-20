@@ -77,7 +77,6 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 		ChainIO: &mock.ChainIO{},
 		Notifier: &mock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
@@ -91,7 +90,8 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 		chainArbCfg, db,
 	)
 
-	if err := chainArb.Start(); err != nil {
+	beat := newBeatFromHeight(0)
+	if err := chainArb.Start(beat); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -158,7 +158,6 @@ func TestResolveContract(t *testing.T) {
 		ChainIO: &mock.ChainIO{},
 		Notifier: &mock.ChainNotifier{
 			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
 			ConfChan:  make(chan *chainntnfs.TxConfirmation),
 		},
 		PublishTx: func(tx *wire.MsgTx, _ string) error {
@@ -175,7 +174,8 @@ func TestResolveContract(t *testing.T) {
 	chainArb := NewChainArbitrator(
 		chainArbCfg, db,
 	)
-	if err := chainArb.Start(); err != nil {
+	beat := newBeatFromHeight(0)
+	if err := chainArb.Start(beat); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

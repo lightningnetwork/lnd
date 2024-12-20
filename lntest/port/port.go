@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
 const (
@@ -45,7 +47,7 @@ func NextAvailablePort() int {
 	defer portFileMutex.Unlock()
 
 	lockFile := filepath.Join(os.TempDir(), uniquePortFile+".lock")
-	timeout := time.After(time.Second)
+	timeout := time.After(wait.DefaultTimeout)
 
 	var (
 		lockFileHandle *os.File

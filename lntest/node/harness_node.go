@@ -636,12 +636,11 @@ func (hn *HarnessNode) cleanup() error {
 // waitForProcessExit Launch a new goroutine which that bubbles up any
 // potential fatal process errors to the goroutine running the tests.
 func (hn *HarnessNode) WaitForProcessExit() error {
-	var err error
+	var errReturned error
 
 	errChan := make(chan error, 1)
 	go func() {
-		err = hn.cmd.Wait()
-		errChan <- err
+		errChan <- hn.cmd.Wait()
 	}()
 
 	select {
@@ -656,24 +655,36 @@ func (hn *HarnessNode) WaitForProcessExit() error {
 			return nil
 		}
 
+		// The process may have already been killed in the test, in
+		// that case we will skip the error and continue processing
+		// the logs.
+		if strings.Contains(err.Error(), "signal: killed") {
+			break
+		}
+
 		// Otherwise, we print the error, break the select and save
 		// logs.
 		hn.printErrf("wait process exit got err: %v", err)
-
-		break
+		errReturned = err
 
 	case <-time.After(wait.DefaultTimeout):
 		hn.printErrf("timeout waiting for process to exit")
 	}
 
 	// Make sure log file is closed and renamed if necessary.
-	finalizeLogfile(hn)
+	filename := finalizeLogfile(hn)
 
-	// Rename the etcd.log file if the node was running on embedded
-	// etcd.
+	// Assert the node has shut down from the log file.
+	err1 := assertNodeShutdown(filename)
+	if err1 != nil {
+		return fmt.Errorf("[%s]: assert shutdown failed in log[%s]: %w",
+			hn.Name(), filename, err1)
+	}
+
+	// Rename the etcd.log file if the node was running on embedded etcd.
 	finalizeEtcdLog(hn)
 
-	return err
+	return errReturned
 }
 
 // Stop attempts to stop the active lnd process.
@@ -700,23 +711,21 @@ func (hn *HarnessNode) Stop() error {
 
 		err := wait.NoError(func() error {
 			_, err := hn.RPC.LN.StopDaemon(ctxt, &req)
-
-			switch {
-			case err == nil:
-				return nil
-
-			// Try again if a recovery/rescan is in progress.
-			case strings.Contains(
-				err.Error(), "recovery in progress",
-			):
-				return err
-
-			default:
+			if err == nil {
 				return nil
 			}
+
+			// If the connection is already closed, we can exit
+			// early as the node has already been shut down in the
+			// test, e.g., in etcd leader health check test.
+			if strings.Contains(err.Error(), "connection refused") {
+				return nil
+			}
+
+			return err
 		}, wait.DefaultTimeout)
 		if err != nil {
-			return err
+			return fmt.Errorf("shutdown timeout: %w", err)
 		}
 
 		// Wait for goroutines to be finished.
@@ -724,6 +733,7 @@ func (hn *HarnessNode) Stop() error {
 		go func() {
 			hn.Watcher.wg.Wait()
 			close(done)
+			hn.Watcher = nil
 		}()
 
 		// If the goroutines fail to finish before timeout, we'll print
@@ -966,23 +976,76 @@ func getFinalizedLogFilePrefix(hn *HarnessNode) string {
 
 // finalizeLogfile makes sure the log file cleanup function is initialized,
 // even if no log file is created.
-func finalizeLogfile(hn *HarnessNode) {
+func finalizeLogfile(hn *HarnessNode) string {
 	// Exit early if there's no log file.
 	if hn.logFile == nil {
-		return
+		return ""
 	}
 
 	hn.logFile.Close()
 
 	// If logoutput flag is not set, return early.
 	if !*logOutput {
-		return
+		return ""
 	}
 
-	newFileName := fmt.Sprintf("%v.log",
-		getFinalizedLogFilePrefix(hn),
-	)
+	newFileName := fmt.Sprintf("%v.log", getFinalizedLogFilePrefix(hn))
 	renameFile(hn.filename, newFileName)
+
+	return newFileName
+}
+
+// assertNodeShutdown asserts that the node has shut down properly by checking
+// the last lines of the log file for the shutdown message "Shutdown complete".
+func assertNodeShutdown(filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Read more than one line to make sure we get the last line.
+	// const linesSize = 200
+	//
+	// NOTE: Reading 200 bytes of lines should be more than enough to find
+	// the `Shutdown complete` message. However, this is only true if the
+	// message is printed the last, which means `lnd` will properly wait
+	// for all its subsystems to shut down before exiting. Unfortunately
+	// there is at least one bug in the shutdown process where we don't
+	// wait for the chain backend to fully quit first, which can be easily
+	// reproduced by turning on `RPCC=trace` and use a linesSize of 200.
+	//
+	// TODO(yy): fix the shutdown process and remove this workaround by
+	// refactoring the lnd to use only one rpcclient, which requires quite
+	// some work on the btcwallet front.
+	const linesSize = 1000
+
+	buf := make([]byte, linesSize)
+	stat, statErr := file.Stat()
+	if statErr != nil {
+		return err
+	}
+
+	start := stat.Size() - linesSize
+	_, err = file.ReadAt(buf, start)
+	if err != nil {
+		return err
+	}
+
+	// Exit early if the shutdown line is found.
+	if bytes.Contains(buf, []byte("Shutdown complete")) {
+		return nil
+	}
+
+	// For etcd tests, we need to check for the line where the node is
+	// blocked at wallet unlock since we are testing how such a behavior is
+	// handled by etcd.
+	if bytes.Contains(buf, []byte("wallet and unlock")) {
+		return nil
+	}
+
+	return fmt.Errorf("node did not shut down properly: found log "+
+		"lines: %s", buf)
 }
 
 // finalizeEtcdLog saves the etcd log files when test ends.

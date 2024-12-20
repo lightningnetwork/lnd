@@ -3,8 +3,6 @@ package itest
 import (
 	"fmt"
 	"strings"
-	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -19,6 +17,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// channelFeePolicyTestCases defines a set of tests to check the update channel
+// policy fee behavior.
+var channelFeePolicyTestCases = []*lntest.TestCase{
+	{
+		Name:     "default",
+		TestFunc: testChannelFeePolicyDefault,
+	},
+	{
+		Name:     "base fee",
+		TestFunc: testChannelFeePolicyBaseFee,
+	},
+	{
+		Name:     "fee rate",
+		TestFunc: testChannelFeePolicyFeeRate,
+	},
+	{
+		Name:     "base fee and fee rate",
+		TestFunc: testChannelFeePolicyBaseFeeAndFeeRate,
+	},
+	{
+		Name:     "low base fee and fee rate",
+		TestFunc: testChannelFeePolicyLowBaseFeeAndFeeRate,
+	},
+}
+
 // testOpenChannelAfterReorg tests that in the case where we have an open
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
@@ -30,11 +53,16 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping reorg test for neutrino backend")
 	}
 
-	// Create a temp miner.
-	tempMiner := ht.SpawnTempMiner()
-
 	miner := ht.Miner()
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
+	// Create a temp miner after the creation of Alice.
+	//
+	// NOTE: this is needed since NewNodeWithCoins will mine a block and
+	// the temp miner needs to sync up.
+	tempMiner := ht.SpawnTempMiner()
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
@@ -84,7 +112,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Alice should now have 1 edge in her graph.
-	ht.AssertNumActiveEdges(alice, 1, true)
+	ht.AssertNumEdges(alice, 1, true)
 
 	// Now we disconnect Alice's chain backend from the original miner, and
 	// connect the two miners together. Since the temporary miner knows
@@ -112,41 +140,21 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Since the fundingtx was reorged out, Alice should now have no edges
 	// in her graph.
-	ht.AssertNumActiveEdges(alice, 0, true)
+	ht.AssertNumEdges(alice, 0, true)
 
 	// Cleanup by mining the funding tx again, then closing the channel.
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, *fundingTxID)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
-// testOpenChannelFeePolicy checks if different channel fee scenarios are
-// correctly handled when the optional channel fee parameters baseFee and
-// feeRate are provided. If the OpenChannelRequest is not provided with a value
-// for baseFee/feeRate the expectation is that the default baseFee/feeRate is
-// applied.
-//
-//  1. No params provided to OpenChannelRequest:
-//     ChannelUpdate --> defaultBaseFee, defaultFeeRate
-//  2. Only baseFee provided to OpenChannelRequest:
-//     ChannelUpdate --> provided baseFee, defaultFeeRate
-//  3. Only feeRate provided to OpenChannelRequest:
-//     ChannelUpdate --> defaultBaseFee, provided FeeRate
-//  4. baseFee and feeRate provided to OpenChannelRequest:
-//     ChannelUpdate --> provided baseFee, provided feeRate
-//  5. Both baseFee and feeRate are set to a value lower than the default:
-//     ChannelUpdate --> provided baseFee, provided feeRate
-func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
+// testChannelFeePolicyDefault check when no params provided to
+// OpenChannelRequest: ChannelUpdate --> defaultBaseFee, defaultFeeRate.
+func testChannelFeePolicyDefault(ht *lntest.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
 		defaultFeeRate       = 1
 		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
 		defaultMinHtlc       = 1000
-		optionalBaseFee      = 1337
-		optionalFeeRate      = 1337
-		lowBaseFee           = 0
-		lowFeeRate           = 900
 	)
 
 	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
@@ -154,81 +162,19 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	feeScenarios := []lntest.OpenChannelParams{
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			UseBaseFee: false,
-			UseFeeRate: false,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    optionalBaseFee,
-			UseBaseFee: true,
-			UseFeeRate: false,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			FeeRate:    optionalFeeRate,
-			UseBaseFee: false,
-			UseFeeRate: true,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    optionalBaseFee,
-			FeeRate:    optionalFeeRate,
-			UseBaseFee: true,
-			UseFeeRate: true,
-		},
-		{
-			Amt:        chanAmt,
-			PushAmt:    pushAmt,
-			BaseFee:    lowBaseFee,
-			FeeRate:    lowFeeRate,
-			UseBaseFee: true,
-			UseFeeRate: true,
-		},
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		UseBaseFee: false,
+		UseFeeRate: false,
 	}
 
-	expectedPolicies := []lnrpc.RoutingPolicy{
-		{
-			FeeBaseMsat:      defaultBaseFee,
-			FeeRateMilliMsat: defaultFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      optionalBaseFee,
-			FeeRateMilliMsat: defaultFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      defaultBaseFee,
-			FeeRateMilliMsat: optionalFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      optionalBaseFee,
-			FeeRateMilliMsat: optionalFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
-		{
-			FeeBaseMsat:      lowBaseFee,
-			FeeRateMilliMsat: lowFeeRate,
-			TimeLockDelta:    defaultTimeLockDelta,
-			MinHtlc:          defaultMinHtlc,
-			MaxHtlcMsat:      defaultMaxHtlc,
-		},
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
 	bobExpectedPolicy := lnrpc.RoutingPolicy{
@@ -239,83 +185,259 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	// In this basic test, we'll need a third node, Carol, so we can forward
-	// a payment through the channel we'll open with the different fee
-	// policies.
-	carol := ht.NewNode("Carol", nil)
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
 
-	alice, bob := ht.Alice, ht.Bob
+// testChannelFeePolicyBaseFee checks only baseFee provided to
+// OpenChannelRequest: ChannelUpdate --> provided baseFee, defaultFeeRate.
+func testChannelFeePolicyBaseFee(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalBaseFee      = 1337
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    optionalBaseFee,
+		UseBaseFee: true,
+		UseFeeRate: false,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      optionalBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyFeeRate checks if only feeRate provided to
+// OpenChannelRequest: ChannelUpdate --> defaultBaseFee, provided FeeRate.
+func testChannelFeePolicyFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalFeeRate      = 1337
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		FeeRate:    optionalFeeRate,
+		UseBaseFee: false,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: optionalFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyBaseFeeAndFeeRate checks if baseFee and feeRate provided
+// to OpenChannelRequest: ChannelUpdate --> provided baseFee, provided feeRate.
+func testChannelFeePolicyBaseFeeAndFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		optionalBaseFee      = 1337
+		optionalFeeRate      = 1337
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    optionalBaseFee,
+		FeeRate:    optionalFeeRate,
+		UseBaseFee: true,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      optionalBaseFee,
+		FeeRateMilliMsat: optionalFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// testChannelFeePolicyLowBaseFeeAndFeeRate checks if both baseFee and feeRate
+// are set to a value lower than the default: ChannelUpdate --> provided
+// baseFee, provided feeRate.
+func testChannelFeePolicyLowBaseFeeAndFeeRate(ht *lntest.HarnessTest) {
+	const (
+		defaultBaseFee       = 1000
+		defaultFeeRate       = 1
+		defaultTimeLockDelta = chainreg.DefaultBitcoinTimeLockDelta
+		defaultMinHtlc       = 1000
+		lowBaseFee           = 0
+		lowFeeRate           = 900
+	)
+
+	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := chanAmt / 2
+
+	feeScenario := lntest.OpenChannelParams{
+		Amt:        chanAmt,
+		PushAmt:    pushAmt,
+		BaseFee:    lowBaseFee,
+		FeeRate:    lowFeeRate,
+		UseBaseFee: true,
+		UseFeeRate: true,
+	}
+
+	expectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      lowBaseFee,
+		FeeRateMilliMsat: lowFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	bobExpectedPolicy := lnrpc.RoutingPolicy{
+		FeeBaseMsat:      defaultBaseFee,
+		FeeRateMilliMsat: defaultFeeRate,
+		TimeLockDelta:    defaultTimeLockDelta,
+		MinHtlc:          defaultMinHtlc,
+		MaxHtlcMsat:      defaultMaxHtlc,
+	}
+
+	runChannelFeePolicyTest(
+		ht, feeScenario, &expectedPolicy, &bobExpectedPolicy,
+	)
+}
+
+// runChannelFeePolicyTest checks if different channel fee scenarios are
+// correctly handled when the optional channel fee parameters baseFee and
+// feeRate are provided. If the OpenChannelRequest is not provided with a value
+// for baseFee/feeRate the expectation is that the default baseFee/feeRate is
+// applied.
+func runChannelFeePolicyTest(ht *lntest.HarnessTest,
+	chanParams lntest.OpenChannelParams,
+	alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+
+	// In this basic test, we'll need a third node, Carol, so we can
+	// forward a payment through the channel we'll open with the different
+	// fee policies.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	carol := ht.NewNodeWithCoins("Carol", nil)
+
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(alice, carol)
+
 	nodes := []*node.HarnessNode{alice, bob, carol}
 
-	runTestCase := func(ht *lntest.HarnessTest,
-		chanParams lntest.OpenChannelParams,
-		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+	// Create a channel Alice->Bob.
+	chanPoint := ht.OpenChannel(alice, bob, chanParams)
 
-		// Create a channel Alice->Bob.
-		chanPoint := ht.OpenChannel(alice, bob, chanParams)
-		defer ht.CloseChannel(alice, chanPoint)
+	// Create a channel Carol->Alice.
+	ht.OpenChannel(
+		carol, alice, lntest.OpenChannelParams{
+			Amt: 500000,
+		},
+	)
 
-		// Create a channel Carol->Alice.
-		chanPoint2 := ht.OpenChannel(
-			carol, alice, lntest.OpenChannelParams{
-				Amt: 500000,
-			},
+	// Alice and Bob should see each other's ChannelUpdates, advertising
+	// the preferred routing policies.
+	assertNodesPolicyUpdate(
+		ht, nodes, alice, alicePolicy, chanPoint,
+	)
+	assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
+
+	// They should now know about the default policies.
+	for _, n := range nodes {
+		ht.AssertChannelPolicy(
+			n, alice.PubKeyStr, alicePolicy, chanPoint,
 		)
-		defer ht.CloseChannel(carol, chanPoint2)
-
-		// Alice and Bob should see each other's ChannelUpdates,
-		// advertising the preferred routing policies.
-		assertNodesPolicyUpdate(
-			ht, nodes, alice, alicePolicy, chanPoint,
+		ht.AssertChannelPolicy(
+			n, bob.PubKeyStr, bobPolicy, chanPoint,
 		)
-		assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
-
-		// They should now know about the default policies.
-		for _, n := range nodes {
-			ht.AssertChannelPolicy(
-				n, alice.PubKeyStr, alicePolicy, chanPoint,
-			)
-			ht.AssertChannelPolicy(
-				n, bob.PubKeyStr, bobPolicy, chanPoint,
-			)
-		}
-
-		// We should be able to forward a payment from Carol to Bob
-		// through the new channel we opened.
-		payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
-		ht.CompletePaymentRequests(carol, payReqs)
 	}
 
-	for i, feeScenario := range feeScenarios {
-		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			st := ht.Subtest(t)
-			st.EnsureConnected(alice, bob)
-
-			st.RestartNode(carol)
-
-			// Because we're using ht.Subtest(), we need to restart
-			// any node we have to refresh its runtime context.
-			// Otherwise, we'll get a "context canceled" error on
-			// RPC calls.
-			st.EnsureConnected(alice, carol)
-
-			// Send Carol enough coins to be able to open a channel
-			// to Alice.
-			ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-			runTestCase(
-				st, feeScenario,
-				&expectedPolicies[i], &bobExpectedPolicy,
-			)
-		})
-	}
+	// We should be able to forward a payment from Carol to Bob
+	// through the new channel we opened.
+	payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
+	ht.CompletePaymentRequests(carol, payReqs)
 }
 
 // testBasicChannelCreationAndUpdates tests multiple channel opening and
 // closing, and ensures that if a node is subscribed to channel updates they
 // will be received correctly for both cooperative and force closed channels.
 func testBasicChannelCreationAndUpdates(ht *lntest.HarnessTest) {
-	runBasicChannelCreationAndUpdates(ht, ht.Alice, ht.Bob)
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
+	runBasicChannelCreationAndUpdates(ht, alice, bob)
 }
 
 // runBasicChannelCreationAndUpdates tests multiple channel opening and closing,
@@ -491,34 +613,13 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 	)
 }
 
-// testUpdateOnPendingOpenChannels checks that `update_add_htlc` followed by
-// `channel_ready` is properly handled. In specific, when a node is in a state
-// that it's still processing a remote `channel_ready` message, meanwhile an
-// `update_add_htlc` is received, this HTLC message is cached and settled once
-// processing `channel_ready` is complete.
-func testUpdateOnPendingOpenChannels(ht *lntest.HarnessTest) {
-	// Test funder's behavior. Funder sees the channel pending, but fundee
-	// sees it active and sends an HTLC.
-	ht.Run("pending on funder side", func(t *testing.T) {
-		st := ht.Subtest(t)
-		testUpdateOnFunderPendingOpenChannels(st)
-	})
-
-	// Test fundee's behavior. Fundee sees the channel pending, but funder
-	// sees it active and sends an HTLC.
-	ht.Run("pending on fundee side", func(t *testing.T) {
-		st := ht.Subtest(t)
-		testUpdateOnFundeePendingOpenChannels(st)
-	})
-}
-
 // testUpdateOnFunderPendingOpenChannels checks that when the fundee sends an
 // `update_add_htlc` followed by `channel_ready` while the funder is still
 // processing the fundee's `channel_ready`, the HTLC will be cached and
 // eventually settled.
 func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
-	// Grab the channel participants.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Restart Alice with the config so she won't process Bob's
 	// channel_ready msg immediately.
@@ -535,13 +636,8 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 		Amt:     funding.MaxBtcFundingAmount,
 		PushAmt: funding.MaxBtcFundingAmount / 2,
 	}
-	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingChan.Txid,
-		},
-		OutputIndex: pendingChan.OutputIndex,
-	}
+	pending := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := lntest.ChanPointFromPendingUpdate(pending)
 
 	// Alice and Bob should both consider the channel pending open.
 	ht.AssertNumPendingOpenChannels(alice, 1)
@@ -559,6 +655,7 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 	// Bob will consider the channel open as there's no wait time to send
 	// and receive Alice's channel_ready message.
 	ht.AssertNumPendingOpenChannels(bob, 0)
+	ht.AssertChannelInGraph(bob, chanPoint)
 
 	// Alice and Bob now have different view of the channel. For Bob,
 	// since the channel_ready messages are processed, he will have a
@@ -591,9 +688,6 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 	// Once Alice sees the channel as active, she will process the cached
 	// premature `update_add_htlc` and settles the payment.
 	ht.AssertPaymentStatusFromStream(bobStream, lnrpc.Payment_SUCCEEDED)
-
-	// Close the channel.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testUpdateOnFundeePendingOpenChannels checks that when the funder sends an
@@ -601,8 +695,8 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 // processing the funder's `channel_ready`, the HTLC will be cached and
 // eventually settled.
 func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
-	// Grab the channel participants.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	// Restart Bob with the config so he won't process Alice's
 	// channel_ready msg immediately.
@@ -618,13 +712,8 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	params := lntest.OpenChannelParams{
 		Amt: funding.MaxBtcFundingAmount,
 	}
-	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
-	chanPoint := &lnrpc.ChannelPoint{
-		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-			FundingTxidBytes: pendingChan.Txid,
-		},
-		OutputIndex: pendingChan.OutputIndex,
-	}
+	pending := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := lntest.ChanPointFromPendingUpdate(pending)
 
 	// Alice and Bob should both consider the channel pending open.
 	ht.AssertNumPendingOpenChannels(alice, 1)
@@ -636,6 +725,7 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	// Alice will consider the channel open as there's no wait time to send
 	// and receive Bob's channel_ready message.
 	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertChannelInGraph(alice, chanPoint)
 
 	// TODO(yy): we've prematurely marked the channel as open before
 	// processing channel ready messages. We need to mark it as open after
@@ -674,9 +764,6 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	// Once Bob sees the channel as active, he will process the cached
 	// premature `update_add_htlc` and settles the payment.
 	ht.AssertPaymentStatusFromStream(aliceStream, lnrpc.Payment_SUCCEEDED)
-
-	// Close the channel.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // verifyCloseUpdate is used to verify that a closed channel update is of the
@@ -744,9 +831,12 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 // before the funding transaction is confirmed, that the FundingExpiryBlocks
 // field of a PendingChannels decreases.
 func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
+
 	param := lntest.OpenChannelParams{Amt: 100000}
-	update := ht.OpenChannelAssertPending(alice, bob, param)
+	ht.OpenChannelAssertPending(alice, bob, param)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
@@ -767,20 +857,6 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	// Mine 1 block to confirm the funding transaction, and then close the
 	// channel.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-	chanPoint := lntest.ChanPointFromPendingUpdate(update)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	//
-	// We may get the error `unable to gracefully close channel
-	// while peer is offline (try force closing it instead):
-	// channel link not found`. This happens because the channel
-	// link hasn't been added yet but we now proceed to closing the
-	// channel. We may need to revisit how the channel open event
-	// is created and make sure the event is only sent after all
-	// relevant states have been updated.
-	time.Sleep(2 * time.Second)
-
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testSimpleTaprootChannelActivation ensures that a simple taproot channel is
@@ -793,9 +869,7 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 
 	// Make the new set of participants.
 	alice := ht.NewNode("alice", simpleTaprootChanArgs)
-	defer ht.Shutdown(alice)
 	bob := ht.NewNode("bob", simpleTaprootChanArgs)
-	defer ht.Shutdown(bob)
 
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
@@ -832,9 +906,6 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 
 	// Verify that Alice sees an active channel to Bob.
 	ht.AssertChannelActive(alice, chanPoint)
-
-	// Our test is done and Alice closes her channel to Bob.
-	ht.CloseChannel(alice, chanPoint)
 }
 
 // testOpenChannelLockedBalance tests that when a funding reservation is
@@ -842,7 +913,6 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 // up as locked balance in the WalletBalance response.
 func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	var (
-		bob = ht.Bob
 		req *lnrpc.ChannelAcceptRequest
 		err error
 	)
@@ -850,6 +920,7 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	// Create a new node so we can assert exactly how much fund has been
 	// locked later.
 	alice := ht.NewNode("alice", nil)
+	bob := ht.NewNode("bob", nil)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
 	// Connect the nodes.

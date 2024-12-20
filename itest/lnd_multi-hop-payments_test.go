@@ -18,7 +18,8 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
 
 	daveArgs := []string{"--protocol.legacy.onion"}
 	dave := ht.NewNode("Dave", daveArgs)
@@ -37,6 +38,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertHtlcEventType(daveEvents, routerrpc.HtlcEvent_UNKNOWN)
 
 	// Connect the nodes.
+	ht.ConnectNodes(alice, bob)
 	ht.ConnectNodes(dave, alice)
 	ht.ConnectNodes(carol, dave)
 
@@ -233,11 +235,6 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertHtlcEvents(
 		bobEvents, 0, 0, numPayments, 0, routerrpc.HtlcEvent_RECEIVE,
 	)
-
-	// Finally, close all channels.
-	ht.CloseChannel(alice, chanPointAlice)
-	ht.CloseChannel(dave, chanPointDave)
-	ht.CloseChannel(carol, chanPointCarol)
 }
 
 // updateChannelPolicy updates the channel policy of node to the given fees and

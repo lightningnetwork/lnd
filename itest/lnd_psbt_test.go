@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -27,126 +26,92 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testPsbtChanFunding makes sure a channel can be opened between carol and dave
-// by using a Partially Signed Bitcoin Transaction that funds the channel
-// multisig funding output.
-func testPsbtChanFunding(ht *lntest.HarnessTest) {
-	const (
-		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
-	)
-
-	testCases := []struct {
-		name           string
-		commitmentType lnrpc.CommitmentType
-		private        bool
-	}{
-		{
-			name:           "anchors",
-			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			private:        false,
+// psbtFundingTestCases contains the test cases for funding via PSBT.
+var psbtFundingTestCases = []*lntest.TestCase{
+	{
+		Name: "psbt funding anchor",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFunding(
+				ht, false, lnrpc.CommitmentType_ANCHORS,
+			)
 		},
-		{
-			name:           "simple taproot",
-			commitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
-
-			// Set this to true once simple taproot channels can be
-			// announced to the network.
-			private: true,
+	},
+	{
+		Name: "psbt external funding anchor",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFundingExternal(
+				ht, false, lnrpc.CommitmentType_ANCHORS,
+			)
 		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-
-		success := ht.T.Run(tc.name, func(tt *testing.T) {
-			st := ht.Subtest(tt)
-
-			args := lntest.NodeArgsForCommitType(tc.commitmentType)
-
-			// First, we'll create two new nodes that we'll use to
-			// open channels between for this test. Dave gets some
-			// coins that will be used to fund the PSBT, just to
-			// make sure that Carol has an empty wallet.
-			carol := st.NewNode("carol", args)
-			dave := st.NewNode("dave", args)
-
-			// We just send enough funds to satisfy the anchor
-			// channel reserve for 5 channels (50k sats).
-			st.FundCoins(50_000, carol)
-			st.FundCoins(50_000, dave)
-
-			st.RunTestCase(&lntest.TestCase{
-				Name: tc.name,
-				TestFunc: func(sst *lntest.HarnessTest) {
-					runPsbtChanFunding(
-						sst, carol, dave, tc.private,
-						tc.commitmentType,
-					)
-				},
-			})
-
-			// Empty out the wallets so there aren't any lingering
-			// coins.
-			sendAllCoinsConfirm(st, carol, burnAddr)
-			sendAllCoinsConfirm(st, dave, burnAddr)
-
-			// Now we test the second scenario. Again, we just send
-			// enough funds to satisfy the anchor channel reserve
-			// for 5 channels (50k sats).
-			st.FundCoins(50_000, carol)
-			st.FundCoins(50_000, dave)
-
-			st.RunTestCase(&lntest.TestCase{
-				Name: tc.name,
-				TestFunc: func(sst *lntest.HarnessTest) {
-					runPsbtChanFundingExternal(
-						sst, carol, dave, tc.private,
-						tc.commitmentType,
-					)
-				},
-			})
-
-			// Empty out the wallets a last time, so there aren't
-			// any lingering coins.
-			sendAllCoinsConfirm(st, carol, burnAddr)
-			sendAllCoinsConfirm(st, dave, burnAddr)
-
-			// The last test case tests the anchor channel reserve
-			// itself, so we need empty wallets.
-			st.RunTestCase(&lntest.TestCase{
-				Name: tc.name,
-				TestFunc: func(sst *lntest.HarnessTest) {
-					runPsbtChanFundingSingleStep(
-						sst, carol, dave, tc.private,
-						tc.commitmentType,
-					)
-				},
-			})
-		})
-		if !success {
-			// Log failure time to help relate the lnd logs to the
-			// failure.
-			ht.Logf("Failure time: %v", time.Now().Format(
-				"2006-01-02 15:04:05.000",
-			))
-
-			break
-		}
-	}
+	},
+	{
+		Name: "psbt single step funding anchor",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFundingSingleStep(
+				ht, false, lnrpc.CommitmentType_ANCHORS,
+			)
+		},
+	},
+	{
+		Name: "psbt funding simple taproot",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFunding(
+				ht, true, lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			)
+		},
+	},
+	{
+		Name: "psbt external funding simple taproot",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFundingExternal(
+				ht, true, lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			)
+		},
+	},
+	{
+		Name: "psbt single step funding simple taproot",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runPsbtChanFundingSingleStep(
+				ht, true, lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			)
+		},
+	},
 }
 
 // runPsbtChanFunding makes sure a channel can be opened between carol and dave
 // by using a Partially Signed Bitcoin Transaction that funds the channel
 // multisig funding output.
-func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
-	private bool, commitType lnrpc.CommitmentType) {
+func runPsbtChanFunding(ht *lntest.HarnessTest, private bool,
+	commitType lnrpc.CommitmentType) {
+
+	args := lntest.NodeArgsForCommitType(commitType)
+
+	// First, we'll create two new nodes that we'll use to open channels
+	// between for this test. Dave gets some coins that will be used to
+	// fund the PSBT, just to make sure that Carol has an empty wallet.
+	carol := ht.NewNode("carol", args)
+	dave := ht.NewNode("dave", args)
+
+	// We just send enough funds to satisfy the anchor channel reserve for
+	// 5 channels (50k sats).
+	ht.FundCoins(50_000, carol)
+	ht.FundCoins(50_000, dave)
+
+	runPsbtChanFundingWithNodes(ht, carol, dave, private, commitType)
+}
+
+// runPsbtChanFundingWithNodes run a test case to make sure a channel can be
+// opened between carol and dave by using a PSBT that funds the channel
+// multisig funding output.
+func runPsbtChanFundingWithNodes(ht *lntest.HarnessTest, carol,
+	dave *node.HarnessNode, private bool, commitType lnrpc.CommitmentType) {
 
 	const chanSize = funding.MaxBtcFundingAmount
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -307,6 +272,9 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	txHash := finalTx.TxHash()
 	block := ht.MineBlocksAndAssertNumTxes(6, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
+
+	ht.AssertChannelActive(carol, chanPoint)
+	ht.AssertChannelActive(carol, chanPoint2)
 	ht.AssertChannelInGraph(carol, chanPoint)
 	ht.AssertChannelInGraph(carol, chanPoint2)
 
@@ -324,27 +292,33 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channel is closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
-	ht.CloseChannel(carol, chanPoint2)
 }
 
 // runPsbtChanFundingExternal makes sure a channel can be opened between carol
 // and dave by using a Partially Signed Bitcoin Transaction that funds the
 // channel multisig funding output and is fully funded by an external third
 // party.
-func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
-	dave *node.HarnessNode, private bool, commitType lnrpc.CommitmentType) {
+func runPsbtChanFundingExternal(ht *lntest.HarnessTest, private bool,
+	commitType lnrpc.CommitmentType) {
+
+	args := lntest.NodeArgsForCommitType(commitType)
+
+	// First, we'll create two new nodes that we'll use to open channels
+	// between for this test. Dave gets some coins that will be used to
+	// fund the PSBT, just to make sure that Carol has an empty wallet.
+	carol := ht.NewNode("carol", args)
+	dave := ht.NewNode("dave", args)
+
+	// We just send enough funds to satisfy the anchor channel reserve for
+	// 5 channels (50k sats).
+	ht.FundCoins(50_000, carol)
+	ht.FundCoins(50_000, dave)
 
 	const chanSize = funding.MaxBtcFundingAmount
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	ht.EnsureConnected(carol, dave)
 	ht.EnsureConnected(carol, alice)
 
@@ -499,26 +473,25 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channels are closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
-	ht.CloseChannel(carol, chanPoint2)
 }
 
 // runPsbtChanFundingSingleStep checks whether PSBT funding works also when
 // the wallet of both nodes are empty and one of them uses PSBT and an external
 // wallet to fund the channel while creating reserve output in the same
 // transaction.
-func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
-	dave *node.HarnessNode, private bool, commitType lnrpc.CommitmentType) {
+func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, private bool,
+	commitType lnrpc.CommitmentType) {
+
+	args := lntest.NodeArgsForCommitType(commitType)
+
+	// First, we'll create two new nodes that we'll use to open channels
+	// between for this test.
+	carol := ht.NewNode("carol", args)
+	dave := ht.NewNode("dave", args)
 
 	const chanSize = funding.MaxBtcFundingAmount
 
-	alice := ht.Alice
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	// Get new address for anchor reserve.
 	req := &lnrpc.NewAddressRequest{
@@ -650,12 +623,6 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// To conclude, we'll close the newly created channel between Carol and
-	// Dave. This function will also block until the channel is closed and
-	// will additionally assert the relevant channel closing post
-	// conditions.
-	ht.CloseChannel(carol, chanPoint)
 }
 
 // testSignPsbt tests that the SignPsbt RPC works correctly.
@@ -697,7 +664,8 @@ func testSignPsbt(ht *lntest.HarnessTest) {
 	for _, tc := range psbtTestRunners {
 		succeed := ht.Run(tc.name, func(t *testing.T) {
 			st := ht.Subtest(t)
-			tc.runner(st, st.Alice)
+			alice := st.NewNodeWithCoins("Alice", nil)
+			tc.runner(st, alice)
 		})
 
 		// Abort the test if failed.
@@ -1088,6 +1056,9 @@ func runFundAndSignPsbt(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 // a PSBT that already specifies an input but where the user still wants the
 // wallet to perform coin selection.
 func testFundPsbt(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+
 	// We test a pay-join between Alice and Bob. Bob wants to send Alice
 	// 5 million Satoshis in a non-obvious way. So Bob selects a UTXO that's
 	// bigger than 5 million Satoshis and expects the change minus the send
@@ -1095,20 +1066,20 @@ func testFundPsbt(ht *lntest.HarnessTest) {
 	// combines her change with the 5 million Satoshis from Bob. With this
 	// Alice ends up paying the fees for a transfer to her.
 	const sendAmount = 5_000_000
-	aliceAddr := ht.Alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+	aliceAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
 	})
-	bobAddr := ht.Bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+	bobAddr := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
 	})
 
-	ht.Alice.UpdateState()
-	ht.Bob.UpdateState()
-	aliceStartBalance := ht.Alice.State.Wallet.TotalBalance
-	bobStartBalance := ht.Bob.State.Wallet.TotalBalance
+	alice.UpdateState()
+	bob.UpdateState()
+	aliceStartBalance := alice.State.Wallet.TotalBalance
+	bobStartBalance := bob.State.Wallet.TotalBalance
 
 	var bobUtxo *lnrpc.Utxo
-	bobUnspent := ht.Bob.RPC.ListUnspent(&walletrpc.ListUnspentRequest{})
+	bobUnspent := bob.RPC.ListUnspent(&walletrpc.ListUnspentRequest{})
 	for _, utxo := range bobUnspent.Utxos {
 		if utxo.AmountSat > sendAmount {
 			bobUtxo = utxo
@@ -1145,7 +1116,7 @@ func testFundPsbt(ht *lntest.HarnessTest) {
 	require.NoError(ht, err)
 
 	derivation, trDerivation := getAddressBip32Derivation(
-		ht, bobUtxo.Address, ht.Bob,
+		ht, bobUtxo.Address, bob,
 	)
 
 	bobUtxoPkScript, _ := hex.DecodeString(bobUtxo.PkScript)
@@ -1165,31 +1136,31 @@ func testFundPsbt(ht *lntest.HarnessTest) {
 	// We have the template now. Bob basically funds the 5 million Sats to
 	// send to Alice and Alice now only needs to coin select to pay for the
 	// fees.
-	fundedPacket := fundPsbtCoinSelect(ht, ht.Alice, packet, 1)
+	fundedPacket := fundPsbtCoinSelect(ht, alice, packet, 1)
 	txFee, err := fundedPacket.GetTxFee()
 	require.NoError(ht, err)
 
 	// We now let Bob sign the transaction.
-	signedPacket := signPacket(ht, ht.Bob, fundedPacket)
+	signedPacket := signPacket(ht, bob, fundedPacket)
 
 	// And then Alice, which should give us a fully signed TX.
-	signedPacket = signPacket(ht, ht.Alice, signedPacket)
+	signedPacket = signPacket(ht, alice, signedPacket)
 
 	// We should be able to finalize the PSBT and extract the final TX now.
-	extractPublishAndMine(ht, ht.Alice, signedPacket)
+	extractPublishAndMine(ht, alice, signedPacket)
 
 	// Make sure the new wallet balances are reflected correctly.
 	ht.AssertActiveNodesSynced()
-	ht.Alice.UpdateState()
-	ht.Bob.UpdateState()
+	alice.UpdateState()
+	bob.UpdateState()
 
 	require.Equal(
 		ht, aliceStartBalance+sendAmount-int64(txFee),
-		ht.Alice.State.Wallet.TotalBalance,
+		alice.State.Wallet.TotalBalance,
 	)
 	require.Equal(
 		ht, bobStartBalance-sendAmount,
-		ht.Bob.State.Wallet.TotalBalance,
+		bob.State.Wallet.TotalBalance,
 	)
 }
 
@@ -1596,6 +1567,9 @@ func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 // the channel opening. The psbt funding flow is used to simulate this behavior
 // because we can easily let the remote peer run into the timeout.
 func testPsbtChanFundingFailFlow(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+
 	const chanSize = funding.MaxBtcFundingAmount
 
 	// Decrease the timeout window for the remote peer to accelerate the
@@ -1604,12 +1578,10 @@ func testPsbtChanFundingFailFlow(ht *lntest.HarnessTest) {
 		"--dev.reservationtimeout=1s",
 		"--dev.zombiesweeperinterval=1s",
 	}
-	ht.RestartNodeWithExtraArgs(ht.Bob, args)
+	ht.RestartNodeWithExtraArgs(bob, args)
 
 	// Before we start the test, we'll ensure both sides are connected so
 	// the funding flow can be properly executed.
-	alice := ht.Alice
-	bob := ht.Bob
 	ht.EnsureConnected(alice, bob)
 
 	// At this point, we can begin our PSBT channel funding workflow. We'll

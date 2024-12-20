@@ -221,6 +221,10 @@ The underlying functionality between those two options remain the same.
   estimator provided by bitcoind or btcd in regtest and simnet modes instead of
   static fee estimator if feeurl is not provided.
 
+* The integration tests CI have been optimized to run faster and all flakes are
+  now documented and
+  [fixed](https://github.com/lightningnetwork/lnd/pull/9368).
+
 ## Database
 
 * [Migrate the mission control 

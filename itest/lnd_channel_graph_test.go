@@ -218,7 +218,9 @@ func testUpdateChanStatus(ht *lntest.HarnessTest) {
 // describeGraph RPC request unless explicitly asked for.
 func testUnannouncedChannels(ht *lntest.HarnessTest) {
 	amount := funding.MaxBtcFundingAmount
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	// Open a channel between Alice and Bob, ensuring the
 	// channel has been opened properly.
@@ -232,23 +234,20 @@ func testUnannouncedChannels(ht *lntest.HarnessTest) {
 
 	// One block is enough to make the channel ready for use, since the
 	// nodes have defaultNumConfs=1 set.
-	fundingChanPoint := ht.WaitForChannelOpenEvent(chanOpenUpdate)
+	ht.WaitForChannelOpenEvent(chanOpenUpdate)
 
 	// Alice should have 1 edge in her graph.
-	ht.AssertNumActiveEdges(alice, 1, true)
+	ht.AssertNumEdges(alice, 1, true)
 
 	// Channels should not be announced yet, hence Alice should have no
 	// announced edges in her graph.
-	ht.AssertNumActiveEdges(alice, 0, false)
+	ht.AssertNumEdges(alice, 0, false)
 
 	// Mine 4 more blocks, and check that the channel is now announced.
 	ht.MineBlocks(4)
 
 	// Give the network a chance to learn that auth proof is confirmed.
-	ht.AssertNumActiveEdges(alice, 1, false)
-
-	// Close the channel used during the test.
-	ht.CloseChannel(alice, fundingChanPoint)
+	ht.AssertNumEdges(alice, 1, false)
 }
 
 func testGraphTopologyNotifications(ht *lntest.HarnessTest) {
@@ -267,13 +266,9 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 
 	// Spin up Bob first, since we will need to grab his pubkey when
 	// starting Alice to test pinned syncing.
-	bob := ht.Bob
+	bob := ht.NewNodeWithCoins("Bob", nil)
 	bobInfo := bob.RPC.GetInfo()
 	bobPubkey := bobInfo.IdentityPubkey
-
-	// Restart Bob as he may have leftover announcements from previous
-	// tests, causing the graph to be unsynced.
-	ht.RestartNodeWithExtraArgs(bob, nil)
 
 	// For unpinned syncing, start Alice as usual. Otherwise grab Bob's
 	// pubkey to include in his pinned syncer set.
@@ -285,8 +280,7 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 		}
 	}
 
-	alice := ht.Alice
-	ht.RestartNodeWithExtraArgs(alice, aliceArgs)
+	alice := ht.NewNodeWithCoins("Alice", aliceArgs)
 
 	// Connect Alice and Bob.
 	ht.EnsureConnected(alice, bob)
@@ -370,16 +364,15 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 	// Bob's new node announcement, and the channel between Bob and Carol.
 	ht.AssertNumChannelUpdates(alice, chanPoint, 2)
 	ht.AssertNumNodeAnns(alice, bob.PubKeyStr, 1)
-
-	// Close the channel between Bob and Carol.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // testNodeAnnouncement ensures that when a node is started with one or more
 // external IP addresses specified on the command line, that those addresses
 // announced to the network and reported in the network graph.
 func testNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	advertisedAddrs := []string{
 		"192.168.1.1:8333",
@@ -403,7 +396,7 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	// We'll then go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		bob, dave, lntest.OpenChannelParams{Amt: 1000000},
 	)
 
@@ -425,16 +418,15 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	allUpdates := ht.AssertNumNodeAnns(alice, dave.PubKeyStr, 1)
 	nodeUpdate := allUpdates[len(allUpdates)-1]
 	assertAddrs(nodeUpdate.Addresses, advertisedAddrs...)
-
-	// Close the channel between Bob and Dave.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates
 // the requests correctly and that the new node announcement is broadcast
 // with the right information after updating our node.
 func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	ht.EnsureConnected(alice, bob)
 
 	var lndArgs []string
 
@@ -530,7 +522,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	// Go ahead and open a channel between Bob and Dave. This
 	// ensures that Alice receives the node announcement from Bob as part of
 	// the announcement broadcast.
-	chanPoint := ht.OpenChannel(
+	ht.OpenChannel(
 		bob, dave, lntest.OpenChannelParams{
 			Amt: 1000000,
 		},
@@ -660,9 +652,6 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 		FeatureUpdates: updateFeatureActions,
 	}
 	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
-
-	// Close the channel between Bob and Dave.
-	ht.CloseChannel(bob, chanPoint)
 }
 
 // assertSyncType asserts that the peer has an expected syncType.

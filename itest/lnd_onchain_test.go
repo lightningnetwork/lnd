@@ -33,8 +33,10 @@ func testChainKit(ht *lntest.HarnessTest) {
 // testChainKitGetBlock ensures that given a block hash, the RPC endpoint
 // returns the correct target block.
 func testChainKitGetBlock(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
 	// Get best block hash.
-	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+	bestBlockRes := alice.RPC.GetBestBlock(nil)
 
 	var bestBlockHash chainhash.Hash
 	err := bestBlockHash.SetBytes(bestBlockRes.BlockHash)
@@ -44,7 +46,7 @@ func testChainKitGetBlock(ht *lntest.HarnessTest) {
 	getBlockReq := &chainrpc.GetBlockRequest{
 		BlockHash: bestBlockHash[:],
 	}
-	getBlockRes := ht.Alice.RPC.GetBlock(getBlockReq)
+	getBlockRes := alice.RPC.GetBlock(getBlockReq)
 
 	// Deserialize the block which was retrieved by hash.
 	msgBlock := &wire.MsgBlock{}
@@ -61,8 +63,10 @@ func testChainKitGetBlock(ht *lntest.HarnessTest) {
 // testChainKitGetBlockHeader ensures that given a block hash, the RPC endpoint
 // returns the correct target block header.
 func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
 	// Get best block hash.
-	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+	bestBlockRes := alice.RPC.GetBestBlock(nil)
 
 	var (
 		bestBlockHash   chainhash.Hash
@@ -76,7 +80,7 @@ func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
 	getBlockReq := &chainrpc.GetBlockRequest{
 		BlockHash: bestBlockHash[:],
 	}
-	getBlockRes := ht.Alice.RPC.GetBlock(getBlockReq)
+	getBlockRes := alice.RPC.GetBlock(getBlockReq)
 
 	// Deserialize the block which was retrieved by hash.
 	blockReader := bytes.NewReader(getBlockRes.RawBlock)
@@ -87,7 +91,7 @@ func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
 	getBlockHeaderReq := &chainrpc.GetBlockHeaderRequest{
 		BlockHash: bestBlockHash[:],
 	}
-	getBlockHeaderRes := ht.Alice.RPC.GetBlockHeader(getBlockHeaderReq)
+	getBlockHeaderRes := alice.RPC.GetBlockHeader(getBlockHeaderReq)
 
 	// Deserialize the block header which was retrieved by hash.
 	blockHeaderReader := bytes.NewReader(getBlockHeaderRes.RawBlockHeader)
@@ -104,14 +108,16 @@ func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
 // testChainKitGetBlockHash ensures that given a block height, the RPC endpoint
 // returns the correct target block hash.
 func testChainKitGetBlockHash(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
 	// Get best block hash.
-	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+	bestBlockRes := alice.RPC.GetBestBlock(nil)
 
 	// Retrieve the block hash at best block height.
 	req := &chainrpc.GetBlockHashRequest{
 		BlockHeight: int64(bestBlockRes.BlockHeight),
 	}
-	getBlockHashRes := ht.Alice.RPC.GetBlockHash(req)
+	getBlockHashRes := alice.RPC.GetBlockHash(req)
 
 	// Ensure best block hash is the same as retrieved block hash.
 	expected := bestBlockRes.BlockHash
@@ -128,8 +134,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 	// NOTE: we cannot reuse the standby node here as the test requires the
 	// node to start with no UTXOs.
 	charlie := ht.NewNode("Charlie", args)
-	bob := ht.Bob
-	ht.RestartNodeWithExtraArgs(bob, args)
+	bob := ht.NewNode("Bob", args)
 
 	// We'll start the test by sending Charlie some coins.
 	fundingAmount := btcutil.Amount(100_000)
@@ -148,7 +153,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 	// Charlie opens an anchor channel and keeps twice the amount of the
 	// anchor reserve in her wallet.
 	chanAmt := fundingAmount - 2*btcutil.Amount(reserve.RequiredReserve)
-	outpoint := ht.OpenChannel(charlie, bob, lntest.OpenChannelParams{
+	ht.OpenChannel(charlie, bob, lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: lnrpc.CommitmentType_ANCHORS,
 		SatPerVByte:    1,
@@ -202,11 +207,7 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 
 	// This second transaction should be published correctly.
 	charlie.RPC.SendOutputs(req)
-
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-
-	// Clean up our test setup.
-	ht.CloseChannel(charlie, outpoint)
 }
 
 // testAnchorReservedValue tests that we won't allow sending transactions when
@@ -216,12 +217,8 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// Start two nodes supporting anchor channels.
 	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
 
-	// NOTE: we cannot reuse the standby node here as the test requires the
-	// node to start with no UTXOs.
 	alice := ht.NewNode("Alice", args)
-	bob := ht.Bob
-	ht.RestartNodeWithExtraArgs(bob, args)
-
+	bob := ht.NewNode("Bob", args)
 	ht.ConnectNodes(alice, bob)
 
 	// Send just enough coins for Alice to open a channel without a change

@@ -41,7 +41,7 @@ func (h *HarnessTest) MineBlocks(num int) {
 		// Check the block doesn't have any txns except the coinbase.
 		if len(block.Transactions) <= 1 {
 			// Make sure all the active nodes are synced.
-			h.AssertActiveNodesSyncedTo(block)
+			h.AssertActiveNodesSyncedTo(block.BlockHash())
 
 			// Mine the next block.
 			continue
@@ -116,7 +116,7 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 
 	// Finally, make sure all the active nodes are synced.
 	bestBlock := blocks[len(blocks)-1]
-	h.AssertActiveNodesSyncedTo(bestBlock)
+	h.AssertActiveNodesSyncedTo(bestBlock.BlockHash())
 
 	return blocks
 }
@@ -157,7 +157,7 @@ func (h *HarnessTest) cleanMempool() {
 		bestBlock = blocks[len(blocks)-1]
 
 		// Make sure all the active nodes are synced.
-		h.AssertActiveNodesSyncedTo(bestBlock)
+		h.AssertActiveNodesSyncedTo(bestBlock.BlockHash())
 
 		return fmt.Errorf("still have %d txes in mempool", len(mem))
 	}, wait.MinerMempoolTimeout)

@@ -14,7 +14,7 @@ import (
 func testLookupHtlcResolution(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
 
-	alice := ht.Alice
+	alice := ht.NewNodeWithCoins("Alice", nil)
 	carol := ht.NewNode("Carol", []string{
 		"--store-final-htlc-resolutions",
 	})
@@ -24,7 +24,6 @@ func testLookupHtlcResolution(ht *lntest.HarnessTest) {
 	cp := ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
-	defer ht.CloseChannel(alice, cp)
 
 	// Channel should be ready for payments.
 	const payAmt = 100

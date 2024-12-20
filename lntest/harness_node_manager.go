@@ -40,10 +40,6 @@ type nodeManager struct {
 	// {pubkey: *HarnessNode}.
 	activeNodes map[uint32]*node.HarnessNode
 
-	// standbyNodes is a map of all the standby nodes, format:
-	// {pubkey: *HarnessNode}.
-	standbyNodes map[uint32]*node.HarnessNode
-
 	// nodeCounter is a monotonically increasing counter that's used as the
 	// node's unique ID.
 	nodeCounter atomic.Uint32
@@ -57,11 +53,10 @@ func newNodeManager(lndBinary string, dbBackend node.DatabaseBackend,
 	nativeSQL bool) *nodeManager {
 
 	return &nodeManager{
-		lndBinary:    lndBinary,
-		dbBackend:    dbBackend,
-		nativeSQL:    nativeSQL,
-		activeNodes:  make(map[uint32]*node.HarnessNode),
-		standbyNodes: make(map[uint32]*node.HarnessNode),
+		lndBinary:   lndBinary,
+		dbBackend:   dbBackend,
+		nativeSQL:   nativeSQL,
+		activeNodes: make(map[uint32]*node.HarnessNode),
 	}
 }
 
@@ -117,11 +112,14 @@ func (nm *nodeManager) registerNode(node *node.HarnessNode) {
 // ShutdownNode stops an active lnd process and returns when the process has
 // exited and any temporary directories have been cleaned up.
 func (nm *nodeManager) shutdownNode(node *node.HarnessNode) error {
+	// Remove the node from the active nodes map even if the shutdown
+	// fails as the shutdown cannot be retried in that case.
+	delete(nm.activeNodes, node.Cfg.NodeID)
+
 	if err := node.Shutdown(); err != nil {
 		return err
 	}
 
-	delete(nm.activeNodes, node.Cfg.NodeID)
 	return nil
 }
 

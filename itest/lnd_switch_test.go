@@ -29,7 +29,6 @@ func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
-	defer s.cleanUp()
 
 	// Restart the intermediaries and the sender.
 	ht.RestartNode(s.dave)
@@ -99,13 +98,12 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
-	defer s.cleanUp()
 
 	// First, disconnect Dave and Alice so that their link is broken.
 	ht.DisconnectNodes(s.dave, s.alice)
 
 	// Then, reconnect them to ensure Dave doesn't just fail back the htlc.
-	ht.ConnectNodes(s.dave, s.alice)
+	ht.EnsureConnected(s.dave, s.alice)
 
 	// Wait to ensure that the payment remain are not failed back after
 	// reconnecting. All node should report the number payments initiated
@@ -175,7 +173,6 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	// Setup our test scenario. We should now have four nodes running with
 	// three channels.
 	s := setupScenarioFourNodes(ht)
-	defer s.cleanUp()
 
 	// Disconnect the two intermediaries, Alice and Dave, by shutting down
 	// Alice.
@@ -264,7 +261,6 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// three channels. Note that we won't call the cleanUp function here as
 	// we will manually stop the node Carol and her channel.
 	s := setupScenarioFourNodes(ht)
-	defer s.cleanUp()
 
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
 	// restarts, the response will be held by Dave.
@@ -355,8 +351,6 @@ type scenarioFourNodes struct {
 	chanPointAliceBob  *lnrpc.ChannelPoint
 	chanPointCarolDave *lnrpc.ChannelPoint
 	chanPointDaveAlice *lnrpc.ChannelPoint
-
-	cleanUp func()
 }
 
 // setupScenarioFourNodes creates a topology for switch tests. It will create
@@ -383,7 +377,9 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 	}
 
 	// Grab the standby nodes.
-	alice, bob := ht.Alice, ht.Bob
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
+	ht.ConnectNodes(alice, bob)
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
 	// such that we now have a 4 node, 3 channel topology. Dave will make
@@ -431,21 +427,9 @@ func setupScenarioFourNodes(ht *lntest.HarnessTest) *scenarioFourNodes {
 	// above.
 	ht.CompletePaymentRequestsNoWait(bob, payReqs, chanPointAliceBob)
 
-	// Create a cleanUp to wipe the states.
-	cleanUp := func() {
-		if ht.Failed() {
-			ht.Skip("Skipped cleanup for failed test")
-			return
-		}
-
-		ht.CloseChannel(alice, chanPointAliceBob)
-		ht.CloseChannel(dave, chanPointDaveAlice)
-		ht.CloseChannel(carol, chanPointCarolDave)
-	}
-
 	s := &scenarioFourNodes{
 		alice, bob, carol, dave, chanPointAliceBob,
-		chanPointCarolDave, chanPointDaveAlice, cleanUp,
+		chanPointCarolDave, chanPointDaveAlice,
 	}
 
 	// Wait until all nodes in the network have 5 outstanding htlcs.

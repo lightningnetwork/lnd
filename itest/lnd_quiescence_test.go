@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,12 +17,14 @@ import (
 // NOTE FOR REVIEW: this could be improved by blasting the channel with HTLC
 // traffic on both sides to increase the surface area of the change under test.
 func testQuiescence(ht *lntest.HarnessTest) {
-	alice, bob := ht.Alice, ht.Bob
+	cfg := node.CfgAnchor
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		[][]string{cfg, cfg}, lntest.OpenChannelParams{
+			Amt: btcutil.Amount(1000000),
+		})
 
-	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
-		Amt: btcutil.Amount(1000000),
-	})
-	defer ht.CloseChannel(bob, chanPoint)
+	alice, bob := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
 
 	res := alice.RPC.Quiesce(&devrpc.QuiescenceRequest{
 		ChanId: chanPoint,
@@ -30,7 +33,7 @@ func testQuiescence(ht *lntest.HarnessTest) {
 	require.True(ht, res.Initiator)
 
 	req := &routerrpc.SendPaymentRequest{
-		Dest:           ht.Alice.PubKey[:],
+		Dest:           alice.PubKey[:],
 		Amt:            100,
 		PaymentHash:    ht.Random32Bytes(),
 		FinalCltvDelta: finalCltvDelta,
@@ -39,7 +42,7 @@ func testQuiescence(ht *lntest.HarnessTest) {
 	}
 
 	ht.SendPaymentAssertFail(
-		ht.Bob, req,
+		bob, req,
 		// This fails with insufficient balance because the bandwidth
 		// manager reports 0 bandwidth if a link is not eligible for
 		// forwarding, which is the case during quiescence.

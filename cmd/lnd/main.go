@@ -1,3 +1,5 @@
+//go:build !bolt12
+
 package main
 
 import (

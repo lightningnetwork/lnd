@@ -37,6 +37,9 @@ jobs:
     name: Sqlc check
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 
@@ -60,6 +63,9 @@ jobs:
     name: RPC and mobile compilation check
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 
@@ -88,6 +94,9 @@ jobs:
     name: check commits
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
         with:
@@ -111,6 +120,9 @@ jobs:
     name: lint code
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
         with:
@@ -151,6 +163,9 @@ jobs:
           - name: arm
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 
@@ -171,6 +186,9 @@ jobs:
     name: sample configuration check
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 
@@ -201,6 +219,9 @@ jobs:
           - unit-module
 
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
         with:
@@ -273,6 +294,9 @@ jobs:
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
         with:
@@ -420,6 +444,9 @@ jobs:
           - github.com/golang/protobuf v1.5.3
 
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 
@@ -434,6 +461,9 @@ jobs:
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v3
 

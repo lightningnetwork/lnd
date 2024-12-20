@@ -24,7 +24,9 @@ env:
   BITCOIN_VERSION: "28"
   
   # TRANCHES defines the number of tranches used in the itests.
-  TRANCHES: 16
+  LARGE_TRANCHES: 32
+
+  MEDIUM_TRANCHES: 16
 
   # SMALL_TRANCHES defines the number of tranches used in the less stable itest
   # builds
@@ -269,7 +271,7 @@ jobs:
 
 
   ########################
-  # run integration tests with TRANCHES
+  # run integration tests with LARGE_TRANCHES
   ########################
   basic-integration-test:
     name: basic itests
@@ -311,7 +313,7 @@ jobs:
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: run ${{ matrix.name }}
-        run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
+        run: make itest-parallel tranches=${{ env.LARGE_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
@@ -335,9 +337,9 @@ jobs:
           retention-days: 5
 
   ########################
-  # run integration tests with SMALL_TRANCHES
+  # run integration tests with MEDIUM_TRANCHES
   ########################
-  integration-test:
+  bitcoind-sqlite-integration-test:
     name: itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
@@ -354,6 +356,63 @@ jobs:
             args: backend=bitcoind dbbackend=sqlite
           - name: bitcoind-sqlite-nativesql
             args: backend=bitcoind dbbackend=sqlite nativesql=true
+
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: fetch and rebase on ${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+        uses: ./.github/actions/rebase
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+          key-prefix: integration-test
+
+      - name: install bitcoind
+        run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
+
+      - name: run ${{ matrix.name }}
+        run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
+
+      - name: Send coverage
+        if: ${{ contains(matrix.args, 'cover=1') }}
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.txt
+          flag-name: 'itest-${{ matrix.name }}'
+          parallel: true
+
+      - name: Zip log files on failure
+        if: ${{ failure() }}
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
+
+      - name: Upload log files on failure
+        uses: actions/upload-artifact@v3
+        if: ${{ failure() }}
+        with:
+          name: logs-itest-${{ matrix.name }}
+          path: logs-itest-${{ matrix.name }}.zip
+          retention-days: 5
+
+
+  ########################
+  # run integration tests with SMALL_TRANCHES
+  ########################
+  postgres-integration-test:
+    name: itests
+    runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
+    strategy:
+      # Allow other tests in the matrix to continue if one fails.
+      fail-fast: false
+      matrix:
+        include:
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-postgres-nativesql

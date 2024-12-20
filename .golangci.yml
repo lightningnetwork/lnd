@@ -145,7 +145,6 @@ linters:
     - unparam
     - wastedassign
 
-
     # Disable gofumpt as it has weird behavior regarding formatting multiple
     # lines for a function which is in conflict with our contribution
     # guidelines. See https://github.com/mvdan/gofumpt/issues/235.
@@ -218,6 +217,17 @@ linters:
     - intrange
     - goconst
 
+    # Deprecated linters that have been replaced by newer ones.
+    - deadcode
+    - exhaustivestruct
+    - ifshort
+    - golint
+    - interfacer
+    - varcheck
+    - nosnakecase
+    - scopelint
+    - structcheck
+    - maligned
 
 issues:
   # Only show newly introduced problems.

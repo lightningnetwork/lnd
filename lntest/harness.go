@@ -2348,7 +2348,7 @@ func (h *HarnessTest) openChannelsForNodes(nodes []*node.HarnessNode,
 		// open channel params and return it.
 		minerHeight := h.CurrentHeight()
 		thawHeight := minerHeight + thawHeightDelta
-		fundingShim, _ := h.deriveFundingShim(
+		fundingShim, _ := h.DeriveFundingShim(
 			nodeA, nodeB, p.Amt, thawHeight, true, leasedType,
 		)
 
@@ -2417,9 +2417,9 @@ func (h *HarnessTest) openZeroConfChannelsForNodes(nodes []*node.HarnessNode,
 	return resp
 }
 
-// deriveFundingShim creates a channel funding shim by deriving the necessary
+// DeriveFundingShim creates a channel funding shim by deriving the necessary
 // keys on both sides.
-func (h *HarnessTest) deriveFundingShim(alice, bob *node.HarnessNode,
+func (h *HarnessTest) DeriveFundingShim(alice, bob *node.HarnessNode,
 	chanSize btcutil.Amount, thawHeight uint32, publish bool,
 	commitType lnrpc.CommitmentType) (*lnrpc.FundingShim,
 	*lnrpc.ChannelPoint) {

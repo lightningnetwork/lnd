@@ -444,7 +444,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 }
 
 // sweepTimeoutTx sends a second level timeout transaction to the sweeper.
-// This transaction uses the SINLGE|ANYONECANPAY flag.
+// This transaction uses the SINGLE|ANYONECANPAY flag.
 func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 	var inp input.Input
 	if h.isTaproot() {
@@ -1070,7 +1070,7 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 
 	// TODO(yy): use the result chan returned from SweepInput to get the
 	// confirmation status of this sweeping tx so we don't need to make
-	// anothe subscription via `RegisterSpendNtfn` for this outpoint here
+	// another subscription via `RegisterSpendNtfn` for this outpoint here
 	// in the resolver.
 	_, err = h.Sweeper.SweepInput(
 		inp,

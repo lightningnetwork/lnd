@@ -565,7 +565,7 @@ func TestPutRevocationLog(t *testing.T) {
 		},
 		{
 			// Test dust htlc is not saved.
-			name:        "dust htlc not saved with amout data",
+			name:        "dust htlc not saved with amount data",
 			commit:      testCommitDust,
 			ourIndex:    0,
 			theirIndex:  1,

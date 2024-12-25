@@ -1719,7 +1719,7 @@ func NewRetributionStore(db kvdb.Backend) *RetributionStore {
 }
 
 // taprootBriefcaseFromRetInfo creates a taprootBriefcase from a retribution
-// info struct. This stores all the tap tweak informatoin we need to inrder to
+// info struct. This stores all the tap tweak information we need to inrder to
 // be able to hadnel breaches after a restart.
 func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 	tapCase := newTaprootBriefcase()
@@ -1776,7 +1776,7 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 	return tapCase
 }
 
-// applyTaprootRetInfo attaches the taproot specific inforamtion in the tapCase
+// applyTaprootRetInfo attaches the taproot specific information in the tapCase
 // to the passed retInfo struct.
 func applyTaprootRetInfo(tapCase *taprootBriefcase,
 	retInfo *retributionInfo) error {

@@ -11,7 +11,7 @@ import (
 
 // SubLogCreator can be used to create a new logger for a particular subsystem.
 type SubLogCreator interface {
-	// Logger returns a new logger for a particular subsytem.
+	// Logger returns a new logger for a particular subsystem.
 	Logger(subsystemTag string) btclog.Logger
 }
 

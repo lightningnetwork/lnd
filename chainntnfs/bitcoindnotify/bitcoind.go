@@ -491,7 +491,7 @@ out:
 func (b *BitcoindNotifier) handleRelevantTx(tx *btcutil.Tx,
 	mempool bool, height uint32) {
 
-	// If this is a mempool spend, we'll ask the mempool notifier to hanlde
+	// If this is a mempool spend, we'll ask the mempool notifier to handle
 	// it.
 	if mempool {
 		err := b.memNotifier.ProcessRelevantSpendTx(tx)

@@ -64,7 +64,7 @@ func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments)
+	s.assertAmountPaid(ht, amountPaid, numPayments)
 
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.
@@ -80,7 +80,7 @@ func testSwitchCircuitPersistence(ht *lntest.HarnessTest) {
 	ht.CompletePaymentRequests(s.bob, payReqs)
 
 	amountPaid = int64(6000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments+1)
+	s.assertAmountPaid(ht, amountPaid, numPayments+1)
 }
 
 // testSwitchOfflineDelivery constructs a set of multihop payments, and tests
@@ -136,7 +136,7 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments)
+	s.assertAmountPaid(ht, amountPaid, numPayments)
 
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.
@@ -152,7 +152,7 @@ func testSwitchOfflineDelivery(ht *lntest.HarnessTest) {
 	ht.CompletePaymentRequests(s.bob, payReqs)
 
 	amountPaid = int64(6000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments+1)
+	s.assertAmountPaid(ht, amountPaid, numPayments+1)
 }
 
 // testSwitchOfflineDeliveryPersistence constructs a set of multihop payments,
@@ -218,7 +218,7 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	// transaction, in channel Bob->Alice->David->Carol, order is Carol,
 	// David, Alice, Bob.
 	var amountPaid = int64(5000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments)
+	s.assertAmountPaid(ht, amountPaid, numPayments)
 
 	// Lastly, we will send one more payment to ensure all channels are
 	// still functioning properly.
@@ -238,7 +238,7 @@ func testSwitchOfflineDeliveryPersistence(ht *lntest.HarnessTest) {
 	ht.CompletePaymentRequests(s.bob, payReqs)
 
 	amountPaid = int64(6000)
-	s.assertAmoutPaid(ht, amountPaid, numPayments+1)
+	s.assertAmountPaid(ht, amountPaid, numPayments+1)
 }
 
 // testSwitchOfflineDeliveryOutgoingOffline constructs a set of multihop
@@ -453,10 +453,10 @@ func (s *scenarioFourNodes) assertHTLCs(ht *lntest.HarnessTest, num int) {
 	ht.AssertNumActiveHtlcs(s.carol, num)
 }
 
-// assertAmoutPaid is a helper method which takes a given paid amount
+// assertAmountPaid is a helper method which takes a given paid amount
 // and number of payments and asserts the desired payments are made in
 // the four nodes.
-func (s *scenarioFourNodes) assertAmoutPaid(ht *lntest.HarnessTest,
+func (s *scenarioFourNodes) assertAmountPaid(ht *lntest.HarnessTest,
 	amt int64, num int64) {
 
 	ht.AssertAmountPaid(

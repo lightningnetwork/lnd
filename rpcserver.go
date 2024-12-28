@@ -1376,22 +1376,6 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		in.Addr, btcutil.Amount(in.Amount), int64(feePerKw), minConfs,
 		in.SendAll, len(in.Outpoints))
 
-	// Decode the address receiving the coins, we need to check whether the
-	// address is valid for this network.
-	targetAddr, err := btcutil.DecodeAddress(
-		in.Addr, r.cfg.ActiveNetParams.Params,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Make the check on the decoded address according to the active network.
-	if !targetAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
-		return nil, fmt.Errorf("address: %v is not valid for this "+
-			"network: %v", targetAddr.String(),
-			r.cfg.ActiveNetParams.Params.Name)
-	}
-
 	// If the destination address parses to a valid pubkey, we assume the user
 	// accidentally tried to send funds to a bare pubkey address. This check is
 	// here to prevent unintended transfers.
@@ -1433,6 +1417,22 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 
 		selectOutpoints = fn.NewSet(wireOutpoints...)
+	}
+
+	// Decode the address receiving the coins, we need to check whether the
+	// address is valid for this network.
+	targetAddr, err := btcutil.DecodeAddress(
+		in.Addr, r.cfg.ActiveNetParams.Params,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Make the check on the decoded address according to the active network.
+	if !targetAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
+		return nil, fmt.Errorf("address: %v is not valid for this "+
+			"network: %v", targetAddr.String(),
+			r.cfg.ActiveNetParams.Params.Name)
 	}
 
 	// If the send all flag is active, then we'll attempt to sweep all the

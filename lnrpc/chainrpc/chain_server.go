@@ -207,12 +207,12 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
 	RegisterChainNotifierServer(grpcServer, r)
-	log.Debug("ChainNotifier RPC server successfully register with root " +
-		"gRPC server")
+	log.Debug("ChainNotifier RPC server successfully registered with " +
+		"root gRPC server")
 
 	RegisterChainKitServer(grpcServer, r)
-	log.Debug("ChainKit RPC server successfully register with root gRPC " +
-		"server")
+	log.Debug("ChainKit RPC server successfully registered with root " +
+		"gRPC server")
 
 	return nil
 }

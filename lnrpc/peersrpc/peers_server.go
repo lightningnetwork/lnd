@@ -116,7 +116,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterPeersServer(grpcServer, r)
 
-	log.Debugf("Peers RPC server successfully register with root " +
+	log.Debugf("Peers RPC server successfully registered with root " +
 		"gRPC server")
 
 	return nil

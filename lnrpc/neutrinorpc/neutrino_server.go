@@ -138,7 +138,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterNeutrinoKitServer(grpcServer, r)
 
-	log.Debugf("Neutrino RPC server successfully register with root " +
+	log.Debugf("Neutrino RPC server successfully registered with root " +
 		"gRPC server")
 
 	return nil

@@ -213,7 +213,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterSignerServer(grpcServer, r)
 
-	log.Debugf("Signer RPC server successfully register with root gRPC " +
+	log.Debugf("Signer RPC server successfully registered with root gRPC " +
 		"server")
 
 	return nil

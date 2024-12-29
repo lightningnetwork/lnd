@@ -110,7 +110,7 @@ func genSubLogger(root *build.SubLoggerManager,
 			return
 		}
 
-		interceptor.RequestShutdown()
+		interceptor.RequestShutdown(false)
 	}
 
 	// Return a function which will create a sublogger from our root

@@ -412,13 +412,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Start leader election if we're running on etcd. Continuation will be
 	// blocked until this instance is elected as the current leader or
 	// shutting down.
-	elected := false
+	elected, leaderNormalShutdown := false, false
 	var leaderElector cluster.LeaderElector
 	if cfg.Cluster.EnableLeaderElection {
 		electionCtx, cancelElection := context.WithCancel(ctx)
 
 		go func() {
-			<-interceptor.ShutdownChannel()
+			leaderNormalShutdown = <-interceptor.ShutdownChannel()
 			cancelElection()
 		}()
 
@@ -799,7 +799,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-interceptor.ShutdownChannel()
+	normalShutdown := <-interceptor.ShutdownChannel()
+	if !(normalShutdown || leaderNormalShutdown) {
+		return errors.New("LND shut down with an error")
+	}
+
 	return nil
 }
 

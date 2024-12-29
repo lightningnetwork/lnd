@@ -261,7 +261,7 @@ func (d *DefaultWalletImpl) ValidateMacaroon(ctx context.Context,
 	// Because the default implementation does not return any permissions,
 	// we shouldn't be registered as an external validator at all and this
 	// should never be invoked.
-	return fmt.Errorf("default implementation does not support external " +
+	return errors.New("default implementation does not support external " +
 		"macaroon validation")
 }
 
@@ -365,9 +365,9 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	if d.cfg.WalletUnlockPasswordFile != "" && !walletExists &&
 		!d.cfg.WalletUnlockAllowCreate {
 
-		return nil, nil, nil, fmt.Errorf("wallet unlock password file " +
-			"was specified but wallet does not exist; initialize " +
-			"the wallet before using auto unlocking")
+		return nil, nil, nil, errors.New("wallet unlock password " +
+			"file was specified but wallet does not exist; " +
+			"initialize the wallet before using auto unlocking")
 	}
 
 	// What wallet mode are we running in? We've already made sure the no
@@ -1099,7 +1099,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		if len(invoiceSlice.Invoices) > 0 {
 			cleanUp()
-			err := fmt.Errorf("found invoices in the KV invoice " +
+			err := errors.New("found invoices in the KV invoice " +
 				"DB, migration to native SQL is not yet " +
 				"supported")
 			d.logger.Error(err)
@@ -1161,7 +1161,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 // this RPC server.
 func waitForWalletPassword(cfg *Config,
 	pwService *walletunlocker.UnlockerService,
-	loaderOpts []btcwallet.LoaderOption, shutdownChan <-chan struct{}) (
+	loaderOpts []btcwallet.LoaderOption, shutdownChan <-chan bool) (
 	*walletunlocker.WalletUnlockParams, error) {
 
 	// Wait for user to provide the password.
@@ -1234,7 +1234,7 @@ func waitForWalletPassword(cfg *Config,
 		// this case we need to import each of the xpubs individually.
 		case watchOnlyAccounts != nil:
 			if !cfg.RemoteSigner.Enable {
-				return nil, fmt.Errorf("cannot initialize " +
+				return nil, errors.New("cannot initialize " +
 					"watch only wallet with remote " +
 					"signer config disabled")
 			}
@@ -1254,7 +1254,7 @@ func waitForWalletPassword(cfg *Config,
 			// or the extended key is set so, we shouldn't get here.
 			// The default case is just here for readability and
 			// completeness.
-			err = fmt.Errorf("cannot create wallet, neither seed " +
+			err = errors.New("cannot create wallet, neither seed " +
 				"nor extended key was given")
 		}
 		if err != nil {
@@ -1311,7 +1311,7 @@ func waitForWalletPassword(cfg *Config,
 
 	// If we got a shutdown signal we just return with an error immediately
 	case <-shutdownChan:
-		return nil, fmt.Errorf("shutting down")
+		return nil, errors.New("shutting down")
 	}
 }
 
@@ -1378,7 +1378,7 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	// every other case, the neutrino.validatechannels overwrites the
 	// routing.assumechanvalid value.
 	if cfg.NeutrinoMode.ValidateChannels && cfg.Routing.AssumeChannelValid {
-		return nil, nil, fmt.Errorf("can't set both " +
+		return nil, nil, errors.New("can't set both " +
 			"neutrino.validatechannels and routing." +
 			"assumechanvalid to true at the same time")
 	}

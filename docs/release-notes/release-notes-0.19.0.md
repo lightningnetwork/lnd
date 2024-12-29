@@ -136,6 +136,10 @@
   [here](https://github.com/lightningnetwork/lnd/blob/master/chainio/README.md)
   to learn more.
 
+* [Shutdown Exit Handling](https://github.com/lightningnetwork/lnd/pull/9392)
+  is added to manage shutdowns with status codes. Exits with code 1 for critical
+  errors, and code 0 for normal shutdowns (e.g., from StopDaemon RPC call).
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

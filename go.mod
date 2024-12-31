@@ -11,6 +11,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/v2 v2.0.0
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0
 	github.com/btcsuite/btcd/psbt/v2 v2.0.0
+	github.com/btcsuite/btcd/silentpayments v0.0.0-00010101000000-000000000000
 	github.com/btcsuite/btcd/txscript/v2 v2.0.0
 	github.com/btcsuite/btcd/wire/v2 v2.0.0
 	github.com/btcsuite/btclog v1.0.0

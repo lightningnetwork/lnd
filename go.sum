@@ -200,6 +200,8 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 h1:YBftPWNWd4WwGqtY2yeZL2ef8rH
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0/go.mod h1:YN5jB8ie0yfIUg6VvR9Kz84aCaG7AsGZnLjhHbUqwPg=
 github.com/guggero/btcd/psbt/v2 v2.0.0-20260625051245-f74abc741c9e h1:qyX9N64sr0I7y4cVFdIDuw+bj6hPTFslOmdr2JjXTzE=
 github.com/guggero/btcd/psbt/v2 v2.0.0-20260625051245-f74abc741c9e/go.mod h1:/5H9vGCLtLm/RJXwNjafCRS8g8RbX+QgkeO/LU9yPtA=
+github.com/guggero/btcd/silentpayments v0.0.0-20260625051245-f74abc741c9e h1:7yDLAy7lGJSJm4xm6kveV3miPnBWQ8IbA+mNekIAXNA=
+github.com/guggero/btcd/silentpayments v0.0.0-20260625051245-f74abc741c9e/go.mod h1:ye6chJEsFSlxIumEnJnzQhDYBgDHh0zVlEXVseAN6vQ=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=

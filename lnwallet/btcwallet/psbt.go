@@ -11,11 +11,14 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/btcutil/silentpayments"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -147,6 +150,13 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 	)
 }
 
+// signInfo is a helper struct that holds the private key and signing method for
+// a given input.
+type signInfo struct {
+	privKey    btcec.PrivateKey
+	signMethod input.SignMethod
+}
+
 // SignPsbt expects a partial transaction with all inputs and outputs fully
 // declared and tries to sign all unsigned inputs that have all required fields
 // (UTXO information, BIP32 derivation information, witness or sig scripts) set.
@@ -170,13 +180,14 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 		return nil, err
 	}
 
-	// Go through each input that doesn't have final witness data attached
-	// to it already and try to sign it. If there is nothing more to sign or
-	// there are inputs that we don't know how to sign, we won't return any
-	// error. So it's possible we're not the final signer.
+	// Because we need to potentially create Silent Payment shares with our
+	// private keys before we can sign, we'll keep track of the input
+	// information in a map so we don't have to fetch it twice.
+	inputInfo := make(map[wire.OutPoint]*signInfo)
+
+	// We'll start by fetching all private keys and determining the signing
+	// method for each input that we can sign.
 	tx := packet.UnsignedTx
-	prevOutputFetcher := wallet.PsbtPrevOutputFetcher(packet)
-	sigHashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
 	for idx := range tx.TxIn {
 		in := &packet.Inputs[idx]
 
@@ -240,23 +251,55 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 			return nil, err
 		}
 
-		switch signMethod {
+		inputInfo[tx.TxIn[idx].PreviousOutPoint] = &signInfo{
+			privKey:    *privKey,
+			signMethod: signMethod,
+		}
+	}
+
+	// Now we can create the shares of all inputs for any potential silent
+	// payment outputs.
+	err = maybeCreateSilentPaymentShares(b.cfg.NetParams, packet, inputInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	// Go through each input that doesn't have final witness data attached
+	// to it already and try to sign it. If there is nothing more to sign or
+	// there are inputs that we don't know how to sign, we won't return any
+	// error. So it's possible we're not the final signer.
+	prevOutputFetcher := wallet.PsbtPrevOutputFetcher(packet)
+	sigHashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
+	for idx := range tx.TxIn {
+		in := &packet.Inputs[idx]
+
+		info, ok := inputInfo[tx.TxIn[idx].PreviousOutPoint]
+		if !ok {
+			// We don't have any information about this input, so we
+			// can't sign it.
+			continue
+		}
+
+		var rootHash []byte
+		switch info.signMethod {
 		// For p2wkh, np2wkh and p2wsh.
 		case input.WitnessV0SignMethod:
-			err = signSegWitV0(in, tx, sigHashes, idx, privKey)
+			err = signSegWitV0(
+				in, tx, sigHashes, idx, &info.privKey,
+			)
 
 		// For p2tr BIP0086 key spend only.
 		case input.TaprootKeySpendBIP0086SignMethod:
-			rootHash := make([]byte, 0)
+			rootHash = make([]byte, 0)
 			err = signSegWitV1KeySpend(
-				in, tx, sigHashes, idx, privKey, rootHash,
+				in, tx, sigHashes, idx, &info.privKey, rootHash,
 			)
 
 		// For p2tr with script commitment key spend path.
 		case input.TaprootKeySpendSignMethod:
-			rootHash := in.TaprootMerkleRoot
+			rootHash = in.TaprootMerkleRoot
 			err = signSegWitV1KeySpend(
-				in, tx, sigHashes, idx, privKey, rootHash,
+				in, tx, sigHashes, idx, &info.privKey, rootHash,
 			)
 
 		// For p2tr script spend path.
@@ -267,19 +310,273 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 				Script:      leafScript.Script,
 			}
 			err = signSegWitV1ScriptSpend(
-				in, tx, sigHashes, idx, privKey, leaf,
+				in, tx, sigHashes, idx, &info.privKey, leaf,
 			)
 
 		default:
 			err = fmt.Errorf("unsupported signing method for "+
-				"PSBT signing: %v", signMethod)
+				"PSBT signing: %v", info.signMethod)
 		}
 		if err != nil {
 			return nil, err
 		}
 		signedInputs = append(signedInputs, uint32(idx))
 	}
+
 	return signedInputs, nil
+}
+
+// maybeCreateSilentPaymentShares creates the silent payment shares for all
+// silent payment outputs in the PSBT packet that we can sign for.
+func maybeCreateSilentPaymentShares(params *chaincfg.Params,
+	packet *psbt.Packet, signInfo map[wire.OutPoint]*signInfo) error {
+
+	// First, check if we have any silent payment outputs in the PSBT. If we
+	// do, we collect the information, so we can sort it correctly for
+	// determining the order in case there are multiple addresses with the
+	// same scan key.
+	type spOutputInfo struct {
+		spAddrInfo *psbt.SilentPaymentInfo
+		spAddr     *silentpayments.Address
+		outIndex   int
+	}
+	spOutputs := make([]spOutputInfo, 0, len(packet.Outputs))
+	for idx := range packet.Outputs {
+		pOut := &packet.Outputs[idx]
+
+		if pOut.SilentPaymentInfo == nil {
+			continue
+		}
+
+		info := pOut.SilentPaymentInfo
+		addr, err := silentpayments.ParseAddress(
+			params, info.ScanKey, info.SpendKey,
+		)
+		if err != nil {
+			return fmt.Errorf("error parsing silent payment "+
+				"address: %w", err)
+		}
+
+		spOutputs = append(spOutputs, spOutputInfo{
+			spAddrInfo: info,
+			spAddr:     addr,
+			outIndex:   idx,
+		})
+	}
+
+	// If there are no silent payment outputs, we can return early.
+	if len(spOutputs) == 0 {
+		return nil
+	}
+
+	// For now, we only support creating shares if we're the only signer.
+	//
+	// TODO(guggero): Implement verifying shares from other signers and
+	// creating our own shares.
+	if len(signInfo) != len(packet.Inputs) {
+		return fmt.Errorf("cannot create silent payment shares with " +
+			"multiple signers, not implemented yet")
+	}
+
+	A, err := sumInputPubKeys(packet, nil)
+	if err != nil {
+		return fmt.Errorf("error summing input public keys: %w", err)
+	}
+
+	a, err := sumInputPrivKeys(packet, signInfo)
+	if err != nil {
+		return fmt.Errorf("error summing input private keys: %w", err)
+	}
+
+	// Make sure our sum is correct.
+	if !a.PubKey().IsEqual(A) {
+		return fmt.Errorf("sum of input private keys does not match " +
+			"sum of input public keys")
+	}
+
+	// Prepare our list of silent payment recipients.
+	spAddresses := make([]silentpayments.Address, len(spOutputs))
+	for i, spOutput := range spOutputs {
+		spAddresses[i] = *spOutput.spAddr
+	}
+
+	// Calculate the input hash tweak for the silent payment shares.
+	inputOutpoints := make([]wire.OutPoint, 0, len(packet.Inputs))
+	for op := range signInfo {
+		inputOutpoints = append(inputOutpoints, op)
+	}
+
+	inputHash, err := silentpayments.CalculateInputHashTweak(
+		inputOutpoints, A,
+	)
+	if err != nil {
+		return fmt.Errorf("error calculating input hash tweak: %w", err)
+	}
+
+	// Now we have everything to calculate the actual on-chain output keys
+	// for the silent payment outputs.
+	outputKeys, err := silentpayments.AddressOutputKeys(
+		spAddresses, a.Key, *inputHash,
+	)
+	if err != nil {
+		return fmt.Errorf("error creating output keys: %w", err)
+	}
+
+	// If there was only a single input, we can omit it in the shares and
+	// proofs list, to make the PSBT smaller.
+	if len(inputOutpoints) == 1 {
+		inputOutpoints = nil
+	}
+
+	// And then we just have to map them back to the PSBT packet.
+	for _, outputKey := range outputKeys {
+		for _, spOut := range spOutputs {
+			if !outputKey.Address.Equal(spOut.spAddr) {
+				continue
+			}
+
+			txOut := packet.UnsignedTx.TxOut[spOut.outIndex]
+			txOut.PkScript, err = txscript.PayToTaprootScript(
+				outputKey.OutputKey,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating taproot "+
+					"script: %w", err)
+			}
+
+			share, proof, err := silentpayments.CreateShare(
+				a, &spOut.spAddr.ScanKey,
+			)
+			if err != nil {
+				return fmt.Errorf("error creating share: %w",
+					err)
+			}
+
+			packet.SilentPaymentShares = append(
+				packet.SilentPaymentShares,
+				psbt.SilentPaymentShare{
+					ScanKey:   spOut.spAddrInfo.ScanKey,
+					OutPoints: inputOutpoints,
+					Share:     share.SerializeCompressed(),
+				},
+			)
+			packet.SilentPaymentDLEQs = append(
+				packet.SilentPaymentDLEQs,
+				psbt.SilentPaymentDLEQ{
+					ScanKey:   spOut.spAddrInfo.ScanKey,
+					OutPoints: inputOutpoints,
+					Proof:     proof[:],
+				},
+			)
+		}
+	}
+
+	// Since we updated the output keys, all signatures have now become
+	// invalid. We'll remove them from the PSBT packet.
+	for idx := range packet.Inputs {
+		packet.Inputs[idx].FinalScriptWitness = nil
+		packet.Inputs[idx].PartialSigs = nil
+		packet.Inputs[idx].TaprootScriptSpendSig = nil
+		packet.Inputs[idx].TaprootKeySpendSig = nil
+	}
+
+	return nil
+}
+
+// sumInputPubKeys returns the sum of all public keys of the inputs of a PSBT
+// packet, by looking up the BIP-0032 derivation information for each input. If
+// the input set is empty, the sum of _all_ inputs in the packet is returned.
+func sumInputPubKeys(packet *psbt.Packet,
+	inputs fn.Set[wire.OutPoint]) (*btcec.PublicKey, error) {
+
+	var result *btcec.PublicKey
+	for idx := range packet.Inputs {
+		prevOut := packet.UnsignedTx.TxIn[idx].PreviousOutPoint
+
+		// If we're only interested in a subset of inputs, we skip
+		// those that are not in the set.
+		if !inputs.IsEmpty() && !inputs.Contains(prevOut) {
+			continue
+		}
+
+		var (
+			in     = &packet.Inputs[idx]
+			pubKey *btcec.PublicKey
+			err    error
+		)
+		switch {
+		case txscript.IsPayToTaproot(in.WitnessUtxo.PkScript):
+			pubKey, err = schnorr.ParsePubKey(
+				in.WitnessUtxo.PkScript[2:34],
+			)
+
+		case len(in.Bip32Derivation) > 0:
+			derivation := in.Bip32Derivation[0]
+			pubKey, err = btcec.ParsePubKey(derivation.PubKey)
+
+		default:
+			return nil, fmt.Errorf("missing BIP32 derivation "+
+				"information for input %v", prevOut)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error parsing public key: %w",
+				err)
+		}
+
+		if result == nil {
+			result = pubKey
+		} else {
+			silentpayments.Add(result, pubKey)
+		}
+	}
+
+	return result, nil
+}
+
+// sumInputPrivKeys returns the sum of all private keys of the inputs of a PSBT
+// packet, by looking up the private key for each input. If we don't know the
+// private key of an input, it's not included in the sum.
+func sumInputPrivKeys(packet *psbt.Packet,
+	signInfo map[wire.OutPoint]*signInfo) (*btcec.PrivateKey, error) {
+
+	var result *btcec.PrivateKey
+	for idx := range packet.Inputs {
+		txIn := packet.UnsignedTx.TxIn[idx]
+		vIn := &packet.Inputs[idx]
+
+		info, ok := signInfo[txIn.PreviousOutPoint]
+		if !ok {
+			continue
+		}
+
+		var privKey *btcec.PrivateKey
+		switch info.signMethod {
+		case input.WitnessV0SignMethod:
+			privKey = &info.privKey
+
+		case input.TaprootKeySpendBIP0086SignMethod:
+			privKey = txscript.TweakTaprootPrivKey(
+				info.privKey, make([]byte, 0),
+			)
+
+		case input.TaprootKeySpendSignMethod:
+			privKey = txscript.TweakTaprootPrivKey(
+				info.privKey, vIn.TaprootMerkleRoot,
+			)
+
+		default:
+			return nil, fmt.Errorf("unsupported signing method "+
+				"for silent payments: %v", info.signMethod)
+		}
+
+		if result == nil {
+			result = privKey
+		} else {
+			result.Key.Add(&privKey.Key)
+		}
+	}
+
+	return result, nil
 }
 
 // validateSigningMethod attempts to detect the signing method that is required

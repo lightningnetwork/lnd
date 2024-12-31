@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/btcutil/silentpayments"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -1190,6 +1191,111 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	return &txHash, nil
 }
 
+func (r *rpcServer) sendSilentPayment(addr *silentpayments.Address,
+	amount int64, feeRate chainfee.SatPerKWeight,
+	minConfs int32, selectedUtxos fn.Set[wire.OutPoint], label string,
+	strategy wallet.CoinSelectionStrategy) (*chainhash.Hash, error) {
+
+	// A silent payment address output is always a P2TR output. But we don't
+	// know the exact output key yet, as it depends on the selected inputs.
+	// We construct a dummy P2TR output that can be used for fee estimation,
+	// so we can actually perform coin selection.
+	dummyPkScript := psbt.SilentPaymentDummyP2TROutput
+	outputs := []*wire.TxOut{{
+		PkScript: dummyPkScript,
+		Value:    amount,
+	}}
+
+	// We first do a dry run, to sanity check we won't spend our wallet
+	// balance below the reserved amount.
+	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
+		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check the authored transaction and use the explicitly set change
+	// index to make sure that the wallet reserved balance is not
+	// invalidated.
+	_, err = r.server.cc.Wallet.CheckReservedValueTx(
+		lnwallet.CheckReservedValueTxReq{
+			Tx:          authoredTx.Tx,
+			ChangeIndex: &authoredTx.ChangeIndex,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now do the coin selection for real.
+	authoredTx, err = r.server.cc.Wallet.CreateSimpleTx(
+		selectedUtxos, outputs, feeRate, minConfs, strategy, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Authored transaction: %v",
+		lnutils.SpewLogClosure(authoredTx))
+
+	// Create a PSBT from the authored transaction.
+	packet, _, _, err := psbt.NewFromSignedTx(authoredTx.Tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Find our dummy output and attach the silent payment address to it.
+	for i, output := range packet.UnsignedTx.TxOut {
+		if bytes.Equal(output.PkScript, dummyPkScript) {
+			pOut := &packet.Outputs[i]
+			pOut.SilentPaymentInfo = &psbt.SilentPaymentInfo{
+				ScanKey:  addr.ScanKey.SerializeCompressed(),
+				SpendKey: addr.SpendKey.SerializeCompressed(),
+			}
+		}
+	}
+
+	// Decorate our inputs.
+	if err := r.server.cc.Wallet.DecorateInputs(packet, true); err != nil {
+		return nil, err
+	}
+
+	// Now sign the PSBT.
+	signedInputs, err := r.server.cc.Wallet.SignPsbt(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Signed packet: %v", lnutils.SpewLogClosure(packet))
+
+	if len(signedInputs) != len(packet.Inputs) {
+		return nil, fmt.Errorf("not all inputs were signed")
+	}
+
+	// Finalize the PSBT.
+	err = psbt.MaybeFinalizeAll(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := psbt.Extract(packet)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("Extracted transaction: %v", lnutils.SpewLogClosure(tx))
+
+	err = r.server.cc.Wallet.PublishTransaction(tx, label)
+	if err != nil {
+		return nil, fmt.Errorf("unable to broadcast send "+
+			"transaction: %w", err)
+	}
+
+	txHash := tx.TxHash()
+	return &txHash, nil
+}
+
 // ListUnspent returns useful information about each unspent output owned by
 // the wallet, as reported by the underlying `ListUnspentWitness`; the
 // information returned is: outpoint, amount in satoshis, address, address
@@ -1417,6 +1523,46 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 
 		selectOutpoints = fn.NewSet(wireOutpoints...)
+	}
+
+	// Decode the address as silent payment address. If that succeeds, we
+	// continue with the silent payment flow.
+	silentPaymentAddr, err := silentpayments.DecodeAddress(in.Addr)
+	if err == nil {
+		if !silentPaymentAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
+			return nil, fmt.Errorf("address: %v is not valid for "+
+				"this network: %v",
+				silentPaymentAddr.EncodeAddress(),
+				r.cfg.ActiveNetParams.Params.Name)
+		}
+
+		if in.SendAll {
+			return nil, fmt.Errorf("send_all is not supported " +
+				"yet for silent payments")
+		}
+
+		err := wallet.WithCoinSelectLock(func() error {
+			newTXID, err := r.sendSilentPayment(
+				silentPaymentAddr, in.Amount, feePerKw,
+				minConfs, selectOutpoints, label,
+				coinSelectionStrategy,
+			)
+			if err != nil {
+				return err
+			}
+
+			txid = newTXID
+
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		rpcsLog.Infof("[sendcoins] spend generated txid: %v",
+			txid.String())
+
+		return &lnrpc.SendCoinsResponse{Txid: txid.String()}, nil
 	}
 
 	// Decode the address receiving the coins, we need to check whether the

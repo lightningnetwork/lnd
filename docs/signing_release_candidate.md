@@ -50,7 +50,7 @@ Tip: Download the official release Manifest file to your local maschine and do:
 `diff lnd-v0.18.3-beta/manifest-v0.18.3-beta.txt ~/Downloads/manifest-v0.18.3-beta.txt`
 (example command for a release candidate called `v0.18.3-beta`)  
 Only if all hashes are identical, should you sign the release.  If the digests
-match, see the example signing comand, assuming your PGP signing key is
+match, see the example signing command, assuming your PGP signing key is
 available on your local device:  
 `gpg --local-user $KEYID  --detach-sig --output manifest-$USERNAME-v0.18.3-beta.sig manifest-v0.18.3-beta.txt`.  
 `USERNAME` being the name in the `[verify-install.sh](../scripts/verify-install.sh)`

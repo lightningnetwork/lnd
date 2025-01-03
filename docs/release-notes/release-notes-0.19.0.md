@@ -158,6 +158,10 @@
 * [The sweeper](https://github.com/lightningnetwork/lnd/pull/9274) does now also
  use the configured budget values for HTLCs (first level sweep) in parcticular
  `--sweeper.budget.deadlinehtlcratio` and `--sweeper.budget.deadlinehtlc`.
+ 
+* [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825)
+  previously configured is now resued when a node restarts, instead of going
+  back to the default.
 
 ## RPC Updates
 

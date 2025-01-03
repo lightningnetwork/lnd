@@ -46,6 +46,10 @@
   from their parent loggers. 
 
 # New Features
+ 
+* Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 
+  settings across restart. Before this change we always go back to the default
+  settings when the node restarts.
 
 ## Functional Enhancements
 

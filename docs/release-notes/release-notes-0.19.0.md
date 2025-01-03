@@ -135,6 +135,10 @@
   block. Check
   [here](https://github.com/lightningnetwork/lnd/blob/master/chainio/README.md)
   to learn more.
+  
+* [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825)
+  previously configured is now resued when a node restarts, instead of going
+  back to the default.
 
 ## RPC Updates
 

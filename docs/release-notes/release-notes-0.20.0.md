@@ -27,6 +27,10 @@
   validated.
 
 # New Features
+ 
+* [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825)
+  previously configured is now resued when a node restarts, instead of always
+  going back to the default configurations.
 
 ## Functional Enhancements
 

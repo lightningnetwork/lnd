@@ -1600,8 +1600,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 
 // AssertPaymentFailureReason asserts that the given node lists a payment with
 // the given preimage which has the expected failure reason.
-func (h *HarnessTest) AssertPaymentFailureReason(hn *node.HarnessNode,
-	preimage lntypes.Preimage, reason lnrpc.PaymentFailureReason) {
+func (h *HarnessTest) AssertPaymentFailureReason(
+	hn *node.HarnessNode, preimage lntypes.Preimage,
+	reason lnrpc.PaymentFailureReason) *lnrpc.Payment {
+
+	var payment *lnrpc.Payment
 
 	payHash := preimage.Hash()
 	err := wait.NoError(func() error {
@@ -1610,14 +1613,19 @@ func (h *HarnessTest) AssertPaymentFailureReason(hn *node.HarnessNode,
 			return err
 		}
 
+		payment = p
+
 		if reason == p.FailureReason {
 			return nil
 		}
 
 		return fmt.Errorf("payment: %v failure reason not match, "+
-			"want %s got %s", payHash, reason, p.Status)
+			"want %s(%d) got %s(%d)", payHash, reason, reason,
+			p.FailureReason, p.FailureReason)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout checking payment failure reason")
+
+	return payment
 }
 
 // AssertActiveNodesSynced asserts all active nodes have synced to the chain.

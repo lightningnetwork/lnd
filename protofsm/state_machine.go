@@ -195,12 +195,11 @@ type StateMachineCfg[Event any, Env Environment] struct {
 // state such as a txid confirmation event.
 func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env], //nolint:ll
 ) StateMachine[Event, Env] {
-
 	return StateMachine[Event, Env]{
 		cfg:            cfg,
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
-		wg:             *fn.NewGoroutineManager(context.Background()),
+		wg:             *fn.NewGoroutineManager(),
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 		quit:           make(chan struct{}),
 	}
@@ -210,7 +209,7 @@ func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env]
 // the state machine to completion.
 func (s *StateMachine[Event, Env]) Start() {
 	s.startOnce.Do(func() {
-		_ = s.wg.Go(func(ctx context.Context) {
+		_ = s.wg.Go(context.Background(), func(ctx context.Context) {
 			s.driveMachine()
 		})
 	})
@@ -355,7 +354,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
 			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
-				launched := s.wg.Go(func(ctx context.Context) {
+				ctxClosure := func(ctx context.Context) {
 					log.Debugf("FSM(%v): sending "+
 						"post-send event: %v",
 						s.cfg.Env.Name(),
@@ -363,8 +362,11 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 					)
 
 					s.SendEvent(event)
-				})
+				}
 
+				launched := s.wg.Go(
+					context.Background(), ctxClosure,
+				)
 				if !launched {
 					return ErrStateMachineShutdown
 				}
@@ -382,7 +384,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 		// Otherwise, this has a SendWhen predicate, so we'll need
 		// launch a goroutine to poll the SendWhen, then send only once
 		// the predicate is true.
-		launched := s.wg.Go(func(ctx context.Context) {
+		bgCtx := context.Background()
+		launched := s.wg.Go(bgCtx, func(ctx context.Context) {
 			predicateTicker := time.NewTicker(
 				s.cfg.CustomPollInterval.UnwrapOr(pollInterval),
 			)
@@ -456,7 +459,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register spend: %w", err)
 		}
 
-		launched := s.wg.Go(func(ctx context.Context) {
+		bgCtx := context.Background()
+		launched := s.wg.Go(bgCtx, func(ctx context.Context) {
 			for {
 				select {
 				case spend, ok := <-spendEvent.Spend:
@@ -502,7 +506,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(
 			return fmt.Errorf("unable to register conf: %w", err)
 		}
 
-		launched := s.wg.Go(func(ctx context.Context) {
+		bgCtx := context.Background()
+		launched := s.wg.Go(bgCtx, func(ctx context.Context) {
 			for {
 				select {
 				case <-confEvent.Confirmed:

@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -596,7 +597,7 @@ func (l *channelLink) Start() error {
 
 	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
 
-	l.Wg.Add(1)
+	l.WgAdd(1)
 	go l.htlcManager()
 
 	return nil
@@ -636,8 +637,8 @@ func (l *channelLink) Stop() {
 		l.hodlQueue.Stop()
 	}
 
-	close(l.Quit)
-	l.Wg.Wait()
+	l.Quit()
+	l.WgWait()
 
 	// Now that the htlcManager has completely exited, reset the packet
 	// courier. This allows the mailbox to revaluate any lingering Adds that
@@ -662,7 +663,7 @@ func (l *channelLink) Stop() {
 // WaitForShutdown blocks until the link finishes shutting down, which includes
 // termination of all dependent goroutines.
 func (l *channelLink) WaitForShutdown() {
-	l.Wg.Wait()
+	l.WgWait()
 }
 
 // EligibleToForward returns a bool indicating if the channel is able to
@@ -740,7 +741,7 @@ func (l *channelLink) IsFlushing(linkDirection LinkDirection) bool {
 func (l *channelLink) OnFlushedOnce(hook func()) {
 	select {
 	case l.flushHooks.newTransients <- hook:
-	case <-l.Quit:
+	case <-l.Done():
 	}
 }
 
@@ -759,7 +760,7 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 
 	select {
 	case queue <- hook:
-	case <-l.Quit:
+	case <-l.Done():
 	}
 }
 
@@ -777,7 +778,7 @@ func (l *channelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
 
 	select {
 	case l.quiescenceReqs <- req:
-	case <-l.Quit:
+	case <-l.Done():
 		req.Resolve(fn.Err[lntypes.ChannelParty](ErrLinkShuttingDown))
 	}
 
@@ -989,7 +990,7 @@ func (l *channelLink) syncChanStates() error {
 		// We've just received a ChanSync message from the remote
 		// party, so we'll process the message  in order to determine
 		// if we need to re-transmit any messages to the remote party.
-		ctx, cancel := l.WithCtxQuitNoTimeout()
+		ctx, cancel := l.Create(context.Background())
 		defer cancel()
 		msgsToReSend, openedCircuits, closedCircuits, err =
 			l.channel.ProcessChanSyncMsg(ctx, remoteChanSyncMsg)
@@ -1021,7 +1022,7 @@ func (l *channelLink) syncChanStates() error {
 			l.cfg.Peer.SendMessage(false, msg)
 		}
 
-	case <-l.Quit:
+	case <-l.Done():
 		return ErrLinkShuttingDown
 	}
 
@@ -1111,7 +1112,7 @@ func (l *channelLink) resolveFwdPkg(fwdPkg *channeldb.FwdPkg) error {
 //
 // NOTE: This MUST be run as a goroutine.
 func (l *channelLink) fwdPkgGarbager() {
-	defer l.Wg.Done()
+	defer l.WgDone()
 
 	l.cfg.FwdPkgGCTicker.Resume()
 	defer l.cfg.FwdPkgGCTicker.Stop()
@@ -1128,7 +1129,7 @@ func (l *channelLink) fwdPkgGarbager() {
 					err)
 				continue
 			}
-		case <-l.Quit:
+		case <-l.Done():
 			return
 		}
 	}
@@ -1251,7 +1252,7 @@ func (l *channelLink) handleChanSyncErr(err error) {
 func (l *channelLink) htlcManager() {
 	defer func() {
 		l.cfg.BatchTicker.Stop()
-		l.Wg.Done()
+		l.WgDone()
 		l.log.Infof("exited")
 	}()
 
@@ -1345,7 +1346,7 @@ func (l *channelLink) htlcManager() {
 		// With our link's in-memory state fully reconstructed, spawn a
 		// goroutine to manage the reclamation of disk space occupied by
 		// completed forwarding packages.
-		l.Wg.Add(1)
+		l.WgAdd(1)
 		go l.fwdPkgGarbager()
 	}
 
@@ -1543,7 +1544,7 @@ func (l *channelLink) htlcManager() {
 				}
 			}
 
-		case <-l.Quit:
+		case <-l.Done():
 			return
 		}
 	}
@@ -2418,7 +2419,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		select {
-		case <-l.Quit:
+		case <-l.Done():
 			return
 		default:
 		}
@@ -2488,7 +2489,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 		select {
-		case <-l.Quit:
+		case <-l.Done():
 			return
 		default:
 		}
@@ -2782,7 +2783,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	ctx, done := l.WithCtxQuitNoTimeout()
+	ctx, done := l.Create(context.Background())
 	defer done()
 
 	newCommit, err := l.channel.SignNextCommitment(ctx)
@@ -2822,7 +2823,7 @@ func (l *channelLink) updateCommitTx() error {
 	}
 
 	select {
-	case <-l.Quit:
+	case <-l.Done():
 		return ErrLinkShuttingDown
 	default:
 	}
@@ -3529,7 +3530,7 @@ func (l *channelLink) handleSwitchPacket(pkt *htlcPacket) error {
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	select {
-	case <-l.Quit:
+	case <-l.Done():
 		// Return early if the link is already in the process of
 		// quitting. It doesn't make sense to hand the message to the
 		// mailbox here.
@@ -4290,7 +4291,7 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 		filteredPkts = append(filteredPkts, pkt)
 	}
 
-	err := l.cfg.ForwardPackets(l.Quit, replay, filteredPkts...)
+	err := l.cfg.ForwardPackets(l.Done(), replay, filteredPkts...)
 	if err != nil {
 		log.Errorf("Unhandled error while reforwarding htlc "+
 			"settle/fail over htlcswitch: %v", err)

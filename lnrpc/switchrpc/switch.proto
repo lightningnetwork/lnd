@@ -21,6 +21,11 @@ service Switch {
     SendOnion succeeded or failed.
     */
     rpc TrackOnion (TrackOnionRequest) returns (TrackOnionResponse);
+
+    /*
+    BuildOnion attempts to build an onion packet for the specified route.
+    */
+    rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
 }
 
 message SendOnionRequest {
@@ -114,4 +119,31 @@ message TrackOnionResponse {
     // If the caller provides no means to decrypt the error, then we'll defer
     // error decryption on the server and return the encrypted error blob.
     bytes encrypted_error = 4;
+}
+
+// BuildOnionRequest includes the necessary information to construct a Sphinx
+// onion packet.
+message BuildOnionRequest {
+    // The route for which the onion packet should be built.
+    lnrpc.Route route = 1;
+
+    // The payment hash associated with the HTLC.
+    bytes payment_hash = 2;
+
+    // A session key for onion packet construction, if not provided, a new one
+    // will be generated.
+    bytes session_key = 3;
+}
+
+// BuildOnionResponse contains the constructed onion packet.
+message BuildOnionResponse {
+    // The constructed onion packet in bytes.
+    bytes onion_blob = 1;
+
+    // The session key used for building the onion packet.
+    bytes session_key = 2;
+
+    // The serialized public keys of all nodes along the route for the
+    // constructed onion.
+    repeated bytes hop_pubkeys = 3;
 }

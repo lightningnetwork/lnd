@@ -18,11 +18,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/routing"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -58,6 +60,10 @@ var (
 			Action: "write",
 		}},
 		"/switchrpc.Switch/TrackOnion": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/switchrpc.Switch/BuildOnion": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -530,6 +536,67 @@ func reconstructCircuit(sessionKey *btcec.PrivateKey,
 		SessionKey:  sessionKey,
 		PaymentPath: pubKeys,
 	}
+}
+
+// BuildOnion constructs a sphinx onion packet for the given route.
+func (s *Server) BuildOnion(_ context.Context,
+	req *BuildOnionRequest) (*BuildOnionResponse, error) {
+
+	if req.Route == nil {
+		return nil, status.Error(codes.InvalidArgument,
+			"route information is required")
+	}
+	if len(req.PaymentHash) == 0 {
+		return nil, status.Error(codes.InvalidArgument,
+			"payment hash is required")
+	}
+
+	var sessionKey *btcec.PrivateKey
+	var err error
+	if len(req.SessionKey) == 0 {
+		sessionKey, err = routing.GenerateNewSessionKey()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"failed to generate session key: %v", err)
+		}
+	} else {
+		if err := validateSessionKey(req.SessionKey); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid session key: %v", err)
+		}
+
+		sessionKey, _ = btcec.PrivKeyFromBytes(req.SessionKey)
+	}
+
+	// Convert the route to a Sphinx path.
+	route, err := s.cfg.RouteProcessor.UnmarshallRoute(req.Route)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid route: %v", err)
+	}
+
+	// Generate the onion packet.
+	onionBlob, circuit, err := channeldb.GenerateSphinxPacket(
+		route, req.PaymentHash, sessionKey,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal,
+			"failed to create onion blob: %v", err)
+	}
+
+	// We'll provide the list of hop public keys for caller convenience.
+	// They may wish to use them + the session key in a future call to
+	// SendOnion so that the server can decrypt and handle errors.
+	hopPubKeys := make([][]byte, len(circuit.PaymentPath))
+	for i, pubKey := range circuit.PaymentPath {
+		hopPubKeys[i] = pubKey.SerializeCompressed()
+	}
+
+	return &BuildOnionResponse{
+		OnionBlob:  onionBlob,
+		SessionKey: sessionKey.Serialize(),
+		HopPubkeys: hopPubKeys,
+	}, nil
 }
 
 // TranslateErrorForRPC converts an error from the underlying HTLC switch to

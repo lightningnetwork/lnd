@@ -710,9 +710,9 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	return bestRoutes, nil
 }
 
-// generateNewSessionKey generates a new ephemeral private key to be used for a
+// GenerateNewSessionKey generates a new ephemeral private key to be used for a
 // payment attempt.
-func generateNewSessionKey() (*btcec.PrivateKey, error) {
+func GenerateNewSessionKey() (*btcec.PrivateKey, error) {
 	// Generate a new random session key to ensure that we don't trigger
 	// any replay.
 	//

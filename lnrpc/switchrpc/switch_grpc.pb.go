@@ -25,6 +25,8 @@ type SwitchClient interface {
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.
 	TrackOnion(ctx context.Context, in *TrackOnionRequest, opts ...grpc.CallOption) (*TrackOnionResponse, error)
+	// BuildOnion attempts to build an onion packet for the specified route.
+	BuildOnion(ctx context.Context, in *BuildOnionRequest, opts ...grpc.CallOption) (*BuildOnionResponse, error)
 }
 
 type switchClient struct {
@@ -53,6 +55,15 @@ func (c *switchClient) TrackOnion(ctx context.Context, in *TrackOnionRequest, op
 	return out, nil
 }
 
+func (c *switchClient) BuildOnion(ctx context.Context, in *BuildOnionRequest, opts ...grpc.CallOption) (*BuildOnionResponse, error) {
+	out := new(BuildOnionResponse)
+	err := c.cc.Invoke(ctx, "/switchrpc.Switch/BuildOnion", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SwitchServer is the server API for Switch service.
 // All implementations must embed UnimplementedSwitchServer
 // for forward compatibility
@@ -64,6 +75,8 @@ type SwitchServer interface {
 	// TrackOnion allows callers to query whether or not a payment dispatched via
 	// SendOnion succeeded or failed.
 	TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error)
+	// BuildOnion attempts to build an onion packet for the specified route.
+	BuildOnion(context.Context, *BuildOnionRequest) (*BuildOnionResponse, error)
 	mustEmbedUnimplementedSwitchServer()
 }
 
@@ -76,6 +89,9 @@ func (UnimplementedSwitchServer) SendOnion(context.Context, *SendOnionRequest) (
 }
 func (UnimplementedSwitchServer) TrackOnion(context.Context, *TrackOnionRequest) (*TrackOnionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TrackOnion not implemented")
+}
+func (UnimplementedSwitchServer) BuildOnion(context.Context, *BuildOnionRequest) (*BuildOnionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method BuildOnion not implemented")
 }
 func (UnimplementedSwitchServer) mustEmbedUnimplementedSwitchServer() {}
 
@@ -126,6 +142,24 @@ func _Switch_TrackOnion_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Switch_BuildOnion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BuildOnionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SwitchServer).BuildOnion(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/switchrpc.Switch/BuildOnion",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SwitchServer).BuildOnion(ctx, req.(*BuildOnionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Switch_ServiceDesc is the grpc.ServiceDesc for Switch service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -140,6 +174,10 @@ var Switch_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TrackOnion",
 			Handler:    _Switch_TrackOnion_Handler,
+		},
+		{
+			MethodName: "BuildOnion",
+			Handler:    _Switch_BuildOnion_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

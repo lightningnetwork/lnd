@@ -41,7 +41,7 @@ jobs:
         if: github.event.schedule == '0 0 * * *'
         run: |
           echo "RELEASE_VERSION=master" >> $GITHUB_ENV
-          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d)" >> $GITHUB_ENV
+          echo "IMAGE_TAG=daily-testing-$(date -u +%Y%m%d),${DOCKER_REPO}/${DOCKER_IMAGE}:daily-testing-only" >> $GITHUB_ENV
 
       - name: Build and push
         id: docker_build
@@ -50,8 +50,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}" 
-            "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:latest"
+            "${{ env.DOCKER_REPO }}/${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}"
+            ${{  contains(env.IMAGE_TAG, '.rc') == false && format('{}/{}:latest', env.DOCKER_REPO, env.DOCKER_IMAGE) || '' }}
           build-args: checkout=${{ env.RELEASE_VERSION }}
 
       - name: Image digest

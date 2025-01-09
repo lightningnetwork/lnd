@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
@@ -34,6 +35,7 @@ type HarnessRPC struct {
 	WalletUnlocker   lnrpc.WalletUnlockerClient
 	Invoice          invoicesrpc.InvoicesClient
 	Signer           signrpc.SignerClient
+	Switch           switchrpc.SwitchClient
 	Router           routerrpc.RouterClient
 	WalletKit        walletrpc.WalletKitClient
 	Watchtower       watchtowerrpc.WatchtowerClient
@@ -71,6 +73,7 @@ func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 		WatchtowerClient: wtclientrpc.NewWatchtowerClientClient(c),
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
+		Switch:           switchrpc.NewSwitchClient(c),
 		ChainClient:      chainrpc.NewChainNotifierClient(c),
 		ChainKit:         chainrpc.NewChainKitClient(c),
 		NeutrinoKit:      neutrinorpc.NewNeutrinoKitClient(c),

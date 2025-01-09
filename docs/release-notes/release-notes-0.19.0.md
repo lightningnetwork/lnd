@@ -160,6 +160,10 @@
   range TLVs provided with the existing set of records on the HTLC,
   overwriting any conflicting values with those supplied by the API.
 
+* [Make](https://github.com/lightningnetwork/lnd/pull/9405) the param
+`ProofMatureDelta` used in gossip to be configurable via
+`--gossip.announcement-conf`, with a default value of 5.
+
 ## lncli Updates
 
 ## Code Health
@@ -203,6 +207,7 @@
 config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
 a new option `channel-max-fee-exposure` which is unambiguous in its description.
 The underlying functionality between those two options remain the same.
+
 
 ## Breaking Changes
 ## Performance Improvements

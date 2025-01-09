@@ -62,6 +62,11 @@ const (
 	// we'll maintain. This is the global size across all peers. We'll
 	// allocate ~3 MB max to the cache.
 	maxRejectedUpdates = 10_000
+
+	// DefaultProofMatureDelta specifies the default value used for
+	// ProofMatureDelta, which is the number of confirmations needed before
+	// processing the announcement signatures.
+	DefaultProofMatureDelta = 6
 )
 
 var (
@@ -1984,8 +1989,14 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 // NOTE: must be used inside a lock.
 func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	delta uint32, msg *networkMsg) bool {
-	// TODO(roasbeef) make height delta 6
-	//  * or configurable
+
+	// The channel is already confirmed at chanID.BlockHeight so we minus
+	// one block. For instance, if the required confirmation for this
+	// channel announcement is 6, we then only need to wait for 5 more
+	// blocks once the funding tx is confirmed.
+	if delta > 0 {
+		delta--
+	}
 
 	msgHeight := chanID.BlockHeight + delta
 

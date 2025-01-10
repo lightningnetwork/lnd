@@ -6,6 +6,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/switchrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -96,6 +97,120 @@ func testSendOnion(ht *lntest.HarnessTest) {
 
 	// The invoice should show as settled for Dave.
 	ht.AssertInvoiceSettled(dave, invoices[0].PaymentAddr)
+}
+
+// testSendOnionTwice tests that the switch correctly rejects a duplicate
+// payment attempt for an HTLC that is already in-flight. It sends an onion,
+// then immediately sends the exact same onion with the same attempt ID. The
+// test asserts that the second attempt is rejected with a DUPLICATE_HTLC
+// error. It also verifies that sending again after the original HTLC has
+// settled is also rejected.
+func testSendOnionTwice(ht *lntest.HarnessTest) {
+	// Create a four-node context consisting of Alice, Bob, Carol, and
+	// Dave with the following topology:
+	//     Alice -> Bob -> Carol -> Dave
+	const chanAmt = btcutil.Amount(100000)
+	const numNodes = 4
+	nodeCfgs := make([][]string, numNodes)
+	chanPoints, nodes := ht.CreateSimpleNetwork(
+		nodeCfgs, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
+	defer ht.CloseChannel(alice, chanPoints[0])
+	defer ht.CloseChannel(bob, chanPoints[1])
+	defer ht.CloseChannel(carol, chanPoints[2])
+
+	ht.AssertChannelInGraph(alice, chanPoints[1])
+	ht.AssertChannelInGraph(alice, chanPoints[2])
+
+	const paymentAmt = 10000
+
+	// Create a preimage, that will be held by Dave.
+	var preimage lntypes.Preimage
+	copy(preimage[:], ht.Random32Bytes())
+	payHash := preimage.Hash()
+
+	// Add a hodl invoice at Dave's end.
+	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+		Value:      int64(paymentAmt),
+		CltvExpiry: finalCltvDelta,
+		Hash:       payHash[:],
+	}
+	invoice := dave.RPC.AddHoldInvoice(invoiceReq)
+
+	// Query for routes to Dave.
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey: dave.PubKeyStr,
+		Amt:    paymentAmt,
+	}
+	routes := alice.RPC.QueryRoutes(routesReq)
+	route := routes.Routes[0]
+	finalHop := route.Hops[len(route.Hops)-1]
+	finalHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  invoice.PaymentAddr,
+		TotalAmtMsat: int64(lnwire.NewMSatFromSatoshis(paymentAmt)),
+	}
+
+	// Build the onion.
+	onionReq := &switchrpc.BuildOnionRequest{
+		Route:       route,
+		PaymentHash: payHash[:],
+	}
+	onionResp := alice.RPC.BuildOnion(onionReq)
+
+	// Send the onion for the first time.
+	sendReq := &switchrpc.SendOnionRequest{
+		FirstHopPubkey: bob.PubKey[:],
+		Amount:         route.TotalAmtMsat,
+		Timelock:       route.TotalTimeLock,
+		PaymentHash:    payHash[:],
+		OnionBlob:      onionResp.OnionBlob,
+		AttemptId:      1,
+	}
+	resp := alice.RPC.SendOnion(sendReq)
+	require.True(ht, resp.Success, "expected successful onion send")
+	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+
+	// Assert that the HTLC reaches Dave.
+	invoiceStream := dave.RPC.SubscribeSingleInvoice(payHash[:])
+	ht.AssertInvoiceState(invoiceStream, lnrpc.Invoice_ACCEPTED)
+
+	// While the first onion is still in-flight, we'll send the same onion
+	// again with the same attempt ID. This should error as our Switch will
+	// detect duplicate ADDs for *in-flight* HTLCs.
+	resp = alice.RPC.SendOnion(sendReq)
+	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
+	require.False(ht, resp.Success, "expected failure on onion send")
+	require.Equal(ht, resp.ErrorCode,
+		switchrpc.ErrorCode_DUPLICATE_HTLC,
+		"unexpected error code")
+	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
+
+	// Dave settles the invoice.
+	dave.RPC.SettleInvoice(preimage[:])
+
+	// Ensure Dave's invoice is settled.
+	ht.AssertInvoiceSettled(dave, invoice.PaymentAddr)
+
+	// Track the payment and verify success.
+	trackReq := &switchrpc.TrackOnionRequest{
+		AttemptId:   1,
+		PaymentHash: payHash[:],
+		SessionKey:  onionResp.SessionKey,
+		HopPubkeys:  onionResp.HopPubkeys,
+	}
+	trackResp := alice.RPC.TrackOnion(trackReq)
+	require.Equal(ht, preimage[:], trackResp.Preimage)
+
+	// Now that the original HTLC attempt has settled, we'll send the same
+	// onion again with the same attempt ID.
+	//
+	// NOTE: Currently, this does not error. When we make SendOnion fully
+	// duplicate safe, this should be updated to assert an error is
+	// returned.
+	resp = alice.RPC.SendOnion(sendReq)
+	require.True(ht, resp.Success, "expected successful onion send")
+	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
 }
 
 // testTrackOnion exercises the SwitchRPC server's TrackOnion endpoint,

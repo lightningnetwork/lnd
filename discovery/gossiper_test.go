@@ -2709,7 +2709,7 @@ func assertBroadcast(t *testing.T, ctx *testCtx, num int) []lnwire.Message {
 	return msgs
 }
 
-// assertProcessAnnouncemnt is a helper method that checks that the result of
+// assertProcessAnnouncement is a helper method that checks that the result of
 // processing an announcement is successful.
 func assertProcessAnnouncement(t *testing.T, result chan error) {
 	t.Helper()

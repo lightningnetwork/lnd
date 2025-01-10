@@ -120,7 +120,7 @@ func TestDispatchSequential(t *testing.T) {
 	// prevConsumer specifies the previous consumer that was called.
 	var prevConsumer string
 
-	// Mock the ProcessBlock on consumers to reutrn immediately.
+	// Mock the ProcessBlock on consumers to return immediately.
 	consumer1.On("ProcessBlock", mockBeat).Return(nil).Run(
 		func(args mock.Arguments) {
 			// Check the order of the consumers.
@@ -260,7 +260,7 @@ func TestDispatchBlocks(t *testing.T) {
 	b.RegisterQueue([]Consumer{consumer})
 
 	// Mock the consumer to return nil error on ProcessBlock. This
-	// implictly asserts that the step `notifyQueues` is successfully
+	// implicitly asserts that the step `notifyQueues` is successfully
 	// reached in the `dispatchBlocks` method.
 	consumer.On("ProcessBlock", mock.Anything).Return(nil).Once()
 

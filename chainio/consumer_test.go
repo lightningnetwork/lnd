@@ -121,7 +121,7 @@ func TestProcessBlockConsumerQuitAfterSend(t *testing.T) {
 	require.Equal(t, mockBeat, beat)
 
 	// Instead of sending nil to the consumer's error channel, close the
-	// quit chanel.
+	// quit channel.
 	close(quitChan)
 
 	// Assert ProcessBlock returned nil.

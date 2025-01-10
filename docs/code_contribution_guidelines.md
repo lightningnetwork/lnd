@@ -337,7 +337,7 @@ Examples of common patterns w.r.t commit structures within the project:
     small scale, fix typos, or any changes that do not modify the code, the
     commit message of the HEAD commit of the PR should end with `[skip ci]` to
     skip the CI checks. When pushing to such an existing PR, the latest commit
-    being pushed should end with `[skip ci]` as to not inadvertantly trigger the
+    being pushed should end with `[skip ci]` as to not inadvertently trigger the
     CI checks.
     
 ## Sign your git commits

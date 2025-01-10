@@ -168,6 +168,118 @@ func testSendOnion(ht *lntest.HarnessTest) {
 	// - Send different onion but with same attempt ID.
 }
 
+func testSendOnionTwice(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	carol := ht.NewNode("Carol", nil)
+	dave := ht.NewNode("Dave", nil)
+
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
+
+	const chanAmt = btcutil.Amount(100000)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	chanPointAliceBob := ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(alice, chanPointAliceBob)
+
+	chanPointBobCarol := ht.OpenChannel(bob, carol, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(bob, chanPointBobCarol)
+
+	chanPointCarolDave := ht.OpenChannel(carol, dave, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(carol, chanPointCarolDave)
+
+	ht.AssertChannelInGraph(alice, chanPointBobCarol)
+	ht.AssertChannelInGraph(alice, chanPointCarolDave)
+
+	const paymentAmt = 10000
+
+	// Request an invoice from Dave.
+	_, rHashes, invoices := ht.CreatePayReqs(dave, paymentAmt, 1)
+	paymentHash := rHashes[0]
+
+	// Query for routes to Dave.
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey: dave.PubKeyStr,
+		Amt:    paymentAmt,
+	}
+	routes := alice.RPC.QueryRoutes(routesReq)
+	route := routes.Routes[0]
+	finalHop := route.Hops[len(route.Hops)-1]
+	finalHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  invoices[0].PaymentAddr,
+		TotalAmtMsat: int64(lnwire.NewMSatFromSatoshis(paymentAmt)),
+	}
+
+	// Build the onion.
+	onionReq := &switchrpc.BuildOnionRequest{
+		Route:       route,
+		PaymentHash: paymentHash,
+	}
+	onionResp := alice.RPC.BuildOnion(onionReq)
+
+	// Send the onion for the first time.
+	sendReq := &switchrpc.SendOnionRequest{
+		FirstHopPubkey: bob.PubKey[:],
+		Amount:         route.TotalAmtMsat,
+		Timelock:       route.TotalTimeLock,
+		PaymentHash:    paymentHash,
+		OnionBlob:      onionResp.OnionBlob,
+		AttemptId:      1,
+	}
+	resp := alice.RPC.SendOnion(sendReq)
+	require.True(ht, resp.Success, "expected successful onion send")
+	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+
+	// While the first onion is still in-flight, we'll send the same onion
+	// again with the same attempt ID. This should error as our Switch will
+	// detect duplicate ADDs for *in-flight* HTLCs.
+	resp = alice.RPC.SendOnion(sendReq)
+	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
+	require.False(ht, resp.Success, "expected failure on onion send")
+	require.Equal(ht, resp.ErrorCode,
+		switchrpc.ErrorCode_ERROR_CODE_DUPLICATE_HTLC,
+		"unexpected error code")
+	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
+
+	// Track the payment and verify success.
+	trackReq := &switchrpc.TrackOnionRequest{
+		AttemptId:   1,
+		PaymentHash: paymentHash,
+		SessionKey:  onionResp.SessionKey,
+		HopPubkeys:  onionResp.HopPubkeys,
+	}
+	trackResp := alice.RPC.TrackOnion(trackReq)
+	require.Equal(ht, invoices[0].RPreimage, trackResp.Preimage)
+
+	// Ensure Dave's invoice is settled.
+	ht.AssertInvoiceSettled(dave, invoices[0].PaymentAddr)
+
+	// Now that the original HTLC attempt has settled, we'll send the same
+	// onion again with the same attempt ID.
+	//
+	// NOTE: Currently, this does not error. When we make SendOnion fully
+	// duplicate safe, this should be updated to assert an error is returned.
+	// ctxt, cancel := context.WithTimeout(context.Background(), lntest.DefaultTimeout)
+	// defer cancel()
+
+	// resp, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
+	resp = alice.RPC.SendOnion(sendReq)
+	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
+	require.True(ht, resp.Success, "expected successful onion send")
+	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
+	// // TODO: Once SendOnion becomes idempotent, assert an error here:
+	// require.Error(ht, err, "expected error when re-sending same onion with same attempt ID")
+	// // Assert that the error is a gRPC codes.AlreadyExists error.
+	// st, ok := status.FromError(err)
+	// require.True(ht, ok, "expected a gRPC status error")
+	// require.Equal(ht, codes.AlreadyExists, st.Code(), "expected AlreadyExists error code")
+	// // require.Contains(ht, st.Message(), "duplicate onion", "expected error message to indicate duplicate onion")
+}
+
 func testTrackOnion(ht *lntest.HarnessTest) {
 	// Create a four-node context consisting of Alice, Bob and two new
 	// nodes: Carol and Dave. This will provide a 4 node, 3 channel topology.

@@ -1576,13 +1576,6 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 
 	if len(htlcs) > 0 {
 		invoice.Htlcs = htlcs
-		var amountPaid lnwire.MilliSatoshi
-		for _, htlc := range htlcs {
-			if htlc.State == HtlcStateSettled {
-				amountPaid += htlc.Amt
-			}
-		}
-		invoice.AmtPaid = amountPaid
 	}
 
 	return hash, invoice, nil

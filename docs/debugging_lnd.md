@@ -78,7 +78,7 @@ prefix is overwritten by the `LNWL` subsystem.
 
 Moreover when using the `lncli` command the return value will provide the 
 updated list of all subsystems and their associated logging levels. This makes
-it easy to get an overview of the corrent logging level for the whole system.
+it easy to get an overview of the current logging level for the whole system.
 
 Example:
 

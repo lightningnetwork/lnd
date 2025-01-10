@@ -3,12 +3,18 @@ package invoices_test
 import (
 	"context"
 	"database/sql"
+	"os"
+	"path"
 	"testing"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
+	"github.com/lightningnetwork/lnd/kvdb/sqlite"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
@@ -132,15 +138,66 @@ func TestMigrationWithChannelDB(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			store := channeldb.OpenForTesting(t, test.dbPath)
+			var kvStore *channeldb.DB
+
+			// First check if we have a channel.sqlite file in the
+			// testdata directory. If we do, we'll use that as the
+			// channel db for the migration test.
+			chanDBPath := path.Join(
+				test.dbPath, lncfg.SqliteChannelDBName,
+			)
+
+			// Just some sane defaults for the sqlite config.
+			const (
+				timeout  = 5 * time.Second
+				maxConns = 50
+			)
+
+			sqliteConfig := &sqlite.Config{
+				Timeout:        timeout,
+				BusyTimeout:    timeout,
+				MaxConnections: maxConns,
+			}
+
+			if fileExists(chanDBPath) {
+				sqlbase.Init(maxConns)
+
+				sqliteBackend, err := kvdb.Open(
+					kvdb.SqliteBackendName,
+					context.Background(),
+					sqliteConfig, test.dbPath,
+					lncfg.SqliteChannelDBName,
+					lncfg.NSChannelDB,
+				)
+
+				require.NoError(t, err)
+				kvStore, err = channeldb.CreateWithBackend(
+					sqliteBackend,
+				)
+
+				require.NoError(t, err)
+			} else {
+				kvStore = channeldb.OpenForTesting(
+					t, test.dbPath,
+				)
+			}
 
 			t.Run("Postgres", func(t *testing.T) {
-				migrationTest(t, store, false)
+				migrationTest(t, kvStore, false)
 			})
 
 			t.Run("SQLite", func(t *testing.T) {
-				migrationTest(t, store, true)
+				migrationTest(t, kvStore, true)
 			})
 		})
 	}
+}
+
+func fileExists(filename string) bool {
+	info, err := os.Stat(filename)
+	if os.IsNotExist(err) {
+		return false
+	}
+
+	return !info.IsDir()
 }

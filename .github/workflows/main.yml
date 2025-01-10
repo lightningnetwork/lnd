@@ -327,7 +327,7 @@ jobs:
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-${{ matrix.name }}
@@ -394,7 +394,7 @@ jobs:
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-${{ matrix.name }}
@@ -439,7 +439,7 @@ jobs:
         run: 7z a logs-itest-windows.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-windows
@@ -478,7 +478,7 @@ jobs:
         run: 7z a logs-itest-macos.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-macos

@@ -212,6 +212,9 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 			err)
 	}
 
+	if lncfg.IsLocalAddress(addr) {
+		return nil, fmt.Errorf("cannot connect to local network address %v", addr)
+	}
 	towerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,

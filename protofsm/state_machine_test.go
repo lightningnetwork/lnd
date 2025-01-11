@@ -1,6 +1,7 @@
 package protofsm
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync/atomic"
@@ -14,7 +15,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 )
 
 type dummyEvents interface {

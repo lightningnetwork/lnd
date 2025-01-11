@@ -145,7 +145,7 @@ type StateMachine[Event any, Env Environment] struct {
 	// query the internal state machine state.
 	stateQuery chan stateQuery[Event, Env]
 
-	wg   *fn.GoroutineManager
+	gm   fn.GoroutineManager
 	quit chan struct{}
 
 	startOnce sync.Once
@@ -206,7 +206,7 @@ func NewStateMachine[Event any, Env Environment](
 		),
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
-		wg:             fn.NewGoroutineManager(),
+		gm:             *fn.NewGoroutineManager(),
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 		quit:           make(chan struct{}),
 	}
@@ -216,7 +216,7 @@ func NewStateMachine[Event any, Env Environment](
 // the state machine to completion.
 func (s *StateMachine[Event, Env]) Start(ctx context.Context) {
 	s.startOnce.Do(func() {
-		_ = s.wg.Go(ctx, func(ctx context.Context) {
+		_ = s.gm.Go(ctx, func(ctx context.Context) {
 			s.driveMachine(ctx)
 		})
 	})
@@ -227,7 +227,7 @@ func (s *StateMachine[Event, Env]) Start(ctx context.Context) {
 func (s *StateMachine[Event, Env]) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.quit)
-		s.wg.Stop()
+		s.gm.Stop()
 	})
 }
 
@@ -335,8 +335,6 @@ func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[
 // executeDaemonEvent executes a daemon event, which is a special type of event
 // that can be emitted as part of the state transition function of the state
 // machine. An error is returned if the type of event is unknown.
-//
-//nolint:funlen
 func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	event DaemonEvent) error {
 
@@ -360,7 +358,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
 			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
-				launched := s.wg.Go(
+				launched := s.gm.Go(
 					ctx, func(ctx context.Context) {
 						s.log.DebugS(ctx, "Sending post-send event",
 							"event", lnutils.SpewLogClosure(event))
@@ -386,7 +384,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 		// Otherwise, this has a SendWhen predicate, so we'll need
 		// launch a goroutine to poll the SendWhen, then send only once
 		// the predicate is true.
-		launched := s.wg.Go(ctx, func(ctx context.Context) {
+		launched := s.gm.Go(ctx, func(ctx context.Context) {
 			predicateTicker := time.NewTicker(
 				s.cfg.CustomPollInterval.UnwrapOr(pollInterval),
 			)
@@ -456,7 +454,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			return fmt.Errorf("unable to register spend: %w", err)
 		}
 
-		launched := s.wg.Go(ctx, func(ctx context.Context) {
+		launched := s.gm.Go(ctx, func(ctx context.Context) {
 			for {
 				select {
 				case spend, ok := <-spendEvent.Spend:
@@ -502,7 +500,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			return fmt.Errorf("unable to register conf: %w", err)
 		}
 
-		launched := s.wg.Go(ctx, func(ctx context.Context) {
+		launched := s.gm.Go(ctx, func(ctx context.Context) {
 			for {
 				select {
 				case <-confEvent.Confirmed:
@@ -674,7 +672,7 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 				return
 			}
 
-		case <-s.wg.Done():
+		case <-s.gm.Done():
 			return
 		}
 	}

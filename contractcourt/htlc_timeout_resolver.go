@@ -465,15 +465,9 @@ func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 	}
 
 	// Calculate the budget.
-	//
-	// TODO(yy): the budget is twice the output's value, which is needed as
-	// we don't force sweep the output now. To prevent cascading force
-	// closes, we use all its output value plus a wallet input as the
-	// budget. This is a temporary solution until we can optionally cancel
-	// the incoming HTLC, more details in,
-	// - https://github.com/lightningnetwork/lnd/issues/7969
 	budget := calculateBudget(
-		btcutil.Amount(inp.SignDesc().Output.Value), 2, 0,
+		btcutil.Amount(inp.SignDesc().Output.Value),
+		h.Budget.DeadlineHTLCRatio, h.Budget.DeadlineHTLC,
 	)
 
 	h.log.Infof("offering 2nd-level HTLC timeout tx to sweeper "+
@@ -535,15 +529,9 @@ func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 	)
 
 	// Calculate the budget.
-	//
-	// TODO(yy): the budget is twice the output's value, which is needed as
-	// we don't force sweep the output now. To prevent cascading force
-	// closes, we use all its output value plus a wallet input as the
-	// budget. This is a temporary solution until we can optionally cancel
-	// the incoming HTLC, more details in,
-	// - https://github.com/lightningnetwork/lnd/issues/7969
 	budget := calculateBudget(
-		btcutil.Amount(sweepInput.SignDesc().Output.Value), 2, 0,
+		btcutil.Amount(sweepInput.SignDesc().Output.Value),
+		h.Budget.DeadlineHTLCRatio, h.Budget.DeadlineHTLC,
 	)
 
 	log.Infof("%T(%x): offering offered remote timeout HTLC output to "+

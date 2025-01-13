@@ -928,12 +928,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	require.Len(ht, outgoingSweep.TxOut, 2)
 
 	// Calculate the ending fee rate.
-	//
-	// TODO(yy): the budget we use to sweep the first-level outgoing HTLC
-	// is twice its value. This is a temporary mitigation to prevent
-	// cascading FCs and the test should be updated once it's properly
-	// fixed.
-	outgoingBudget := 2 * invoiceAmt
+	outgoingBudget := invoiceAmt.MulF64(contractcourt.DefaultBudgetRatio)
 	outgoingTxSize := ht.CalculateTxWeight(outgoingSweep)
 	outgoingEndFeeRate := chainfee.NewSatPerKWeight(
 		outgoingBudget, outgoingTxSize,

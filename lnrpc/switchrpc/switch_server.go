@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/RoaringBitmap/roaring/v2/roaring64"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -85,10 +87,41 @@ type ServerShell struct {
 type Server struct {
 	cfg *Config
 
+	// usedAttemptIDs maintains the set of attempt IDs that have been used
+	// in either SendOnion or TrackOnion. This ensures that if TrackOnion
+	// returns PAYMENT_ID_NOT_FOUND or SendOnion initiates HTLC creation for
+	// a given attempt ID, SendOnion cannot subsequently succeed with the
+	// same attempt ID. This mechanism safeguards against overpayment in
+	// scenarios where network requests are reordered. If an attempt ID has
+	// already been used by either SendOnion or TrackOnion, SendOnion will
+	// return DUPLICATE_HTLC for that attempt ID.
+	usedAttemptIDs *roaring64.Bitmap
+
+	// usedAttemptIDsMu is a mutex which protects accesses to
+	// usedAttemptIDs.
+	usedAttemptIDsMu sync.Mutex
+
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
 	// alignment.
 	UnimplementedSwitchServer
+}
+
+// tryAddAttemptID tries to add attemptID to usedAttemptIDs under the mutex and
+// returns if the attemptID is new.
+func (s *Server) tryAddAttemptID(attemptID uint64) bool {
+	s.usedAttemptIDsMu.Lock()
+	defer s.usedAttemptIDsMu.Unlock()
+
+	return s.usedAttemptIDs.CheckedAdd(attemptID)
+}
+
+// tryAddAttemptID adds attemptID to usedAttemptIDs under the mutex.
+func (s *Server) addAttemptID(attemptID uint64) {
+	s.usedAttemptIDsMu.Lock()
+	defer s.usedAttemptIDsMu.Unlock()
+
+	s.usedAttemptIDs.Add(attemptID)
 }
 
 // New creates a new instance of the SwitchServer given a configuration struct
@@ -137,7 +170,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	}
 
 	switchServer := &Server{
-		cfg: cfg,
+		cfg:            cfg,
+		usedAttemptIDs: roaring64.New(),
 		// quit: make(chan struct{}),
 	}
 
@@ -213,6 +247,7 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	}
 
 	r.SwitchServer = subServer
+
 	return subServer, macPermissions, nil
 }
 
@@ -288,6 +323,16 @@ func (s *Server) SendOnion(_ context.Context,
 		Expiry:      req.Timelock,
 		PaymentHash: hash,
 		OnionBlob:   [lnwire.OnionPacketSize]byte(req.OnionBlob),
+	}
+
+	// Make sure that SendOnion and TrackOnion have not been called with
+	// this AttemptID.
+	if !s.tryAddAttemptID(req.AttemptId) {
+		return &SendOnionResponse{
+			Success:      false,
+			ErrorMessage: htlcswitch.ErrDuplicateAdd.Error(),
+			ErrorCode:    ErrorCode_ERROR_CODE_DUPLICATE_HTLC,
+		}, nil
 	}
 
 	log.Debugf("Dispatching HTLC attempt(id=%v, amt=%v) for payment=%v via "+
@@ -371,6 +416,10 @@ func (s *Server) TrackOnion(ctx context.Context,
 		return nil, status.Errorf(codes.Unimplemented,
 			"unable to process shared secrets")
 	}
+
+	// Mark this AttemptID as used so SendOnion can't reuse it later.
+	// this AttemptId.
+	s.addAttemptID(req.AttemptId)
 
 	// NOTE(calvin): In order to decrypt errors server side we require
 	// either the combination of session key and hop public keys from which

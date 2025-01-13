@@ -1446,6 +1446,10 @@
           "type": "string",
           "format": "uint64",
           "description": "Optional. The max amount in sats that can be used as the fees. Setting this\nvalue greater than the input's value may result in CPFP - one or more wallet\nutxos will be used to pay the fees specified by the budget. If not set, for\nnew inputs, by default 50% of the input's value will be treated as the\nbudget for fee bumping; for existing inputs, their current budgets will be\nretained."
+        },
+        "include_raw_tx": {
+          "type": "boolean",
+          "description": "Indicates whether to include the raw transaction hex for the sweep\ntransaction. Note that this will wait for the batcher to create\na transaction, which might take a while. The duration is at least as long as\nthe configured sweeper.batchwindowduration value, with the default set to 30\nseconds. In case `immediate` is set to true, the raw transaction will be\nincluded as soon as the transaction is created."
         }
       }
     },
@@ -1455,6 +1459,10 @@
         "status": {
           "type": "string",
           "description": "The status of the bump fee operation."
+        },
+        "sweep_tx_hex": {
+          "type": "string",
+          "description": "The raw hex encoded bytes of the sweep transaction. Included if\ninclude_raw_tx in the request is true."
         }
       }
     },

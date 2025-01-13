@@ -4168,14 +4168,11 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 		if closingTx != nil {
 			closingTxid = closingTx.TxHash().String()
 			if includeRawTx {
-				var txBuf bytes.Buffer
-				err = closingTx.Serialize(&txBuf)
+				closingTxHex, err =
+					lnrpc.SerializeAndHexEncodeTx(closingTx)
 				if err != nil {
-					return nil, 0, fmt.Errorf("failed to "+
-						"serialize closing transaction"+
-						": %w", err)
+					return nil, 0, err
 				}
-				closingTxHex = hex.EncodeToString(txBuf.Bytes())
 			}
 		}
 

@@ -160,6 +160,14 @@
   range TLVs provided with the existing set of records on the HTLC,
   overwriting any conflicting values with those supplied by the API.
 
+* The `bumpfee` now optionally includes the raw transaction hex of the
+  sweep transaction in its command and RPC response. This allows users to
+  retrieve transaction details directly. Note that obtaining the raw transaction
+  hex may take some time based on the `sweeper.batchwindowduration`
+  configuration (default: 30 seconds). If the `immediate` flag is set to `true`
+  the raw transaction will be returned as soon as it is created. For more
+  details, see [PR #8528](https://github.com/lightningnetwork/lnd/pull/8528).
+
 ## lncli Updates
 
 ## Code Health

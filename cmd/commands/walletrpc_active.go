@@ -307,6 +307,16 @@ var bumpFeeCommand = cli.Command{
 	the budget for fee bumping; for existing inputs, their current budgets
 	will be retained.`,
 		},
+		cli.BoolFlag{
+			Name: "include_raw_tx",
+			Usage: "include the raw transaction hex for the " +
+				"sweep transaction on success. " +
+				"It waits for the batcher to create a " +
+				"transaction, which might take a while. " +
+				"The duration is at least as long as " +
+				"the configured sweeper.batchwindowduration, " +
+				"with the default set to 30 seconds",
+		},
 	},
 	Action: actionDecorator(bumpFee),
 }
@@ -344,11 +354,12 @@ func bumpFee(ctx *cli.Context) error {
 	}
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		Immediate:   immediate,
-		Budget:      ctx.Uint64("budget"),
-		SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		Outpoint:     protoOutPoint,
+		TargetConf:   uint32(ctx.Uint64("conf_target")),
+		Immediate:    immediate,
+		Budget:       ctx.Uint64("budget"),
+		SatPerVbyte:  ctx.Uint64("sat_per_vbyte"),
+		IncludeRawTx: ctx.Bool("include_raw_tx"),
 	})
 	if err != nil {
 		return err

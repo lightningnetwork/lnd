@@ -289,7 +289,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterRouterServer(grpcServer, r)
 
-	log.Debugf("Router RPC server successfully register with root gRPC " +
+	log.Debugf("Router RPC server successfully registered with root gRPC " +
 		"server")
 
 	return nil

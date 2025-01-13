@@ -97,7 +97,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterWatchtowerServer(grpcServer, r)
 
-	log.Debugf("Watchtower RPC server successfully register with root " +
+	log.Debugf("Watchtower RPC server successfully registered with root " +
 		"gRPC server")
 
 	return nil

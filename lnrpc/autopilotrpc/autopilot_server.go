@@ -137,7 +137,7 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// all our methods are routed properly.
 	RegisterAutopilotServer(grpcServer, r)
 
-	log.Debugf("Autopilot RPC server successfully register with root " +
+	log.Debugf("Autopilot RPC server successfully registered with root " +
 		"gRPC server")
 
 	return nil

@@ -263,21 +263,12 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	//
 	// NOTE: Currently, this does not error. When we make SendOnion fully
 	// duplicate safe, this should be updated to assert an error is returned.
-	// ctxt, cancel := context.WithTimeout(context.Background(), lntest.DefaultTimeout)
-	// defer cancel()
-
-	// resp, err := alice.RPC.Switch.SendOnion(ctxt, sendReq)
 	resp = alice.RPC.SendOnion(sendReq)
-	ht.Logf("SendOnion resp: %+v, code: %v", resp, resp.ErrorCode)
-	require.True(ht, resp.Success, "expected successful onion send")
-	require.Empty(ht, resp.ErrorMessage, "unexpected failure to send onion")
-	// // TODO: Once SendOnion becomes idempotent, assert an error here:
-	// require.Error(ht, err, "expected error when re-sending same onion with same attempt ID")
-	// // Assert that the error is a gRPC codes.AlreadyExists error.
-	// st, ok := status.FromError(err)
-	// require.True(ht, ok, "expected a gRPC status error")
-	// require.Equal(ht, codes.AlreadyExists, st.Code(), "expected AlreadyExists error code")
-	// // require.Contains(ht, st.Message(), "duplicate onion", "expected error message to indicate duplicate onion")
+	require.False(ht, resp.Success, "expected failure on onion send")
+	require.Equal(ht, resp.ErrorCode,
+		switchrpc.ErrorCode_ERROR_CODE_DUPLICATE_HTLC,
+		"unexpected error code")
+	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
 }
 
 func testTrackOnion(ht *lntest.HarnessTest) {

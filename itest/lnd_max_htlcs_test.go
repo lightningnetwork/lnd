@@ -59,12 +59,11 @@ func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 	// We've hit our max remote htlcs, so we expect this payment to spin
 	// out dramatically with pathfinding.
 	sendReq := &routerrpc.SendPaymentRequest{
-		Amt:            1000,
-		Dest:           alice.PubKey[:],
-		TimeoutSeconds: 60,
-		FeeLimitSat:    1000000,
-		MaxParts:       10,
-		Amp:            true,
+		Amt:         1000,
+		Dest:        alice.PubKey[:],
+		FeeLimitSat: 1000000,
+		MaxParts:    10,
+		Amp:         true,
 	}
 	ht.SendPaymentAndAssertStatus(bob, sendReq, lnrpc.Payment_FAILED)
 
@@ -130,7 +129,6 @@ func acceptHoldInvoice(ht *lntest.HarnessTest, idx int, sender,
 
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitSat:    1000000,
 	}
 	payStream := sender.RPC.SendPayment(sendReq)

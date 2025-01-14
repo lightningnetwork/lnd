@@ -63,7 +63,6 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: payReq,
 		MaxParts:       10,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	payment := ht.SendPaymentAssertSettled(mts.alice, sendReq)

@@ -1086,7 +1086,6 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 	go func() {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: invoice.PaymentRequest,
-			TimeoutSeconds: 60,
 			FeeLimitSat:    100000,
 			Cancelable:     true,
 		}

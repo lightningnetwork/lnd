@@ -1429,7 +1429,6 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 
 		sendReq := &routerrpc.SendPaymentRequest{
 			PaymentRequest: invoiceResp.PaymentRequest,
-			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		switch limit := feeLimit.Limit.(type) {
@@ -1529,7 +1528,6 @@ func testFeeLimitAfterQueryRoutes(ht *lntest.HarnessTest) {
 	invoiceResp := carol.RPC.AddInvoice(invoice)
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoiceResp.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   0,
 	}
 

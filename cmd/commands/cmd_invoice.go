@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
@@ -116,6 +117,12 @@ var AddInvoiceCommand = cli.Command{
 				"use on a blinded path. The flag may be " +
 				"specified multiple times.",
 		},
+		cli.StringSliceFlag{
+			Name: "blinded_path_incoming_channel_list",
+			Usage: "The chained channels (specified via channel " +
+				"id) starting from the receiver node which " +
+				"shall be used for the blinded path.",
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -168,7 +175,7 @@ func addInvoice(ctx *cli.Context) error {
 
 	blindedPathCfg, err := parseBlindedPathCfg(ctx)
 	if err != nil {
-		return fmt.Errorf("could not parse blinded path config: %w",
+		return fmt.Errorf("could not parse blinded path config: %v",
 			err)
 	}
 
@@ -197,12 +204,57 @@ func addInvoice(ctx *cli.Context) error {
 	return nil
 }
 
+// parseChanIDFromString parses the channelId from string accepting both formats
+// <blockheight>x<txindex>x<txposition> and plain number, returning the channel
+// ID as a uint64.
+func parseChanIDFromString(channelID string) (uint64, error) {
+	// First try parsing as a plain number
+	chanID, err := strconv.ParseUint(channelID, 10, 64)
+	if err == nil {
+		return chanID, nil
+	} else {
+		// Try the blockHeight x txIndex x outputIndex format.
+		parts := strings.Split(channelID, "x")
+
+		if len(parts) != 3 {
+			return 0, fmt.Errorf("error on channel ID %v",
+				channelID)
+		}
+
+		// Parse block height (limited to 3 bytes = 24 bits)
+		bh, err := strconv.ParseUint(parts[0], 10, 24)
+		if err != nil {
+			return 0, fmt.Errorf("error on channel ID %v",
+				channelID)
+		}
+
+		// Parse transaction index (limited to 3 bytes = 24 bits)
+		ti, err := strconv.ParseUint(parts[1], 10, 24)
+		if err != nil {
+			return 0, fmt.Errorf("error on channel ID %v",
+				channelID)
+		}
+
+		// Parse transaction position (limited to 2 bytes = 16 bits)
+		tp, err := strconv.ParseUint(parts[2], 10, 16)
+		if err != nil {
+			return 0, fmt.Errorf("error on channel ID %v",
+				channelID)
+		}
+
+		chanID = bh<<40 | ti<<16 | tp
+
+		return chanID, nil
+	}
+}
+
 func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 	if !ctx.Bool("blind") {
 		if ctx.IsSet("min_real_blinded_hops") ||
 			ctx.IsSet("num_blinded_hops") ||
 			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+			ctx.IsSet("blinded_path_omit_node") ||
+			ctx.IsSet("blinded_path_incoming_channel_list") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -237,6 +289,21 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 		blindCfg.NodeOmissionList = append(
 			blindCfg.NodeOmissionList, pubKeyBytes,
 		)
+	}
+
+	if ctx.IsSet("blinded_path_incoming_channel_list") {
+		channels := strings.Split(
+			ctx.String("blinded_path_incoming_channel_list"), ",",
+		)
+		for _, channelID := range channels {
+			chanID, err := parseChanIDFromString(channelID)
+			if err != nil {
+				return nil, err
+			}
+			blindCfg.IncomingChannelList = append(
+				blindCfg.IncomingChannelList, chanID,
+			)
+		}
 	}
 
 	return &blindCfg, nil

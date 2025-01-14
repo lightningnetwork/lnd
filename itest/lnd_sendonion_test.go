@@ -271,6 +271,101 @@ func testSendOnionTwice(ht *lntest.HarnessTest) {
 	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
 }
 
+func testTrackThenSend(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("Bob", nil)
+	carol := ht.NewNode("Carol", nil)
+	dave := ht.NewNode("Dave", nil)
+
+	ht.EnsureConnected(alice, bob)
+	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
+
+	const chanAmt = btcutil.Amount(100000)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	chanPointAliceBob := ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(alice, chanPointAliceBob)
+
+	chanPointBobCarol := ht.OpenChannel(bob, carol, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(bob, chanPointBobCarol)
+
+	chanPointCarolDave := ht.OpenChannel(carol, dave, lntest.OpenChannelParams{Amt: chanAmt})
+	defer ht.CloseChannel(carol, chanPointCarolDave)
+
+	ht.AssertChannelInGraph(alice, chanPointBobCarol)
+	ht.AssertChannelInGraph(alice, chanPointCarolDave)
+
+	const paymentAmt = 10000
+
+	// Request an invoice from Dave.
+	_, rHashes, invoices := ht.CreatePayReqs(dave, paymentAmt, 1)
+	paymentHash := rHashes[0]
+
+	// Query for routes to Dave.
+	routesReq := &lnrpc.QueryRoutesRequest{
+		PubKey: dave.PubKeyStr,
+		Amt:    paymentAmt,
+	}
+	routes := alice.RPC.QueryRoutes(routesReq)
+	route := routes.Routes[0]
+	finalHop := route.Hops[len(route.Hops)-1]
+	finalHop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  invoices[0].PaymentAddr,
+		TotalAmtMsat: int64(lnwire.NewMSatFromSatoshis(paymentAmt)),
+	}
+
+	// Build the onion.
+	onionReq := &switchrpc.BuildOnionRequest{
+		Route:       route,
+		PaymentHash: paymentHash,
+	}
+	onionResp := alice.RPC.BuildOnion(onionReq)
+
+	// Simulate a scenario in which the request to track an onion for a
+	// given attempt ID is processed by the remote server *before* the
+	// request to send the onion.
+
+	// Track the payment first. We expect to receive notice that no HTLC
+	// by this attempt ID is in-flight or known about.
+	trackReq := &switchrpc.TrackOnionRequest{
+		AttemptId:   1,
+		PaymentHash: paymentHash,
+		SessionKey:  onionResp.SessionKey,
+		HopPubkeys:  onionResp.HopPubkeys,
+	}
+	trackResp := alice.RPC.TrackOnion(trackReq)
+	require.Equal(ht, trackResp.ErrorCode,
+		switchrpc.ErrorCode_ERROR_CODE_PAYMENT_ID_NOT_FOUND,
+		"unexpected error code")
+	require.Equal(ht, trackResp.ErrorMessage,
+		htlcswitch.ErrPaymentIDNotFound.Error())
+
+	// Now send the onion for the first time. This should fail as our server
+	// enforces "send then track" ordering in order to protect rpc client
+	// from duplicate onion attempts.
+	//
+	// NOTE(calvin): Undesired attempt duplication can also be prevented by
+	// careful programming on the rpc client side, but handling this on the
+	// rpc server allows us to avoid changing lnd ChannelRouter code.
+	sendReq := &switchrpc.SendOnionRequest{
+		FirstHopPubkey: bob.PubKey[:],
+		Amount:         route.TotalAmtMsat,
+		Timelock:       route.TotalTimeLock,
+		PaymentHash:    paymentHash,
+		OnionBlob:      onionResp.OnionBlob,
+		AttemptId:      1,
+	}
+	resp := alice.RPC.SendOnion(sendReq)
+	require.False(ht, resp.Success, "expected failure on onion send")
+	require.Equal(ht, resp.ErrorCode,
+		switchrpc.ErrorCode_ERROR_CODE_DUPLICATE_HTLC,
+		"unexpected error code")
+	require.Equal(ht, resp.ErrorMessage, htlcswitch.ErrDuplicateAdd.Error())
+}
+
 func testTrackOnion(ht *lntest.HarnessTest) {
 	// Create a four-node context consisting of Alice, Bob and two new
 	// nodes: Carol and Dave. This will provide a 4 node, 3 channel topology.

@@ -730,6 +730,194 @@ func (c *ChannelStateDB) FetchChannelByID(tx kvdb.RTx, id lnwire.ChannelID) (
 	return c.channelScanner(tx, selector)
 }
 
+// ChanCount is used by the server in determining access control.
+type ChanCount struct {
+	HasOpenOrClosedChan bool
+	PendingOpenCount    uint64
+}
+
+// FetchPermAndTempPeers returns a map where the key is the remote node's
+// public key and the value is a struct that has a tally of the pending-open
+// channels and whether the peer has an open or closed channel with us.
+func (c *ChannelStateDB) FetchPermAndTempPeers(
+	chainHash []byte) (map[string]ChanCount, error) {
+
+	peerCounts := make(map[string]ChanCount)
+
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		openChanBucket := tx.ReadBucket(openChannelBucket)
+		if openChanBucket == nil {
+			return ErrNoChanDBExists
+		}
+
+		openChanErr := openChanBucket.ForEach(func(nodePub,
+			v []byte) error {
+
+			// If there is a value, this is not a bucket.
+			if v != nil {
+				return nil
+			}
+
+			nodeChanBucket := openChanBucket.NestedReadBucket(
+				nodePub,
+			)
+			if nodeChanBucket == nil {
+				return nil
+			}
+
+			chainBucket := nodeChanBucket.NestedReadBucket(
+				chainHash,
+			)
+			if chainBucket == nil {
+				return fmt.Errorf("no chain bucket exists")
+			}
+
+			var isPermPeer bool
+			var pendingOpenCount uint64
+
+			internalErr := chainBucket.ForEach(func(chanPoint,
+				val []byte) error {
+
+				// If there is a value, this is not a bucket.
+				if val != nil {
+					return nil
+				}
+
+				chanBucket := chainBucket.NestedReadBucket(
+					chanPoint,
+				)
+				if chanBucket == nil {
+					return nil
+				}
+
+				var op wire.OutPoint
+				readErr := graphdb.ReadOutpoint(
+					bytes.NewReader(chanPoint), &op,
+				)
+				if readErr != nil {
+					return readErr
+				}
+
+				// We need to go through each channel and look
+				// at the IsPending status.
+				openChan, err := fetchOpenChannel(
+					chanBucket, &op,
+				)
+				if err != nil {
+					return err
+				}
+
+				if openChan.IsPending {
+					// Add to the pending-open count since
+					// this is a temp peer.
+					pendingOpenCount++
+					return nil
+				}
+
+				// Since IsPending is false, this is a perm
+				// peer.
+				isPermPeer = true
+
+				return nil
+			})
+			if internalErr != nil {
+				return internalErr
+			}
+
+			peerCount := ChanCount{
+				HasOpenOrClosedChan: isPermPeer,
+				PendingOpenCount:    pendingOpenCount,
+			}
+			peerCounts[string(nodePub)] = peerCount
+
+			return nil
+		})
+		if openChanErr != nil {
+			return openChanErr
+		}
+
+		// Now check the closed channel bucket.
+		historicalChanBucket := tx.ReadBucket(historicalChannelBucket)
+		if historicalChanBucket == nil {
+			return ErrNoHistoricalBucket
+		}
+
+		historicalErr := historicalChanBucket.ForEach(func(chanPoint,
+			v []byte) error {
+			// Parse each nested bucket and the chanInfoKey to get
+			// the IsPending bool. This determines whether the
+			// peer is protected or not.
+			if v != nil {
+				// This is not a bucket. This is currently not
+				// possible.
+				return nil
+			}
+
+			chanBucket := historicalChanBucket.NestedReadBucket(
+				chanPoint,
+			)
+			if chanBucket == nil {
+				// This is not possible.
+				return fmt.Errorf("no historical channel " +
+					"bucket exists")
+			}
+
+			var op wire.OutPoint
+			readErr := graphdb.ReadOutpoint(
+				bytes.NewReader(chanPoint), &op,
+			)
+			if readErr != nil {
+				return readErr
+			}
+
+			// This channel is closed, but the structure of the
+			// historical bucket is the same. This is by design,
+			// which means we can call fetchOpenChannel.
+			channel, fetchErr := fetchOpenChannel(chanBucket, &op)
+			if fetchErr != nil {
+				return fetchErr
+			}
+
+			// Only include this peer in the protected class if
+			// the closing transaction confirmed. Note that
+			// CloseChannel can be called in the funding manager
+			// while IsPending is true which is why we need this
+			// special-casing to not count premature funding
+			// manager calls to CloseChannel.
+			if !channel.IsPending {
+				// Fetch the public key of the remote node. We
+				// need to use the string-ified serialized,
+				// compressed bytes as the key.
+				remotePub := channel.IdentityPub
+				remoteSer := remotePub.SerializeCompressed()
+				remoteKey := string(remoteSer)
+
+				count, exists := peerCounts[remoteKey]
+				if exists {
+					count.HasOpenOrClosedChan = true
+					peerCounts[remoteKey] = count
+				} else {
+					peerCount := ChanCount{
+						HasOpenOrClosedChan: true,
+					}
+					peerCounts[remoteKey] = peerCount
+				}
+			}
+
+			return nil
+		})
+		if historicalErr != nil {
+			return historicalErr
+		}
+
+		return nil
+	}, func() {
+		clear(peerCounts)
+	})
+
+	return peerCounts, err
+}
+
 // channelSelector describes a function that takes a chain-hash bucket from
 // within the open-channel DB and returns the wanted channel point bytes, and
 // channel point. It must return the ErrChannelNotFound error if the wanted

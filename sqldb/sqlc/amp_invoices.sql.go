@@ -235,6 +235,35 @@ func (q *Queries) GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, err
 	return invoice_id, err
 }
 
+const insertAMPSubInvoice = `-- name: InsertAMPSubInvoice :exec
+INSERT INTO amp_sub_invoices (
+    set_id, state, created_at, settled_at, settle_index, invoice_id
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+`
+
+type InsertAMPSubInvoiceParams struct {
+	SetID       []byte
+	State       int16
+	CreatedAt   time.Time
+	SettledAt   sql.NullTime
+	SettleIndex sql.NullInt64
+	InvoiceID   int64
+}
+
+func (q *Queries) InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error {
+	_, err := q.db.ExecContext(ctx, insertAMPSubInvoice,
+		arg.SetID,
+		arg.State,
+		arg.CreatedAt,
+		arg.SettledAt,
+		arg.SettleIndex,
+		arg.InvoiceID,
+	)
+	return err
+}
+
 const insertAMPSubInvoiceHTLC = `-- name: InsertAMPSubInvoiceHTLC :exec
 INSERT INTO amp_sub_invoice_htlcs (
     invoice_id, set_id, htlc_id, root_share, child_index, hash, preimage

@@ -87,7 +87,18 @@ type InvoiceHtlcCustomRecord struct {
 	HtlcID int64
 }
 
+type InvoicePaymentHash struct {
+	ID       int64
+	AddIndex int64
+	Hash     []byte
+}
+
 type InvoiceSequence struct {
 	Name         string
 	CurrentValue int64
+}
+
+type MigrationTracker struct {
+	Version       int32
+	MigrationTime time.Time
 }

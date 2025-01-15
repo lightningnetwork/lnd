@@ -970,11 +970,6 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		//
 		// TODO(roasbeef): need to be able to omit an output when
 		// signing based on the above, as closing opt
-		//
-		//  * TODO(roasbeef): modify this to take from my balance
-		//     * can use the new remote vs remote options as optional
-		//       argument
-		//     * then go from there
 		rawSig, _, _, err := env.CloseSigner.CreateCloseProposal(
 			msg.SigMsg.FeeSatoshis, l.LocalDeliveryScript,
 			l.RemoteDeliveryScript, chanOpts...,

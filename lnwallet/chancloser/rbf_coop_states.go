@@ -526,11 +526,18 @@ type CloseChannelTerms struct {
 
 // DeriveCloseTxOuts takes the close terms, and returns the local and remote tx
 // out for the close transaction. If an output is dust, then it'll be nil.
-//
-// TODO(roasbeef): add func for w/e heuristic to not manifest own output?
 func (c *CloseChannelTerms) DeriveCloseTxOuts() (*wire.TxOut, *wire.TxOut) {
 	//nolint:ll
 	deriveTxOut := func(balance btcutil.Amount, pkScript []byte) *wire.TxOut {
+		// If the script passed in is an OP_RETURN, then we'll return
+		// nil, as this means the remote party wishes to exclude their
+		// output from the closing transaction.
+		if input.ScriptIsOpReturn(pkScript) {
+			return nil
+		}
+
+		// Otherwise, we'll base the existence of the output on our
+		// normal dust check.
 		dustLimit := lnwallet.DustLimitForSize(len(pkScript))
 		if balance >= dustLimit {
 			return &wire.TxOut{

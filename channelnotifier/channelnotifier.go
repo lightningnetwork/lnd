@@ -80,6 +80,14 @@ type FullyResolvedChannelEvent struct {
 	ChannelPoint *wire.OutPoint
 }
 
+// FundingTimeoutEvent represents a new event where a pending-open channel has
+// timed out from the PoV of the funding manager because the funding tx
+// has not confirmed in the allotted time.
+type FundingTimeoutEvent struct {
+	// ChannelPoint is the channelpoint for the newly inactive channel.
+	ChannelPoint *wire.OutPoint
+}
+
 // New creates a new channel notifier. The ChannelNotifier gets channel
 // events from peers and from the chain arbitrator, and dispatches them to
 // its clients.
@@ -181,6 +189,16 @@ func (c *ChannelNotifier) NotifyFullyResolvedChannelEvent(
 	event := FullyResolvedChannelEvent{ChannelPoint: &chanPoint}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send resolved channel update: %v", err)
+	}
+}
+
+// NotifyFundingTimeoutEvent notifies the channelEventNotifier goroutine that
+// a funding timeout has occurred for a certain channel point.
+func (c *ChannelNotifier) NotifyFundingTimeout(chanPoint wire.OutPoint) {
+	// Send this event to all channel event subscribers.
+	event := FundingTimeoutEvent{ChannelPoint: &chanPoint}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send funding timeout update: %v", err)
 	}
 }
 

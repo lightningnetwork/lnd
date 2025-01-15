@@ -127,10 +127,9 @@ func TestReplaceCustomData(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name        string
-		data        string
-		replaceData string
-		expected    string
+		name     string
+		data     string
+		expected string
 	}{
 		{
 			name:     "no replacement necessary",
@@ -139,10 +138,10 @@ func TestReplaceCustomData(t *testing.T) {
 		},
 		{
 			name: "valid json with replacement",
-			data: "{\"foo\":\"bar\",\"custom_channel_data\":\"" +
+			data: `{"foo":"bar","custom_channel_data":"` +
 				hex.EncodeToString([]byte(
-					"{\"bar\":\"baz\"}",
-				)) + "\"}",
+					`{"bar":"baz"}`,
+				)) + `"}`,
 			expected: `{
     "foo": "bar",
     "custom_channel_data": {
@@ -152,10 +151,10 @@ func TestReplaceCustomData(t *testing.T) {
 		},
 		{
 			name: "valid json with replacement and space",
-			data: "{\"foo\":\"bar\",\"custom_channel_data\": \"" +
+			data: `{"foo":"bar","custom_channel_data": "` +
 				hex.EncodeToString([]byte(
-					"{\"bar\":\"baz\"}",
-				)) + "\"}",
+					`{"bar":"baz"}`,
+				)) + `"}`,
 			expected: `{
     "foo": "bar",
     "custom_channel_data": {
@@ -178,15 +177,153 @@ func TestReplaceCustomData(t *testing.T) {
 				"\"custom_channel_data\":\"a\"",
 		},
 		{
-			name:     "valid json, invalid hex, just formatted",
-			data:     "{\"custom_channel_data\":\"f\"}",
-			expected: "{\n    \"custom_channel_data\": \"f\"\n}",
+			name: "valid json, invalid hex, just formatted",
+			data: `{"custom_channel_data":"f"}`,
+			expected: `{
+    "custom_channel_data": "f"
+}`,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := replaceCustomData([]byte(tc.data))
+			require.Equal(t, tc.expected, string(result))
+		})
+	}
+}
+
+// TestReplaceAndAppendScid tests whether chan_id is replaced with scid and
+// scid_str in the JSON console output.
+func TestReplaceAndAppendScid(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		data     string
+		expected string
+	}{
+		{
+			name:     "no replacement necessary",
+			data:     "foo",
+			expected: "foo",
+		},
+		{
+			name: "valid json with replacement",
+			data: `{"foo":"bar","chan_id":"829031767408640"}`,
+			expected: `{
+    "foo": "bar",
+    "scid": "829031767408640",
+    "scid_str": "754x1x0"
+}`,
+		},
+		{
+			name: "valid json with replacement and space",
+			data: `{"foo":"bar","chan_id": "829031767408640"}`,
+			expected: `{
+    "foo": "bar",
+    "scid": "829031767408640",
+    "scid_str": "754x1x0"
+}`,
+		},
+		{
+			name: "doesn't match pattern, returned identical",
+			data: "this ain't even json, and no chan_id " +
+				"either",
+			expected: "this ain't even json, and no chan_id " +
+				"either",
+		},
+		{
+			name: "invalid json",
+			data: "this ain't json, " +
+				"\"chan_id\":\"18446744073709551616\"",
+			expected: "this ain't json, " +
+				"\"chan_id\":\"18446744073709551616\"",
+		},
+		{
+			name: "valid json, invalid uint, just formatted",
+			data: `{"chan_id":"18446744073709551616"}`,
+			expected: `{
+    "chan_id": "18446744073709551616"
+}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := replaceAndAppendScid([]byte(tc.data))
+			require.Equal(t, tc.expected, string(result))
+		})
+	}
+}
+
+// TestAppendChanID tests whether chan_id (BOLT02) is appended
+// to the JSON console output.
+func TestAppendChanID(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		data     string
+		expected string
+	}{
+		{
+			name:     "no amendment necessary",
+			data:     "foo",
+			expected: "foo",
+		},
+		{
+			name: "valid json with amendment",
+			data: `{"foo":"bar","channel_point":"6ab312e3b744e` +
+				`1b80a33a6541697df88766515c31c08e839bf11dc` +
+				`9fcc036a19:0"}`,
+			expected: `{
+    "foo": "bar",
+    "channel_point": "6ab312e3b744e1b80a33a6541697df88766515c31c` +
+				`08e839bf11dc9fcc036a19:0",
+    "chan_id": "196a03cc9fdc11bf39e8081cc315657688df971654a` +
+				`6330ab8e144b7e312b36a"
+}`,
+		},
+		{
+			name: "valid json with amendment and space",
+			data: `{"foo":"bar","channel_point": "6ab312e3b744e` +
+				`1b80a33a6541697df88766515c31c08e839bf11dc` +
+				`9fcc036a19:0"}`,
+			expected: `{
+    "foo": "bar",
+    "channel_point": "6ab312e3b744e1b80a33a6541697df88766515c31c` +
+				`08e839bf11dc9fcc036a19:0",
+    "chan_id": "196a03cc9fdc11bf39e8081cc315657688df971654a` +
+				`6330ab8e144b7e312b36a"
+}`,
+		},
+		{
+			name: "doesn't match pattern, returned identical",
+			data: "this ain't even json, and no channel_point " +
+				"either",
+			expected: "this ain't even json, and no channel_point" +
+				" either",
+		},
+		{
+			name: "invalid json",
+			data: "this ain't json, " +
+				"\"channel_point\":\"f:0\"",
+			expected: "this ain't json, " +
+				"\"channel_point\":\"f:0\"",
+		},
+		{
+			name: "valid json with invalid outpoint, formatted",
+			data: `{"channel_point":"f:0"}`,
+			expected: `{
+    "channel_point": "f:0"
+}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := appendChanID([]byte(tc.data))
 			require.Equal(t, tc.expected, string(result))
 		})
 	}

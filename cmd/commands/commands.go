@@ -21,6 +21,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
@@ -50,6 +51,14 @@ var (
 	customDataPattern = regexp.MustCompile(
 		`"custom_channel_data":\s*"([0-9a-f]+)"`,
 	)
+
+	chanIDPattern = regexp.MustCompile(
+		`"chan_id":\s*"(\d+)"`,
+	)
+
+	channelPointPattern = regexp.MustCompile(
+		`"channel_point":\s*"([0-9a-fA-F]+:[0-9]+)"`,
+	)
 )
 
 // replaceCustomData replaces the custom channel data hex string with the
@@ -72,6 +81,96 @@ func replaceCustomData(jsonBytes []byte) []byte {
 
 			return []byte("\"custom_channel_data\":" +
 				string(decoded))
+		},
+	)
+
+	var buf bytes.Buffer
+	err := json.Indent(&buf, replacedBytes, "", "    ")
+	if err != nil {
+		// If we can't indent the JSON, it likely means the replacement
+		// data wasn't correct, so we return the original JSON.
+		return jsonBytes
+	}
+
+	return buf.Bytes()
+}
+
+// replaceAndAppendScid replaces the chan_id with scid and appends the human
+// readable string representation of scid.
+func replaceAndAppendScid(jsonBytes []byte) []byte {
+	// If there's nothing to replace, return the original JSON.
+	if !chanIDPattern.Match(jsonBytes) {
+		return jsonBytes
+	}
+
+	replacedBytes := chanIDPattern.ReplaceAllFunc(
+		jsonBytes, func(match []byte) []byte {
+			// Extract the captured scid group from the match.
+			chanID := chanIDPattern.FindStringSubmatch(
+				string(match),
+			)[1]
+
+			scid, err := strconv.ParseUint(chanID, 10, 64)
+			if err != nil {
+				return match
+			}
+
+			// Format a new JSON field for the scid (chan_id),
+			// including both its numeric representation and its
+			// string representation (scid_str).
+			scidStr := lnwire.NewShortChanIDFromInt(scid).
+				AltString()
+			updatedField := fmt.Sprintf(
+				`"scid": "%d", "scid_str": "%s"`, scid, scidStr,
+			)
+
+			// Replace the entire match with the new structure.
+			return []byte(updatedField)
+		},
+	)
+
+	var buf bytes.Buffer
+	err := json.Indent(&buf, replacedBytes, "", "    ")
+	if err != nil {
+		// If we can't indent the JSON, it likely means the replacement
+		// data wasn't correct, so we return the original JSON.
+		return jsonBytes
+	}
+
+	return buf.Bytes()
+}
+
+// appendChanID appends the chan_id which is computed using the outpoint
+// of the funding transaction (the txid, and output index).
+func appendChanID(jsonBytes []byte) []byte {
+	// If there's nothing to replace, return the original JSON.
+	if !channelPointPattern.Match(jsonBytes) {
+		return jsonBytes
+	}
+
+	replacedBytes := channelPointPattern.ReplaceAllFunc(
+		jsonBytes, func(match []byte) []byte {
+			chanPoint := channelPointPattern.FindStringSubmatch(
+				string(match),
+			)[1]
+
+			chanOutpoint, err := wire.NewOutPointFromString(
+				chanPoint,
+			)
+			if err != nil {
+				return match
+			}
+
+			// Format a new JSON field computed from the
+			// channel_point (chan_id).
+			chanID := lnwire.NewChanIDFromOutPoint(*chanOutpoint)
+			updatedField := fmt.Sprintf(
+				`"channel_point": "%s", "chan_id": "%s"`,
+				chanPoint, chanID.String(),
+			)
+
+			// Replace the entire match with the new structure.
+			return []byte(updatedField)
 		},
 	)
 
@@ -120,7 +219,14 @@ func printRespJSON(resp proto.Message) {
 		return
 	}
 
+	// Replace custom_channel_data in the JSON.
 	jsonBytesReplaced := replaceCustomData(jsonBytes)
+
+	// Replace chan_id with scid, and append scid_str and scid fields.
+	jsonBytesReplaced = replaceAndAppendScid(jsonBytesReplaced)
+
+	// Append the chan_id field to the JSON.
+	jsonBytesReplaced = appendChanID(jsonBytesReplaced)
 
 	fmt.Printf("%s\n", jsonBytesReplaced)
 }

@@ -674,7 +674,6 @@ func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
 	// in-flight instead of being failed by Alice.
 	bobReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	bobStream := bob.RPC.SendPayment(bobReq)
@@ -750,7 +749,6 @@ func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
 	// in-flight instead of being failed by Bob.
 	aliceReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: bobInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	aliceStream := alice.RPC.SendPayment(aliceReq)

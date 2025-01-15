@@ -1894,7 +1894,7 @@
         "timeout_seconds": {
           "type": "integer",
           "format": "int32",
-          "description": "An upper limit on the amount of time we should spend when attempting to\nfulfill the payment. This is expressed in seconds. If we cannot make a\nsuccessful payment within this time frame, an error will be returned.\nThis field must be non-zero."
+          "description": "An optional limit, expressed in seconds, on the time to wait before\nattempting the first HTLC. Once HTLCs are in flight, the payment will\nnot be aborted until the HTLCs are either settled or failed. If the field\nis not set or is explicitly set to zero, the default value of 60 seconds\nwill be applied."
         },
         "fee_limit_sat": {
           "type": "string",

@@ -657,7 +657,6 @@ func generateBackups(ht *lntest.HarnessTest, srcNode,
 	send := func(node *node.HarnessNode, payReq string) {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
-			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		ht.SendPaymentAssertSettled(node, req)

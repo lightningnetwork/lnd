@@ -40,6 +40,10 @@ const (
 	// routeFeeLimitSat is the maximum routing fee that we allow to occur
 	// when estimating a routing fee.
 	routeFeeLimitSat = 100_000_000
+
+	// DefaultPaymentTimeout is the default value of time we should spend
+	// when attempting to fulfill the payment.
+	DefaultPaymentTimeout int32 = 60
 )
 
 var (
@@ -343,6 +347,11 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 // pre-image, along with the final route will be returned.
 func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	stream Router_SendPaymentV2Server) error {
+
+	// Set payment request attempt timeout.
+	if req.TimeoutSeconds == 0 {
+		req.TimeoutSeconds = DefaultPaymentTimeout
+	}
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
 	if err != nil {

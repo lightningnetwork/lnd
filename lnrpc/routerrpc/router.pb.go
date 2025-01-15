@@ -427,10 +427,11 @@ type SendPaymentRequest struct {
 	// that case it is required to set the amt field as well. If no payment request
 	// is specified, the following fields are required: dest, amt and payment_hash.
 	PaymentRequest string `protobuf:"bytes,5,opt,name=payment_request,json=paymentRequest,proto3" json:"payment_request,omitempty"`
-	// An upper limit on the amount of time we should spend when attempting to
-	// fulfill the payment. This is expressed in seconds. If we cannot make a
-	// successful payment within this time frame, an error will be returned.
-	// This field must be non-zero.
+	// An optional limit, expressed in seconds, on the time to wait before
+	// attempting the first HTLC. Once HTLCs are in flight, the payment will
+	// not be aborted until the HTLCs are either settled or failed. If the field
+	// is not set or is explicitly set to zero, the default value of 60 seconds
+	// will be applied.
 	TimeoutSeconds int32 `protobuf:"varint,6,opt,name=timeout_seconds,json=timeoutSeconds,proto3" json:"timeout_seconds,omitempty"`
 	// The maximum number of satoshis that will be paid as a fee of the payment.
 	// If this field is left to the default value of 0, only zero-fee routes will

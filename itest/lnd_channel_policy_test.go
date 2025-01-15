@@ -141,7 +141,6 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// not be able to find a path during routing.
 	payReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: resp.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertFail(

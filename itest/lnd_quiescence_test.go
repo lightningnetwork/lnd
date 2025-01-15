@@ -37,7 +37,6 @@ func testQuiescence(ht *lntest.HarnessTest) {
 		Amt:            100,
 		PaymentHash:    ht.Random32Bytes(),
 		FinalCltvDelta: finalCltvDelta,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 

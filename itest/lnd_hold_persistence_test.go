@@ -108,7 +108,6 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	for _, payReq := range payReqs {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
-			TimeoutSeconds: 60,
 			FeeLimitSat:    1000000,
 		}
 

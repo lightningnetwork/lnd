@@ -721,6 +721,91 @@ func TestFetchHistoricalChannel(t *testing.T) {
 	}
 }
 
+// TestFetchPermTempPeer tests that we're able to call FetchPermAndTempPeers
+// successfully.
+func TestFetchPermTempPeer(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Create an open channel.
+	privKey1, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate new private key")
+
+	pubKey1 := privKey1.PubKey()
+
+	channelState1 := createTestChannel(
+		t, cdb, openChannelOption(), pubKeyOption(pubKey1),
+	)
+
+	// Next, assert that the channel exists in the database.
+	_, err = cdb.FetchChannel(channelState1.FundingOutpoint)
+	require.NoError(t, err, "unable to fetch channel")
+
+	// Create a pending channel.
+	privKey2, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate private key")
+
+	pubKey2 := privKey2.PubKey()
+	channelState2 := createTestChannel(t, cdb, pubKeyOption(pubKey2))
+
+	// Assert that the channel exists in the database.
+	_, err = cdb.FetchChannel(channelState2.FundingOutpoint)
+	require.NoError(t, err, "unable to fetch channel")
+
+	// Create a closed channel.
+	privKey3, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate new private key")
+
+	pubKey3 := privKey3.PubKey()
+
+	_ = createTestChannel(
+		t, cdb, pubKeyOption(pubKey3), openChannelOption(),
+		closedChannelOption(),
+	)
+
+	// Fetch the ChanCount for our peers.
+	peerCounts, err := cdb.FetchPermAndTempPeers(key[:])
+	require.NoError(t, err, "unable to fetch perm and temp peers")
+
+	// There should only be three entries.
+	require.Len(t, peerCounts, 3)
+
+	// The first entry should have OpenClosed set to true and Pending set
+	// to 0.
+	count1, found := peerCounts[string(pubKey1.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 1 in peerCounts")
+	require.True(
+		t, count1.HasOpenOrClosedChan,
+		"couldn't find peer 1's channels",
+	)
+	require.Zero(
+		t, count1.PendingOpenCount,
+		"peer 1 doesn't have 0 pending-open",
+	)
+
+	count2, found := peerCounts[string(pubKey2.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 2 in peerCounts")
+	require.False(
+		t, count2.HasOpenOrClosedChan, "found erroneous channels",
+	)
+	require.Equal(t, uint64(1), count2.PendingOpenCount)
+
+	count3, found := peerCounts[string(pubKey3.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 3 in peerCounts")
+	require.True(
+		t, count3.HasOpenOrClosedChan,
+		"couldn't find peer 3's channels",
+	)
+	require.Zero(
+		t, count3.PendingOpenCount,
+		"peer 3 doesn't have 0 pending-open",
+	)
+}
+
 func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	updateTime := rand.Int63()
 

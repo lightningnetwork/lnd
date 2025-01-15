@@ -28,7 +28,7 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
-func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
+func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -38,9 +38,14 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 	}
 
 	rhash := sha256.Sum256(preimage[:])
-	attempt := NewHtlcAttempt(
-		0, priv, *testRoute.Copy(), time.Time{}, nil,
+	var hash lntypes.Hash
+	copy(hash[:], rhash[:])
+
+	attempt, err := NewHtlcAttempt(
+		0, priv, *testRoute.Copy(), time.Time{}, &hash,
 	)
+	require.NoError(t, err)
+
 	return &PaymentCreationInfo{
 		PaymentIdentifier: rhash,
 		Value:             testRoute.ReceiverAmt(),
@@ -60,7 +65,7 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 
 	pControl := NewPaymentControl(db)
 
-	info, attempt, preimg, err := genInfo()
+	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Sends base htlc message which initiate StatusInFlight.
@@ -196,7 +201,7 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 
 	pControl := NewPaymentControl(db)
 
-	info, attempt, preimg, err := genInfo()
+	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Sends base htlc message which initiate base status and move it to
@@ -266,7 +271,7 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(db)
 
-	info, _, preimg, err := genInfo()
+	info, _, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Attempt to complete the payment should fail.
@@ -291,7 +296,7 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 
 	pControl := NewPaymentControl(db)
 
-	info, _, _, err := genInfo()
+	info, _, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Calling Fail should return an error.
@@ -346,7 +351,7 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	var numSuccess, numInflight int
 
 	for _, p := range payments {
-		info, attempt, preimg, err := genInfo()
+		info, attempt, preimg, err := genInfo(t)
 		if err != nil {
 			t.Fatalf("unable to generate htlc message: %v", err)
 		}
@@ -684,7 +689,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 
 		pControl := NewPaymentControl(db)
 
-		info, attempt, preimg, err := genInfo()
+		info, attempt, preimg, err := genInfo(t)
 		if err != nil {
 			t.Fatalf("unable to generate htlc message: %v", err)
 		}
@@ -836,9 +841,9 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		b.AttemptID = 3
 		_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
 		if test.settleFirst {
-			require.ErrorIs(t, err, ErrPaymentPendingSettled)
+			require.ErrorIs(t, err, ErrRegisterAttempt)
 		} else {
-			require.ErrorIs(t, err, ErrPaymentPendingFailed)
+			require.ErrorIs(t, err, ErrRegisterAttempt)
 		}
 
 		assertPaymentStatus(t, pControl, info.PaymentIdentifier, StatusInFlight)
@@ -892,10 +897,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			require.NoError(t, err, "unable to fail")
 		}
 
-		var (
-			finalStatus PaymentStatus
-			registerErr error
-		)
+		var finalStatus PaymentStatus
 
 		switch {
 		// If one of the attempts settled but the other failed with
@@ -903,21 +905,17 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		// settled.
 		case test.settleFirst && !test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 
 		case !test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 
 		// If both failed, we end up in a failed status.
 		case !test.settleFirst && !test.settleLast:
 			finalStatus = StatusFailed
-			registerErr = ErrPaymentAlreadyFailed
 
 		// Otherwise, the payment has a succeed status.
 		case test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
 		}
 
 		assertPaymentStatus(
@@ -926,7 +924,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 
 		// Finally assert we cannot register more attempts.
 		_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
-		require.Equal(t, registerErr, err)
+		require.ErrorIs(t, err, ErrRegisterAttempt)
 	}
 
 	for _, test := range tests {
@@ -948,7 +946,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 
 	pControl := NewPaymentControl(db)
 
-	info, attempt, _, err := genInfo()
+	info, attempt, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Init the payment.
@@ -997,7 +995,7 @@ func TestPaymentControlMPPRecordValidation(t *testing.T) {
 
 	// Create and init a new payment. This time we'll check that we cannot
 	// register an MPP attempt if we already registered a non-MPP one.
-	info, attempt, _, err = genInfo()
+	info, attempt, _, err = genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	err = pControl.InitPayment(info.PaymentIdentifier, info)
@@ -1271,7 +1269,7 @@ func createTestPayments(t *testing.T, p *PaymentControl, payments []*payment) {
 	attemptID := uint64(0)
 
 	for i := 0; i < len(payments); i++ {
-		info, attempt, preimg, err := genInfo()
+		info, attempt, preimg, err := genInfo(t)
 		require.NoError(t, err, "unable to generate htlc message")
 
 		// Set the payment id accordingly in the payments slice.

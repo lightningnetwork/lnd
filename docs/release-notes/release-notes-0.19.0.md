@@ -111,6 +111,12 @@
   now update the channel policy if the edge was not found in the graph
   database if the `create_missing_edge` flag is set.
 
+* [Enhance](https://github.com/lightningnetwork/lnd/pull/9390) the
+  `lncli listchannels` output by adding the human readable short
+  channel id and the channel id defined in BOLT02. Moreover change
+  the misnomer of `chan_id` which was describing the short channel
+  id to `scid` to represent what it really is.
+
 # Improvements
 ## Functional Updates
 
@@ -274,6 +280,7 @@ The underlying functionality between those two options remain the same.
 * hieblmi
 * Jesse de Wit
 * Keagan McClelland
+* Nishant Bansal
 * Oliver Gugger
 * Pins
 * Viktor Tigerström

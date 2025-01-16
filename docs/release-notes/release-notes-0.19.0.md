@@ -74,6 +74,11 @@
   This is a protocol gadget required for Dynamic Commitments and Splicing that
   will be added later.
 
+* Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)
+ in a designated folder which allows for easy referencing in the future. A new config is added
+ `disable-backup-archive`, with default set to false, to determine if previous channel backups
+ should be archived or not.
+
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.

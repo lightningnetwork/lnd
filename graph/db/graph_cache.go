@@ -228,6 +228,9 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 	var inboundFee lnwire.Fee
 	_, err := policy.ExtraOpaqueData.ExtractRecords(&inboundFee)
 	if err != nil {
+		log.Errorf("Failed to extract records from edge policy %v: %v",
+			policy.ChannelID, err)
+
 		return
 	}
 
@@ -236,11 +239,16 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 
 	updatePolicy := func(nodeKey route.Vertex) {
 		if len(c.nodeChannels[nodeKey]) == 0 {
+			log.Warnf("Node=%v not found in graph cache", nodeKey)
+
 			return
 		}
 
 		channel, ok := c.nodeChannels[nodeKey][policy.ChannelID]
 		if !ok {
+			log.Warnf("Channel=%v not found in graph cache",
+				policy.ChannelID)
+
 			return
 		}
 

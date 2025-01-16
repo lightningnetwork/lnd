@@ -1342,9 +1342,9 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 		return err
 	}
 
-	log.Infof("GossipSyncer(%x): applying new update horizon: start=%v, "+
-		"end=%v, backlog_size=%v", g.cfg.peerPub[:], startTime, endTime,
-		len(newUpdatestoSend))
+	log.Infof("GossipSyncer(%x): applying new remote update horizon: "+
+		"start=%v, end=%v, backlog_size=%v", g.cfg.peerPub[:],
+		startTime, endTime, len(newUpdatestoSend))
 
 	// If we don't have any to send, then we can return early.
 	if len(newUpdatestoSend) == 0 {

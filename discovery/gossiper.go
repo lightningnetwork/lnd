@@ -808,6 +808,8 @@ func (d *AuthenticatedGossiper) stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	peer lnpeer.Peer) chan error {
 
+	log.Debugf("Processing remote msg %T from peer=%x", msg, peer.PubKey())
+
 	errChan := make(chan error, 1)
 
 	// For messages in the known set of channel series queries, we'll
@@ -2371,7 +2373,8 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
 	timestamp := time.Unix(int64(nodeAnn.Timestamp), 0)
 
 	log.Debugf("Processing NodeAnnouncement: peer=%v, timestamp=%v, "+
-		"node=%x", nMsg.peer, timestamp, nodeAnn.NodeID)
+		"node=%x, source=%x", nMsg.peer, timestamp, nodeAnn.NodeID,
+		nMsg.source.SerializeCompressed())
 
 	// We'll quickly ask the router if it already has a newer update for
 	// this node so we can skip validating signatures if not required.
@@ -2430,7 +2433,8 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
 	// TODO(roasbeef): get rid of the above
 
 	log.Debugf("Processed NodeAnnouncement: peer=%v, timestamp=%v, "+
-		"node=%x", nMsg.peer, timestamp, nodeAnn.NodeID)
+		"node=%x, source=%x", nMsg.peer, timestamp, nodeAnn.NodeID,
+		nMsg.source.SerializeCompressed())
 
 	return announcements, true
 }
@@ -3034,9 +3038,9 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		edgeToUpdate = e2
 	}
 
-	log.Debugf("Validating ChannelUpdate: channel=%v, from node=%x, has "+
-		"edge=%v", chanInfo.ChannelID, pubKey.SerializeCompressed(),
-		edgeToUpdate != nil)
+	log.Debugf("Validating ChannelUpdate: channel=%v, for node=%x, has "+
+		"edge policy=%v", chanInfo.ChannelID,
+		pubKey.SerializeCompressed(), edgeToUpdate != nil)
 
 	// Validate the channel announcement with the expected public key and
 	// channel capacity. In the case of an invalid channel update, we'll

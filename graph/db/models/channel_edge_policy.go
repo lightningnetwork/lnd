@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -112,4 +113,11 @@ func (c *ChannelEdgePolicy) ComputeFee(
 	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
+}
+
+// String returns a human-readable version of the channel edge policy.
+func (c *ChannelEdgePolicy) String() string {
+	return fmt.Sprintf("ChannelID=%v, MessageFlags=%v, ChannelFlags=%v, "+
+		"LastUpdate=%v", c.ChannelID, c.MessageFlags, c.ChannelFlags,
+		c.LastUpdate)
 }

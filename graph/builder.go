@@ -1400,6 +1400,9 @@ func (b *Builder) processUpdate(msg interface{},
 				msg.ChannelID)
 		}
 
+		log.Debugf("Found edge1Timestamp=%v, edge2Timestamp=%v",
+			edge1Timestamp, edge2Timestamp)
+
 		// As edges are directional edge node has a unique policy for
 		// the direction of the edge they control. Therefore, we first
 		// check if we already have the most up-to-date information for

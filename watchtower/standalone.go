@@ -78,6 +78,7 @@ func New(cfg *Config) (*Standalone, error) {
 	for _, listenAddr := range cfg.ListenAddrs {
 		listener, err := brontide.NewListener(
 			cfg.NodeKeyECDH, listenAddr.String(),
+			brontide.DisabledBanClosure,
 		)
 		if err != nil {
 			return nil, err

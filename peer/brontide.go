@@ -90,6 +90,9 @@ const (
 	// torTimeoutMultiplier is the scaling factor we use on network timeouts
 	// for Tor peers.
 	torTimeoutMultiplier = 3
+
+	// msgStreamSize is the size of the message streams.
+	msgStreamSize = 5
 )
 
 var (
@@ -1856,7 +1859,7 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 	return newMsgStream(p,
 		fmt.Sprintf("Update stream for ChannelID(%x) created", cid[:]),
 		fmt.Sprintf("Update stream for ChannelID(%x) exiting", cid[:]),
-		1000,
+		msgStreamSize,
 		apply,
 	)
 }
@@ -1875,7 +1878,7 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		p,
 		"Update stream for gossiper created",
 		"Update stream for gossiper exited",
-		1000,
+		msgStreamSize,
 		apply,
 	)
 }

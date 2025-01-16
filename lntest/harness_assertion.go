@@ -1838,8 +1838,8 @@ func (h *HarnessTest) AssertNotInGraph(hn *node.HarnessNode, chanID uint64) {
 		"found in graph")
 }
 
-// AssertChannelInGraph asserts that a given channel is found in the graph.
-func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
+// AssertChannelInGraphDB asserts that a given channel is found in the graph db.
+func (h *HarnessTest) AssertChannelInGraphDB(hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelEdge {
 
 	ctxt, cancel := context.WithCancel(h.runCtx)
@@ -1875,10 +1875,70 @@ func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
 
 		return nil
 	}, DefaultTimeout)
+
 	require.NoError(h, err, "%s: timeout finding channel in graph",
 		hn.Name())
 
 	return edge
+}
+
+// AssertChannelInGraphCache asserts a given channel is found in the graph
+// cache.
+func (h *HarnessTest) AssertChannelInGraphCache(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelEdge {
+
+	var edge *lnrpc.ChannelEdge
+
+	req := &lnrpc.ChannelGraphRequest{IncludeUnannounced: true}
+	cpStr := channelPointStr(chanPoint)
+
+	err := wait.NoError(func() error {
+		chanGraph := hn.RPC.DescribeGraph(req)
+
+		// Iterate all the known edges, and make sure the edge policies
+		// are populated when a matched edge is found.
+		for _, e := range chanGraph.Edges {
+			if e.ChanPoint != cpStr {
+				continue
+			}
+
+			if e.Node1Policy == nil {
+				return fmt.Errorf("no policy for node1 %v",
+					e.Node1Pub)
+			}
+
+			if e.Node2Policy == nil {
+				return fmt.Errorf("no policy for node2 %v",
+					e.Node1Pub)
+			}
+
+			edge = e
+
+			return nil
+		}
+
+		// If we've iterated over all the known edges and we weren't
+		// able to find this specific one, then we'll fail.
+		return fmt.Errorf("no edge found for channel point: %s", cpStr)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "%s: timeout finding channel %v in graph cache",
+		cpStr, hn.Name())
+
+	return edge
+}
+
+// AssertChannelInGraphDB asserts that a given channel is found both in the
+// graph db (GetChanInfo) and the graph cache (DescribeGraph).
+func (h *HarnessTest) AssertChannelInGraph(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.ChannelEdge {
+
+	// Make sure the channel is found in the db first.
+	h.AssertChannelInGraphDB(hn, chanPoint)
+
+	// Assert the channel is also found in the graph cache, which refreshes
+	// every `--caches.rpc-graph-cache-duration`.
+	return h.AssertChannelInGraphCache(hn, chanPoint)
 }
 
 // AssertTxAtHeight gets all of the transactions that a node's wallet has a

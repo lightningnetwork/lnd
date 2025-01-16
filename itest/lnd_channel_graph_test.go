@@ -660,18 +660,27 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 func assertSyncType(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	peer string, syncType lnrpc.Peer_SyncType) {
 
-	resp := hn.RPC.ListPeers()
-	for _, rpcPeer := range resp.Peers {
-		if rpcPeer.PubKey != peer {
-			continue
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListPeers()
+
+		for _, rpcPeer := range resp.Peers {
+			if rpcPeer.PubKey != peer {
+				continue
+			}
+
+			// Exit early if the sync type is matched.
+			if syncType == rpcPeer.SyncType {
+				return nil
+			}
+
+			return fmt.Errorf("sync type: want %v got %v", syncType,
+				rpcPeer.SyncType)
 		}
 
-		require.Equal(ht, syncType, rpcPeer.SyncType)
+		return fmt.Errorf("unable to find peer: %s", peer)
+	}, defaultTimeout)
 
-		return
-	}
-
-	ht.Fatalf("unable to find peer: %s", peer)
+	require.NoError(ht, err, "%s: timeout checking sync type", hn.Name())
 }
 
 // compareNodeAnns compares that two node announcements match or returns an

@@ -1588,7 +1588,8 @@ func testLocalClaimIncomingHTLCSimpleTaprootZeroConf(ht *lntest.HarnessTest) {
 		Private:        true,
 	}
 
-	// Prepare Carol's node config to enable zero-conf and leased channel.
+	// Prepare Carol's node config to enable zero-conf and simple taproot
+	// channel.
 	cfg := node.CfgSimpleTaproot
 	cfg = append(cfg, node.CfgZeroConf...)
 	cfgs := [][]string{cfg, cfg, cfg}

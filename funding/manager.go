@@ -109,7 +109,7 @@ const (
 	// pendingChansLimit is the maximum number of pending channels that we
 	// can have. After this point, pending channel opens will start to be
 	// rejected.
-	pendingChansLimit = 1_000
+	pendingChansLimit = 50
 )
 
 var (

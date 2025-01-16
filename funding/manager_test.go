@@ -231,17 +231,29 @@ type mockChanEvent struct {
 	pendingOpenEvent chan channelnotifier.PendingOpenChannelEvent
 }
 
-func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint) {
+func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint,
+	remoteHex string) error {
+
 	m.openEvent <- outpoint
+
+	return nil
 }
 
 func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
-	pendingChannel *channeldb.OpenChannel) {
+	pendingChannel *channeldb.OpenChannel, remoteHex string) error {
 
 	m.pendingOpenEvent <- channelnotifier.PendingOpenChannelEvent{
 		ChannelPoint:   &outpoint,
 		PendingChannel: pendingChannel,
 	}
+
+	return nil
+}
+
+func (m *mockChanEvent) NotifyFundingTimeout(outpoint wire.OutPoint,
+	remoteHex string) error {
+
+	return nil
 }
 
 // mockZeroConfAcceptor always accepts the channel open request for zero-conf
@@ -550,6 +562,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
+		NotifyFundingTimeout:          evt.NotifyFundingTimeout,
 		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
 			*models.ChannelEdgePolicy, error) {
 

@@ -11,6 +11,14 @@ type ClosingSig struct {
 	// ChannelID serves to identify which channel is to be closed.
 	ChannelID ChannelID
 
+	// CloserScript is the script to which the channel funds will be paid
+	// for the closer (the person sending the ClosingComplete) message.
+	CloserScript DeliveryAddress
+
+	// CloseeScript is the script to which the channel funds will be paid
+	// (the person receiving the ClosingComplete message).
+	CloseeScript DeliveryAddress
+
 	// ClosingSigs houses the 3 possible signatures that can be sent.
 	ClosingSigs
 
@@ -24,7 +32,7 @@ type ClosingSig struct {
 // io.Reader.
 func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 	// First, read out all the fields that are hard coded into the message.
-	err := ReadElements(r, &c.ChannelID)
+	err := ReadElements(r, &c.ChannelID, &c.CloserScript, &c.CloseeScript)
 	if err != nil {
 		return err
 	}
@@ -50,6 +58,13 @@ func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 // Encode serializes the target ClosingSig into the passed io.Writer.
 func (c *ClosingSig) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, c.ChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteDeliveryAddress(w, c.CloserScript); err != nil {
+		return err
+	}
+	if err := WriteDeliveryAddress(w, c.CloseeScript); err != nil {
 		return err
 	}
 

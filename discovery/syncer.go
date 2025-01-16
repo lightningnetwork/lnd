@@ -181,6 +181,9 @@ const (
 	// requestBatchSize is the maximum number of channels we will query the
 	// remote peer for in a QueryShortChanIDs message.
 	requestBatchSize = 500
+
+	// syncerBufferSize is the size of the syncer's buffers.
+	syncerBufferSize = 5
 )
 
 var (
@@ -436,8 +439,8 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 		rateLimiter:        rateLimiter,
 		syncTransitionReqs: make(chan *syncTransitionReq),
 		historicalSyncReqs: make(chan *historicalSyncReq),
-		gossipMsgs:         make(chan lnwire.Message, 100),
-		queryMsgs:          make(chan lnwire.Message, 100),
+		gossipMsgs:         make(chan lnwire.Message, syncerBufferSize),
+		queryMsgs:          make(chan lnwire.Message, syncerBufferSize),
 		syncerSema:         sema,
 		quit:               make(chan struct{}),
 	}

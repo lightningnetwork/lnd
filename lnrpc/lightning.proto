@@ -262,42 +262,6 @@ service Lightning {
     */
     rpc AbandonChannel (AbandonChannelRequest) returns (AbandonChannelResponse);
 
-    /* lncli: `sendpayment`
-    Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
-    bi-directional streaming RPC for sending payments through the Lightning
-    Network. A single RPC invocation creates a persistent bi-directional
-    stream allowing clients to rapidly send payments through the Lightning
-    Network with a single persistent connection.
-    */
-    rpc SendPayment (stream SendRequest) returns (stream SendResponse) {
-        option deprecated = true;
-    }
-
-    /*
-    SendPaymentSync is the synchronous non-streaming version of SendPayment.
-    This RPC is intended to be consumed by clients of the REST proxy.
-    Additionally, this RPC expects the destination's public key and the payment
-    hash (if any) to be encoded as hex strings.
-    */
-    rpc SendPaymentSync (SendRequest) returns (SendResponse);
-
-    /* lncli: `sendtoroute`
-    Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
-    streaming RPC for sending payment through the Lightning Network. This
-    method differs from SendPayment in that it allows users to specify a full
-    route manually. This can be used for things like rebalancing, and atomic
-    swaps.
-    */
-    rpc SendToRoute (stream SendToRouteRequest) returns (stream SendResponse) {
-        option deprecated = true;
-    }
-
-    /*
-    SendToRouteSync is a synchronous version of SendToRoute. It Will block
-    until the payment either fails or succeeds.
-    */
-    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse);
-
     /* lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any
     duplicated invoices are rejected, therefore all invoices *must* have a
@@ -921,25 +885,6 @@ message SendResponse {
     bytes payment_preimage = 2;
     Route payment_route = 3;
     bytes payment_hash = 4;
-}
-
-message SendToRouteRequest {
-    /*
-    The payment hash to use for the HTLC. When using REST, this field must be
-    encoded as base64.
-    */
-    bytes payment_hash = 1;
-
-    /*
-    An optional hex-encoded payment hash to be used for the HTLC. Deprecated now
-    that the REST gateway supports base64 encoding of bytes fields.
-    */
-    string payment_hash_string = 2 [deprecated = true];
-
-    reserved 3;
-
-    // Route that should be used to attempt to complete the payment.
-    Route route = 4;
 }
 
 message ChannelAcceptRequest {

@@ -170,6 +170,10 @@
   range TLVs provided with the existing set of records on the HTLC,
   overwriting any conflicting values with those supplied by the API.
 
+* [Deprecate endpoints](https://github.com/lightningnetwork/lnd/pull/8348):
+  `sendpayment`, `sendtoroute`, `sendtoroutesync`, and `sendpaymentsync` are
+  replaced with `sendpaymentv2` and `sendtoroutev2`.
+
 ## lncli Updates
 
 ## Code Health

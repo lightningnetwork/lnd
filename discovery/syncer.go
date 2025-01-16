@@ -475,6 +475,28 @@ func (g *GossipSyncer) Stop() {
 	})
 }
 
+// handleSyncingChans handles the state syncingChans for the GossipSyncer. When
+// in this state, we will send a QueryChannelRange msg to our peer and advance
+// the syncer's state to waitingQueryRangeReply.
+func (g *GossipSyncer) handleSyncingChans() {
+	// Prepare the query msg.
+	queryRangeMsg, err := g.genChanRangeQuery(g.genHistoricalChanRangeQuery)
+	if err != nil {
+		log.Errorf("Unable to gen chan range query: %v", err)
+		return
+	}
+
+	err = g.cfg.sendToPeer(queryRangeMsg)
+	if err != nil {
+		log.Errorf("Unable to send chan range query: %v", err)
+		return
+	}
+
+	// With the message sent successfully, we'll transition into the next
+	// state where we wait for their reply.
+	g.setSyncState(waitingQueryRangeReply)
+}
+
 // channelGraphSyncer is the main goroutine responsible for ensuring that we
 // properly channel graph state with the remote peer, and also that we only
 // send them messages which actually pass their defined update horizon.
@@ -495,27 +517,7 @@ func (g *GossipSyncer) channelGraphSyncer() {
 		// understand, as we'll as responding to any other queries by
 		// them.
 		case syncingChans:
-			// If we're in this state, then we'll send the remote
-			// peer our opening QueryChannelRange message.
-			queryRangeMsg, err := g.genChanRangeQuery(
-				g.genHistoricalChanRangeQuery,
-			)
-			if err != nil {
-				log.Errorf("Unable to gen chan range "+
-					"query: %v", err)
-				return
-			}
-
-			err = g.cfg.sendToPeer(queryRangeMsg)
-			if err != nil {
-				log.Errorf("Unable to send chan range "+
-					"query: %v", err)
-				return
-			}
-
-			// With the message sent successfully, we'll transition
-			// into the next state where we wait for their reply.
-			g.setSyncState(waitingQueryRangeReply)
+			g.handleSyncingChans()
 
 		// In this state, we've sent out our initial channel range
 		// query and are waiting for the final response from the remote

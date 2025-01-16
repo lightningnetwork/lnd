@@ -3,6 +3,7 @@ package funding
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"sync"
@@ -510,7 +511,7 @@ type Config struct {
 
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
-	NotifyOpenChannelEvent func(wire.OutPoint)
+	NotifyOpenChannelEvent func(wire.OutPoint, string) error
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
@@ -520,7 +521,13 @@ type Config struct {
 	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when
 	// channels enter a pending state.
 	NotifyPendingOpenChannelEvent func(wire.OutPoint,
-		*channeldb.OpenChannel)
+		*channeldb.OpenChannel, string) error
+
+	// NotifyFundingTimeout informs the ChannelNotifier when a pending-open
+	// channel times out because the funding transaction hasn't confirmed.
+	// This is only called for the fundee and only if the channel is
+	// zero-conf.
+	NotifyFundingTimeout func(wire.OutPoint, string) error
 
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
@@ -1312,7 +1319,14 @@ func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
 
 		// Inform the ChannelNotifier that the channel has transitioned
 		// from pending open to open.
-		f.cfg.NotifyOpenChannelEvent(channel.FundingOutpoint)
+		remoteHex := remotePubHex(channel.IdentityPub)
+		if err := f.cfg.NotifyOpenChannelEvent(
+			channel.FundingOutpoint, remoteHex,
+		); err != nil {
+			log.Errorf("Unable to notify open channel event for "+
+				"ChannelPoint(%v): %v",
+				channel.FundingOutpoint, err)
+		}
 
 		// Find and close the discoverySignal for this channel such
 		// that ChannelReady messages will be processed.
@@ -2653,7 +2667,13 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 
 	// Inform the ChannelNotifier that the channel has entered
 	// pending open state.
-	f.cfg.NotifyPendingOpenChannelEvent(fundingOut, completeChan)
+	remoteHex := remotePubHex(completeChan.IdentityPub)
+	if err := f.cfg.NotifyPendingOpenChannelEvent(
+		fundingOut, completeChan, remoteHex,
+	); err != nil {
+		log.Errorf("Unable to send pending-open channel event for "+
+			"ChannelPoint(%v) %v", fundingOut, err)
+	}
 
 	// At this point we have sent our last funding message to the
 	// initiating peer before the funding transaction will be broadcast.
@@ -2873,7 +2893,15 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 	case resCtx.updates <- upd:
 		// Inform the ChannelNotifier that the channel has entered
 		// pending open state.
-		f.cfg.NotifyPendingOpenChannelEvent(*fundingPoint, completeChan)
+		remoteHex := remotePubHex(completeChan.IdentityPub)
+		if err := f.cfg.NotifyPendingOpenChannelEvent(
+			*fundingPoint, completeChan, remoteHex,
+		); err != nil {
+			log.Errorf("Unable to send pending-open channel "+
+				"event for ChannelPoint(%v) %v", fundingPoint,
+				err)
+		}
+
 	case <-f.quit:
 		return
 	}
@@ -2927,6 +2955,14 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	); err != nil {
 		return fmt.Errorf("failed closing channel %v: %w",
 			c.FundingOutpoint, err)
+	}
+
+	// Notify other subsystems about the funding timeout.
+	remoteHex := remotePubHex(c.IdentityPub)
+	err := f.cfg.NotifyFundingTimeout(c.FundingOutpoint, remoteHex)
+	if err != nil {
+		log.Errorf("failed to notify of funding timeout for "+
+			"ChanPoint(%v): %v", c.FundingOutpoint, err)
 	}
 
 	timeoutErr := fmt.Errorf("timeout waiting for funding tx (%v) to "+
@@ -3297,7 +3333,14 @@ func (f *Manager) handleFundingConfirmation(
 
 	// Inform the ChannelNotifier that the channel has transitioned from
 	// pending open to open.
-	f.cfg.NotifyOpenChannelEvent(completeChan.FundingOutpoint)
+	remoteHex := remotePubHex(completeChan.IdentityPub)
+	if err := f.cfg.NotifyOpenChannelEvent(
+		completeChan.FundingOutpoint, remoteHex,
+	); err != nil {
+		log.Errorf("Unable to notify open channel event for "+
+			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
+			err)
+	}
 
 	// Close the discoverySignal channel, indicating to a separate
 	// goroutine that the channel now is marked as open in the database
@@ -5373,4 +5416,10 @@ func (f *Manager) waitForPeerOnline(peerPubkey *btcec.PublicKey) (lnpeer.Peer,
 		return peer, ErrFundingManagerShuttingDown
 	}
 	return peer, nil
+}
+
+// remotePubHex takes a *btcec.PublicKey and converts it to a hex-encoded
+// string.
+func remotePubHex(remotePub *btcec.PublicKey) string {
+	return hex.EncodeToString(remotePub.SerializeCompressed())
 }

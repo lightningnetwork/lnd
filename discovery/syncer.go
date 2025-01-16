@@ -486,6 +486,15 @@ func (g *GossipSyncer) handleSyncingChans() {
 		return
 	}
 
+	// Acquire a lock so the following state transition is atomic.
+	//
+	// NOTE: We must lock the following steps as it's possible we get an
+	// immediate response (ReplyChannelRange) after sending the query msg.
+	// The response is handled in ProcessQueryMsg, which requires the
+	// current state to be waitingQueryRangeReply.
+	g.Lock()
+	defer g.Unlock()
+
 	err = g.cfg.sendToPeer(queryRangeMsg)
 	if err != nil {
 		log.Errorf("Unable to send chan range query: %v", err)
@@ -1517,12 +1526,15 @@ func (g *GossipSyncer) ProcessQueryMsg(msg lnwire.Message, peerQuit <-chan struc
 	// Reply messages should only be expected in states where we're waiting
 	// for a reply.
 	case *lnwire.ReplyChannelRange, *lnwire.ReplyShortChanIDsEnd:
+		g.Lock()
 		syncState := g.syncState()
+		g.Unlock()
+
 		if syncState != waitingQueryRangeReply &&
 			syncState != waitingQueryChanReply {
 
-			return fmt.Errorf("received unexpected query reply "+
-				"message %T", msg)
+			return fmt.Errorf("unexpected msg %T received in "+
+				"state %v", msg, syncState)
 		}
 		msgChan = g.gossipMsgs
 

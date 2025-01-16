@@ -832,9 +832,13 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		// If we've found the message target, then we'll dispatch the
 		// message directly to it.
-		syncer.ProcessQueryMsg(m, peer.QuitSignal())
+		err := syncer.ProcessQueryMsg(m, peer.QuitSignal())
+		if err != nil {
+			log.Errorf("Process query msg from peer %x got %v",
+				peer.PubKey(), err)
+		}
 
-		errChan <- nil
+		errChan <- err
 		return errChan
 
 	// If a peer is updating its current update horizon, then we'll dispatch

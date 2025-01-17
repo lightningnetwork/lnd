@@ -694,6 +694,7 @@ func DefaultConfig() Config {
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
 			SubBatchDelay:         discovery.DefaultSubBatchDelay,
+			AnnouncementConf:      discovery.DefaultProofMatureDelta,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
@@ -1754,6 +1755,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Invoices,
 		cfg.Routing,
 		cfg.Pprof,
+		cfg.Gossip,
 	)
 	if err != nil {
 		return nil, err

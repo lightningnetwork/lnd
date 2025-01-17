@@ -1,11 +1,23 @@
 package lncfg
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// minAnnouncementConf defines the minimal num of confs needed for the config
+// AnnouncementConf. We choose 3 here as it's unlikely a reorg depth of 3 would
+// happen.
+//
+// NOTE: The specs recommends setting this value to 6, which is the default
+// value used for AnnouncementConf. However the receiver should be able to
+// decide which channels to be included in its local graph, more details can be
+// found:
+// - https://github.com/lightning/bolts/pull/1215#issuecomment-2557337202
+const minAnnouncementConf = 3
 
 //nolint:ll
 type Gossip struct {
@@ -18,6 +30,8 @@ type Gossip struct {
 	ChannelUpdateInterval time.Duration `long:"channel-update-interval" description:"The interval used to determine how often lnd should allow a burst of new updates for a specific channel and direction."`
 
 	SubBatchDelay time.Duration `long:"sub-batch-delay" description:"The duration to wait before sending the next announcement batch if there are multiple. Use a small value if there are a lot announcements and they need to be broadcast quickly."`
+
+	AnnouncementConf uint32 `long:"announcement-conf" description:"The number of confirmations required before processing channel announcements."`
 }
 
 // Parse the pubkeys for the pinned syncers.
@@ -35,3 +49,17 @@ func (g *Gossip) Parse() error {
 
 	return nil
 }
+
+// Validate checks the Gossip configuration to ensure that the input values are
+// sane.
+func (g *Gossip) Validate() error {
+	if g.AnnouncementConf < minAnnouncementConf {
+		return fmt.Errorf("announcement-conf=%v must be no less than "+
+			"%v", g.AnnouncementConf, minAnnouncementConf)
+	}
+
+	return nil
+}
+
+// Compile-time constraint to ensure Gossip implements the Validator interface.
+var _ Validator = (*Gossip)(nil)

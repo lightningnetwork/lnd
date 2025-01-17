@@ -74,6 +74,10 @@
   This is a protocol gadget required for Dynamic Commitments and Splicing that
   will be added later.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9424) a case where the
+  initial historical sync may be blocked due to a race condition in handling the
+  syncer's internal state.
+
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.

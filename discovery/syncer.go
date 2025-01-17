@@ -495,6 +495,8 @@ func (g *GossipSyncer) handleSyncingChans() {
 	g.Lock()
 	defer g.Unlock()
 
+	// Send the msg to the remote peer, which is non-blocking as
+	// `sendToPeer` only queues the msg in Brontide.
 	err = g.cfg.sendToPeer(queryRangeMsg)
 	if err != nil {
 		log.Errorf("Unable to send chan range query: %v", err)

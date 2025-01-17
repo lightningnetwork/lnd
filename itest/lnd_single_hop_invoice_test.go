@@ -85,8 +85,7 @@ func testSingleHopInvoice(ht *lntest.HarnessTest) {
 		DestCustomRecords: map[uint64][]byte{
 			record.KeySendType: keySendPreimage[:],
 		},
-		TimeoutSeconds: 60,
-		FeeLimitMsat:   noFeeLimitMsat,
+		FeeLimitMsat: noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertSettled(alice, req)
 

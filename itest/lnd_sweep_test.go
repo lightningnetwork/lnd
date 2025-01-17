@@ -136,7 +136,6 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// Let Alice pay the invoices.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 
@@ -463,7 +462,6 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	// Let Alice pay the invoices.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 
@@ -820,12 +818,10 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Let Alice pay the invoices.
 	req1 := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoiceSettle.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	req2 := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoiceHold.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 
@@ -1318,7 +1314,6 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// succeeded.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: resp.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertSettled(alice, req)

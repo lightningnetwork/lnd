@@ -128,7 +128,6 @@ func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: eveInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -267,7 +266,6 @@ func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)

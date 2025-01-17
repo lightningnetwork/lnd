@@ -372,7 +372,6 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		Amt:            int64(dustHtlcAmt),
 		PaymentHash:    dustPayHash,
 		FinalCltvDelta: finalCltvDelta,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
 	}
@@ -383,7 +382,6 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		Amt:            int64(htlcAmt),
 		PaymentHash:    payHash,
 		FinalCltvDelta: finalCltvDelta,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
 	}
@@ -726,7 +724,6 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -1093,7 +1090,6 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		Amt:            int64(htlcAmt),
 		PaymentHash:    payHash,
 		FinalCltvDelta: finalCltvDelta,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
 	}
@@ -1415,7 +1411,6 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -1685,7 +1680,6 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -1998,7 +1992,6 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -2349,7 +2342,6 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -2655,7 +2647,6 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// will not immediately settle the payment.
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	ht.SendPaymentAssertInflight(alice, req)
@@ -3104,7 +3095,6 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	for _, carolInvoice := range carolInvoices {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: carolInvoice.PaymentRequest,
-			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		ht.SendPaymentAssertInflight(alice, req)
@@ -3114,7 +3104,6 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	for _, aliceInvoice := range aliceInvoices {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: aliceInvoice.PaymentRequest,
-			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		ht.SendPaymentAssertInflight(carol, req)

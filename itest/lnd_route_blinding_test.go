@@ -552,7 +552,6 @@ func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
 	pmtClient := sendingNode.RPC.SendPayment(
 		&routerrpc.SendPaymentRequest{
 			PaymentRequest: invoice.PaymentRequest,
-			TimeoutSeconds: 60,
 		},
 	)
 
@@ -957,7 +956,6 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoiceResp.PaymentRequest,
 		MaxParts:       10,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	payment := ht.SendPaymentAssertSettled(alice, sendReq)
@@ -1302,7 +1300,6 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoiceResp.PaymentRequest,
 		MaxParts:       10,
-		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	payment := ht.SendPaymentAssertSettled(alice, sendReq)

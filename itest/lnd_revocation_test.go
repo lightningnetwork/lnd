@@ -126,13 +126,13 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// update, then ensure that the closing transaction was included in the
 	// block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.AssertTxInBlock(block, breachTXID)
+	ht.AssertTxInBlock(block, *breachTXID)
 
 	// Construct to_remote output which pays to Bob. Based on the output
 	// ordering, the first output in this breach tx is the to_remote
 	// output.
 	toRemoteOp := wire.OutPoint{
-		Hash:  breachTXID,
+		Hash:  *breachTXID,
 		Index: 0,
 	}
 

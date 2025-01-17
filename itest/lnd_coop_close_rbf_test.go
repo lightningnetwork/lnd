@@ -113,5 +113,5 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	aliceClosingTxid := ht.WaitForChannelCloseEvent(aliceCloseStream)
 	bobClosingTxid := ht.WaitForChannelCloseEvent(bobCloseStream)
 	require.Equal(ht, aliceClosingTxid, bobClosingTxid)
-	ht.Miner.AssertTxInBlock(block, aliceClosingTxid)
+	ht.Miner().AssertTxInBlock(block, aliceClosingTxid)
 }

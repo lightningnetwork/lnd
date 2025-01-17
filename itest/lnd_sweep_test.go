@@ -860,12 +860,12 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Carol settles the first invoice.
 	carol.RPC.SettleInvoice(preimageSettled[:])
 
+	// Bob should have settled his outgoing HTLC with Carol.
+	ht.AssertHTLCNotActive(bob, bcChanPoint, payHashSettled[:])
+
 	// Let Carol go offline so we can focus on testing Bob's sweeping
 	// behavior.
 	ht.Shutdown(carol)
-
-	// Bob should have settled his outgoing HTLC with Carol.
-	ht.AssertHTLCNotActive(bob, bcChanPoint, payHashSettled[:])
 
 	// We'll now mine enough blocks to trigger Bob to force close channel
 	// Bob->Carol due to his outgoing HTLC is about to timeout. With the

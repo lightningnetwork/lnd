@@ -110,7 +110,10 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 	t.Helper()
 
 	for _, expectedState := range expectedStates {
-		newState := <-stateSub.NewItemCreated.ChanOut()
+		newState, err := fn.RecvOrTimeout(
+			stateSub.NewItemCreated.ChanOut(), 10*time.Millisecond,
+		)
+		require.NoError(t, err, "expected state: %T", expectedState)
 
 		require.IsType(t, expectedState, newState)
 	}
@@ -625,17 +628,6 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 
 	ctx := context.Background()
 
-	// If this is an iteration, then we expect some intermediate states,
-	// before we enter the main RBF/sign loop.
-	if iteration {
-		r.expectFeeEstimate(absoluteFee, 1)
-
-		r.assertStateTransitions(
-			&ChannelActive{}, &ShutdownPending{},
-			&ChannelFlushing{}, &ClosingNegotiation{},
-		)
-	}
-
 	// When we receive the signature below, our local state machine should
 	// move to finalize the close.
 	r.expectRemoteCloseFinalized(
@@ -647,6 +639,13 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 
 	// Our outer state should transition to ClosingNegotiation state.
 	r.assertStateTransitions(&ClosingNegotiation{})
+
+	// If this is an iteration, then we'll go from ClosePending ->
+	// RemoteCloseStart -> ClosePending. So we'll assert an extra transition
+	// here.
+	if iteration {
+		r.assertStateTransitions(&ClosingNegotiation{})
+	}
 
 	// If we examine the final resting state, we should see that the we're
 	// now in the ClosePending state for the remote peer.
@@ -1330,44 +1329,18 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 			noDustExpect,
 		)
 
-		// Next, we'll send in a new SendShutdown event which simulates
-		// the user requesting a RBF fee bump. We'll use 10x the fee we
-		// used in the last iteration.
+		// Next, we'll send in a new SendOfferEvent event which
+		// simulates the user requesting a RBF fee bump. We'll use 10x
+		// the fee we used in the last iteration.
 		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
-		sendShutdown := &SendShutdown{
-			IdealFeeRate: rbfFeeBump,
+		localOffer := &SendOfferEvent{
+			TargetFeeRate: rbfFeeBump,
 		}
 
-		// We should send shutdown as normal, but skip some other
-		// checks as we know the close is in progress.
-		closeHarness.expectShutdownEvents(shutdownExpect{
-			allowSend:     true,
-			finalBalances: fn.Some(closeTerms.ShutdownBalances),
-			recvShutdown:  true,
-		})
-		closeHarness.expectMsgSent(
-			singleMsgMatcher[*lnwire.Shutdown](nil),
-		)
-
-		closeHarness.chanCloser.SendEvent(ctx, sendShutdown)
-
-		// We should first transition to the Channel Active state
-		// momentarily, before transitioning to the shutdown pending
-		// state.
-		closeHarness.assertStateTransitions(
-			&ChannelActive{}, &ShutdownPending{},
-		)
-
-		// Next, we'll send in the shutdown received event, which
-		// should transition us to the channel flushing state.
-		shutdownEvent := &ShutdownReceived{
-			ShutdownScript: remoteAddr,
-		}
-
-		// Now we expect that aanother full RBF iteration takes place
-		// (we initiatea a new local sig).
+		// Now we expect that another full RBF iteration takes place (we
+		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
-			shutdownEvent, balanceAfterClose, absoluteFee,
+			localOffer, balanceAfterClose, absoluteFee,
 			noDustExpect,
 		)
 
@@ -1542,8 +1515,10 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
-				FeeSatoshis: absoluteFee,
-				LockTime:    1,
+				CloserScript: localAddr,
+				CloseeScript: remoteAddr,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
 						remoteWireSig,
@@ -1560,31 +1535,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 			false,
 		)
 
-		// At this point, we've completed a single RBF iteration, and
-		// want to test further iterations, so we'll use a shutdown
-		// even tot kick it all off.
-		//
-		// Before we send the shutdown messages below, we'll mark the
-		// balances as so we fast track to the negotiation state.
-		closeHarness.expectShutdownEvents(shutdownExpect{
-			allowSend:     true,
-			finalBalances: fn.Some(closingTerms.ShutdownBalances),
-			recvShutdown:  true,
-		})
-		closeHarness.expectMsgSent(
-			singleMsgMatcher[*lnwire.Shutdown](nil),
-		)
-
-		// We'll now simulate the start of the RBF loop, by receiving a
-		// new Shutdown message from the remote party. This signals
-		// that they want to obtain a new commit sig.
-		closeHarness.chanCloser.SendEvent(
-			ctx, &ShutdownReceived{ShutdownScript: remoteAddr},
-		)
-
-		// Next, we'll receive an offer from the remote party, and
-		// drive another RBF iteration. This time, we'll increase the
-		// absolute fee by 1k sats.
+		// Next, we'll receive an offer from the remote party, and drive
+		// another RBF iteration. This time, we'll increase the absolute
+		// fee by 1k sats.
 		feeOffer.SigMsg.FeeSatoshis += 1000
 		absoluteFee = feeOffer.SigMsg.FeeSatoshis
 		closeHarness.assertSingleRemoteRbfIteration(

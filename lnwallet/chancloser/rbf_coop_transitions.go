@@ -647,6 +647,19 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			msg.TargetFeeRate.FeePerKWeight(),
 		)
 
+		// If we can't actually pay for fees here, then we'll just do a
+		// noop back to the same state to await a new fee rate.
+		if !l.LocalCanPayFees(absoluteFee) {
+			chancloserLog.Infof("ChannelPoint(%v): unable to pay "+
+				"fee=%v with local balance %v, skipping "+
+				"closing_complete", env.ChanPoint, absoluteFee,
+				l.LocalBalance)
+
+			return &CloseStateTransition{
+				NextState: l,
+			}, nil
+		}
+
 		// Now that we know what fee we want to pay, we'll create a new
 		// signature over our co-op close transaction. For our
 		// proposals, we'll just always use the known RBF sequence

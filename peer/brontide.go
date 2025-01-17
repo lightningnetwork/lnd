@@ -3969,30 +3969,73 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		peerLog.Infof("ChannelPoint(%v): rbf-coop close requested, "+
 			"sending shutdown", channel.ChannelPoint())
 
-		// With the chan closer created, we'll now kick off the co-op
-		// close process by instructing it to send a shutdown message
-		// to the remote party.
-		rbfCloser.SendEvent(&chancloser.SendShutdown{
-			IdealFeeRate: defaultFeePerKw.FeePerVByte(),
-			DeliveryAddr: fn.FlattenOption(
-				shutdownStartAddr(shutdown),
-			),
-		})
+		rbfState, err := rbfCloser.CurrentState()
+		if err != nil {
+			peerLog.Warnf("ChannelPoint(%v): unable to get "+
+				"current state for rbf-coop close: %v",
+				channel.ChannelPoint(), err)
 
-		// Now that the channel is active, we'll launch a goroutine to
-		// watch for the final terminal state to send updates to the
-		// RPC client. We only need to do this if there's an RPC
-		// caller.
+			return
+		}
+
+		// Before we send our event below, we'll launch a goroutine to
+		// watch for the final terminal state to send updates to the RPC
+		// client. We only need to do this if there's an RPC caller.
 		//
-		// TODO(roasbeef): make into a do once? otherwise new one for
-		// each RBF loop.
-		whenRpcShutdown(shutdown, func(req *htlcswitch.ChanClose) {
-			p.wg.Add(1)
-			go func() {
-				defer p.wg.Done()
-				p.observeRbfCloseUpdates(rbfCloser, req)
-			}()
-		})
+		// We'll only launch this if we're starting out in the initial
+		// state.
+		if _, ok := rbfState.(*chancloser.ChannelActive); ok {
+			whenRpcShutdown(
+				shutdown,
+				func(req *htlcswitch.ChanClose) {
+					p.cg.WgAdd(1)
+					go func() {
+						defer p.cg.WgDone()
+						p.observeRbfCloseUpdates(
+							rbfCloser, req,
+						)
+					}()
+				},
+			)
+		}
+
+		ctx, _ := p.cg.Create(context.Background())
+		feeRate := defaultFeePerKw.FeePerVByte()
+
+		// Depending on the state of the state machine, we'll either
+		// kick things off by sending shutdown, or attempt to send a new
+		// offer to the remote party.
+		switch rbfState.(type) {
+		// The channel is still active, so we'll now kick off the co-op
+		// close process by instructing it to send a shutdown message to
+		// the remote party.
+		case *chancloser.ChannelActive:
+			rbfCloser.SendEvent(
+				context.Background(),
+				&chancloser.SendShutdown{
+					IdealFeeRate: feeRate,
+					DeliveryAddr: fn.FlattenOption(
+						shutdownStartAddr(shutdown),
+					),
+				},
+			)
+
+		// If we haven't yet sent an offer (didn't have enough funds at
+		// the prior fee rate), or we've sent an offer, then we'll
+		// trigger a new offer event.
+		case *chancloser.LocalCloseStart, *chancloser.LocalOfferSent:
+			event := chancloser.ProtocolEvent(
+				&chancloser.SendOfferEvent{
+					TargetFeeRate: feeRate,
+				},
+			)
+			rbfCloser.SendEvent(ctx, event)
+
+		default:
+			peerLog.Warnf("ChannelPoint(%v): unexpected state "+
+				"for rbf-coop close: %T",
+				channel.ChannelPoint(), rbfState)
+		}
 	})
 
 	return nil

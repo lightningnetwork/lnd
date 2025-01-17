@@ -267,7 +267,7 @@ func (s *StateMachine[Event, Env]) Name() string {
 // returned indicating that the message was processed. Otherwise, false is
 // returned.
 func (s *StateMachine[Event, Env]) SendMessage(ctx context.Context,
-	msg lnwire.Message) bool {
+	msg msgmux.PeerMsg) bool {
 
 	// If we have no message mapper, then return false as we can't process
 	// this message.

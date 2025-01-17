@@ -289,45 +289,6 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 		}, nil
 
-	// The remote party already sent an offer. We'll go to the
-	// ChannelFlushing case, and then emit the offer as a internal event,
-	// which'll be handled as an early offer.
-	//
-	// TODO(roasbeef): test this as well
-	case *OfferReceivedEvent:
-		chancloserLog.Infof("ChannelPoint(%v): got an early offer "+
-			"in ShutdownPending, emitting as external event", env.ChanPoint)
-
-		// If the channel is *already* flushed, and the close is
-		// already in progress, then we can skip the flushing state and
-		// go straight into negotiation, as this is the RBF loop.
-		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
-		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
-			unknownBalance,
-		)
-		if finalBalances != unknownBalance {
-			channelFlushed := ProtocolEvent(&ChannelFlushed{
-				ShutdownBalances: finalBalances,
-			})
-
-			// We'll emit their sig as an internal event, then the
-			// channel flushed message to progress the state
-			// machine.
-			eventsToEmit = fn.Some(RbfEvent{
-				InternalEvent: []ProtocolEvent{
-					msg, channelFlushed,
-				},
-			})
-		}
-
-		return &CloseStateTransition{
-			NextState: &ChannelFlushing{
-				IdealFeeRate:    s.IdealFeeRate,
-				ShutdownScripts: s.ShutdownScripts,
-			},
-			NewEvents: eventsToEmit,
-		}, nil
-
 	// When we receive a shutdown from the remote party, we'll validate the
 	// shutdown message, then transition to the ChannelFlushing state.
 	case *ShutdownReceived:
@@ -637,22 +598,6 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 				ConfirmedTx: msg.Tx,
 			},
 		}, nil
-
-	// Otherwise, if we receive a shutdown, or receive an event to send a
-	// shutdown, then we'll go back up to the ChannelActive state, and have
-	// it handle this event by emitting an internal event.
-	//
-	// TODO(roasbeef): both will have fee rate specified, so ok?
-	case *ShutdownReceived, *SendShutdown:
-		chancloserLog.Infof("ChannelPoint(%v): RBF case triggered, "+
-			"restarting negotiation", env.ChanPoint)
-
-		return &CloseStateTransition{
-			NextState: &ChannelActive{},
-			NewEvents: fn.Some(RbfEvent{
-				InternalEvent: []ProtocolEvent{event},
-			}),
-		}, nil
 	}
 
 	// If we get to this point, then we have an event that'll drive forward
@@ -668,8 +613,8 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	case c.PeerState.GetForParty(lntypes.Remote).ShouldRouteTo(event):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to remote "+
-			"chan state", env.ChanPoint, event)
 
+			"chan state", env.ChanPoint, event)
 		// Drive forward the remote state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Remote)
 	}
@@ -764,10 +709,12 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			TargetPeer: env.ChanPeer,
 			// TODO(roasbeef): mew new func
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
-				ChannelID:   env.ChanID,
-				FeeSatoshis: absoluteFee,
-				LockTime:    env.BlockHeight,
-				ClosingSigs: closingSigs,
+				ChannelID:    env.ChanID,
+				CloserScript: l.LocalDeliveryScript,
+				CloseeScript: l.RemoteDeliveryScript,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     env.BlockHeight,
+				ClosingSigs:  closingSigs,
 			}},
 		}}
 
@@ -887,8 +834,9 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		return &CloseStateTransition{
 			NextState: &ClosePending{
-				CloseTx: closeTx,
-				FeeRate: l.ProposedFeeRate,
+				CloseTx:           closeTx,
+				FeeRate:           l.ProposedFeeRate,
+				CloseChannelTerms: l.CloseChannelTerms,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: broadcastEvent,
@@ -1031,8 +979,10 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		sendEvent := &protofsm.SendMsgEvent[ProtocolEvent]{
 			TargetPeer: env.ChanPeer,
 			Msgs: []lnwire.Message{&lnwire.ClosingSig{
-				ChannelID:   env.ChanID,
-				ClosingSigs: closingSigs,
+				ChannelID:    env.ChanID,
+				CloserScript: l.LocalDeliveryScript,
+				CloseeScript: l.RemoteDeliveryScript,
+				ClosingSigs:  closingSigs,
 			}},
 		}
 		broadcastEvent := &protofsm.BroadcastTxn{
@@ -1057,8 +1007,9 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// the next state where we'll sign+broadcast the sig.
 		return &CloseStateTransition{
 			NextState: &ClosePending{
-				CloseTx: closeTx,
-				FeeRate: feeRate,
+				CloseTx:           closeTx,
+				FeeRate:           feeRate,
+				CloseChannelTerms: l.CloseChannelTerms,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: daemonEvents,
@@ -1084,6 +1035,32 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: &CloseFin{
 				ConfirmedTx: msg.Tx,
 			},
+		}, nil
+
+	// If we get a send offer event in this state, then we're doing a state
+	// transition to the LocalCloseStart state, so we can sign a new closing
+	// tx.
+	case *SendOfferEvent:
+		return &CloseStateTransition{
+			NextState: &LocalCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
+	// If we get an offer received event, then we're doing a state
+	// transition to the RemoteCloseStart, as the remote peer wants to sign
+	// a new closing tx.
+	case *OfferReceivedEvent:
+		return &CloseStateTransition{
+			NextState: &RemoteCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
 		}, nil
 
 	default:

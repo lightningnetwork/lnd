@@ -679,6 +679,8 @@ type ClosePending struct {
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
 
+	CloseChannelTerms
+
 	// FeeRate is the fee rate of the closing transaction.
 	FeeRate chainfee.SatPerVByte
 }
@@ -687,7 +689,7 @@ type ClosePending struct {
 // event.
 func (c *ClosePending) ShouldRouteTo(event ProtocolEvent) bool {
 	switch event.(type) {
-	case *SpendEvent:
+	case *SpendEvent, *SendOfferEvent, *OfferReceivedEvent:
 		return true
 	default:
 		return false

@@ -41,6 +41,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	aliceCloseStream, aliceCloseUpdate := ht.CloseChannelAssertPending(
 		alice, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(aliceFeeRate),
+		lntest.WithLocalTxNotify(),
 	)
 
 	// Confirm that this new update was at 5 sat/vb.
@@ -56,6 +57,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	bobFeeRate := aliceFeeRate * 2
 	bobCloseStream, bobCloseUpdate := ht.CloseChannelAssertPending(
 		bob, chanPoint, false, lntest.WithCoopCloseFeeRate(bobFeeRate),
+		lntest.WithLocalTxNotify(),
 	)
 
 	// Confirm that this new update was at 10 sat/vb.
@@ -80,6 +82,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	_, aliceCloseUpdate = ht.CloseChannelAssertPending(
 		alice, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(aliceFeeRate),
+		lntest.WithLocalTxNotify(),
 	)
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)

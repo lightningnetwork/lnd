@@ -1,6 +1,7 @@
 package chancloser
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -340,8 +341,6 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): waiting for channel to "+
 			"be flushed...", env.ChanPoint)
 
-		// TODO(roasbeef): auto emit next upon shutdown receipt?
-
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
 		return &CloseStateTransition{
@@ -427,9 +426,6 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		c.EarlyRemoteOffer = fn.Some(*msg)
 
-		// TODO(roasbeef): unit test!
-		//  * actually do this ^
-
 		// We'll perform a noop update so we can wait for the actual
 		// channel flushed event.
 		return &CloseStateTransition{
@@ -470,8 +466,6 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		// We'll then use that fee rate to determine the absolute fee
 		// we'd propose.
-		//
-		// TODO(roasbeef): need to sign the 3 diff versions of this?
 		localTxOut, remoteTxOut := closeTerms.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
@@ -523,12 +517,13 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: &ClosingNegotiation{
 				PeerState: lntypes.Dual[AsymmetricPeerState]{
 					Local: &LocalCloseStart{
-						CloseChannelTerms: closeTerms,
+						CloseChannelTerms: &closeTerms,
 					},
 					Remote: &RemoteCloseStart{
-						CloseChannelTerms: closeTerms,
+						CloseChannelTerms: &closeTerms,
 					},
 				},
+				CloseChannelTerms: &closeTerms,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -572,6 +567,73 @@ func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
 	}, nil
 }
 
+// updateAndValidateCloseTerms is a helper function that validates examines the
+// incoming event, and decide if we need to update the remote party's address,
+// or reject it if it doesn't include our latest address.
+func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
+) error {
+
+	assertLocalScriptMatches := func(localScriptInMsg []byte) error {
+		if !bytes.Equal(
+			c.LocalDeliveryScript, localScriptInMsg,
+		) {
+
+			return fmt.Errorf("%w: remote party sent wrong "+
+				"script, expected %x, got %x",
+				ErrWrongLocalScript, c.LocalDeliveryScript,
+				localScriptInMsg,
+			)
+		}
+
+		return nil
+	}
+
+	switch msg := event.(type) {
+	// The remote party is sending us a new request to counter sign their
+	// version of the commitment transaction.
+	case *OfferReceivedEvent:
+		// Make sure that they're sending our local script, and not
+		// something else.
+		err := assertLocalScriptMatches(msg.SigMsg.CloseeScript)
+		if err != nil {
+			return err
+		}
+
+		if !bytes.Equal(
+			c.LocalDeliveryScript, msg.SigMsg.CloseeScript,
+		) {
+
+			return fmt.Errorf("%w: remote party sent wrong "+
+				"script, expected %x, got %x",
+				ErrWrongLocalScript, c.LocalDeliveryScript,
+				msg.SigMsg.CloseeScript)
+		}
+
+		oldRemoteAddr := c.RemoteDeliveryScript
+		newRemoteAddr := msg.SigMsg.CloserScript
+
+		// If they're sending a new script, then we'll update to the new
+		// one.
+		if !bytes.Equal(oldRemoteAddr, newRemoteAddr) {
+			c.RemoteDeliveryScript = newRemoteAddr
+		}
+
+	// The remote party responded to our sig request with a signature for
+	// our version of the commitment transaction.
+	case *LocalSigReceived:
+		// Make sure that they're sending our local script, and not
+		// something else.
+		err := assertLocalScriptMatches(msg.SigMsg.CloserScript)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	return nil
+}
+
 // ProcessEvent drives forward the composite states for the local and remote
 // party in response to new events. From this state, we'll continue to drive
 // forward the local and remote states until we arrive at the StateFin stage,
@@ -598,6 +660,13 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 				ConfirmedTx: msg.Tx,
 			},
 		}, nil
+	}
+
+	// At this point, we know its a new signature message. We'll validate,
+	// and maybe update the set of close terms based on what we receive. We
+	// might update the remote party's address for example.
+	if err := c.updateAndValidateCloseTerms(event); err != nil {
+		return nil, fmt.Errorf("event violates close terms: %w", err)
 	}
 
 	// If we get to this point, then we have an event that'll drive forward
@@ -720,7 +789,6 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// TODO(roasbeef): type alias for protocol event
 		sendEvent := protofsm.DaemonEventSet{&protofsm.SendMsgEvent[ProtocolEvent]{ //nolint:ll
 			TargetPeer: env.ChanPeer,
-			// TODO(roasbeef): mew new func
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
 				ChannelID:    env.ChanID,
 				CloserScript: l.LocalDeliveryScript,

@@ -601,6 +601,8 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	// response of the remote party, which completes one iteration
 	localSigEvent := &LocalSigReceived{
 		SigMsg: lnwire.ClosingSig{
+			CloserScript: localAddr,
+			CloseeScript: remoteAddr,
 			ClosingSigs: lnwire.ClosingSigs{
 				CloserAndClosee: newSigTlv[tlv.TlvType3](
 					remoteWireSig,
@@ -623,15 +625,16 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 }
 
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
-	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	sequence uint32, iteration bool) {
+	initEvent *OfferReceivedEvent, balanceAfterClose,
+	absoluteFee btcutil.Amount, sequence uint32, iteration bool) {
 
 	ctx := context.Background()
 
 	// When we receive the signature below, our local state machine should
 	// move to finalize the close.
 	r.expectRemoteCloseFinalized(
-		&localSig, &remoteSig, localAddr, remoteAddr,
+		&localSig, &remoteSig, initEvent.SigMsg.CloseeScript,
+		initEvent.SigMsg.CloserScript,
 		absoluteFee, balanceAfterClose, false,
 	)
 
@@ -1183,9 +1186,10 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	startingState := &ClosingNegotiation{
 		PeerState: lntypes.Dual[AsymmetricPeerState]{
 			Local: &LocalCloseStart{
-				CloseChannelTerms: *closeTerms,
+				CloseChannelTerms: closeTerms,
 			},
 		},
+		CloseChannelTerms: closeTerms,
 	}
 
 	sendOfferEvent := &SendOfferEvent{
@@ -1230,6 +1234,8 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// we'll specify 2 signature fields.
 		localSigEvent := &LocalSigReceived{
 			SigMsg: lnwire.ClosingSig{
+				CloserScript: localAddr,
+				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserNoClosee: newSigTlv[tlv.TlvType1](
 						remoteWireSig,
@@ -1260,9 +1266,10 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
 				Local: &LocalCloseStart{
-					CloseChannelTerms: newCloseTerms,
+					CloseChannelTerms: &newCloseTerms,
 				},
 			},
+			CloseChannelTerms: &newCloseTerms,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1285,9 +1292,10 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
 				Local: &LocalCloseStart{
-					CloseChannelTerms: *closeTerms,
+					CloseChannelTerms: closeTerms,
 				},
 			},
+			CloseChannelTerms: closeTerms,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1307,13 +1315,53 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 
 	// In this test, we'll assert that we're able to restart the RBF loop
 	// to trigger additional signature iterations.
+	t.Run("send_offer_rbf_wrong_local_script", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](firstState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// The remote party will send a ClosingSig message, but with the
+		// wrong local script. We should expect an error.
+		closeHarness.expectFailure(ErrWrongLocalScript)
+
+		// We'll send this message in directly, as we shouldn't get any
+		// further in the process.
+		// assuming we start in this negotiation state.
+		localSigEvent := &LocalSigReceived{
+			SigMsg: lnwire.ClosingSig{
+				CloserScript: remoteAddr,
+				CloseeScript: remoteAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+		closeHarness.chanCloser.SendEvent(ctx, localSigEvent)
+	})
+
+	// In this test, we'll assert that we're able to restart the RBF loop
+	// to trigger additional signature iterations.
 	t.Run("send_offer_rbf_iteration_loop", func(t *testing.T) {
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
 				Local: &LocalCloseStart{
-					CloseChannelTerms: *closeTerms,
+					CloseChannelTerms: closeTerms,
 				},
 			},
+			CloseChannelTerms: closeTerms,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1376,12 +1424,13 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	startingState := &ClosingNegotiation{
 		PeerState: lntypes.Dual[AsymmetricPeerState]{
 			Local: &LocalCloseStart{
-				CloseChannelTerms: *closeTerms,
+				CloseChannelTerms: closeTerms,
 			},
 			Remote: &RemoteCloseStart{
-				CloseChannelTerms: *closeTerms,
+				CloseChannelTerms: closeTerms,
 			},
 		},
+		CloseChannelTerms: closeTerms,
 	}
 
 	balanceAfterClose := remoteBalance.ToSatoshis() - absoluteFee
@@ -1403,7 +1452,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// be higher than the remote party's balance.
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
-				FeeSatoshis: absoluteFee * 10,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				FeeSatoshis:  absoluteFee * 10,
 			},
 		}
 		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
@@ -1422,12 +1473,13 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
 				Local: &LocalCloseStart{
-					CloseChannelTerms: closingTerms,
+					CloseChannelTerms: &closingTerms,
 				},
 				Remote: &RemoteCloseStart{
-					CloseChannelTerms: closingTerms,
+					CloseChannelTerms: &closingTerms,
 				},
 			},
+			CloseChannelTerms: &closingTerms,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1442,7 +1494,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// includes our output.
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
-				FeeSatoshis: absoluteFee,
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
 						remoteWireSig,
@@ -1471,7 +1525,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// signature as it excludes an output.
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
-				FeeSatoshis: absoluteFee,
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
 					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
 						remoteWireSig,
@@ -1489,8 +1545,8 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	// loops to enable the remote party to sign.new versions of the co-op
 	// close transaction.
 	t.Run("recv_offer_rbf_loop_iterations", func(t *testing.T) {
-		// We'll modify our s.t we're unable to pay for fees, but
-		// aren't yet dust.
+		// We'll modify our balance s.t we're unable to pay for fees,
+		// but aren't yet dust.
 		closingTerms := *closeTerms
 		closingTerms.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
 			9000,
@@ -1499,12 +1555,13 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
 				Local: &LocalCloseStart{
-					CloseChannelTerms: closingTerms,
+					CloseChannelTerms: &closingTerms,
 				},
 				Remote: &RemoteCloseStart{
-					CloseChannelTerms: closingTerms,
+					CloseChannelTerms: &closingTerms,
 				},
 			},
+			CloseChannelTerms: &closingTerms,
 		}
 
 		closeHarness := newCloser(t, &harnessCfg{
@@ -1515,8 +1572,8 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 
 		feeOffer := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
-				CloserScript: localAddr,
-				CloseeScript: remoteAddr,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
@@ -1548,5 +1605,85 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
-	// TODO(roasbeef): cross sig case? tested isolation, so wolog?
+	t.Run("recv_offer_wrong_local_script", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// The remote party will send a ClosingComplete message, but
+		// with the wrong local script. We should expect an error.
+		closeHarness.expectFailure(ErrWrongLocalScript)
+
+		// We'll send our remote addr as the Closee script, which should
+		// trigger an error.
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: remoteAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	t.Run("recv_offer_remote_addr_change", func(t *testing.T) {
+		closingTerms := *closeTerms
+
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: &closingTerms,
+				},
+			},
+			CloseChannelTerms: &closingTerms,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](firstState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// This time, the close request sent by the remote party will
+		// modify their normal remote address. This should cause us to
+		// recognize this, and counter sign the proper co-op close
+		// transaction.
+		newRemoteAddr := lnwire.DeliveryAddress(append(
+			[]byte{txscript.OP_1, txscript.OP_DATA_32},
+			bytes.Repeat([]byte{0x03}, 32)...,
+		))
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				CloserScript: newRemoteAddr,
+				CloseeScript: localAddr,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     1,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		// As we're already in the negotiation phase, we'll now trigger
+		// a new iteration by having the remote party send a new offer
+		// sig.
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee, sequence,
+			false,
+		)
+	})
 }

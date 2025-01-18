@@ -49,6 +49,11 @@ var (
 	// ErrCloserAndClosee is returned when we expect a sig covering both
 	// outputs, it isn't present.
 	ErrCloserAndClosee = fmt.Errorf("expected CloserAndClosee sig")
+
+	// ErrWrongLocalScript is returned when the remote party sends a
+	// ClosingComplete message that doesn't carry our last local script
+	// sent.
+	ErrWrongLocalScript = fmt.Errorf("wrong local script")
 )
 
 // ProtocolEvent is a special interface used to create the equivalent of a
@@ -505,6 +510,13 @@ type ClosingNegotiation struct {
 	// the ShouldRouteTo method to determine which state route incoming
 	// events to.
 	PeerState lntypes.Dual[AsymmetricPeerState]
+
+	// CloseChannelTerms is the terms we'll use to close the channel. We
+	// hold a value here which is pointed to by the various
+	// AsymmetricPeerState instances. This allows us to update this value if
+	// the remote peer sends a new address, with each of the state noting
+	// the new value via a pointer.
+	*CloseChannelTerms
 }
 
 // IsTerminal returns true if the target state is a terminal state.
@@ -598,7 +610,7 @@ func (c *CloseChannelTerms) RemoteCanPayFees(absoluteFee btcutil.Amount) bool {
 // input events:
 //   - SendOfferEvent
 type LocalCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // ShouldRouteTo returns true if the target state should process the target
@@ -632,7 +644,7 @@ func (l *LocalCloseStart) protocolStateSealed() {}
 // input events:
 //   - LocalSigReceived
 type LocalOfferSent struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 
 	// ProposedFee is the fee we proposed to the remote party.
 	ProposedFee btcutil.Amount
@@ -679,7 +691,7 @@ type ClosePending struct {
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
 
-	CloseChannelTerms
+	*CloseChannelTerms
 
 	// FeeRate is the fee rate of the closing transaction.
 	FeeRate chainfee.SatPerVByte
@@ -726,7 +738,7 @@ func (c *CloseFin) IsTerminal() bool {
 //   - fromState: ChannelFlushing
 //   - toState: ClosePending
 type RemoteCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // ShouldRouteTo returns true if the target state should process the target

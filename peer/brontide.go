@@ -3532,12 +3532,12 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
 
 	var (
-		lastLocalTxid, lastRemoteTxid chainhash.Hash
-		lastFeeRate                   chainfee.SatPerVByte
+		lastTxids    lntypes.Dual[chainhash.Hash]
+		lastFeeRates lntypes.Dual[chainfee.SatPerVByte]
 	)
 
 	maybeNotifyTxBroadcast := func(state chancloser.AsymmetricPeerState,
-		local bool) {
+		party lntypes.ChannelParty) {
 
 		closePending, ok := state.(*chancloser.ClosePending)
 
@@ -3548,11 +3548,12 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 		}
 
 		// Only notify if the fee rate is greater.
-		if closePending.FeeRate <= lastFeeRate {
+		if closePending.FeeRate <= lastFeeRates.GetForParty(party) {
 			return
 		}
 
-		lastFeeRate = closePending.FeeRate
+		feeRate := closePending.FeeRate
+		lastFeeRates.SetForParty(party, feeRate)
 
 		// We'll also only notify if the transaction was actually able
 		// to enter the mempool.
@@ -3561,23 +3562,26 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 			return
 		}
 
-		lastTxid := lastLocalTxid
-		if !local {
-			lastTxid = lastRemoteTxid
-		}
-
 		// Otherwise, we'll have a txid that we can use to notify the
 		// client, but only if it's different from the last one we
 		// sent.
 		closingTxid := closePending.CloseTx.TxHash()
+		lastTxid := lastTxids.GetForParty(party)
 		if closeReq != nil && closingTxid != lastTxid {
 			closeReq.Updates <- &PendingUpdate{
 				Txid:            closingTxid[:],
 				FeeRatePerVbyte: fn.Some(closePending.FeeRate),
-				IsLocalCloseTx:  fn.Some(local),
+				IsLocalCloseTx: fn.Some(
+					party == lntypes.Local,
+				),
 			}
 		}
+
+		lastTxids.SetForParty(party, closingTxid)
 	}
+
+	peerLog.Infof("Observing RBF close updates for channel %v",
+		closeReq.ChanPoint)
 
 	// We'll consume each new incoming state to send out the appropriate
 	// RPC update.
@@ -3596,11 +3600,11 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				// changed.
 				maybeNotifyTxBroadcast(
 					peerState.GetForParty(lntypes.Local),
-					true,
+					lntypes.Local,
 				)
 				maybeNotifyTxBroadcast(
 					peerState.GetForParty(lntypes.Remote),
-					false,
+					lntypes.Remote,
 				)
 
 			// Otherwise, if we're transition to CloseFin, then we
@@ -3617,8 +3621,6 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 					}
 				}
 
-				// TODO(roasbeef): race, make to sync map?
-				// other clean up?
 				chanID := lnwire.NewChanIDFromOutPoint(
 					*closeReq.ChanPoint,
 				)
@@ -3913,9 +3915,9 @@ func shutdownStartAddr(s shutdownInit,
 	})(s)
 }
 
-// whenRpcShutdown registers a callback to be executed when the shutdown init
+// whenRPCShutdown registers a callback to be executed when the shutdown init
 // type is and RPC request.
-func whenRpcShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
+func whenRPCShutdown(s shutdownInit, f func(r *htlcswitch.ChanClose)) {
 	s.WhenSome(func(init fn.Either[*htlcswitch.ChanClose,
 		channeldb.ShutdownInfo]) {
 
@@ -3981,23 +3983,18 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		// Before we send our event below, we'll launch a goroutine to
 		// watch for the final terminal state to send updates to the RPC
 		// client. We only need to do this if there's an RPC caller.
-		//
-		// We'll only launch this if we're starting out in the initial
-		// state.
-		if _, ok := rbfState.(*chancloser.ChannelActive); ok {
-			whenRpcShutdown(
-				shutdown,
-				func(req *htlcswitch.ChanClose) {
-					p.cg.WgAdd(1)
-					go func() {
-						defer p.cg.WgDone()
-						p.observeRbfCloseUpdates(
-							rbfCloser, req,
-						)
-					}()
-				},
-			)
-		}
+		whenRPCShutdown(
+			shutdown,
+			func(req *htlcswitch.ChanClose) {
+				p.cg.WgAdd(1)
+				go func() {
+					defer p.cg.WgDone()
+					p.observeRbfCloseUpdates(
+						rbfCloser, req,
+					)
+				}()
+			},
+		)
 
 		ctx, _ := p.cg.Create(context.Background())
 		feeRate := defaultFeePerKw.FeePerVByte()
@@ -4023,7 +4020,7 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		// If we haven't yet sent an offer (didn't have enough funds at
 		// the prior fee rate), or we've sent an offer, then we'll
 		// trigger a new offer event.
-		case *chancloser.LocalCloseStart, *chancloser.LocalOfferSent:
+		case *chancloser.ClosingNegotiation:
 			event := chancloser.ProtocolEvent(
 				&chancloser.SendOfferEvent{
 					TargetFeeRate: feeRate,

@@ -695,15 +695,36 @@ type ClosePending struct {
 
 	// FeeRate is the fee rate of the closing transaction.
 	FeeRate chainfee.SatPerVByte
+
+	// Party indicates which party is at this state. This is used to
+	// implement the state transition properly, based on ShouldRouteTo.
+	Party lntypes.ChannelParty
+}
+
+// isType returns true if the value is of type T.
+func isType[T any](value any) bool {
+	_, ok := value.(T)
+	return ok
 }
 
 // ShouldRouteTo returns true if the target state should process the target
 // event.
 func (c *ClosePending) ShouldRouteTo(event ProtocolEvent) bool {
 	switch event.(type) {
-	case *SpendEvent, *SendOfferEvent, *OfferReceivedEvent:
+	case *SpendEvent:
 		return true
 	default:
+		switch {
+		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+			return true
+
+		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
+			event,
+		):
+
+			return true
+		}
+
 		return false
 	}
 }

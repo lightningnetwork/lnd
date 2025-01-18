@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -2043,4 +2044,276 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	// Mine both transactions, the closing tx and the anchor cpfp tx.
 	// This is needed to clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
+}
+
+// testFeeReplacement tests that when a sweeping txns aggregates multiple
+// outgoing HTLCs, and one of the outgoing HTLCs has been spent via the direct
+// preimage path by the remote peer, the remaining HTLCs will be grouped again
+// and swept immediately.
+//
+// Setup:
+//  1. Fund Alice with 1 UTXOs - she only needs one for the funding process,
+//  2. Fund Bob with 3 UTXOs - he needs one for the funding process, one for
+//     his CPFP anchor sweeping, and one for sweeping his outgoing HTLCs.
+//  3. Create a linear network from Alice -> Bob -> Carol.
+//  4. Alice pays two invoices to Carol, with Carol holding the settlement.
+//  5. Bob goes offline.
+//  6. Carol settles one of the invoices, so she can later spend Bob's outgoing
+//     HTLC via the direct preimage path.
+//  7. Carol goes offline and Bob comes online.
+//  8. Mine enough blocks so Bob will force close Bob=>Carol to claim his
+//     outgoing HTLCs.
+//  9. Carol comes online, sweeps one of Bob's outgoing HTLCs and it confirms.
+//  10. Bob creates a new sweeping tx to sweep his remaining HTLC with a
+//     previous fee rate.
+//
+// Test:
+//  1. Bob will immediately sweeps his remaining outgoing HTLC given that the
+//     other one has been spent by Carol.
+//  2. Bob's new sweeping tx will use the previous fee rate instead of
+//     initializing a new starting fee rate.
+func testFeeReplacement(ht *lntest.HarnessTest) {
+	// Set the min relay feerate to be 10 sat/vbyte so the non-CPFP anchor
+	// is never swept.
+	//
+	// TODO(yy): delete this line once the normal anchor sweeping is
+	// removed.
+	ht.SetMinRelayFeerate(10_000)
+
+	// Setup testing params.
+	//
+	// Invoice is 100k sats.
+	invoiceAmt := btcutil.Amount(100_000)
+
+	// Alice will send two payments.
+	numPayments := 2
+
+	// Use the smallest CLTV so we can mine fewer blocks.
+	cltvDelta := routing.MinCLTVDelta
+
+	// Prepare params.
+	cfg := []string{
+		"--protocol.anchors",
+		// Use a small CLTV to mine less blocks.
+		fmt.Sprintf("--bitcoin.timelockdelta=%d", cltvDelta),
+		// Use a very large CSV, this way to_local outputs are never
+		// swept so we can focus on testing HTLCs.
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
+	}
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	openChannelParams := lntest.OpenChannelParams{
+		Amt: invoiceAmt * 100,
+	}
+
+	// Create a three hop network: Alice -> Bob -> Carol.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
+
+	// Unwrap the results.
+	alice, bob, carol := nodes[0], nodes[1], nodes[2]
+
+	// Bob needs two more wallet utxos:
+	// - when sweeping anchors, he needs one utxo for each sweep.
+	// - when sweeping HTLCs, he needs one utxo for each sweep.
+	numUTXOs := 2
+
+	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
+	// end of this test. However, due to a known issue, Bob's wallet may
+	// report there's no UTXO available. For details,
+	// - https://github.com/lightningnetwork/lnd/issues/8786
+	//
+	// TODO(yy): remove this extra UTXO once the issue is resolved.
+	numUTXOs++
+
+	// For neutrino backend, we need two more UTXOs for Bob to create his
+	// sweeping txns.
+	if ht.IsNeutrinoBackend() {
+		numUTXOs += 2
+	}
+
+	ht.FundNumCoins(bob, numUTXOs)
+
+	// We also give Carol 2 coins to create her sweeping txns.
+	ht.FundNumCoins(carol, 2)
+
+	// Create numPayments HTLCs on Bob's incoming and outgoing channels.
+	preimages := make([][]byte, 0, numPayments)
+	streams := make([]rpc.SingleInvoiceClient, 0, numPayments)
+	for i := 0; i < numPayments; i++ {
+		// Create the preimage.
+		var preimage lntypes.Preimage
+		copy(preimage[:], ht.Random32Bytes())
+		payHashHold := preimage.Hash()
+		preimages = append(preimages, preimage[:])
+
+		// Subscribe the invoices.
+		stream := carol.RPC.SubscribeSingleInvoice(payHashHold[:])
+		streams = append(streams, stream)
+
+		// Carol create the hold invoice.
+		invoiceReqHold := &invoicesrpc.AddHoldInvoiceRequest{
+			Value:      int64(invoiceAmt),
+			CltvExpiry: finalCltvDelta,
+			Hash:       payHashHold[:],
+		}
+		invoiceHold := carol.RPC.AddHoldInvoice(invoiceReqHold)
+
+		// Let Alice pay the invoices.
+		req := &routerrpc.SendPaymentRequest{
+			PaymentRequest: invoiceHold.PaymentRequest,
+			TimeoutSeconds: 60,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+
+		// Assert the payments are inflight.
+		ht.SendPaymentAndAssertStatus(
+			alice, req, lnrpc.Payment_IN_FLIGHT,
+		)
+
+		// Wait for Carol to mark invoice as accepted. There is a small
+		// gap to bridge between adding the htlc to the channel and
+		// executing the exit hop logic.
+		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
+	}
+
+	// At this point, all 3 nodes should now have an active channel with
+	// the created HTLCs pending on all of them.
+	//
+	// Alice should have numPayments outgoing HTLCs on channel Alice -> Bob.
+	ht.AssertNumActiveHtlcs(alice, numPayments)
+
+	// Bob should have 2 * numPayments HTLCs,
+	// - numPayments incoming HTLCs on channel Alice -> Bob.
+	// - numPayments outgoing HTLCs on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(bob, numPayments*2)
+
+	// Carol should have numPayments incoming HTLCs on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, numPayments)
+
+	// Suspen Bob so he won't get the preimage from Carol.
+	restartBob := ht.SuspendNode(bob)
+
+	// Carol settles the first invoice.
+	carol.RPC.SettleInvoice(preimages[0])
+	ht.AssertInvoiceState(streams[0], lnrpc.Invoice_SETTLED)
+
+	// Carol goes offline so the preimage won't be sent to Bob.
+	restartCarol := ht.SuspendNode(carol)
+
+	// Bob comes online.
+	require.NoError(ht, restartBob())
+
+	// We'll now mine enough blocks to trigger Bob to force close channel
+	// Bob->Carol due to his outgoing HTLC is about to timeout. With the
+	// default outgoing broadcast delta of zero, this will be the same
+	// height as the outgoing htlc's expiry height.
+	numBlocks := padCLTV(uint32(
+		finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta,
+	))
+	ht.MineEmptyBlocks(int(numBlocks))
+
+	// Assert Bob's force closing tx has been broadcast. We should see two
+	// txns in the mempool:
+	// 1. Bob's force closing tx.
+	// 2. Bob's anchor sweeping tx CPFPing the force close tx.
+	ht.AssertForceCloseAndAnchorTxnsInMempool()
+
+	// Mine a block to confirm Bob's force close tx and anchor sweeping tx
+	// so we can focus on testing his outgoing HTLCs.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Bob should have numPayments pending sweep for the outgoing HTLCs.
+	ht.AssertNumPendingSweeps(bob, numPayments)
+
+	// Bob should have one sweeping tx in the mempool, which sweeps all his
+	// outgoing HTLCs.
+	outgoingSweep0 := ht.GetNumTxsFromMempool(1)[0]
+
+	// We now mine one empty block so Bob will perform one fee bump, after
+	// which his sweeping tx should be updated with a new fee rate. We do
+	// this so we can test later when Bob sweeps his remaining HTLC, the new
+	// sweeping tx will start with the current fee rate.
+	//
+	// Calculate Bob's initial sweeping fee rate.
+	initialFeeRate := ht.CalculateTxFeeRate(outgoingSweep0)
+
+	// Mine one block to trigger Bob's RBF.
+	ht.MineEmptyBlocks(1)
+
+	// Make sure Bob's old sweeping tx has been removed from the mempool.
+	ht.AssertTxNotInMempool(outgoingSweep0.TxHash())
+
+	// Get the feerate of Bob's current sweeping tx.
+	outgoingSweep1 := ht.GetNumTxsFromMempool(1)[0]
+	currentFeeRate := ht.CalculateTxFeeRate(outgoingSweep1)
+
+	// Assert the Bob has updated the fee rate.
+	require.Greater(ht, currentFeeRate, initialFeeRate)
+
+	delta := currentFeeRate - initialFeeRate
+
+	// Check the shape of the sweeping tx - we expect it to be
+	// 3-input-3-output as a wallet utxo is used and a required output is
+	// made.
+	require.Len(ht, outgoingSweep1.TxIn, numPayments+1)
+	require.Len(ht, outgoingSweep1.TxOut, numPayments+1)
+
+	// Restart Carol, once she is online, she will try to settle the HTLCs
+	// via the direct preimage spend.
+	require.NoError(ht, restartCarol())
+
+	// Carol should have 1 incoming HTLC and 1 anchor output to sweep.
+	ht.AssertNumPendingSweeps(carol, 2)
+
+	// Assert Bob's sweeping tx has been replaced by Carol's.
+	ht.AssertTxNotInMempool(outgoingSweep1.TxHash())
+	carolSweepTx := ht.GetNumTxsFromMempool(1)[0]
+
+	// TODO(yy): Bob's htlc timeout resolver has detected this spend via
+	// mempol, which means we can cancel the existing sweeping attempt and
+	// create a new sweeping tx immediately here, given this is NOT neutrino
+	// backend. To make it happen,
+	// - make sure sweepings of inputs are grouped.
+	// - add a new method to cancel the group.
+	// - when canceling, other inputs will be regrouped and swept
+	// immediately.
+	//
+	// Assert Bob immediately sweeps his remaining HTLC with the previous
+	// fee rate.
+	// outgoingSweep2 := ht.GetNumTxsFromMempool(1)[0]
+	//
+	// Calculate the fee rate and expect it to be equal to the last fee rate
+	// he used.
+	// feeRate := ht.CalculateTxFeeRate(outgoingSweep2)
+	// require.InEpsilonf(ht, uint64(currentFeeRate),
+	// 	uint64(feeRate), 0.02, "want %d, got %d in tx=%v",
+	// 	currentFeeRate, feeRate, outgoingSweep2.TxHash())
+	//
+	// Assume the miner is now happy with Carol's fee, and it gets included
+	// in the next block.
+	ht.MineBlockWithTx(carolSweepTx)
+
+	// Upon receiving the above block, Bob should immediately create a
+	// sweeping tx and broadcast it using the remaining outgoing HTLC.
+	//
+	// Bob should have numPayments-1 pending sweep for the outgoing HTLCs.
+	ht.AssertNumPendingSweeps(bob, numPayments-1)
+
+	// Assert Bob immediately sweeps his remaining HTLC with the previous
+	// fee rate.
+	outgoingSweep2 := ht.GetNumTxsFromMempool(1)[0]
+
+	// Calculate the fee rate.
+	feeRate := ht.CalculateTxFeeRate(outgoingSweep2)
+
+	// We expect the current fee rate to be equal to the last fee rate he
+	// used plus the delta, as we expect the fee rate to stay on the initial
+	// line given by his fee function.
+	expectedFeeRate := currentFeeRate + delta
+	require.InEpsilonf(ht, uint64(expectedFeeRate),
+		uint64(feeRate), 0.02, "want %d, got %d in tx=%v",
+		currentFeeRate, feeRate, outgoingSweep2.TxHash())
+
+	// Finally, clean the mempol.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 }

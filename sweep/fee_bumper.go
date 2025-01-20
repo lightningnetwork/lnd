@@ -440,6 +440,20 @@ func (t *TxPublisher) storeInitialRecord(req *BumpRequest) (
 	return requestID, record
 }
 
+// storeRecord stores the given record in the records map.
+func (t *TxPublisher) storeRecord(requestID uint64, sweepCtx *sweepTxCtx,
+	req *BumpRequest, f FeeFunction) {
+
+	// Register the record.
+	t.records.Store(requestID, &monitorRecord{
+		tx:                sweepCtx.tx,
+		req:               req,
+		feeFunction:       f,
+		fee:               sweepCtx.fee,
+		outpointToTxIndex: sweepCtx.outpointToTxIndex,
+	})
+}
+
 // NOTE: part of the `chainio.Consumer` interface.
 func (t *TxPublisher) Name() string {
 	return "TxPublisher"
@@ -508,10 +522,7 @@ func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
 		switch {
 		case err == nil:
 			// The tx is valid, store it.
-			t.storeRecord(
-				requestID, sweepCtx.tx, req, f, sweepCtx.fee,
-				sweepCtx.outpointToTxIndex,
-			)
+			t.storeRecord(requestID, sweepCtx, req, f)
 
 			log.Infof("Created initial sweep tx=%v for %v inputs: "+
 				"feerate=%v, fee=%v, inputs:\n%v",
@@ -563,21 +574,6 @@ func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
 			return err
 		}
 	}
-}
-
-// storeRecord stores the given record in the records map.
-func (t *TxPublisher) storeRecord(requestID uint64, tx *wire.MsgTx,
-	req *BumpRequest, f FeeFunction, fee btcutil.Amount,
-	outpointToTxIndex map[wire.OutPoint]int) {
-
-	// Register the record.
-	t.records.Store(requestID, &monitorRecord{
-		tx:                tx,
-		req:               req,
-		feeFunction:       f,
-		fee:               fee,
-		outpointToTxIndex: outpointToTxIndex,
-	})
 }
 
 // createAndCheckTx creates a tx based on the given inputs, change output
@@ -1195,13 +1191,7 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 
 	// The tx has been created without any errors, we now register a new
 	// record by overwriting the same requestID.
-	t.records.Store(requestID, &monitorRecord{
-		tx:                sweepCtx.tx,
-		req:               r.req,
-		feeFunction:       r.feeFunction,
-		fee:               sweepCtx.fee,
-		outpointToTxIndex: sweepCtx.outpointToTxIndex,
-	})
+	t.storeRecord(requestID, sweepCtx, r.req, r.feeFunction)
 
 	// Attempt to broadcast this new tx.
 	result, err := t.broadcast(requestID)

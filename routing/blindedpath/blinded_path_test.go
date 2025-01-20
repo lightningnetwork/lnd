@@ -547,35 +547,58 @@ func genBlindedRouteData(rand *rand.Rand) *record.BlindedRouteData {
 // an example mentioned in this spec document:
 // https://github.com/lightning/bolts/blob/master/proposals/route-blinding.md
 // This example does not use any dummy hops.
+// Added Dave to test MaxNumPaths restriction.
 func TestBuildBlindedPath(t *testing.T) {
 	// Alice chooses the following path to herself for blinded path
 	// construction:
-	//    	Carol -> Bob -> Alice.
+	//      Carol
+	//    	  |
+	//         -> Bob -> Alice.
+	//        |
+	//       Dave
 	// Let's construct the corresponding route.Route for this which will be
 	// returned from the `FindRoutes` config callback.
 	var (
 		privC, pkC = btcec.PrivKeyFromBytes([]byte{1})
 		privB, pkB = btcec.PrivKeyFromBytes([]byte{2})
 		privA, pkA = btcec.PrivKeyFromBytes([]byte{3})
+		_, pkD     = btcec.PrivKeyFromBytes([]byte{4})
 
 		carol = route.NewVertex(pkC)
 		bob   = route.NewVertex(pkB)
 		alice = route.NewVertex(pkA)
+		dave  = route.NewVertex(pkD)
 
 		chanCB = uint64(1)
 		chanBA = uint64(2)
+		chanDB = uint64(3)
 	)
 
-	realRoute := &route.Route{
-		SourcePubKey: carol,
-		Hops: []*route.Hop{
-			{
-				PubKeyBytes: bob,
-				ChannelID:   chanCB,
+	realRoute := []*route.Route{
+		{
+			SourcePubKey: carol,
+			Hops: []*route.Hop{
+				{
+					PubKeyBytes: bob,
+					ChannelID:   chanCB,
+				},
+				{
+					PubKeyBytes: alice,
+					ChannelID:   chanBA,
+				},
 			},
-			{
-				PubKeyBytes: alice,
-				ChannelID:   chanBA,
+		},
+		{
+			SourcePubKey: dave,
+			Hops: []*route.Hop{
+				{
+					PubKeyBytes: bob,
+					ChannelID:   chanDB,
+				},
+				{
+					PubKeyBytes: alice,
+					ChannelID:   chanBA,
+				},
 			},
 		},
 	}
@@ -589,13 +612,17 @@ func TestBuildBlindedPath(t *testing.T) {
 			ChannelID: chanBA,
 			ToNode:    alice,
 		},
+		chanDB: {
+			ChannelID: chanDB,
+			ToNode:    bob,
+		},
 	}
 
-	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+	blindedPathCfg := (&BuildBlindedPathCfg{
 		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
 			error) {
 
-			return []*route.Route{realRoute}, nil
+			return realRoute, nil
 		},
 		FetchChannelEdgesByID: func(chanID uint64) (
 			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
@@ -623,10 +650,25 @@ func TestBuildBlindedPath(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             2,
 	})
+
+	// Two blinded payment paths are expected.
+	// Carol -> Bob and Dave -> Bob
+	paths, err := BuildBlindedPaymentPaths(blindedPathCfg)
+	require.NoError(t, err)
+	require.Len(t, paths, 2)
+
+	// Now lets test the MaxNumPaths restriction.
+	blindedPathCfg.MaxNumPaths = 1
+
+	// Just one blinded payment path is expected, restricted above by 
+	// MaxNumPaths.
+	paths, err = BuildBlindedPaymentPaths(blindedPathCfg)
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
 
+	// Continue testing all other expected values.
 	path := paths[0]
 
 	// Check that all the accumulated policy values are correct.
@@ -809,6 +851,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 			MinHTLCMsat:     1000,
 			MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
 		},
+		MaxNumPaths: 1,
 	})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
@@ -988,6 +1031,7 @@ func TestBuildBlindedPathWithDummyHops(t *testing.T) {
 			MinHTLCMsat:     1000,
 			MaxHTLCMsat:     lnwire.MaxMilliSatoshi,
 		},
+		MaxNumPaths: 1,
 	})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)
@@ -1022,6 +1066,7 @@ func TestSingleHopBlindedPath(t *testing.T) {
 		ValueMsat:               1000,
 		MinFinalCLTVExpiryDelta: 12,
 		BlocksUntilExpiry:       200,
+		MaxNumPaths:             1,
 	})
 	require.NoError(t, err)
 	require.Len(t, paths, 1)

@@ -215,7 +215,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	//   published.
 	// - inputSwept specifies an input that's swept.
 	// - inputExcluded specifies an input that's excluded.
-	// - inputFailed specifies an input that's failed.
+	// - inputFatal specifies an input that's fatal.
 	var (
 		inputInit           = createMockInput(t, s, Init)
 		inputPendingPublish = createMockInput(t, s, PendingPublish)
@@ -223,13 +223,13 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed  = createMockInput(t, s, PublishFailed)
 		inputSwept          = createMockInput(t, s, Swept)
 		inputExcluded       = createMockInput(t, s, Excluded)
-		inputFailed         = createMockInput(t, s, Failed)
+		inputFatal          = createMockInput(t, s, Fatal)
 	)
 
 	// Gather all inputs.
 	set.On("Inputs").Return([]input.Input{
 		inputInit, inputPendingPublish, inputPublished,
-		inputPublishFailed, inputSwept, inputExcluded, inputFailed,
+		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	})
 
 	// Mark the test inputs. We expect the non-exist input and the
@@ -264,7 +264,7 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	require.Equal(Excluded, s.inputs[inputExcluded.OutPoint()].state)
 
 	// We expect the failed input to stay unchanged.
-	require.Equal(Failed, s.inputs[inputFailed.OutPoint()].state)
+	require.Equal(Fatal, s.inputs[inputFatal.OutPoint()].state)
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
@@ -437,7 +437,7 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	// These inputs won't hit RequiredLockTime so we won't mock.
 	input4 := &SweeperInput{state: Swept, Input: inp1}
 	input5 := &SweeperInput{state: Excluded, Input: inp1}
-	input6 := &SweeperInput{state: Failed, Input: inp1}
+	input6 := &SweeperInput{state: Fatal, Input: inp1}
 
 	// Mock the input to have a locktime in the future so it will NOT be
 	// returned.
@@ -575,7 +575,7 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	require.Equal(Published, state)
 }
 
-// TestMarkInputFailed checks that the input is marked as failed as expected.
+// TestMarkInputFatal checks that the input is marked as expected.
 func TestMarkInputFailed(t *testing.T) {
 	t.Parallel()
 
@@ -596,10 +596,10 @@ func TestMarkInputFailed(t *testing.T) {
 	}
 
 	// Call the method under test.
-	s.markInputFailed(pi, errors.New("dummy error"))
+	s.markInputFatal(pi, errors.New("dummy error"))
 
 	// Assert the state is updated.
-	require.Equal(t, Failed, pi.state)
+	require.Equal(t, Fatal, pi.state)
 }
 
 // TestSweepPendingInputs checks that `sweepPendingInputs` correctly executes
@@ -1102,7 +1102,7 @@ func TestMarkInputsFailed(t *testing.T) {
 	//   published.
 	// - inputSwept specifies an input that's swept.
 	// - inputExcluded specifies an input that's excluded.
-	// - inputFailed specifies an input that's failed.
+	// - inputFatal specifies an input that's fatal.
 	var (
 		inputInit           = createMockInput(t, s, Init)
 		inputPendingPublish = createMockInput(t, s, PendingPublish)
@@ -1110,33 +1110,33 @@ func TestMarkInputsFailed(t *testing.T) {
 		inputPublishFailed  = createMockInput(t, s, PublishFailed)
 		inputSwept          = createMockInput(t, s, Swept)
 		inputExcluded       = createMockInput(t, s, Excluded)
-		inputFailed         = createMockInput(t, s, Failed)
+		inputFatal          = createMockInput(t, s, Fatal)
 	)
 
 	// Gather all inputs.
 	set.On("Inputs").Return([]input.Input{
 		inputInit, inputPendingPublish, inputPublished,
-		inputPublishFailed, inputSwept, inputExcluded, inputFailed,
+		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	})
 
 	// Mark the test inputs. We expect the non-exist input and
-	// inputSwept/inputExcluded/inputFailed to be skipped.
-	s.markInputsFailed(set, errDummy)
+	// inputSwept/inputExcluded/inputFatal to be skipped.
+	s.markInputsFatal(set, errDummy)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
 
-	// We expect the init input's to be marked as failed.
-	require.Equal(Failed, s.inputs[inputInit.OutPoint()].state)
+	// We expect the init input's to be marked as fatal.
+	require.Equal(Fatal, s.inputs[inputInit.OutPoint()].state)
 
 	// We expect the pending-publish input to be marked as failed.
-	require.Equal(Failed, s.inputs[inputPendingPublish.OutPoint()].state)
+	require.Equal(Fatal, s.inputs[inputPendingPublish.OutPoint()].state)
 
-	// We expect the published input to be marked as failed.
-	require.Equal(Failed, s.inputs[inputPublished.OutPoint()].state)
+	// We expect the published input to be marked as fatal.
+	require.Equal(Fatal, s.inputs[inputPublished.OutPoint()].state)
 
 	// We expect the publish failed input to be markd as failed.
-	require.Equal(Failed, s.inputs[inputPublishFailed.OutPoint()].state)
+	require.Equal(Fatal, s.inputs[inputPublishFailed.OutPoint()].state)
 
 	// We expect the swept input to stay unchanged.
 	require.Equal(Swept, s.inputs[inputSwept.OutPoint()].state)
@@ -1145,7 +1145,7 @@ func TestMarkInputsFailed(t *testing.T) {
 	require.Equal(Excluded, s.inputs[inputExcluded.OutPoint()].state)
 
 	// We expect the failed input to stay unchanged.
-	require.Equal(Failed, s.inputs[inputFailed.OutPoint()].state)
+	require.Equal(Fatal, s.inputs[inputFatal.OutPoint()].state)
 }
 
 // TestHandleBumpEventTxFatal checks that `handleBumpEventTxFatal` correctly

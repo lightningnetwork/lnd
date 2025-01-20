@@ -351,8 +351,15 @@ func TestStoreRecord(t *testing.T) {
 		op: 0,
 	}
 
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
 	// Call the method under test.
-	tp.storeRecord(initialCounter, tx, req, feeFunc, fee, utxoIndex)
+	tp.storeRecord(initialCounter, sweepCtx, req, feeFunc)
 
 	// Read the saved record and compare.
 	record, ok := tp.records.Load(initialCounter)
@@ -698,7 +705,15 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
 	requestID := uint64(1)
-	tp.storeRecord(requestID, tx, req, m.feeFunc, fee, utxoIndex)
+
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
+	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
 
 	// Quickly check when the requestID cannot be found, an error is
 	// returned.
@@ -796,6 +811,13 @@ func TestRemoveResult(t *testing.T) {
 	// Create a test request ID counter.
 	requestCounter := atomic.Uint64{}
 
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
 	testCases := []struct {
 		name        string
 		setupRecord func() uint64
@@ -808,9 +830,7 @@ func TestRemoveResult(t *testing.T) {
 			name: "remove on TxConfirmed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(
-					rid, tx, req, m.feeFunc, fee, utxoIndex,
-				)
+				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -826,9 +846,7 @@ func TestRemoveResult(t *testing.T) {
 			name: "remove on TxFailed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(
-					rid, tx, req, m.feeFunc, fee, utxoIndex,
-				)
+				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -845,9 +863,7 @@ func TestRemoveResult(t *testing.T) {
 			name: "noop when tx is not confirmed or failed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(
-					rid, tx, req, m.feeFunc, fee, utxoIndex,
-				)
+				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -906,7 +922,15 @@ func TestNotifyResult(t *testing.T) {
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
 	requestID := uint64(1)
-	tp.storeRecord(requestID, tx, req, m.feeFunc, fee, utxoIndex)
+
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
+	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
@@ -1208,7 +1232,15 @@ func TestHandleTxConfirmed(t *testing.T) {
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
 	requestID := uint64(1)
-	tp.storeRecord(requestID, tx, req, m.feeFunc, fee, utxoIndex)
+
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
+	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
 	record, ok := tp.records.Load(requestID)
 	require.True(t, ok)
 
@@ -1289,7 +1321,15 @@ func TestHandleFeeBumpTx(t *testing.T) {
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
 	requestID := uint64(1)
-	tp.storeRecord(requestID, tx, req, m.feeFunc, fee, utxoIndex)
+
+	// Create a sweepTxCtx.
+	sweepCtx := &sweepTxCtx{
+		tx:                tx,
+		fee:               fee,
+		outpointToTxIndex: utxoIndex,
+	}
+
+	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)

@@ -664,11 +664,19 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 		tc := tc
 
 		rid := requestCounter.Add(1)
+
+		// Create a test record.
+		record := &monitorRecord{
+			requestID:   rid,
+			req:         req,
+			feeFunction: m.feeFunc,
+		}
+
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMock()
 
 			// Call the method under test.
-			err := tp.createRBFCompliantTx(rid, req, m.feeFunc)
+			err := tp.createRBFCompliantTx(record)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
@@ -1082,6 +1090,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 	// Overwrite the budget to make it smaller than the fee.
 	req.Budget = 100
 	record := &monitorRecord{
+		requestID:   requestID,
 		req:         req,
 		feeFunction: m.feeFunc,
 		tx:          &wire.MsgTx{},
@@ -1097,7 +1106,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 		mock.Anything).Return(script, nil)
 
 	// Call the createAndPublish method.
-	resultOpt := tp.createAndPublishTx(requestID, record)
+	resultOpt := tp.createAndPublishTx(record)
 	result := resultOpt.UnwrapOrFail(t)
 
 	// We expect the result to be TxFailed and the error is set in the
@@ -1116,7 +1125,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 		mock.Anything).Return(lnwallet.ErrMempoolFee).Once()
 
 	// Call the createAndPublish method and expect a none option.
-	resultOpt = tp.createAndPublishTx(requestID, record)
+	resultOpt = tp.createAndPublishTx(record)
 	require.True(t, resultOpt.IsNone())
 
 	// Mock the testmempoolaccept to return a fee related error that should
@@ -1125,7 +1134,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 		mock.Anything).Return(chain.ErrInsufficientFee).Once()
 
 	// Call the createAndPublish method and expect a none option.
-	resultOpt = tp.createAndPublishTx(requestID, record)
+	resultOpt = tp.createAndPublishTx(record)
 	require.True(t, resultOpt.IsNone())
 }
 
@@ -1147,6 +1156,7 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
 	record := &monitorRecord{
+		requestID:   requestID,
 		req:         req,
 		feeFunction: m.feeFunc,
 		tx:          &wire.MsgTx{},
@@ -1169,7 +1179,7 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 		mock.Anything, mock.Anything).Return(errDummy).Once()
 
 	// Call the createAndPublish method and expect a failure result.
-	resultOpt := tp.createAndPublishTx(requestID, record)
+	resultOpt := tp.createAndPublishTx(record)
 	result := resultOpt.UnwrapOrFail(t)
 
 	// We expect the result to be TxFailed and the error is set.
@@ -1190,7 +1200,7 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 		mock.Anything, mock.Anything).Return(nil).Once()
 
 	// Call the createAndPublish method and expect a success result.
-	resultOpt = tp.createAndPublishTx(requestID, record)
+	resultOpt = tp.createAndPublishTx(record)
 	result = resultOpt.UnwrapOrFail(t)
 	require.True(t, resultOpt.IsSome())
 
@@ -1258,7 +1268,7 @@ func TestHandleTxConfirmed(t *testing.T) {
 	tp.wg.Add(1)
 	done := make(chan struct{})
 	go func() {
-		tp.handleTxConfirmed(record, requestID)
+		tp.handleTxConfirmed(record)
 		close(done)
 	}()
 
@@ -1304,7 +1314,11 @@ func TestHandleFeeBumpTx(t *testing.T) {
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()
+
+	// Create a testing record and put it in the map.
+	requestID := uint64(1)
 	record := &monitorRecord{
+		requestID:   requestID,
 		req:         req,
 		feeFunction: m.feeFunc,
 		tx:          tx,
@@ -1317,10 +1331,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 	utxoIndex := map[wire.OutPoint]int{
 		op: 0,
 	}
-
-	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
-	requestID := uint64(1)
 
 	// Create a sweepTxCtx.
 	sweepCtx := &sweepTxCtx{
@@ -1345,7 +1356,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 
 	// Call the method and expect no result received.
 	tp.wg.Add(1)
-	go tp.handleFeeBumpTx(requestID, record, testHeight)
+	go tp.handleFeeBumpTx(record, testHeight)
 
 	// Check there's no result sent back.
 	select {
@@ -1359,7 +1370,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 
 	// Call the method and expect no result received.
 	tp.wg.Add(1)
-	go tp.handleFeeBumpTx(requestID, record, testHeight)
+	go tp.handleFeeBumpTx(record, testHeight)
 
 	// Check there's no result sent back.
 	select {
@@ -1391,7 +1402,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 	//
 	// NOTE: must be called in a goroutine in case it blocks.
 	tp.wg.Add(1)
-	go tp.handleFeeBumpTx(requestID, record, testHeight)
+	go tp.handleFeeBumpTx(record, testHeight)
 
 	select {
 	case <-time.After(time.Second):
@@ -1437,6 +1448,7 @@ func TestProcessRecords(t *testing.T) {
 
 	// Create a monitor record that's confirmed.
 	recordConfirmed := &monitorRecord{
+		requestID:   requestID1,
 		req:         req1,
 		feeFunction: m.feeFunc,
 		tx:          tx1,
@@ -1450,6 +1462,7 @@ func TestProcessRecords(t *testing.T) {
 	// Create a monitor record that's not confirmed. We know it's not
 	// confirmed because the num of confirms is zero.
 	recordFeeBump := &monitorRecord{
+		requestID:   requestID2,
 		req:         req2,
 		feeFunction: m.feeFunc,
 		tx:          tx2,
@@ -1588,7 +1601,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 
 	// Call the method under test.
 	tp.wg.Add(1)
-	tp.handleInitialBroadcast(rec, rid)
+	tp.handleInitialBroadcast(rec)
 
 	// Check the result is sent back.
 	select {
@@ -1659,7 +1672,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 
 	// Call the method under test and expect an error returned.
 	tp.wg.Add(1)
-	tp.handleInitialBroadcast(rec, rid)
+	tp.handleInitialBroadcast(rec)
 
 	// Check the result is sent back.
 	select {
@@ -1692,7 +1705,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 
 	// Call the method under test.
 	tp.wg.Add(1)
-	tp.handleInitialBroadcast(rec, rid)
+	tp.handleInitialBroadcast(rec)
 
 	// Check the result is sent back.
 	select {

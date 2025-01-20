@@ -313,9 +313,9 @@ func TestInitializeFeeFunction(t *testing.T) {
 	require.Equal(t, feerate, f.FeeRate())
 }
 
-// TestStoreRecord correctly increases the request counter and saves the
+// TestUpdateRecord correctly updates the fields fee and tx, and saves the
 // record.
-func TestStoreRecord(t *testing.T) {
+func TestUpdateRecord(t *testing.T) {
 	t.Parallel()
 
 	// Create a test input.
@@ -358,8 +358,15 @@ func TestStoreRecord(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
+	// Create a test record.
+	record := &monitorRecord{
+		requestID:   initialCounter,
+		req:         req,
+		feeFunction: feeFunc,
+	}
+
 	// Call the method under test.
-	tp.storeRecord(initialCounter, sweepCtx, req, feeFunc)
+	tp.updateRecord(record, sweepCtx)
 
 	// Read the saved record and compare.
 	record, ok := tp.records.Load(initialCounter)
@@ -676,10 +683,19 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 			tc.setupMock()
 
 			// Call the method under test.
-			err := tp.createRBFCompliantTx(record)
+			rec, err := tp.createRBFCompliantTx(record)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
+
+			if tc.expectedErr != nil {
+				return
+			}
+
+			// Assert the returned record has the following fields
+			// populated.
+			require.NotEmpty(t, rec.tx)
+			require.NotEmpty(t, rec.fee)
 		})
 	}
 }
@@ -721,13 +737,13 @@ func TestTxPublisherBroadcast(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
-	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
-
-	// Quickly check when the requestID cannot be found, an error is
-	// returned.
-	result, err := tp.broadcast(uint64(1000))
-	require.Error(t, err)
-	require.Nil(t, result)
+	// Create a test record.
+	record := &monitorRecord{
+		requestID:   requestID,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+	rec := tp.updateRecord(record, sweepCtx)
 
 	testCases := []struct {
 		name           string
@@ -782,7 +798,7 @@ func TestTxPublisherBroadcast(t *testing.T) {
 			tc.setupMock()
 
 			// Call the method under test.
-			result, err := tp.broadcast(requestID)
+			result, err := tp.broadcast(rec)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
@@ -838,7 +854,15 @@ func TestRemoveResult(t *testing.T) {
 			name: "remove on TxConfirmed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
+
+				// Create a test record.
+				record := &monitorRecord{
+					requestID:   rid,
+					req:         req,
+					feeFunction: m.feeFunc,
+				}
+
+				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -854,7 +878,15 @@ func TestRemoveResult(t *testing.T) {
 			name: "remove on TxFailed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
+
+				// Create a test record.
+				record := &monitorRecord{
+					requestID:   rid,
+					req:         req,
+					feeFunction: m.feeFunc,
+				}
+
+				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -871,7 +903,15 @@ func TestRemoveResult(t *testing.T) {
 			name: "noop when tx is not confirmed or failed",
 			setupRecord: func() uint64 {
 				rid := requestCounter.Add(1)
-				tp.storeRecord(rid, sweepCtx, req, m.feeFunc)
+
+				// Create a test record.
+				record := &monitorRecord{
+					requestID:   rid,
+					req:         req,
+					feeFunction: m.feeFunc,
+				}
+
+				tp.updateRecord(record, sweepCtx)
 				tp.subscriberChans.Store(rid, nil)
 
 				return rid
@@ -937,8 +977,14 @@ func TestNotifyResult(t *testing.T) {
 		fee:               fee,
 		outpointToTxIndex: utxoIndex,
 	}
+	// Create a test record.
+	record := &monitorRecord{
+		requestID:   requestID,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
 
-	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
+	tp.updateRecord(record, sweepCtx)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)
@@ -1250,7 +1296,14 @@ func TestHandleTxConfirmed(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
-	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
+	// Create a test record.
+	record := &monitorRecord{
+		requestID:   requestID,
+		req:         req,
+		feeFunction: m.feeFunc,
+	}
+
+	tp.updateRecord(record, sweepCtx)
 	record, ok := tp.records.Load(requestID)
 	require.True(t, ok)
 
@@ -1340,7 +1393,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 		outpointToTxIndex: utxoIndex,
 	}
 
-	tp.storeRecord(requestID, sweepCtx, req, m.feeFunc)
+	tp.updateRecord(record, sweepCtx)
 
 	// Create a subscription to the event.
 	subscriber := make(chan *BumpResult, 1)

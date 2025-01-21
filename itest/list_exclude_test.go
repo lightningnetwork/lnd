@@ -17,6 +17,7 @@ var excludedTestsWindows = []string{
 	"batch channel funding",
 	"zero conf channel open",
 	"open channel with unstable utxos",
+	"open channel with shutdown address",
 	"funding flow persistence",
 
 	// Gives "channel link not found" error.

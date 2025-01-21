@@ -2240,7 +2240,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	if len(in.CloseAddress) == 0 {
 		in.CloseAddress = r.cfg.CloseAddress
 	}
-	
+
 	script, err := chancloser.ParseUpfrontShutdownAddress(
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,
 	)

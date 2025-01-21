@@ -42,6 +42,12 @@ const (
 	// FeeUpdate is an update type sent by the channel initiator that
 	// updates the fee rate used when signing the commitment transaction.
 	FeeUpdate
+
+	// NoopAdd is an update type that adds a new HTLC entry into the log.
+	// This differs from the normal Add type, in that when settled the
+	// balance will go back to the sender, rather than be credited for the
+	// receiver.
+	NoopAdd
 )
 
 // String returns a human readable string that uniquely identifies the target
@@ -238,7 +244,9 @@ type paymentDescriptor struct {
 func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 	var msg lnwire.Message
 	switch pd.EntryType {
-	case Add:
+	// TODO(roasbeef): need custom record to be able to distinguish between
+	// restarts
+	case Add, NoopAdd:
 		msg = &lnwire.UpdateAddHTLC{
 			ChanID:        pd.ChanID,
 			ID:            pd.HtlcIndex,
@@ -290,7 +298,7 @@ func (pd *paymentDescriptor) setCommitHeight(
 	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) {
 
 	switch pd.EntryType {
-	case Add:
+	case Add, NoopAdd:
 		pd.addCommitHeights.SetForParty(
 			whoseCommitChain, nextHeight,
 		)
@@ -310,4 +318,9 @@ func (pd *paymentDescriptor) setCommitHeight(
 			whoseCommitChain, nextHeight,
 		)
 	}
+}
+
+// isAdd returns true if the paymentDescriptor is of type Add.
+func (pd *paymentDescriptor) isAdd() bool {
+	return pd.EntryType == Add || pd.EntryType == NoopAdd
 }

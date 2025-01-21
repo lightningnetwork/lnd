@@ -1383,8 +1383,8 @@ func TestForceCloseDustOutput(t *testing.T) {
 	bobChannel.channelState.RemoteChanCfg.ChanReserve = 0
 
 	htlcAmount := lnwire.NewMSatFromSatoshis(500)
-
 	aliceAmount := aliceChannel.channelState.LocalCommitment.LocalBalance
+
 	bobAmount := bobChannel.channelState.LocalCommitment.LocalBalance
 
 	// Have Bobs' to-self output be below her dust limit and check
@@ -11271,4 +11271,56 @@ func TestCreateCooperativeCloseTx(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestNoopAddSettle tests that adding and settling an HTLC with no-op, no
+// balances are actually affected.
+func TestNoopAddSettle(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, chanType,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	const htlcAmt = 10_000
+	htlc, preimage := createHTLC(0, htlcAmt)
+
+	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	bobBalance := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// Have Alice add the HTLC, then lock it in with a new state transition.
+	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err, "alice unable to add htlc")
+	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err, "bob unable to receive htlc")
+	if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	// We'll have Bob settle the HTLC, then force another state transition.
+	err = bobChannel.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
+	require.NoError(t, err, "bob unable to settle inbound htlc")
+	err = aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
+	if err != nil {
+		t.Fatalf("alice unable to accept settle of outbound "+
+			"htlc: %v", err)
+	}
+	if err := ForceStateTransition(aliceChannel, bobChannel); err != nil {
+		t.Fatalf("Can't update the channel state: %v", err)
+	}
+
+	aliceBalanceFinal := aliceChannel.channelState.LocalCommitment.LocalBalance
+	bobBalanceFinal := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// The balances of Alice and Bob should be the exact same and shouldn't
+	// have changed.
+	require.Equal(t, aliceBalance, aliceBalanceFinal)
+	require.Equal(t, bobBalance, bobBalanceFinal)
 }

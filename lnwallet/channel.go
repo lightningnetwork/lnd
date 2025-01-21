@@ -1737,7 +1737,7 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		// but this Add restoration was a no-op as every single one of
 		// these Adds was already restored since they're all incoming
 		// htlcs on the local commitment.
-		if payDesc.EntryType == Add {
+		if payDesc.isAdd() {
 			continue
 		}
 
@@ -2974,6 +2974,20 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 			)
 			if rmvHeight == 0 {
 				switch {
+				// If this a noop add, then when we settle the
+				// HTLC, we actually credit the sender with the
+				// amount again, thus making it a noop.
+				case entry.EntryType == Settle &&
+					addEntry.EntryType == NoopAdd:
+
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party.CounterParty(),
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
+
 				// If an incoming HTLC is being settled, then
 				// this means that the preimage has been
 				// received by the settling party Therefore, we
@@ -3011,7 +3025,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 		liveAdds := fn.Filter(
 			view.Updates.GetForParty(party),
 			func(pd *paymentDescriptor) bool {
-				isAdd := pd.EntryType == Add
+				isAdd := pd.isAdd()
 				shouldSkip := skip.GetForParty(party).
 					Contains(pd.HtlcIndex)
 
@@ -3050,7 +3064,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 	// corresponding to whoseCommitmentChain.
 	isUncommitted := func(update *paymentDescriptor) bool {
 		switch update.EntryType {
-		case Add:
+		case Add, NoopAdd:
 			return update.addCommitHeights.GetForParty(
 				whoseCommitChain,
 			) == 0
@@ -3814,7 +3828,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// Go through all updates, checking that they don't violate the
 		// channel constraints.
 		for _, entry := range updates {
-			if entry.EntryType == Add {
+			if entry.isAdd() {
 				// An HTLC is being added, this will add to the
 				// number and amount in flight.
 				amtInFlight += entry.Amount
@@ -5693,7 +5707,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		// don't re-forward any already processed HTLC's after a
 		// restart.
 		switch {
-		case pd.EntryType == Add && committedAdd && shouldFwdAdd:
+		case pd.isAdd() && committedAdd && shouldFwdAdd:
 			// Construct a reference specifying the location that
 			// this forwarded Add will be written in the forwarding
 			// package constructed at this remote height.
@@ -5712,7 +5726,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				addUpdatesToForward, pd.toLogUpdate(),
 			)
 
-		case pd.EntryType != Add && committedRmv && shouldFwdRmv:
+		case !pd.isAdd() && committedRmv && shouldFwdRmv:
 			// Construct a reference specifying the location that
 			// this forwarded Settle/Fail will be written in the
 			// forwarding package constructed at this remote height.
@@ -5951,7 +5965,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	// Grab all of our HTLCs and evaluate against the dust limit.
 	for e := lc.updateLogs.Local.Front(); e != nil; e = e.Next() {
 		pd := e.Value
-		if pd.EntryType != Add {
+		if !pd.isAdd() {
 			continue
 		}
 
@@ -5970,7 +5984,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	// Grab all of their HTLCs and evaluate against the dust limit.
 	for e := lc.updateLogs.Remote.Front(); e != nil; e = e.Next() {
 		pd := e.Value
-		if pd.EntryType != Add {
+		if !pd.isAdd() {
 			continue
 		}
 
@@ -6043,9 +6057,17 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 	openKey *models.CircuitKey) *paymentDescriptor {
 
+	// TODO(rosabeef): can use push amt to simplify logic, not have to
+	// detect if remote party has enough funds for anchor
+	entryType := Add
+
+	if lc.channelState.ChanType.HasTapscriptRoot() {
+		entryType = NoopAdd
+	}
+
 	return &paymentDescriptor{
 		ChanID:         htlc.ChanID,
-		EntryType:      Add,
+		EntryType:      entryType,
 		RHash:          PaymentHash(htlc.PaymentHash),
 		Timeout:        htlc.Expiry,
 		Amount:         htlc.Amount,
@@ -6107,9 +6129,15 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 			lc.updateLogs.Remote.htlcCounter)
 	}
 
+	entryType := Add
+
+	if lc.channelState.ChanType.HasTapscriptRoot() {
+		entryType = NoopAdd
+	}
+
 	pd := &paymentDescriptor{
 		ChanID:        htlc.ChanID,
-		EntryType:     Add,
+		EntryType:     entryType,
 		RHash:         PaymentHash(htlc.PaymentHash),
 		Timeout:       htlc.Expiry,
 		Amount:        htlc.Amount,
@@ -9765,7 +9793,7 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 
 		// We don't save add updates as they are restored from the
 		// remote commitment in restoreStateLogs.
-		if pd.EntryType == Add {
+		if pd.isAdd() {
 			continue
 		}
 

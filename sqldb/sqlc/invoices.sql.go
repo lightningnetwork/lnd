@@ -591,7 +591,7 @@ INSERT INTO invoice_payment_hashes (
 `
 
 type InsertKVInvoiceKeyAndAddIndexParams struct {
-	ID       int32
+	ID       int64
 	AddIndex int64
 }
 
@@ -675,7 +675,7 @@ WHERE id = $1
 `
 
 type SetKVInvoicePaymentHashParams struct {
-	ID   int32
+	ID   int64
 	Hash []byte
 }
 

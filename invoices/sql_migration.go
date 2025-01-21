@@ -100,7 +100,7 @@ func createInvoiceHashIndex(ctx context.Context, db kvdb.Backend,
 
 			return tx.InsertKVInvoiceKeyAndAddIndex(ctx,
 				sqlc.InsertKVInvoiceKeyAndAddIndexParams{
-					ID:       int32(invoiceKey),
+					ID:       int64(invoiceKey),
 					AddIndex: int64(addIndexNo),
 				},
 			)
@@ -132,7 +132,7 @@ func createInvoiceHashIndex(ctx context.Context, db kvdb.Backend,
 
 			return tx.SetKVInvoicePaymentHash(ctx,
 				sqlc.SetKVInvoicePaymentHashParams{
-					ID:   int32(invoiceKey),
+					ID:   int64(invoiceKey),
 					Hash: k,
 				},
 			)

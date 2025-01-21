@@ -58,7 +58,7 @@ type InvoiceEvent struct {
 }
 
 type InvoiceEventType struct {
-	ID          int32
+	ID          int64
 	Description string
 }
 
@@ -88,7 +88,7 @@ type InvoiceHtlcCustomRecord struct {
 }
 
 type InvoicePaymentHash struct {
-	ID       int32
+	ID       int64
 	AddIndex int64
 	Hash     []byte
 }

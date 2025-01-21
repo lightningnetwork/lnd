@@ -518,6 +518,9 @@ type Config struct {
 	// HTTPHeaderTimeout is the maximum duration that the server will wait
 	// before timing out reading the headers of an HTTP request.
 	HTTPHeaderTimeout time.Duration `long:"http-header-timeout" description:"The maximum duration that the server will wait before timing out reading the headers of an HTTP request."`
+
+	// An address to enforce payout of our funds to on cooperative close.
+	CloseAddress string `long:"upfront-shutdown-address" description:"An address to enforce payout of our funds to on cooperative close."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.

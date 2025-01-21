@@ -109,7 +109,11 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Carol's retribution.
-	_, breachTXID := ht.CloseChannelAssertPending(bob, chanPoint, true)
+	_, breachCloseUpd := ht.CloseChannelAssertPending(bob, chanPoint, true)
+	closeUpd := breachCloseUpd.GetClosePending()
+	require.NotNil(ht, closeUpd)
+	breachTXID, err := chainhash.NewHash(closeUpd.Txid)
+	require.NoError(ht, err)
 
 	// Here, Carol sees Bob's breach transaction in the mempool, but is
 	// waiting for it to confirm before continuing her retribution. We
@@ -122,13 +126,13 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// update, then ensure that the closing transaction was included in the
 	// block.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	ht.AssertTxInBlock(block, breachTXID)
+	ht.AssertTxInBlock(block, *breachTXID)
 
 	// Construct to_remote output which pays to Bob. Based on the output
 	// ordering, the first output in this breach tx is the to_remote
 	// output.
 	toRemoteOp := wire.OutPoint{
-		Hash:  breachTXID,
+		Hash:  *breachTXID,
 		Index: 0,
 	}
 
@@ -543,9 +547,13 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	// broadcasting her current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so she'll soon
 	// feel the wrath of Dave's retribution.
-	closeUpdates, closeTxID := ht.CloseChannelAssertPending(
+	closeUpdates, closeUpd := ht.CloseChannelAssertPending(
 		carol, chanPoint, true,
 	)
+	pendingCloseUpd := closeUpd.GetClosePending()
+	require.NotNil(ht, pendingCloseUpd)
+	closeTxID, err := chainhash.NewHash(pendingCloseUpd.Txid)
+	require.NoError(ht, err)
 
 	// Generate a single block to mine the breach transaction.
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
@@ -593,7 +601,7 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 		return nil, errNotFound
 	}
 
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		txid, err := findJusticeTx()
 		if err != nil {
 			return err

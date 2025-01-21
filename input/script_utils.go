@@ -3239,3 +3239,36 @@ func ComputeCommitmentPoint(commitSecret []byte) *btcec.PublicKey {
 	_, pubKey := btcec.PrivKeyFromBytes(commitSecret)
 	return pubKey
 }
+
+// ScriptIsOpReturn returns true if the passed script is an OP_RETURN script.
+//
+// Lifted from the txscript package:
+// https://github.com/btcsuite/btcd/blob/cc26860b40265e1332cca8748c5dbaf3c81cc094/txscript/standard.go#L493-L526.
+//
+//nolint:ll
+func ScriptIsOpReturn(script []byte) bool {
+	// A null script is of the form:
+	//  OP_RETURN <optional data>
+	//
+	// Thus, it can either be a single OP_RETURN or an OP_RETURN followed by
+	// a data push up to MaxDataCarrierSize bytes.
+
+	// The script can't possibly be a null data script if it doesn't start
+	// with OP_RETURN.  Fail fast to avoid more work below.
+	if len(script) < 1 || script[0] != txscript.OP_RETURN {
+		return false
+	}
+
+	// Single OP_RETURN.
+	if len(script) == 1 {
+		return true
+	}
+
+	// OP_RETURN followed by data push up to MaxDataCarrierSize bytes.
+	tokenizer := txscript.MakeScriptTokenizer(0, script[1:])
+
+	return tokenizer.Next() && tokenizer.Done() &&
+		(txscript.IsSmallInt(tokenizer.Opcode()) ||
+			tokenizer.Opcode() <= txscript.OP_PUSHDATA4) &&
+		len(tokenizer.Data()) <= txscript.MaxDataCarrierSize
+}

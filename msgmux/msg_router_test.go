@@ -1,6 +1,7 @@
 package msgmux
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -24,8 +25,8 @@ func (m *mockEndpoint) CanHandle(msg PeerMsg) bool {
 	return args.Bool(0)
 }
 
-func (m *mockEndpoint) SendMessage(msg PeerMsg) bool {
-	args := m.Called(msg)
+func (m *mockEndpoint) SendMessage(ctx context.Context, msg PeerMsg) bool {
+	args := m.Called(ctx, msg)
 
 	return args.Bool(0)
 }
@@ -34,7 +35,7 @@ func (m *mockEndpoint) SendMessage(msg PeerMsg) bool {
 // add new endpoints, route to them, remove, them, etc.
 func TestMessageRouterOperation(t *testing.T) {
 	msgRouter := NewMultiMsgRouter()
-	msgRouter.Start()
+	msgRouter.Start(context.Background())
 	defer msgRouter.Stop()
 
 	openChanMsg := PeerMsg{

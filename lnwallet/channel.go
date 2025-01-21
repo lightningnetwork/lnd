@@ -8342,6 +8342,19 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		))
 	})
 
+	// If we have a custom sequence, then this means we're using the new RBF
+	// co-op flow. In this case, a either party's script is just an
+	// OP_RETURN, then we'll set their balance to zero as they want to omit
+	// their output all together.
+	if opts.customSequence.IsSome() {
+		if input.ScriptIsOpReturn(localDeliveryScript) {
+			ourBalance = 0
+		}
+		if input.ScriptIsOpReturn(remoteDeliveryScript) {
+			theirBalance = 0
+		}
+	}
+
 	closeTx, err := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
@@ -8455,6 +8468,19 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			lockTime,
 		))
 	})
+
+	// If we have a custom sequence, then this means we're using the new RBF
+	// co-op flow. In this case, a either party's script is just an
+	// OP_RETURN, then we'll set their balance to zero as they want to omit
+	// their output all together.
+	if opts.customSequence.IsSome() {
+		if input.ScriptIsOpReturn(localDeliveryScript) {
+			ourBalance = 0
+		}
+		if input.ScriptIsOpReturn(remoteDeliveryScript) {
+			theirBalance = 0
+		}
+	}
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
@@ -9266,8 +9292,6 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	opts.customLockTime.WhenSome(func(lockTime uint32) {
 		closeTx.LockTime = lockTime
 	})
-
-	// TODO(roasbeef): needs support for dropping inputs
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

@@ -49,6 +49,11 @@ var (
 	// ErrCloserAndClosee is returned when we expect a sig covering both
 	// outputs, it isn't present.
 	ErrCloserAndClosee = fmt.Errorf("expected CloserAndClosee sig")
+
+	// ErrWrongLocalScript is returned when the remote party sends a
+	// ClosingComplete message that doesn't carry our last local script
+	// sent.
+	ErrWrongLocalScript = fmt.Errorf("wrong local script")
 )
 
 // ProtocolEvent is a special interface used to create the equivalent of a
@@ -505,6 +510,13 @@ type ClosingNegotiation struct {
 	// the ShouldRouteTo method to determine which state route incoming
 	// events to.
 	PeerState lntypes.Dual[AsymmetricPeerState]
+
+	// CloseChannelTerms is the terms we'll use to close the channel. We
+	// hold a value here which is pointed to by the various
+	// AsymmetricPeerState instances. This allows us to update this value if
+	// the remote peer sends a new address, with each of the state noting
+	// the new value via a pointer.
+	*CloseChannelTerms
 }
 
 // IsTerminal returns true if the target state is a terminal state.
@@ -526,11 +538,18 @@ type CloseChannelTerms struct {
 
 // DeriveCloseTxOuts takes the close terms, and returns the local and remote tx
 // out for the close transaction. If an output is dust, then it'll be nil.
-//
-// TODO(roasbeef): add func for w/e heuristic to not manifest own output?
 func (c *CloseChannelTerms) DeriveCloseTxOuts() (*wire.TxOut, *wire.TxOut) {
 	//nolint:ll
 	deriveTxOut := func(balance btcutil.Amount, pkScript []byte) *wire.TxOut {
+		// If the script passed in is an OP_RETURN, then we'll return
+		// nil, as this means the remote party wishes to exclude their
+		// output from the closing transaction.
+		if input.ScriptIsOpReturn(pkScript) {
+			return nil
+		}
+
+		// Otherwise, we'll base the existence of the output on our
+		// normal dust check.
 		dustLimit := lnwallet.DustLimitForSize(len(pkScript))
 		if balance >= dustLimit {
 			return &wire.TxOut{
@@ -591,7 +610,7 @@ func (c *CloseChannelTerms) RemoteCanPayFees(absoluteFee btcutil.Amount) bool {
 // input events:
 //   - SendOfferEvent
 type LocalCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // ShouldRouteTo returns true if the target state should process the target
@@ -625,10 +644,13 @@ func (l *LocalCloseStart) protocolStateSealed() {}
 // input events:
 //   - LocalSigReceived
 type LocalOfferSent struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 
 	// ProposedFee is the fee we proposed to the remote party.
 	ProposedFee btcutil.Amount
+
+	// ProposedFeeRate is the fee rate we proposed to the remote party.
+	ProposedFeeRate chainfee.SatPerVByte
 
 	// LocalSig is the signature we sent to the remote party.
 	LocalSig lnwire.Sig
@@ -668,6 +690,21 @@ func (l *LocalOfferSent) IsTerminal() bool {
 type ClosePending struct {
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
+
+	*CloseChannelTerms
+
+	// FeeRate is the fee rate of the closing transaction.
+	FeeRate chainfee.SatPerVByte
+
+	// Party indicates which party is at this state. This is used to
+	// implement the state transition properly, based on ShouldRouteTo.
+	Party lntypes.ChannelParty
+}
+
+// isType returns true if the value is of type T.
+func isType[T any](value any) bool {
+	_, ok := value.(T)
+	return ok
 }
 
 // ShouldRouteTo returns true if the target state should process the target
@@ -677,6 +714,17 @@ func (c *ClosePending) ShouldRouteTo(event ProtocolEvent) bool {
 	case *SpendEvent:
 		return true
 	default:
+		switch {
+		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+			return true
+
+		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
+			event,
+		):
+
+			return true
+		}
+
 		return false
 	}
 }
@@ -711,7 +759,7 @@ func (c *CloseFin) IsTerminal() bool {
 //   - fromState: ChannelFlushing
 //   - toState: ClosePending
 type RemoteCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // ShouldRouteTo returns true if the target state should process the target

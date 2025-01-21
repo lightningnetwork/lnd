@@ -270,9 +270,9 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	mockStore.AssertExpectations(t)
 }
 
-// TestMarkInputsSwept checks that given a list of inputs with different
-// states, only the non-terminal state will be marked as `Swept`.
-func TestMarkInputsSwept(t *testing.T) {
+// TestHandleBumpEventTxConfirmed checks that given a list of inputs with
+// different states, only the non-terminal state will be marked as `Swept`.
+func TestHandleBumpEventTxConfirmed(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
@@ -329,9 +329,20 @@ func TestMarkInputsSwept(t *testing.T) {
 		},
 	}
 
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxConfirmed,
+	}
+
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+	}
+
 	// Mark the test inputs. We expect the inputTerminated to be skipped,
 	// and the rest to be marked as swept.
-	s.markInputsSwept(tx, true)
+	s.handleBumpEventTxConfirmed(resp)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 3)

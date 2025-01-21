@@ -100,11 +100,11 @@ type Interceptor struct {
 	interruptChannel chan os.Signal
 
 	// shutdownChannel is closed once the main interrupt handler exits.
-	shutdownChannel chan struct{}
+	shutdownChannel chan bool
 
 	// shutdownRequestChannel is used to request the daemon to shutdown
 	// gracefully, similar to when receiving SIGINT.
-	shutdownRequestChannel chan struct{}
+	shutdownRequestChannel chan bool
 
 	// quit is closed when instructing the main interrupt handler to exit.
 	// Note that to avoid losing notifications, only shutdown func may
@@ -124,8 +124,8 @@ func Intercept() (Interceptor, error) {
 
 	channels := Interceptor{
 		interruptChannel:       make(chan os.Signal, 1),
-		shutdownChannel:        make(chan struct{}),
-		shutdownRequestChannel: make(chan struct{}),
+		shutdownChannel:        make(chan bool, 1),
+		shutdownRequestChannel: make(chan bool),
 		quit:                   make(chan struct{}),
 	}
 
@@ -171,18 +171,21 @@ func (c *Interceptor) mainInterruptHandler() {
 		close(c.quit)
 	}
 
+	var normalShutdown bool
 	for {
 		select {
 		case signal := <-c.interruptChannel:
 			log.Infof("Received %v", signal)
 			shutdown()
 
-		case <-c.shutdownRequestChannel:
-			log.Infof("Received shutdown request.")
+		case normalShutdown = <-c.shutdownRequestChannel:
+			log.Infof("Received shutdown request "+
+				"(normalShutdown=%t).", normalShutdown)
 			shutdown()
 
 		case <-c.quit:
 			log.Infof("Gracefully shutting down.")
+			c.shutdownChannel <- normalShutdown
 			close(c.shutdownChannel)
 			signal.Stop(c.interruptChannel)
 			return
@@ -215,15 +218,15 @@ func (c *Interceptor) Alive() bool {
 }
 
 // RequestShutdown initiates a graceful shutdown from the application.
-func (c *Interceptor) RequestShutdown() {
+func (c *Interceptor) RequestShutdown(normalShutdown bool) {
 	select {
-	case c.shutdownRequestChannel <- struct{}{}:
+	case c.shutdownRequestChannel <- normalShutdown:
 	case <-c.quit:
 	}
 }
 
 // ShutdownChannel returns the channel that will be closed once the main
 // interrupt handler has exited.
-func (c *Interceptor) ShutdownChannel() <-chan struct{} {
+func (c *Interceptor) ShutdownChannel() <-chan bool {
 	return c.shutdownChannel
 }

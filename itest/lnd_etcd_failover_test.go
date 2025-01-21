@@ -5,9 +5,11 @@ package itest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -323,9 +325,20 @@ func testLeaderHealthCheck(ht *lntest.HarnessTest) {
 	// to shut down.
 	proxy.Stop(ht.T)
 
-	// Wait for Carol-1 to stop. If the health check wouldn't properly work
-	// this call would timeout and trigger a test failure.
-	require.NoError(ht.T, carol.WaitForProcessExit())
+	// Wait for Carol-1 to stop. If the health check isn't functioning
+	// properly this call will time out and trigger a test failure. The
+	// process is expected to exit with status code 1. Any other exit code
+	// or unexpected error will cause the test to fail.
+	err = carol.WaitForProcessExit()
+	require.Error(ht.T, err)
+
+	// Check that the exit code is specifically 1.
+	if exitErr := new(exec.ExitError); errors.As(err, &exitErr) {
+		require.Equal(ht.T, 1, exitErr.ExitCode())
+	} else {
+		require.Fail(ht.T, fmt.Sprintf("Unexpected error type: %T, "+
+			"message: %v", err, err))
+	}
 
 	// Now that Carol-1 is shut down we should fail over to Carol-2.
 	failoverTimeout := time.Duration(2*leaderSessionTTL) * time.Second

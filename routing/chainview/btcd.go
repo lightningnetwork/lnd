@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 )
@@ -29,7 +30,7 @@ type BtcdFilteredChainView struct {
 	bestHeightMtx sync.Mutex
 	bestHeight    uint32
 
-	btcdConn *rpcclient.Client
+	btcdConn *chain.BtcdClient
 
 	// blockEventQueue is the ordered queue used to keep the order
 	// of connected and disconnected blocks sent to the reader of the
@@ -78,11 +79,12 @@ func NewBtcdFilteredChainView(config rpcclient.ConnConfig,
 		OnFilteredBlockDisconnected: chainView.onFilteredBlockDisconnected,
 	}
 
-	// Disable connecting to btcd within the rpcclient.New method. We
-	// defer establishing the connection to our .Start() method.
-	config.DisableConnectOnNew = true
-	config.DisableAutoReconnect = false
-	chainConn, err := rpcclient.New(&config, ntfnCallbacks)
+	chainConn, err := chain.NewBtcdClientWithConfig(
+		&chain.BtcdConfig{
+			Conn:                 &config,
+			NotificationHandlers: ntfnCallbacks,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

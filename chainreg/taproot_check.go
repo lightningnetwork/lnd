@@ -3,14 +3,14 @@ package chainreg
 import (
 	"encoding/json"
 
-	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcwallet/chain"
 )
 
 // backendSupportsTaproot returns true if the backend understands the taproot
 // soft fork.
-func backendSupportsTaproot(rpc *rpcclient.Client) bool {
+func backendSupportsTaproot(client chain.Interface) bool {
 	// First, we'll try to access the normal getblockchaininfo call.
-	chainInfo, err := rpc.GetBlockChainInfo()
+	chainInfo, err := client.GetBlockChainInfo()
 	if err == nil {
 		// If this call worked, then we'll check that the taproot
 		// deployment is defined.
@@ -41,7 +41,7 @@ func backendSupportsTaproot(rpc *rpcclient.Client) bool {
 	// running a newer version of bitcoind that still has the
 	// getblockchaininfo call, but doesn't populate the data, so we'll hit
 	// the new getdeploymentinfo call.
-	resp, err := rpc.RawRequest("getdeploymentinfo", nil)
+	resp, err := client.RawRequest("getdeploymentinfo", nil)
 	if err != nil {
 		log.Warnf("unable to make getdeploymentinfo request: %v", err)
 		return false

@@ -337,7 +337,7 @@ func getChainBackend(t *testing.T, netParams *chaincfg.Params) (chain.Interface,
 	require.NoError(t, err)
 
 	rpcConfig := miningNode.RPCConfig()
-	chainClient, err := chain.NewRPCClient(
+	chainClient, err := chain.NewBtcdClient(
 		netParams, rpcConfig.Host, rpcConfig.User, rpcConfig.Pass,
 		rpcConfig.Certificates, false, 20,
 	)

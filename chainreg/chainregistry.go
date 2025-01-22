@@ -383,18 +383,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		cc.ChainView = chainview.NewBitcoindFilteredChainView(
 			bitcoindConn, cfg.BlockCache,
 		)
-		cc.ChainSource = bitcoindConn.NewBitcoindClient()
-
-		// Initialize config to connect to bitcoind RPC.
-		rpcConfig := &rpcclient.ConnConfig{
-			Host:                 bitcoindHost,
-			User:                 bitcoindMode.RPCUser,
-			Pass:                 bitcoindMode.RPCPass,
-			DisableConnectOnNew:  true,
-			DisableAutoReconnect: false,
-			DisableTLS:           true,
-			HTTPPostMode:         true,
-		}
+		chainRPC := bitcoindConn.NewBitcoindClient()
+		cc.ChainSource = chainRPC
 
 		// If feeurl is not provided, use bitcoind's fee estimator.
 		if cfg.Fee.URL == "" {
@@ -406,8 +396,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// use live fee estimates, rather than a statically
 			// coded value.
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
+
 			cc.FeeEstimator, err = chainfee.NewBitcoindEstimator(
-				*rpcConfig, bitcoindMode.EstimateMode,
+				chainRPC, bitcoindMode.EstimateMode,
 				fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
@@ -415,25 +406,17 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			}
 		}
 
-		// We need to use some apis that are not exposed by btcwallet,
-		// for a health check function so we create an ad-hoc bitcoind
-		// connection.
-		chainConn, err := rpcclient.New(rpcConfig, nil)
-		if err != nil {
-			return nil, nil, err
-		}
-
 		// Before we continue any further, we'll ensure that the
 		// backend understands Taproot. If not, then all the default
 		// features can't be used.
-		if !backendSupportsTaproot(chainConn) {
+		if !backendSupportsTaproot(chainRPC) {
 			return nil, nil, fmt.Errorf("node backend does not " +
 				"support taproot")
 		}
 
 		// The api we will use for our health check depends on the
 		// bitcoind version.
-		cmd, ver, err := getBitcoindHealthCheckCmd(chainConn)
+		cmd, ver, err := getBitcoindHealthCheckCmd(chainRPC)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -453,7 +436,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			}
 
 			// Fetch all active zmq notifications from the bitcoind client.
-			resp, err := chainConn.RawRequest("getzmqnotifications", nil)
+			resp, err := chainRPC.RawRequest(
+				"getzmqnotifications", nil,
+			)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -520,7 +505,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		}
 
 		cc.HealthCheck = func() error {
-			_, err := chainConn.RawRequest(cmd, nil)
+			_, err := chainRPC.RawRequest(cmd, nil)
 			if err != nil {
 				return err
 			}
@@ -535,7 +520,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// Make sure the bitcoind chain backend maintains a
 			// healthy connection to the network by checking the
 			// number of outbound peers.
-			return checkOutboundPeers(chainConn)
+			return checkOutboundPeers(chainRPC)
 		}
 
 	case "btcd":
@@ -616,9 +601,12 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 		// Create a special websockets rpc client for btcd which will be
 		// used by the wallet for notifications, calls, etc.
-		chainRPC, err := chain.NewRPCClient(
-			cfg.ActiveNetParams.Params, btcdHost, btcdUser,
-			btcdPass, rpcCert, false, 20,
+		chainRPC, err := chain.NewBtcdClientWithConfig(
+			&chain.BtcdConfig{
+				Conn:              rpcConfig,
+				Chain:             cfg.ActiveNetParams.Params,
+				ReconnectAttempts: 20,
+			},
 		)
 		if err != nil {
 			return nil, nil, err
@@ -630,7 +618,12 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		restConfCopy := *rpcConfig
 		restConfCopy.Endpoint = ""
 		restConfCopy.HTTPPostMode = true
-		chainConn, err := rpcclient.New(&restConfCopy, nil)
+		chainConn, err := chain.NewBtcdClientWithConfig(
+			&chain.BtcdConfig{
+				Conn:  &restConfCopy,
+				Chain: cfg.ActiveNetParams.Params,
+			},
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -658,7 +651,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// Make sure the btcd chain backend maintains a
 			// healthy connection to the network by checking the
 			// number of outbound peers.
-			return checkOutboundPeers(chainRPC.Client)
+			return checkOutboundPeers(chainRPC)
 		}
 
 		// If feeurl is not provided, use btcd's fee estimator.
@@ -671,7 +664,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// value.
 			fallBackFeeRate := chainfee.SatPerKVByte(25 * 1000)
 			cc.FeeEstimator, err = chainfee.NewBtcdEstimator(
-				*rpcConfig, fallBackFeeRate.FeePerKWeight(),
+				chainRPC, fallBackFeeRate.FeePerKWeight(),
 			)
 			if err != nil {
 				return nil, nil, err
@@ -800,7 +793,7 @@ func NewChainControl(walletConfig lnwallet.Config,
 // command, because it has no locking and is an inexpensive call, which was
 // added in version 0.15. If we are on an earlier version, we fallback to using
 // getblockchaininfo.
-func getBitcoindHealthCheckCmd(client *rpcclient.Client) (string, int64, error) {
+func getBitcoindHealthCheckCmd(client chain.Interface) (string, int64, error) {
 	// Query bitcoind to get our current version.
 	resp, err := client.RawRequest("getnetworkinfo", nil)
 	if err != nil {
@@ -896,7 +889,7 @@ var (
 // provided RPC client. If the number of outbound peers is below 6, a warning
 // is logged. This function is intended to ensure that the chain backend
 // maintains a healthy connection to the network.
-func checkOutboundPeers(client *rpcclient.Client) error {
+func checkOutboundPeers(client chain.Interface) error {
 	peers, err := client.GetPeerInfo()
 	if err != nil {
 		return err

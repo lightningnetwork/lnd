@@ -2,6 +2,7 @@ package routerrpc
 
 import (
 	"context"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"testing"
 	"time"
 
@@ -387,7 +388,13 @@ func TestIsLsp(t *testing.T) {
 
 	for _, tc := range lspTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.isLsp, isLSP(tc.routeHints))
+			require.Equal(t, tc.isLsp, isLSP(tc.routeHints, &RouterBackend{
+				FetchChannelInfo: func(chanID uint64) (*models.ChannelEdgeInfo,
+					*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
+
+					return nil, nil, nil, nil
+				},
+			}))
 			if !tc.isLsp {
 				return
 			}

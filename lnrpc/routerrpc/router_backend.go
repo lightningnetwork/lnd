@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -43,6 +44,11 @@ const (
 type RouterBackend struct {
 	// SelfNode is the vertex of the node sending the payment.
 	SelfNode route.Vertex
+
+	// FetchChannelInfo is a closure that we'll use the fetch the latest
+	// routing state for a particular channel identified by its channel ID.
+	FetchChannelInfo func(chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
 	// FetchChannelCapacity is a closure that we'll use the fetch the total
 	// capacity of a channel to populate in responses.

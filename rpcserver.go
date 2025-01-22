@@ -698,6 +698,17 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
+		FetchChannelInfo: func(chanID uint64) (*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy, *models.ChannelEdgePolicy,
+			error) {
+
+			info, policy1, policy2, err := graph.FetchChannelEdgesByID(chanID) //nolint:ll
+			if err != nil {
+				return nil, nil, nil, err
+			}
+
+			return info, policy1, policy2, nil
+		},
 		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
 			error) {
 

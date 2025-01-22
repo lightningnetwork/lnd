@@ -62,7 +62,11 @@
   https://github.com/lightningnetwork/lnd/pull/9253)
 
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
-    estimateroutefee to ignore the default payment timeout.
+  estimateroutefee to ignore the default payment timeout.
+
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9433) that caused 
+  `estimateroutefee` to assume probing an LSP when given an invoice with a route 
+  hint containing a public channel to the destination.
 
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9474) where LND would
   fail to persist (and hence, propagate) node announcements containing address 

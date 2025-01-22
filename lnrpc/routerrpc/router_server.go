@@ -171,6 +171,11 @@ var (
 	DefaultRouterMacFilename = "router.macaroon"
 )
 
+// FetchChannelEndpoints returns the pubkeys of both endpoints of the
+// given channel id if it exists in the graph.
+type FetchChannelEndpoints func(chanID uint64) (route.Vertex, route.Vertex,
+	error)
+
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
@@ -552,7 +557,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// If the hints don't indicate an LSP then chances are that our probe
 	// payment won't be blocked along the route to the destination. We send
 	// a probe payment with unmodified route hints.
-	if !isLSP(hints) {
+	if !isLSP(hints, s.cfg.RouterBackend.FetchChannelEndpoints) {
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
 		return s.sendProbePayment(ctx, probeRequest)
 	}
@@ -625,14 +630,27 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 }
 
 // isLSP checks if the route hints indicate an LSP. An LSP is indicated with
-// true if the last node in each route hint has the same node id, false
-// otherwise.
-func isLSP(routeHints [][]zpay32.HopHint) bool {
+// true if the destination hop hint in each route hint has the same node id,
+// false otherwise. If the destination hop hint of any route hint contains a
+// public channel, the function returns false because we can directly send a
+// probe to the final destination.
+func isLSP(routeHints [][]zpay32.HopHint,
+	fetchChannelEndpoints FetchChannelEndpoints) bool {
+
 	if len(routeHints) == 0 || len(routeHints[0]) == 0 {
 		return false
 	}
 
-	refNodeID := routeHints[0][len(routeHints[0])-1].NodeID
+	destHopHint := routeHints[0][len(routeHints[0])-1]
+
+	// If the destination hop hint of the first route hint contains a public
+	// channel we can send a probe to it directly, hence we don't signal an
+	// LSP.
+	_, _, err := fetchChannelEndpoints(destHopHint.ChannelID)
+	if err == nil {
+		return false
+	}
+
 	for i := 1; i < len(routeHints); i++ {
 		// Skip empty route hints.
 		if len(routeHints[i]) == 0 {
@@ -640,15 +658,27 @@ func isLSP(routeHints [][]zpay32.HopHint) bool {
 		}
 
 		lastHop := routeHints[i][len(routeHints[i])-1]
+
+		// If the last hop hint of any route hint contains a public
+		// channel we can send a probe to it directly, hence we don't
+		// signal an LSP.
+		_, _, err = fetchChannelEndpoints(lastHop.ChannelID)
+		if err == nil {
+			return false
+		}
+
 		idMatchesRefNode := bytes.Equal(
 			lastHop.NodeID.SerializeCompressed(),
-			refNodeID.SerializeCompressed(),
+			destHopHint.NodeID.SerializeCompressed(),
 		)
 		if !idMatchesRefNode {
 			return false
 		}
 	}
 
+	// We ensured that the destination hop hint doesn't contain a public
+	// channel, and that all destination hop hints of all route hints match,
+	// so we signal an LSP.
 	return true
 }
 

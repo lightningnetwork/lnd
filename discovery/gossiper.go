@@ -518,7 +518,7 @@ type AuthenticatedGossiper struct {
 	chanUpdateRateLimiter map[uint64][2]*rate.Limiter
 
 	// vb is used to enforce job dependency ordering of gossip messages.
-	vb *graph.ValidationBarrier
+	vb *ValidationBarrier
 
 	sync.Mutex
 }
@@ -545,7 +545,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		banman:                newBanman(),
 	}
 
-	gossiper.vb = graph.NewValidationBarrier(1000, gossiper.quit)
+	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
 		ChainHash:               cfg.ChainHash,
@@ -1543,7 +1543,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 //
 // NOTE: must be run as a goroutine.
 func (d *AuthenticatedGossiper) handleNetworkMessages(nMsg *networkMsg,
-	deDuped *deDupedAnnouncements, jobID graph.JobID) {
+	deDuped *deDupedAnnouncements, jobID JobID) {
 
 	defer d.wg.Done()
 	defer d.vb.CompleteJob()
@@ -1559,12 +1559,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(nMsg *networkMsg,
 		log.Debugf("Validating network message %s got err: %v",
 			nMsg.msg.MsgType(), err)
 
-		if !graph.IsError(
-			err,
-			graph.ErrVBarrierShuttingDown,
-			graph.ErrParentValidationFailed,
-		) {
-
+		if errors.Is(err, ErrVBarrierShuttingDown) {
 			log.Warnf("unexpected error during validation "+
 				"barrier shutdown: %v", err)
 		}
@@ -2423,7 +2418,6 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
 			err,
 			graph.ErrOutdated,
 			graph.ErrIgnored,
-			graph.ErrVBarrierShuttingDown,
 		) {
 
 			log.Error(err)
@@ -3164,7 +3158,6 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		if graph.IsError(
 			err, graph.ErrOutdated,
 			graph.ErrIgnored,
-			graph.ErrVBarrierShuttingDown,
 		) {
 
 			log.Debugf("Update edge for short_chan_id(%v) got: %v",

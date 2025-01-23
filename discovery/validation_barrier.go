@@ -1,4 +1,4 @@
-package graph
+package discovery
 
 import (
 	"fmt"
@@ -9,6 +9,13 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+)
+
+var (
+	// ErrVBarrierShuttingDown signals that the barrier has been requested
+	// to shutdown, and that the caller should not treat the wait condition
+	// as fulfilled.
+	ErrVBarrierShuttingDown = errors.New("ValidationBarrier shutting down")
 )
 
 // JobID identifies an active job in the validation barrier. It is large so
@@ -88,7 +95,7 @@ func NewValidationBarrier(numActiveReqs int,
 }
 
 // InitJobDependencies will wait for a new job slot to become open, and then
-// sets up any dependent signals/trigger for the new job
+// sets up any dependent signals/trigger for the new job.
 func (v *ValidationBarrier) InitJobDependencies(job interface{}) (JobID,
 	error) {
 
@@ -296,8 +303,7 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 	for {
 		select {
 		case <-v.quit:
-			return NewErrf(ErrVBarrierShuttingDown,
-				"validation barrier shutting down")
+			return ErrVBarrierShuttingDown
 
 		case <-jobChan:
 			// Every time this is sent on or if it's closed, a

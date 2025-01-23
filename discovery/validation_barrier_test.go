@@ -1,11 +1,12 @@
-package graph_test
+package discovery
 
 import (
 	"encoding/binary"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -22,18 +23,38 @@ func TestValidationBarrierSemaphore(t *testing.T) {
 	)
 
 	quit := make(chan struct{})
-	barrier := graph.NewValidationBarrier(numTasks, quit)
+	barrier := NewValidationBarrier(numTasks, quit)
+
+	var scidMtx sync.RWMutex
+	currentScid := lnwire.ShortChannelID{}
 
 	// Saturate the semaphore with jobs.
 	for i := 0; i < numTasks; i++ {
-		barrier.InitJobDependencies(nil)
+		scidMtx.Lock()
+		dummyUpdate := &lnwire.ChannelUpdate1{
+			ShortChannelID: currentScid,
+		}
+		currentScid.TxIndex++
+		scidMtx.Unlock()
+
+		_, err := barrier.InitJobDependencies(dummyUpdate)
+		require.NoError(t, err)
 	}
 
 	// Spawn additional tasks that will signal completion when added.
 	jobAdded := make(chan struct{})
 	for i := 0; i < numPendingTasks; i++ {
 		go func() {
-			barrier.InitJobDependencies(nil)
+			scidMtx.Lock()
+			dummyUpdate := &lnwire.ChannelUpdate1{
+				ShortChannelID: currentScid,
+			}
+			currentScid.TxIndex++
+			scidMtx.Unlock()
+
+			_, err := barrier.InitJobDependencies(dummyUpdate)
+			require.NoError(t, err)
+
 			jobAdded <- struct{}{}
 		}()
 	}
@@ -70,12 +91,12 @@ func TestValidationBarrierQuit(t *testing.T) {
 	)
 
 	quit := make(chan struct{})
-	barrier := graph.NewValidationBarrier(2*numTasks, quit)
+	barrier := NewValidationBarrier(2*numTasks, quit)
 
 	// Create a set of unique channel announcements that we will prep for
 	// validation.
 	anns := make([]*lnwire.ChannelAnnouncement1, 0, numTasks)
-	parentJobIDs := make([]graph.JobID, 0, numTasks)
+	parentJobIDs := make([]JobID, 0, numTasks)
 	for i := 0; i < numTasks; i++ {
 		anns = append(anns, &lnwire.ChannelAnnouncement1{
 			ShortChannelID: lnwire.NewShortChanIDFromInt(uint64(i)),
@@ -91,7 +112,7 @@ func TestValidationBarrierQuit(t *testing.T) {
 	// Create a set of channel updates, that must wait until their
 	// associated channel announcement has been verified.
 	chanUpds := make([]*lnwire.ChannelUpdate1, 0, numTasks)
-	childJobIDs := make([]graph.JobID, 0, numTasks)
+	childJobIDs := make([]JobID, 0, numTasks)
 	for i := 0; i < numTasks; i++ {
 		chanUpds = append(chanUpds, &lnwire.ChannelUpdate1{
 			ShortChannelID: lnwire.NewShortChanIDFromInt(uint64(i)),
@@ -154,11 +175,12 @@ func TestValidationBarrierQuit(t *testing.T) {
 			t.Fatalf("unexpected failure while waiting: %v", err)
 
 		// Last half should return the shutdown error.
-		case i >= numTasks/2 && !graph.IsError(
-			err, graph.ErrVBarrierShuttingDown,
+		case i >= numTasks/2 && !errors.Is(
+			err, ErrVBarrierShuttingDown,
 		):
+
 			t.Fatalf("expected failure after quitting: want %v, "+
-				"got %v", graph.ErrVBarrierShuttingDown, err)
+				"got %v", ErrVBarrierShuttingDown, err)
 		}
 	}
 }
@@ -175,7 +197,7 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 	)
 
 	quit := make(chan struct{})
-	barrier := graph.NewValidationBarrier(numTasks, quit)
+	barrier := NewValidationBarrier(numTasks, quit)
 
 	sharedScid := lnwire.NewShortChanIDFromInt(0)
 	sharedNodeID := nodeIDFromInt(0)
@@ -221,8 +243,8 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 	childID2, err := barrier.InitJobDependencies(node1)
 	require.NoError(t, err)
 
-	run := func(vb *graph.ValidationBarrier, childJobID graph.JobID,
-		job interface{}, resp chan error, start chan error) {
+	run := func(vb *ValidationBarrier, childJobID JobID, job interface{},
+		resp chan error, start chan error) {
 
 		close(start)
 

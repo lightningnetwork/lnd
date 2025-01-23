@@ -2797,6 +2797,10 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 				tx, edge, c.graphCache,
 			)
 
+			if err != nil {
+				log.Errorf("UpdateEdgePolicy faild: %v", err)
+			}
+
 			// Silence ErrEdgeNotFound so that the batch can
 			// succeed, but propagate the error via local state.
 			if errors.Is(err, ErrEdgeNotFound) {

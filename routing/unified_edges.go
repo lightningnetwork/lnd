@@ -59,6 +59,9 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 	// Skip channels if there is an outgoing channel restriction.
 	if localChan && u.outChanRestr != nil {
 		if _, ok := u.outChanRestr[edge.ChannelID]; !ok {
+			log.Debugf("Skipped adding policy for restricted edge "+
+				"%v", edge.ChannelID)
+
 			return
 		}
 	}
@@ -100,6 +103,9 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 		// Note that we are searching backwards so this node would have
 		// come prior to the pivot node in the route.
 		if channel.InPolicy == nil {
+			log.Debugf("Skipped adding edge %v due to nil policy",
+				channel.ChannelID)
+
 			return nil
 		}
 

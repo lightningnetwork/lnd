@@ -1400,16 +1400,18 @@ func (b *Builder) processUpdate(msg interface{},
 				msg.ChannelID)
 		}
 
+		log.Debugf("Found edge1Timestamp=%v, edge2Timestamp=%v",
+			edge1Timestamp, edge2Timestamp)
+
 		// As edges are directional edge node has a unique policy for
 		// the direction of the edge they control. Therefore, we first
 		// check if we already have the most up-to-date information for
 		// that edge. If this message has a timestamp not strictly
 		// newer than what we already know of we can exit early.
-		switch {
+		switch msg.ChannelFlags & lnwire.ChanUpdateDirection {
 		// A flag set of 0 indicates this is an announcement for the
 		// "first" node in the channel.
-		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 0:
-
+		case 0:
 			// Ignore outdated message.
 			if !edge1Timestamp.Before(msg.LastUpdate) {
 				return NewErrf(ErrOutdated, "Ignoring "+
@@ -1420,8 +1422,7 @@ func (b *Builder) processUpdate(msg interface{},
 
 		// Similarly, a flag set of 1 indicates this is an announcement
 		// for the "second" node in the channel.
-		case msg.ChannelFlags&lnwire.ChanUpdateDirection == 1:
-
+		case 1:
 			// Ignore outdated message.
 			if !edge2Timestamp.Before(msg.LastUpdate) {
 				return NewErrf(ErrOutdated, "Ignoring "+

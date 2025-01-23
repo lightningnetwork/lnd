@@ -1597,7 +1597,7 @@ func TestProcessRecordsInitialSpent(t *testing.T) {
 		require.Nil(t, result.ReplacedTx)
 
 		// The error should be set.
-		require.ErrorIs(t, result.Err, ErrThirdPartySpent)
+		require.ErrorIs(t, result.Err, ErrUnknownSpent)
 		require.Equal(t, requestID, result.requestID)
 	}
 }
@@ -1786,7 +1786,7 @@ func TestProcessRecordsSpent(t *testing.T) {
 		require.Equal(t, tx, result.Tx)
 
 		// No error should be set.
-		require.ErrorIs(t, result.Err, ErrThirdPartySpent)
+		require.ErrorIs(t, result.Err, ErrUnknownSpent)
 		require.Equal(t, requestID, result.requestID)
 	}
 }

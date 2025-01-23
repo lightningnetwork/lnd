@@ -40,9 +40,9 @@ var (
 	// preparation, usually due to the output being dust.
 	ErrTxNoOutput = errors.New("tx has no output")
 
-	// ErrThirdPartySpent is returned when a third party has spent the
-	// input in the sweeping tx.
-	ErrThirdPartySpent = errors.New("third party spent the output")
+	// Err*ErrUnknownSpent is returned when a unknown tx has spent the input
+	// in the sweeping tx.
+	ErrUnknownSpent = errors.New("unknown spent of input")
 )
 
 var (
@@ -80,10 +80,6 @@ const (
 	// during its creation or broadcast, or an internal error from the fee
 	// bumper. In either case the inputs in this tx should be retried with
 	// either a different grouping strategy or an increased budget.
-	//
-	// NOTE: We also send this event when there's a third party spend
-	// event, and the sweeper will handle cleaning this up once it's
-	// confirmed.
 	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
@@ -929,7 +925,7 @@ func (t *TxPublisher) processRecords() {
 
 			// Check whether the inputs has been spent by a unknown
 			// tx.
-			if t.isThirdPartySpent(r, spends) {
+			if t.isUnknownSpent(r, spends) {
 				failedRecords[requestID] = r
 
 				// Move to the next record.
@@ -989,7 +985,7 @@ func (t *TxPublisher) processRecords() {
 	// result.
 	for _, r := range failedRecords {
 		t.wg.Add(1)
-		go t.handleThirdPartySpent(r)
+		go t.handleUnknownSpent(r)
 	}
 }
 
@@ -1151,12 +1147,12 @@ func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	})
 }
 
-// handleThirdPartySpent is called when the inputs in an unconfirmed tx is
-// spent. It will notify the subscriber then remove the record from the maps
-// and send a TxFailed event to the subscriber.
+// handleUnknownSpent is called when the inputs are spent by a unknown tx. It
+// will notify the subscriber then remove the record from the maps and send a
+// TxFailed event to the subscriber.
 //
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
-func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
+func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 	defer t.wg.Done()
 
 	log.Debugf("Record %v has inputs spent by a tx unknown to the fee "+
@@ -1169,7 +1165,7 @@ func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
 		Event:     TxUnknownSpend,
 		Tx:        r.tx,
 		requestID: r.requestID,
-		Err:       ErrThirdPartySpent,
+		Err:       ErrUnknownSpent,
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1277,10 +1273,11 @@ func (t *TxPublisher) createAndPublishTx(
 	return fn.Some(*result)
 }
 
-// isThirdPartySpent checks whether the inputs of the tx has already been spent
-// by a third party. When a tx is not confirmed, yet its inputs has been spent,
-// then it must be spent by a different tx other than the sweeping tx here.
-func (t *TxPublisher) isThirdPartySpent(r *monitorRecord,
+// isUnknownSpent checks whether the inputs of the tx has already been spent by
+// a tx not known to us. When a tx is not confirmed, yet its inputs has been
+// spent, then it must be spent by a different tx other than the sweeping tx
+// here.
+func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 	spends map[wire.OutPoint]*wire.MsgTx) bool {
 
 	txid := r.tx.TxHash()
@@ -1290,14 +1287,14 @@ func (t *TxPublisher) isThirdPartySpent(r *monitorRecord,
 	for op, spendingTx := range spends {
 		spendingTxID := spendingTx.TxHash()
 
-		// If the spending tx is the same as the sweeping tx
-		// then we are good.
+		// If the spending tx is the same as the sweeping tx then we are
+		// good.
 		if spendingTxID == txid {
 			continue
 		}
 
-		log.Warnf("Detected third party spent of output=%v "+
-			"in tx=%v", op, spendingTx.TxHash())
+		log.Warnf("Detected unknown spent of input=%v in tx=%v", op,
+			spendingTx.TxHash())
 
 		return true
 	}

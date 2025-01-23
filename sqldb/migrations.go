@@ -2,21 +2,117 @@ package sqldb
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
+	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
+
+var (
+	// migrationConfig defines a list of migrations to be applied to the
+	// database. Each migration is assigned a version number, determining
+	// its execution order.
+	// The schema version, tracked by golang-migrate, ensures migrations are
+	// applied to the correct schema. For migrations involving only schema
+	// changes, the migration function can be left nil. For custom
+	// migrations an implemented migration function is required.
+	//
+	// NOTE: The migration function may have runtime dependencies, which
+	// must be injected during runtime.
+	migrationConfig = []MigrationConfig{
+		{
+			Name:          "000001_invoices",
+			Version:       1,
+			SchemaVersion: 1,
+		},
+		{
+			Name:          "000002_amp_invoices",
+			Version:       2,
+			SchemaVersion: 2,
+		},
+		{
+			Name:          "000003_invoice_events",
+			Version:       3,
+			SchemaVersion: 3,
+		},
+		{
+			Name:          "000004_invoice_expiry_fix",
+			Version:       4,
+			SchemaVersion: 4,
+		},
+		{
+			Name:          "000005_migration_tracker",
+			Version:       5,
+			SchemaVersion: 5,
+		},
+		{
+			Name:          "000006_invoice_migration",
+			Version:       6,
+			SchemaVersion: 6,
+		},
+		{
+			Name:          "kv_invoice_migration",
+			Version:       7,
+			SchemaVersion: 6,
+			// A migration function is may be attached to this
+			// migration to migrate KV invoices to the native SQL
+			// schema. This is optional and can be disabled by the
+			// user if necessary.
+		},
+	}
+)
+
+// MigrationConfig is a configuration struct that describes SQL migrations. Each
+// migration is associated with a specific schema version and a global database
+// version. Migrations are applied in the order of their global database
+// version. If a migration includes a non-nil MigrationFn, it is executed after
+// the SQL schema has been migrated to the corresponding schema version.
+type MigrationConfig struct {
+	// Name is the name of the migration.
+	Name string
+
+	// Version represents the "global" database version for this migration.
+	// Unlike the schema version tracked by golang-migrate, it encompasses
+	// all migrations, including those managed by golang-migrate as well
+	// as custom in-code migrations.
+	Version int
+
+	// SchemaVersion represents the schema version tracked by golang-migrate
+	// at which the migration is applied.
+	SchemaVersion int
+
+	// MigrationFn is the function executed for custom migrations at the
+	// specified version. It is used to handle migrations that cannot be
+	// performed through SQL alone. If set to nil, no custom migration is
+	// applied.
+	MigrationFn func(tx *sqlc.Queries) error
+}
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
 // to specify a target version to migrate to.
 type MigrationTarget func(mig *migrate.Migrate) error
+
+// MigrationExecutor is an interface that abstracts the migration functionality.
+type MigrationExecutor interface {
+	// ExecuteMigrations runs database migrations up to the specified target
+	// version or all migrations if no target is specified. A migration may
+	// include a schema change, a custom migration function, or both.
+	// Developers must ensure that migrations are defined in the correct
+	// order. Migration details are stored in the global variable
+	// migrationConfig.
+	ExecuteMigrations(target MigrationTarget) error
+}
 
 var (
 	// TargetLatest is a MigrationTarget that migrates to the latest
@@ -33,6 +129,14 @@ var (
 		}
 	}
 )
+
+// GetMigrations returns a copy of the migration configuration.
+func GetMigrations() []MigrationConfig {
+	migrations := make([]MigrationConfig, len(migrationConfig))
+	copy(migrations, migrationConfig)
+
+	return migrations
+}
 
 // migrationLogger is a logger that wraps the passed btclog.Logger so it can be
 // used to log migrations.
@@ -214,5 +318,119 @@ func (t *replacerFile) Read(bytes []byte) (int, error) {
 func (t *replacerFile) Close() error {
 	// We already fully read and then closed the file when creating this
 	// instance, so there's nothing to do for us here.
+	return nil
+}
+
+// MigrationTxOptions is the implementation of the TxOptions interface for
+// migration transactions.
+type MigrationTxOptions struct {
+}
+
+// ReadOnly returns false to indicate that migration transactions are not read
+// only.
+func (m *MigrationTxOptions) ReadOnly() bool {
+	return false
+}
+
+// ApplyMigrations applies the provided migrations to the database in sequence.
+// It ensures migrations are executed in the correct order, applying both custom
+// migration functions and SQL migrations as needed.
+func ApplyMigrations(ctx context.Context, db *BaseDB,
+	migrator MigrationExecutor, migrations []MigrationConfig) error {
+
+	// Ensure that the migrations are sorted by version.
+	for i := 0; i < len(migrations); i++ {
+		if migrations[i].Version != i+1 {
+			return fmt.Errorf("migration version %d is out of "+
+				"order. Expected %d", migrations[i].Version,
+				i+1)
+		}
+	}
+	// Construct a transaction executor to apply custom migrations.
+	executor := NewTransactionExecutor(db, func(tx *sql.Tx) *sqlc.Queries {
+		return db.WithTx(tx)
+	})
+
+	currentVersion := 0
+	version, err := db.GetDatabaseVersion(ctx)
+	if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return fmt.Errorf("error getting current database "+
+				"version: %w", err)
+		}
+
+		currentVersion = int(version)
+	}
+
+	for _, migration := range migrations {
+		if migration.Version <= currentVersion {
+			log.Infof("Skipping migration '%s' (version %d) as it "+
+				"has already been applied", migration.Name,
+				migration.Version)
+
+			continue
+		}
+
+		log.Infof("Migrating SQL schema to version %d",
+			migration.SchemaVersion)
+
+		// Execute SQL schema migrations up to the target version.
+		err = migrator.ExecuteMigrations(
+			TargetVersion(uint(migration.SchemaVersion)),
+		)
+		if err != nil {
+			return fmt.Errorf("error executing schema migrations "+
+				"to target version %d: %w",
+				migration.SchemaVersion, err)
+		}
+
+		var opts MigrationTxOptions
+
+		// Run the custom migration as a transaction to ensure
+		// atomicity. If successful, mark the migration as complete in
+		// the migration tracker table.
+		err = executor.ExecTx(ctx, &opts, func(tx *sqlc.Queries) error {
+			// Apply the migration function if one is provided.
+			if migration.MigrationFn != nil {
+				log.Infof("Applying custom migration '%v' "+
+					"(version %d) to schema version %d",
+					migration.Name, migration.Version,
+					migration.SchemaVersion)
+
+				err = migration.MigrationFn(tx)
+				if err != nil {
+					return fmt.Errorf("error applying "+
+						"migration '%v' (version %d) "+
+						"to schema version %d: %w",
+						migration.Name,
+						migration.Version,
+						migration.SchemaVersion, err)
+				}
+
+				log.Infof("Migration '%v' (version %d) "+
+					"applied ", migration.Name,
+					migration.Version)
+			}
+
+			// Mark the migration as complete by adding the version
+			// to the migration tracker table along with the current
+			// timestamp.
+			err = tx.SetMigration(ctx, sqlc.SetMigrationParams{
+				Version:       int32(migration.Version),
+				MigrationTime: time.Now(),
+			})
+			if err != nil {
+				return fmt.Errorf("error setting migration "+
+					"version %d: %w", migration.Version,
+					err)
+			}
+
+			return nil
+		}, func() {})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

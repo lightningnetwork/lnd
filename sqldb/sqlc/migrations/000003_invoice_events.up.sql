@@ -29,7 +29,7 @@ VALUES
 -- AMP sub invoices. This table can be used to create a historical view of what
 -- happened to the node's invoices.
 CREATE TABLE IF NOT EXISTS invoice_events (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     -- added_at is the timestamp when this event was added.
     added_at TIMESTAMP NOT NULL,

@@ -3,6 +3,7 @@
 package sqldb
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -27,13 +28,16 @@ const (
 )
 
 var (
-	// sqliteSchemaReplacements is a map of schema strings that need to be
-	// replaced for sqlite. This is needed because sqlite doesn't directly
-	// support the BIGINT type for primary keys, so we need to replace it
-	// with INTEGER.
-	sqliteSchemaReplacements = map[string]string{
-		"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
-	}
+	// sqliteSchemaReplacements maps schema strings to their SQLite
+	// compatible replacements. Currently, no replacements are needed as our
+	// SQL schema definition files are designed for SQLite compatibility.
+	sqliteSchemaReplacements = map[string]string{}
+
+	// Make sure SqliteStore implements the MigrationExecutor interface.
+	_ MigrationExecutor = (*SqliteStore)(nil)
+
+	// Make sure SqliteStore implements the DB interface.
+	_ DB = (*SqliteStore)(nil)
 )
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -102,6 +106,23 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		return nil, err
 	}
 
+	// Create the migration tracker table before starting migrations to
+	// ensure it can be used to track migration progress. Note that a
+	// corresponding SQLC migration also creates this table, making this
+	// operation a no-op in that context. Its purpose is to ensure
+	// compatibility with SQLC query generation.
+	migrationTrackerSQL := `
+	CREATE TABLE IF NOT EXISTS migration_tracker (
+		version INTEGER UNIQUE NOT NULL,
+		migration_time TIMESTAMP NOT NULL
+	);`
+
+	_, err = db.Exec(migrationTrackerSQL)
+	if err != nil {
+		return nil, fmt.Errorf("error creating migration tracker: %w",
+			err)
+	}
+
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
@@ -115,16 +136,26 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 		},
 	}
 
-	// Execute migrations unless configured to skip them.
-	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(TargetLatest); err != nil {
-			return nil, fmt.Errorf("error executing migrations: "+
-				"%w", err)
+	return s, nil
+}
 
-		}
+// GetBaseDB returns the underlying BaseDB instance for the SQLite store.
+// It is a trivial helper method to comply with the sqldb.DB interface.
+func (s *SqliteStore) GetBaseDB() *BaseDB {
+	return s.BaseDB
+}
+
+// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
+// SQLite database.
+func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
+	migrations []MigrationConfig) error {
+
+	// Execute migrations unless configured to skip them.
+	if s.cfg.SkipMigrations {
+		return nil
 	}
 
-	return s, nil
+	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
 }
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
@@ -159,6 +190,10 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 		SkipMigrations: false,
 	}, dbFileName)
 	require.NoError(t, err)
+
+	require.NoError(t, sqlDB.ApplyAllMigrations(
+		context.Background(), GetMigrations()),
+	)
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())

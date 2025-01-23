@@ -51,6 +51,7 @@ import (
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -58,6 +59,16 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
+)
+
+const (
+	// invoiceMigrationBatchSize is the number of invoices that will be
+	// migrated in a single batch.
+	invoiceMigrationBatchSize = 1000
+
+	// invoiceMigration is the version of the migration that will be used to
+	// migrate invoices from the kvdb to the sql database.
+	invoiceMigration = 7
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -932,10 +943,10 @@ type DatabaseInstances struct {
 	// the btcwallet's loader.
 	WalletDB btcwallet.LoaderOption
 
-	// NativeSQLStore is a pointer to a native SQL store that can be used
-	// for native SQL queries for tables that already support it. This may
-	// be nil if the use-native-sql flag was not set.
-	NativeSQLStore *sqldb.BaseDB
+	// NativeSQLStore holds a reference to the native SQL store that can
+	// be used for native SQL queries for tables that already support it.
+	// This may be nil if the use-native-sql flag was not set.
+	NativeSQLStore sqldb.DB
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends
@@ -1038,7 +1049,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	if err != nil {
 		cleanUp()
 
-		err := fmt.Errorf("unable to open graph DB: %w", err)
+		err = fmt.Errorf("unable to open graph DB: %w", err)
 		d.logger.Error(err)
 
 		return nil, nil, err
@@ -1072,51 +1083,69 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	case err != nil:
 		cleanUp()
 
-		err := fmt.Errorf("unable to open graph DB: %w", err)
+		err = fmt.Errorf("unable to open graph DB: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
 
-	// Instantiate a native SQL invoice store if the flag is set.
+	// Instantiate a native SQL store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
-		// KV invoice db resides in the same database as the channel
-		// state DB. Let's query the database to see if we have any
-		// invoices there. If we do, we won't allow the user to start
-		// lnd with native SQL enabled, as we don't currently migrate
-		// the invoices to the new database schema.
-		invoiceSlice, err := dbs.ChanStateDB.QueryInvoices(
-			ctx, invoices.InvoiceQuery{
-				NumMaxInvoices: 1,
-			},
-		)
-		if err != nil {
-			cleanUp()
-			d.logger.Errorf("Unable to query KV invoice DB: %v",
-				err)
+		migrations := sqldb.GetMigrations()
 
-			return nil, nil, err
+		// If the user has not explicitly disabled the SQL invoice
+		// migration, attach the custom migration function to invoice
+		// migration (version 7). Even if this custom migration is
+		// disabled, the regular native SQL store migrations will still
+		// run. If the database version is already above this custom
+		// migration's version (7), it will be skipped permanently,
+		// regardless of the flag.
+		if !d.cfg.DB.SkipSQLInvoiceMigration {
+			migrationFn := func(tx *sqlc.Queries) error {
+				return invoices.MigrateInvoicesToSQL(
+					ctx, dbs.ChanStateDB.Backend,
+					dbs.ChanStateDB, tx,
+					invoiceMigrationBatchSize,
+				)
+			}
+
+			// Make sure we attach the custom migration function to
+			// the correct migration version.
+			for i := 0; i < len(migrations); i++ {
+				if migrations[i].Version != invoiceMigration {
+					continue
+				}
+
+				migrations[i].MigrationFn = migrationFn
+			}
 		}
 
-		if len(invoiceSlice.Invoices) > 0 {
+		// We need to apply all migrations to the native SQL store
+		// before we can use it.
+		err = dbs.NativeSQLStore.ApplyAllMigrations(ctx, migrations)
+		if err != nil {
 			cleanUp()
-			err := fmt.Errorf("found invoices in the KV invoice " +
-				"DB, migration to native SQL is not yet " +
-				"supported")
+			err = fmt.Errorf("faild to run migrations for the "+
+				"native SQL store: %w", err)
 			d.logger.Error(err)
 
 			return nil, nil, err
 		}
 
+		// With the DB ready and migrations applied, we can now create
+		// the base DB and transaction executor for the native SQL
+		// invoice store.
+		baseDB := dbs.NativeSQLStore.GetBaseDB()
 		executor := sqldb.NewTransactionExecutor(
-			dbs.NativeSQLStore,
-			func(tx *sql.Tx) invoices.SQLInvoiceQueries {
-				return dbs.NativeSQLStore.WithTx(tx)
+			baseDB, func(tx *sql.Tx) invoices.SQLInvoiceQueries {
+				return baseDB.WithTx(tx)
 			},
 		)
 
-		dbs.InvoiceDB = invoices.NewSQLStore(
+		sqlInvoiceDB := invoices.NewSQLStore(
 			executor, clock.NewDefaultClock(),
 		)
+
+		dbs.InvoiceDB = sqlInvoiceDB
 	} else {
 		dbs.InvoiceDB = dbs.ChanStateDB
 	}
@@ -1129,7 +1158,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			cleanUp()
 
-			err := fmt.Errorf("unable to open %s database: %w",
+			err = fmt.Errorf("unable to open %s database: %w",
 				lncfg.NSTowerClientDB, err)
 			d.logger.Error(err)
 			return nil, nil, err
@@ -1144,7 +1173,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			cleanUp()
 
-			err := fmt.Errorf("unable to open %s database: %w",
+			err = fmt.Errorf("unable to open %s database: %w",
 				lncfg.NSTowerServerDB, err)
 			d.logger.Error(err)
 			return nil, nil, err

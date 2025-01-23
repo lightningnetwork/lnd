@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -1241,44 +1240,6 @@ func testSignVerifyMessageWithAddr(ht *lntest.HarnessTest) {
 	)
 
 	require.False(ht, respValid.Valid, "external signature did validate")
-}
-
-// testNativeSQLNoMigration tests that nodes that have invoices would not start
-// up with native SQL enabled, as we don't currently support migration of KV
-// invoices to the new SQL schema.
-func testNativeSQLNoMigration(ht *lntest.HarnessTest) {
-	alice := ht.NewNode("Alice", nil)
-
-	// Make sure we run the test with SQLite or Postgres.
-	if alice.Cfg.DBBackend != node.BackendSqlite &&
-		alice.Cfg.DBBackend != node.BackendPostgres {
-
-		ht.Skip("node not running with SQLite or Postgres")
-	}
-
-	// Skip the test if the node is already running with native SQL.
-	if alice.Cfg.NativeSQL {
-		ht.Skip("node already running with native SQL")
-	}
-
-	alice.RPC.AddInvoice(&lnrpc.Invoice{
-		Value: 10_000,
-	})
-
-	alice.SetExtraArgs([]string{"--db.use-native-sql"})
-
-	// Restart the node manually as we're really only interested in the
-	// startup error.
-	require.NoError(ht, alice.Stop())
-	require.NoError(ht, alice.StartLndCmd(context.Background()))
-
-	// We expect the node to fail to start up with native SQL enabled, as we
-	// have an invoice in the KV store.
-	require.Error(ht, alice.WaitForProcessExit())
-
-	// Reset the extra args and restart alice.
-	alice.SetExtraArgs(nil)
-	require.NoError(ht, alice.Start(ht.Context()))
 }
 
 // testSendSelectedCoins tests that we're able to properly send the selected

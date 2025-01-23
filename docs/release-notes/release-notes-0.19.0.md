@@ -264,6 +264,11 @@ The underlying functionality between those two options remain the same.
   transactions can run at once, increasing efficiency. Includes several bugfixes
   to allow this to work properly.
 
+* [Migrate KV invoices to
+  SQL](https://github.com/lightningnetwork/lnd/pull/8831) as part of a larger
+  effort to support SQL databases natively in LND.
+
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 
@@ -292,6 +297,7 @@ The underlying functionality between those two options remain the same.
 
 * Abdullahi Yunus
 * Alex Akselrod
+* Andras Banki-Horvath
 * Animesh Bilthare
 * Boris Nagaev
 * Carla Kirk-Cohen

@@ -32,6 +32,10 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	InsertInvoice(ctx context.Context, arg sqlc.InsertInvoiceParams) (int64,
 		error)
 
+	// TODO(bhandras): remove this once migrations have been separated out.
+	InsertMigratedInvoice(ctx context.Context,
+		arg sqlc.InsertMigratedInvoiceParams) (int64, error)
+
 	InsertInvoiceFeature(ctx context.Context,
 		arg sqlc.InsertInvoiceFeatureParams) error
 
@@ -46,6 +50,9 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	GetInvoice(ctx context.Context,
 		arg sqlc.GetInvoiceParams) ([]sqlc.Invoice, error)
+
+	GetInvoiceByHash(ctx context.Context, hash []byte) (sqlc.Invoice,
+		error)
 
 	GetInvoiceBySetID(ctx context.Context, setID []byte) ([]sqlc.Invoice,
 		error)
@@ -78,6 +85,10 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 	// AMP sub invoice specific methods.
 	UpsertAMPSubInvoice(ctx context.Context,
 		arg sqlc.UpsertAMPSubInvoiceParams) (sql.Result, error)
+
+	// TODO(bhandras): remove this once migrations have been separated out.
+	InsertAMPSubInvoice(ctx context.Context,
+		arg sqlc.InsertAMPSubInvoiceParams) error
 
 	UpdateAMPSubInvoiceState(ctx context.Context,
 		arg sqlc.UpdateAMPSubInvoiceStateParams) error
@@ -119,6 +130,19 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 	OnAMPSubInvoiceSettled(ctx context.Context,
 		arg sqlc.OnAMPSubInvoiceSettledParams) error
+
+	// Migration specific methods.
+	// TODO(bhandras): remove this once migrations have been separated out.
+	InsertKVInvoiceKeyAndAddIndex(ctx context.Context,
+		arg sqlc.InsertKVInvoiceKeyAndAddIndexParams) error
+
+	SetKVInvoicePaymentHash(ctx context.Context,
+		arg sqlc.SetKVInvoicePaymentHashParams) error
+
+	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) (
+		[]byte, error)
+
+	ClearKVInvoiceHashIndex(ctx context.Context) error
 }
 
 var _ InvoiceDB = (*SQLStore)(nil)
@@ -200,6 +224,66 @@ func NewSQLStore(db BatchedSQLInvoiceQueries,
 	}
 }
 
+func makeInsertInvoiceParams(invoice *Invoice, paymentHash lntypes.Hash) (
+	sqlc.InsertInvoiceParams, error) {
+
+	// Precompute the payment request hash so we can use it in the query.
+	var paymentRequestHash []byte
+	if len(invoice.PaymentRequest) > 0 {
+		h := sha256.New()
+		h.Write(invoice.PaymentRequest)
+		paymentRequestHash = h.Sum(nil)
+	}
+
+	params := sqlc.InsertInvoiceParams{
+		Hash:       paymentHash[:],
+		AmountMsat: int64(invoice.Terms.Value),
+		CltvDelta: sqldb.SQLInt32(
+			invoice.Terms.FinalCltvDelta,
+		),
+		Expiry: int32(invoice.Terms.Expiry.Seconds()),
+		// Note: keysend invoices don't have a payment request.
+		PaymentRequest: sqldb.SQLStr(string(
+			invoice.PaymentRequest),
+		),
+		PaymentRequestHash: paymentRequestHash,
+		State:              int16(invoice.State),
+		AmountPaidMsat:     int64(invoice.AmtPaid),
+		IsAmp:              invoice.IsAMP(),
+		IsHodl:             invoice.HodlInvoice,
+		IsKeysend:          invoice.IsKeysend(),
+		CreatedAt:          invoice.CreationDate.UTC(),
+	}
+
+	if invoice.Memo != nil {
+		// Store the memo as a nullable string in the database. Note
+		// that for compatibility reasons, we store the value as a valid
+		// string even if it's empty.
+		params.Memo = sql.NullString{
+			String: string(invoice.Memo),
+			Valid:  true,
+		}
+	}
+
+	// Some invoices may not have a preimage, like in the case of HODL
+	// invoices.
+	if invoice.Terms.PaymentPreimage != nil {
+		preimage := *invoice.Terms.PaymentPreimage
+		if preimage == UnknownPreimage {
+			return sqlc.InsertInvoiceParams{},
+				errors.New("cannot use all-zeroes preimage")
+		}
+		params.Preimage = preimage[:]
+	}
+
+	// Some non MPP payments may have the default (invalid) value.
+	if invoice.Terms.PaymentAddr != BlankPayAddr {
+		params.PaymentAddr = invoice.Terms.PaymentAddr[:]
+	}
+
+	return params, nil
+}
+
 // AddInvoice inserts the targeted invoice into the database. If the invoice has
 // *any* payment hashes which already exists within the database, then the
 // insertion will be aborted and rejected due to the strict policy banning any
@@ -220,55 +304,16 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 		invoiceID   int64
 	)
 
-	// Precompute the payment request hash so we can use it in the query.
-	var paymentRequestHash []byte
-	if len(newInvoice.PaymentRequest) > 0 {
-		h := sha256.New()
-		h.Write(newInvoice.PaymentRequest)
-		paymentRequestHash = h.Sum(nil)
+	insertInvoiceParams, err := makeInsertInvoiceParams(
+		newInvoice, paymentHash,
+	)
+	if err != nil {
+		return 0, err
 	}
 
-	err := i.db.ExecTx(ctx, &writeTxOpts, func(db SQLInvoiceQueries) error {
-		params := sqlc.InsertInvoiceParams{
-			Hash:       paymentHash[:],
-			Memo:       sqldb.SQLStr(string(newInvoice.Memo)),
-			AmountMsat: int64(newInvoice.Terms.Value),
-			// Note: BOLT12 invoices don't have a final cltv delta.
-			CltvDelta: sqldb.SQLInt32(
-				newInvoice.Terms.FinalCltvDelta,
-			),
-			Expiry: int32(newInvoice.Terms.Expiry.Seconds()),
-			// Note: keysend invoices don't have a payment request.
-			PaymentRequest: sqldb.SQLStr(string(
-				newInvoice.PaymentRequest),
-			),
-			PaymentRequestHash: paymentRequestHash,
-			State:              int16(newInvoice.State),
-			AmountPaidMsat:     int64(newInvoice.AmtPaid),
-			IsAmp:              newInvoice.IsAMP(),
-			IsHodl:             newInvoice.HodlInvoice,
-			IsKeysend:          newInvoice.IsKeysend(),
-			CreatedAt:          newInvoice.CreationDate.UTC(),
-		}
-
-		// Some invoices may not have a preimage, like in the case of
-		// HODL invoices.
-		if newInvoice.Terms.PaymentPreimage != nil {
-			preimage := *newInvoice.Terms.PaymentPreimage
-			if preimage == UnknownPreimage {
-				return errors.New("cannot use all-zeroes " +
-					"preimage")
-			}
-			params.Preimage = preimage[:]
-		}
-
-		// Some non MPP payments may have the default (invalid) value.
-		if newInvoice.Terms.PaymentAddr != BlankPayAddr {
-			params.PaymentAddr = newInvoice.Terms.PaymentAddr[:]
-		}
-
+	err = i.db.ExecTx(ctx, &writeTxOpts, func(db SQLInvoiceQueries) error {
 		var err error
-		invoiceID, err = db.InsertInvoice(ctx, params)
+		invoiceID, err = db.InsertInvoice(ctx, insertInvoiceParams)
 		if err != nil {
 			return fmt.Errorf("unable to insert invoice: %w", err)
 		}
@@ -312,22 +357,31 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 	return newInvoice.AddIndex, nil
 }
 
-// fetchInvoice fetches the common invoice data and the AMP state for the
-// invoice with the given reference.
-func (i *SQLStore) fetchInvoice(ctx context.Context,
-	db SQLInvoiceQueries, ref InvoiceRef) (*Invoice, error) {
+// getInvoiceByRef fetches the invoice with the given reference. The reference
+// may be a payment hash, a payment address, or a set ID for an AMP sub invoice.
+func getInvoiceByRef(ctx context.Context,
+	db SQLInvoiceQueries, ref InvoiceRef) (sqlc.Invoice, error) {
 
+	// If the reference is empty, we can't look up the invoice.
 	if ref.PayHash() == nil && ref.PayAddr() == nil && ref.SetID() == nil {
-		return nil, ErrInvoiceNotFound
+		return sqlc.Invoice{}, ErrInvoiceNotFound
 	}
 
-	var (
-		invoice *Invoice
-		params  sqlc.GetInvoiceParams
-	)
+	// If the reference is a hash only, we can look up the invoice directly
+	// by the payment hash which is faster.
+	if ref.IsHashOnly() {
+		invoice, err := db.GetInvoiceByHash(ctx, ref.PayHash()[:])
+		if errors.Is(err, sql.ErrNoRows) {
+			return sqlc.Invoice{}, ErrInvoiceNotFound
+		}
 
-	// Given all invoices are uniquely identified by their payment hash,
-	// we can use it to query a specific invoice.
+		return invoice, err
+	}
+
+	// Otherwise the reference may include more fields, so we'll need to
+	// assemble the query parameters based on the fields that are set.
+	var params sqlc.GetInvoiceParams
+
 	if ref.PayHash() != nil {
 		params.Hash = ref.PayHash()[:]
 	}
@@ -363,18 +417,34 @@ func (i *SQLStore) fetchInvoice(ctx context.Context,
 	} else {
 		rows, err = db.GetInvoice(ctx, params)
 	}
+
 	switch {
 	case len(rows) == 0:
-		return nil, ErrInvoiceNotFound
+		return sqlc.Invoice{}, ErrInvoiceNotFound
 
 	case len(rows) > 1:
 		// In case the reference is ambiguous, meaning it matches more
 		// than	one invoice, we'll return an error.
-		return nil, fmt.Errorf("ambiguous invoice ref: %s: %s",
-			ref.String(), spew.Sdump(rows))
+		return sqlc.Invoice{}, fmt.Errorf("ambiguous invoice ref: "+
+			"%s: %s", ref.String(), spew.Sdump(rows))
 
 	case err != nil:
-		return nil, fmt.Errorf("unable to fetch invoice: %w", err)
+		return sqlc.Invoice{}, fmt.Errorf("unable to fetch invoice: %w",
+			err)
+	}
+
+	return rows[0], nil
+}
+
+// fetchInvoice fetches the common invoice data and the AMP state for the
+// invoice with the given reference.
+func fetchInvoice(ctx context.Context, db SQLInvoiceQueries, ref InvoiceRef) (
+	*Invoice, error) {
+
+	// Fetch the invoice from the database.
+	sqlInvoice, err := getInvoiceByRef(ctx, db, ref)
+	if err != nil {
+		return nil, err
 	}
 
 	var (
@@ -391,8 +461,8 @@ func (i *SQLStore) fetchInvoice(ctx context.Context,
 		fetchAmpHtlcs = true
 
 	case HtlcSetOnlyModifier:
-		// In this case we'll fetch all AMP HTLCs for the
-		// specified set id.
+		// In this case we'll fetch all AMP HTLCs for the specified set
+		// id.
 		if ref.SetID() == nil {
 			return nil, fmt.Errorf("set ID is required to use " +
 				"the HTLC set only modifier")
@@ -412,8 +482,8 @@ func (i *SQLStore) fetchInvoice(ctx context.Context,
 	}
 
 	// Fetch the rest of the invoice data and fill the invoice struct.
-	_, invoice, err = fetchInvoiceData(
-		ctx, db, rows[0], setID, fetchAmpHtlcs,
+	_, invoice, err := fetchInvoiceData(
+		ctx, db, sqlInvoice, setID, fetchAmpHtlcs,
 	)
 	if err != nil {
 		return nil, err
@@ -616,7 +686,7 @@ func fetchAmpState(ctx context.Context, db SQLInvoiceQueries, invoiceID int64,
 
 				invoiceKeys[key] = struct{}{}
 
-				if htlc.State != HtlcStateCanceled { //nolint: ll
+				if htlc.State != HtlcStateCanceled {
 					amtPaid += htlc.Amt
 				}
 			}
@@ -646,7 +716,7 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	txErr := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		invoice, err = i.fetchInvoice(ctx, db, ref)
+		invoice, err = fetchInvoice(ctx, db, ref)
 
 		return err
 	}, func() {})
@@ -1347,7 +1417,7 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 			ref.refModifier = HtlcSetOnlyModifier
 		}
 
-		invoice, err := i.fetchInvoice(ctx, db, ref)
+		invoice, err := fetchInvoice(ctx, db, ref)
 		if err != nil {
 			return err
 		}
@@ -1506,13 +1576,6 @@ func fetchInvoiceData(ctx context.Context, db SQLInvoiceQueries,
 
 	if len(htlcs) > 0 {
 		invoice.Htlcs = htlcs
-		var amountPaid lnwire.MilliSatoshi
-		for _, htlc := range htlcs {
-			if htlc.State == HtlcStateSettled {
-				amountPaid += htlc.Amt
-			}
-		}
-		invoice.AmtPaid = amountPaid
 	}
 
 	return hash, invoice, nil

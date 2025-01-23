@@ -211,7 +211,7 @@ func (m *MempoolNotifier) findRelevantInputs(tx *btcutil.Tx) (inputsWithTx,
 
 		// If found, save it to watchedInputs to notify the
 		// subscriber later.
-		Log.Infof("Found input %s, spent in %s", op, txid)
+		Log.Debugf("Found input %s, spent in %s", op, txid)
 
 		// Construct the spend details.
 		details := &SpendDetail{

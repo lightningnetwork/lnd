@@ -9,9 +9,16 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// htlcCustomSigType is the TLV type that is used to encode the custom HTLC
-// signatures within the custom data for an existing HTLC.
-var htlcCustomSigType tlv.TlvType65543
+var (
+	// htlcCustomSigType is the TLV type that is used to encode the custom
+	// HTLC signatures within the custom data for an existing HTLC.
+	htlcCustomSigType tlv.TlvType65543
+
+	// noopHtlcType is the TLV that that's used in the update_add_htlc
+	// message to indicate the presence of a noop HTLC. This has no encoded
+	// value, but is used to indicate that the HTLC is a noop.
+	noopHtlcType tlv.TlvType65544
+)
 
 // AuxHtlcDescriptor is a struct that contains the information needed to sign or
 // verify an HTLC for custom channels.

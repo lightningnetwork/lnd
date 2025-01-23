@@ -64,6 +64,8 @@ func (u updateType) String() string {
 		return "Settle"
 	case FeeUpdate:
 		return "FeeUpdate"
+	case NoopAdd:
+		return "NoopAdd"
 	default:
 		return "<unknown type>"
 	}
@@ -244,8 +246,6 @@ type paymentDescriptor struct {
 func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 	var msg lnwire.Message
 	switch pd.EntryType {
-	// TODO(roasbeef): need custom record to be able to distinguish between
-	// restarts
 	case Add, NoopAdd:
 		msg = &lnwire.UpdateAddHTLC{
 			ChanID:        pd.ChanID,

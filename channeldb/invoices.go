@@ -80,6 +80,13 @@ var (
 	//
 	//   settleIndexNo => invoiceKey
 	settleIndexBucket = []byte("invoice-settle-index")
+
+	// invoiceBucketTombstone is a special key that indicates the invoice
+	// bucket has been permanently closed. Its purpose is to prevent the
+	// invoice bucket from being reopened in the future. A key use case for
+	// the tombstone is to ensure users cannot switch back to the KV invoice
+	// database after migrating to the native SQL database.
+	invoiceBucketTombstone = []byte("invoice-tombstone")
 )
 
 const (
@@ -2401,4 +2408,50 @@ func (d *DB) DeleteInvoice(_ context.Context,
 	}, func() {})
 
 	return err
+}
+
+// SetInvoiceBucketTombstone sets the tombstone key in the invoice bucket to
+// mark the bucket as permanently closed. This prevents it from being reopened
+// in the future.
+func (d *DB) SetInvoiceBucketTombstone() error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		// Access the top-level invoice bucket.
+		invoices := tx.ReadWriteBucket(invoiceBucket)
+		if invoices == nil {
+			return fmt.Errorf("invoice bucket does not exist")
+		}
+
+		// Add the tombstone key to the invoice bucket.
+		err := invoices.Put(invoiceBucketTombstone, []byte("1"))
+		if err != nil {
+			return fmt.Errorf("failed to set tombstone: %w", err)
+		}
+
+		return nil
+	}, func() {})
+}
+
+// GetInvoiceBucketTombstone checks if the tombstone key exists in the invoice
+// bucket. It returns true if the tombstone is present and false otherwise.
+func (d *DB) GetInvoiceBucketTombstone() (bool, error) {
+	var tombstoneExists bool
+
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
+		// Access the top-level invoice bucket.
+		invoices := tx.ReadBucket(invoiceBucket)
+		if invoices == nil {
+			return fmt.Errorf("invoice bucket does not exist")
+		}
+
+		// Check if the tombstone key exists.
+		tombstone := invoices.Get(invoiceBucketTombstone)
+		tombstoneExists = tombstone != nil
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return false, err
+	}
+
+	return tombstoneExists, nil
 }

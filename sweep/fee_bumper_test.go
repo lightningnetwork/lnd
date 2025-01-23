@@ -1772,6 +1772,13 @@ func TestProcessRecordsSpent(t *testing.T) {
 	tp.subscriberChans.Store(requestID, subscriber)
 	tp.records.Store(requestID, recordConfirmed)
 
+	// Mock the fee function to increase feerate.
+	m.feeFunc.On("Increment").Return(true, nil).Once()
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
+
 	// Call processRecords and expect the results are notified back.
 	tp.processRecords()
 
@@ -1784,6 +1791,9 @@ func TestProcessRecordsSpent(t *testing.T) {
 		// We expect the result to be TxUnknownSpend.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
+
+		// We expect the fee rate to be updated.
+		require.Equal(t, feerate, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)

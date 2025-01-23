@@ -273,6 +273,10 @@ type BumpResult struct {
 	// Err is the error that occurred during the broadcast.
 	Err error
 
+	// InputsSpent are the inputs spent by another tx which caused the
+	// current tx failed.
+	InputsSpent map[wire.OutPoint]*wire.MsgTx
+
 	// requestID is the ID of the request that created this record.
 	requestID uint64
 }
@@ -812,6 +816,10 @@ type monitorRecord struct {
 
 	// outpointToTxIndex is a map of outpoint to tx index.
 	outpointToTxIndex map[wire.OutPoint]int
+
+	// inputsSpent are the inputs spent by another tx which caused the
+	// current tx failed.
+	inputsSpent map[wire.OutPoint]*wire.MsgTx
 }
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
@@ -910,6 +918,9 @@ func (t *TxPublisher) processRecords() {
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
 		if len(spends) != 0 {
+			// Attach the spending txns.
+			r.inputsSpent = spends
+
 			// When tx is nil, it means we haven't tried the initial
 			// broadcast yet the input is already spent. This could
 			// happen when the node shuts down, a previous sweeping
@@ -1159,13 +1170,44 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 		"bumper, failing it now:\n%v", r.requestID,
 		inputTypeSummary(r.req.Inputs))
 
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func. In this case, we'll create the fee func
+	// here.
+	if r.feeFunction == nil {
+		f, err := t.initializeFeeFunction(r.req)
+		if err != nil {
+			log.Errorf("Failed to create fee func for record %v: "+
+				"%v", r.requestID, err)
+
+			return
+		}
+
+		r.feeFunction = f
+	}
+
+	// Since the sweeping tx has been replaced by another party's tx, we
+	// missed this block window to increase its fee rate. To make sure the
+	// fee rate stays in the initial line, we now ask the fee function to
+	// give us the next fee rate as if the sweeping tx were RBFed. This new
+	// fee rate will be used as the starting fee rate if the upper system
+	// decides to continue sweeping the rest of the inputs.
+	_, err := r.feeFunction.Increment()
+	if err != nil {
+		// The fee function has reached its max position - nothing we
+		// can do here other than letting the user increase the budget.
+		log.Errorf("Failed to calculate the next fee rate for "+
+			"Record(%v): %v", r.requestID, err)
+	}
+
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
 	result := &BumpResult{
-		Event:     TxUnknownSpend,
-		Tx:        r.tx,
-		requestID: r.requestID,
-		Err:       ErrUnknownSpent,
+		Event:       TxUnknownSpend,
+		Tx:          r.tx,
+		requestID:   r.requestID,
+		Err:         ErrUnknownSpent,
+		InputsSpent: r.inputsSpent,
+		FeeRate:     r.feeFunction.FeeRate(),
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.

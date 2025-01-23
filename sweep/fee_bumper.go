@@ -95,6 +95,17 @@ const (
 	// TxConfirmed is sent when the tx is confirmed.
 	TxConfirmed
 
+	// TxUnknownSpend is sent when at least one of the inputs is spent but
+	// not by the current sweeping tx, this can happen when,
+	// - a remote party has replaced our sweeping tx by spending the
+	//   input(s), e.g., via the direct preimage spend on our outgoing HTLC.
+	// - a third party has replaced our sweeping tx, e.g., the anchor output
+	//   after 16 blocks.
+	// - A previous sweeping tx has confirmed but the fee bumper is not
+	//   aware of it, e.g., a restart happens right after the sweeping tx is
+	//   broadcast and confirmed.
+	TxUnknownSpend
+
 	// TxFatal is sent when the inputs in this tx cannot be retried. Txns
 	// will end up in this state if they have encountered a non-fee related
 	// error, which means they cannot be retried with increased budget.
@@ -117,6 +128,8 @@ func (e BumpEvent) String() string {
 		return "Confirmed"
 	case TxFatal:
 		return "Fatal"
+	case TxUnknownSpend:
+		return "UnknownSpend"
 	default:
 		return "Unknown"
 	}
@@ -280,7 +293,8 @@ func (b *BumpResult) String() string {
 
 // Validate validates the BumpResult so it's safe to use.
 func (b *BumpResult) Validate() error {
-	isFailureEvent := b.Event == TxFailed || b.Event == TxFatal
+	isFailureEvent := b.Event == TxFailed || b.Event == TxFatal ||
+		b.Event == TxUnknownSpend
 
 	// Every result must have a tx except the fatal or failed case.
 	if b.Tx == nil && !isFailureEvent {
@@ -754,6 +768,11 @@ func (t *TxPublisher) removeResult(result *BumpResult) {
 		log.Debugf("Removing monitor record=%v due to fatal err: %v",
 			id, result.Err)
 
+	case TxUnknownSpend:
+		// Remove the record if there's an unknown spend.
+		log.Debugf("Removing monitor record=%v due unknown spent: "+
+			"%v", id, result.Err)
+
 	// Do nothing if it's neither failed or confirmed.
 	default:
 		log.Tracef("Skipping record removal for id=%v, event=%v", id,
@@ -1120,12 +1139,8 @@ func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
 
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
-	//
-	// TODO(yy): create a new state `TxThirdPartySpent` to notify the
-	// sweeper to remove the input, hence moving the monitoring of inputs
-	// spent inside the fee bumper.
 	result := &BumpResult{
-		Event:     TxFailed,
+		Event:     TxUnknownSpend,
 		Tx:        r.tx,
 		requestID: r.requestID,
 		Err:       ErrThirdPartySpent,

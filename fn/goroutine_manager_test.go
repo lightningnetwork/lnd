@@ -106,6 +106,62 @@ func TestGoroutineManager(t *testing.T) {
 		m.Stop()
 	})
 
+	t.Run("GoBlocking", func(t *testing.T) {
+		t.Parallel()
+
+		var (
+			ctx = context.Background()
+			m   = NewGoroutineManager()
+		)
+
+		// Start a blocking task.
+		taskChan := make(chan struct{})
+		require.True(t, m.GoBlocking(func() {
+			<-taskChan
+		}))
+
+		// Start stopping GoroutineManager.
+		stopped := make(chan struct{})
+		go func() {
+			m.Stop()
+			close(stopped)
+		}()
+
+		// Make sure Stop() is waiting.
+		select {
+		case <-stopped:
+			t.Fatalf("The Stop() method must be waiting")
+		case <-time.After(time.Millisecond * 200):
+		}
+
+		// Since the first goroutine is still running, we can launch
+		// another blocking goroutine.
+		secondBlockingTaskDone := make(chan struct{})
+		require.True(t, m.GoBlocking(func() {
+			close(secondBlockingTaskDone)
+		}))
+
+		// Make sure the second blocking goroutine has started and
+		// executed.
+		<-secondBlockingTaskDone
+
+		// However we can't start a non-blocking goroutine.
+		require.False(t, m.Go(ctx, func(ctx context.Context) {
+			t.Fatalf("The goroutine should not have started")
+		}))
+
+		// Now let the first goroutine finish.
+		close(taskChan)
+
+		// And make sure Stop() unblocked.
+		<-stopped
+
+		// Now we can't start a goroutine even if it is blocking.
+		require.False(t, m.GoBlocking(func() {
+			t.Fatalf("The goroutine should not have started")
+		}))
+	})
+
 	// Start many goroutines while calling Stop. We do this to make sure
 	// that the GoroutineManager does not crash when these calls are done in
 	// parallel because of the potential race between Go() and Stop() when
@@ -124,13 +180,23 @@ func TestGoroutineManager(t *testing.T) {
 			close(stopChan)
 		})
 
-		// Start 100 goroutines sequentially. Sequential order is needed
-		// to keep counter low (0 or 1) to increase probability of the
-		// race condition triggered if it exists. If mutex is removed in
+		// Start 100 goroutines sequentially, both with Go() and
+		// GoBlocking(). Sequential order is needed to keep counter low
+		// (0 or 1) to increase probability of the race condition
+		// triggered if it exists. If mutex is removed in
 		// the implementation, this test crashes under `-race`.
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 50; i++ {
 			taskChan := make(chan struct{})
 			ok := m.Go(ctx, func(ctx context.Context) {
+				close(taskChan)
+			})
+			// If goroutine was started, wait for its completion.
+			if ok {
+				<-taskChan
+			}
+
+			taskChan = make(chan struct{})
+			ok = m.GoBlocking(func() {
 				close(taskChan)
 			})
 			// If goroutine was started, wait for its completion.

@@ -130,6 +130,56 @@ func (g *GoroutineManager) Go(ctx context.Context,
 	return true
 }
 
+// GoBlocking tries to start a new blocking goroutine and returns a boolean
+// indicating its success. It returns true if the goroutine was successfully
+// created and false otherwise. A goroutine will fail to be created iff the
+// goroutine manager has stopped (Stop() was called and all the goroutines
+// have finished). To make sure GoBlocking succeeds, call it right after
+// creating a GoroutineManager (in Start() method of your object) or from
+// another goroutine created by the same GoroutineManager.
+//
+// The difference from Go() is that GoroutineManager doesn't manage contexts so
+// the goroutine can run as long as needed. GoroutineManager will still wait for
+// its completion in the Stop() method. But it is the caller's responsibility to
+// stop the launched goroutine and to pass a context to it if needed.
+//
+// This method is intended to perform shutdown of important tasks, where
+// interruption is not desirable.
+func (g *GoroutineManager) GoBlocking(f func()) bool {
+	// Protect the whole code of the method with the mutex, because we
+	// access quit and count.
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// If the goroutine manager has completelly stopped, stop. This happens
+	// only if Stop() was called and all goroutines have finished.
+	select {
+	case <-g.quit:
+		if g.count == 0 {
+			return false
+		}
+	default:
+	}
+
+	g.count++
+	go func() {
+		defer func() {
+			g.mu.Lock()
+			g.count--
+			g.mu.Unlock()
+
+			// We use Signal() and not Broadcast(), because there
+			// could be only one user of g.cond.Wait(), because of
+			// g.stopped.
+			g.cond.Signal()
+		}()
+
+		f()
+	}()
+
+	return true
+}
+
 // Stop prevents new goroutines from being added and waits for all running
 // goroutines to finish.
 func (g *GoroutineManager) Stop() {

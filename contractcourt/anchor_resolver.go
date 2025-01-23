@@ -108,7 +108,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 
 		// Anchor was swept by someone else. This is possible after the
 		// 16 block csv lock.
-		case sweep.ErrRemoteSpend:
+		case sweep.ErrRemoteSpend, sweep.ErrInputMissing:
 			c.log.Warnf("our anchor spent by someone else")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 

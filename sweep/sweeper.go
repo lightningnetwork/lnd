@@ -1847,6 +1847,12 @@ func (s *UtxoSweeper) handleBumpEvent(r *bumpResp) error {
 	case TxReplaced:
 		return s.handleBumpEventTxReplaced(r)
 
+	// There are inputs being spent in a tx which the fee bumper doesn't
+	// understand. We will remove the tx from the sweeper db and mark the
+	// inputs as swept.
+	case TxUnknownSpend:
+		s.handleBumpEventTxUnknownSpent(r)
+
 	// There's a fatal error in creating the tx, we will remove the tx from
 	// the sweeper db and mark the inputs as failed.
 	case TxFatal:
@@ -1877,4 +1883,142 @@ func (s *UtxoSweeper) IsSweeperOutpoint(op wire.OutPoint) bool {
 	}
 
 	return found
+}
+
+// markInputSwept marks the given input as swept by the tx. It will also notify
+// all the subscribers of this input.
+func (s *UtxoSweeper) markInputSwept(inp *SweeperInput, tx *wire.MsgTx) {
+	log.Debugf("Marking input as swept: %v from state=%v", inp.OutPoint(),
+		inp.state)
+
+	inp.state = Swept
+
+	// Signal result channels.
+	s.signalResult(inp, Result{
+		Tx: tx,
+	})
+
+	// Remove all other inputs in this exclusive group.
+	if inp.params.ExclusiveGroup != nil {
+		s.removeExclusiveGroup(*inp.params.ExclusiveGroup)
+	}
+}
+
+// handleThirdPartySpent takes an input and its spending tx. If the spending tx
+// cannot be found in the sweeper store, the input will be marked as fatal,
+// otherwise it will be marked as swept.
+func (s *UtxoSweeper) handleThirdPartySpent(inp *SweeperInput, tx *wire.MsgTx) {
+	op := inp.OutPoint()
+	txid := tx.TxHash()
+
+	isOurTx, err := s.cfg.Store.IsOurTx(txid)
+	if err != nil {
+		log.Errorf("Cannot determine if tx %v is ours: %v", txid, err)
+		return
+	}
+
+	// If this is our tx, it means it's a previous sweeping tx that got
+	// confirmed, which could happen when a restart happens during the
+	// sweeping process.
+	if isOurTx {
+		log.Debugf("Found our sweeping tx %v, marking input %v as "+
+			"swept", txid, op)
+
+		// We now use the spending tx to update the state of the inputs.
+		s.markInputSwept(inp, tx)
+
+		return
+	}
+
+	// Since the input is spent by others, we now mark it as fatal and won't
+	// be retried.
+	s.markInputFatal(inp, ErrRemoteSpend)
+
+	log.Debugf("Removing descendant txns invalidated by (txid=%v): %v",
+		tx.TxHash(), lnutils.SpewLogClosure(tx))
+
+	// Construct a map of the inputs this transaction spends.
+	inputsSpent := make(map[wire.OutPoint]struct{}, len(tx.TxIn))
+	for _, txIn := range tx.TxIn {
+		inputsSpent[txIn.PreviousOutPoint] = struct{}{}
+	}
+
+	err = s.removeConflictSweepDescendants(inputsSpent)
+	if err != nil {
+		log.Warnf("unable to remove descendant transactions "+
+			"due to tx %v: ", txid)
+	}
+}
+
+// handleBumpEventTxUnknownSpent handles the case where the confirmed tx is
+// unknown to the fee bumper. In the case when the sweeping tx has been replaced
+// by another party with their tx being confirmed. It will retry sweeping the
+// "good" inputs once the "bad" ones are kicked out.
+func (s *UtxoSweeper) handleBumpEventTxUnknownSpent(r *bumpResp) {
+	// Mark the inputs as publish failed, which means they will be retried
+	// later.
+	s.markInputsPublishFailed(r.set)
+
+	// Get all the inputs that are not spent in the current sweeping tx.
+	inputsSpent := r.result.InputsSpent
+
+	// Create a slice to track inputs to be retried.
+	inputsToRetry := make([]input.Input, 0, len(r.set.Inputs()))
+
+	// Iterate all the inputs found in this bump and mark the ones spent by
+	// the third party as failed. The rest of inputs will then be updated
+	// with a new fee rate and be retried immediately.
+	for _, inp := range r.set.Inputs() {
+		op := inp.OutPoint()
+		input, ok := s.inputs[op]
+
+		// Wallet inputs are not tracked so we will not find them from
+		// the inputs map.
+		if !ok {
+			log.Debugf("Skipped marking input: %v not found in "+
+				"pending inputs", op)
+
+			continue
+		}
+
+		// Check whether this input has been spent, if so we mark it as
+		// fatal or swept based on whether this is one of our previous
+		// sweeping txns, then move to the next.
+		tx, spent := inputsSpent[op]
+		if spent {
+			s.handleThirdPartySpent(input, tx)
+
+			continue
+		}
+
+		log.Debugf("Input(%v): updating params: starting fee rate "+
+			"[%v -> %v], immediate [%v -> true]", op,
+			input.params.StartingFeeRate, r.result.FeeRate,
+			input.params.Immediate)
+
+		// Update the input using the fee rate specified from the
+		// BumpResult, which should be the starting fee rate to use for
+		// the next sweeping attempt.
+		input.params.StartingFeeRate = fn.Some(r.result.FeeRate)
+		input.params.Immediate = true
+		inputsToRetry = append(inputsToRetry, input)
+	}
+
+	// Exit early if there are no inputs to be retried.
+	if len(inputsToRetry) == 0 {
+		return
+	}
+
+	log.Debugf("Retry sweeping inputs with updated params: %v",
+		inputTypeSummary(inputsToRetry))
+
+	// Get the latest inputs, which should put the PublishFailed inputs back
+	// to the sweeping queue.
+	inputs := s.updateSweeperInputs()
+
+	// Immediately sweep the remaining inputs - the previous inputs should
+	// now be swept with the updated StartingFeeRate immediately. We may
+	// also include more inputs in the new sweeping tx if new ones with the
+	// same deadline are offered.
+	s.sweepPendingInputs(inputs)
 }

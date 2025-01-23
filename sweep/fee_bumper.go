@@ -972,7 +972,6 @@ func (t *TxPublisher) processRecords() {
 	// For records that are confirmed, we'll notify the caller about this
 	// result.
 	for _, r := range confirmedRecords {
-		log.Debugf("Tx=%v is confirmed", r.tx.TxHash())
 		t.wg.Add(1)
 		go t.handleTxConfirmed(r)
 	}
@@ -982,7 +981,6 @@ func (t *TxPublisher) processRecords() {
 
 	// For records that are not confirmed, we perform a fee bump if needed.
 	for _, r := range feeBumpRecords {
-		log.Debugf("Attempting to fee bump Tx=%v", r.tx.TxHash())
 		t.wg.Add(1)
 		go t.handleFeeBumpTx(r, currentHeight)
 	}
@@ -990,8 +988,6 @@ func (t *TxPublisher) processRecords() {
 	// For records that are failed, we'll notify the caller about this
 	// result.
 	for _, r := range failedRecords {
-		log.Debugf("Tx=%v has inputs been spent by a third party, "+
-			"failing it now", r.tx.TxHash())
 		t.wg.Add(1)
 		go t.handleThirdPartySpent(r)
 	}
@@ -1003,6 +999,8 @@ func (t *TxPublisher) processRecords() {
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
 func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	defer t.wg.Done()
+
+	log.Debugf("Record %v is spent in tx=%v", r.requestID, r.tx.TxHash())
 
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
@@ -1113,6 +1111,9 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	defer t.wg.Done()
 
+	log.Debugf("Attempting to fee bump tx=%v in record %v", r.tx.TxHash(),
+		r.requestID)
+
 	oldTxid := r.tx.TxHash()
 
 	// Get the current conf target for this record.
@@ -1157,6 +1158,10 @@ func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
 func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
 	defer t.wg.Done()
+
+	log.Debugf("Record %v has inputs spent by a tx unknown to the fee "+
+		"bumper, failing it now:\n%v", r.requestID,
+		inputTypeSummary(r.req.Inputs))
 
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
@@ -1270,17 +1275,6 @@ func (t *TxPublisher) createAndPublishTx(
 	result.Event = TxReplaced
 
 	return fn.Some(*result)
-}
-
-// isConfirmed checks the btcwallet to see whether the tx is confirmed.
-func (t *TxPublisher) isConfirmed(txid chainhash.Hash) bool {
-	details, err := t.cfg.Wallet.GetTransactionDetails(&txid)
-	if err != nil {
-		log.Warnf("Failed to get tx details for %v: %v", txid, err)
-		return false
-	}
-
-	return details.NumConfirmations > 0
 }
 
 // isThirdPartySpent checks whether the inputs of the tx has already been spent

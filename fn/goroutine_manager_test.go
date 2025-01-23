@@ -108,8 +108,8 @@ func TestGoroutineManager(t *testing.T) {
 
 	// Start many goroutines while calling Stop. We do this to make sure
 	// that the GoroutineManager does not crash when these calls are done in
-	// parallel because of the potential race between wg.Add() and
-	// wg.Done() when the wg counter is 0.
+	// parallel because of the potential race between Go() and Stop() when
+	// the counter is 0.
 	t.Run("Stress test", func(t *testing.T) {
 		t.Parallel()
 
@@ -124,11 +124,10 @@ func TestGoroutineManager(t *testing.T) {
 			close(stopChan)
 		})
 
-		// Start 100 goroutines sequentially. Sequential order is
-		// needed to keep wg.counter low (0 or 1) to increase
-		// probability of the race condition to triggered if it exists.
-		// If mutex is removed in the implementation, this test crashes
-		// under `-race`.
+		// Start 100 goroutines sequentially. Sequential order is needed
+		// to keep counter low (0 or 1) to increase probability of the
+		// race condition triggered if it exists. If mutex is removed in
+		// the implementation, this test crashes under `-race`.
 		for i := 0; i < 100; i++ {
 			taskChan := make(chan struct{})
 			ok := m.Go(ctx, func(ctx context.Context) {

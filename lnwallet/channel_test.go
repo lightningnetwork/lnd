@@ -11316,7 +11316,7 @@ func TestNoopAddSettle(t *testing.T) {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
-	aliceBalanceFinal := aliceChannel.channelState.LocalCommitment.LocalBalance
+	aliceBalanceFinal := aliceChannel.channelState.LocalCommitment.LocalBalance //nolint:ll
 	bobBalanceFinal := bobChannel.channelState.LocalCommitment.LocalBalance
 
 	// The balances of Alice and Bob should be the exact same and shouldn't

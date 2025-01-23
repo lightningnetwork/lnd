@@ -897,8 +897,6 @@ func (t *TxPublisher) processRecords() {
 
 	// failedRecords stores a map of records which has inputs being spent
 	// by a third party.
-	//
-	// NOTE: this is only used for neutrino backend.
 	failedRecords := make(map[uint64]*monitorRecord)
 
 	// initialRecords stores a map of records which are being created and
@@ -908,32 +906,55 @@ func (t *TxPublisher) processRecords() {
 	// visitor is a helper closure that visits each record and divides them
 	// into two groups.
 	visitor := func(requestID uint64, r *monitorRecord) error {
-		if r.tx == nil {
-			initialRecords[requestID] = r
-			return nil
-		}
+		log.Tracef("Checking monitor recordID=%v", requestID)
 
-		log.Tracef("Checking monitor recordID=%v for tx=%v", requestID,
-			r.tx.TxHash())
+		// Check whether the inputs have already been spent.
+		spends := t.hasInputSpent(r)
 
-		// If the tx is already confirmed, we can stop monitoring it.
-		if t.isConfirmed(r.tx.TxHash()) {
+		// If the any of the inputs has been spent, the record will be
+		// marked as failed or confirmed.
+		if len(spends) != 0 {
+			// When tx is nil, it means we haven't tried the initial
+			// broadcast yet the input is already spent. This could
+			// happen when the node shuts down, a previous sweeping
+			// tx confirmed, then the node comes back online and
+			// reoffers the inputs. Another case is the remote node
+			// spends the input quickly before we even attempt the
+			// sweep. In either case we will fail the record and let
+			// the sweeper handles it.
+			if r.tx == nil {
+				failedRecords[requestID] = r
+				return nil
+			}
+
+			// Check whether the inputs has been spent by a unknown
+			// tx.
+			if t.isThirdPartySpent(r, spends) {
+				failedRecords[requestID] = r
+
+				// Move to the next record.
+				return nil
+			}
+
+			// The tx is ours, we can move it to the confirmed queue
+			// and stop monitoring it.
 			confirmedRecords[requestID] = r
 
 			// Move to the next record.
 			return nil
 		}
 
-		// Check whether the inputs has been spent by a third party.
-		//
-		// NOTE: this check is only done for neutrino backend.
-		if t.isThirdPartySpent(r) {
-			failedRecords[requestID] = r
+		// This is the first time we see this record, so we put it in
+		// the initial queue.
+		if r.tx == nil {
+			initialRecords[requestID] = r
 
-			// Move to the next record.
 			return nil
 		}
 
+		// We can only get here when the inputs are not spent and a
+		// previous sweeping tx has been attempted. In this case we will
+		// perform an RBF on it in the current block.
 		feeBumpRecords[requestID] = r
 
 		// Return nil to move to the next record.
@@ -1265,17 +1286,10 @@ func (t *TxPublisher) isConfirmed(txid chainhash.Hash) bool {
 // isThirdPartySpent checks whether the inputs of the tx has already been spent
 // by a third party. When a tx is not confirmed, yet its inputs has been spent,
 // then it must be spent by a different tx other than the sweeping tx here.
-//
-// NOTE: this check is only performed for neutrino backend as it has no
-// reliable way to tell a tx has been replaced.
-func (t *TxPublisher) isThirdPartySpent(r *monitorRecord) bool {
-	// Skip this check for if this is not neutrino backend.
-	if !t.isNeutrinoBackend() {
-		return false
-	}
+func (t *TxPublisher) isThirdPartySpent(r *monitorRecord,
+	spends map[wire.OutPoint]*wire.MsgTx) bool {
 
 	txid := r.tx.TxHash()
-	spends := t.hasInputSpent(r)
 
 	// Iterate all the spending txns and check if they match the sweeping
 	// tx.

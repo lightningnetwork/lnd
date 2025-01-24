@@ -607,7 +607,7 @@ func TestMarkInputFailed(t *testing.T) {
 	}
 
 	// Call the method under test.
-	s.markInputFatal(pi, errors.New("dummy error"))
+	s.markInputFatal(pi, nil, errors.New("dummy error"))
 
 	// Assert the state is updated.
 	require.Equal(t, Fatal, pi.state)
@@ -1132,7 +1132,7 @@ func TestMarkInputsFailed(t *testing.T) {
 
 	// Mark the test inputs. We expect the non-exist input and
 	// inputSwept/inputExcluded/inputFatal to be skipped.
-	s.markInputsFatal(set, errDummy)
+	s.markInputsFatal(set, nil, errDummy)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)

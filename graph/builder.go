@@ -3,7 +3,6 @@ package graph
 import (
 	"bytes"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -669,51 +668,21 @@ func (b *Builder) pruneZombieChans() error {
 // notifies topology changes, if any.
 //
 // NOTE: must be run inside goroutine.
-func (b *Builder) handleNetworkUpdate(vb *ValidationBarrier,
-	update *routingMsg) {
-
+func (b *Builder) handleNetworkUpdate(update *routingMsg) {
 	defer b.wg.Done()
-	defer vb.CompleteJob()
-
-	// If this message has an existing dependency, then we'll wait until
-	// that has been fully validated before we proceed.
-	err := vb.WaitForDependants(update.msg)
-	if err != nil {
-		switch {
-		case IsError(err, ErrVBarrierShuttingDown):
-			update.err <- err
-
-		case IsError(err, ErrParentValidationFailed):
-			update.err <- NewErrf(ErrIgnored, err.Error()) //nolint
-
-		default:
-			log.Warnf("unexpected error during validation "+
-				"barrier shutdown: %v", err)
-			update.err <- err
-		}
-
-		return
-	}
 
 	// Process the routing update to determine if this is either a new
 	// update from our PoV or an update to a prior vertex/edge we
 	// previously accepted.
-	err = b.processUpdate(update.msg, update.op...)
+	err := b.processUpdate(update.msg, update.op...)
 	update.err <- err
-
-	// If this message had any dependencies, then we can now signal them to
-	// continue.
-	allowDependents := err == nil || IsError(err, ErrIgnored, ErrOutdated)
-	vb.SignalDependants(update.msg, allowDependents)
 
 	// If the error is not nil here, there's no need to send topology
 	// change.
 	if err != nil {
-		// We now decide to log an error or not. If allowDependents is
-		// false, it means there is an error and the error is neither
-		// ErrIgnored or ErrOutdated. In this case, we'll log an error.
-		// Otherwise, we'll add debug log only.
-		if allowDependents {
+		// Log as a debug message if this is not an error we need to be
+		// concerned about.
+		if IsError(err, ErrIgnored, ErrOutdated) {
 			log.Debugf("process network updates got: %v", err)
 		} else {
 			log.Errorf("process network updates got: %v", err)
@@ -753,31 +722,6 @@ func (b *Builder) networkHandler() {
 
 	b.stats.Reset()
 
-	// We'll use this validation barrier to ensure that we process all jobs
-	// in the proper order during parallel validation.
-	//
-	// NOTE: For AssumeChannelValid, we bump up the maximum number of
-	// concurrent validation requests since there are no blocks being
-	// fetched. This significantly increases the performance of IGD for
-	// neutrino nodes.
-	//
-	// However, we dial back to use multiple of the number of cores when
-	// fully validating, to avoid fetching up to 1000 blocks from the
-	// backend. On bitcoind, this will empirically cause massive latency
-	// spikes when executing this many concurrent RPC calls. Critical
-	// subsystems or basic rpc calls that rely on calls such as GetBestBlock
-	// will hang due to excessive load.
-	//
-	// See https://github.com/lightningnetwork/lnd/issues/4892.
-	var validationBarrier *ValidationBarrier
-	if b.cfg.AssumeChannelValid {
-		validationBarrier = NewValidationBarrier(1000, b.quit)
-	} else {
-		validationBarrier = NewValidationBarrier(
-			4*runtime.NumCPU(), b.quit,
-		)
-	}
-
 	for {
 		// If there are stats, resume the statTicker.
 		if !b.stats.Empty() {
@@ -789,13 +733,8 @@ func (b *Builder) networkHandler() {
 		// result we'll modify the channel graph accordingly depending
 		// on the exact type of the message.
 		case update := <-b.networkUpdates:
-			// We'll set up any dependants, and wait until a free
-			// slot for this job opens up, this allows us to not
-			// have thousands of goroutines active.
-			validationBarrier.InitJobDependencies(update.msg)
-
 			b.wg.Add(1)
-			go b.handleNetworkUpdate(validationBarrier, update)
+			go b.handleNetworkUpdate(update)
 
 			// TODO(roasbeef): remove all unconnected vertexes
 			// after N blocks pass with no corresponding

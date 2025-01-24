@@ -28,15 +28,6 @@ const (
 	// ErrInvalidFundingOutput is returned if the channel funding output
 	// fails validation.
 	ErrInvalidFundingOutput
-
-	// ErrVBarrierShuttingDown signals that the barrier has been requested
-	// to shutdown, and that the caller should not treat the wait condition
-	// as fulfilled.
-	ErrVBarrierShuttingDown
-
-	// ErrParentValidationFailed signals that the validation of a
-	// dependent's parent failed, so the dependent must not be processed.
-	ErrParentValidationFailed
 )
 
 // Error is a structure that represent the error inside the graph package,

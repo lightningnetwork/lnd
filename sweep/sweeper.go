@@ -386,6 +386,8 @@ type UtxoSweeperConfig struct {
 	Mempool chainntnfs.MempoolWatcher
 
 	// Store stores the published sweeper txes.
+	//
+	// TODO(yy): remove this store - we can use walletdb to do the job.
 	Store SweeperStore
 
 	// Signer is used by the sweeper to generate valid witnesses at the

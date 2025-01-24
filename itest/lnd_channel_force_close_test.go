@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -27,6 +26,15 @@ var channelForceCloseTestCases = []*lntest.TestCase{
 		Name:     "simple taproot",
 		TestFunc: testChannelForceClosureSimpleTaproot,
 	},
+	{
+		Name:     "anchor restart",
+		TestFunc: testChannelForceClosureAnchorRestart,
+	},
+	{
+		Name:     "simple taproot restart",
+		TestFunc: testChannelForceClosureSimpleTaprootRestart,
+	},
+
 	{
 		Name:     "wrong preimage",
 		TestFunc: testFailingChannel,
@@ -87,10 +95,588 @@ func testChannelForceClosureSimpleTaproot(ht *lntest.HarnessTest) {
 // commitment transaction, a transaction sweeping the local CSV delayed output,
 // a transaction sweeping the CSV delayed 2nd-layer htlcs outputs, and n htlc
 // timeout transactions, where n is the number of payments Alice attempted
-// to send to Carol.  This test includes several restarts to ensure that the
+// to send to Carol.
+func runChannelForceClosureTest(ht *lntest.HarnessTest,
+	cfgs [][]string, params lntest.OpenChannelParams) {
+
+	const (
+		numInvoices   = 6
+		commitFeeRate = 20000
+	)
+
+	ht.SetFeeEstimate(commitFeeRate)
+
+	// Create a three hop network: Alice -> Carol.
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, carol := nodes[0], nodes[1]
+	chanPoint := chanPoints[0]
+
+	// We need one additional UTXO for sweeping the remote anchor.
+	if ht.IsNeutrinoBackend() {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	}
+
+	// Before we start, obtain Carol's current wallet balance, we'll check
+	// to ensure that at the end of the force closure by Alice, Carol
+	// recognizes his new on-chain output.
+	carolBalResp := carol.RPC.WalletBalance()
+	carolStartingBalance := carolBalResp.ConfirmedBalance
+
+	// Send payments from Alice to Carol, since Carol is htlchodl mode, the
+	// htlc outputs should be left unsettled, and should be swept by the
+	// utxo nursery.
+	carolPubKey := carol.PubKey[:]
+	for i := 0; i < numInvoices; i++ {
+		req := &routerrpc.SendPaymentRequest{
+			Dest:           carolPubKey,
+			Amt:            int64(paymentAmt),
+			PaymentHash:    ht.Random32Bytes(),
+			FinalCltvDelta: finalCltvDelta,
+			FeeLimitMsat:   noFeeLimitMsat,
+		}
+		ht.SendPaymentAssertInflight(alice, req)
+	}
+
+	// Once the HTLC has cleared, all the nodes in our mini network should
+	// show that the HTLC has been locked in.
+	ht.AssertNumActiveHtlcs(alice, numInvoices)
+	ht.AssertNumActiveHtlcs(carol, numInvoices)
+
+	// Fetch starting height of this test so we can compute the block
+	// heights we expect certain events to take place.
+	curHeight := int32(ht.CurrentHeight())
+
+	// Using the current height of the chain, derive the relevant heights
+	// for sweeping two-stage htlcs.
+	var (
+		startHeight           = uint32(curHeight)
+		commCsvMaturityHeight = startHeight + 1 + defaultCSV
+		htlcExpiryHeight      = padCLTV(startHeight + finalCltvDelta)
+		htlcCsvMaturityHeight = padCLTV(
+			startHeight + finalCltvDelta + 1 + defaultCSV,
+		)
+	)
+
+	aliceChan := ht.QueryChannelByChanPoint(alice, chanPoint)
+	require.NotZero(ht, aliceChan.NumUpdates,
+		"alice should see at least one update to her channel")
+
+	// Now that the channel is open and we have unsettled htlcs,
+	// immediately execute a force closure of the channel. This will also
+	// assert that the commitment transaction was immediately broadcast in
+	// order to fulfill the force closure request.
+	ht.CloseChannelAssertPending(alice, chanPoint, true)
+
+	// Now that the channel has been force closed, it should show up in the
+	// PendingChannels RPC under the waiting close section.
+	waitingClose := ht.AssertChannelWaitingClose(alice, chanPoint)
+
+	// Immediately after force closing, all of the funds should be in
+	// limbo.
+	require.NotZero(ht, waitingClose.LimboBalance,
+		"all funds should still be in limbo")
+
+	// Create a map of outpoints to expected resolutions for alice and
+	// carol which we will add reports to as we sweep outputs.
+	var (
+		aliceReports = make(map[string]*lnrpc.Resolution)
+		carolReports = make(map[string]*lnrpc.Resolution)
+	)
+
+	// We expect to see Alice's force close tx in the mempool.
+	ht.AssertNumTxsInMempool(1)
+
+	// Mine a block which should confirm the commitment transaction
+	// broadcast as a result of the force closure. Once mined, we also
+	// expect Alice's anchor sweeping tx being published.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Assert Alice's has one pending anchor output - because she doesn't
+	// have incoming HTLCs, her outgoing HTLC won't have a deadline, thus
+	// she won't use the anchor to perform CPFP.
+	aliceAnchor := ht.AssertNumPendingSweeps(alice, 1)[0]
+	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
+		waitingClose.Commitments.LocalTxid)
+
+	// Now that the commitment has been confirmed, the channel should be
+	// marked as force closed.
+	forceClose := ht.AssertChannelPendingForceClose(alice, chanPoint)
+
+	// Now that the channel has been force closed, it should now
+	// have the height and number of blocks to confirm populated.
+	err := checkCommitmentMaturity(
+		forceClose, commCsvMaturityHeight, int32(defaultCSV),
+	)
+	require.NoError(ht, err)
+
+	// None of our outputs have been swept, so they should all be in limbo.
+	require.NotZero(ht, forceClose.LimboBalance)
+	require.Zero(ht, forceClose.RecoveredBalance)
+
+	// Carol should offer her commit and anchor outputs to the sweeper.
+	sweepTxns := ht.AssertNumPendingSweeps(carol, 2)
+
+	// Identify Carol's pending sweeps.
+	var carolAnchor, carolCommit = sweepTxns[0], sweepTxns[1]
+	if carolAnchor.AmountSat != uint32(anchorSize) {
+		carolCommit = carolAnchor
+	}
+
+	// Carol's sweep tx should be in the mempool already, as her output is
+	// not timelocked. This sweep tx should spend her to_local output as
+	// the anchor output is not economical to spend.
+	carolTx := ht.GetNumTxsFromMempool(1)[0]
+
+	// Carol's sweeping tx should have 1-input-1-output shape.
+	require.Len(ht, carolTx.TxIn, 1)
+	require.Len(ht, carolTx.TxOut, 1)
+
+	// Calculate the total fee Carol paid.
+	totalFeeCarol := ht.CalculateTxFee(carolTx)
+
+	// Carol's anchor report won't be created since it's uneconomical to
+	// sweep. So we expect to see only the commit sweep report.
+	op := fmt.Sprintf("%v:%v", carolCommit.Outpoint.TxidStr,
+		carolCommit.Outpoint.OutputIndex)
+	carolReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_COMMIT,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		Outpoint:       carolCommit.Outpoint,
+		AmountSat:      uint64(pushAmt),
+		SweepTxid:      carolTx.TxHash().String(),
+	}
+
+	// We also expect Carol to broadcast her sweeping tx which spends her
+	// commit and anchor outputs.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Alice should still have the anchor sweeping request.
+	ht.AssertNumPendingSweeps(alice, 1)
+
+	// Alice should see the channel in her set of pending force closed
+	// channels with her funds still in limbo.
+	forceClose = ht.AssertChannelPendingForceClose(alice, chanPoint)
+
+	// Make a record of the balances we expect for alice and carol.
+	aliceBalance := forceClose.Channel.LocalBalance
+
+	// Get the closing txid.
+	txid, err := chainhash.NewHashFromStr(forceClose.ClosingTxid)
+	require.NoError(ht, err)
+	closingTxID := txid
+
+	// At this point, the nursery should show that the commitment output has
+	// 3 block left before its CSV delay expires. In total, we have mined
+	// exactly defaultCSV blocks, so the htlc outputs should also reflect
+	// that this many blocks have passed.
+	err = checkCommitmentMaturity(forceClose, commCsvMaturityHeight, 3)
+	require.NoError(ht, err)
+
+	// All funds should still be shown in limbo.
+	require.NotZero(ht, forceClose.LimboBalance)
+	require.Zero(ht, forceClose.RecoveredBalance)
+
+	// Generate two blocks, which should cause the CSV delayed output from
+	// the commitment txn to expire.
+	ht.MineEmptyBlocks(2)
+
+	// At this point, the CSV will expire in the next block, meaning that
+	// the output should be offered to the sweeper.
+	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+	commitSweep, anchorSweep := sweeps[0], sweeps[1]
+	if commitSweep.AmountSat < anchorSweep.AmountSat {
+		commitSweep = anchorSweep
+	}
+
+	// Alice's sweeping transaction should now be broadcast. So we fetch the
+	// node's mempool to ensure it has been properly broadcast.
+	sweepTx := ht.GetNumTxsFromMempool(1)[0]
+	sweepTxid := sweepTx.TxHash()
+
+	// The sweep transaction's inputs spending should be from the commitment
+	// transaction.
+	for _, txIn := range sweepTx.TxIn {
+		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
+			"sweep transaction not spending from commit")
+	}
+
+	// Alice's anchor report won't be created since it's uneconomical to
+	// sweep. We expect a resolution which spends our commit output.
+	op = fmt.Sprintf("%v:%v", commitSweep.Outpoint.TxidStr,
+		commitSweep.Outpoint.OutputIndex)
+	aliceReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_COMMIT,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		SweepTxid:      sweepTxid.String(),
+		Outpoint:       commitSweep.Outpoint,
+		AmountSat:      uint64(aliceBalance),
+	}
+
+	// Check that we can find the commitment sweep in our set of known
+	// sweeps, using the simple transaction id ListSweeps output.
+	ht.AssertSweepFound(alice, sweepTxid.String(), false, 0)
+
+	// Next, we mine an additional block which should include the sweep
+	// transaction as the input scripts and the sequence locks on the
+	// inputs should be properly met.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Update current height
+	curHeight = int32(ht.CurrentHeight())
+
+	// checkForceClosedChannelNumHtlcs verifies that a force closed channel
+	// has the proper number of htlcs.
+	checkPendingChannelNumHtlcs := func(
+		forceClose lntest.PendingForceClose) error {
+
+		if len(forceClose.PendingHtlcs) != numInvoices {
+			return fmt.Errorf("expected force closed channel to "+
+				"have %d pending htlcs, found %d instead",
+				numInvoices, len(forceClose.PendingHtlcs))
+		}
+
+		return nil
+	}
+
+	err = wait.NoError(func() error {
+		// Now that the commit output has been fully swept, check to
+		// see that the channel remains open for the pending htlc
+		// outputs.
+		forceClose := ht.AssertChannelPendingForceClose(
+			alice, chanPoint,
+		)
+
+		// The commitment funds will have been recovered after the
+		// commit txn was included in the last block. The htlc funds
+		// will be shown in limbo.
+		err := checkPendingChannelNumHtlcs(forceClose)
+		if err != nil {
+			return err
+		}
+
+		err = checkPendingHtlcStageAndMaturity(
+			forceClose, 1, htlcExpiryHeight,
+			int32(htlcExpiryHeight)-curHeight,
+		)
+		if err != nil {
+			return err
+		}
+
+		if forceClose.LimboBalance == 0 {
+			return fmt.Errorf("expected funds in limbo, found 0")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout checking pending force close channel")
+
+	// Compute the height preceding that which will cause the htlc CLTV
+	// timeouts will expire. The outputs entered at the same height as the
+	// output spending from the commitment txn, so we must deduct the
+	// number of blocks we have generated since adding it to the nursery,
+	// and take an additional block off so that we end up one block shy of
+	// the expiry height, and add the block padding.
+	cltvHeightDelta := int(htlcExpiryHeight - uint32(curHeight) - 1)
+
+	// Advance the blockchain until just before the CLTV expires, nothing
+	// exciting should have happened during this time.
+	ht.MineEmptyBlocks(cltvHeightDelta)
+
+	// Alice should now see the channel in her set of pending force closed
+	// channels with one pending HTLC.
+	err = wait.NoError(func() error {
+		forceClose := ht.AssertChannelPendingForceClose(
+			alice, chanPoint,
+		)
+
+		// We should now be at the block just before the utxo nursery
+		// will attempt to broadcast the htlc timeout transactions.
+		err = checkPendingChannelNumHtlcs(forceClose)
+		if err != nil {
+			return err
+		}
+		err = checkPendingHtlcStageAndMaturity(
+			forceClose, 1, htlcExpiryHeight, 1,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Now that our commitment confirmation depth has been
+		// surpassed, we should now see a non-zero recovered balance.
+		// All htlc outputs are still left in limbo, so it should be
+		// non-zero as well.
+		if forceClose.LimboBalance == 0 {
+			return errors.New("htlc funds should still be in limbo")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout while checking force closed channel")
+
+	// Now, generate the block which will cause Alice to offer the presigned
+	// htlc timeout txns to the sweeper.
+	ht.MineEmptyBlocks(1)
+
+	// Since Alice had numInvoices (6) htlcs extended to Carol before force
+	// closing, we expect Alice to broadcast an htlc timeout txn for each
+	// one. We also expect Alice to still have her anchor since it's not
+	// swept.
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+
+	// Wait for them all to show up in the mempool
+	htlcTx := ht.GetNumTxsFromMempool(1)[0]
+	htlcTxid := htlcTx.TxHash()
+
+	// Retrieve each htlc timeout txn from the mempool, and ensure it is
+	// well-formed. The sweeping tx should spend all the htlc outputs.
+	//
+	// NOTE: We also add 1 output as the outgoing HTLC needs a wallet utxo
+	// to pay for its fee.
+	numInputs := 6 + 1
+
+	var htlcLessFees uint64
+
+	// Ensure the htlc transaction has the expected number of inputs.
+	require.Len(ht, htlcTx.TxIn, numInputs, "num inputs mismatch")
+
+	// The number of outputs should be the same.
+	require.Len(ht, htlcTx.TxOut, numInputs, "num outputs mismatch")
+
+	// Ensure all the htlc transaction inputs are spending from the
+	// commitment transaction, except if this is an extra input added to pay
+	// for fees for anchor channels.
+	for _, txIn := range htlcTx.TxIn {
+		if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
+			// This was an extra input added to pay fees,
+			// continue to the next one.
+			continue
+		}
+
+		// For each htlc timeout transaction, we expect a resolver
+		// report recording this on chain resolution for both alice and
+		// carol.
+		outpoint := txIn.PreviousOutPoint
+		resolutionOutpoint := &lnrpc.OutPoint{
+			TxidBytes:   outpoint.Hash[:],
+			TxidStr:     outpoint.Hash.String(),
+			OutputIndex: outpoint.Index,
+		}
+
+		// We expect alice to have a timeout tx resolution with an
+		// amount equal to the payment amount.
+		aliceReports[outpoint.String()] = &lnrpc.Resolution{
+			ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
+			Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
+			SweepTxid:      htlcTxid.String(),
+			Outpoint:       resolutionOutpoint,
+			AmountSat:      uint64(paymentAmt),
+		}
+
+		// We expect carol to have a resolution with an incoming htlc
+		// timeout which reflects the full amount of the htlc. It has no
+		// spend tx, because carol stops monitoring the htlc once it has
+		// timed out.
+		carolReports[outpoint.String()] = &lnrpc.Resolution{
+			ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
+			Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
+			SweepTxid:      "",
+			Outpoint:       resolutionOutpoint,
+			AmountSat:      uint64(paymentAmt),
+		}
+	}
+
+	// We record the htlc amount less fees here, so that we know what value
+	// to expect for the second stage of our htlc resolution.
+	htlcLessFees = uint64(htlcTx.TxOut[0].Value)
+
+	// Generate a block that mines the htlc timeout txns. Doing so now
+	// activates the 2nd-stage CSV delayed outputs.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Advance the chain until just before the 2nd-layer CSV delays expire.
+	// For anchor channels this is one block earlier.
+	curHeight = int32(ht.CurrentHeight())
+	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", curHeight,
+		htlcCsvMaturityHeight)
+	numBlocks := int(htlcCsvMaturityHeight - uint32(curHeight) - 1)
+	ht.MineEmptyBlocks(numBlocks)
+
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+
+	// Now that the channel has been fully swept, it should no longer show
+	// incubated, check to see that Alice's node still reports the channel
+	// as pending force closed.
+	err = wait.NoError(func() error {
+		forceClose := ht.AssertChannelPendingForceClose(
+			alice, chanPoint,
+		)
+
+		if forceClose.LimboBalance == 0 {
+			return fmt.Errorf("htlc funds should still be in limbo")
+		}
+
+		return checkPendingChannelNumHtlcs(forceClose)
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout while checking force closed channel")
+
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+
+	// Wait for the single sweep txn to appear in the mempool.
+	htlcSweepTx := ht.GetNumTxsFromMempool(1)[0]
+	htlcSweepTxid := htlcSweepTx.TxHash()
+
+	// Ensure the htlc sweep transaction only has one input for each htlc
+	// Alice extended before force closing.
+	require.Len(ht, htlcSweepTx.TxIn, numInvoices,
+		"htlc transaction has wrong num of inputs")
+	require.Len(ht, htlcSweepTx.TxOut, 1,
+		"htlc sweep transaction should have one output")
+
+	// Ensure that each output spends from exactly one htlc timeout output.
+	for _, txIn := range htlcSweepTx.TxIn {
+		op := txIn.PreviousOutPoint
+
+		// Since we have now swept our htlc timeout tx, we expect to
+		// have timeout resolutions for each of our htlcs.
+		aliceReports[op.String()] = &lnrpc.Resolution{
+			ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
+			Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
+			SweepTxid:      htlcSweepTxid.String(),
+			Outpoint: &lnrpc.OutPoint{
+				TxidBytes:   op.Hash[:],
+				TxidStr:     op.Hash.String(),
+				OutputIndex: op.Index,
+			},
+			AmountSat: htlcLessFees,
+		}
+	}
+
+	// Check that we can find the htlc sweep in our set of sweeps using
+	// the verbose output of the listsweeps output.
+	ht.AssertSweepFound(alice, htlcSweepTxid.String(), true, 0)
+
+	// Now that the channel has been fully swept, it should no longer show
+	// incubated, check to see that Alice's node still reports the channel
+	// as pending force closed.
+	err = wait.NoError(func() error {
+		forceClose := ht.AssertChannelPendingForceClose(
+			alice, chanPoint,
+		)
+		err := checkPendingChannelNumHtlcs(forceClose)
+		if err != nil {
+			return err
+		}
+
+		err = checkPendingHtlcStageAndMaturity(
+			forceClose, 2, htlcCsvMaturityHeight-1, 0,
+		)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout while checking force closed channel")
+
+	// Generate the final block that sweeps all htlc funds into the user's
+	// wallet, and make sure the sweep is in this block.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.AssertTxInBlock(block, htlcSweepTxid)
+
+	// Now that the channel has been fully swept, it should no longer show
+	// up within the pending channels RPC.
+	err = wait.NoError(func() error {
+		ht.AssertNumPendingForceClose(alice, 0)
+		// In addition to there being no pending channels, we verify
+		// that pending channels does not report any money still in
+		// limbo.
+		pendingChanResp := alice.RPC.PendingChannels()
+		if pendingChanResp.TotalLimboBalance != 0 {
+			return errors.New("no user funds should be left " +
+				"in limbo after incubation")
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "timeout checking limbo balance")
+
+	// At this point, Carol should now be aware of her new immediately
+	// spendable on-chain balance, as it was Alice who broadcast the
+	// commitment transaction.
+	carolBalResp = carol.RPC.WalletBalance()
+
+	// Carol's expected balance should be its starting balance plus the
+	// push amount sent by Alice and minus the miner fee paid.
+	carolExpectedBalance := btcutil.Amount(carolStartingBalance) +
+		pushAmt - totalFeeCarol
+
+	require.Equal(ht, carolExpectedBalance,
+		btcutil.Amount(carolBalResp.ConfirmedBalance),
+		"carol's balance is incorrect")
+
+	// Finally, we check that alice and carol have the set of resolutions
+	// we expect.
+	assertReports(ht, alice, chanPoint, aliceReports)
+	assertReports(ht, carol, chanPoint, carolReports)
+}
+
+// testChannelForceClosureAnchor runs `runChannelForceClosureTestRestart` with
+// anchor channels.
+func testChannelForceClosureAnchorRestart(ht *lntest.HarnessTest) {
+	// Create a simple network: Alice -> Carol, using anchor channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		PushAmt:        pushAmt,
+		CommitmentType: lnrpc.CommitmentType_ANCHORS,
+	}
+
+	cfg := node.CfgAnchor
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfgCarol}
+
+	runChannelForceClosureTestRestart(ht, cfgs, openChannelParams)
+}
+
+// testChannelForceClosureSimpleTaprootRestart runs
+// `runChannelForceClosureTestRestart` with simple taproot channels.
+func testChannelForceClosureSimpleTaprootRestart(ht *lntest.HarnessTest) {
+	// Create a simple network: Alice -> Carol, using simple taproot
+	// channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+		// If the channel is a taproot channel, then we'll need to
+		// create a private channel.
+		//
+		// TODO(roasbeef): lift after G175
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfgCarol}
+
+	runChannelForceClosureTestRestart(ht, cfgs, openChannelParams)
+}
+
+// runChannelForceClosureTestRestart performs a test to exercise the behavior of
+// "force" closing a channel or unilaterally broadcasting the latest local
+// commitment state on-chain. The test creates a new channel between Alice and
+// Carol, then force closes the channel after some cursory assertions. Within
+// the test, a total of 3 + n transactions will be broadcast, representing the
+// commitment transaction, a transaction sweeping the local CSV delayed output,
+// a transaction sweeping the CSV delayed 2nd-layer htlcs outputs, and n htlc
+// timeout transactions, where n is the number of payments Alice attempted
+// to send to Carol. This test includes several restarts to ensure that the
 // transaction output states are persisted throughout the forced closure
 // process.
-func runChannelForceClosureTest(ht *lntest.HarnessTest,
+func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	cfgs [][]string, params lntest.OpenChannelParams) {
 
 	const (
@@ -202,32 +788,18 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
-	err := wait.NoError(func() error {
-		forceClose := ht.AssertChannelPendingForceClose(
-			alice, chanPoint,
-		)
+	forceClose := ht.AssertChannelPendingForceClose(alice, chanPoint)
 
-		// Now that the channel has been force closed, it should now
-		// have the height and number of blocks to confirm populated.
-		err := checkCommitmentMaturity(
-			forceClose, commCsvMaturityHeight, int32(defaultCSV),
-		)
-		if err != nil {
-			return err
-		}
+	// Now that the channel has been force closed, it should now
+	// have the height and number of blocks to confirm populated.
+	err := checkCommitmentMaturity(
+		forceClose, commCsvMaturityHeight, int32(defaultCSV),
+	)
+	require.NoError(ht, err)
 
-		// None of our outputs have been swept, so they should all be
-		// in limbo.
-		if forceClose.LimboBalance == 0 {
-			return errors.New("all funds should still be in limbo")
-		}
-		if forceClose.RecoveredBalance != 0 {
-			return errors.New("no funds should be recovered")
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(ht, err, "timeout while checking force closed channel")
+	// None of our outputs have been swept, so they should all be in limbo.
+	require.NotZero(ht, forceClose.LimboBalance)
+	require.Zero(ht, forceClose.RecoveredBalance)
 
 	// The following restart is intended to ensure that outputs from the
 	// force close commitment transaction have been persisted once the
@@ -241,7 +813,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// Identify Carol's pending sweeps.
 	var carolAnchor, carolCommit = sweepTxns[0], sweepTxns[1]
 	if carolAnchor.AmountSat != uint32(anchorSize) {
-		carolAnchor, carolCommit = carolCommit, carolAnchor
+		carolCommit = carolAnchor
 	}
 
 	// Carol's sweep tx should be in the mempool already, as her output is
@@ -331,7 +903,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Generate two blocks, which should cause the CSV delayed output from
 	// the commitment txn to expire.
-	ht.MineBlocks(2)
+	ht.MineEmptyBlocks(2)
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
@@ -341,54 +913,55 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 		commitSweep, anchorSweep = anchorSweep, commitSweep
 	}
 
-	// Mine one block and the sweeping transaction should now be broadcast.
-	// So we fetch the node's mempool to ensure it has been properly
-	// broadcast.
-	sweepingTXID := ht.AssertNumTxsInMempool(1)[0]
+	// Alice's sweeping transaction should now be broadcast. So we fetch the
+	// node's mempool to ensure it has been properly broadcast.
+	sweepTx := ht.GetNumTxsFromMempool(1)[0]
+	sweepTxid := sweepTx.TxHash()
 
 	// Fetch the sweep transaction, all input it's spending should be from
 	// the commitment transaction which was broadcast on-chain.
-	sweepTx := ht.GetRawTransaction(sweepingTXID)
-	for _, txIn := range sweepTx.MsgTx().TxIn {
+	for _, txIn := range sweepTx.TxIn {
 		require.Equal(ht, &txIn.PreviousOutPoint.Hash, closingTxID,
 			"sweep transaction not spending from commit")
-	}
-
-	// For neutrino backend, due to it has no mempool, we need to check the
-	// sweep tx has already been saved to db before restarting. This is due
-	// to the possible race,
-	// - the fee bumper returns a TxPublished event, which is received by
-	//   the sweeper and the sweep tx is saved to db.
-	// - the sweeper receives a shutdown signal before it receives the
-	//   above event.
-	//
-	// TODO(yy): fix the above race.
-	if ht.IsNeutrinoBackend() {
-		// Check that we can find the commitment sweep in our set of
-		// known sweeps, using the simple transaction id ListSweeps
-		// output.
-		ht.AssertSweepFound(alice, sweepingTXID.String(), false, 0)
 	}
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
 	ht.RestartNode(alice)
 
-	// Alice's anchor report won't be created since it's uneconomical to
-	// sweep. We expect a resolution which spends our commit output.
+	// Once restarted, Alice will offer her anchor and to_local outputs to
+	// the sweeper again. This time the two inputs will be swept using the
+	// same tx as they both have None deadline height, the sweeper will
+	// group these two inputs together.
+	//
+	// The new sweeping tx will replace the old one. We check it by
+	// asserting the old one no longer exists in the mempool.
+	ht.AssertTxNotInMempool(sweepTxid)
+	sweepTxid = ht.AssertNumTxsInMempool(1)[0]
+
+	// We expect two resolutions - anchor and commit outputs.
 	op = fmt.Sprintf("%v:%v", commitSweep.Outpoint.TxidStr,
 		commitSweep.Outpoint.OutputIndex)
 	aliceReports[op] = &lnrpc.Resolution{
 		ResolutionType: lnrpc.ResolutionType_COMMIT,
 		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      sweepingTXID.String(),
+		SweepTxid:      sweepTxid.String(),
 		Outpoint:       commitSweep.Outpoint,
 		AmountSat:      uint64(aliceBalance),
+	}
+	op = fmt.Sprintf("%v:%v", anchorSweep.Outpoint.TxidStr,
+		anchorSweep.Outpoint.OutputIndex)
+	aliceReports[op] = &lnrpc.Resolution{
+		ResolutionType: lnrpc.ResolutionType_ANCHOR,
+		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
+		SweepTxid:      sweepTxid.String(),
+		Outpoint:       anchorSweep.Outpoint,
+		AmountSat:      uint64(anchorSweep.AmountSat),
 	}
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
-	ht.AssertSweepFound(alice, sweepingTXID.String(), false, 0)
+	ht.AssertSweepFound(alice, sweepTxid.String(), false, 0)
 
 	// Next, we mine an additional block which should include the sweep
 	// transaction as the input scripts and the sequence locks on the
@@ -450,12 +1023,11 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// number of blocks we have generated since adding it to the nursery,
 	// and take an additional block off so that we end up one block shy of
 	// the expiry height, and add the block padding.
-	currentHeight := int32(ht.CurrentHeight())
-	cltvHeightDelta := int(htlcExpiryHeight - uint32(currentHeight) - 1)
+	cltvHeightDelta := int(htlcExpiryHeight - uint32(curHeight) - 1)
 
 	// Advance the blockchain until just before the CLTV expires, nothing
 	// exciting should have happened during this time.
-	ht.MineBlocks(cltvHeightDelta)
+	ht.MineEmptyBlocks(cltvHeightDelta)
 
 	// We now restart Alice, to ensure that she will broadcast the
 	// presigned htlc timeout txns after the delay expires after
@@ -496,117 +1068,78 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Now, generate the block which will cause Alice to offer the
 	// presigned htlc timeout txns to the sweeper.
-	ht.MineBlocks(1)
+	ht.MineEmptyBlocks(1)
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
-	// one. We also expect Alice to still have her anchor since it's not
-	// swept.
-	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+	// one.
+	ht.AssertNumPendingSweeps(alice, numInvoices)
 
 	// Wait for them all to show up in the mempool
-	htlcTxIDs := ht.AssertNumTxsInMempool(1)
+	htlcTx := ht.GetNumTxsFromMempool(1)[0]
+	htlcTxid := htlcTx.TxHash()
 
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. The sweeping tx should spend all the htlc outputs.
 	//
-	// NOTE: We also add 1 output as the outgoing HTLC is swept using twice
-	// its value as its budget, so a wallet utxo is used.
+	// NOTE: We also add 1 output as the outgoing HTLC needs a wallet utxo
+	// to pay for its fee.
 	numInputs := 6 + 1
-
-	// Construct a map of the already confirmed htlc timeout outpoints,
-	// that will count the number of times each is spent by the sweep txn.
-	// We prepopulate it in this way so that we can later detect if we are
-	// spending from an output that was not a confirmed htlc timeout txn.
-	var htlcTxOutpointSet = make(map[wire.OutPoint]int)
 
 	var htlcLessFees uint64
 
-	//nolint:ll
-	for _, htlcTxID := range htlcTxIDs {
-		// Fetch the sweep transaction, all input it's spending should
-		// be from the commitment transaction which was broadcast
-		// on-chain. In case of an anchor type channel, we expect one
-		// extra input that is not spending from the commitment, that
-		// is added for fees.
-		htlcTx := ht.GetRawTransaction(htlcTxID)
+	// Ensure the htlc transaction has the expected number of inputs.
+	require.Len(ht, htlcTx.TxIn, numInputs, "num inputs mismatch")
 
-		// Ensure the htlc transaction has the expected number of
-		// inputs.
-		inputs := htlcTx.MsgTx().TxIn
-		require.Len(ht, inputs, numInputs, "num inputs mismatch")
+	// The number of outputs should be the same.
+	require.Len(ht, htlcTx.TxOut, numInputs, "num outputs mismatch")
 
-		// The number of outputs should be the same.
-		outputs := htlcTx.MsgTx().TxOut
-		require.Len(ht, outputs, numInputs, "num outputs mismatch")
-
-		// Ensure all the htlc transaction inputs are spending from the
-		// commitment transaction, except if this is an extra input
-		// added to pay for fees for anchor channels.
-		nonCommitmentInputs := 0
-		for i, txIn := range inputs {
-			if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
-				nonCommitmentInputs++
-
-				require.Lessf(ht, nonCommitmentInputs, 2,
-					"htlc transaction not "+
-						"spending from commit "+
-						"tx %v, instead spending %v",
-					closingTxID, txIn.PreviousOutPoint)
-
-				// This was an extra input added to pay fees,
-				// continue to the next one.
-				continue
-			}
-
-			// For each htlc timeout transaction, we expect a
-			// resolver report recording this on chain resolution
-			// for both alice and carol.
-			outpoint := txIn.PreviousOutPoint
-			resolutionOutpoint := &lnrpc.OutPoint{
-				TxidBytes:   outpoint.Hash[:],
-				TxidStr:     outpoint.Hash.String(),
-				OutputIndex: outpoint.Index,
-			}
-
-			// We expect alice to have a timeout tx resolution with
-			// an amount equal to the payment amount.
-			//nolint:ll
-			aliceReports[outpoint.String()] = &lnrpc.Resolution{
-				ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
-				Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
-				SweepTxid:      htlcTx.Hash().String(),
-				Outpoint:       resolutionOutpoint,
-				AmountSat:      uint64(paymentAmt),
-			}
-
-			// We expect carol to have a resolution with an
-			// incoming htlc timeout which reflects the full amount
-			// of the htlc. It has no spend tx, because carol stops
-			// monitoring the htlc once it has timed out.
-			//nolint:ll
-			carolReports[outpoint.String()] = &lnrpc.Resolution{
-				ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
-				Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
-				SweepTxid:      "",
-				Outpoint:       resolutionOutpoint,
-				AmountSat:      uint64(paymentAmt),
-			}
-
-			// Recorf the HTLC outpoint, such that we can later
-			// check whether it gets swept
-			op := wire.OutPoint{
-				Hash:  htlcTxID,
-				Index: uint32(i),
-			}
-			htlcTxOutpointSet[op] = 0
+	// Ensure all the htlc transaction inputs are spending from the
+	// commitment transaction, except if this is an extra input added to pay
+	// for fees for anchor channels.
+	for _, txIn := range htlcTx.TxIn {
+		if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
+			// This was an extra input added to pay fees,
+			// continue to the next one.
+			continue
 		}
 
-		// We record the htlc amount less fees here, so that we know
-		// what value to expect for the second stage of our htlc
-		// resolution.
-		htlcLessFees = uint64(outputs[0].Value)
+		// For each htlc timeout transaction, we expect a resolver
+		// report recording this on chain resolution for both alice and
+		// carol.
+		outpoint := txIn.PreviousOutPoint
+		resolutionOutpoint := &lnrpc.OutPoint{
+			TxidBytes:   outpoint.Hash[:],
+			TxidStr:     outpoint.Hash.String(),
+			OutputIndex: outpoint.Index,
+		}
+
+		// We expect alice to have a timeout tx resolution with an
+		// amount equal to the payment amount.
+		aliceReports[outpoint.String()] = &lnrpc.Resolution{
+			ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
+			Outcome:        lnrpc.ResolutionOutcome_FIRST_STAGE,
+			SweepTxid:      htlcTxid.String(),
+			Outpoint:       resolutionOutpoint,
+			AmountSat:      uint64(paymentAmt),
+		}
+
+		// We expect carol to have a resolution with an incoming htlc
+		// timeout which reflects the full amount of the htlc. It has no
+		// spend tx, because carol stops monitoring the htlc once it has
+		// timed out.
+		carolReports[outpoint.String()] = &lnrpc.Resolution{
+			ResolutionType: lnrpc.ResolutionType_INCOMING_HTLC,
+			Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
+			SweepTxid:      "",
+			Outpoint:       resolutionOutpoint,
+			AmountSat:      uint64(paymentAmt),
+		}
 	}
+
+	// We record the htlc amount less fees here, so that we know what value
+	// to expect for the second stage of our htlc resolution.
+	htlcLessFees = uint64(htlcTx.TxOut[0].Value)
 
 	// With the htlc timeout txns still in the mempool, we restart Alice to
 	// verify that she can resume watching the htlc txns she broadcasted
@@ -624,22 +1157,17 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
 	// For anchor channels this is one block earlier.
-	currentHeight = int32(ht.CurrentHeight())
-	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", currentHeight,
+	curHeight = int32(ht.CurrentHeight())
+	ht.Logf("current height: %v, htlcCsvMaturityHeight=%v", curHeight,
 		htlcCsvMaturityHeight)
-	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 1)
-	ht.MineBlocks(numBlocks)
+	numBlocks := int(htlcCsvMaturityHeight - uint32(curHeight) - 1)
+	ht.MineEmptyBlocks(numBlocks)
 
-	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+	ht.AssertNumPendingSweeps(alice, numInvoices)
 
-	// Restart Alice to ensure that she can recover from a failure.
-	//
-	// TODO(yy): Skip this step for neutrino as it cannot recover the
-	// sweeping txns from the mempool. We need to also store the txns in
-	// the sweeper store to make it work for the neutrino case.
-	if !ht.IsNeutrinoBackend() {
-		ht.RestartNode(alice)
-	}
+	// Fetch the htlc sweep transaction from the mempool.
+	htlcSweepTx := ht.GetNumTxsFromMempool(1)[0]
+	htlcSweepTxid := htlcSweepTx.TxHash()
 
 	// Now that the channel has been fully swept, it should no longer show
 	// incubated, check to see that Alice's node still reports the channel
@@ -657,58 +1185,32 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
-	ht.AssertNumPendingSweeps(alice, numInvoices+1)
-
-	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxid := ht.AssertNumTxsInMempool(1)[0]
-
-	// Fetch the htlc sweep transaction from the mempool.
-	htlcSweepTx := ht.GetRawTransaction(htlcSweepTxid)
+	ht.AssertNumPendingSweeps(alice, numInvoices)
 
 	// Ensure the htlc sweep transaction only has one input for each htlc
 	// Alice extended before force closing.
-	require.Len(ht, htlcSweepTx.MsgTx().TxIn, numInvoices,
+	require.Len(ht, htlcSweepTx.TxIn, numInvoices,
 		"htlc transaction has wrong num of inputs")
-	require.Len(ht, htlcSweepTx.MsgTx().TxOut, 1,
+	require.Len(ht, htlcSweepTx.TxOut, 1,
 		"htlc sweep transaction should have one output")
 
 	// Ensure that each output spends from exactly one htlc timeout output.
-	for _, txIn := range htlcSweepTx.MsgTx().TxIn {
-		outpoint := txIn.PreviousOutPoint
-
-		// Check that the input is a confirmed htlc timeout txn.
-		_, ok := htlcTxOutpointSet[outpoint]
-		require.Truef(ht, ok, "htlc sweep output not spending from "+
-			"htlc tx, instead spending output %v", outpoint)
-
-		// Increment our count for how many times this output was spent.
-		htlcTxOutpointSet[outpoint]++
-
-		// Check that each is only spent once.
-		require.Lessf(ht, htlcTxOutpointSet[outpoint], 2,
-			"htlc sweep tx has multiple spends from "+
-				"outpoint %v", outpoint)
+	for _, txIn := range htlcSweepTx.TxIn {
+		op := txIn.PreviousOutPoint
 
 		// Since we have now swept our htlc timeout tx, we expect to
 		// have timeout resolutions for each of our htlcs.
-		output := txIn.PreviousOutPoint
-		aliceReports[output.String()] = &lnrpc.Resolution{
+		aliceReports[op.String()] = &lnrpc.Resolution{
 			ResolutionType: lnrpc.ResolutionType_OUTGOING_HTLC,
 			Outcome:        lnrpc.ResolutionOutcome_TIMEOUT,
-			SweepTxid:      htlcSweepTx.Hash().String(),
+			SweepTxid:      htlcSweepTxid.String(),
 			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   output.Hash[:],
-				TxidStr:     output.Hash.String(),
-				OutputIndex: output.Index,
+				TxidBytes:   op.Hash[:],
+				TxidStr:     op.Hash.String(),
+				OutputIndex: op.Index,
 			},
 			AmountSat: htlcLessFees,
 		}
-	}
-
-	// Check that each HTLC output was spent exactly once.
-	for op, num := range htlcTxOutpointSet {
-		require.Equalf(ht, 1, num,
-			"HTLC outpoint:%s was spent times", op)
 	}
 
 	// Check that we can find the htlc sweep in our set of sweeps using

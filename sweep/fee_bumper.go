@@ -908,7 +908,7 @@ func (t *TxPublisher) processRecords() {
 		// Check whether the inputs has been spent by a third party.
 		//
 		// NOTE: this check is only done for neutrino backend.
-		if t.isThirdPartySpent(r.tx.TxHash(), r.req.Inputs) {
+		if t.isThirdPartySpent(r) {
 			failedRecords[requestID] = r
 
 			// Move to the next record.
@@ -1253,26 +1253,59 @@ func (t *TxPublisher) isConfirmed(txid chainhash.Hash) bool {
 //
 // NOTE: this check is only performed for neutrino backend as it has no
 // reliable way to tell a tx has been replaced.
-func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
-	inputs []input.Input) bool {
-
+func (t *TxPublisher) isThirdPartySpent(r *monitorRecord) bool {
 	// Skip this check for if this is not neutrino backend.
 	if !t.isNeutrinoBackend() {
 		return false
 	}
 
+	txid := r.tx.TxHash()
+	spends := t.hasInputSpent(r)
+
+	// Iterate all the spending txns and check if they match the sweeping
+	// tx.
+	for op, spendingTx := range spends {
+		spendingTxID := spendingTx.TxHash()
+
+		// If the spending tx is the same as the sweeping tx
+		// then we are good.
+		if spendingTxID == txid {
+			continue
+		}
+
+		log.Warnf("Detected third party spent of output=%v "+
+			"in tx=%v", op, spendingTx.TxHash())
+
+		return true
+	}
+
+	return false
+}
+
+// hasInputSpent performs a non-blocking read on the spending subscriptions to
+// see whether any of the monitored inputs has been spent. A map of inputs with
+// their spending txns are returned if found.
+func (t *TxPublisher) hasInputSpent(
+	r *monitorRecord) map[wire.OutPoint]*wire.MsgTx {
+
+	// Create a slice to record the inputs spent.
+	inputsSpent := make(map[wire.OutPoint]*wire.MsgTx, len(r.req.Inputs))
+
 	// Iterate all the inputs and check if they have been spent already.
-	for _, inp := range inputs {
+	for _, inp := range r.req.Inputs {
 		op := inp.OutPoint()
 
 		// For wallet utxos, the height hint is not set - we don't need
 		// to monitor them for third party spend.
+		//
+		// TODO(yy): We need to properly lock wallet utxos before
+		// skipping this check as the same wallet utxo can be used by
+		// different sweeping txns.
 		heightHint := inp.HeightHint()
 		if heightHint == 0 {
-			log.Debugf("Skipped third party check for wallet "+
-				"input %v", op)
-
-			continue
+			heightHint = uint32(t.currentHeight.Load())
+			log.Debugf("Checking wallet input %v using heightHint "+
+				"%v", op, heightHint)
 		}
 
 		// If the input has already been spent after the height hint, a
@@ -1283,7 +1316,8 @@ func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
 		if err != nil {
 			log.Criticalf("Failed to register spend ntfn for "+
 				"input=%v: %v", op, err)
-			return false
+
+			return nil
 		}
 
 		// Remove the subscription when exit.
@@ -1294,28 +1328,24 @@ func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
 				log.Debugf("Spend ntfn for %v canceled", op)
-				return false
-			}
 
-			spendingTxID := spend.SpendingTx.TxHash()
-
-			// If the spending tx is the same as the sweeping tx
-			// then we are good.
-			if spendingTxID == txid {
 				continue
 			}
 
-			log.Warnf("Detected third party spent of output=%v "+
-				"in tx=%v", op, spend.SpendingTx.TxHash())
+			spendingTx := spend.SpendingTx
 
-			return true
+			log.Debugf("Detected spent of input=%v in tx=%v", op,
+				spendingTx.TxHash())
+
+			inputsSpent[op] = spendingTx
 
 		// Move to the next input.
 		default:
+			log.Tracef("Input %v not spent yet", op)
 		}
 	}
 
-	return false
+	return inputsSpent
 }
 
 // calcCurrentConfTarget calculates the current confirmation target based on

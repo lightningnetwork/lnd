@@ -1343,12 +1343,17 @@ func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
 	err := s.trackPaymentStream(
 		stream.Context(), subscription, noInflightUpdates, stream.Send,
 	)
+	switch {
+	case err == nil:
+		return nil
 
 	// If the context is canceled, we don't return an error.
-	if errors.Is(err, context.Canceled) {
+	case errors.Is(err, context.Canceled):
 		log.Infof("Payment stream %v canceled", identifier)
 
 		return nil
+
+	default:
 	}
 
 	// Otherwise, we will log and return the error as the stream has

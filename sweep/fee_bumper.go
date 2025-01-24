@@ -320,12 +320,6 @@ func (b *BumpResult) Validate() error {
 		return fmt.Errorf("%w: nil error", ErrInvalidBumpResult)
 	}
 
-	// If it's a confirmed event, it must have a fee rate and fee.
-	if b.Event == TxConfirmed && (b.FeeRate == 0 || b.Fee == 0) {
-		return fmt.Errorf("%w: missing fee rate or fee",
-			ErrInvalidBumpResult)
-	}
-
 	return nil
 }
 
@@ -1008,21 +1002,15 @@ func (t *TxPublisher) processRecords() {
 			// Attach the spending txns.
 			r.inputsSpent = spends
 
-			// When tx is nil, it means we haven't tried the initial
-			// broadcast yet the input is already spent. This could
-			// happen when the node shuts down, a previous sweeping
-			// tx confirmed, then the node comes back online and
-			// reoffers the inputs. Another case is the remote node
-			// spends the input quickly before we even attempt the
-			// sweep. In either case we will fail the record and let
-			// the sweeper handles it.
-			if r.tx == nil {
-				failedRecords[requestID] = r
-				return nil
-			}
-
 			// Check whether the inputs has been spent by a unknown
-			// tx.
+			// tx. Note the r.tx can be nil, which means we haven't
+			// tried the initial broadcast yet the input is already
+			// spent. This could happen when the node shuts down, a
+			// previous sweeping tx confirmed, then the node comes
+			// back online and reoffers the inputs. Another case is
+			// the remote node spends the input quickly before we
+			// even attempt the sweep. In either case we will fail
+			// the record and let the sweeper handles it.
 			if t.isUnknownSpent(r, spends) {
 				failedRecords[requestID] = r
 
@@ -1103,7 +1091,14 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 		Tx:        r.tx,
 		requestID: r.requestID,
 		Fee:       r.fee,
-		FeeRate:   r.feeFunction.FeeRate(),
+	}
+
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func.
+	//
+	// TODO(yy): can instead calculate the fee rate from the tx.
+	if r.feeFunction != nil {
+		result.FeeRate = r.feeFunction.FeeRate()
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1440,26 +1435,91 @@ func (t *TxPublisher) createAndPublishTx(
 // a tx not known to us. When a tx is not confirmed, yet its inputs has been
 // spent, then it must be spent by a different tx other than the sweeping tx
 // here.
+//
+// NOTE: This method will update `r.tx` if a confirmed wallet tx is found.
 func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 	spends map[wire.OutPoint]*wire.MsgTx) bool {
 
-	txid := r.tx.TxHash()
+	// walletTx is the confirmed tx found in our wallet. When it's set, it
+	// means  a previous tx has spent the inputs, which could happen during
+	// restarts.
+	var walletTx *wire.MsgTx
 
 	// Iterate all the spending txns and check if they match the sweeping
 	// tx.
 	for op, spendingTx := range spends {
-		spendingTxID := spendingTx.TxHash()
+		spendingTxid := spendingTx.TxHash()
 
 		// If the spending tx is the same as the sweeping tx then we are
 		// good.
-		if spendingTxID == txid {
+		if r.tx != nil && spendingTxid == r.tx.TxHash() {
 			continue
+		}
+
+		// Fetch the wallet to see if it's our previous sweeping tx.
+		tx, err := t.cfg.Wallet.FetchTx(spendingTxid)
+		if err != nil {
+			log.Errorf("Failed to FetchTx for %v: %v", spendingTxid,
+				err)
+
+			continue
+		}
+
+		// Found a wallet tx, which means a previous sweeping tx is now
+		// confirmed.
+		if tx != nil {
+			// Assign the tx for the first time.
+			if walletTx == nil {
+				walletTx = tx
+				continue
+			}
+
+			// Inputs are spent via the same tx, which is the
+			// expected case.
+			if walletTx.TxHash() == tx.TxHash() {
+				continue
+			}
+
+			// We'd end up here if the inputs are spent by at least
+			// two previous sweeping txns, which could happen if the
+			// two sweeping txns are spending non-time sensitive
+			// inputs:
+			// 1. sweeping tx 1 published and stays in the mempool.
+			// 2. sweeping tx 2 published and stays in the mempool.
+			// 3. the node shuts down.
+			// 4. the two sweeping txns confirmed.
+			// 5. the node comes back and reoffers the inputs, which
+			//    could be grouped together if they all have non
+			//    deadline heights.
+			//
+			// This is fine as we will return the first tx and retry
+			// the sweeping process, which will end up here again
+			// with a deducted input set.
+			log.Warnf("Found tx %v and %v spending the same input "+
+				"set in record %v", walletTx.TxHash(),
+				tx.TxHash(), r.requestID)
 		}
 
 		log.Warnf("Detected unknown spent of input=%v in tx=%v", op,
 			spendingTx.TxHash())
 
 		return true
+	}
+
+	// Found a previous tx, we now change our record to use this one.
+	if walletTx != nil {
+		txid := walletTx.TxHash()
+
+		log.Debugf("Overwriting tx for record %v, old tx: %v, new tx: "+
+			"%v", r.requestID, lnutils.NewLogClosure(func() string {
+			if r.tx == nil {
+				return "nil"
+			}
+
+			return r.tx.TxHash().String()
+		}), txid)
+
+		r.tx = walletTx
 	}
 
 	return false

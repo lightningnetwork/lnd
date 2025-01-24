@@ -1168,20 +1168,25 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	}
 
 	// This is a new input, and we want to query the mempool to see if this
-	// input has already been spent. If so, we'll start the input with
-	// state Published and attach the RBFInfo.
-	state, rbfInfo := s.decideStateAndRBFInfo(input.input.OutPoint())
+	// input has already been spent. If so, we'll start the input with the
+	// RBFInfo.
+	rbfInfo := s.decideRBFInfo(input.input.OutPoint())
 
 	// Create a new pendingInput and initialize the listeners slice with
 	// the passed in result channel. If this input is offered for sweep
 	// again, the result channel will be appended to this slice.
 	pi = &SweeperInput{
-		state:     state,
+		state:     Init,
 		listeners: []chan Result{input.resultChan},
 		Input:     input.input,
 		params:    input.params,
 		rbf:       rbfInfo,
 	}
+
+	// Set the starting fee rate if a previous sweeping tx is found.
+	rbfInfo.WhenSome(func(info RBFInfo) {
+		pi.params.StartingFeeRate = fn.Some(info.FeeRate)
+	})
 
 	// Set the acutal deadline height.
 	pi.DeadlineHeight = input.params.DeadlineHeight.UnwrapOr(
@@ -1197,16 +1202,64 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 		btcutil.Amount(pi.SignDesc().Output.Value), pi.DeadlineHeight,
 		pi.state, pi.params)
 
+	// Once the input is registered, quickly check whether it has already
+	// been spent.
+	err := s.checkInputSpent(pi)
+	if err != nil {
+		log.Errorf("Failed to check input spend: %v", err)
+		return err
+	}
+
 	return nil
 }
 
-// decideStateAndRBFInfo queries the mempool to see whether the given input has
-// already been spent. If so, the state Published will be returned, otherwise
-// state Init. When spent, it will query the sweeper store to fetch the fee
-// info of the spending transction, and construct an RBFInfo based on it.
-// Suppose an error occurs, fn.None is returned.
-func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
-	SweepState, fn.Option[RBFInfo]) {
+// checkInputSpent checks whether the registered input has already been spent.
+// If so, we will hanlde it immediately via handleThirdPartySpent.
+func (s *UtxoSweeper) checkInputSpent(inp *SweeperInput) error {
+	op := inp.OutPoint()
+
+	// If the input has already been spent after the height hint, a spend
+	// event is sent back immediately.
+	spendEvent, err := s.cfg.Notifier.RegisterSpendNtfn(
+		&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Remove the subscription when exit.
+	defer spendEvent.Cancel()
+
+	// Do a non-blocking read to see if the output has been spent.
+	select {
+	case spend, ok := <-spendEvent.Spend:
+		if !ok {
+			log.Debugf("Spend ntfn for %v canceled", op)
+			return nil
+		}
+
+		spendingTx := spend.SpendingTx
+
+		log.Debugf("Detected spent of input=%v in tx=%v", op,
+			spendingTx.TxHash())
+
+		s.handleThirdPartySpent(inp, spendingTx)
+
+		return nil
+
+	default:
+		log.Tracef("Input %v not spent yet", op)
+	}
+
+	return nil
+}
+
+// decideRBFInfo queries the mempool to see whether the given input has already
+// been spent. When spent, it will query the sweeper store to fetch the fee info
+// of the spending transction, and construct an RBFInfo based on it. Suppose an
+// error occurs, fn.None is returned.
+func (s *UtxoSweeper) decideRBFInfo(
+	op wire.OutPoint) fn.Option[RBFInfo] {
 
 	// Check if we can find the spending tx of this input in mempool.
 	txOption := s.mempoolLookup(op)
@@ -1224,7 +1277,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 	// - for neutrino we don't have a mempool.
 	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
 	if tx == nil {
-		return Init, fn.None[RBFInfo]()
+		return fn.None[RBFInfo]()
 	}
 
 	// Otherwise the input is already spent in the mempool, so eventually
@@ -1236,12 +1289,15 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 	txid := tx.TxHash()
 	tr, err := s.cfg.Store.GetTx(txid)
 
+	log.Debugf("Found spending tx %v in mempool for input %v", tx.TxHash(),
+		op)
+
 	// If the tx is not found in the store, it means it's not broadcast by
 	// us, hence we can't find the fee info. This is fine as, later on when
 	// this tx is confirmed, we will remove the input from our inputs.
 	if errors.Is(err, ErrTxNotFound) {
 		log.Warnf("Spending tx %v not found in sweeper store", txid)
-		return Published, fn.None[RBFInfo]()
+		return fn.None[RBFInfo]()
 	}
 
 	// Exit if we get an db error.
@@ -1249,7 +1305,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 		log.Errorf("Unable to get tx %v from sweeper store: %v",
 			txid, err)
 
-		return Published, fn.None[RBFInfo]()
+		return fn.None[RBFInfo]()
 	}
 
 	// Prepare the fee info and return it.
@@ -1259,7 +1315,7 @@ func (s *UtxoSweeper) decideStateAndRBFInfo(op wire.OutPoint) (
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 
-	return Published, rbf
+	return rbf
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.

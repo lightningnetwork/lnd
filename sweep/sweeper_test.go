@@ -508,10 +508,9 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	require.Equal(expectedInputs, s.inputs)
 }
 
-// TestDecideStateAndRBFInfo checks that the expected state and RBFInfo are
-// returned based on whether this input can be found both in mempool and the
-// sweeper store.
-func TestDecideStateAndRBFInfo(t *testing.T) {
+// TestDecideRBFInfo checks that the expected RBFInfo is returned based on
+// whether this input can be found both in mempool and the sweeper store.
+func TestDecideRBFInfo(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
@@ -535,11 +534,9 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	mockMempool.On("LookupInputMempoolSpend", op).Return(
 		fn.None[wire.MsgTx]()).Once()
 
-	// Since the mempool lookup failed, we exepect state Init and no
-	// RBFInfo.
-	state, rbf := s.decideStateAndRBFInfo(op)
+	// Since the mempool lookup failed, we exepect no RBFInfo.
+	rbf := s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Init, state)
 
 	// Mock the mempool lookup to return a tx three times as we are calling
 	// attachAvailableRBFInfo three times.
@@ -550,19 +547,17 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	// Mock the store to return an error saying the tx cannot be found.
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
 
-	// Although the db lookup failed, we expect the state to be Published.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	// The db lookup failed, we exepect no RBFInfo.
+	rbf = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Published, state)
 
 	// Mock the store to return a db error.
 	dummyErr := errors.New("dummy error")
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
-	// Although the db lookup failed, we expect the state to be Published.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	// The db lookup failed, we exepect no RBFInfo.
+	rbf = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Published, state)
 
 	// Mock the store to return a record.
 	tr := &TxRecord{
@@ -572,7 +567,7 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
 
 	// Call the method again.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	rbf = s.decideRBFInfo(op)
 
 	// Assert that the RBF info is returned.
 	rbfInfo := fn.Some(RBFInfo{
@@ -581,9 +576,6 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 	require.Equal(rbfInfo, rbf)
-
-	// Assert the state is updated.
-	require.Equal(Published, state)
 }
 
 // TestMarkInputFatal checks that the input is marked as expected.

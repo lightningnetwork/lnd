@@ -55,7 +55,7 @@ func createTestInput(value int64,
 				PubKey: testPubKey,
 			},
 		},
-		0,
+		1,
 		nil,
 	)
 
@@ -1775,4 +1775,127 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	// Validate the record was removed.
 	require.Equal(t, 0, tp.records.Len())
 	require.Equal(t, 0, tp.subscriberChans.Len())
+}
+
+// TestHasInputsSpent checks the expected outpoint:tx map is returned.
+func TestHasInputsSpent(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create mock inputs.
+	op1 := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 1,
+	}
+	inp1 := &input.MockInput{}
+	heightHint1 := uint32(1)
+	defer inp1.AssertExpectations(t)
+
+	op2 := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 2,
+	}
+	inp2 := &input.MockInput{}
+	heightHint2 := uint32(2)
+	defer inp2.AssertExpectations(t)
+
+	op3 := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 3,
+	}
+	walletInp := &input.MockInput{}
+	heightHint3 := uint32(0)
+	defer walletInp.AssertExpectations(t)
+
+	// We expect all the inputs to call OutPoint and HeightHint.
+	inp1.On("OutPoint").Return(op1).Once()
+	inp2.On("OutPoint").Return(op2).Once()
+	walletInp.On("OutPoint").Return(op3).Once()
+	inp1.On("HeightHint").Return(heightHint1).Once()
+	inp2.On("HeightHint").Return(heightHint2).Once()
+	walletInp.On("HeightHint").Return(heightHint3).Once()
+
+	// We expect the normal inputs to call SignDesc.
+	pkScript1 := []byte{1}
+	sd1 := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			PkScript: pkScript1,
+		},
+	}
+	inp1.On("SignDesc").Return(sd1).Once()
+
+	pkScript2 := []byte{1}
+	sd2 := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			PkScript: pkScript2,
+		},
+	}
+	inp2.On("SignDesc").Return(sd2).Once()
+
+	pkScript3 := []byte{3}
+	sd3 := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			PkScript: pkScript3,
+		},
+	}
+	walletInp.On("SignDesc").Return(sd3).Once()
+
+	// Mock RegisterSpendNtfn.
+	//
+	// spendingTx1 is the tx spending op1.
+	spendingTx1 := &wire.MsgTx{}
+	se1 := createTestSpendEvent(spendingTx1)
+	m.notifier.On("RegisterSpendNtfn",
+		&op1, pkScript1, heightHint1).Return(se1, nil).Once()
+
+	// Create the spending event that doesn't send an event.
+	se2 := &chainntnfs.SpendEvent{
+		Cancel: func() {},
+	}
+	m.notifier.On("RegisterSpendNtfn",
+		&op2, pkScript2, heightHint2).Return(se2, nil).Once()
+
+	se3 := &chainntnfs.SpendEvent{
+		Cancel: func() {},
+	}
+	m.notifier.On("RegisterSpendNtfn",
+		&op3, pkScript3, heightHint3).Return(se3, nil).Once()
+
+	// Prepare the test inputs.
+	inputs := []input.Input{inp1, inp2, walletInp}
+
+	// Prepare the test record.
+	record := &monitorRecord{
+		req: &BumpRequest{
+			Inputs: inputs,
+		},
+	}
+
+	// Call the method under test.
+	result := tp.hasInputSpent(record)
+
+	// Assert the expected map is created.
+	expected := map[wire.OutPoint]*wire.MsgTx{
+		op1: spendingTx1,
+	}
+	require.Equal(t, expected, result)
+}
+
+// createTestSpendEvent creates a SpendEvent which places the specified tx in
+// the channel, which can be read by a spending subscriber.
+func createTestSpendEvent(tx *wire.MsgTx) *chainntnfs.SpendEvent {
+	// Create a monitor record that's confirmed.
+	spendDetails := chainntnfs.SpendDetail{
+		SpendingTx: tx,
+	}
+	spendChan1 := make(chan *chainntnfs.SpendDetail, 1)
+	spendChan1 <- &spendDetails
+
+	// Create the spend events.
+	return &chainntnfs.SpendEvent{
+		Spend:  spendChan1,
+		Cancel: func() {},
+	}
 }

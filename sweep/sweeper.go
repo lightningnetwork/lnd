@@ -1353,12 +1353,17 @@ func (s *UtxoSweeper) handleBumpEventTxConfirmed(r *bumpResp) {
 
 // markInputFatal marks the given input as fatal and won't be retried. It
 // will also notify all the subscribers of this input.
-func (s *UtxoSweeper) markInputFatal(pi *SweeperInput, err error) {
+func (s *UtxoSweeper) markInputFatal(pi *SweeperInput, tx *wire.MsgTx,
+	err error) {
+
 	log.Errorf("Failed to sweep input: %v, error: %v", pi, err)
 
 	pi.state = Fatal
 
-	s.signalResult(pi, Result{Err: err})
+	s.signalResult(pi, Result{
+		Tx:  tx,
+		Err: err,
+	})
 }
 
 // updateSweeperInputs updates the sweeper's internal state and returns a map
@@ -1659,14 +1664,14 @@ func (s *UtxoSweeper) handleBumpEventTxFatal(resp *bumpResp) error {
 	}
 
 	// Mark the inputs as fatal.
-	s.markInputsFatal(resp.set, r.Err)
+	s.markInputsFatal(resp.set, r.Tx, r.Err)
 
 	return nil
 }
 
 // markInputsFatal  marks all inputs in the input set as failed. It will also
 // notify all the subscribers of these inputs.
-func (s *UtxoSweeper) markInputsFatal(set InputSet, err error) {
+func (s *UtxoSweeper) markInputsFatal(set InputSet, tx *wire.MsgTx, err error) {
 	for _, inp := range set.Inputs() {
 		outpoint := inp.OutPoint()
 
@@ -1690,7 +1695,7 @@ func (s *UtxoSweeper) markInputsFatal(set InputSet, err error) {
 			continue
 		}
 
-		s.markInputFatal(input, err)
+		s.markInputFatal(input, tx, err)
 	}
 }
 
@@ -1808,7 +1813,7 @@ func (s *UtxoSweeper) handleThirdPartySpent(inp *SweeperInput, tx *wire.MsgTx) {
 
 	// Since the input is spent by others, we now mark it as fatal and won't
 	// be retried.
-	s.markInputFatal(inp, ErrRemoteSpend)
+	s.markInputFatal(inp, tx, ErrRemoteSpend)
 
 	log.Debugf("Removing descendant txns invalidated by (txid=%v): %v",
 		tx.TxHash(), lnutils.SpewLogClosure(tx))

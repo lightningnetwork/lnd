@@ -18,6 +18,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var channelForceCloseTestCases = []*lntest.TestCase{
+	{
+		Name:     "anchor",
+		TestFunc: testChannelForceClosureAnchor,
+	},
+	{
+		Name:     "simple taproot",
+		TestFunc: testChannelForceClosureSimpleTaproot,
+	},
+	{
+		Name:     "wrong preimage",
+		TestFunc: testFailingChannel,
+	},
+}
+
 const pushAmt = btcutil.Amount(5e5)
 
 // testChannelForceClosureAnchor runs `runChannelForceClosureTest` with anchor

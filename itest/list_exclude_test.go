@@ -39,8 +39,8 @@ var excludedTestsWindows = []string{
 	"multihop-htlc aggregation simple taproot",
 	"multihop-htlc aggregation simple taproot zero conf",
 
-	"channel force closure anchor",
-	"channel force closure simple taproot",
+	"channel force close-anchor",
+	"channel force close-simple taproot",
 	"channel backup restore force close",
 	"wipe forwarding packages",
 

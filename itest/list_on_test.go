@@ -206,18 +206,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelUnsettledBalance,
 	},
 	{
-		Name:     "channel force closure anchor",
-		TestFunc: testChannelForceClosureAnchor,
-	},
-	{
-		Name:     "channel force closure simple taproot",
-		TestFunc: testChannelForceClosureSimpleTaproot,
-	},
-	{
-		Name:     "failing channel",
-		TestFunc: testFailingChannel,
-	},
-	{
 		Name:     "chain kit",
 		TestFunc: testChainKit,
 	},
@@ -735,6 +723,9 @@ func init() {
 	)
 	allTestCases = appendPrefixed(
 		"send to route", allTestCases, sendToRouteTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"channel force close", allTestCases, channelForceCloseTestCases,
 	)
 
 	// Prepare the test cases for windows to exclude some of the flaky

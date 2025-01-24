@@ -420,6 +420,7 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		notifier:  notifier,
 		feeFunc:   feeFunc,
 	}
+	m.wallet.On("BackEnd").Return("test-backend").Maybe()
 
 	// Create a publisher using the mocks.
 	tp := NewTxPublisher(TxPublisherConfig{

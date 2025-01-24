@@ -540,6 +540,9 @@ func (t *TxPublisher) initializeFeeFunction(
 // so by creating a tx, validate it using `TestMempoolAccept`, and bump its fee
 // and redo the process until the tx is valid, or return an error when non-RBF
 // related errors occur or the budget has been used up.
+//
+// NOTE: For neutrino backend, it will use PublishTransaction instead due to
+// CheckMempoolAcceptance not available.
 func (t *TxPublisher) createRBFCompliantTx(
 	r *monitorRecord) (*monitorRecord, error) {
 
@@ -611,6 +614,9 @@ func (t *TxPublisher) createRBFCompliantTx(
 // script, and the fee rate. In addition, it validates the tx's mempool
 // acceptance before returning a tx that can be published directly, along with
 // its fee.
+//
+// NOTE: For neutrino backend, it will use PublishTransaction instead due to
+// CheckMempoolAcceptance not available.
 func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 	req := r.req
 	f := r.feeFunction
@@ -635,7 +641,17 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 	req.ExtraTxOut = sweepCtx.extraTxOut
 
 	// Validate the tx's mempool acceptance.
-	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	//
+	// For neutrino, we will publish tx instead as it's the only way to know
+	// whether the RBF requirements are met or not.
+	if t.isNeutrinoBackend() {
+		err = t.cfg.Wallet.PublishTransaction(
+			sweepCtx.tx,
+			labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
+		)
+	} else {
+		err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	}
 
 	// Exit early if the tx is valid.
 	if err == nil {
@@ -1167,6 +1183,22 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 
 		// We now handle the initialization error and exit.
 		t.handleInitialTxError(r.requestID, err)
+
+		return
+	}
+
+	// For neutrino, initializeTx has already published the tx so we can
+	// return early.
+	if t.isNeutrinoBackend() {
+		result = &BumpResult{
+			Event:     TxPublished,
+			Tx:        record.tx,
+			Fee:       record.fee,
+			FeeRate:   record.feeFunction.FeeRate(),
+			Err:       err,
+			requestID: record.requestID,
+		}
+		t.handleResult(result)
 
 		return
 	}

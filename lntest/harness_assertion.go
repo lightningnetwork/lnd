@@ -1862,13 +1862,11 @@ func (h *HarnessTest) AssertChannelInGraphDB(hn *node.HarnessNode,
 		// Make sure the policies are populated, otherwise this edge
 		// cannot be used for routing.
 		if resp.Node1Policy == nil {
-			return fmt.Errorf("channel %s has no policy1: %w",
-				op, err)
+			return fmt.Errorf("channel %s has no policy1", op)
 		}
 
 		if resp.Node2Policy == nil {
-			return fmt.Errorf("channel %s has no policy2: %w",
-				op, err)
+			return fmt.Errorf("channel %s has no policy2", op)
 		}
 
 		edge = resp

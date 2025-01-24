@@ -596,7 +596,7 @@ func TestMarkInputFailed(t *testing.T) {
 	}
 
 	// Call the method under test.
-	s.markInputFatal(pi, errors.New("dummy error"))
+	s.markInputFatal(pi, nil, errors.New("dummy error"))
 
 	// Assert the state is updated.
 	require.Equal(t, Fatal, pi.state)

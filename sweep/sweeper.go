@@ -1267,7 +1267,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	)
 	if err != nil {
 		err := fmt.Errorf("wait for spend: %w", err)
-		s.markInputFatal(pi, err)
+		s.markInputFatal(pi, nil, err)
 
 		return err
 	}
@@ -1482,12 +1482,17 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 
 // markInputFatal marks the given input as fatal and won't be retried. It
 // will also notify all the subscribers of this input.
-func (s *UtxoSweeper) markInputFatal(pi *SweeperInput, err error) {
+func (s *UtxoSweeper) markInputFatal(pi *SweeperInput, tx *wire.MsgTx,
+	err error) {
+
 	log.Errorf("Failed to sweep input: %v, error: %v", pi, err)
 
 	pi.state = Fatal
 
-	s.signalResult(pi, Result{Err: err})
+	s.signalResult(pi, Result{
+		Tx:  tx,
+		Err: err,
+	})
 }
 
 // updateSweeperInputs updates the sweeper's internal state and returns a map
@@ -1819,7 +1824,7 @@ func (s *UtxoSweeper) markInputsFatal(set InputSet, err error) {
 			continue
 		}
 
-		s.markInputFatal(input, err)
+		s.markInputFatal(input, nil, err)
 	}
 }
 
@@ -1932,7 +1937,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 
 	// Since the input is spent by others, we now mark it as fatal and won't
 	// be retried.
-	s.markInputFatal(inp, ErrRemoteSpend)
+	s.markInputFatal(inp, tx, ErrRemoteSpend)
 
 	log.Debugf("Removing descendant txns invalidated by (txid=%v): %v",
 		txid, lnutils.SpewLogClosure(tx))

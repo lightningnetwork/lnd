@@ -296,6 +296,11 @@ The underlying functionality between those two options remain the same.
   to the sweeper to improve code quality, with a renaming of the internal state
   (`Failed` -> `Fatal`) used by the inputs tracked in the sweeper.
 
+* [Unified](https://github.com/lightningnetwork/lnd/pull/9448) the monitoring
+  inputs spending logic in the sweeper so it can properly handle missing inputs
+  and recover from restart.
+
+
 ## Tooling and Documentation
 
 * [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)

@@ -344,6 +344,11 @@ The underlying functionality between those two options remain the same.
 * A code refactor that [replaces min/max helpers with built-in min/max
   functions](https://github.com/lightningnetwork/lnd/pull/9451).
 
+* [Unified](https://github.com/lightningnetwork/lnd/pull/9447) the monitoring
+  inputs spending logic in the sweeper so it can properly handle missing inputs
+  and recover from restart.
+
+
 ## Tooling and Documentation
 
 * [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)

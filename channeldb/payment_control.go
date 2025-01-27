@@ -48,6 +48,10 @@ var (
 	// a failed payment.
 	ErrPaymentAlreadyFailed = errors.New("payment has already failed")
 
+	// ErrAlreadyTracked signals we have already tracked this payment hash
+	// before the payment was initialized.
+	ErrAlreadyTracked = errors.New("payment has been tracked")
+
 	// ErrUnknownPaymentStatus is returned when we do not recognize the
 	// existing state of a payment.
 	ErrUnknownPaymentStatus = errors.New("unknown payment status")
@@ -637,6 +641,80 @@ func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
 	return payment, nil
 }
 
+// FetchOrIndalidatePayment fetches the payment corresponding to the given
+// payment hash. If the payment doesn't exist, it invalidates this payment hash
+// making it impossible to create the payment in the future.
+func (p *PaymentControl) FetchOrIndalidatePayment(paymentHash lntypes.Hash) (
+	*MPPayment, error) {
+
+	var payment *MPPayment
+	var notInitiated bool
+	if err := kvdb.Update(p.db.Backend, func(tx kvdb.RwTx) error {
+		paymentsBucket, err := tx.CreateTopLevelBucket(
+			paymentsRootBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		bucket := paymentsBucket.NestedReadWriteBucket(paymentHash[:])
+		if bucket == nil {
+			// Payment doesn't exist. Create and invalidate it.
+			bucket, err := paymentsBucket.CreateBucketIfNotExists(
+				paymentHash[:],
+			)
+			if err != nil {
+				return err
+			}
+
+			v := []byte{byte(FailureReasonTracked)}
+			err = bucket.Put(paymentFailInfoKey, v)
+			if err != nil {
+				return err
+			}
+
+			// Put something to paymentCreationInfoKey, so
+			// fetchPaymentStatus returns the real status
+			// StatusTracked, not ErrPaymentNotInitiated.
+			info := &PaymentCreationInfo{}
+			var b bytes.Buffer
+			err = serializePaymentCreationInfo(&b, info)
+			if err != nil {
+				return err
+			}
+			err = bucket.Put(paymentCreationInfoKey, b.Bytes())
+			if err != nil {
+				return err
+			}
+
+			// Put some sequence number (8 bytes) for fetchPayment
+			// not to fail upon reading.
+			err = bucket.Put(paymentSequenceKey, make([]byte, 8))
+			if err != nil {
+				return err
+			}
+
+			notInitiated = true
+
+			return nil
+		}
+
+		payment, err = fetchPayment(bucket)
+
+		return err
+	}, func() {
+		payment = nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if notInitiated {
+		return nil, ErrPaymentNotInitiated
+	}
+
+	return payment, nil
+}
+
 // prefetchPayment attempts to prefetch as much of the payment as possible to
 // reduce DB roundtrips.
 func prefetchPayment(tx kvdb.RTx, paymentHash lntypes.Hash) {
@@ -686,7 +764,6 @@ func fetchPaymentBucket(tx kvdb.RTx, paymentHash lntypes.Hash) (
 	}
 
 	return bucket, nil
-
 }
 
 // fetchPaymentBucketUpdate is identical to fetchPaymentBucket, but it returns a

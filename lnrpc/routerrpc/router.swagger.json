@@ -474,6 +474,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "prevent_subsequent_payment",
+            "description": "If set and if a TrackPaymentV2 call is done before starting the payment,\nthis fails a future payment with this payment hash. If TrackPaymentV2 is\nonly expected after starting a payment, you can use this flag to enforce the\norder of requests. To undo the effect of this flag, call DeletePayment. Note\nthat the flag works in TrackPaymentV2 only and is ignored in TrackPayment.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

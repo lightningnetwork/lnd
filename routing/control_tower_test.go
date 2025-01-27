@@ -43,7 +43,7 @@ var (
 )
 
 // TestControlTowerSubscribeUnknown tests that subscribing to an unknown
-// payment fails.
+// payment fails, but it is possible to initiate a payment after that.
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
@@ -51,9 +51,41 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	pControl := NewControlTower(channeldb.NewPaymentControl(db))
 
+	// Generate payment info.
+	info, _, _, err := genInfo()
+	require.NoError(t, err)
+
 	// Subscription should fail when the payment is not known.
-	_, err := pControl.SubscribePayment(lntypes.Hash{1})
+	_, err = pControl.SubscribePayment(info.PaymentIdentifier, false)
 	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+
+	// It is possible to initiate the payment after failed
+	// SubscribePayment(hash, false).
+	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	require.NoError(t, err)
+}
+
+// TestControlTowerPreventSubsequentPayment tests that subscribing to an unknown
+// payment fails and blocks the payment if preventSubsequentPayment is enabled.
+func TestControlTowerPreventSubsequentPayment(t *testing.T) {
+	t.Parallel()
+
+	db := initDB(t, false)
+
+	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+
+	// Generate payment info.
+	info, _, _, err := genInfo()
+	require.NoError(t, err)
+
+	// Subscription should fail when the payment is not known.
+	_, err = pControl.SubscribePayment(info.PaymentIdentifier, true)
+	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+
+	// It is possible to initiate the payment after failed
+	// SubscribePayment(hash, false).
+	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	require.ErrorIs(t, err, channeldb.ErrAlreadyTracked)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a
@@ -78,7 +110,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	// Subscription should succeed and immediately report the InFlight
 	// status.
-	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
+	subscriber1, err := pControl.SubscribePayment(
+		info.PaymentIdentifier, false,
+	)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Register an attempt.
@@ -88,7 +122,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	// Register a second subscriber after the first attempt has started.
-	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
+	subscriber2, err := pControl.SubscribePayment(
+		info.PaymentIdentifier, false,
+	)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Mark the payment as successful.
@@ -106,7 +142,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	// Register a third subscriber after the payment succeeded.
-	subscriber3, err := pControl.SubscribePayment(info.PaymentIdentifier)
+	subscriber3, err := pControl.SubscribePayment(
+		info.PaymentIdentifier, false,
+	)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// We expect all subscribers to now report the final outcome followed by
@@ -415,7 +453,9 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	// Subscription should succeed.
-	subscriber1, err := pControl.SubscribePayment(info.PaymentIdentifier)
+	subscriber1, err := pControl.SubscribePayment(
+		info.PaymentIdentifier, false,
+	)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Conditionally register the attempt based on the test type. This
@@ -452,7 +492,9 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	// Register a second subscriber after the payment failed.
-	subscriber2, err := pControl.SubscribePayment(info.PaymentIdentifier)
+	subscriber2, err := pControl.SubscribePayment(
+		info.PaymentIdentifier, false,
+	)
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// We expect both subscribers to now report the final outcome followed

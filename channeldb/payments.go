@@ -151,6 +151,10 @@ const (
 	// user.
 	FailureReasonCanceled FailureReason = 5
 
+	// FailureReasonTracked indicates that the payment was tracked before
+	// it was initiated.
+	FailureReasonTracked FailureReason = 6
+
 	// TODO(joostjager): Add failure reasons for:
 	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
@@ -175,6 +179,8 @@ func (r FailureReason) String() string {
 		return "insufficient_balance"
 	case FailureReasonCanceled:
 		return "canceled"
+	case FailureReasonTracked:
+		return "tracked"
 	}
 
 	return "unknown"

@@ -162,7 +162,15 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Since Alice is restarted, we need to track the payments again.
-	payStream := alice.RPC.TrackPaymentV2(payHash[:])
+	// Use PreventSubsequentPayment=true in one case to verify that it has
+	// no effect if TrackPaymentV2 is called on an existing payment.
+	payStream, err := alice.RPC.Router.TrackPaymentV2(
+		context.Background(), &routerrpc.TrackPaymentRequest{
+			PaymentHash:              payHash[:],
+			PreventSubsequentPayment: true,
+		},
+	)
+	require.NoError(ht, err)
 	dustPayStream := alice.RPC.TrackPaymentV2(dustPayHash[:])
 
 	// Check that the dust payment is failed in both the stream and DB.
@@ -1065,6 +1073,95 @@ func testPaymentFailureReasonCanceled(ht *lntest.HarnessTest) {
 		routerrpc.ResolveHoldForwardAction_FAIL,
 		lnrpc.Payment_FAILED, interceptor,
 	)
+}
+
+// testTrackedPaymentInvalidates tests that if TrackPaymentV2 is called with
+// PreventSubsequentPayment=true before the payment is sent, then a subsequent
+// attempt to send will be blocked. Also make sure that DeletePayment undoes the
+// effect of PreventSubsequentPayment.
+func testTrackedPaymentInvalidates(ht *lntest.HarnessTest) {
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+
+	// Initialize the test context with 2 connected nodes.
+	cfgs := [][]string{nil, nil}
+
+	// Open and wait for channels.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob := nodes[0], nodes[1]
+
+	// Create an invoice from Bob.
+	invoiceResp := bob.RPC.AddInvoice(&lnrpc.Invoice{
+		Value: 1000,
+	})
+	payReq := invoiceResp.PaymentRequest
+	payHash := invoiceResp.RHash
+
+	// Call TrackPaymentV2 with PreventSubsequentPayment=true.
+	trackClient, err := alice.RPC.Router.TrackPaymentV2(
+		context.Background(), &routerrpc.TrackPaymentRequest{
+			PaymentHash:              payHash,
+			PreventSubsequentPayment: true,
+		},
+	)
+	require.NoError(ht, err)
+	_, err = trackClient.Recv()
+	require.ErrorContains(ht, err, "payment isn't initiated")
+
+	// Now try to call SendPaymentV2. It should fail.
+	sendClient, err := alice.RPC.Router.SendPaymentV2(
+		context.Background(), &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReq,
+			TimeoutSeconds: 3600,
+		},
+	)
+	require.NoError(ht, err)
+	_, err = sendClient.Recv()
+	require.ErrorContains(ht, err, "payment has been tracked")
+
+	// Delete payment from DB. This should undo the effect done by
+	// TrackPaymentV2 with PreventSubsequentPayment enabled.
+	_, err = alice.RPC.LN.DeletePayment(
+		context.Background(), &lnrpc.DeletePaymentRequest{
+			PaymentHash: payHash,
+		},
+	)
+	require.NoError(ht, err)
+
+	// Now call TrackPaymentV2 with PreventSubsequentPayment=false. It
+	// should get "payment isn't initiated" and have no effect on the
+	// subsequent SendPaymentV2.
+	trackClient, err = alice.RPC.Router.TrackPaymentV2(
+		context.Background(), &routerrpc.TrackPaymentRequest{
+			PaymentHash:              payHash,
+			PreventSubsequentPayment: false,
+		},
+	)
+	require.NoError(ht, err)
+	_, err = trackClient.Recv()
+	require.ErrorContains(ht, err, "payment isn't initiated")
+
+	// Now try to call SendPaymentV2 again. It should succeed.
+	sendClient, err = alice.RPC.Router.SendPaymentV2(
+		context.Background(), &routerrpc.SendPaymentRequest{
+			PaymentRequest: payReq,
+			TimeoutSeconds: 3600,
+		},
+	)
+	require.NoError(ht, err)
+	_, err = sendClient.Recv()
+	require.NoError(ht, err)
+
+	// Now call TrackPaymentV2 with PreventSubsequentPayment=true again.
+	trackClient, err = alice.RPC.Router.TrackPaymentV2(
+		context.Background(), &routerrpc.TrackPaymentRequest{
+			PaymentHash:              payHash,
+			PreventSubsequentPayment: true,
+		},
+	)
+	require.NoError(ht, err)
+	_, err = trackClient.Recv()
+	require.NoError(ht, err)
 }
 
 func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,

@@ -379,6 +379,15 @@ message TrackPaymentRequest {
     that show which htlcs are still in flight are suppressed.
     */
     bool no_inflight_updates = 2;
+
+    /*
+    If set and if a TrackPaymentV2 call is done before starting the payment,
+    this fails a future payment with this payment hash. If TrackPaymentV2 is
+    only expected after starting a payment, you can use this flag to enforce the
+    order of requests. To undo the effect of this flag, call DeletePayment. Note
+    that the flag works in TrackPaymentV2 only and is ignored in TrackPayment.
+    */
+    bool prevent_subsequent_payment = 3;
 }
 
 message TrackPaymentsRequest {

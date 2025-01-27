@@ -26,6 +26,10 @@ func TestDecidePaymentStatus(t *testing.T) {
 	reason := FailureReasonNoRoute
 	failure := &reason
 
+	// Create a test failure reason for 'tracked' case and get the pointer.
+	reasonTracked := FailureReasonTracked
+	failureTracked := &reasonTracked
+
 	testCases := []struct {
 		name           string
 		htlcs          []HTLCAttempt
@@ -165,6 +169,14 @@ func TestDecidePaymentStatus(t *testing.T) {
 			reason:         nil,
 			expectedStatus: StatusInitiated,
 		},
+		{
+			// Test when inflight=false, settled=false,
+			// failed=false, reason=no.
+			name:           "tracked",
+			htlcs:          []HTLCAttempt{},
+			reason:         failureTracked,
+			expectedStatus: StatusTracked,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -217,6 +229,12 @@ func TestPaymentStatusActions(t *testing.T) {
 			status:    StatusFailed,
 			initErr:   nil,
 			updateErr: ErrPaymentAlreadyFailed,
+			removeErr: nil,
+		},
+		{
+			status:    StatusTracked,
+			initErr:   ErrAlreadyTracked,
+			updateErr: ErrAlreadyTracked,
 			removeErr: nil,
 		},
 		{

@@ -564,7 +564,13 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	//
 	// TODO(yy): also check the restart behavior of Alice.
 	const anchorCsv = 16
-	ht.MineEmptyBlocks(anchorCsv - defaultCSV)
+	blocks := anchorCsv - defaultCSV
+
+	// Mine empty blocks and check Alice still has the two pending sweeps.
+	for i := 0; i < blocks; i++ {
+		ht.MineEmptyBlocks(1)
+		ht.AssertNumPendingSweeps(alice, 2)
+	}
 
 	// Now that the channel has been closed, and Alice has an unconfirmed
 	// transaction spending the output produced by her anchor sweep, we'll

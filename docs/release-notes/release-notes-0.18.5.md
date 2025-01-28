@@ -47,6 +47,12 @@
 ## BOLT Spec Updates
 
 ## Testing
+
+* [Remove global application level lock for
+  Postgres](https://github.com/lightningnetwork/lnd/pull/9242) so multiple DB
+  transactions can run at once, increasing efficiency. Includes several bugfixes
+  to allow this to work properly.
+
 ## Database
 
 ## Code Health
@@ -55,5 +61,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Alex Akselrod
 * Jesse de Wit
-

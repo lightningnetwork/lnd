@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -1086,17 +1087,36 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		updateSubscribers bool
 	)
 	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
-		updateDesc, res, err := updateInvoice(ctx, inv)
+		// First check if this is a replayed htlc and resolve it
+		// according to its current state. We cannot decide differently
+		// once the HTLC has already been processed before.
+		isReplayed, res, err := resolveReplayedHtlc(ctx, inv)
 		if err != nil {
 			return nil, err
 		}
+		if isReplayed {
+			resolution = res
+			return nil, nil
+		}
 
-		// Only send an update if the invoice state was changed.
-		updateSubscribers = updateDesc != nil &&
-			updateDesc.State != nil
-
-		// Assign resolution to outer scope variable.
+		// In case the HTLC interceptor cancels the HTLC set, we do NOT
+		// cancel the invoice however we cancel the complete HTLC set.
 		if cancelSet {
+			// If the invoice is not open, something is wrong, we
+			// fail just the HTLC with the specific error.
+			if inv.State != ContractOpen {
+				log.Errorf("Invoice state (%v) is not OPEN, "+
+					"cancelling HTLC set not allowed by "+
+					"external source", inv.State)
+
+				resolution = NewFailResolution(
+					ctx.circuitKey, ctx.currentHeight,
+					ResultInvoiceNotOpen,
+				)
+
+				return nil, nil
+			}
+
 			// If a cancel signal was set for the htlc set, we set
 			// the resolution as a failure with an underpayment
 			// indication. Something was wrong with this htlc, so
@@ -1105,9 +1125,42 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				ctx.circuitKey, ctx.currentHeight,
 				ResultAmountTooLow,
 			)
-		} else {
-			resolution = res
+
+			// We cancel all HTLCs which are in the accepted state.
+			//
+			// NOTE: The current HTLC is not included because it
+			// was never accepted in the first place.
+			htlcs := inv.HTLCSet(ctx.setID(), HtlcStateAccepted)
+			htlcKeys := fn.KeySet[CircuitKey](htlcs)
+
+			// The external source did cancel the htlc set, so we
+			// cancel all HTLCs in the set. We however keep the
+			// invoice in the open state.
+			//
+			// NOTE: The invoice event loop will still call the
+			// `cancelSingleHTLC` method for MPP payments, however
+			// because the HTLCs are already cancled back it will be
+			// a NOOP.
+			update := &InvoiceUpdateDesc{
+				UpdateType:  CancelHTLCsUpdate,
+				CancelHtlcs: htlcKeys,
+				SetID:       setID,
+			}
+
+			return update, nil
 		}
+
+		updateDesc, res, err := updateInvoice(ctx, inv)
+		if err != nil {
+			return nil, err
+		}
+
+		// Set resolution in outer scope only after successful update.
+		resolution = res
+
+		// Only send an update if the invoice state was changed.
+		updateSubscribers = updateDesc != nil &&
+			updateDesc.State != nil
 
 		return updateDesc, nil
 	}

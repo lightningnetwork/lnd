@@ -4,18 +4,19 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 // devCommands will return the set of commands to enable for devrpc builds.
-func devCommands() []cli.Command {
-	return []cli.Command{
+func devCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "importgraph",
 			Category:    "Development",
@@ -27,20 +28,20 @@ func devCommands() []cli.Command {
 	}
 }
 
-func getDevClient(ctx *cli.Context) (devrpc.DevClient, func()) {
-	conn := getClientConn(ctx, false)
+func getDevClient(cmd *cli.Command) (devrpc.DevClient, func()) {
+	conn := getClientConn(cmd, false)
 	cleanUp := func() {
 		conn.Close()
 	}
 	return devrpc.NewDevClient(conn), cleanUp
 }
 
-func importGraph(ctx *cli.Context) error {
+func importGraph(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getDevClient(ctx)
+	client, cleanUp := getDevClient(cmd)
 	defer cleanUp()
 
-	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
+	jsonFile := lncfg.CleanAndExpandPath(cmd.Args().First())
 	jsonBytes, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return fmt.Errorf("error reading JSON from file %v: %v",

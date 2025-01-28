@@ -1,13 +1,14 @@
 package commands
 
 import (
+	"context"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var updateChanStatusCommand = cli.Command{
+var updateChanStatusCommand = &cli.Command{
 	Name:     "updatechanstatus",
 	Category: "Channels",
 	Usage:    "Set the status of an existing channel on the network.",
@@ -31,21 +32,21 @@ var updateChanStatusCommand = cli.Command{
 	a prior "disable" action, and will be a no-op otherwise.`,
 	ArgsUsage: "funding_txid [output_index] action",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of " +
 				"the funding transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "the channel whose status should be updated. " +
 				"Takes the form of: txid:output_index",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "action",
 			Usage: `the action to take: must be one of "enable", ` +
 				`"disable", or "auto"`,
@@ -54,23 +55,23 @@ var updateChanStatusCommand = cli.Command{
 	Action: actionDecorator(updateChanStatus),
 }
 
-func updateChanStatus(ctx *cli.Context) error {
+func updateChanStatus(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "updatechanstatus")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "updatechanstatus")
 		return nil
 	}
 
-	channelPoint, err := parseChannelPoint(ctx)
+	channelPoint, err := parseChannelPoint(cmd)
 	if err != nil {
 		return err
 	}
 
 	var action routerrpc.ChanStatusAction
-	switch ctx.String("action") {
+	switch cmd.String("action") {
 	case "enable":
 		action = routerrpc.ChanStatusAction_ENABLE
 	case "disable":

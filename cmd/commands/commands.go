@@ -25,7 +25,8 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/urfave/cli"
+	docs "github.com/urfave/cli-docs/v3"
+	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -233,9 +234,9 @@ func printRespJSON(resp proto.Message) {
 
 // actionDecorator is used to add additional information and error handling
 // to command actions.
-func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
-	return func(c *cli.Context) error {
-		if err := f(c); err != nil {
+func actionDecorator(f func(context.Context, *cli.Command) error) func(context.Context, *cli.Command) error {
+	return func(c context.Context, cmd *cli.Command) error {
+		if err := f(c, cmd); err != nil {
 			s, ok := status.FromError(err)
 
 			// If it's a command for the UnlockerService (like
@@ -246,10 +247,10 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			// 'Unimplemented' means something different for these
 			// two commands.
 			if s.Code() == codes.Unimplemented &&
-				(c.Command.Name == "create" ||
-					c.Command.Name == "unlock" ||
-					c.Command.Name == "changepassword" ||
-					c.Command.Name == "createwatchonly") {
+				(cmd.Name == "create" ||
+					cmd.Name == "unlock" ||
+					cmd.Name == "changepassword" ||
+					cmd.Name == "createwatchonly") {
 
 				return fmt.Errorf("Wallet is already unlocked")
 			}
@@ -273,18 +274,18 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 	}
 }
 
-var newAddressCommand = cli.Command{
+var newAddressCommand = &cli.Command{
 	Name:      "newaddress",
 	Category:  "Wallet",
 	Usage:     "Generates a new address.",
 	ArgsUsage: "address-type",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to " +
 				"generate a new address for",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "unused",
 			Usage: "(optional) return the last unused address " +
 				"instead of generating a new one",
@@ -298,19 +299,19 @@ var newAddressCommand = cli.Command{
 	Action: actionDecorator(newAddress),
 }
 
-func newAddress(ctx *cli.Context) error {
+func newAddress(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
-		return cli.ShowCommandHelp(ctx, "newaddress")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "newaddress")
 	}
 
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
-	stringAddrType := ctx.Args().First()
-	unused := ctx.Bool("unused")
+	stringAddrType := cmd.Args().Slice()[0]
+	unused := cmd.Bool("unused")
 
 	var addrType lnrpc.AddressType
 	switch stringAddrType { // TODO(roasbeef): make them ints on the cli?
@@ -334,12 +335,12 @@ func newAddress(ctx *cli.Context) error {
 			"are: p2wkh, np2wkh, and p2tr", stringAddrType)
 	}
 
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	addr, err := client.NewAddress(ctxc, &lnrpc.NewAddressRequest{
 		Type:    addrType,
-		Account: ctx.String("account"),
+		Account: cmd.String("account"),
 	})
 	if err != nil {
 		return err
@@ -349,7 +350,7 @@ func newAddress(ctx *cli.Context) error {
 	return nil
 }
 
-var coinSelectionStrategyFlag = cli.StringFlag{
+var coinSelectionStrategyFlag = &cli.StringFlag{
 	Name: "coin_selection_strategy",
 	Usage: "(optional) the strategy to use for selecting " +
 		"coins. Possible values are 'largest', 'random', or " +
@@ -359,7 +360,7 @@ var coinSelectionStrategyFlag = cli.StringFlag{
 	Value: "global-config",
 }
 
-var estimateFeeCommand = cli.Command{
+var estimateFeeCommand = &cli.Command{
 	Name:      "estimatefee",
 	Category:  "On-chain",
 	Usage:     "Get fee estimates for sending bitcoin on-chain to multiple addresses.",
@@ -372,7 +373,7 @@ var estimateFeeCommand = cli.Command{
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in",
@@ -382,26 +383,26 @@ var estimateFeeCommand = cli.Command{
 	Action: actionDecorator(estimateFees),
 }
 
-func estimateFees(ctx *cli.Context) error {
+func estimateFees(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 	var amountToAddr map[string]int64
 
-	jsonMap := ctx.Args().First()
+	jsonMap := cmd.Args().Slice()[0]
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		return err
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	resp, err := client.EstimateFee(ctxc, &lnrpc.EstimateFeeRequest{
 		AddrToAmount:          amountToAddr,
-		TargetConf:            int32(ctx.Int64("conf_target")),
+		TargetConf:            int32(cmd.Int("conf_target")),
 		CoinSelectionStrategy: coinSelectionStrategy,
 	})
 	if err != nil {
@@ -412,12 +413,12 @@ func estimateFees(ctx *cli.Context) error {
 	return nil
 }
 
-var txLabelFlag = cli.StringFlag{
+var txLabelFlag = &cli.StringFlag{
 	Name:  "label",
 	Usage: "(optional) a label for the transaction",
 }
 
-var sendCoinsCommand = cli.Command{
+var sendCoinsCommand = &cli.Command{
 	Name:      "sendcoins",
 	Category:  "On-chain",
 	Usage:     "Send bitcoin on-chain to an address.",
@@ -431,12 +432,12 @@ var sendCoinsCommand = cli.Command{
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "addr",
 			Usage: "the base58 or bech32 encoded bitcoin address to send coins " +
 				"to on-chain",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "sweepall",
 			Usage: "if set, then the amount field should be " +
 				"unset. This indicates that the wallet will " +
@@ -444,35 +445,35 @@ var sendCoinsCommand = cli.Command{
 				"wallet or all funds in select utxos (when " +
 				"supplied) to the target address",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "amt",
 			Usage: "the number of bitcoin denominated in satoshis to send",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the transaction " +
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "force, f",
 			Usage: "if set, the transaction will be broadcast " +
 				"without asking for confirmation; this is " +
@@ -481,7 +482,7 @@ var sendCoinsCommand = cli.Command{
 				"scripts",
 		},
 		coinSelectionStrategyFlag,
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "utxo",
 			Usage: "a utxo specified as outpoint(tx:idx) which " +
 				"will be used as input for the transaction. " +
@@ -497,7 +498,7 @@ var sendCoinsCommand = cli.Command{
 	Action: actionDecorator(sendCoins),
 }
 
-func sendCoins(ctx *cli.Context) error {
+func sendCoins(ctx context.Context, cmd *cli.Command) error {
 	var (
 		addr      string
 		amt       int64
@@ -505,17 +506,17 @@ func sendCoins(ctx *cli.Context) error {
 		outpoints []*lnrpc.OutPoint
 	)
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "sendcoins")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "sendcoins")
 		return nil
 	}
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		cmd, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
 		return err
@@ -523,51 +524,51 @@ func sendCoins(ctx *cli.Context) error {
 
 	// Only fee rate flag or conf_target should be set, not both.
 	if _, err := checkNotBothSet(
-		ctx, feeRateFlag, "conf_target",
+		cmd, feeRateFlag, "conf_target",
 	); err != nil {
 		return err
 	}
 
 	switch {
-	case ctx.IsSet("addr"):
-		addr = ctx.String("addr")
-	case args.Present():
-		addr = args.First()
-		args = args.Tail()
+	case cmd.IsSet("addr"):
+		addr = cmd.String("addr")
+	case len(args) > 0:
+		addr = args[0]
+		args = args[1:]
 	default:
 		return fmt.Errorf("Address argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("amt"):
-		amt = ctx.Int64("amt")
-	case args.Present():
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
-	case !ctx.Bool("sweepall"):
+	case cmd.IsSet("amt"):
+		amt = cmd.Int("amt")
+	case len(args) > 0:
+		amt, err = strconv.ParseInt(args[0], 10, 64)
+	case !cmd.Bool("sweepall"):
 		return fmt.Errorf("Amount argument missing")
 	}
 	if err != nil {
 		return fmt.Errorf("unable to decode amount: %w", err)
 	}
 
-	if amt != 0 && ctx.Bool("sweepall") {
+	if amt != 0 && cmd.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 
 	// In case that the user has specified the sweepall flag, we'll
 	// calculate the amount to send based on the current wallet balance.
 	displayAmt := amt
-	if ctx.Bool("sweepall") && !ctx.IsSet("utxo") {
+	if cmd.Bool("sweepall") && !cmd.IsSet("utxo") {
 		balanceResponse, err := client.WalletBalance(
 			ctxc, &lnrpc.WalletBalanceRequest{
 				MinConfs: minConfs,
@@ -580,15 +581,15 @@ func sendCoins(ctx *cli.Context) error {
 		displayAmt = balanceResponse.GetConfirmedBalance()
 	}
 
-	if ctx.IsSet("utxo") {
-		utxos := ctx.StringSlice("utxo")
+	if cmd.IsSet("utxo") {
+		utxos := cmd.StringSlice("utxo")
 
 		outpoints, err = UtxosToOutpoints(utxos)
 		if err != nil {
 			return fmt.Errorf("unable to decode utxos: %w", err)
 		}
 
-		if ctx.Bool("sweepall") {
+		if cmd.Bool("sweepall") {
 			displayAmt = 0
 			// If we're sweeping all funds of the utxos, we'll need
 			// to set the display amount to the total amount of the
@@ -618,7 +619,7 @@ func sendCoins(ctx *cli.Context) error {
 	// Ask for confirmation if we're on an actual terminal and the output is
 	// not being redirected to another command. This prevents existing shell
 	// scripts from breaking.
-	if !ctx.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
+	if !cmd.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
 		fmt.Printf("Amount: %d\n", displayAmt)
 		fmt.Printf("Destination address: %v\n", addr)
 
@@ -631,10 +632,10 @@ func sendCoins(ctx *cli.Context) error {
 	req := &lnrpc.SendCoinsRequest{
 		Addr:                  addr,
 		Amount:                amt,
-		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
-		SendAll:               ctx.Bool("sweepall"),
-		Label:                 ctx.String(txLabelFlag.Name),
+		TargetConf:            int32(cmd.Int("conf_target")),
+		SatPerVbyte:           cmd.Uint(feeRateFlag),
+		SendAll:               cmd.Bool("sweepall"),
+		Label:                 cmd.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
@@ -653,7 +654,7 @@ func isSameOutpoint(a, b *lnrpc.OutPoint) bool {
 	return a.TxidStr == b.TxidStr && a.OutputIndex == b.OutputIndex
 }
 
-var listUnspentCommand = cli.Command{
+var listUnspentCommand = &cli.Command{
 	Name:      "listunspent",
 	Category:  "On-chain",
 	Usage:     "List utxos available for spending.",
@@ -670,15 +671,15 @@ var listUnspentCommand = cli.Command{
 	not present.
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "min_confs",
 			Usage: "the minimum number of confirmations for a utxo",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "max_confs",
 			Usage: "the maximum number of confirmations for a utxo",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "unconfirmed_only",
 			Usage: "when min_confs and max_confs are zero, " +
 				"setting false implicitly overrides max_confs " +
@@ -691,50 +692,49 @@ var listUnspentCommand = cli.Command{
 	Action: actionDecorator(listUnspent),
 }
 
-func listUnspent(ctx *cli.Context) error {
+func listUnspent(ctx context.Context, cmd *cli.Command) error {
 	var (
 		minConfirms int64
 		maxConfirms int64
 		err         error
 	)
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
-	if ctx.IsSet("max_confs") && !ctx.IsSet("min_confs") {
+	if cmd.IsSet("max_confs") && !cmd.IsSet("min_confs") {
 		return fmt.Errorf("max_confs cannot be set without " +
 			"min_confs being set")
 	}
 
 	switch {
-	case ctx.IsSet("min_confs"):
-		minConfirms = ctx.Int64("min_confs")
-	case args.Present():
-		minConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("min_confs"):
+		minConfirms = cmd.Int("min_confs")
+	case len(args) > 0:
+		minConfirms, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(ctx, "listunspent")
+			cli.ShowCommandHelp(ctx, cmd, "listunspent")
 			return nil
 		}
-		args = args.Tail()
+		args = args[1:]
 	}
 
 	switch {
-	case ctx.IsSet("max_confs"):
-		maxConfirms = ctx.Int64("max_confs")
-	case args.Present():
-		maxConfirms, err = strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("max_confs"):
+		maxConfirms = cmd.Int("max_confs")
+	case len(args) > 0:
+		maxConfirms, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
-			cli.ShowCommandHelp(ctx, "listunspent")
+			cli.ShowCommandHelp(ctx, cmd, "listunspent")
 			return nil
 		}
-		args = args.Tail()
 	}
 
-	unconfirmedOnly := ctx.Bool("unconfirmed_only")
+	unconfirmedOnly := cmd.Bool("unconfirmed_only")
 
 	// Force minConfirms and maxConfirms to be zero if unconfirmedOnly is
 	// true.
 	if unconfirmedOnly && (minConfirms != 0 || maxConfirms != 0) {
-		cli.ShowCommandHelp(ctx, "listunspent")
+		cli.ShowCommandHelp(ctx, cmd, "listunspent")
 		return nil
 	}
 
@@ -744,7 +744,7 @@ func listUnspent(ctx *cli.Context) error {
 		maxConfirms = math.MaxInt32
 	}
 
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ListUnspentRequest{
@@ -774,7 +774,7 @@ func listUnspent(ctx *cli.Context) error {
 	return nil
 }
 
-var sendManyCommand = cli.Command{
+var sendManyCommand = &cli.Command{
 	Name:      "sendmany",
 	Category:  "On-chain",
 	Usage:     "Send bitcoin on-chain to multiple addresses.",
@@ -788,23 +788,23 @@ var sendManyCommand = cli.Command{
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the transaction *should* " +
 				"confirm in, will be used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the transaction " +
@@ -817,11 +817,11 @@ var sendManyCommand = cli.Command{
 	Action: actionDecorator(sendMany),
 }
 
-func sendMany(ctx *cli.Context) error {
+func sendMany(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 	var amountToAddr map[string]int64
 
-	jsonMap := ctx.Args().First()
+	jsonMap := cmd.Args().Slice()[0]
 	if err := json.Unmarshal([]byte(jsonMap), &amountToAddr); err != nil {
 		return err
 	}
@@ -829,7 +829,7 @@ func sendMany(ctx *cli.Context) error {
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		cmd, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
 		return err
@@ -837,25 +837,25 @@ func sendMany(ctx *cli.Context) error {
 
 	// Only fee rate flag or conf_target should be set, not both.
 	if _, err := checkNotBothSet(
-		ctx, feeRateFlag, "conf_target",
+		cmd, feeRateFlag, "conf_target",
 	); err != nil {
 		return err
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 	txid, err := client.SendMany(ctxc, &lnrpc.SendManyRequest{
 		AddrToAmount:          amountToAddr,
-		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
-		Label:                 ctx.String(txLabelFlag.Name),
+		TargetConf:            int32(cmd.Int("conf_target")),
+		SatPerVbyte:           cmd.Uint(feeRateFlag),
+		Label:                 cmd.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
@@ -868,7 +868,7 @@ func sendMany(ctx *cli.Context) error {
 	return nil
 }
 
-var connectCommand = cli.Command{
+var connectCommand = &cli.Command{
 	Name:      "connect",
 	Category:  "Peers",
 	Usage:     "Connect to a remote lightning peer.",
@@ -882,13 +882,13 @@ var connectCommand = cli.Command{
 	lncli connect <pubkey>@host --timeout 30s
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "perm",
 			Usage: "If set, the daemon will attempt to persistently " +
 				"connect to the target peer.\n" +
 				"           If not, the call will be synchronous.",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "timeout",
 			Usage: "The connection timeout value for current request. " +
 				"Valid uints are {ms, s, m, h}.\n" +
@@ -899,12 +899,12 @@ var connectCommand = cli.Command{
 	Action: actionDecorator(connectPeer),
 }
 
-func connectPeer(ctx *cli.Context) error {
+func connectPeer(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	targetAddress := ctx.Args().First()
+	targetAddress := cmd.Args().Slice()[0]
 	splitAddr := strings.Split(targetAddress, "@")
 	if len(splitAddr) != 2 {
 		return fmt.Errorf("target address expected in format: " +
@@ -917,8 +917,8 @@ func connectPeer(ctx *cli.Context) error {
 	}
 	req := &lnrpc.ConnectPeerRequest{
 		Addr:    addr,
-		Perm:    ctx.Bool("perm"),
-		Timeout: uint64(ctx.Duration("timeout").Seconds()),
+		Perm:    cmd.Bool("perm"),
+		Timeout: uint64(cmd.Duration("timeout").Seconds()),
 	}
 
 	lnid, err := client.ConnectPeer(ctxc, req)
@@ -930,14 +930,14 @@ func connectPeer(ctx *cli.Context) error {
 	return nil
 }
 
-var disconnectCommand = cli.Command{
+var disconnectCommand = &cli.Command{
 	Name:     "disconnect",
 	Category: "Peers",
 	Usage: "Disconnect a remote lightning peer identified by " +
 		"public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "node_key",
 			Usage: "The hex-encoded compressed public key of the peer " +
 				"to disconnect from",
@@ -946,17 +946,17 @@ var disconnectCommand = cli.Command{
 	Action: actionDecorator(disconnectPeer),
 }
 
-func disconnectPeer(ctx *cli.Context) error {
+func disconnectPeer(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var pubKey string
 	switch {
-	case ctx.IsSet("node_key"):
-		pubKey = ctx.String("node_key")
-	case ctx.Args().Present():
-		pubKey = ctx.Args().First()
+	case cmd.IsSet("node_key"):
+		pubKey = cmd.String("node_key")
+	case cmd.Args().Present():
+		pubKey = cmd.Args().Slice()[0]
 	default:
 		return fmt.Errorf("must specify target public key")
 	}
@@ -976,7 +976,7 @@ func disconnectPeer(ctx *cli.Context) error {
 
 // TODO(roasbeef): also allow short relative channel ID.
 
-var closeChannelCommand = cli.Command{
+var closeChannelCommand = &cli.Command{
 	Name:     "closechannel",
 	Category: "Channels",
 	Usage:    "Close an existing channel.",
@@ -1006,30 +1006,30 @@ var closeChannelCommand = cli.Command{
 	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid output_index",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "(optional) the channel point. If set, " +
 				"funding_txid and output_index flags and " +
 				"positional arguments will be ignored",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force",
 			Usage: "attempt an uncooperative closure",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "block",
 			Usage: "block until the channel is closed",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
@@ -1037,26 +1037,26 @@ var closeChannelCommand = cli.Command{
 				"then the conf-target value set in the main " +
 				"lnd config will be used.",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction; default is a conf-target " +
 				"of 6 blocks",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "delivery_addr",
 			Usage: "(optional) an address to deliver funds " +
 				"upon cooperative channel closing, may only " +
 				"be used if an upfront shutdown address is not " +
 				"already set",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "max_fee_rate",
 			Usage: "(optional) maximum fee rate in sat/vbyte " +
 				"accepted during the negotiation (default is " +
@@ -1068,27 +1068,27 @@ var closeChannelCommand = cli.Command{
 	Action: actionDecorator(closeChannel),
 }
 
-func closeChannel(ctx *cli.Context) error {
+func closeChannel(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if no arguments and flags were provided.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "closechannel")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "closechannel")
 		return nil
 	}
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		cmd, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
 		return err
 	}
 
-	channelPoint, err := parseChannelPoint(ctx)
+	channelPoint, err := parseChannelPoint(cmd)
 	if err != nil {
 		return err
 	}
@@ -1096,11 +1096,11 @@ func closeChannel(ctx *cli.Context) error {
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint:    channelPoint,
-		Force:           ctx.Bool("force"),
-		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag),
-		DeliveryAddress: ctx.String("delivery_addr"),
-		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
+		Force:           cmd.Bool("force"),
+		TargetConf:      int32(cmd.Int("conf_target")),
+		SatPerVbyte:     cmd.Uint(feeRateFlag),
+		DeliveryAddress: cmd.String("delivery_addr"),
+		MaxFeePerVbyte:  cmd.Uint("max_fee_rate"),
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will
@@ -1122,7 +1122,7 @@ func closeChannel(ctx *cli.Context) error {
 		})
 	}()
 
-	err = executeChannelClose(ctxc, client, req, txidChan, ctx.Bool("block"))
+	err = executeChannelClose(ctxc, client, req, txidChan, cmd.Bool("block"))
 	if err != nil {
 		return err
 	}
@@ -1178,7 +1178,7 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 	}
 }
 
-var closeAllChannelsCommand = cli.Command{
+var closeAllChannelsCommand = &cli.Command{
 	Name:     "closeallchannels",
 	Category: "Channels",
 	Usage:    "Close all existing channels.",
@@ -1203,33 +1203,33 @@ var closeAllChannelsCommand = cli.Command{
 	--sat_per_vbyte arguments. This will be the starting value used during
 	fee negotiation. This is optional.`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "inactive_only",
 			Usage: "close inactive channels only",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "force",
 			Usage: "ask for confirmation once before attempting " +
 				"to close existing channels",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"closing transactions *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the closing transactions",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "s, skip_confirmation",
 			Usage: "Skip the confirmation prompt and close all " +
 				"channels immediately",
@@ -1238,22 +1238,22 @@ var closeAllChannelsCommand = cli.Command{
 	Action: actionDecorator(closeAllChannels),
 }
 
-func closeAllChannels(ctx *cli.Context) error {
+func closeAllChannels(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		cmd, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
 		return err
 	}
 
 	prompt := "Do you really want to close ALL channels? (yes/no): "
-	if !ctx.Bool("skip_confirmation") && !promptForConfirmation(prompt) {
+	if !cmd.Bool("skip_confirmation") && !promptForConfirmation(prompt) {
 		return errors.New("action aborted by user")
 	}
 
@@ -1270,7 +1270,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	var channelsToClose []*lnrpc.Channel
 
 	switch {
-	case ctx.Bool("force") && ctx.Bool("inactive_only"):
+	case cmd.Bool("force") && cmd.Bool("inactive_only"):
 		msg := "Unilaterally close all inactive channels? The funds " +
 			"within these channels will be locked for some blocks " +
 			"(CSV delay) before they can be spent. (yes/no): "
@@ -1291,7 +1291,7 @@ func closeAllChannels(ctx *cli.Context) error {
 				)
 			}
 		}
-	case ctx.Bool("force"):
+	case cmd.Bool("force"):
 		msg := "Close all active and inactive channels? Inactive " +
 			"channels will be closed unilaterally, so funds " +
 			"within them will be locked for a few blocks (CSV " +
@@ -1327,7 +1327,7 @@ func closeAllChannels(ctx *cli.Context) error {
 						channelsToClose, channel,
 					)
 				}
-			} else if !ctx.Bool("inactive_only") {
+			} else if !cmd.Bool("inactive_only") {
 				// Otherwise, we'll only add active channels if
 				// we were not requested to close inactive
 				// channels only.
@@ -1384,8 +1384,8 @@ func closeAllChannels(ctx *cli.Context) error {
 					OutputIndex: uint32(index),
 				},
 				Force:       !channel.GetActive(),
-				TargetConf:  int32(ctx.Int64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
+				TargetConf:  int32(cmd.Int("conf_target")),
+				SatPerVbyte: cmd.Uint(feeRateFlag),
 			}
 
 			txidChan := make(chan string, 1)
@@ -1434,7 +1434,7 @@ func promptForConfirmation(msg string) bool {
 	}
 }
 
-var abandonChannelCommand = cli.Command{
+var abandonChannelCommand = &cli.Command{
 	Name:     "abandonchannel",
 	Category: "Channels",
 	Usage:    "Abandons an existing channel.",
@@ -1452,22 +1452,22 @@ var abandonChannelCommand = cli.Command{
 	The format for a channel_point is 'funding_txid:output_index'.`,
 	ArgsUsage: "funding_txid [output_index]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funding_txid",
 			Usage: "the txid of the channel's funding transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "output_index",
 			Usage: "the output index for the funding output of the funding " +
 				"transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "(optional) the channel point. If set, " +
 				"funding_txid and output_index flags and " +
 				"positional arguments will be ignored",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "i_know_what_i_am_doing",
 			Usage: "override the requirement for lnd needing to " +
 				"be in dev/debug mode to use this command; " +
@@ -1481,25 +1481,25 @@ var abandonChannelCommand = cli.Command{
 	Action: actionDecorator(abandonChannel),
 }
 
-func abandonChannel(ctx *cli.Context) error {
+func abandonChannel(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if no arguments and flags were provided.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "abandonchannel")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "abandonchannel")
 		return nil
 	}
 
-	channelPoint, err := parseChannelPoint(ctx)
+	channelPoint, err := parseChannelPoint(cmd)
 	if err != nil {
 		return err
 	}
 
 	req := &lnrpc.AbandonChannelRequest{
 		ChannelPoint:      channelPoint,
-		IKnowWhatIAmDoing: ctx.Bool("i_know_what_i_am_doing"),
+		IKnowWhatIAmDoing: cmd.Bool("i_know_what_i_am_doing"),
 	}
 
 	resp, err := client.AbandonChannel(ctxc, req)
@@ -1513,39 +1513,39 @@ func abandonChannel(ctx *cli.Context) error {
 
 // parseChannelPoint parses a funding txid and output index from the command
 // line. Both named options and unnamed parameters are supported.
-func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
+func parseChannelPoint(cmd *cli.Command) (*lnrpc.ChannelPoint, error) {
 	channelPoint := &lnrpc.ChannelPoint{}
 	var err error
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	switch {
-	case ctx.IsSet("chan_point"):
-		channelPoint, err = parseChanPoint(ctx.String("chan_point"))
+	case cmd.IsSet("chan_point"):
+		channelPoint, err = parseChanPoint(cmd.String("chan_point"))
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse chan_point: "+
 				"%v", err)
 		}
 		return channelPoint, nil
 
-	case ctx.IsSet("funding_txid"):
+	case cmd.IsSet("funding_txid"):
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: ctx.String("funding_txid"),
+			FundingTxidStr: cmd.String("funding_txid"),
 		}
-	case args.Present():
+	case len(args) > 0:
 		channelPoint.FundingTxid = &lnrpc.ChannelPoint_FundingTxidStr{
-			FundingTxidStr: args.First(),
+			FundingTxidStr: args[0],
 		}
-		args = args.Tail()
+		args = args[1:]
 	default:
 		return nil, fmt.Errorf("funding txid argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("output_index"):
-		channelPoint.OutputIndex = uint32(ctx.Int("output_index"))
-	case args.Present():
-		index, err := strconv.ParseUint(args.First(), 10, 32)
+	case cmd.IsSet("output_index"):
+		channelPoint.OutputIndex = uint32(cmd.Int("output_index"))
+	case len(args) > 0:
+		index, err := strconv.ParseUint(args[0], 10, 32)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode output "+
 				"index: %w", err)
@@ -1558,12 +1558,12 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	return channelPoint, nil
 }
 
-var listPeersCommand = cli.Command{
+var listPeersCommand = &cli.Command{
 	Name:     "listpeers",
 	Category: "Peers",
 	Usage:    "List all active, currently connected peers.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "list_errors",
 			Usage: "list a full set of most recent errors for the peer",
 		},
@@ -1571,15 +1571,15 @@ var listPeersCommand = cli.Command{
 	Action: actionDecorator(listPeers),
 }
 
-func listPeers(ctx *cli.Context) error {
+func listPeers(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// By default, we display a single error on the cli. If the user
 	// specifically requests a full error set, then we will provide it.
 	req := &lnrpc.ListPeersRequest{
-		LatestError: !ctx.IsSet("list_errors"),
+		LatestError: !cmd.IsSet("list_errors"),
 	}
 	resp, err := client.ListPeers(ctxc, req)
 	if err != nil {
@@ -1590,12 +1590,12 @@ func listPeers(ctx *cli.Context) error {
 	return nil
 }
 
-var walletBalanceCommand = cli.Command{
+var walletBalanceCommand = &cli.Command{
 	Name:     "walletbalance",
 	Category: "Wallet",
 	Usage:    "Compute and display the wallet's current balance.",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the account for which the balance " +
 				"is shown",
@@ -1605,13 +1605,13 @@ var walletBalanceCommand = cli.Command{
 	Action: actionDecorator(walletBalance),
 }
 
-func walletBalance(ctx *cli.Context) error {
+func walletBalance(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.WalletBalanceRequest{
-		Account: ctx.String("account"),
+		Account: cmd.String("account"),
 	}
 	resp, err := client.WalletBalance(ctxc, req)
 	if err != nil {
@@ -1622,7 +1622,7 @@ func walletBalance(ctx *cli.Context) error {
 	return nil
 }
 
-var ChannelBalanceCommand = cli.Command{
+var ChannelBalanceCommand = &cli.Command{
 	Name:     "channelbalance",
 	Category: "Channels",
 	Usage: "Returns the sum of the total available channel balance across " +
@@ -1630,9 +1630,9 @@ var ChannelBalanceCommand = cli.Command{
 	Action: actionDecorator(ChannelBalance),
 }
 
-func ChannelBalance(ctx *cli.Context) error {
+func ChannelBalance(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ChannelBalanceRequest{}
@@ -1645,7 +1645,7 @@ func ChannelBalance(ctx *cli.Context) error {
 	return nil
 }
 
-var generateManPageCommand = cli.Command{
+var generateManPageCommand = &cli.Command{
 	Name: "generatemanpage",
 	Usage: "Generates a man page for lncli and lnd as " +
 		"lncli.1 and lnd.1 respectively.",
@@ -1653,9 +1653,9 @@ var generateManPageCommand = cli.Command{
 	Action: actionDecorator(generateManPage),
 }
 
-func generateManPage(ctx *cli.Context) error {
+func generateManPage(ctx context.Context, cmd *cli.Command) error {
 	// Generate the man pages for lncli as lncli.1.
-	manpages, err := ctx.App.ToMan()
+	manpages, err := docs.ToMan(cmd)
 	if err != nil {
 		return err
 	}
@@ -1680,15 +1680,15 @@ func generateManPage(ctx *cli.Context) error {
 	return nil
 }
 
-var getInfoCommand = cli.Command{
+var getInfoCommand = &cli.Command{
 	Name:   "getinfo",
 	Usage:  "Returns basic information related to the active daemon.",
 	Action: actionDecorator(getInfo),
 }
 
-func getInfo(ctx *cli.Context) error {
+func getInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.GetInfoRequest{}
@@ -1701,15 +1701,15 @@ func getInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var getRecoveryInfoCommand = cli.Command{
+var getRecoveryInfoCommand = &cli.Command{
 	Name:   "getrecoveryinfo",
 	Usage:  "Display information about an ongoing recovery attempt.",
 	Action: actionDecorator(getRecoveryInfo),
 }
 
-func getRecoveryInfo(ctx *cli.Context) error {
+func getRecoveryInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.GetRecoveryInfoRequest{}
@@ -1722,12 +1722,12 @@ func getRecoveryInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var pendingChannelsCommand = cli.Command{
+var pendingChannelsCommand = &cli.Command{
 	Name:     "pendingchannels",
 	Category: "Channels",
 	Usage:    "Display information pertaining to pending channels.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_raw_tx",
 			Usage: "include the raw transaction hex for " +
 				"waiting_close_channels.",
@@ -1736,12 +1736,12 @@ var pendingChannelsCommand = cli.Command{
 	Action: actionDecorator(pendingChannels),
 }
 
-func pendingChannels(ctx *cli.Context) error {
+func pendingChannels(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	includeRawTx := ctx.Bool("include_raw_tx")
+	includeRawTx := cmd.Bool("include_raw_tx")
 	req := &lnrpc.PendingChannelsRequest{
 		IncludeRawTx: includeRawTx,
 	}
@@ -1755,34 +1755,34 @@ func pendingChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var ListChannelsCommand = cli.Command{
+var ListChannelsCommand = &cli.Command{
 	Name:     "listchannels",
 	Category: "Channels",
 	Usage:    "List all open channels.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "active_only",
 			Usage: "only list channels which are currently active",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "inactive_only",
 			Usage: "only list channels which are currently inactive",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "public_only",
 			Usage: "only list channels which are currently public",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "private_only",
 			Usage: "only list channels which are currently private",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "peer",
 			Usage: "(optional) only display channels with a " +
 				"particular peer, accepts 66-byte, " +
 				"hex-encoded pubkeys",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "skip_peer_alias_lookup",
 			Usage: "skip the peer alias lookup per channel in " +
 				"order to improve performance",
@@ -1791,7 +1791,7 @@ var ListChannelsCommand = cli.Command{
 	Action: actionDecorator(ListChannels),
 }
 
-var listAliasesCommand = cli.Command{
+var listAliasesCommand = &cli.Command{
 	Name:     "listaliases",
 	Category: "Channels",
 	Usage:    "List all aliases.",
@@ -1799,9 +1799,9 @@ var listAliasesCommand = cli.Command{
 	Action:   actionDecorator(listAliases),
 }
 
-func listAliases(ctx *cli.Context) error {
+func listAliases(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ListAliasesRequest{}
@@ -1816,12 +1816,12 @@ func listAliases(ctx *cli.Context) error {
 	return nil
 }
 
-func ListChannels(ctx *cli.Context) error {
+func ListChannels(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	peer := ctx.String("peer")
+	peer := cmd.String("peer")
 
 	// If the user requested channels with a particular key, parse the
 	// provided pubkey.
@@ -1837,13 +1837,13 @@ func ListChannels(ctx *cli.Context) error {
 
 	// By default, we will look up the peers' alias information unless the
 	// skip_peer_alias_lookup flag indicates otherwise.
-	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
+	lookupPeerAlias := !cmd.Bool("skip_peer_alias_lookup")
 
 	req := &lnrpc.ListChannelsRequest{
-		ActiveOnly:      ctx.Bool("active_only"),
-		InactiveOnly:    ctx.Bool("inactive_only"),
-		PublicOnly:      ctx.Bool("public_only"),
-		PrivateOnly:     ctx.Bool("private_only"),
+		ActiveOnly:      cmd.Bool("active_only"),
+		InactiveOnly:    cmd.Bool("inactive_only"),
+		PublicOnly:      cmd.Bool("public_only"),
+		PrivateOnly:     cmd.Bool("private_only"),
 		Peer:            peerKey,
 		PeerAliasLookup: lookupPeerAlias,
 	}
@@ -1858,36 +1858,36 @@ func ListChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var closedChannelsCommand = cli.Command{
+var closedChannelsCommand = &cli.Command{
 	Name:     "closedchannels",
 	Category: "Channels",
 	Usage:    "List all closed channels.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "cooperative",
 			Usage: "list channels that were closed cooperatively",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "local_force",
 			Usage: "list channels that were force-closed " +
 				"by the local node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "remote_force",
 			Usage: "list channels that were force-closed " +
 				"by the remote node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "breach",
 			Usage: "list channels for which the remote node " +
 				"attempted to broadcast a prior " +
 				"revoked channel state",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "funding_canceled",
 			Usage: "list channels that were never fully opened",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "abandoned",
 			Usage: "list channels that were abandoned by " +
 				"the local node",
@@ -1896,18 +1896,18 @@ var closedChannelsCommand = cli.Command{
 	Action: actionDecorator(closedChannels),
 }
 
-func closedChannels(ctx *cli.Context) error {
+func closedChannels(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ClosedChannelsRequest{
-		Cooperative:     ctx.Bool("cooperative"),
-		LocalForce:      ctx.Bool("local_force"),
-		RemoteForce:     ctx.Bool("remote_force"),
-		Breach:          ctx.Bool("breach"),
-		FundingCanceled: ctx.Bool("funding_canceled"),
-		Abandoned:       ctx.Bool("abandoned"),
+		Cooperative:     cmd.Bool("cooperative"),
+		LocalForce:      cmd.Bool("local_force"),
+		RemoteForce:     cmd.Bool("remote_force"),
+		Breach:          cmd.Bool("breach"),
+		FundingCanceled: cmd.Bool("funding_canceled"),
+		Abandoned:       cmd.Bool("abandoned"),
 	}
 
 	resp, err := client.ClosedChannels(ctxc, req)
@@ -1920,14 +1920,14 @@ func closedChannels(ctx *cli.Context) error {
 	return nil
 }
 
-var describeGraphCommand = cli.Command{
+var describeGraphCommand = &cli.Command{
 	Name:     "describegraph",
 	Category: "Graph",
 	Description: "Prints a human readable version of the known channel " +
 		"graph from the PoV of the node",
 	Usage: "Describe the network graph.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_unannounced",
 			Usage: "If set, unannounced channels will be included in the " +
 				"graph. Unannounced channels are both private channels, and " +
@@ -1937,13 +1937,13 @@ var describeGraphCommand = cli.Command{
 	Action: actionDecorator(describeGraph),
 }
 
-func describeGraph(ctx *cli.Context) error {
+func describeGraph(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: ctx.Bool("include_unannounced"),
+		IncludeUnannounced: cmd.Bool("include_unannounced"),
 	}
 
 	graph, err := client.DescribeGraph(ctxc, req)
@@ -1955,7 +1955,7 @@ func describeGraph(ctx *cli.Context) error {
 	return nil
 }
 
-var getNodeMetricsCommand = cli.Command{
+var getNodeMetricsCommand = &cli.Command{
 	Name:        "getnodemetrics",
 	Category:    "Graph",
 	Description: "Prints out node metrics calculated from the current graph",
@@ -1963,9 +1963,9 @@ var getNodeMetricsCommand = cli.Command{
 	Action:      actionDecorator(getNodeMetrics),
 }
 
-func getNodeMetrics(ctx *cli.Context) error {
+func getNodeMetrics(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.NodeMetricsRequest{
@@ -1981,7 +1981,7 @@ func getNodeMetrics(ctx *cli.Context) error {
 	return nil
 }
 
-var getChanInfoCommand = cli.Command{
+var getChanInfoCommand = &cli.Command{
 	Name:     "getchaninfo",
 	Category: "Graph",
 	Usage:    "Get the state of a channel.",
@@ -1989,13 +1989,13 @@ var getChanInfoCommand = cli.Command{
 		"particular channel",
 	ArgsUsage: "chan_id",
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "chan_id",
 			Usage: "The 8-byte compact channel ID to query for. " +
 				"If this is set the chan_point param is " +
 				"ignored.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "The channel point in format txid:index. If " +
 				"the chan_id param is set this param is " +
@@ -2005,9 +2005,9 @@ var getChanInfoCommand = cli.Command{
 	Action: actionDecorator(getChanInfo),
 }
 
-func getChanInfo(ctx *cli.Context) error {
+func getChanInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -2017,17 +2017,17 @@ func getChanInfo(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("chan_id"):
-		chanID = ctx.Uint64("chan_id")
+	case cmd.IsSet("chan_id"):
+		chanID = cmd.Uint("chan_id")
 
-	case ctx.Args().Present():
-		chanID, err = strconv.ParseUint(ctx.Args().First(), 10, 64)
+	case cmd.Args().Present():
+		chanID, err = strconv.ParseUint(cmd.Args().First(), 10, 64)
 		if err != nil {
 			return fmt.Errorf("error parsing chan_id: %w", err)
 		}
 
-	case ctx.IsSet("chan_point"):
-		chanPoint = ctx.String("chan_point")
+	case cmd.IsSet("chan_point"):
+		chanPoint = cmd.String("chan_point")
 
 	default:
 		return fmt.Errorf("chan_id or chan_point argument missing")
@@ -2047,19 +2047,19 @@ func getChanInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var getNodeInfoCommand = cli.Command{
+var getNodeInfoCommand = &cli.Command{
 	Name:     "getnodeinfo",
 	Category: "Graph",
 	Usage:    "Get information on a specific node.",
 	Description: "Prints out the latest authenticated node state for an " +
 		"advertised node",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "pub_key",
 			Usage: "the 33-byte hex-encoded compressed public of the target " +
 				"node",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_channels",
 			Usage: "if true, will return all known channels " +
 				"associated with the node",
@@ -2068,26 +2068,26 @@ var getNodeInfoCommand = cli.Command{
 	Action: actionDecorator(getNodeInfo),
 }
 
-func getNodeInfo(ctx *cli.Context) error {
+func getNodeInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	var pubKey string
 	switch {
-	case ctx.IsSet("pub_key"):
-		pubKey = ctx.String("pub_key")
-	case args.Present():
-		pubKey = args.First()
+	case cmd.IsSet("pub_key"):
+		pubKey = cmd.String("pub_key")
+	case len(args) > 0:
+		pubKey = args[0]
 	default:
 		return fmt.Errorf("pub_key argument missing")
 	}
 
 	req := &lnrpc.NodeInfoRequest{
 		PubKey:          pubKey,
-		IncludeChannels: ctx.Bool("include_channels"),
+		IncludeChannels: cmd.Bool("include_channels"),
 	}
 
 	nodeInfo, err := client.GetNodeInfo(ctxc, req)
@@ -2099,7 +2099,7 @@ func getNodeInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var getNetworkInfoCommand = cli.Command{
+var getNetworkInfoCommand = &cli.Command{
 	Name:     "getnetworkinfo",
 	Category: "Channels",
 	Usage: "Get statistical information about the current " +
@@ -2109,9 +2109,9 @@ var getNetworkInfoCommand = cli.Command{
 	Action: actionDecorator(getNetworkInfo),
 }
 
-func getNetworkInfo(ctx *cli.Context) error {
+func getNetworkInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.NetworkInfoRequest{}
@@ -2125,7 +2125,7 @@ func getNetworkInfo(ctx *cli.Context) error {
 	return nil
 }
 
-var debugLevelCommand = cli.Command{
+var debugLevelCommand = &cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",
 	Description: `Logging level for all subsystems {trace, debug, info, warn, error, critical, off}
@@ -2133,11 +2133,11 @@ var debugLevelCommand = cli.Command{
 
 	Use show to list available subsystems`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "show",
 			Usage: "if true, then the list of available sub-systems will be printed out",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "level",
 			Usage: "the level specification to target either a coarse logging level, or granular set of specific sub-systems with logging levels for each",
 		},
@@ -2145,13 +2145,13 @@ var debugLevelCommand = cli.Command{
 	Action: actionDecorator(debugLevel),
 }
 
-func debugLevel(ctx *cli.Context) error {
+func debugLevel(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 	req := &lnrpc.DebugLevelRequest{
-		Show:      ctx.Bool("show"),
-		LevelSpec: ctx.String("level"),
+		Show:      cmd.Bool("show"),
+		LevelSpec: cmd.String("level"),
 	}
 
 	resp, err := client.DebugLevel(ctxc, req)
@@ -2163,31 +2163,31 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
-var listChainTxnsCommand = cli.Command{
+var listChainTxnsCommand = &cli.Command{
 	Name:     "listchaintxns",
 	Category: "On-chain",
 	Usage:    "List transactions from the wallet.",
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "start_height",
 			Usage: "the block height from which to list " +
 				"transactions, inclusive",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "end_height",
 			Usage: "the block height until which to list " +
 				"transactions, inclusive, to get " +
 				"transactions until the chain tip, including " +
 				"unconfirmed, set this value to -1",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "index_offset",
 			Usage: "the index of a transaction that will be " +
 				"used in a query to determine which " +
 				"transaction should be returned in the " +
 				"response",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "max_transactions",
 			Usage: "(optional) the max number of transactions to " +
 				"return; leave at default of 0 to return " +
@@ -2211,21 +2211,21 @@ var listChainTxnsCommand = cli.Command{
 	Action: actionDecorator(listChainTxns),
 }
 
-func listChainTxns(ctx *cli.Context) error {
+func listChainTxns(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.GetTransactionsRequest{
-		IndexOffset:     uint32(ctx.Uint64("index_offset")),
-		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
+		IndexOffset:     uint32(cmd.Uint("index_offset")),
+		MaxTransactions: uint32(cmd.Uint("max_transactions")),
 	}
 
-	if ctx.IsSet("start_height") {
-		req.StartHeight = int32(ctx.Int64("start_height"))
+	if cmd.IsSet("start_height") {
+		req.StartHeight = int32(cmd.Int("start_height"))
 	}
-	if ctx.IsSet("end_height") {
-		req.EndHeight = int32(ctx.Int64("end_height"))
+	if cmd.IsSet("end_height") {
+		req.EndHeight = int32(cmd.Int("end_height"))
 	}
 
 	resp, err := client.GetTransactions(ctxc, req)
@@ -2237,7 +2237,7 @@ func listChainTxns(ctx *cli.Context) error {
 	return nil
 }
 
-var stopCommand = cli.Command{
+var stopCommand = &cli.Command{
 	Name:  "stop",
 	Usage: "Stop and shutdown the daemon.",
 	Description: `
@@ -2246,9 +2246,9 @@ var stopCommand = cli.Command{
 	Action: actionDecorator(stopDaemon),
 }
 
-func stopDaemon(ctx *cli.Context) error {
+func stopDaemon(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	resp, err := client.StopDaemon(ctxc, &lnrpc.StopRequest{})
@@ -2261,7 +2261,7 @@ func stopDaemon(ctx *cli.Context) error {
 	return nil
 }
 
-var signMessageCommand = cli.Command{
+var signMessageCommand = &cli.Command{
 	Name:      "signmessage",
 	Category:  "Wallet",
 	Usage:     "Sign a message with the node's private key.",
@@ -2272,7 +2272,7 @@ var signMessageCommand = cli.Command{
 
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to sign",
 		},
@@ -2280,18 +2280,18 @@ var signMessageCommand = cli.Command{
 	Action: actionDecorator(signMessage),
 }
 
-func signMessage(ctx *cli.Context) error {
+func signMessage(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var msg []byte
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
-	case ctx.Args().Present():
-		msg = []byte(ctx.Args().First())
+	case cmd.IsSet("msg"):
+		msg = []byte(cmd.String("msg"))
+	case cmd.Args().Present():
+		msg = []byte(cmd.Args().First())
 	default:
 		return fmt.Errorf("msg argument missing")
 	}
@@ -2305,7 +2305,7 @@ func signMessage(ctx *cli.Context) error {
 	return nil
 }
 
-var verifyMessageCommand = cli.Command{
+var verifyMessageCommand = &cli.Command{
 	Name:      "verifymessage",
 	Category:  "Wallet",
 	Usage:     "Verify a message signed with the signature.",
@@ -2317,11 +2317,11 @@ var verifyMessageCommand = cli.Command{
 
 	Positional arguments and flags can be used interchangeably but not at the same time!`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to verify",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "sig",
 			Usage: "the zbase32 encoded signature of the message",
 		},
@@ -2329,9 +2329,9 @@ var verifyMessageCommand = cli.Command{
 	Action: actionDecorator(verifyMessage),
 }
 
-func verifyMessage(ctx *cli.Context) error {
+func verifyMessage(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -2339,23 +2339,23 @@ func verifyMessage(ctx *cli.Context) error {
 		sig string
 	)
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
-	case args.Present():
-		msg = []byte(ctx.Args().First())
-		args = args.Tail()
+	case cmd.IsSet("msg"):
+		msg = []byte(cmd.String("msg"))
+	case len(args) > 0:
+		msg = []byte(cmd.Args().First())
+		args = args[1:]
 	default:
 		return fmt.Errorf("msg argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("sig"):
-		sig = ctx.String("sig")
-	case args.Present():
-		sig = args.First()
+	case cmd.IsSet("sig"):
+		sig = cmd.String("sig")
+	case len(args) > 0:
+		sig = args[0]
 	default:
 		return fmt.Errorf("signature argument missing")
 	}
@@ -2370,7 +2370,7 @@ func verifyMessage(ctx *cli.Context) error {
 	return nil
 }
 
-var feeReportCommand = cli.Command{
+var feeReportCommand = &cli.Command{
 	Name:     "feereport",
 	Category: "Channels",
 	Usage:    "Display the current fee policies of all active channels.",
@@ -2380,9 +2380,9 @@ var feeReportCommand = cli.Command{
 	Action: actionDecorator(feeReport),
 }
 
-func feeReport(ctx *cli.Context) error {
+func feeReport(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.FeeReportRequest{}
@@ -2395,7 +2395,7 @@ func feeReport(ctx *cli.Context) error {
 	return nil
 }
 
-var updateChannelPolicyCommand = cli.Command{
+var updateChannelPolicyCommand = &cli.Command{
 	Name:     "updatechanpolicy",
 	Category: "Channels",
 	Usage: "Update the channel policy for all channels, or a single " +
@@ -2409,13 +2409,13 @@ var updateChannelPolicyCommand = cli.Command{
         points are encoded as: funding_txid:output_index
 	`,
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will be " +
 				"charged for each forwarded HTLC, regardless " +
 				"of payment size",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
@@ -2424,7 +2424,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"(millionths). Can not be set at the same " +
 				"time as fee_rate_ppm",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
 				"will be charged proportionally based on the " +
@@ -2433,7 +2433,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"0.000001 (millionths). Can not be set at " +
 				"the same time as fee_rate",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "inbound_base_fee_msat",
 			Usage: "the base inbound fee in milli-satoshis that " +
 				"will be charged for each forwarded HTLC, " +
@@ -2445,7 +2445,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"(forward at a loss), and lead to " +
 				"penalization by the sender",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "inbound_fee_rate_ppm",
 			Usage: "the inbound fee rate that will be charged " +
 				"proportionally based on the value of each " +
@@ -2458,31 +2458,31 @@ var updateChannelPolicyCommand = cli.Command{
 				"(forward at a loss), and lead to " +
 				"penalization by the sender",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_htlc_msat",
 			Usage: "if set, the min HTLC size that will be " +
 				"applied to all forwarded HTLCs. If unset, " +
 				"the min HTLC is left unchanged",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "max_htlc_msat",
 			Usage: "if set, the max HTLC size that will be " +
 				"applied to all forwarded HTLCs. If unset, " +
 				"the max HTLC is left unchanged",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "chan_point",
 			Usage: "the channel which this policy update should " +
 				"be applied to. If nil, the policies for all " +
 				"channels will be updated. Takes the form of " +
 				"txid:output_index",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "create_missing_edge",
 			Usage: "Under unknown circumstances a channel can " +
 				"exist with a missing edge in the graph " +
@@ -2542,9 +2542,9 @@ func parseTimeLockDelta(timeLockDeltaStr string) (uint16, error) {
 	return uint16(timeLockDeltaUnCheck), nil
 }
 
-func updateChannelPolicy(ctx *cli.Context) error {
+func updateChannelPolicy(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -2554,54 +2554,54 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		timeLockDelta uint16
 		err           error
 	)
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	switch {
-	case ctx.IsSet("base_fee_msat"):
-		baseFee = ctx.Int64("base_fee_msat")
-	case args.Present():
-		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("base_fee_msat"):
+		baseFee = cmd.Int("base_fee_msat")
+	case len(args) > 0:
+		baseFee, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode base_fee_msat: %w",
 				err)
 		}
-		args = args.Tail()
+		args = args[1:]
 	default:
 		return fmt.Errorf("base_fee_msat argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("fee_rate") && ctx.IsSet("fee_rate_ppm"):
+	case cmd.IsSet("fee_rate") && cmd.IsSet("fee_rate_ppm"):
 		return fmt.Errorf("fee_rate or fee_rate_ppm can not both be set")
-	case ctx.IsSet("fee_rate"):
-		feeRate = ctx.Float64("fee_rate")
-	case ctx.IsSet("fee_rate_ppm"):
-		feeRatePpm = ctx.Uint64("fee_rate_ppm")
-	case args.Present():
-		feeRate, err = strconv.ParseFloat(args.First(), 64)
+	case cmd.IsSet("fee_rate"):
+		feeRate = cmd.Float("fee_rate")
+	case cmd.IsSet("fee_rate_ppm"):
+		feeRatePpm = cmd.Uint("fee_rate_ppm")
+	case len(args) > 0:
+		feeRate, err = strconv.ParseFloat(args[0], 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode fee_rate: %w", err)
 		}
 
-		args = args.Tail()
+		args = args[1:]
 	default:
 		return fmt.Errorf("fee_rate or fee_rate_ppm argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("time_lock_delta"):
-		timeLockDeltaStr := ctx.String("time_lock_delta")
+	case cmd.IsSet("time_lock_delta"):
+		timeLockDeltaStr := cmd.String("time_lock_delta")
 		timeLockDelta, err = parseTimeLockDelta(timeLockDeltaStr)
 		if err != nil {
 			return err
 		}
-	case args.Present():
-		timeLockDelta, err = parseTimeLockDelta(args.First())
+	case len(args) > 0:
+		timeLockDelta, err = parseTimeLockDelta(args[0])
 		if err != nil {
 			return err
 		}
 
-		args = args.Tail()
+		args = args[1:]
 	default:
 		return fmt.Errorf("time_lock_delta argument missing")
 	}
@@ -2612,10 +2612,10 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("chan_point"):
-		chanPointStr = ctx.String("chan_point")
-	case args.Present():
-		chanPointStr = args.First()
+	case cmd.IsSet("chan_point"):
+		chanPointStr = cmd.String("chan_point")
+	case len(args) > 0:
+		chanPointStr = args[0]
 	}
 
 	if chanPointStr != "" {
@@ -2625,14 +2625,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
-	inboundBaseFeeMsat := ctx.Int64("inbound_base_fee_msat")
+	inboundBaseFeeMsat := cmd.Int("inbound_base_fee_msat")
 	if inboundBaseFeeMsat < math.MinInt32 ||
 		inboundBaseFeeMsat > math.MaxInt32 {
 
 		return errors.New("inbound_base_fee_msat out of range")
 	}
 
-	inboundFeeRatePpm := ctx.Int64("inbound_fee_rate_ppm")
+	inboundFeeRatePpm := cmd.Int("inbound_fee_rate_ppm")
 	if inboundFeeRatePpm < math.MinInt32 ||
 		inboundFeeRatePpm > math.MaxInt32 {
 
@@ -2642,32 +2642,32 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	// Inbound fees are optional. However, if an update is required,
 	// both the base fee and the fee rate must be provided.
 	var inboundFee *lnrpc.InboundFee
-	if ctx.IsSet("inbound_base_fee_msat") !=
-		ctx.IsSet("inbound_fee_rate_ppm") {
+	if cmd.IsSet("inbound_base_fee_msat") !=
+		cmd.IsSet("inbound_fee_rate_ppm") {
 
 		return errors.New("both parameters must be provided: " +
 			"inbound_base_fee_msat and inbound_fee_rate_ppm")
 	}
 
-	if ctx.IsSet("inbound_fee_rate_ppm") {
+	if cmd.IsSet("inbound_fee_rate_ppm") {
 		inboundFee = &lnrpc.InboundFee{
 			BaseFeeMsat: int32(inboundBaseFeeMsat),
 			FeeRatePpm:  int32(inboundFeeRatePpm),
 		}
 	}
 
-	createMissingEdge := ctx.Bool("create_missing_edge")
+	createMissingEdge := cmd.Bool("create_missing_edge")
 
 	req := &lnrpc.PolicyUpdateRequest{
 		BaseFeeMsat:       baseFee,
 		TimeLockDelta:     uint32(timeLockDelta),
-		MaxHtlcMsat:       ctx.Uint64("max_htlc_msat"),
+		MaxHtlcMsat:       cmd.Uint("max_htlc_msat"),
 		InboundFee:        inboundFee,
 		CreateMissingEdge: createMissingEdge,
 	}
 
-	if ctx.IsSet("min_htlc_msat") {
-		req.MinHtlcMsat = ctx.Uint64("min_htlc_msat")
+	if cmd.IsSet("min_htlc_msat") {
+		req.MinHtlcMsat = cmd.Uint("min_htlc_msat")
 		req.MinHtlcMsatSpecified = true
 	}
 
@@ -2711,23 +2711,23 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	return nil
 }
 
-var fishCompletionCommand = cli.Command{
+var fishCompletionCommand = &cli.Command{
 	Name:   "fish-completion",
 	Hidden: true,
-	Action: func(c *cli.Context) error {
-		completion, err := c.App.ToFishCompletion()
+	Action: func(c context.Context, cmd *cli.Command) error {
+		completion, err := cmd.ToFishCompletion()
 		if err != nil {
 			return err
 		}
 
 		// We don't want to suggest files, so we add this
 		// first line to the completions.
-		_, err = fmt.Printf("complete -c %q -f \n%s", c.App.Name, completion)
+		_, err = fmt.Printf("complete -c %q -f \n%s", cmd.Name, completion)
 		return err
 	},
 }
 
-var exportChanBackupCommand = cli.Command{
+var exportChanBackupCommand = &cli.Command{
 	Name:     "exportchanbackup",
 	Category: "Channels",
 	Usage: "Obtain a static channel back up for a selected channels, " +
@@ -2758,16 +2758,16 @@ var exportChanBackupCommand = cli.Command{
 	command.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "chan_point",
 			Usage: "the target channel to obtain an SCB for",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "all",
 			Usage: "if specified, then a multi backup of all " +
 				"active channels will be returned",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "output_file",
 			Usage: `
 			if specified, then rather than printing a JSON output
@@ -2780,14 +2780,14 @@ var exportChanBackupCommand = cli.Command{
 	Action: actionDecorator(exportChanBackup),
 }
 
-func exportChanBackup(ctx *cli.Context) error {
+func exportChanBackup(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "exportchanbackup")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "exportchanbackup")
 		return nil
 	}
 
@@ -2796,21 +2796,21 @@ func exportChanBackup(ctx *cli.Context) error {
 		chanPointStr   string
 		outputFileName string
 	)
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	switch {
-	case ctx.IsSet("chan_point"):
-		chanPointStr = ctx.String("chan_point")
+	case cmd.IsSet("chan_point"):
+		chanPointStr = cmd.String("chan_point")
 
-	case args.Present():
-		chanPointStr = args.First()
+	case len(args) > 0:
+		chanPointStr = args[0]
 
-	case !ctx.IsSet("all"):
+	case !cmd.IsSet("all"):
 		return fmt.Errorf("must specify chan_point if --all isn't set")
 	}
 
-	if ctx.IsSet("output_file") {
-		outputFileName = ctx.String("output_file")
+	if cmd.IsSet("output_file") {
+		outputFileName = cmd.String("output_file")
 	}
 
 	if chanPointStr != "" {
@@ -2858,7 +2858,7 @@ func exportChanBackup(ctx *cli.Context) error {
 		return nil
 	}
 
-	if !ctx.IsSet("all") {
+	if !cmd.IsSet("all") {
 		return fmt.Errorf("if a channel isn't specified, -all must be")
 	}
 
@@ -2897,7 +2897,7 @@ func exportChanBackup(ctx *cli.Context) error {
 	return nil
 }
 
-var verifyChanBackupCommand = cli.Command{
+var verifyChanBackupCommand = &cli.Command{
 	Name:      "verifychanbackup",
 	Category:  "Channels",
 	Usage:     "Verify an existing channel backup.",
@@ -2923,24 +2923,24 @@ var verifyChanBackupCommand = cli.Command{
 	 file.
     `,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "single_backup",
 			Usage: "a hex encoded single channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "multi_backup",
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
 
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "single_file",
 			Usage:     "the path to a single-channel backup file",
 			TakesFile: true,
 		},
 
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
 			TakesFile: true,
@@ -2949,18 +2949,18 @@ var verifyChanBackupCommand = cli.Command{
 	Action: actionDecorator(verifyChanBackup),
 }
 
-func verifyChanBackup(ctx *cli.Context) error {
+func verifyChanBackup(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "verifychanbackup")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "verifychanbackup")
 		return nil
 	}
 
-	backups, err := parseChanBackups(ctx)
+	backups, err := parseChanBackups(cmd)
 	if err != nil {
 		return err
 	}
@@ -2985,7 +2985,7 @@ func verifyChanBackup(ctx *cli.Context) error {
 	return nil
 }
 
-var restoreChanBackupCommand = cli.Command{
+var restoreChanBackupCommand = &cli.Command{
 	Name:     "restorechanbackup",
 	Category: "Channels",
 	Usage: "Restore an existing single or multi-channel static channel " +
@@ -3017,24 +3017,24 @@ var restoreChanBackupCommand = cli.Command{
 	     file.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "single_backup",
 			Usage: "a hex encoded single channel backup obtained " +
 				"from exportchanbackup",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "multi_backup",
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
 
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "single_file",
 			Usage:     "the path to a single-channel backup file",
 			TakesFile: true,
 		},
 
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
 			TakesFile: true,
@@ -3047,11 +3047,11 @@ var restoreChanBackupCommand = cli.Command{
 // backup from a CLI command, and it is missing.
 var errMissingChanBackup = errors.New("missing channel backup")
 
-func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error) {
+func parseChanBackups(cmd *cli.Command) (*lnrpc.RestoreChanBackupRequest, error) {
 	switch {
-	case ctx.IsSet("single_backup"):
+	case cmd.IsSet("single_backup"):
 		packedBackup, err := hex.DecodeString(
-			ctx.String("single_backup"),
+			cmd.String("single_backup"),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode single packed "+
@@ -3070,9 +3070,9 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 			},
 		}, nil
 
-	case ctx.IsSet("multi_backup"):
+	case cmd.IsSet("multi_backup"):
 		packedMulti, err := hex.DecodeString(
-			ctx.String("multi_backup"),
+			cmd.String("multi_backup"),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode multi packed "+
@@ -3085,8 +3085,8 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 			},
 		}, nil
 
-	case ctx.IsSet("single_file"):
-		packedSingle, err := os.ReadFile(ctx.String("single_file"))
+	case cmd.IsSet("single_file"):
+		packedSingle, err := os.ReadFile(cmd.String("single_file"))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode single "+
 				"packed backup: %v", err)
@@ -3102,8 +3102,8 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 			},
 		}, nil
 
-	case ctx.IsSet("multi_file"):
-		packedMulti, err := os.ReadFile(ctx.String("multi_file"))
+	case cmd.IsSet("multi_file"):
+		packedMulti, err := os.ReadFile(cmd.String("multi_file"))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode multi packed "+
 				"backup: %v", err)
@@ -3120,20 +3120,20 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 	}
 }
 
-func restoreChanBackup(ctx *cli.Context) error {
+func restoreChanBackup(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		cli.ShowCommandHelp(ctx, "restorechanbackup")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		cli.ShowCommandHelp(ctx, cmd, "restorechanbackup")
 		return nil
 	}
 
 	var req lnrpc.RestoreChanBackupRequest
 
-	backups, err := parseChanBackups(ctx)
+	backups, err := parseChanBackups(cmd)
 	if err != nil {
 		return err
 	}

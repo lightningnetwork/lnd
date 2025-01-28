@@ -4,44 +4,46 @@
 package commands
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lnrpc/watchtowerrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-func watchtowerCommands() []cli.Command {
-	return []cli.Command{
+func watchtowerCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "tower",
 			Usage:    "Interact with the watchtower.",
 			Category: "Watchtower",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				towerInfoCommand,
 			},
 		},
 	}
 }
 
-func getWatchtowerClient(ctx *cli.Context) (watchtowerrpc.WatchtowerClient, func()) {
-	conn := getClientConn(ctx, false)
+func getWatchtowerClient(cmd *cli.Command) (watchtowerrpc.WatchtowerClient, func()) {
+	conn := getClientConn(cmd, false)
 	cleanup := func() {
 		conn.Close()
 	}
 	return watchtowerrpc.NewWatchtowerClient(conn), cleanup
 }
 
-var towerInfoCommand = cli.Command{
+var towerInfoCommand = &cli.Command{
 	Name:   "info",
 	Usage:  "Returns basic information related to the active watchtower.",
 	Action: actionDecorator(towerInfo),
 }
 
-func towerInfo(ctx *cli.Context) error {
+func towerInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	if ctx.NArg() != 0 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "info")
+	if cmd.NArg() != 0 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "info")
 	}
 
-	client, cleanup := getWatchtowerClient(ctx)
+	client, cleanup := getWatchtowerClient(cmd)
 	defer cleanup()
 
 	req := &watchtowerrpc.GetInfoRequest{}

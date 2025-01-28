@@ -4,12 +4,14 @@
 package commands
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-func getNeutrinoKitClient(ctx *cli.Context) (neutrinorpc.NeutrinoKitClient, func()) {
-	conn := getClientConn(ctx, false)
+func getNeutrinoKitClient(cmd *cli.Command) (neutrinorpc.NeutrinoKitClient, func()) {
+	conn := getClientConn(cmd, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -18,7 +20,7 @@ func getNeutrinoKitClient(ctx *cli.Context) (neutrinorpc.NeutrinoKitClient, func
 	return neutrinorpc.NewNeutrinoKitClient(conn), cleanUp
 }
 
-var getNeutrinoStatusCommand = cli.Command{
+var getNeutrinoStatusCommand = &cli.Command{
 	Name:     "status",
 	Usage:    "Returns the status of the running neutrino instance.",
 	Category: "Neutrino",
@@ -28,9 +30,9 @@ var getNeutrinoStatusCommand = cli.Command{
 	Action: actionDecorator(getNeutrinoStatus),
 }
 
-func getNeutrinoStatus(ctx *cli.Context) error {
+func getNeutrinoStatus(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
 	req := &neutrinorpc.StatusRequest{}
@@ -45,7 +47,7 @@ func getNeutrinoStatus(ctx *cli.Context) error {
 	return nil
 }
 
-var addPeerCommand = cli.Command{
+var addPeerCommand = &cli.Command{
 	Name:     "addpeer",
 	Usage:    "Add a peer.",
 	Category: "Neutrino",
@@ -55,20 +57,20 @@ var addPeerCommand = cli.Command{
 	Action:    actionDecorator(addNeutrinoPeer),
 }
 
-func addNeutrinoPeer(ctx *cli.Context) error {
+func addNeutrinoPeer(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "addpeer")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "addpeer")
 	}
 
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
 	req := &neutrinorpc.AddPeerRequest{
-		PeerAddrs: ctx.Args().First(),
+		PeerAddrs: cmd.Args().First(),
 	}
 
 	// Add a peer to the neutrino server.
@@ -82,7 +84,7 @@ func addNeutrinoPeer(ctx *cli.Context) error {
 	return nil
 }
 
-var disconnectPeerCommand = cli.Command{
+var disconnectPeerCommand = &cli.Command{
 	Name:     "disconnectpeer",
 	Usage:    "Disconnect a peer.",
 	Category: "Neutrino",
@@ -93,20 +95,20 @@ var disconnectPeerCommand = cli.Command{
 	Action:    actionDecorator(disconnectNeutrinoPeer),
 }
 
-func disconnectNeutrinoPeer(ctx *cli.Context) error {
+func disconnectNeutrinoPeer(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "disconnectpeer")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "disconnectpeer")
 	}
 
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
 	req := &neutrinorpc.DisconnectPeerRequest{
-		PeerAddrs: ctx.Args().First(),
+		PeerAddrs: cmd.Args().First(),
 	}
 
 	// Disconnect a peer to the neutrino server.
@@ -120,7 +122,7 @@ func disconnectNeutrinoPeer(ctx *cli.Context) error {
 	return nil
 }
 
-var isBannedCommand = cli.Command{
+var isBannedCommand = &cli.Command{
 	Name:        "isbanned",
 	Usage:       "Get ban status.",
 	Category:    "Neutrino",
@@ -129,19 +131,19 @@ var isBannedCommand = cli.Command{
 	Action:      actionDecorator(isBanned),
 }
 
-func isBanned(ctx *cli.Context) error {
+func isBanned(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "isbanned")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "isbanned")
 	}
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
 	req := &neutrinorpc.IsBannedRequest{
-		PeerAddrs: ctx.Args().First(),
+		PeerAddrs: cmd.Args().First(),
 	}
 
 	// Check if the peer is banned.
@@ -155,7 +157,7 @@ func isBanned(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockHeaderNeutrinoCommand = cli.Command{
+var getBlockHeaderNeutrinoCommand = &cli.Command{
 	Name:        "getblockheader",
 	Usage:       "Get a block header.",
 	Category:    "Neutrino",
@@ -164,21 +166,21 @@ var getBlockHeaderNeutrinoCommand = cli.Command{
 	Action:      actionDecorator(getBlockHeaderNeutrino),
 }
 
-func getBlockHeaderNeutrino(ctx *cli.Context) error {
+func getBlockHeaderNeutrino(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if !args.Present() {
-		return cli.ShowCommandHelp(ctx, "getblockheader")
+	if len(args) == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "getblockheader")
 	}
 
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
 	req := &neutrinorpc.GetBlockHeaderRequest{
-		Hash: ctx.Args().First(),
+		Hash: cmd.Args().First(),
 	}
 
 	resp, err := client.GetBlockHeader(ctxc, req)
@@ -191,7 +193,7 @@ func getBlockHeaderNeutrino(ctx *cli.Context) error {
 	return nil
 }
 
-var getCFilterCommand = cli.Command{
+var getCFilterCommand = &cli.Command{
 	Name:        "getcfilter",
 	Usage:       "Get a compact filter.",
 	Category:    "Neutrino",
@@ -200,20 +202,20 @@ var getCFilterCommand = cli.Command{
 	Action:      actionDecorator(getCFilter),
 }
 
-func getCFilter(ctx *cli.Context) error {
+func getCFilter(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if !args.Present() {
-		return cli.ShowCommandHelp(ctx, "getcfilter")
+	if len(args) == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "getcfilter")
 	}
 
-	client, cleanUp := getNeutrinoKitClient(ctx)
+	client, cleanUp := getNeutrinoKitClient(cmd)
 	defer cleanUp()
 
-	req := &neutrinorpc.GetCFilterRequest{Hash: args.First()}
+	req := &neutrinorpc.GetCFilterRequest{Hash: args[0]}
 
 	resp, err := client.GetCFilter(ctxc, req)
 	if err != nil {
@@ -227,14 +229,14 @@ func getCFilter(ctx *cli.Context) error {
 
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
-func neutrinoCommands() []cli.Command {
-	return []cli.Command{
+func neutrinoCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "neutrino",
 			Category:    "Neutrino",
 			Usage:       "Interact with a running neutrino instance.",
 			Description: "",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				getNeutrinoStatusCommand,
 				addPeerCommand,
 				disconnectPeerCommand,

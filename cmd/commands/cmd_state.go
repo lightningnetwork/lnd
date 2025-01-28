@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var getStateCommand = cli.Command{
+var getStateCommand = &cli.Command{
 	Name:     "state",
 	Category: "Startup",
 	Usage:    "Get the current state of the wallet and RPC",
@@ -25,9 +25,9 @@ var getStateCommand = cli.Command{
 	Action: actionDecorator(getState),
 }
 
-func getState(ctx *cli.Context) error {
+func getState(ctx context.Context, cmd *cli.Command) error {
 	ctxb := context.Background()
-	client, cleanUp := getStateServiceClient(ctx)
+	client, cleanUp := getStateServiceClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.SubscribeStateRequest{}

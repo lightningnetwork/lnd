@@ -5,23 +5,24 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"strconv"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 // chainCommands will return the set of commands to enable for chainrpc builds.
-func chainCommands() []cli.Command {
-	return []cli.Command{
+func chainCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "chain",
 			Category: "On-chain",
 			Usage:    "Interact with the bitcoin blockchain.",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				getBlockCommand,
 				getBestBlockCommand,
 				getBlockHashCommand,
@@ -31,8 +32,8 @@ func chainCommands() []cli.Command {
 	}
 }
 
-func getChainClient(ctx *cli.Context) (chainrpc.ChainKitClient, func()) {
-	conn := getClientConn(ctx, false)
+func getChainClient(cmd *cli.Command) (chainrpc.ChainKitClient, func()) {
+	conn := getClientConn(cmd, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -41,17 +42,17 @@ func getChainClient(ctx *cli.Context) (chainrpc.ChainKitClient, func()) {
 	return chainrpc.NewChainKitClient(conn), cleanUp
 }
 
-var getBlockCommand = cli.Command{
+var getBlockCommand = &cli.Command{
 	Name:        "getblock",
 	Category:    "On-chain",
 	Usage:       "Get block by block hash.",
 	Description: "Returns a block given the corresponding block hash.",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "hash",
 			Usage: "the target block hash",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "verbose",
 			Usage: "print entire block as JSON",
 		},
@@ -59,25 +60,25 @@ var getBlockCommand = cli.Command{
 	Action: actionDecorator(getBlock),
 }
 
-func getBlock(ctx *cli.Context) error {
+func getBlock(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	var (
-		args            = ctx.Args()
+		args            = cmd.Args().Slice()
 		blockHashString string
 	)
 
 	verbose := false
-	if ctx.IsSet("verbose") {
+	if cmd.IsSet("verbose") {
 		verbose = true
 	}
 
 	switch {
-	case ctx.IsSet("hash"):
-		blockHashString = ctx.String("hash")
+	case cmd.IsSet("hash"):
+		blockHashString = cmd.String("hash")
 
-	case args.Present():
-		blockHashString = args.First()
+	case len(args) > 0:
+		blockHashString = args[0]
 
 	default:
 		return fmt.Errorf("hash argument missing")
@@ -88,7 +89,7 @@ func getBlock(ctx *cli.Context) error {
 		return err
 	}
 
-	client, cleanUp := getChainClient(ctx)
+	client, cleanUp := getChainClient(cmd)
 	defer cleanUp()
 
 	req := &chainrpc.GetBlockRequest{BlockHash: blockHash.CloneBytes()}
@@ -114,7 +115,7 @@ func getBlock(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockHeaderCommand = cli.Command{
+var getBlockHeaderCommand = &cli.Command{
 	Name:        "getblockheader",
 	Usage:       "Get a block header.",
 	Category:    "On-chain",
@@ -123,24 +124,24 @@ var getBlockHeaderCommand = cli.Command{
 	Action:      actionDecorator(getBlockHeader),
 }
 
-func getBlockHeader(ctx *cli.Context) error {
+func getBlockHeader(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if !args.Present() {
-		return cli.ShowCommandHelp(ctx, "getblockheader")
+	if len(args) == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "getblockheader")
 	}
 
-	blockHash, err := chainhash.NewHashFromStr(args.First())
+	blockHash, err := chainhash.NewHashFromStr(args[0])
 	if err != nil {
 		return err
 	}
 
 	req := &chainrpc.GetBlockHeaderRequest{BlockHash: blockHash[:]}
 
-	client, cleanUp := getChainClient(ctx)
+	client, cleanUp := getChainClient(cmd)
 	defer cleanUp()
 
 	resp, err := client.GetBlockHeader(ctxc, req)
@@ -153,7 +154,7 @@ func getBlockHeader(ctx *cli.Context) error {
 	return nil
 }
 
-var getBestBlockCommand = cli.Command{
+var getBestBlockCommand = &cli.Command{
 	Name:     "getbestblock",
 	Category: "On-chain",
 	Usage:    "Get best block.",
@@ -162,10 +163,10 @@ var getBestBlockCommand = cli.Command{
 	Action: actionDecorator(getBestBlock),
 }
 
-func getBestBlock(ctx *cli.Context) error {
+func getBestBlock(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
-	client, cleanUp := getChainClient(ctx)
+	client, cleanUp := getChainClient(cmd)
 	defer cleanUp()
 
 	resp, err := client.GetBestBlock(ctxc, &chainrpc.GetBestBlockRequest{})
@@ -188,14 +189,14 @@ func getBestBlock(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockHashCommand = cli.Command{
+var getBlockHashCommand = &cli.Command{
 	Name:     "getblockhash",
 	Category: "On-chain",
 	Usage:    "Get block hash by block height.",
 	Description: "Returns the block hash from the best chain at a given " +
 		"height.",
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "height",
 			Usage: "target block height",
 		},
@@ -203,26 +204,26 @@ var getBlockHashCommand = cli.Command{
 	Action: actionDecorator(getBlockHash),
 }
 
-func getBlockHash(ctx *cli.Context) error {
+func getBlockHash(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg()+ctx.NumFlags() != 1 {
-		return cli.ShowCommandHelp(ctx, "getblockhash")
+	if cmd.NArg()+cmd.NumFlags() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "getblockhash")
 	}
 
 	var (
-		args        = ctx.Args()
+		args        = cmd.Args().Slice()
 		blockHeight int64
 	)
 
 	switch {
-	case ctx.IsSet("height"):
-		blockHeight = ctx.Int64("height")
+	case cmd.IsSet("height"):
+		blockHeight = cmd.Int("height")
 
-	case args.Present():
-		blockHeightString := args.First()
+	case len(args) > 0:
+		blockHeightString := args[0]
 
 		// Convert block height positional argument from string to
 		// int64.
@@ -236,7 +237,7 @@ func getBlockHash(ctx *cli.Context) error {
 		return fmt.Errorf("block height argument missing")
 	}
 
-	client, cleanUp := getChainClient(ctx)
+	client, cleanUp := getChainClient(cmd)
 	defer cleanUp()
 
 	req := &chainrpc.GetBlockHashRequest{BlockHeight: blockHeight}

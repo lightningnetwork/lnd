@@ -1,15 +1,16 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnrpc/lnclipb"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var versionCommand = cli.Command{
+var versionCommand = &cli.Command{
 	Name:  "version",
 	Usage: "Display lncli and lnd version info.",
 	Description: `
@@ -19,9 +20,9 @@ var versionCommand = cli.Command{
 	Action: actionDecorator(version),
 }
 
-func version(ctx *cli.Context) error {
+func version(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	versions := &lnclipb.VersionResponse{

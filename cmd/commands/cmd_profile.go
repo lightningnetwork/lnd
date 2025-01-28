@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -24,7 +25,7 @@ var (
 	defaultProfileFile = path.Join(defaultLncliDir, "profiles.json")
 )
 
-var profileSubCommand = cli.Command{
+var profileSubCommand = &cli.Command{
 	Name:     "profile",
 	Category: "Profiles",
 	Usage:    "Create and manage lncli profiles.",
@@ -50,7 +51,7 @@ var profileSubCommand = cli.Command{
 		~/.lncli/profiles.json on Linux
 		~/Library/Application Support/Lncli/profiles.json on MacOS
 	`,
-	Subcommands: []cli.Command{
+	Commands: []*cli.Command{
 		profileListCommand,
 		profileAddCommand,
 		profileRemoveCommand,
@@ -60,13 +61,13 @@ var profileSubCommand = cli.Command{
 	},
 }
 
-var profileListCommand = cli.Command{
+var profileListCommand = &cli.Command{
 	Name:   "list",
 	Usage:  "Lists all lncli profiles",
 	Action: profileList,
 }
 
-func profileList(_ *cli.Context) error {
+func profileList(_ context.Context, cmd *cli.Command) error {
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
 		return err
@@ -76,7 +77,7 @@ func profileList(_ *cli.Context) error {
 	return nil
 }
 
-var profileAddCommand = cli.Command{
+var profileAddCommand = &cli.Command{
 	Name:      "add",
 	Usage:     "Add a new profile.",
 	ArgsUsage: "name",
@@ -86,11 +87,11 @@ var profileAddCommand = cli.Command{
 	profile.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the new profile",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "default",
 			Usage: "set the new profile to be the default profile",
 		},
@@ -98,9 +99,9 @@ var profileAddCommand = cli.Command{
 	Action: profileAdd,
 }
 
-func profileAdd(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "add")
+func profileAdd(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "add")
 	}
 
 	// Load the default profile file or create a new one if it doesn't exist
@@ -116,19 +117,19 @@ func profileAdd(ctx *cli.Context) error {
 	}
 
 	// Create a profile struct from all the global options.
-	profile, err := profileFromContext(ctx, true, false)
+	profile, err := profileFromContext(cmd, true, false)
 	if err != nil {
 		return fmt.Errorf("could not load global options: %w", err)
 	}
 
 	// Finally, all that's left is to get the profile name from either
 	// positional argument or flag.
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 	switch {
-	case ctx.IsSet("name"):
-		profile.Name = ctx.String("name")
-	case args.Present():
-		profile.Name = args.First()
+	case cmd.IsSet("name"):
+		profile.Name = cmd.String("name")
+	case len(args) > 0:
+		profile.Name = args[0]
 	default:
 		return fmt.Errorf("name argument missing")
 	}
@@ -142,7 +143,7 @@ func profileAdd(ctx *cli.Context) error {
 	}
 
 	// Do we need to update the default entry to be this one?
-	if ctx.Bool("default") {
+	if cmd.Bool("default") {
 		f.Default = profile.Name
 	}
 
@@ -158,13 +159,13 @@ func profileAdd(ctx *cli.Context) error {
 	return nil
 }
 
-var profileRemoveCommand = cli.Command{
+var profileRemoveCommand = &cli.Command{
 	Name:        "remove",
 	Usage:       "Remove a profile",
 	ArgsUsage:   "name",
 	Description: `Remove the specified profile from the profile file.`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the profile to delete",
 		},
@@ -172,9 +173,9 @@ var profileRemoveCommand = cli.Command{
 	Action: profileRemove,
 }
 
-func profileRemove(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "remove")
+func profileRemove(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "remove")
 	}
 
 	// Load the default profile file.
@@ -185,15 +186,15 @@ func profileRemove(ctx *cli.Context) error {
 
 	// Get the profile name from either positional argument or flag.
 	var (
-		args  = ctx.Args()
+		args  = cmd.Args().Slice()
 		name  string
 		found = false
 	)
 	switch {
-	case ctx.IsSet("name"):
-		name = ctx.String("name")
-	case args.Present():
-		name = args.First()
+	case cmd.IsSet("name"):
+		name = cmd.String("name")
+	case len(args) > 0:
+		name = args[0]
 	default:
 		return fmt.Errorf("name argument missing")
 	}
@@ -231,7 +232,7 @@ func profileRemove(ctx *cli.Context) error {
 	return saveProfileFile(defaultProfileFile, f)
 }
 
-var profileSetDefaultCommand = cli.Command{
+var profileSetDefaultCommand = &cli.Command{
 	Name:      "setdefault",
 	Usage:     "Set the default profile.",
 	ArgsUsage: "name",
@@ -243,7 +244,7 @@ var profileSetDefaultCommand = cli.Command{
 	set '--profile= '.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the profile to set as default",
 		},
@@ -251,9 +252,9 @@ var profileSetDefaultCommand = cli.Command{
 	Action: profileSetDefault,
 }
 
-func profileSetDefault(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "setdefault")
+func profileSetDefault(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "setdefault")
 	}
 
 	// Load the default profile file.
@@ -264,15 +265,15 @@ func profileSetDefault(ctx *cli.Context) error {
 
 	// Get the profile name from either positional argument or flag.
 	var (
-		args  = ctx.Args()
+		args  = cmd.Args().Slice()
 		name  string
 		found = false
 	)
 	switch {
-	case ctx.IsSet("name"):
-		name = ctx.String("name")
-	case args.Present():
-		name = args.First()
+	case cmd.IsSet("name"):
+		name = cmd.String("name")
+	case len(args) > 0:
+		name = args[0]
 	default:
 		return fmt.Errorf("name argument missing")
 	}
@@ -298,7 +299,7 @@ func profileSetDefault(ctx *cli.Context) error {
 	return saveProfileFile(defaultProfileFile, f)
 }
 
-var profileUnsetDefaultCommand = cli.Command{
+var profileUnsetDefaultCommand = &cli.Command{
 	Name:  "unsetdefault",
 	Usage: "Unsets the default profile.",
 	Description: `
@@ -308,7 +309,7 @@ var profileUnsetDefaultCommand = cli.Command{
 	Action: profileUnsetDefault,
 }
 
-func profileUnsetDefault(_ *cli.Context) error {
+func profileUnsetDefault(_ context.Context, cmd *cli.Command) error {
 	// Load the default profile file.
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
@@ -320,7 +321,7 @@ func profileUnsetDefault(_ *cli.Context) error {
 	return saveProfileFile(defaultProfileFile, f)
 }
 
-var profileAddMacaroonCommand = cli.Command{
+var profileAddMacaroonCommand = &cli.Command{
 	Name:      "addmacaroon",
 	Usage:     "Add a macaroon to a profile's macaroon jar.",
 	ArgsUsage: "macaroon-name",
@@ -336,11 +337,11 @@ var profileAddMacaroonCommand = cli.Command{
 	can be specified with the global option --macfromjar=xyz.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "name",
 			Usage: "the name of the macaroon",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "default",
 			Usage: "set the new macaroon to be the default " +
 				"macaroon in the jar",
@@ -349,9 +350,9 @@ var profileAddMacaroonCommand = cli.Command{
 	Action: profileAddMacaroon,
 }
 
-func profileAddMacaroon(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "addmacaroon")
+func profileAddMacaroon(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "addmacaroon")
 	}
 
 	// Load the default profile file or create a new one if it doesn't exist
@@ -364,21 +365,21 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	// Finally, all that's left is to get the profile name from either
 	// positional argument or flag.
 	var (
-		args        = ctx.Args()
+		args        = cmd.Args().Slice()
 		profileName string
 		macName     string
 	)
 	switch {
-	case ctx.IsSet("name"):
-		macName = ctx.String("name")
-	case args.Present():
-		macName = args.First()
+	case cmd.IsSet("name"):
+		macName = cmd.String("name")
+	case len(args) > 0:
+		macName = args[0]
 	default:
 		return fmt.Errorf("name argument missing")
 	}
 
 	// Make sure the user actually set a macaroon path to use.
-	if !ctx.GlobalIsSet("macaroonpath") {
+	if !cmd.IsSet("macaroonpath") {
 		return fmt.Errorf("macaroonpath global option missing")
 	}
 
@@ -387,8 +388,8 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	if f.Default != "" {
 		profileName = f.Default
 	}
-	if ctx.GlobalIsSet("profile") {
-		profileName = ctx.GlobalString("profile")
+	if cmd.IsSet("profile") {
+		profileName = cmd.String("profile")
 	}
 	if len(strings.TrimSpace(profileName)) == 0 {
 		return fmt.Errorf("no profile specified and no default " +
@@ -416,12 +417,12 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	}
 
 	// Do we need to update the default entry to be this one?
-	if ctx.Bool("default") {
+	if cmd.Bool("default") {
 		selectedProfile.Macaroons.Default = macName
 	}
 
 	// Now load and possibly encrypt the macaroon file.
-	macPath := lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+	macPath := lncfg.CleanAndExpandPath(cmd.String("macaroonpath"))
 	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
 		return fmt.Errorf("unable to read macaroon path: %w", err)

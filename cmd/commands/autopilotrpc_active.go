@@ -4,12 +4,14 @@
 package commands
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-func getAutopilotClient(ctx *cli.Context) (autopilotrpc.AutopilotClient, func()) {
-	conn := getClientConn(ctx, false)
+func getAutopilotClient(cmd *cli.Command) (autopilotrpc.AutopilotClient, func()) {
+	conn := getClientConn(cmd, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -18,16 +20,16 @@ func getAutopilotClient(ctx *cli.Context) (autopilotrpc.AutopilotClient, func())
 	return autopilotrpc.NewAutopilotClient(conn), cleanUp
 }
 
-var getStatusCommand = cli.Command{
+var getStatusCommand = &cli.Command{
 	Name:        "status",
 	Usage:       "Get the active status of autopilot.",
 	Description: "",
 	Action:      actionDecorator(getStatus),
 }
 
-func getStatus(ctx *cli.Context) error {
+func getStatus(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getAutopilotClient(ctx)
+	client, cleanUp := getAutopilotClient(cmd)
 	defer cleanUp()
 
 	req := &autopilotrpc.StatusRequest{}
@@ -41,23 +43,23 @@ func getStatus(ctx *cli.Context) error {
 	return nil
 }
 
-var enableCommand = cli.Command{
+var enableCommand = &cli.Command{
 	Name:        "enable",
 	Usage:       "Enable the autopilot.",
 	Description: "",
 	Action:      actionDecorator(enable),
 }
 
-var disableCommand = cli.Command{
+var disableCommand = &cli.Command{
 	Name:        "disable",
 	Usage:       "Disable the active autopilot.",
 	Description: "",
 	Action:      actionDecorator(disable),
 }
 
-func enable(ctx *cli.Context) error {
+func enable(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getAutopilotClient(ctx)
+	client, cleanUp := getAutopilotClient(cmd)
 	defer cleanUp()
 
 	// We will enable the autopilot.
@@ -74,9 +76,9 @@ func enable(ctx *cli.Context) error {
 	return nil
 }
 
-func disable(ctx *cli.Context) error {
+func disable(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getAutopilotClient(ctx)
+	client, cleanUp := getAutopilotClient(cmd)
 	defer cleanUp()
 
 	// We will disable the autopilot.
@@ -93,14 +95,14 @@ func disable(ctx *cli.Context) error {
 	return nil
 }
 
-var queryScoresCommand = cli.Command{
+var queryScoresCommand = &cli.Command{
 	Name:        "query",
 	Usage:       "Query the autopilot heuristics for nodes' scores.",
 	ArgsUsage:   "[flags] <pubkey> <pubkey> <pubkey> ...",
 	Description: "",
 	Action:      actionDecorator(queryScores),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "ignorelocalstate, i",
 			Usage: "Ignore local channel state when calculating " +
 				"scores.",
@@ -108,29 +110,22 @@ var queryScoresCommand = cli.Command{
 	},
 }
 
-func queryScores(ctx *cli.Context) error {
+func queryScores(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getAutopilotClient(ctx)
+	client, cleanUp := getAutopilotClient(cmd)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 	var pubs []string
 
 	// Keep reading pubkeys as long as there are arguments.
-loop:
-	for {
-		switch {
-		case args.Present():
-			pubs = append(pubs, args.First())
-			args = args.Tail()
-		default:
-			break loop
-		}
+	for _, arg := range args {
+		pubs = append(pubs, arg)
 	}
 
 	req := &autopilotrpc.QueryScoresRequest{
 		Pubkeys:          pubs,
-		IgnoreLocalState: ctx.Bool("ignorelocalstate"),
+		IgnoreLocalState: cmd.Bool("ignorelocalstate"),
 	}
 
 	resp, err := client.QueryScores(ctxc, req)
@@ -144,14 +139,14 @@ loop:
 
 // autopilotCommands will return the set of commands to enable for autopilotrpc
 // builds.
-func autopilotCommands() []cli.Command {
-	return []cli.Command{
+func autopilotCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "autopilot",
 			Category:    "Autopilot",
 			Usage:       "Interact with a running autopilot.",
 			Description: "",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				getStatusCommand,
 				enableCommand,
 				disableCommand,

@@ -1,44 +1,45 @@
 package commands
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var sendCustomCommand = cli.Command{
+var sendCustomCommand = &cli.Command{
 	Name:     "sendcustom",
 	Category: "Peers",
 	Usage:    "Send a custom p2p wire message to a peer",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "peer",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "type",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "data",
 		},
 	},
 	Action: actionDecorator(sendCustom),
 }
 
-func sendCustom(ctx *cli.Context) error {
+func sendCustom(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	peer, err := hex.DecodeString(ctx.String("peer"))
+	peer, err := hex.DecodeString(cmd.String("peer"))
 	if err != nil {
 		return err
 	}
 
-	msgType := ctx.Uint64("type")
+	msgType := cmd.Uint("type")
 
-	data, err := hex.DecodeString(ctx.String("data"))
+	data, err := hex.DecodeString(cmd.String("data"))
 	if err != nil {
 		return err
 	}
@@ -56,7 +57,7 @@ func sendCustom(ctx *cli.Context) error {
 	return err
 }
 
-var subscribeCustomCommand = cli.Command{
+var subscribeCustomCommand = &cli.Command{
 	Name:     "subscribecustom",
 	Category: "Peers",
 	Usage: "Subscribe to incoming custom p2p wire messages from all " +
@@ -64,9 +65,9 @@ var subscribeCustomCommand = cli.Command{
 	Action: actionDecorator(subscribeCustom),
 }
 
-func subscribeCustom(ctx *cli.Context) error {
+func subscribeCustom(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	stream, err := client.SubscribeCustomMessages(

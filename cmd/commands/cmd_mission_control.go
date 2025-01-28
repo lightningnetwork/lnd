@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -9,10 +10,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var getCfgCommand = cli.Command{
+var getCfgCommand = &cli.Command{
 	Name:     "getmccfg",
 	Category: "Mission Control",
 	Usage:    "Display mission control's config.",
@@ -22,9 +23,9 @@ var getCfgCommand = cli.Command{
 	Action: actionDecorator(getCfg),
 }
 
-func getCfg(ctx *cli.Context) error {
+func getCfg(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -41,7 +42,7 @@ func getCfg(ctx *cli.Context) error {
 	return nil
 }
 
-var setCfgCommand = cli.Command{
+var setCfgCommand = &cli.Command{
 	Name:     "setmccfg",
 	Category: "Mission Control",
 	Usage:    "Set mission control's config.",
@@ -51,41 +52,41 @@ var setCfgCommand = cli.Command{
         provided to set estimator-related parameters.`,
 	Flags: []cli.Flag{
 		// General settings.
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "pmtnr",
 			Usage: "the number of payments mission control " +
 				"should store",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "failrelax",
 			Usage: "the amount of time to wait after a failure " +
 				"before raising failure amount",
 		},
 		// Probability estimator.
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "estimator",
 			Usage: "the probability estimator to use, choose " +
 				"between 'apriori' or 'bimodal' (bimodal is " +
 				"experimental)",
 		},
 		// Apriori config.
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "apriorihalflife",
 			Usage: "the amount of time taken to restore a node " +
 				"or channel to 50% probability of success.",
 		},
-		cli.Float64Flag{
+		&cli.FloatFlag{
 			Name: "apriorihopprob",
 			Usage: "the probability of success assigned " +
 				"to hops that we have no information about",
 		},
-		cli.Float64Flag{
+		&cli.FloatFlag{
 			Name: "aprioriweight",
 			Usage: "the degree to which mission control should " +
 				"rely on historical results, expressed as " +
 				"value in [0, 1]",
 		},
-		cli.Float64Flag{
+		&cli.FloatFlag{
 			Name: "aprioricapacityfraction",
 			Usage: "the fraction of channels' capacities that is " +
 				"considered liquid in pathfinding, a value " +
@@ -93,19 +94,19 @@ var setCfgCommand = cli.Command{
 				"this feature.",
 		},
 		// Bimodal config.
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "bimodaldecaytime",
 			Usage: "the time span after which we phase out " +
 				"learnings from previous payment attempts",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "bimodalscale",
 			Usage: "controls the assumed channel liquidity " +
 				"imbalance in the network, measured in msat. " +
 				"a low value (compared to typical channel " +
 				"capacity) anticipates unbalanced channels.",
 		},
-		cli.Float64Flag{
+		&cli.FloatFlag{
 			Name: "bimodalweight",
 			Usage: "controls the degree to which the probability " +
 				"estimator takes into account other channels " +
@@ -115,9 +116,9 @@ var setCfgCommand = cli.Command{
 	Action: actionDecorator(setCfg),
 }
 
-func setCfg(ctx *cli.Context) error {
+func setCfg(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -136,21 +137,21 @@ func setCfg(ctx *cli.Context) error {
 	var haveValue bool
 
 	// Handle general mission control settings.
-	if ctx.IsSet("pmtnr") {
+	if cmd.IsSet("pmtnr") {
 		haveValue = true
-		mcCfg.Config.MaximumPaymentResults = uint32(ctx.Int("pmtnr"))
+		mcCfg.Config.MaximumPaymentResults = uint32(cmd.Int("pmtnr"))
 	}
-	if ctx.IsSet("failrelax") {
+	if cmd.IsSet("failrelax") {
 		haveValue = true
-		mcCfg.Config.MinimumFailureRelaxInterval = uint64(ctx.Duration(
+		mcCfg.Config.MinimumFailureRelaxInterval = uint64(cmd.Duration(
 			"failrelax",
 		).Seconds())
 	}
 
 	// We switch between estimators and set corresponding configs. If
 	// estimator is not set, we ignore the values.
-	if ctx.IsSet("estimator") {
-		switch ctx.String("estimator") {
+	if cmd.IsSet("estimator") {
+		switch cmd.String("estimator") {
 		case routing.AprioriEstimatorName:
 			haveValue = true
 
@@ -182,25 +183,25 @@ func setCfg(ctx *cli.Context) error {
 				MissionControlConfig_APRIORI
 
 			aCfg := mcCfg.Config.GetApriori()
-			if ctx.IsSet("apriorihalflife") {
-				aCfg.HalfLifeSeconds = uint64(ctx.Duration(
+			if cmd.IsSet("apriorihalflife") {
+				aCfg.HalfLifeSeconds = uint64(cmd.Duration(
 					"apriorihalflife",
 				).Seconds())
 			}
 
-			if ctx.IsSet("apriorihopprob") {
-				aCfg.HopProbability = ctx.Float64(
+			if cmd.IsSet("apriorihopprob") {
+				aCfg.HopProbability = cmd.Float(
 					"apriorihopprob",
 				)
 			}
 
-			if ctx.IsSet("aprioriweight") {
-				aCfg.Weight = ctx.Float64("aprioriweight")
+			if cmd.IsSet("aprioriweight") {
+				aCfg.Weight = cmd.Float("aprioriweight")
 			}
 
-			if ctx.IsSet("aprioricapacityfraction") {
+			if cmd.IsSet("aprioricapacityfraction") {
 				aCfg.CapacityFraction =
-					ctx.Float64("aprioricapacityfraction")
+					cmd.Float("aprioricapacityfraction")
 			}
 
 		case routing.BimodalEstimatorName:
@@ -234,30 +235,30 @@ func setCfg(ctx *cli.Context) error {
 				MissionControlConfig_BIMODAL
 
 			bCfg := mcCfg.Config.GetBimodal()
-			if ctx.IsSet("bimodaldecaytime") {
-				bCfg.DecayTime = uint64(ctx.Duration(
+			if cmd.IsSet("bimodaldecaytime") {
+				bCfg.DecayTime = uint64(cmd.Duration(
 					"bimodaldecaytime",
 				).Seconds())
 			}
 
-			if ctx.IsSet("bimodalscale") {
-				bCfg.ScaleMsat = ctx.Uint64("bimodalscale")
+			if cmd.IsSet("bimodalscale") {
+				bCfg.ScaleMsat = cmd.Uint("bimodalscale")
 			}
 
-			if ctx.IsSet("bimodalweight") {
-				bCfg.NodeWeight = ctx.Float64(
+			if cmd.IsSet("bimodalweight") {
+				bCfg.NodeWeight = cmd.Float(
 					"bimodalweight",
 				)
 			}
 
 		default:
 			return fmt.Errorf("unknown estimator %v",
-				ctx.String("estimator"))
+				cmd.String("estimator"))
 		}
 	}
 
 	if !haveValue {
-		return cli.ShowCommandHelp(ctx, "setmccfg")
+		return cli.ShowCommandHelp(ctx, cmd, "setmccfg")
 	}
 
 	_, err = client.SetMissionControlConfig(
@@ -269,16 +270,16 @@ func setCfg(ctx *cli.Context) error {
 	return err
 }
 
-var queryMissionControlCommand = cli.Command{
+var queryMissionControlCommand = &cli.Command{
 	Name:     "querymc",
 	Category: "Mission Control",
 	Usage:    "Query the internal mission control state.",
 	Action:   actionDecorator(queryMissionControl),
 }
 
-func queryMissionControl(ctx *cli.Context) error {
+func queryMissionControl(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -294,7 +295,7 @@ func queryMissionControl(ctx *cli.Context) error {
 	return nil
 }
 
-var queryProbCommand = cli.Command{
+var queryProbCommand = &cli.Command{
 	Name:      "queryprob",
 	Category:  "Mission Control",
 	Usage:     "Deprecated. Estimate a success probability.",
@@ -303,12 +304,12 @@ var queryProbCommand = cli.Command{
 	Hidden:    true,
 }
 
-func queryProb(ctx *cli.Context) error {
+func queryProb(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args()
 
-	if len(args) != 3 {
-		return cli.ShowCommandHelp(ctx, "queryprob")
+	if args.Len() != 3 {
+		return cli.ShowCommandHelp(ctx, cmd, "queryprob")
 	}
 
 	fromNode, err := route.NewVertexFromStr(args.Get(0))
@@ -330,7 +331,7 @@ func queryProb(ctx *cli.Context) error {
 		btcutil.Amount(amtSat),
 	)
 
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -351,16 +352,16 @@ func queryProb(ctx *cli.Context) error {
 	return nil
 }
 
-var resetMissionControlCommand = cli.Command{
+var resetMissionControlCommand = &cli.Command{
 	Name:     "resetmc",
 	Category: "Mission Control",
 	Usage:    "Reset internal mission control state.",
 	Action:   actionDecorator(resetMissionControl),
 }
 
-func resetMissionControl(ctx *cli.Context) error {
+func resetMissionControl(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)

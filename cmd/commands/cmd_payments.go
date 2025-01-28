@@ -24,7 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
@@ -36,19 +36,19 @@ const (
 )
 
 var (
-	cltvLimitFlag = cli.UintFlag{
+	cltvLimitFlag = &cli.UintFlag{
 		Name: "cltv_limit",
 		Usage: "the maximum time lock that may be used for " +
 			"this payment",
 	}
 
-	lastHopFlag = cli.StringFlag{
+	lastHopFlag = &cli.StringFlag{
 		Name: "last_hop",
 		Usage: "pubkey of the last hop (penultimate node in the path) " +
 			"to route through for this payment",
 	}
 
-	dataFlag = cli.StringFlag{
+	dataFlag = &cli.StringFlag{
 		Name: "data",
 		Usage: "attach custom data to the payment. The required " +
 			"format is: <record_id>=<hex_value>,<record_id>=" +
@@ -56,65 +56,65 @@ var (
 			"Custom record ids start from 65536.",
 	}
 
-	inflightUpdatesFlag = cli.BoolFlag{
+	inflightUpdatesFlag = &cli.BoolFlag{
 		Name: "inflight_updates",
 		Usage: "if set, intermediate payment state updates will be " +
 			"displayed. Only valid in combination with --json.",
 	}
 
-	maxPartsFlag = cli.UintFlag{
+	maxPartsFlag = &cli.UintFlag{
 		Name: "max_parts",
 		Usage: "the maximum number of partial payments that may be " +
 			"used",
 		Value: routerrpc.DefaultMaxParts,
 	}
 
-	jsonFlag = cli.BoolFlag{
+	jsonFlag = &cli.BoolFlag{
 		Name: "json",
 		Usage: "if set, payment updates are printed as json " +
 			"messages. Set by default on Windows because table " +
 			"formatting is unsupported.",
 	}
 
-	maxShardSizeSatFlag = cli.UintFlag{
+	maxShardSizeSatFlag = &cli.UintFlag{
 		Name: "max_shard_size_sat",
 		Usage: "the largest payment split that should be attempted if " +
 			"payment splitting is required to attempt a payment, " +
 			"specified in satoshis",
 	}
 
-	maxShardSizeMsatFlag = cli.UintFlag{
+	maxShardSizeMsatFlag = &cli.UintFlag{
 		Name: "max_shard_size_msat",
 		Usage: "the largest payment split that should be attempted if " +
 			"payment splitting is required to attempt a payment, " +
 			"specified in milli-satoshis",
 	}
 
-	ampFlag = cli.BoolFlag{
+	ampFlag = &cli.BoolFlag{
 		Name: "amp",
 		Usage: "if set to true, then AMP will be used to complete the " +
 			"payment",
 	}
 
-	timePrefFlag = cli.Float64Flag{
+	timePrefFlag = &cli.FloatFlag{
 		Name:  "time_pref",
 		Usage: "(optional) expresses time preference (range -1 to 1)",
 	}
 
-	introductionNodeFlag = cli.StringFlag{
+	introductionNodeFlag = &cli.StringFlag{
 		Name: "introduction_node",
 		Usage: "(blinded paths) the hex encoded, cleartext node ID " +
 			"of the node to use for queries to a blinded route",
 	}
 
-	blindingPointFlag = cli.StringFlag{
+	blindingPointFlag = &cli.StringFlag{
 		Name: "blinding_point",
 		Usage: "(blinded paths) the hex encoded blinding point to " +
 			"use if querying a route to a blinded path, this " +
 			"value *must* be set for queries to a blinded path",
 	}
 
-	blindedHopsFlag = cli.StringSliceFlag{
+	blindedHopsFlag = &cli.StringSliceFlag{
 		Name: "blinded_hops",
 		Usage: "(blinded paths) the blinded hops to include in the " +
 			"query, formatted as <blinded_node_id>:" +
@@ -123,26 +123,26 @@ var (
 			"ending with the receiving node",
 	}
 
-	blindedBaseFlag = cli.Uint64Flag{
+	blindedBaseFlag = &cli.UintFlag{
 		Name: "blinded_base_fee",
 		Usage: "(blinded paths) the aggregate base fee for the " +
 			"blinded portion of the route, expressed in msat",
 	}
 
-	blindedPPMFlag = cli.Uint64Flag{
+	blindedPPMFlag = &cli.UintFlag{
 		Name: "blinded_ppm_fee",
 		Usage: "(blinded paths) the aggregate proportional fee for " +
 			"the blinded portion of the route, expressed in " +
 			"parts per million",
 	}
 
-	blindedCLTVFlag = cli.Uint64Flag{
+	blindedCLTVFlag = &cli.UintFlag{
 		Name: "blinded_cltv",
 		Usage: "(blinded paths) the total cltv delay for the " +
 			"blinded portion of the route",
 	}
 
-	cancelableFlag = cli.BoolFlag{
+	cancelableFlag = &cli.BoolFlag{
 		Name: "cancelable",
 		Usage: "if set to true, the payment loop can be interrupted " +
 			"by manually canceling the payment context, even " +
@@ -157,22 +157,22 @@ var (
 // PaymentFlags returns common flags for sendpayment and payinvoice.
 func PaymentFlags() []cli.Flag {
 	return []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "a zpay32 encoded payment request to fulfill",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "fee_limit",
 			Usage: "maximum fee allowed in satoshis when " +
 				"sending the payment",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "fee_limit_percent",
 			Usage: "percentage of the payment's amount used as " +
 				"the maximum fee allowed when sending the " +
 				"payment",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "timeout",
 			Usage: "the maximum amount of time we should spend " +
 				"trying to fulfill the payment, failing " +
@@ -182,19 +182,20 @@ func PaymentFlags() []cli.Flag {
 		cancelableFlag,
 		cltvLimitFlag,
 		lastHopFlag,
-		cli.Int64SliceFlag{
+		&cli.IntSliceFlag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
 				"use for the first hop of the payment; can " +
 				"be specified multiple times in the same " +
 				"command",
-			Value: &cli.Int64Slice{},
+			// TODO(arturgontijo): cli.NewIntSlice(),
+			Value: []int64{},
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force, f",
 			Usage: "will skip payment request confirmation",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "allow_self_payment",
 			Usage: "allow sending a circular payment to self",
 		},
@@ -204,7 +205,7 @@ func PaymentFlags() []cli.Flag {
 	}
 }
 
-var SendPaymentCommand = cli.Command{
+var SendPaymentCommand = &cli.Command{
 	Name:     "sendpayment",
 	Category: "Payments",
 	Usage:    "Send a payment over lightning.",
@@ -229,28 +230,28 @@ var SendPaymentCommand = cli.Command{
 	ArgsUsage: "dest amt payment_hash final_cltv_delta pay_addr | " +
 		"--pay_req=R [--pay_addr=H]",
 	Flags: append(PaymentFlags(),
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "dest, d",
 			Usage: "the compressed identity pubkey of the " +
 				"payment recipient",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "amt, a",
 			Usage: "number of satoshis to send",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "payment_hash, r",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "final_cltv_delta",
 			Usage: "the number of blocks the last hop has to reveal the preimage",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_addr",
 			Usage: "the payment address of the generated invoice",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "keysend",
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
@@ -261,20 +262,20 @@ var SendPaymentCommand = cli.Command{
 // retrieveFeeLimit retrieves the fee limit based on the different fee limit
 // flags passed. It always returns a value and doesn't rely on lnd applying a
 // default.
-func retrieveFeeLimit(ctx *cli.Context, amt int64) (int64, error) {
+func retrieveFeeLimit(cmd *cli.Command, amt int64) (int64, error) {
 	switch {
-	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+	case cmd.IsSet("fee_limit") && cmd.IsSet("fee_limit_percent"):
 		return 0, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
 
-	case ctx.IsSet("fee_limit"):
-		return ctx.Int64("fee_limit"), nil
+	case cmd.IsSet("fee_limit"):
+		return cmd.Int("fee_limit"), nil
 
-	case ctx.IsSet("fee_limit_percent"):
+	case cmd.IsSet("fee_limit_percent"):
 		// Round up the fee limit to prevent hitting zero on small
 		// amounts.
 		feeLimitRoundedUp :=
-			(amt*ctx.Int64("fee_limit_percent") + 99) / 100
+			(amt*cmd.Int("fee_limit_percent") + 99) / 100
 
 		return feeLimitRoundedUp, nil
 	}
@@ -300,17 +301,17 @@ func confirmPayReq(resp *lnrpc.PayReq, amt, feeLimit int64) error {
 	return nil
 }
 
-func parsePayAddr(ctx *cli.Context, args cli.Args) ([]byte, error) {
+func parsePayAddr(cmd *cli.Command, args []string) ([]byte, error) {
 	var (
 		payAddr []byte
 		err     error
 	)
 	switch {
-	case ctx.IsSet("pay_addr"):
-		payAddr, err = hex.DecodeString(ctx.String("pay_addr"))
+	case cmd.IsSet("pay_addr"):
+		payAddr, err = hex.DecodeString(cmd.String("pay_addr"))
 
-	case args.Present():
-		payAddr, err = hex.DecodeString(args.First())
+	case len(args) > 0:
+		payAddr, err = hex.DecodeString(args[0])
 	}
 
 	if err != nil {
@@ -326,27 +327,27 @@ func parsePayAddr(ctx *cli.Context, args cli.Args) ([]byte, error) {
 	return payAddr, nil
 }
 
-func SendPayment(ctx *cli.Context) error {
+func SendPayment(ctx context.Context, cmd *cli.Command) error {
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "sendpayment")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "sendpayment")
 		return nil
 	}
 
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	// If a payment request was provided, we can exit early since all of the
 	// details of the payment are encoded within the request.
-	if ctx.IsSet("pay_req") {
+	if cmd.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest:    StripPrefix(ctx.String("pay_req")),
-			Amt:               ctx.Int64("amt"),
+			PaymentRequest:    StripPrefix(cmd.String("pay_req")),
+			Amt:               cmd.Int("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
-			Amp:               ctx.Bool(ampFlag.Name),
-			Cancelable:        ctx.Bool(cancelableFlag.Name),
+			Amp:               cmd.Bool(ampFlag.Name),
+			Cancelable:        cmd.Bool(cancelableFlag.Name),
 		}
 
 		// We'll attempt to parse a payment address as well, given that
@@ -355,7 +356,7 @@ func SendPayment(ctx *cli.Context) error {
 		//
 		// Don't parse unnamed arguments to prevent confusion with the
 		// main unnamed argument format for non-AMP payments.
-		payAddr, err := parsePayAddr(ctx, nil)
+		payAddr, err := parsePayAddr(cmd, nil)
 		if err != nil {
 			return err
 		}
@@ -363,7 +364,7 @@ func SendPayment(ctx *cli.Context) error {
 		req.PaymentAddr = payAddr
 
 		return SendPaymentRequest(
-			ctx, req, conn, conn, routerRPCSendPayment,
+			cmd, req, conn, conn, routerRPCSendPayment,
 		)
 	}
 
@@ -374,11 +375,11 @@ func SendPayment(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("dest"):
-		destNode, err = hex.DecodeString(ctx.String("dest"))
-	case args.Present():
-		destNode, err = hex.DecodeString(args.First())
-		args = args.Tail()
+	case cmd.IsSet("dest"):
+		destNode, err = hex.DecodeString(cmd.String("dest"))
+	case len(args) > 0:
+		destNode, err = hex.DecodeString(args[0])
+		args = args[1:]
 	default:
 		return fmt.Errorf("destination txid argument missing")
 	}
@@ -391,11 +392,11 @@ func SendPayment(ctx *cli.Context) error {
 			"instead: %v", len(destNode))
 	}
 
-	if ctx.IsSet("amt") {
-		amount = ctx.Int64("amt")
-	} else if args.Present() {
-		amount, err = strconv.ParseInt(args.First(), 10, 64)
-		args = args.Tail()
+	if cmd.IsSet("amt") {
+		amount = cmd.Int("amt")
+	} else if len(args) > 0 {
+		amount, err = strconv.ParseInt(args[0], 10, 64)
+		args = args[1:]
 		if err != nil {
 			return fmt.Errorf("unable to decode payment amount: %w",
 				err)
@@ -406,18 +407,18 @@ func SendPayment(ctx *cli.Context) error {
 		Dest:              destNode,
 		Amt:               amount,
 		DestCustomRecords: make(map[uint64][]byte),
-		Amp:               ctx.Bool(ampFlag.Name),
-		Cancelable:        ctx.Bool(cancelableFlag.Name),
+		Amp:               cmd.Bool(ampFlag.Name),
+		Cancelable:        cmd.Bool(cancelableFlag.Name),
 	}
 
 	var rHash []byte
 
 	switch {
-	case ctx.Bool("keysend") && ctx.Bool(ampFlag.Name):
+	case cmd.Bool("keysend") && cmd.Bool(ampFlag.Name):
 		return errors.New("either keysend or amp may be set, but not both")
 
-	case ctx.Bool("keysend"):
-		if ctx.IsSet("payment_hash") {
+	case cmd.Bool("keysend"):
+		if cmd.IsSet("payment_hash") {
 			return errors.New("cannot set payment hash when using " +
 				"keysend")
 		}
@@ -433,13 +434,13 @@ func SendPayment(ctx *cli.Context) error {
 
 		hash := preimage.Hash()
 		rHash = hash[:]
-	case !ctx.Bool(ampFlag.Name):
+	case !cmd.Bool(ampFlag.Name):
 		switch {
-		case ctx.IsSet("payment_hash"):
-			rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-		case args.Present():
-			rHash, err = hex.DecodeString(args.First())
-			args = args.Tail()
+		case cmd.IsSet("payment_hash"):
+			rHash, err = hex.DecodeString(cmd.String("payment_hash"))
+		case len(args) > 0:
+			rHash, err = hex.DecodeString(args[0])
+			args = args[1:]
 		default:
 			return fmt.Errorf("payment hash argument missing")
 		}
@@ -455,25 +456,25 @@ func SendPayment(ctx *cli.Context) error {
 	req.PaymentHash = rHash
 
 	switch {
-	case ctx.IsSet("final_cltv_delta"):
-		req.FinalCltvDelta = int32(ctx.Int64("final_cltv_delta"))
-	case args.Present():
-		delta, err := strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("final_cltv_delta"):
+		req.FinalCltvDelta = int32(cmd.Int("final_cltv_delta"))
+	case len(args) > 0:
+		delta, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return err
 		}
-		args = args.Tail()
+		args = args[1:]
 		req.FinalCltvDelta = int32(delta)
 	}
 
-	payAddr, err := parsePayAddr(ctx, args)
+	payAddr, err := parsePayAddr(cmd, args)
 	if err != nil {
 		return err
 	}
 
 	req.PaymentAddr = payAddr
 
-	return SendPaymentRequest(ctx, req, conn, conn, routerRPCSendPayment)
+	return SendPaymentRequest(cmd, req, conn, conn, routerRPCSendPayment)
 }
 
 // SendPaymentFn is a function type that abstracts the SendPaymentV2 call of the
@@ -489,7 +490,8 @@ func routerRPCSendPayment(ctx context.Context, payConn grpc.ClientConnInterface,
 	return routerrpc.NewRouterClient(payConn).SendPaymentV2(ctx, req)
 }
 
-func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
+func SendPaymentRequest(cmd *cli.Command,
+	req *routerrpc.SendPaymentRequest,
 	lnConn, paymentConn grpc.ClientConnInterface,
 	callSendPayment SendPaymentFn) error {
 
@@ -497,7 +499,7 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 
 	lnClient := lnrpc.NewLightningClient(lnConn)
 
-	outChan := ctx.Int64Slice("outgoing_chan_id")
+	outChan := cmd.IntSlice("outgoing_chan_id")
 	if len(outChan) != 0 {
 		req.OutgoingChanIds = make([]uint64, len(outChan))
 		for i, c := range outChan {
@@ -505,9 +507,9 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 		}
 	}
 
-	if ctx.IsSet(lastHopFlag.Name) {
+	if cmd.IsSet(lastHopFlag.Name) {
 		lastHop, err := route.NewVertexFromStr(
-			ctx.String(lastHopFlag.Name),
+			cmd.String(lastHopFlag.Name),
 		)
 		if err != nil {
 			return err
@@ -515,37 +517,37 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 		req.LastHopPubkey = lastHop[:]
 	}
 
-	req.CltvLimit = int32(ctx.Int(cltvLimitFlag.Name))
+	req.CltvLimit = int32(cmd.Int(cltvLimitFlag.Name))
 
-	pmtTimeout := ctx.Duration("timeout")
+	pmtTimeout := cmd.Duration("timeout")
 	if pmtTimeout <= 0 {
 		return errors.New("payment timeout must be greater than zero")
 	}
 	req.TimeoutSeconds = int32(pmtTimeout.Seconds())
 
-	req.AllowSelfPayment = ctx.Bool("allow_self_payment")
+	req.AllowSelfPayment = cmd.Bool("allow_self_payment")
 
-	req.MaxParts = uint32(ctx.Uint(maxPartsFlag.Name))
+	req.MaxParts = uint32(cmd.Uint(maxPartsFlag.Name))
 
 	switch {
 	// If the max shard size is specified, then it should either be in sat
 	// or msat, but not both.
-	case ctx.Uint64(maxShardSizeMsatFlag.Name) != 0 &&
-		ctx.Uint64(maxShardSizeSatFlag.Name) != 0:
+	case cmd.Uint(maxShardSizeMsatFlag.Name) != 0 &&
+		cmd.Uint(maxShardSizeSatFlag.Name) != 0:
 		return fmt.Errorf("only --max_split_size_msat or " +
 			"--max_split_size_sat should be set, but not both")
 
-	case ctx.Uint64(maxShardSizeMsatFlag.Name) != 0:
-		req.MaxShardSizeMsat = ctx.Uint64(maxShardSizeMsatFlag.Name)
+	case cmd.Uint(maxShardSizeMsatFlag.Name) != 0:
+		req.MaxShardSizeMsat = cmd.Uint(maxShardSizeMsatFlag.Name)
 
-	case ctx.Uint64(maxShardSizeSatFlag.Name) != 0:
+	case cmd.Uint(maxShardSizeSatFlag.Name) != 0:
 		req.MaxShardSizeMsat = uint64(lnwire.NewMSatFromSatoshis(
-			btcutil.Amount(ctx.Uint64(maxShardSizeSatFlag.Name)),
+			btcutil.Amount(cmd.Uint(maxShardSizeSatFlag.Name)),
 		))
 	}
 
 	// Parse custom data records.
-	data := ctx.String(dataFlag.Name)
+	data := cmd.String(dataFlag.Name)
 	if data != "" {
 		records := strings.Split(data, ",")
 		for _, r := range records {
@@ -589,14 +591,14 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 		}
 
 		// Calculate fee limit based on the determined amount.
-		feeLimit, err = retrieveFeeLimit(ctx, amt)
+		feeLimit, err = retrieveFeeLimit(cmd, amt)
 		if err != nil {
 			return err
 		}
 
 		// Ask for confirmation of amount and fee limit if payment is
 		// forced.
-		if !ctx.Bool("force") {
+		if !cmd.Bool("force") {
 			err := confirmPayReq(decodeResp, amt, feeLimit)
 			if err != nil {
 				return err
@@ -604,7 +606,7 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 		}
 	} else {
 		var err error
-		feeLimit, err = retrieveFeeLimit(ctx, req.Amt)
+		feeLimit, err = retrieveFeeLimit(cmd, req.Amt)
 		if err != nil {
 			return err
 		}
@@ -613,11 +615,11 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 	req.FeeLimitSat = feeLimit
 
 	// Set time pref.
-	req.TimePref = ctx.Float64(timePrefFlag.Name)
+	req.TimePref = cmd.Float(timePrefFlag.Name)
 
 	// Always print in-flight updates for the table output.
-	printJSON := ctx.Bool(jsonFlag.Name)
-	req.NoInflightUpdates = !ctx.Bool(inflightUpdatesFlag.Name) && printJSON
+	printJSON := cmd.Bool(jsonFlag.Name)
+	req.NoInflightUpdates = !cmd.Bool(inflightUpdatesFlag.Name) && printJSON
 
 	stream, err := callSendPayment(ctxc, paymentConn, req)
 	if err != nil {
@@ -639,7 +641,7 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 	return nil
 }
 
-var trackPaymentCommand = cli.Command{
+var trackPaymentCommand = &cli.Command{
 	Name:     "trackpayment",
 	Category: "Payments",
 	Usage:    "Track progress of an existing payment.",
@@ -654,20 +656,20 @@ var trackPaymentCommand = cli.Command{
 	Action: actionDecorator(trackPayment),
 }
 
-func trackPayment(ctx *cli.Context) error {
+func trackPayment(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	routerClient := routerrpc.NewRouterClient(conn)
 
-	if !args.Present() {
+	if len(args) == 0 {
 		return fmt.Errorf("hash argument missing")
 	}
 
-	hash, err := hex.DecodeString(args.First())
+	hash, err := hex.DecodeString(args[0])
 	if err != nil {
 		return err
 	}
@@ -682,7 +684,7 @@ func trackPayment(ctx *cli.Context) error {
 	}
 
 	client := lnrpc.NewLightningClient(conn)
-	_, err = PrintLivePayment(ctxc, stream, client, ctx.Bool(jsonFlag.Name))
+	_, err = PrintLivePayment(ctxc, stream, client, cmd.Bool(jsonFlag.Name))
 	return err
 }
 
@@ -886,7 +888,7 @@ func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 	return b.String()
 }
 
-var payInvoiceCommand = cli.Command{
+var payInvoiceCommand = &cli.Command{
 	Name:     "payinvoice",
 	Category: "Payments",
 	Usage:    "Pay an invoice over lightning.",
@@ -895,7 +897,7 @@ var payInvoiceCommand = cli.Command{
 	`,
 	ArgsUsage: "pay_req",
 	Flags: append(PaymentFlags(),
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "amt",
 			Usage: "(optional) number of satoshis to fulfill the " +
 				"invoice",
@@ -904,34 +906,34 @@ var payInvoiceCommand = cli.Command{
 	Action: actionDecorator(payInvoice),
 }
 
-func payInvoice(ctx *cli.Context) error {
-	conn := getClientConn(ctx, false)
+func payInvoice(ctx context.Context, cmd *cli.Command) error {
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	var payReq string
 	switch {
-	case ctx.IsSet("pay_req"):
-		payReq = ctx.String("pay_req")
-	case args.Present():
-		payReq = args.First()
+	case cmd.IsSet("pay_req"):
+		payReq = cmd.String("pay_req")
+	case len(args) > 0:
+		payReq = args[0]
 	default:
 		return fmt.Errorf("pay_req argument missing")
 	}
 
 	req := &routerrpc.SendPaymentRequest{
 		PaymentRequest:    StripPrefix(payReq),
-		Amt:               ctx.Int64("amt"),
+		Amt:               cmd.Int("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
-		Amp:               ctx.Bool(ampFlag.Name),
-		Cancelable:        ctx.Bool(cancelableFlag.Name),
+		Amp:               cmd.Bool(ampFlag.Name),
+		Cancelable:        cmd.Bool(cancelableFlag.Name),
 	}
 
-	return SendPaymentRequest(ctx, req, conn, conn, routerRPCSendPayment)
+	return SendPaymentRequest(cmd, req, conn, conn, routerRPCSendPayment)
 }
 
-var sendToRouteCommand = cli.Command{
+var sendToRouteCommand = &cli.Command{
 	Name:     "sendtoroute",
 	Category: "Payments",
 	Usage:    "Send a payment over a predefined route.",
@@ -960,16 +962,16 @@ var sendToRouteCommand = cli.Command{
 	     the route in from stdin
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "payment_hash, pay_hash",
 			Usage: "the hash to use within the payment's HTLC",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "routes, r",
 			Usage: "a json array string in the format of the response " +
 				"of queryroutes that denotes which routes to use",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "skip_temp_err",
 			Usage: "Whether the payment should be marked as " +
 				"failed when a temporary error occurred. Set " +
@@ -980,26 +982,26 @@ var sendToRouteCommand = cli.Command{
 	Action: sendToRoute,
 }
 
-func sendToRoute(ctx *cli.Context) error {
+func sendToRoute(ctx context.Context, cmd *cli.Command) error {
 	// Show command help if no arguments provided.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "sendtoroute")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "sendtoroute")
 		return nil
 	}
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	var (
 		rHash []byte
 		err   error
 	)
 	switch {
-	case ctx.IsSet("payment_hash"):
-		rHash, err = hex.DecodeString(ctx.String("payment_hash"))
-	case args.Present():
-		rHash, err = hex.DecodeString(args.First())
+	case cmd.IsSet("payment_hash"):
+		rHash, err = hex.DecodeString(cmd.String("payment_hash"))
+	case len(args) > 0:
+		rHash, err = hex.DecodeString(args[0])
 
-		args = args.Tail()
+		args = args[1:]
 	default:
 		return fmt.Errorf("payment hash argument missing")
 	}
@@ -1017,16 +1019,16 @@ func sendToRoute(ctx *cli.Context) error {
 	switch {
 	// The user is specifying the routes explicitly via the key word
 	// argument.
-	case ctx.IsSet("routes"):
-		jsonRoutes = ctx.String("routes")
+	case cmd.IsSet("routes"):
+		jsonRoutes = cmd.String("routes")
 
 	// The user is specifying the routes as a positional argument.
-	case args.Present() && args.First() != "-":
-		jsonRoutes = args.First()
+	case len(args) > 0 && args[0] != "-":
+		jsonRoutes = args[0]
 
 	// The user is signalling that we should read stdin in order to parse
 	// the set of target routes.
-	case args.Present() && args.First() == "-":
+	case len(args) > 0 && args[0] == "-":
 		b, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
@@ -1071,15 +1073,16 @@ func sendToRoute(ctx *cli.Context) error {
 	req := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       route,
-		SkipTempErr: ctx.Bool("skip_temp_err"),
+		SkipTempErr: cmd.Bool("skip_temp_err"),
 	}
 
-	return sendToRouteRequest(ctx, req)
+	return sendToRouteRequest(cmd, req)
 }
 
-func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) error {
+func sendToRouteRequest(cmd *cli.Command,
+	req *routerrpc.SendToRouteRequest) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -1094,33 +1097,33 @@ func sendToRouteRequest(ctx *cli.Context, req *routerrpc.SendToRouteRequest) err
 	return nil
 }
 
-var queryRoutesCommand = cli.Command{
+var queryRoutesCommand = &cli.Command{
 	Name:        "queryroutes",
 	Category:    "Payments",
 	Usage:       "Query a route to a destination.",
 	Description: "Queries the channel router for a potential path to the destination that has sufficient flow for the amount including fees",
 	ArgsUsage:   "dest amt",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "dest",
 			Usage: "the 33-byte hex-encoded public key for the payment " +
 				"destination",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "amt",
 			Usage: "the amount to send expressed in satoshis",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "fee_limit",
 			Usage: "maximum fee allowed in satoshis when sending " +
 				"the payment",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "fee_limit_percent",
 			Usage: "percentage of the payment's amount used as the " +
 				"maximum fee allowed when sending the payment",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "final_cltv_delta",
 			Usage: "(optional) number of blocks the last hop has " +
 				"to reveal the preimage. Note that this " +
@@ -1130,16 +1133,16 @@ var queryRoutesCommand = cli.Command{
 				"accounted for this value in the " +
 				"blinded_cltv value",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "outgoing_chan_id",
 			Usage: "(optional) the channel id of the channel " +
 				"that must be taken to the first hop",
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "ignore_pair",
 			Usage: "ignore directional node pair " +
 				"<node1>:<node2>. This flag can be specified " +
@@ -1158,9 +1161,9 @@ var queryRoutesCommand = cli.Command{
 	Action: actionDecorator(queryRoutes),
 }
 
-func queryRoutes(ctx *cli.Context) error {
+func queryRoutes(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -1169,29 +1172,29 @@ func queryRoutes(ctx *cli.Context) error {
 		err  error
 	)
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	switch {
-	case ctx.IsSet("dest"):
-		dest = ctx.String("dest")
+	case cmd.IsSet("dest"):
+		dest = cmd.String("dest")
 
-	case args.Present():
-		dest = args.First()
-		args = args.Tail()
+	case len(args) > 0:
+		dest = args[0]
+		args = args[1:]
 
 	// If we have a blinded path set, we don't have to specify a
 	// destination.
-	case ctx.IsSet(introductionNodeFlag.Name):
+	case cmd.IsSet(introductionNodeFlag.Name):
 
 	default:
 		return fmt.Errorf("dest argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("amt"):
-		amt = ctx.Int64("amt")
-	case args.Present():
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("amt"):
+		amt = cmd.Int("amt")
+	case len(args) > 0:
+		amt, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %w",
 				err)
@@ -1200,12 +1203,12 @@ func queryRoutes(ctx *cli.Context) error {
 		return fmt.Errorf("amt argument missing")
 	}
 
-	feeLimit, err := retrieveFeeLimitLegacy(ctx)
+	feeLimit, err := retrieveFeeLimitLegacy(cmd)
 	if err != nil {
 		return err
 	}
 
-	pairs := ctx.StringSlice("ignore_pair")
+	pairs := cmd.StringSlice("ignore_pair")
 	ignoredPairs := make([]*lnrpc.NodePair, len(pairs))
 	for i, pair := range pairs {
 		nodes := strings.Split(pair, ":")
@@ -1230,7 +1233,7 @@ func queryRoutes(ctx *cli.Context) error {
 		}
 	}
 
-	blindedRoutes, err := parseBlindedPaymentParameters(ctx)
+	blindedRoutes, err := parseBlindedPaymentParameters(cmd)
 	if err != nil {
 		return err
 	}
@@ -1239,11 +1242,11 @@ func queryRoutes(ctx *cli.Context) error {
 		PubKey:              dest,
 		Amt:                 amt,
 		FeeLimit:            feeLimit,
-		FinalCltvDelta:      int32(ctx.Int("final_cltv_delta")),
-		UseMissionControl:   ctx.Bool("use_mc"),
-		CltvLimit:           uint32(ctx.Uint64(cltvLimitFlag.Name)),
-		OutgoingChanId:      ctx.Uint64("outgoing_chan_id"),
-		TimePref:            ctx.Float64(timePrefFlag.Name),
+		FinalCltvDelta:      int32(cmd.Int("final_cltv_delta")),
+		UseMissionControl:   cmd.Bool("use_mc"),
+		CltvLimit:           uint32(cmd.Uint(cltvLimitFlag.Name)),
+		OutgoingChanId:      cmd.Uint("outgoing_chan_id"),
+		TimePref:            cmd.Float(timePrefFlag.Name),
 		IgnoredPairs:        ignoredPairs,
 		BlindedPaymentPaths: blindedRoutes,
 	}
@@ -1257,18 +1260,18 @@ func queryRoutes(ctx *cli.Context) error {
 	return nil
 }
 
-func parseBlindedPaymentParameters(ctx *cli.Context) (
+func parseBlindedPaymentParameters(cmd *cli.Command) (
 	[]*lnrpc.BlindedPaymentPath, error) {
 
 	// Return nil if we don't have a blinding set, as we don't have a
 	// blinded path.
-	if !ctx.IsSet(blindingPointFlag.Name) {
+	if !cmd.IsSet(blindingPointFlag.Name) {
 		return nil, nil
 	}
 
 	// If a blinded path has been provided, then the final_cltv_delta flag
 	// should not be provided since this value will be ignored.
-	if ctx.IsSet("final_cltv_delta") {
+	if cmd.IsSet("final_cltv_delta") {
 		return nil, fmt.Errorf("`final_cltv_delta` should not be " +
 			"provided if a blinded path is provided")
 	}
@@ -1276,20 +1279,20 @@ func parseBlindedPaymentParameters(ctx *cli.Context) (
 	// If any one of our blinding related flags is set, we expect the
 	// full set to be set and we'll error out accordingly.
 	introNode, err := route.NewVertexFromStr(
-		ctx.String(introductionNodeFlag.Name),
+		cmd.String(introductionNodeFlag.Name),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("decode introduction node: %w", err)
 	}
 
-	blindingPoint, err := route.NewVertexFromStr(ctx.String(
+	blindingPoint, err := route.NewVertexFromStr(cmd.String(
 		blindingPointFlag.Name,
 	))
 	if err != nil {
 		return nil, fmt.Errorf("decode blinding point: %w", err)
 	}
 
-	blindedHops := ctx.StringSlice(blindedHopsFlag.Name)
+	blindedHops := cmd.StringSlice(blindedHopsFlag.Name)
 
 	pmt := &lnrpc.BlindedPaymentPath{
 		BlindedPath: &lnrpc.BlindedPath{
@@ -1299,13 +1302,13 @@ func parseBlindedPaymentParameters(ctx *cli.Context) (
 				[]*lnrpc.BlindedHop, len(blindedHops),
 			),
 		},
-		BaseFeeMsat: ctx.Uint64(
+		BaseFeeMsat: cmd.Uint(
 			blindedBaseFlag.Name,
 		),
-		ProportionalFeeRate: uint32(ctx.Uint64(
+		ProportionalFeeRate: uint32(cmd.Uint(
 			blindedPPMFlag.Name,
 		)),
-		TotalCltvDelta: uint32(ctx.Uint64(
+		TotalCltvDelta: uint32(cmd.Uint(
 			blindedCLTVFlag.Name,
 		)),
 	}
@@ -1343,19 +1346,19 @@ func parseBlindedPaymentParameters(ctx *cli.Context) (
 // retrieveFeeLimitLegacy retrieves the fee limit based on the different fee
 // limit flags passed. This function will eventually disappear in favor of
 // retrieveFeeLimit and the new payment rpc.
-func retrieveFeeLimitLegacy(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
+func retrieveFeeLimitLegacy(cmd *cli.Command) (*lnrpc.FeeLimit, error) {
 	switch {
-	case ctx.IsSet("fee_limit") && ctx.IsSet("fee_limit_percent"):
+	case cmd.IsSet("fee_limit") && cmd.IsSet("fee_limit_percent"):
 		return nil, fmt.Errorf("either fee_limit or fee_limit_percent " +
 			"can be set, but not both")
-	case ctx.IsSet("fee_limit"):
+	case cmd.IsSet("fee_limit"):
 		return &lnrpc.FeeLimit{
 			Limit: &lnrpc.FeeLimit_Fixed{
-				Fixed: ctx.Int64("fee_limit"),
+				Fixed: cmd.Int("fee_limit"),
 			},
 		}, nil
-	case ctx.IsSet("fee_limit_percent"):
-		feeLimitPercent := ctx.Int64("fee_limit_percent")
+	case cmd.IsSet("fee_limit_percent"):
+		feeLimitPercent := cmd.Int("fee_limit_percent")
 		if feeLimitPercent < 0 {
 			return nil, errors.New("negative fee limit percentage " +
 				"provided")
@@ -1372,7 +1375,7 @@ func retrieveFeeLimitLegacy(ctx *cli.Context) (*lnrpc.FeeLimit, error) {
 	return nil, nil
 }
 
-var listPaymentsCommand = cli.Command{
+var listPaymentsCommand = &cli.Command{
 	Name:     "listpayments",
 	Category: "Payments",
 	Usage:    "List all outgoing payments.",
@@ -1393,14 +1396,14 @@ var listPaymentsCommand = cli.Command{
 	flag.
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_incomplete",
 			Usage: "if set to true, payments still in flight (or " +
 				"failed) will be returned as well, keeping" +
 				"indices for payments the same as without " +
 				"the flag",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "index_offset",
 			Usage: "The index of a payment that will be used as " +
 				"either the start (in forwards mode) or end " +
@@ -1411,31 +1414,31 @@ var listPaymentsCommand = cli.Command{
 				"reversed mode, the query will end with the " +
 				"last payment made.",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "max_payments",
 			Usage: "the max number of payments to return, by " +
 				"default, all completed payments are returned",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "paginate_forwards",
 			Usage: "if set, payments succeeding the " +
 				"index_offset will be returned, allowing " +
 				"forwards pagination",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "count_total_payments",
 			Usage: "if set, all payments (complete or incomplete, " +
 				"independent of max_payments parameter) will " +
 				"be counted; can take a long time on systems " +
 				"with many payments",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "creation_date_start",
 			Usage: "timestamp in seconds, if set, filter " +
 				"payments with creation date greater than or " +
 				"equal to it",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "creation_date_end",
 			Usage: "timestamp in seconds, if set, filter " +
 				"payments with creation date less than or " +
@@ -1445,19 +1448,19 @@ var listPaymentsCommand = cli.Command{
 	Action: actionDecorator(listPayments),
 }
 
-func listPayments(ctx *cli.Context) error {
+func listPayments(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ListPaymentsRequest{
-		IncludeIncomplete:  ctx.Bool("include_incomplete"),
-		IndexOffset:        uint64(ctx.Uint("index_offset")),
-		MaxPayments:        uint64(ctx.Uint("max_payments")),
-		Reversed:           !ctx.Bool("paginate_forwards"),
-		CountTotalPayments: ctx.Bool("count_total_payments"),
-		CreationDateStart:  ctx.Uint64("creation_date_start"),
-		CreationDateEnd:    ctx.Uint64("creation_date_end"),
+		IncludeIncomplete:  cmd.Bool("include_incomplete"),
+		IndexOffset:        uint64(cmd.Uint("index_offset")),
+		MaxPayments:        uint64(cmd.Uint("max_payments")),
+		Reversed:           !cmd.Bool("paginate_forwards"),
+		CountTotalPayments: cmd.Bool("count_total_payments"),
+		CreationDateStart:  cmd.Uint("creation_date_start"),
+		CreationDateEnd:    cmd.Uint("creation_date_end"),
 	}
 
 	payments, err := client.ListPayments(ctxc, req)
@@ -1469,7 +1472,7 @@ func listPayments(ctx *cli.Context) error {
 	return nil
 }
 
-var forwardingHistoryCommand = cli.Command{
+var forwardingHistoryCommand = &cli.Command{
 	Name:      "fwdinghistory",
 	Category:  "Payments",
 	Usage:     "Query the history of all forwarded HTLCs.",
@@ -1493,25 +1496,25 @@ var forwardingHistoryCommand = cli.Command{
 	entry. Using this callers can manually paginate within a time slice.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "start_time",
 			Usage: "the starting time for the query " +
 				`as unix timestamp or relative e.g. "-1w"`,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "end_time",
 			Usage: "the end time for the query " +
 				`as unix timestamp or relative e.g. "-1w"`,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "index_offset",
 			Usage: "the number of events to skip",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "max_events",
 			Usage: "the max number of events to return",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "skip_peer_alias_lookup",
 			Usage: "skip the peer alias lookup per forwarding " +
 				"event in order to improve performance",
@@ -1520,9 +1523,9 @@ var forwardingHistoryCommand = cli.Command{
 	Action: actionDecorator(forwardingHistory),
 }
 
-func forwardingHistory(ctx *cli.Context) error {
+func forwardingHistory(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -1530,15 +1533,15 @@ func forwardingHistory(ctx *cli.Context) error {
 		indexOffset, maxEvents uint32
 		err                    error
 	)
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 	now := time.Now()
 
 	switch {
-	case ctx.IsSet("start_time"):
-		startTime, err = parseTime(ctx.String("start_time"), now)
-	case args.Present():
-		startTime, err = parseTime(args.First(), now)
-		args = args.Tail()
+	case cmd.IsSet("start_time"):
+		startTime, err = parseTime(cmd.String("start_time"), now)
+	case len(args) > 0:
+		startTime, err = parseTime(args[0], now)
+		args = args[1:]
 	default:
 		now := time.Now()
 		startTime = uint64(now.Add(-time.Hour * 24).Unix())
@@ -1548,11 +1551,11 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("end_time"):
-		endTime, err = parseTime(ctx.String("end_time"), now)
-	case args.Present():
-		endTime, err = parseTime(args.First(), now)
-		args = args.Tail()
+	case cmd.IsSet("end_time"):
+		endTime, err = parseTime(cmd.String("end_time"), now)
+	case len(args) > 0:
+		endTime, err = parseTime(args[0], now)
+		args = args[1:]
 	default:
 		endTime = uint64(now.Unix())
 	}
@@ -1561,23 +1564,23 @@ func forwardingHistory(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("index_offset"):
-		indexOffset = uint32(ctx.Int64("index_offset"))
-	case args.Present():
-		i, err := strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("index_offset"):
+		indexOffset = uint32(cmd.Int("index_offset"))
+	case len(args) > 0:
+		i, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode index_offset: %w",
 				err)
 		}
 		indexOffset = uint32(i)
-		args = args.Tail()
+		args = args[1:]
 	}
 
 	switch {
-	case ctx.IsSet("max_events"):
-		maxEvents = uint32(ctx.Int64("max_events"))
-	case args.Present():
-		m, err := strconv.ParseInt(args.First(), 10, 64)
+	case cmd.IsSet("max_events"):
+		maxEvents = uint32(cmd.Int("max_events"))
+	case len(args) > 0:
+		m, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode max_events: %w",
 				err)
@@ -1587,7 +1590,7 @@ func forwardingHistory(ctx *cli.Context) error {
 
 	// By default we will look up the peers' alias information unless the
 	// skip_peer_alias_lookup flag is specified.
-	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
+	lookupPeerAlias := !cmd.Bool("skip_peer_alias_lookup")
 
 	req := &lnrpc.ForwardingHistoryRequest{
 		StartTime:       startTime,
@@ -1605,7 +1608,7 @@ func forwardingHistory(ctx *cli.Context) error {
 	return nil
 }
 
-var buildRouteCommand = cli.Command{
+var buildRouteCommand = &cli.Command{
 	Name:     "buildroute",
 	Category: "Payments",
 	Usage:    "Build a route from a list of hop pubkeys.",
@@ -1622,28 +1625,28 @@ var buildRouteCommand = cli.Command{
 	`,
 	Action: actionDecorator(buildRoute),
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "amt",
 			Usage: "the amount to send expressed in satoshis. If" +
 				"not set, the minimum routable amount is used",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
 				"the preimage; if not set the default lnd " +
 				"final_cltv_delta is used",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "hops",
 			Usage: "comma separated hex pubkeys",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
 				"use for the first hop of the payment",
 			Value: 0,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "payment_addr",
 			Usage: "hex encoded payment address to set in the " +
 				"last hop's mpp record",
@@ -1651,19 +1654,19 @@ var buildRouteCommand = cli.Command{
 	},
 }
 
-func buildRoute(ctx *cli.Context) error {
+func buildRoute(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
 
-	if !ctx.IsSet("hops") {
+	if !cmd.IsSet("hops") {
 		return errors.New("hops required")
 	}
 
 	// Build list of hop addresses for the rpc.
-	hops := strings.Split(ctx.String("hops"), ",")
+	hops := strings.Split(cmd.String("hops"), ",")
 	rpcHops := make([][]byte, 0, len(hops))
 	for _, k := range hops {
 		pubkey, err := route.NewVertexFromStr(k)
@@ -1674,9 +1677,9 @@ func buildRoute(ctx *cli.Context) error {
 	}
 
 	var amtMsat int64
-	hasAmt := ctx.IsSet("amt")
+	hasAmt := cmd.IsSet("amt")
 	if hasAmt {
-		amtMsat = ctx.Int64("amt") * 1000
+		amtMsat = cmd.Int("amt") * 1000
 		if amtMsat == 0 {
 			return fmt.Errorf("non-zero amount required")
 		}
@@ -1687,8 +1690,8 @@ func buildRoute(ctx *cli.Context) error {
 		err     error
 	)
 
-	if ctx.IsSet("payment_addr") {
-		payAddr, err = hex.DecodeString(ctx.String("payment_addr"))
+	if cmd.IsSet("payment_addr") {
+		payAddr, err = hex.DecodeString(cmd.String("payment_addr"))
 		if err != nil {
 			return fmt.Errorf("error parsing payment_addr: %w", err)
 		}
@@ -1697,9 +1700,9 @@ func buildRoute(ctx *cli.Context) error {
 	// Call BuildRoute rpc.
 	req := &routerrpc.BuildRouteRequest{
 		AmtMsat:        amtMsat,
-		FinalCltvDelta: int32(ctx.Int64("final_cltv_delta")),
+		FinalCltvDelta: int32(cmd.Int("final_cltv_delta")),
 		HopPubkeys:     rpcHops,
-		OutgoingChanId: ctx.Uint64("outgoing_chan_id"),
+		OutgoingChanId: cmd.Uint("outgoing_chan_id"),
 		PaymentAddr:    payAddr,
 	}
 
@@ -1713,7 +1716,7 @@ func buildRoute(ctx *cli.Context) error {
 	return nil
 }
 
-var deletePaymentsCommand = cli.Command{
+var deletePaymentsCommand = &cli.Command{
 	Name:     "deletepayments",
 	Category: "Payments",
 	Usage:    "Delete a single or multiple payments from the database.",
@@ -1743,44 +1746,44 @@ var deletePaymentsCommand = cli.Command{
 	`,
 	Action: actionDecorator(deletePayments),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "all",
 			Usage: "delete all failed payments",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "payment_hash",
 			Usage: "delete a specific payment identified by its " +
 				"payment hash",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "failed_htlcs_only",
 			Usage: "only delete failed HTLCs from payments, not " +
 				"the payment itself",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "include_non_failed",
 			Usage: "delete ALL payments, not just the failed ones",
 		},
 	},
 }
 
-func deletePayments(ctx *cli.Context) error {
+func deletePayments(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Show command help if arguments or no flags are provided.
-	if ctx.NArg() > 0 || ctx.NumFlags() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "deletepayments")
+	if cmd.NArg() > 0 || cmd.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "deletepayments")
 		return nil
 	}
 
 	var (
 		paymentHash      []byte
-		all              = ctx.Bool("all")
-		singlePayment    = ctx.IsSet("payment_hash")
-		failedHTLCsOnly  = ctx.Bool("failed_htlcs_only")
-		includeNonFailed = ctx.Bool("include_non_failed")
+		all              = cmd.Bool("all")
+		singlePayment    = cmd.IsSet("payment_hash")
+		failedHTLCsOnly  = cmd.Bool("failed_htlcs_only")
+		includeNonFailed = cmd.Bool("include_non_failed")
 		err              error
 		resp             proto.Message
 	)
@@ -1803,7 +1806,7 @@ func deletePayments(ctx *cli.Context) error {
 	// removing all/multiple payments.
 	switch {
 	case singlePayment:
-		paymentHash, err = hex.DecodeString(ctx.String("payment_hash"))
+		paymentHash, err = hex.DecodeString(cmd.String("payment_hash"))
 		if err != nil {
 			return fmt.Errorf("error decoding payment_hash: %w",
 				err)
@@ -1848,33 +1851,33 @@ func deletePayments(ctx *cli.Context) error {
 	return nil
 }
 
-var estimateRouteFeeCommand = cli.Command{
+var estimateRouteFeeCommand = &cli.Command{
 	Name:     "estimateroutefee",
 	Category: "Payments",
 	Usage:    "Estimate routing fees based on a destination or an invoice.",
 	Action:   actionDecorator(estimateRouteFee),
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "dest",
 			Usage: "the 33-byte hex-encoded public key for the " +
 				"probe destination. If it is specified then " +
 				"the amt flag is required. If it isn't " +
 				"specified then the pay_req field has to.",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "amt",
 			Usage: "the payment amount expressed in satoshis " +
 				"that should be probed for. This field is " +
 				"mandatory if dest is specified.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "pay_req",
 			Usage: "a zpay32 encoded payment request which is " +
 				"used to probe. If the destination is " +
 				"not public then route hints are scanned for " +
 				"a public node.",
 		},
-		cli.DurationFlag{
+		&cli.DurationFlag{
 			Name: "timeout",
 			Usage: "a deadline for the probe attempt. Only " +
 				"applicable if pay_req is specified.",
@@ -1883,9 +1886,9 @@ var estimateRouteFeeCommand = cli.Command{
 	},
 }
 
-func estimateRouteFee(ctx *cli.Context) error {
+func estimateRouteFee(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	conn := getClientConn(ctx, false)
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
@@ -1893,14 +1896,14 @@ func estimateRouteFee(ctx *cli.Context) error {
 	req := &routerrpc.RouteFeeRequest{}
 
 	switch {
-	case ctx.IsSet("dest") && ctx.IsSet("pay_req"):
+	case cmd.IsSet("dest") && cmd.IsSet("pay_req"):
 		return fmt.Errorf("either dest or pay_req can be set")
 
-	case ctx.IsSet("dest") && !ctx.IsSet("amt"):
+	case cmd.IsSet("dest") && !cmd.IsSet("amt"):
 		return fmt.Errorf("amt is required when dest is set")
 
-	case ctx.IsSet("dest"):
-		dest, err := hex.DecodeString(ctx.String("dest"))
+	case cmd.IsSet("dest"):
+		dest, err := hex.DecodeString(cmd.String("dest"))
 		if err != nil {
 			return err
 		}
@@ -1910,7 +1913,7 @@ func estimateRouteFee(ctx *cli.Context) error {
 				"33 bytes, is instead: %v", len(dest))
 		}
 
-		amtSat := ctx.Int64("amt")
+		amtSat := cmd.Int("amt")
 		if amtSat == 0 {
 			return fmt.Errorf("non-zero amount required")
 		}
@@ -1918,9 +1921,9 @@ func estimateRouteFee(ctx *cli.Context) error {
 		req.Dest = dest
 		req.AmtSat = amtSat
 
-	case ctx.IsSet("pay_req"):
-		req.PaymentRequest = StripPrefix(ctx.String("pay_req"))
-		req.Timeout = uint32(ctx.Duration("timeout").Seconds())
+	case cmd.IsSet("pay_req"):
+		req.PaymentRequest = StripPrefix(cmd.String("pay_req"))
+		req.Timeout = uint32(cmd.Duration("timeout").Seconds())
 
 	default:
 		return fmt.Errorf("fee estimation arguments missing")

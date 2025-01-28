@@ -19,6 +19,9 @@
 
 # Bug Fixes
 
+* [Improved user experience](https://github.com/lightningnetwork/lnd/pull/9454)
+  by returning a custom error code when HTLC carries incorrect custom records.
+
 # New Features
 
 ## Functional Enhancements
@@ -63,3 +66,4 @@
 
 * Alex Akselrod
 * Jesse de Wit
+* Ziggie

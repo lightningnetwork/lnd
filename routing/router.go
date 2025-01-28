@@ -614,7 +614,8 @@ type BlindedPathRestrictions struct {
 	NodeOmissionSet fn.Set[route.Vertex]
 
 	// IncomingChainedChannels holds a route of chained channels that we
-	// should use as incoming hops during blinded path selection.
+	// should use as incoming hops during blinded path selection. The first
+	//  channel in the list is the one closest to this one.
 	IncomingChainedChannels []uint64
 }
 
@@ -696,6 +697,12 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		// Don't bother adding a route if its success probability less
 		// minimum that can be assigned to any single pair.
 		if totalRouteProbability <= DefaultMinRouteProbability {
+			log.Debugf("Not using route (%v) as a blinded "+
+				"path since it resulted in an low "+
+				"probability path(%.3f)",
+				routeWithProbability.route.ChanIDString(),
+				routeWithProbability.probability,
+			)
 			continue
 		}
 

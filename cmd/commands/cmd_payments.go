@@ -192,8 +192,9 @@ func PaymentFlags() []cli.Flag {
 			Value: []int64{},
 		},
 		&cli.BoolFlag{
-			Name:  "force, f",
-			Usage: "will skip payment request confirmation",
+			Name:    "force",
+			Aliases: []string{"f"},
+			Usage:   "will skip payment request confirmation",
 		},
 		&cli.BoolFlag{
 			Name:  "allow_self_payment",
@@ -231,17 +232,20 @@ var SendPaymentCommand = &cli.Command{
 		"--pay_req=R [--pay_addr=H]",
 	Flags: append(PaymentFlags(),
 		&cli.StringFlag{
-			Name: "dest, d",
+			Name:    "dest",
+			Aliases: []string{"d"},
 			Usage: "the compressed identity pubkey of the " +
 				"payment recipient",
 		},
 		&cli.IntFlag{
-			Name:  "amt, a",
-			Usage: "number of satoshis to send",
+			Name:    "amt",
+			Aliases: []string{"a"},
+			Usage:   "number of satoshis to send",
 		},
 		&cli.StringFlag{
-			Name:  "payment_hash, r",
-			Usage: "the hash to use within the payment's HTLC",
+			Name:    "payment_hash",
+			Aliases: []string{"r"},
+			Usage:   "the hash to use within the payment's HTLC",
 		},
 		&cli.IntFlag{
 			Name:  "final_cltv_delta",
@@ -963,11 +967,13 @@ var sendToRouteCommand = &cli.Command{
 	`,
 	Flags: []cli.Flag{
 		&cli.StringFlag{
-			Name:  "payment_hash, pay_hash",
-			Usage: "the hash to use within the payment's HTLC",
+			Name:    "payment_hash",
+			Aliases: []string{"pay_hash"},
+			Usage:   "the hash to use within the payment's HTLC",
 		},
 		&cli.StringFlag{
-			Name: "routes, r",
+			Name:    "routes",
+			Aliases: []string{"r"},
 			Usage: "a json array string in the format of the response " +
 				"of queryroutes that denotes which routes to use",
 		},

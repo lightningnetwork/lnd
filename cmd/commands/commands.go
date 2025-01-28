@@ -474,7 +474,8 @@ var sendCoinsCommand = &cli.Command{
 			Value: defaultUtxoMinConf,
 		},
 		&cli.BoolFlag{
-			Name: "force, f",
+			Name:    "force",
+			Aliases: []string{"f"},
 			Usage: "if set, the transaction will be broadcast " +
 				"without asking for confirmation; this is " +
 				"set to true by default if stdout is not a " +
@@ -1230,7 +1231,8 @@ var closeAllChannelsCommand = &cli.Command{
 				"the closing transactions",
 		},
 		&cli.BoolFlag{
-			Name: "s, skip_confirmation",
+			Name:    "skip_confirmation",
+			Aliases: []string{"s"},
 			Usage: "Skip the confirmation prompt and close all " +
 				"channels immediately",
 		},

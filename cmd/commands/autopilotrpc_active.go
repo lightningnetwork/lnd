@@ -103,7 +103,8 @@ var queryScoresCommand = &cli.Command{
 	Action:      actionDecorator(queryScores),
 	Flags: []cli.Flag{
 		&cli.BoolFlag{
-			Name: "ignorelocalstate, i",
+			Name:    "ignorelocalstate",
+			Aliases: []string{"i"},
 			Usage: "Ignore local channel state when calculating " +
 				"scores.",
 		},

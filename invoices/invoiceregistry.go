@@ -1117,13 +1117,15 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 				return nil, nil
 			}
 
-			// If a cancel signal was set for the htlc set, we set
-			// the resolution as a failure with an underpayment
-			// indication. Something was wrong with this htlc, so
-			// we probably can't settle the invoice at all.
+			// The error `ExternalValidationFailed` error
+			// information will be packed in the
+			// `FailIncorrectDetails` msg when sending the msg to
+			// the peer. Error codes are defined by the BOLT 04
+			// specification. The error text can be arbitrary
+			// therefore we return a custom error msg.
 			resolution = NewFailResolution(
 				ctx.circuitKey, ctx.currentHeight,
-				ResultAmountTooLow,
+				ExternalValidationFailed,
 			)
 
 			// We cancel all HTLCs which are in the accepted state.

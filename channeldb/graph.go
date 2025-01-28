@@ -1023,6 +1023,10 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	}
 
 	for _, f := range op {
+		if f == nil {
+			return fmt.Errorf("nil scheduler option was used")
+		}
+
 		f(r)
 	}
 

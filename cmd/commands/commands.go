@@ -2327,6 +2327,21 @@ var updateChannelPolicyCommand = cli.Command{
 				"channels will be updated. Takes the form of " +
 				"txid:output_index",
 		},
+		cli.BoolFlag{
+			Name: "create_missing_edge",
+			Usage: "Under unknown circumstances a channel can " +
+				"exist with a missing edge in the graph " +
+				"database. This can cause an 'edge not " +
+				"found' error when calling `getchaninfo` " +
+				"and/or cause the default channel policy to " +
+				"be used during forwards. Setting this flag " +
+				"will recreate the edge if not found, " +
+				"allowing updating this channel policy and " +
+				"fixing the missing edge problem for this " +
+				"channel permanently. For fields not set in " +
+				"this command, the default policy will be " +
+				"created.",
+		},
 	},
 	Action: actionDecorator(updateChannelPolicy),
 }
@@ -2486,11 +2501,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
+	createMissingEdge := ctx.Bool("create_missing_edge")
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
-		InboundFee:    inboundFee,
+		BaseFeeMsat:       baseFee,
+		TimeLockDelta:     uint32(timeLockDelta),
+		MaxHtlcMsat:       ctx.Uint64("max_htlc_msat"),
+		InboundFee:        inboundFee,
+		CreateMissingEdge: createMissingEdge,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

@@ -6721,6 +6721,10 @@
         "inbound_fee": {
           "$ref": "#/definitions/lnrpcInboundFee",
           "description": "Optional inbound fee. If unset, the previously set value will be\nretained [EXPERIMENTAL]."
+        },
+        "create_missing_edge": {
+          "type": "boolean",
+          "description": "Under unknown circumstances a channel can exist with a missing edge in\nthe graph database. This can cause an 'edge not found' error when calling\n`getchaninfo` and/or cause the default channel policy to be used during\nforwards. Setting this flag will recreate the edge if not found, allowing\nupdating this channel policy and fixing the missing edge problem for this\nchannel permanently. For fields not set in this command, the default\npolicy will be created."
         }
       }
     },

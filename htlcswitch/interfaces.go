@@ -508,4 +508,9 @@ type AuxTrafficShaper interface {
 	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
 		linkBandwidth,
 		htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
+
+	// IsCustomHTLC returns true if the HTLC carries the set of relevant
+	// custom records to put it under the purview of the traffic shaper,
+	// meaning that it's from a custom channel.
+	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
 }

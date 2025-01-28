@@ -279,7 +279,7 @@ func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
 func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
-		return nil, fmt.Errorf("sequence number not found")
+		return nil, ErrNoSequenceNumber
 	}
 
 	sequenceNum := binary.BigEndian.Uint64(seqBytes)

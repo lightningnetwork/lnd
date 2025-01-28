@@ -116,6 +116,7 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 			&invoicesrpc.HtlcModifyResponse{
 				CircuitKey: modifierRequest.ExitHtlcCircuitKey,
 				AmtPaid:    &amtPaid,
+				CancelSet:  tc.cancelSet,
 			},
 		)
 		require.NoError(ht, err, "failed to send request")
@@ -128,7 +129,9 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 			require.Fail(ht, "timeout waiting for payment send")
 		}
 
-		ht.Log("Ensure invoice status is settled")
+		ht.Logf("Ensure invoice status is expected state %v",
+			tc.finalInvoiceState)
+
 		require.Eventually(ht, func() bool {
 			updatedInvoice := carol.RPC.LookupInvoice(
 				tc.invoice.RHash,
@@ -140,6 +143,13 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 		updatedInvoice := carol.RPC.LookupInvoice(
 			tc.invoice.RHash,
 		)
+
+		// If the HTLC modifier canceled the incoming HTLC set, we don't
+		// expect any HTLCs in the invoice.
+		if tc.cancelSet {
+			require.Len(ht, updatedInvoice.Htlcs, 0)
+			return
+		}
 
 		require.Len(ht, updatedInvoice.Htlcs, 1)
 		require.Equal(
@@ -231,6 +241,10 @@ type acceptorTestCase struct {
 
 	// invoice is the invoice that will be paid.
 	invoice *lnrpc.Invoice
+
+	// cancelSet is a boolean which indicates whether the HTLC modifier
+	// canceled the incoming HTLC set.
+	cancelSet bool
 }
 
 // acceptorTestScenario is a helper struct to hold the test context and provides
@@ -281,6 +295,12 @@ func (c *acceptorTestScenario) prepareTestCases() []*acceptorTestCase {
 			lastHopCustomRecords: map[uint64][]byte{
 				lnwire.MinCustomRecordsTlvType: {1, 2, 3},
 			},
+		},
+		{
+			invoiceAmountMsat: 9000,
+			sendAmountMsat:    1000,
+			finalInvoiceState: lnrpc.Invoice_OPEN,
+			cancelSet:         true,
 		},
 	}
 

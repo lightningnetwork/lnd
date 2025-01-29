@@ -122,7 +122,7 @@ func TestInvoiceRegistry(t *testing.T) {
 	makeKeyValueDB := func(t *testing.T) (invpkg.InvoiceDB,
 		*clock.TestClock) {
 
-		testClock := clock.NewTestClock(testNow)
+		testClock := clock.NewTestClock(testTime)
 		db, err := channeldb.MakeTestInvoiceDB(
 			t, channeldb.OptionClock(testClock),
 		)
@@ -156,7 +156,7 @@ func TestInvoiceRegistry(t *testing.T) {
 			},
 		)
 
-		testClock := clock.NewTestClock(testNow)
+		testClock := clock.NewTestClock(testTime)
 
 		return invpkg.NewSQLStore(executor, testClock), testClock
 	}

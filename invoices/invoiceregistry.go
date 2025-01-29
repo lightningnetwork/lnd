@@ -659,8 +659,9 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 
 		// Only allow individual htlc cancellation on open invoices.
 		if invoice.State != ContractOpen {
-			log.Debugf("cancelSingleHtlc: invoice %v no longer "+
-				"open", invoiceRef)
+			log.Debugf("CancelSingleHtlc: cannot cancel htlc %v "+
+				"on invoice %v, invoice is no longer open", key,
+				invoiceRef)
 
 			return nil, nil
 		}
@@ -678,13 +679,13 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 		// Cancellation is only possible if the htlc wasn't already
 		// resolved.
 		if htlcState != HtlcStateAccepted {
-			log.Debugf("cancelSingleHtlc: htlc %v on invoice %v "+
+			log.Debugf("CancelSingleHtlc: htlc %v on invoice %v "+
 				"is already resolved", key, invoiceRef)
 
 			return nil, nil
 		}
 
-		log.Debugf("cancelSingleHtlc: cancelling htlc %v on invoice %v",
+		log.Debugf("CancelSingleHtlc: cancelling htlc %v on invoice %v",
 			key, invoiceRef)
 
 		// Return an update descriptor that cancels htlc and keeps
@@ -737,8 +738,9 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 			key, int32(htlc.AcceptHeight), result,
 		)
 
-		log.Debugf("Cancelling htlc (%v) of invoice(%v) with "+
-			"resolution: %v", key, invoiceRef, result)
+		log.Debugf("Signaling htlc(%v) cancellation of invoice(%v) "+
+			"with resolution(%v) to the link subsystem", key,
+			invoiceRef, result)
 
 		i.notifyHodlSubscribers(resolution)
 	}
@@ -1453,6 +1455,8 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 	}
 
 	invoiceRef := InvoiceRefByHash(payHash)
+
+	// We pass a nil setID which means no HTLCs will be read out.
 	invoice, err := i.idb.UpdateInvoice(ctx, invoiceRef, nil, updateInvoice)
 
 	// Implement idempotency by returning success if the invoice was already
@@ -1479,6 +1483,8 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 	// that are waiting for resolution. Any htlcs that were already canceled
 	// before, will be notified again. This isn't necessary but doesn't hurt
 	// either.
+	//
+	// TODO(ziggie): Also consider AMP HTLCs here.
 	for key, htlc := range invoice.Htlcs {
 		if htlc.State != HtlcStateCanceled {
 			continue

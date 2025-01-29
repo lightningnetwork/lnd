@@ -193,10 +193,12 @@ type LightningClient interface {
 	// stream allowing clients to rapidly send payments through the Lightning
 	// Network with a single persistent connection.
 	SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error)
-	// SendPaymentSync is the synchronous non-streaming version of SendPayment.
-	// This RPC is intended to be consumed by clients of the REST proxy.
-	// Additionally, this RPC expects the destination's public key and the payment
-	// hash (if any) to be encoded as hex strings.
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous
+	// non-streaming version of SendPayment. This RPC is intended to be consumed by
+	// clients of the REST proxy. Additionally, this RPC expects the destination's
+	// public key and the payment hash (if any) to be encoded as hex strings.
 	SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendtoroute`
@@ -206,8 +208,11 @@ type LightningClient interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error)
-	// SendToRouteSync is a synchronous version of SendToRoute. It Will block
-	// until the payment either fails or succeeds.
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous
+	// version of SendToRoute. It Will block until the payment either fails or
+	// succeeds.
 	SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error)
 	// lncli: `addinvoice`
 	// AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -856,6 +861,7 @@ func (x *lightningSendPaymentClient) Recv() (*SendResponse, error) {
 	return m, nil
 }
 
+// Deprecated: Do not use.
 func (c *lightningClient) SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error) {
 	out := new(SendResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendPaymentSync", in, out, opts...)
@@ -897,6 +903,7 @@ func (x *lightningSendToRouteClient) Recv() (*SendResponse, error) {
 	return m, nil
 }
 
+// Deprecated: Do not use.
 func (c *lightningClient) SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error) {
 	out := new(SendResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendToRouteSync", in, out, opts...)
@@ -1514,10 +1521,12 @@ type LightningServer interface {
 	// stream allowing clients to rapidly send payments through the Lightning
 	// Network with a single persistent connection.
 	SendPayment(Lightning_SendPaymentServer) error
-	// SendPaymentSync is the synchronous non-streaming version of SendPayment.
-	// This RPC is intended to be consumed by clients of the REST proxy.
-	// Additionally, this RPC expects the destination's public key and the payment
-	// hash (if any) to be encoded as hex strings.
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous
+	// non-streaming version of SendPayment. This RPC is intended to be consumed by
+	// clients of the REST proxy. Additionally, this RPC expects the destination's
+	// public key and the payment hash (if any) to be encoded as hex strings.
 	SendPaymentSync(context.Context, *SendRequest) (*SendResponse, error)
 	// Deprecated: Do not use.
 	// lncli: `sendtoroute`
@@ -1527,8 +1536,11 @@ type LightningServer interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRoute(Lightning_SendToRouteServer) error
-	// SendToRouteSync is a synchronous version of SendToRoute. It Will block
-	// until the payment either fails or succeeds.
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous
+	// version of SendToRoute. It Will block until the payment either fails or
+	// succeeds.
 	SendToRouteSync(context.Context, *SendToRouteRequest) (*SendResponse, error)
 	// lncli: `addinvoice`
 	// AddInvoice attempts to add a new invoice to the invoice database. Any

@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -391,9 +390,7 @@ func (c *commitSweepResolver) Launch() error {
 	// expires after.
 	unlockHeight := confHeight + c.commitResolution.MaturityDelay
 	if c.hasCLTV() {
-		unlockHeight = uint32(math.Max(
-			float64(unlockHeight), float64(c.leaseExpiry),
-		))
+		unlockHeight = max(unlockHeight, c.leaseExpiry)
 	}
 
 	// Update report now that we learned the confirmation height.

@@ -34,7 +34,7 @@ env:
 
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  GO_VERSION: 1.22.6
+  GO_VERSION: 1.22.11
 
 jobs:
   ########################

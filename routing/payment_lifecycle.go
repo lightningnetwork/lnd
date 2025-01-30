@@ -761,7 +761,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 	// and apply its side effects to the UpdateAddHTLC message.
 	result, err := fn.MapOptionZ(
 		p.router.cfg.TrafficShaper,
-		//nolint:ll
+		//nolint:lll
 		func(ts htlcswitch.AuxTrafficShaper) fn.Result[extraDataRequest] {
 			newAmt, newRecords, err := ts.ProduceHtlcExtraData(
 				rt.TotalAmount, p.firstHopCustomRecords,

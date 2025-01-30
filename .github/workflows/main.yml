@@ -198,15 +198,6 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: git checkout fuzzing seeds
-        uses: actions/checkout@v3
-        with:
-          repository: lightninglabs/lnd-fuzz
-          path: lnd-fuzz
-
-      - name: rsync fuzzing seeds
-        run: rsync -a --ignore-existing lnd-fuzz/ ./
-
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:

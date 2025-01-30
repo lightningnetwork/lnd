@@ -211,9 +211,6 @@ replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
-// Temporary replace until the next version of sqldb is taged.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
-
 // If you change this please also update .github/pull_request_template.md,
 // docs/INSTALL.md and GO_IMAGE in lnrpc/gen_protos_docker.sh.
 go 1.22.6

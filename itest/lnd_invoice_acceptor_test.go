@@ -34,6 +34,11 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 	resp := ht.OpenMultiChannelsAsync(reqs)
 	cpAB, cpBC := resp[0], resp[1]
 
+	ht.Cleanup(func() {
+		ht.CloseChannel(alice, cpAB)
+		ht.CloseChannel(bob, cpBC)
+	})
+
 	// Make sure Alice is aware of channel Bob=>Carol.
 	ht.AssertTopologyChannelOpen(alice, cpBC)
 
@@ -214,10 +219,6 @@ func testInvoiceHtlcModifierBasic(ht *lntest.HarnessTest) {
 	}
 
 	cancelModifier()
-
-	// Finally, close channels.
-	ht.CloseChannel(alice, cpAB)
-	ht.CloseChannel(bob, cpBC)
 }
 
 // acceptorTestCase is a helper struct to hold test case data.

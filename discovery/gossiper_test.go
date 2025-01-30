@@ -630,9 +630,32 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate1) error {
 	return nil
 }
 
+// edgeCreationModifier is an enum-like type used to modify steps that are
+// skipped when creating a channel in the test context.
+type edgeCreationModifier uint8
+
+const (
+	// edgeCreationNormal is the default edge creation modifier that
+	// doesn't skip any steps.
+	edgeCreationNormal edgeCreationModifier = iota //nolint:unused
+
+	// edgeCreationNoFundingTx is used to skip adding the funding
+	// transaction of an edge to the chain.
+	edgeCreationNoFundingTx
+
+	// edgeCreationSpentUTXO is used to skip adding the UTXO of a channel to
+	// the UTXO set.
+	edgeCreationSpentUTXO
+
+	// edgeCreationBadScript is used to create the edge, but use the wrong
+	// scrip which should cause it to fail output validation.
+	edgeCreationBadScript
+)
+
 type edgeCreationOpts struct {
 	extraBytes []byte
 	value      btcutil.Amount
+	modifier   edgeCreationModifier
 }
 
 type edgeCreationOption func(*edgeCreationOpts)
@@ -667,12 +690,23 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 		Hash:  fundingTx.TxHash(),
 		Index: 0,
 	}
-	ctx.chain.addUtxo(chanUtxo, tx)
 
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
+	if opts.modifier != edgeCreationSpentUTXO {
+		ctx.chain.addUtxo(chanUtxo, tx)
+	} else {
+		ctx.chain.spendUtxo(chanUtxo)
 	}
-	ctx.chain.addBlock(fundingBlock, blockHeight, blockHeight)
+
+	var fundingBlock wire.MsgBlock
+	if opts.modifier != edgeCreationBadScript {
+		fundingBlock.Transactions = []*wire.MsgTx{fundingTx}
+	} else {
+		fundingBlock.Transactions = []*wire.MsgTx{{}}
+	}
+
+	if opts.modifier != edgeCreationNoFundingTx {
+		ctx.chain.addBlock(&fundingBlock, blockHeight, blockHeight)
+	}
 
 	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{

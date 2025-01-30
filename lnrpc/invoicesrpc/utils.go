@@ -187,13 +187,15 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		AmtPaidSat:      int64(satAmtPaid),
 		AmtPaidMsat:     int64(invoice.AmtPaid),
 		AmtPaid:         int64(invoice.AmtPaid),
-		State:           state,
-		Htlcs:           rpcHtlcs,
-		Features:        CreateRPCFeatures(invoice.Terms.Features),
-		IsKeysend:       invoice.IsKeysend(),
-		PaymentAddr:     invoice.Terms.PaymentAddr[:],
-		IsAmp:           invoice.IsAMP(),
-		IsBlinded:       invoice.IsBlinded(),
+		// This will be set to SETTLED if at least one of the AMP Sets
+		// is settled (see below).
+		State:       state,
+		Htlcs:       rpcHtlcs,
+		Features:    CreateRPCFeatures(invoice.Terms.Features),
+		IsKeysend:   invoice.IsKeysend(),
+		PaymentAddr: invoice.Terms.PaymentAddr[:],
+		IsAmp:       invoice.IsAMP(),
+		IsBlinded:   invoice.IsBlinded(),
 	}
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)

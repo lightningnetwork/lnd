@@ -137,9 +137,6 @@ func (s *HtlcModificationInterceptor) Intercept(clientRequest HtlcModifyRequest,
 	// Wait for the client to respond or an error to occur.
 	select {
 	case response := <-responseChan:
-		log.Debugf("Received invoice HTLC interceptor response: %v",
-			response)
-
 		responseCallback(*response)
 
 		return nil

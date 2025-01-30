@@ -627,9 +627,26 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate1) error {
 	return nil
 }
 
+type fundingTxOpts struct {
+	extraBytes []byte
+}
+
+type fundingTxOption func(*fundingTxOpts)
+
+func withExtraBytes(extraBytes []byte) fundingTxOption {
+	return func(opts *fundingTxOpts) {
+		opts.extraBytes = extraBytes
+	}
+}
+
 func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
-	extraBytes ...[]byte) *lnwire.ChannelAnnouncement1 {
+	options ...fundingTxOption) *lnwire.ChannelAnnouncement1 {
+
+	var opts fundingTxOpts
+	for _, opt := range options {
+		opt(&opts)
+	}
 
 	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{
@@ -643,27 +660,25 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	copy(a.NodeID2[:], key2.SerializeCompressed())
 	copy(a.BitcoinKey1[:], bitcoinKeyPub1.SerializeCompressed())
 	copy(a.BitcoinKey2[:], bitcoinKeyPub2.SerializeCompressed())
-	if len(extraBytes) == 1 {
-		a.ExtraOpaqueData = extraBytes[0]
-	}
+	a.ExtraOpaqueData = opts.extraBytes
 
 	return a
 }
 
 func (ctx *testCtx) createRemoteChannelAnnouncement(blockHeight uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
+	opts ...fundingTxOption) (*lnwire.ChannelAnnouncement1, error) {
 
 	return ctx.createChannelAnnouncement(
-		blockHeight, remoteKeyPriv1, remoteKeyPriv2, extraBytes...,
+		blockHeight, remoteKeyPriv1, remoteKeyPriv2, opts...,
 	)
 }
 
 func (ctx *testCtx) createChannelAnnouncement(blockHeight uint32, key1,
 	key2 *btcec.PrivateKey,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
+	opts ...fundingTxOption) (*lnwire.ChannelAnnouncement1, error) {
 
 	a := ctx.createAnnouncementWithoutProof(
-		blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...,
+		blockHeight, key1.PubKey(), key2.PubKey(), opts...,
 	)
 
 	signer := mock.SingleSigner{Privkey: key1}
@@ -2610,7 +2625,9 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	// that we don't know of ourselves, but should still include in the
 	// final signature check.
 	extraBytes := []byte("gotta validate this still!")
-	ca, err := ctx.createRemoteChannelAnnouncement(0, extraBytes)
+	ca, err := ctx.createRemoteChannelAnnouncement(
+		0, withExtraBytes(extraBytes),
+	)
 	require.NoError(t, err, "can't create channel announcement")
 
 	// We'll now send the announcement to the main gossiper. We should be

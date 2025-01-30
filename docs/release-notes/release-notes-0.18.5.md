@@ -60,6 +60,9 @@
 
 ## Code Health
 
+* [Golang was updated to
+  `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462).
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

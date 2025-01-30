@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnwallet/validator"
+
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -305,6 +307,10 @@ type OutboundClient struct {
 	// watch-only node.
 	maxRetryTimeout time.Duration
 
+	// validator is the validation implementation used by the remote signer
+	// client.
+	validator validator.Validation
+
 	cg       *fn.ContextGuard
 	gManager *fn.GoroutineManager
 }
@@ -336,6 +342,7 @@ func NewOutboundClient(walletServer walletrpc.WalletKitServer,
 		requestTimeout:  requestTimeout,
 		retryTimeout:    defaultRetryTimeout,
 		maxRetryTimeout: defaultMaxRetryTimeout,
+		validator:       validator.NewValidator(),
 		cg:              fn.NewContextGuard(),
 		gManager:        fn.NewGoroutineManager(),
 	}, nil
@@ -786,6 +793,17 @@ func (r *OutboundClient) process(ctx context.Context,
 		return signResp, nil
 
 	case *walletrpc.SignCoordinatorRequest_SignPsbtRequest:
+		res, err := r.validator.ValidatePSBT(
+			ctx, reqType.SignPsbtRequest,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if res.Type == validator.ValidationFailure {
+			return nil, errors.New(res.FailureDetails)
+		}
+
 		resp, err := r.walletServer.SignPsbt(
 			ctx, reqType.SignPsbtRequest,
 		)

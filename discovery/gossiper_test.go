@@ -27,10 +27,12 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -70,6 +72,8 @@ var (
 	// be rebroadcasted automaticallty during the tests.
 	testTimestamp       = uint32(1234567890)
 	rebroadcastInterval = time.Hour * 1000000
+
+	chanValue int64 = 10000
 )
 
 type mockGraphSource struct {
@@ -630,6 +634,26 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
 	extraBytes ...[]byte) *lnwire.ChannelAnnouncement1 {
 
+	fundingTx := wire.NewMsgTx(2)
+	_, tx, err := input.GenFundingPkScript(
+		bitcoinKeyPub1.SerializeCompressed(),
+		bitcoinKeyPub2.SerializeCompressed(),
+		chanValue,
+	)
+	require.NoError(ctx.t, err)
+
+	fundingTx.TxOut = append(fundingTx.TxOut, tx)
+	chanUtxo := wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+	ctx.chain.addUtxo(chanUtxo, tx)
+
+	fundingBlock := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+	ctx.chain.addBlock(fundingBlock, blockHeight, blockHeight)
+
 	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -715,10 +739,12 @@ func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 }
 
 type testCtx struct {
+	t                  *testing.T
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
 	broadcastedMessage chan msgWithSenders
+	chain              *mockChain
 }
 
 func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
@@ -730,6 +756,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	// broadcast functions won't be populated.
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
+	chain := newMockChain(startHeight)
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
@@ -761,6 +788,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	}
 
 	gossiper := New(Config{
+		ChainIO:  chain,
 		Notifier: notifier,
 		Broadcast: func(senders map[route.Vertex]struct{},
 			msgs ...lnwire.Message) error {
@@ -832,10 +860,12 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	})
 
 	return &testCtx{
+		t:                  t,
 		router:             router,
 		notifier:           notifier,
 		gossiper:           gossiper,
 		broadcastedMessage: broadcastedMessage,
+		chain:              chain,
 	}, nil
 }
 
@@ -4307,4 +4337,128 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	// Assert that the peer wasn't disconnected.
 	require.False(t, nodePeer.disconnected.Load())
+}
+
+type mockChain struct {
+	blocks           map[chainhash.Hash]*wire.MsgBlock
+	blockIndex       map[uint32]chainhash.Hash
+	blockHeightIndex map[chainhash.Hash]uint32
+
+	utxos      map[wire.OutPoint]wire.TxOut
+	spentUTXOs map[wire.OutPoint]bool
+
+	bestHeight int32
+
+	sync.RWMutex
+}
+
+func newMockChain(currentHeight uint32) *mockChain {
+	return &mockChain{
+		bestHeight:       int32(currentHeight),
+		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
+		utxos:            make(map[wire.OutPoint]wire.TxOut),
+		spentUTXOs:       make(map[wire.OutPoint]bool),
+		blockIndex:       make(map[uint32]chainhash.Hash),
+		blockHeightIndex: make(map[chainhash.Hash]uint32),
+	}
+}
+
+func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	blockHash := m.blockIndex[uint32(m.bestHeight)]
+
+	return &blockHash, m.bestHeight, nil
+}
+
+func (m *mockChain) GetTransaction(_ *chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}
+
+func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	hash, ok := m.blockIndex[uint32(blockHeight)]
+	if !ok {
+		return nil, fmt.Errorf("block number out of range: %v",
+			blockHeight)
+	}
+
+	return &hash, nil
+}
+
+func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.utxos[op] = *out
+}
+
+func (m *mockChain) spendUtxo(op wire.OutPoint) {
+	m.Lock()
+	defer m.Unlock()
+
+	delete(m.utxos, op)
+	m.spentUTXOs[op] = true
+}
+
+func (m *mockChain) GetUtxo(op *wire.OutPoint, _ []byte, _ uint32,
+	_ <-chan struct{}) (*wire.TxOut, error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	if m.spentUTXOs[*op] {
+		return nil, btcwallet.ErrOutputSpent
+	}
+
+	utxo, ok := m.utxos[*op]
+	if !ok {
+		return nil, fmt.Errorf("utxo not found")
+	}
+
+	return &utxo, nil
+}
+
+func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32,
+	nonce uint32) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	block.Header.Nonce = nonce
+	hash := block.Header.BlockHash()
+	m.blocks[hash] = block
+	m.blockIndex[height] = hash
+	m.blockHeightIndex[hash] = height
+}
+
+func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	block, ok := m.blocks[*blockHash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	return block, nil
+}
+
+func (m *mockChain) GetBlockHeader(
+	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	block, ok := m.blocks[*blockHash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	return &block.Header, nil
 }

@@ -88,6 +88,10 @@ type ChannelGraphSource interface {
 
 	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
 	MarkZombieEdge(chanID uint64) error
+
+	// IsZombieEdge returns true if the edge with the given channel ID is
+	// currently marked as a zombie edge.
+	IsZombieEdge(chanID lnwire.ShortChannelID) (bool, error)
 }
 
 // DB is an interface describing a persisted Lightning Network graph.

@@ -113,6 +113,17 @@ func (r *mockGraphSource) MarkZombieEdge(scid uint64) error {
 	)
 }
 
+func (r *mockGraphSource) IsZombieEdge(chanID lnwire.ShortChannelID) (bool,
+	error) {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	_, ok := r.zombies[chanID.ToUint64()]
+
+	return ok, nil
+}
+
 func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	_ ...batch.SchedulerOption) error {
 

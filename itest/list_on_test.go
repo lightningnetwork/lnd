@@ -455,14 +455,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorBasic,
 	},
 	{
-		Name:     "forward interceptor modified htlc",
-		TestFunc: testForwardInterceptorModifiedHtlc,
-	},
-	{
-		Name:     "forward interceptor wire records",
-		TestFunc: testForwardInterceptorWireRecords,
-	},
-	{
 		Name:     "forward interceptor restart",
 		TestFunc: testForwardInterceptorRestart,
 	},

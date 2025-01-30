@@ -164,3 +164,7 @@ func (*mockTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 
 	return totalAmount, nil, nil
 }
+
+func (*mockTrafficShaper) IsCustomHTLC(_ lnwire.CustomRecords) bool {
+	return false
+}

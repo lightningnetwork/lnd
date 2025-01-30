@@ -3875,21 +3875,20 @@ func (l *channelLink) processExitHop(add lnwire.UpdateAddHTLC,
 		return nil
 	}
 
+	// In case the traffic shaper is active, we'll check if the HTLC has
+	// custom records and skip the amount check in the onion payload below.
+	isCustomHTLC := fn.MapOptionZ(
+		l.cfg.AuxTrafficShaper,
+		func(ts AuxTrafficShaper) bool {
+			return ts.IsCustomHTLC(add.CustomRecords)
+		},
+	)
+
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
-	// is compatible with the HTLC we were extended.
-	//
-	// For a special case, if the fwdInfo doesn't have any blinded path
-	// information, and the incoming HTLC had special extra data, then
-	// we'll skip this amount check. The invoice acceptor will make sure we
-	// reject the HTLC if it's not containing the correct amount after
-	// examining the custom data.
-	hasBlindedPath := fwdInfo.NextBlinding.IsSome()
-	customHTLC := len(add.CustomRecords) > 0 && !hasBlindedPath
-	log.Tracef("Exit hop has_blinded_path=%v custom_htlc_bypass=%v",
-		hasBlindedPath, customHTLC)
-
-	if !customHTLC && add.Amount < fwdInfo.AmountToForward {
+	// is compatible with the HTLC we were extended. If an external
+	// validator is active we might bypass the amount check.
+	if !isCustomHTLC && add.Amount < fwdInfo.AmountToForward {
 		l.log.Errorf("onion payload of incoming htlc(%x) has "+
 			"incompatible value: expected <=%v, got %v",
 			add.PaymentHash, add.Amount, fwdInfo.AmountToForward)

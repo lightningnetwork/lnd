@@ -35,7 +35,7 @@ endif
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
-GO_VERSION = 1.22.6
+GO_VERSION = 1.22.11
 
 GOBUILD := $(LOOPVARFIX) go build -v
 GOINSTALL := $(LOOPVARFIX) go install -v

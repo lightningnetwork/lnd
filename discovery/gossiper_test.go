@@ -24,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -76,13 +75,13 @@ var (
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu             sync.Mutex
-	nodes          []models.LightningNode
-	infos          map[uint64]models.ChannelEdgeInfo
-	edges          map[uint64][]models.ChannelEdgePolicy
-	zombies        map[uint64][][33]byte
-	chansToReject  map[uint64]struct{}
-	addEdgeErrCode fn.Option[graph.ErrorCode]
+	mu            sync.Mutex
+	nodes         []models.LightningNode
+	infos         map[uint64]models.ChannelEdgeInfo
+	edges         map[uint64][]models.ChannelEdgePolicy
+	zombies       map[uint64][][33]byte
+	chansToReject map[uint64]struct{}
+	addEdgeErr    error
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -113,10 +112,8 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.addEdgeErrCode.IsSome() {
-		return graph.NewErrf(
-			r.addEdgeErrCode.UnsafeFromSome(), "received error",
-		)
+	if r.addEdgeErr != nil {
+		return r.addEdgeErr
 	}
 
 	if _, ok := r.infos[info.ChannelID]; ok {
@@ -131,12 +128,12 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	return nil
 }
 
-func (r *mockGraphSource) resetAddEdgeErrCode() {
-	r.addEdgeErrCode = fn.None[graph.ErrorCode]()
+func (r *mockGraphSource) resetAddEdgeErr() {
+	r.addEdgeErr = nil
 }
 
-func (r *mockGraphSource) setAddEdgeErrCode(code graph.ErrorCode) {
-	r.addEdgeErrCode = fn.Some[graph.ErrorCode](code)
+func (r *mockGraphSource) setAddEdgeErr(err error) {
+	r.addEdgeErr = err
 }
 
 func (r *mockGraphSource) queueValidationFail(chanID uint64) {
@@ -4185,7 +4182,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
 	}
 
-	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
@@ -4199,11 +4196,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer1,
 		):
-			require.True(
-				t, graph.IsError(
-					err, graph.ErrInvalidFundingOutput,
-				),
-			)
+			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")
@@ -4221,11 +4214,11 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 
 	// Set the error to ErrChannelSpent so that we can test that the
 	// gossiper ignores closed channels.
-	ctx.router.setAddEdgeErrCode(graph.ErrChannelSpent)
+	ctx.router.setAddEdgeErr(graph.ErrChannelSpent)
 
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
-		require.True(t, graph.IsError(err, graph.ErrChannelSpent))
+		require.ErrorIs(t, err, graph.ErrChannelSpent)
 
 	case <-time.After(2 * time.Second):
 		t.Fatalf("remote announcement not processed")
@@ -4248,7 +4241,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 
 	// Reset the AddEdge error and pass the same announcement again. An
 	// error should be returned even though AddEdge won't fail.
-	ctx.router.resetAddEdgeErrCode()
+	ctx.router.resetAddEdgeErr()
 
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
@@ -4269,7 +4262,7 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
 
-	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
@@ -4283,11 +4276,7 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer,
 		):
-			require.True(
-				t, graph.IsError(
-					err, graph.ErrInvalidFundingOutput,
-				),
-			)
+			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")

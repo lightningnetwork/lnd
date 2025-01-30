@@ -2678,10 +2678,9 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 			return anns, true
 
-		case graph.IsError(
-			err, graph.ErrNoFundingTransaction,
-			graph.ErrInvalidFundingOutput,
-		):
+		case errors.Is(err, graph.ErrNoFundingTransaction),
+			errors.Is(err, graph.ErrInvalidFundingOutput):
+
 			key := newRejectCacheKey(
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),
@@ -2695,7 +2694,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 				d.banman.incrementBanScore(nMsg.peer.PubKey())
 			}
 
-		case graph.IsError(err, graph.ErrChannelSpent):
+		case errors.Is(err, graph.ErrChannelSpent):
 			key := newRejectCacheKey(
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),

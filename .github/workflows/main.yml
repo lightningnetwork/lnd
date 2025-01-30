@@ -25,13 +25,9 @@ env:
   
   TRANCHES: 8
 
-  # If you change this value, please change it in the following files as well:
-  # /.travis.yml
-  # /Dockerfile
-  # /dev.Dockerfile
-  # /make/builder.Dockerfile
-  # /.github/workflows/release.yml
-  GO_VERSION: 1.22.6
+  # If you change this please also update GO_VERSION in Makefile (then run
+  # `make lint` to see where else it needs to be updated as well).
+  GO_VERSION: 1.22.11
 
 jobs:
   ########################

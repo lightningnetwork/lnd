@@ -3981,6 +3981,12 @@ message BlindedPathConfig {
     blinded paths.
     */
     repeated bytes node_omission_list = 4;
+
+    /*
+    The chained channels list (specified via channel id) starting from a channel
+    which points to the receiver node.
+    */
+    repeated uint64 incoming_channel_list = 5;
 }
 
 enum InvoiceHTLCState {

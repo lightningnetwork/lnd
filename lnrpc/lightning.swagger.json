@@ -715,7 +715,7 @@
     },
     "/v1/channels/transactions": {
       "post": {
-        "summary": "SendPaymentSync is the synchronous non-streaming version of SendPayment.\nThis RPC is intended to be consumed by clients of the REST proxy.\nAdditionally, this RPC expects the destination's public key and the payment\nhash (if any) to be encoded as hex strings.",
+        "summary": "Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous\nnon-streaming version of SendPayment. This RPC is intended to be consumed by\nclients of the REST proxy. Additionally, this RPC expects the destination's\npublic key and the payment hash (if any) to be encoded as hex strings.",
         "operationId": "Lightning_SendPaymentSync",
         "responses": {
           "200": {
@@ -748,7 +748,7 @@
     },
     "/v1/channels/transactions/route": {
       "post": {
-        "summary": "SendToRouteSync is a synchronous version of SendToRoute. It Will block\nuntil the payment either fails or succeeds.",
+        "summary": "Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous\nversion of SendToRoute. It Will block until the payment either fails or\nsucceeds.",
         "operationId": "Lightning_SendToRouteSync",
         "responses": {
           "200": {

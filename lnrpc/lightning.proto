@@ -274,12 +274,14 @@ service Lightning {
     }
 
     /*
-    SendPaymentSync is the synchronous non-streaming version of SendPayment.
-    This RPC is intended to be consumed by clients of the REST proxy.
-    Additionally, this RPC expects the destination's public key and the payment
-    hash (if any) to be encoded as hex strings.
+    Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous
+    non-streaming version of SendPayment. This RPC is intended to be consumed by
+    clients of the REST proxy. Additionally, this RPC expects the destination's
+    public key and the payment hash (if any) to be encoded as hex strings.
     */
-    rpc SendPaymentSync (SendRequest) returns (SendResponse);
+    rpc SendPaymentSync (SendRequest) returns (SendResponse) {
+        option deprecated = true;
+    }
 
     /* lncli: `sendtoroute`
     Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
@@ -293,10 +295,13 @@ service Lightning {
     }
 
     /*
-    SendToRouteSync is a synchronous version of SendToRoute. It Will block
-    until the payment either fails or succeeds.
+    Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous
+    version of SendToRoute. It Will block until the payment either fails or
+    succeeds.
     */
-    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse);
+    rpc SendToRouteSync (SendToRouteRequest) returns (SendResponse) {
+        option deprecated = true;
+    }
 
     /* lncli: `addinvoice`
     AddInvoice attempts to add a new invoice to the invoice database. Any

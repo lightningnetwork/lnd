@@ -760,6 +760,9 @@ type InvoiceStateUpdateDesc struct {
 
 // InvoiceUpdateCallback is a callback used in the db transaction to update the
 // invoice.
+// TODO(ziggie): Add the option of additional return values to the callback
+// for example the resolution which is currently assigned via an outer scope
+// variable.
 type InvoiceUpdateCallback = func(invoice *Invoice) (*InvoiceUpdateDesc, error)
 
 // ValidateInvoice assures the invoice passes the checks for all the relevant

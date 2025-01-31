@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/healthcheck"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -44,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/blindedpath"
+	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -143,6 +145,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "DISC", interceptor, discovery.UseLogger)
 	AddSubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
 	AddSubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
+	AddSubLogger(root, "SQLB", interceptor, sqlbase.UseLogger)
 	AddSubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
 	AddSubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)
 	AddSubLogger(root, "UTXN", interceptor, contractcourt.UseNurseryLogger)
@@ -167,6 +170,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "CHFD", interceptor, chanfunding.UseLogger)
 	AddSubLogger(root, "PEER", interceptor, peer.UseLogger)
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
+	AddSubLogger(root, "LCHN", interceptor, localchans.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)

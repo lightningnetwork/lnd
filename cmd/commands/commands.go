@@ -461,7 +461,7 @@ func sendCoins(ctx *cli.Context) error {
 	// In case that the user has specified the sweepall flag, we'll
 	// calculate the amount to send based on the current wallet balance.
 	displayAmt := amt
-	if ctx.Bool("sweepall") {
+	if ctx.Bool("sweepall") && !ctx.IsSet("utxo") {
 		balanceResponse, err := client.WalletBalance(
 			ctxc, &lnrpc.WalletBalanceRequest{
 				MinConfs: minConfs,
@@ -480,6 +480,32 @@ func sendCoins(ctx *cli.Context) error {
 		outpoints, err = UtxosToOutpoints(utxos)
 		if err != nil {
 			return fmt.Errorf("unable to decode utxos: %w", err)
+		}
+
+		if ctx.Bool("sweepall") {
+			displayAmt = 0
+			// If we're sweeping all funds of the utxos, we'll need
+			// to set the display amount to the total amount of the
+			// utxos.
+			unspents, err := client.ListUnspent(
+				ctxc, &lnrpc.ListUnspentRequest{
+					MinConfs: 0,
+					MaxConfs: math.MaxInt32,
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			for _, utxo := range outpoints {
+				for _, unspent := range unspents.Utxos {
+					unspentUtxo := unspent.Outpoint
+					if isSameOutpoint(utxo, unspentUtxo) {
+						displayAmt += unspent.AmountSat
+						break
+					}
+				}
+			}
 		}
 	}
 
@@ -515,6 +541,10 @@ func sendCoins(ctx *cli.Context) error {
 
 	printRespJSON(txid)
 	return nil
+}
+
+func isSameOutpoint(a, b *lnrpc.OutPoint) bool {
+	return a.TxidStr == b.TxidStr && a.OutputIndex == b.OutputIndex
 }
 
 var listUnspentCommand = cli.Command{
@@ -2327,6 +2357,21 @@ var updateChannelPolicyCommand = cli.Command{
 				"channels will be updated. Takes the form of " +
 				"txid:output_index",
 		},
+		cli.BoolFlag{
+			Name: "create_missing_edge",
+			Usage: "Under unknown circumstances a channel can " +
+				"exist with a missing edge in the graph " +
+				"database. This can cause an 'edge not " +
+				"found' error when calling `getchaninfo` " +
+				"and/or cause the default channel policy to " +
+				"be used during forwards. Setting this flag " +
+				"will recreate the edge if not found, " +
+				"allowing updating this channel policy and " +
+				"fixing the missing edge problem for this " +
+				"channel permanently. For fields not set in " +
+				"this command, the default policy will be " +
+				"created.",
+		},
 	},
 	Action: actionDecorator(updateChannelPolicy),
 }
@@ -2486,11 +2531,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		}
 	}
 
+	createMissingEdge := ctx.Bool("create_missing_edge")
+
 	req := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFee,
-		TimeLockDelta: uint32(timeLockDelta),
-		MaxHtlcMsat:   ctx.Uint64("max_htlc_msat"),
-		InboundFee:    inboundFee,
+		BaseFeeMsat:       baseFee,
+		TimeLockDelta:     uint32(timeLockDelta),
+		MaxHtlcMsat:       ctx.Uint64("max_htlc_msat"),
+		InboundFee:        inboundFee,
+		CreateMissingEdge: createMissingEdge,
 	}
 
 	if ctx.IsSet("min_htlc_msat") {

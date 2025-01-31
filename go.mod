@@ -10,7 +10,7 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20240912233857-ffb143c77cc5
+	github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2
 	github.com/btcsuite/btcwallet/walletdb v1.4.4
@@ -201,12 +201,15 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 
+// Use local kvdb package until new version is tagged.
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+// Use local sqldb package until new version is tagged.
+replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
+
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
-
-// Temporary replace until the next version of sqldb is taged.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // If you change this please also update .github/pull_request_template.md,
 // docs/INSTALL.md and GO_IMAGE in lnrpc/gen_protos_docker.sh.

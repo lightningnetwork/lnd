@@ -1,9 +1,6 @@
-# If you change this value, please change it in the following files as well:
-# /Dockerfile
-# /dev.Dockerfile
-# /.github/workflows/main.yml
-# /.github/workflows/release.yml
-FROM golang:1.22.6-bookworm
+# If you change this please also update GO_VERSION in Makefile (then run
+# `make lint` to see where else it needs to be updated as well).
+FROM golang:1.22.11-bookworm
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 

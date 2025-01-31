@@ -120,6 +120,10 @@ const (
 	// ResultAmpReconstruction is returned when the derived child
 	// hash/preimage pairs were invalid for at least one HTLC in the set.
 	ResultAmpReconstruction
+
+	// ExternalValidationFailed is returned when the external validation
+	// failed.
+	ExternalValidationFailed
 )
 
 // String returns a string representation of the result.
@@ -189,6 +193,9 @@ func (f FailResolutionResult) FailureString() string {
 	case ResultAmpReconstruction:
 		return "amp reconstruction failed"
 
+	case ExternalValidationFailed:
+		return "external validation failed"
+
 	default:
 		return "unknown failure resolution result"
 	}
@@ -202,7 +209,8 @@ func (f FailResolutionResult) IsSetFailure() bool {
 		ResultAmpReconstruction,
 		ResultHtlcSetTotalTooLow,
 		ResultHtlcSetTotalMismatch,
-		ResultHtlcSetOverpayment:
+		ResultHtlcSetOverpayment,
+		ExternalValidationFailed:
 
 		return true
 

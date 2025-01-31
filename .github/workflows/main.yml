@@ -25,13 +25,9 @@ env:
   
   TRANCHES: 8
 
-  # If you change this value, please change it in the following files as well:
-  # /.travis.yml
-  # /Dockerfile
-  # /dev.Dockerfile
-  # /make/builder.Dockerfile
-  # /.github/workflows/release.yml
-  GO_VERSION: 1.22.6
+  # If you change this please also update GO_VERSION in Makefile (then run
+  # `make lint` to see where else it needs to be updated as well).
+  GO_VERSION: 1.22.11
 
 jobs:
   ########################
@@ -202,15 +198,6 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: git checkout fuzzing seeds
-        uses: actions/checkout@v3
-        with:
-          repository: lightninglabs/lnd-fuzz
-          path: lnd-fuzz
-
-      - name: rsync fuzzing seeds
-        run: rsync -a --ignore-existing lnd-fuzz/ ./
-
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
@@ -297,10 +284,10 @@ jobs:
       - name: Zip log files on failure
         if: ${{ failure() }}
         timeout-minutes: 5 # timeout after 5 minute
-        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
+        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log itest/postgres.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-${{ matrix.name }}
@@ -345,7 +332,7 @@ jobs:
         run: 7z a logs-itest-windows.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-windows
@@ -390,7 +377,7 @@ jobs:
         run: 7z a logs-itest-macos.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
           name: logs-itest-macos

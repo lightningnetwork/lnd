@@ -109,40 +109,51 @@ func (i invoiceUpdateCtx) acceptRes(
 	return newAcceptResolution(i.circuitKey, outcome)
 }
 
+// resolveReplayedHtlc returns the HTLC resolution for a replayed HTLC. The
+// returned boolean indicates whether the HTLC was replayed or not.
+func resolveReplayedHtlc(ctx *invoiceUpdateCtx, inv *Invoice) (bool,
+	HtlcResolution, error) {
+
+	// Don't update the invoice when this is a replayed htlc.
+	htlc, replayedHTLC := inv.Htlcs[ctx.circuitKey]
+	if !replayedHTLC {
+		return false, nil, nil
+	}
+
+	switch htlc.State {
+	case HtlcStateCanceled:
+		return true, ctx.failRes(ResultReplayToCanceled), nil
+
+	case HtlcStateAccepted:
+		return true, ctx.acceptRes(resultReplayToAccepted), nil
+
+	case HtlcStateSettled:
+		pre := inv.Terms.PaymentPreimage
+
+		// Terms.PaymentPreimage will be nil for AMP invoices.
+		// Set it to the HTLCs AMP Preimage instead.
+		if pre == nil {
+			pre = htlc.AMP.Preimage
+		}
+
+		return true, ctx.settleRes(
+			*pre,
+			ResultReplayToSettled,
+		), nil
+
+	default:
+		return true, nil, errors.New("unknown htlc state")
+	}
+}
+
 // updateInvoice is a callback for DB.UpdateInvoice that contains the invoice
 // settlement logic. It returns a HTLC resolution that indicates what the
 // outcome of the update was.
+//
+// NOTE: Make sure replayed HTLCs are always considered before calling this
+// function.
 func updateInvoice(ctx *invoiceUpdateCtx, inv *Invoice) (
 	*InvoiceUpdateDesc, HtlcResolution, error) {
-
-	// Don't update the invoice when this is a replayed htlc.
-	htlc, ok := inv.Htlcs[ctx.circuitKey]
-	if ok {
-		switch htlc.State {
-		case HtlcStateCanceled:
-			return nil, ctx.failRes(ResultReplayToCanceled), nil
-
-		case HtlcStateAccepted:
-			return nil, ctx.acceptRes(resultReplayToAccepted), nil
-
-		case HtlcStateSettled:
-			pre := inv.Terms.PaymentPreimage
-
-			// Terms.PaymentPreimage will be nil for AMP invoices.
-			// Set it to the HTLCs AMP Preimage instead.
-			if pre == nil {
-				pre = htlc.AMP.Preimage
-			}
-
-			return nil, ctx.settleRes(
-				*pre,
-				ResultReplayToSettled,
-			), nil
-
-		default:
-			return nil, nil, errors.New("unknown htlc state")
-		}
-	}
 
 	// If no MPP payload was provided, then we expect this to be a keysend,
 	// or a payment to an invoice created before we started to require the

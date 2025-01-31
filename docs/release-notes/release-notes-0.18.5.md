@@ -19,6 +19,10 @@
 
 # Bug Fixes
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9459) where we
+  would not cancel accepted HTLCs on AMP invoices if the whole invoice was
+  canceled.
+
 * [Improved user experience](https://github.com/lightningnetwork/lnd/pull/9454)
   by returning a custom error code when HTLC carries incorrect custom records.
 

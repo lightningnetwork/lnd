@@ -3981,6 +3981,13 @@ message BlindedPathConfig {
     blinded paths.
     */
     repeated bytes node_omission_list = 4;
+
+    /*
+    A list of chained channels that should be used in any of our
+    generated blinded paths as incoming hops. The first channel in the list
+    is the one closest to this one.
+    */
+    repeated uint64 incoming_channel_list = 5;
 }
 
 enum InvoiceHTLCState {

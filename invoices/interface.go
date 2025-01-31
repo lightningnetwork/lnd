@@ -56,6 +56,11 @@ type InvoiceDB interface {
 	// passed payment hash. If an invoice matching the passed payment hash
 	// doesn't exist within the database, then the action will fail with a
 	// "not found" error.
+	// The setIDHint is used to signal whether AMP HTLCs should be fetched
+	// for the invoice. If a blank setID is passed no HTLCs will be fetched
+	// in case of an AMP invoice. Nil means all HTLCs for all sub AMP
+	// invoices will be fetched and if a specific setID is supplied only
+	// HTLCs for that setID will be fetched.
 	//
 	// The update is performed inside the same database transaction that
 	// fetches the invoice and is therefore atomic. The fields to update

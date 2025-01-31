@@ -1406,14 +1406,26 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 
 	txOpt := SQLInvoiceQueriesTxOptions{readOnly: false}
 	txErr := i.db.ExecTx(ctx, &txOpt, func(db SQLInvoiceQueries) error {
-		if setID != nil {
-			// Make sure to use the set ID if this is an AMP update.
+		switch {
+		// For the default case we fetch all HTLCs.
+		case setID == nil:
+			ref.refModifier = DefaultModifier
+
+		// If the setID is the blank but NOT nil, we set the
+		// refModifier to HtlcSetBlankModifier to fetch no HTLC for the
+		// AMP invoice.
+		case *setID == BlankPayAddr:
+			ref.refModifier = HtlcSetBlankModifier
+
+		// A setID is provided, we use the refModifier to fetch only
+		// the HTLCs for the given setID and also make sure we add the
+		// setID to the ref.
+		default:
 			var setIDBytes [32]byte
 			copy(setIDBytes[:], setID[:])
 			ref.setID = &setIDBytes
 
-			// If we're updating an AMP invoice, we'll also only
-			// need to fetch the HTLCs for the given set ID.
+			// We only fetch the HTLCs for the given setID.
 			ref.refModifier = HtlcSetOnlyModifier
 		}
 

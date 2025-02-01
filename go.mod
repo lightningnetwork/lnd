@@ -40,7 +40,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.12
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v1.0.6
+	github.com/lightningnetwork/lnd/sqldb v1.0.7
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.0
 	github.com/lightningnetwork/lnd/tor v1.1.4
@@ -206,10 +206,6 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
-
-// Temporary replace until https://github.com/lightningnetwork/lnd/pull/8831 is
-// merged.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as

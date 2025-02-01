@@ -1101,11 +1101,22 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// regardless of the flag.
 		if !d.cfg.DB.SkipSQLInvoiceMigration {
 			migrationFn := func(tx *sqlc.Queries) error {
-				return invoices.MigrateInvoicesToSQL(
+				err := invoices.MigrateInvoicesToSQL(
 					ctx, dbs.ChanStateDB.Backend,
 					dbs.ChanStateDB, tx,
 					invoiceMigrationBatchSize,
 				)
+				if err != nil {
+					return fmt.Errorf("failed to migrate "+
+						"invoices to SQL: %w", err)
+				}
+
+				// Set the invoice bucket tombstone to indicate
+				// that the migration has been completed.
+				d.logger.Debugf("Setting invoice bucket " +
+					"tombstone")
+
+				return dbs.ChanStateDB.SetInvoiceBucketTombstone() //nolint:ll
 			}
 
 			// Make sure we attach the custom migration function to
@@ -1147,6 +1158,28 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		dbs.InvoiceDB = sqlInvoiceDB
 	} else {
+		// Check if the invoice bucket tombstone is set. If it is, we
+		// need to return and ask the user switch back to using the
+		// native SQL store.
+		ripInvoices, err := dbs.ChanStateDB.GetInvoiceBucketTombstone()
+		d.logger.Debugf("Invoice bucket tombstone set to: %v",
+			ripInvoices)
+
+		if err != nil {
+			err = fmt.Errorf("unable to check invoice bucket "+
+				"tombstone: %w", err)
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+		if ripInvoices {
+			err = fmt.Errorf("invoices bucket tombstoned, please " +
+				"switch back to native SQL")
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
 		dbs.InvoiceDB = dbs.ChanStateDB
 	}
 

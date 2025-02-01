@@ -298,6 +298,16 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 		}
 	}
 
+	// Now restart Bob without the --db.use-native-sql flag so we can check
+	// that the KV tombstone was set and that Bob will fail to start.
+	require.NoError(ht, bob.Stop())
+	bob.SetExtraArgs(nil)
+
+	// Bob should now fail to start due to the tombstone being set.
+	require.NoError(ht, bob.StartLndCmd(ht.Context()))
+	require.Error(ht, bob.WaitForProcessExit())
+
 	// Start Bob again so the test can complete.
+	bob.SetExtraArgs([]string{"--db.use-native-sql"})
 	require.NoError(ht, bob.Start(ht.Context()))
 }

@@ -299,6 +299,9 @@ The underlying functionality between those two options remain the same.
   SQL](https://github.com/lightningnetwork/lnd/pull/8831) as part of a larger
   effort to support SQL databases natively in LND.
 
+* [Set invoice bucket
+  ](https://github.com/lightningnetwork/lnd/pull/9438) tombstone after native 
+  SQL migration.
 
 ## Code Health
 

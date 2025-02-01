@@ -103,3 +103,28 @@ func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
 	// The two states should match.
 	require.Equal(t, ampState, ampState2)
 }
+
+// TestInvoiceBucketTombstone tests the behavior of setting and checking the
+// invoice bucket tombstone. It verifies that the tombstone can be set correctly
+// and detected when present in the database.
+func TestInvoiceBucketTombstone(t *testing.T) {
+	t.Parallel()
+
+	// Initialize a test database.
+	db, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to initialize db")
+
+	// Ensure the tombstone doesn't exist initially.
+	tombstoneExists, err := db.GetInvoiceBucketTombstone()
+	require.NoError(t, err)
+	require.False(t, tombstoneExists)
+
+	// Set the tombstone.
+	err = db.SetInvoiceBucketTombstone()
+	require.NoError(t, err)
+
+	// Verify that the tombstone exists after setting it.
+	tombstoneExists, err = db.GetInvoiceBucketTombstone()
+	require.NoError(t, err)
+	require.True(t, tombstoneExists)
+}

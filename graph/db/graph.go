@@ -1297,15 +1297,13 @@ func (c *ChannelGraph) HasChannelEdge(
 	return upd1Time, upd2Time, exists, isZombie, nil
 }
 
-// UpdateChannelEdge retrieves and update edge of the graph database. Method
-// only reserved for updating an edge info after its already been created.
-// In order to maintain this constraints, we return an error in the scenario
-// that an edge info hasn't yet been created yet, but someone attempts to update
-// it.
-func (c *ChannelGraph) UpdateChannelEdge(edge *models.ChannelEdgeInfo) error {
+// AddEdgeProof sets the proof of an existing edge in the graph database.
+func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
+	proof *models.ChannelAuthProof) error {
+
 	// Construct the channel's primary key which is the 8-byte channel ID.
 	var chanKey [8]byte
-	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
+	binary.BigEndian.PutUint64(chanKey[:], chanID.ToUint64())
 
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
@@ -1318,15 +1316,14 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *models.ChannelEdgeInfo) error {
 			return ErrEdgeNotFound
 		}
 
-		if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo == nil {
-			return ErrEdgeNotFound
+		edge, err := fetchChanEdgeInfo(edgeIndex, chanKey[:])
+		if err != nil {
+			return err
 		}
 
-		if c.graphCache != nil {
-			c.graphCache.UpdateChannel(edge)
-		}
+		edge.AuthProof = proof
 
-		return putChanEdgeInfo(edgeIndex, edge, chanKey)
+		return putChanEdgeInfo(edgeIndex, &edge, chanKey)
 	}, func() {})
 }
 

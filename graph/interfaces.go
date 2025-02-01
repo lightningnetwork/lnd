@@ -259,12 +259,10 @@ type DB interface {
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error
 
-	// UpdateChannelEdge retrieves and update edge of the graph database.
-	// Method only reserved for updating an edge info after its already been
-	// created. In order to maintain this constraints, we return an error in
-	// the scenario that an edge info hasn't yet been created yet, but
-	// someone attempts to update it.
-	UpdateChannelEdge(edge *models.ChannelEdgeInfo) error
+	// AddEdgeProof sets the proof of an existing edge in the graph
+	// database.
+	AddEdgeProof(chanID lnwire.ShortChannelID,
+		proof *models.ChannelAuthProof) error
 
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the

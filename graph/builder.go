@@ -1441,14 +1441,7 @@ func (b *Builder) ForAllOutgoingChannels(cb func(*models.ChannelEdgeInfo,
 func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
-	info, _, _, err := b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
-	if err != nil {
-		return err
-	}
-
-	info.AuthProof = proof
-
-	return b.cfg.Graph.UpdateChannelEdge(info)
+	return b.cfg.Graph.AddEdgeProof(chanID, proof)
 }
 
 // IsStaleNode returns true if the graph source has a node announcement for the

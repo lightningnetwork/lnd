@@ -1966,7 +1966,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 }
 
 // fetchPKScript fetches the output script for the given SCID.
-func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
+func (d *AuthenticatedGossiper) fetchPKScript(chanID lnwire.ShortChannelID) (
 	[]byte, error) {
 
 	return lnwallet.FetchPKScriptWithQuit(d.cfg.ChainIO, chanID, d.quit)

@@ -1172,7 +1172,7 @@ func (b *Builder) processUpdate(msg interface{},
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		fundingTx, err := lnwallet.FetchFundingTxWrapper(
-			b.cfg.Chain, &channelID, b.quit,
+			b.cfg.Chain, channelID, b.quit,
 		)
 		if err != nil {
 			//nolint:ll

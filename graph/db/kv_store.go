@@ -4087,11 +4087,24 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
 	var addresses []net.Addr
+	var dnsHostnameAddressFound bool
 	for i := 0; i < numAddresses; i++ {
 		address, err := DeserializeAddr(r)
 		if err != nil {
 			return models.LightningNode{}, err
 		}
+
+		if _, ok := address.(*lnwire.DNSHostnameAddress); ok {
+			if dnsHostnameAddressFound {
+				err := errors.New("there must be only one " +
+					"DNS hostname address in the Node " +
+					"Announcement message. See Bolt 7")
+
+				return models.LightningNode{}, err
+			}
+			dnsHostnameAddressFound = true
+		}
+
 		addresses = append(addresses, address)
 	}
 	node.Addresses = addresses

@@ -63,6 +63,10 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* [Support DNS hostname address in
+  Node Announcement message](https://github.com/lightningnetwork/lnd/pull/9455).
+  See Bolt 07.
+
 ## Testing
 
 ## Database

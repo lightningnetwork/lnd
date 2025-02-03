@@ -773,3 +773,19 @@ func (r *Route) String() string {
 		b.String(), r.TotalTimeLock,
 	)
 }
+
+// ChanIDString returns the route's channel IDs as a formatted string.
+func (r *Route) ChanIDString() string {
+	var b strings.Builder
+
+	for i, hop := range r.Hops {
+		b.WriteString(fmt.Sprintf("%v",
+			strconv.FormatUint(hop.ChannelID, 10),
+		))
+		if i != len(r.Hops)-1 {
+			b.WriteString(" -> ")
+		}
+	}
+
+	return b.String()
+}

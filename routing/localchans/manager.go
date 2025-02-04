@@ -317,8 +317,16 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 			err)
 	}
 
+	// We need to make sure we use the real scid for public confirmed
+	// zero-conf channels.
+	shortChanID := channel.ShortChanID()
+	isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	if isPublic && channel.IsZeroConf() && channel.ZeroConfConfirmed() {
+		shortChanID = channel.ZeroConfRealScid()
+	}
+
 	info := &models.ChannelEdgeInfo{
-		ChannelID:    channel.ShortChanID().ToUint64(),
+		ChannelID:    shortChanID.ToUint64(),
 		ChainHash:    channel.ChainHash,
 		Features:     featureBuf.Bytes(),
 		Capacity:     channel.Capacity,
@@ -334,7 +342,7 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 	// be updated with the new values in the call to processChan below.
 	timeLockDelta := uint16(r.DefaultRoutingPolicy.TimeLockDelta)
 	edge := &models.ChannelEdgePolicy{
-		ChannelID:                 channel.ShortChanID().ToUint64(),
+		ChannelID:                 shortChanID.ToUint64(),
 		LastUpdate:                timestamp,
 		TimeLockDelta:             timeLockDelta,
 		ChannelFlags:              channelFlags,

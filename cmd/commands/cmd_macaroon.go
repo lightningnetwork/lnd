@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -14,32 +15,32 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
 
 var (
-	macTimeoutFlag = cli.Uint64Flag{
+	macTimeoutFlag = &cli.UintFlag{
 		Name: "timeout",
 		Usage: "the number of seconds the macaroon will be " +
 			"valid before it times out",
 	}
-	macIPAddressFlag = cli.StringFlag{
+	macIPAddressFlag = &cli.StringFlag{
 		Name:  "ip_address",
 		Usage: "the IP address the macaroon will be bound to",
 	}
-	macCustomCaveatNameFlag = cli.StringFlag{
+	macCustomCaveatNameFlag = &cli.StringFlag{
 		Name:  "custom_caveat_name",
 		Usage: "the name of the custom caveat to add",
 	}
-	macCustomCaveatConditionFlag = cli.StringFlag{
+	macCustomCaveatConditionFlag = &cli.StringFlag{
 		Name: "custom_caveat_condition",
 		Usage: "the condition of the custom caveat to add, can be " +
 			"empty if custom caveat doesn't need a value",
 	}
-	bakeFromRootKeyFlag = cli.StringFlag{
+	bakeFromRootKeyFlag = &cli.StringFlag{
 		Name: "root_key",
 		Usage: "if the root key is known, it can be passed directly " +
 			"as a hex encoded string, turning the command into " +
@@ -47,7 +48,7 @@ var (
 	}
 )
 
-var bakeMacaroonCommand = cli.Command{
+var bakeMacaroonCommand = &cli.Command{
 	Name:     "bakemacaroon",
 	Category: "Macaroons",
 	Usage: "Bakes a new macaroon with the provided list of permissions " +
@@ -89,7 +90,7 @@ var bakeMacaroonCommand = cli.Command{
 	calling into the server's RPC endpoint.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "save_to",
 			Usage: "save the created macaroon to this file " +
 				"using the default binary format",
@@ -98,12 +99,12 @@ var bakeMacaroonCommand = cli.Command{
 		macIPAddressFlag,
 		macCustomCaveatNameFlag,
 		macCustomCaveatConditionFlag,
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "root_key_id",
 			Usage: "the numerical root key ID used to create the " +
 				"macaroon",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "allow_external_permissions",
 			Usage: "whether permissions lnd is not familiar with " +
 				"are allowed",
@@ -113,14 +114,14 @@ var bakeMacaroonCommand = cli.Command{
 	Action: actionDecorator(bakeMacaroon),
 }
 
-func bakeMacaroon(ctx *cli.Context) error {
+func bakeMacaroon(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Show command help if no arguments.
-	if ctx.NArg() == 0 {
-		return cli.ShowCommandHelp(ctx, "bakemacaroon")
+	if cmd.NArg() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "bakemacaroon")
 	}
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	var (
 		savePath          string
@@ -129,12 +130,12 @@ func bakeMacaroon(ctx *cli.Context) error {
 		err               error
 	)
 
-	if ctx.String("save_to") != "" {
-		savePath = lncfg.CleanAndExpandPath(ctx.String("save_to"))
+	if cmd.String("save_to") != "" {
+		savePath = lncfg.CleanAndExpandPath(cmd.String("save_to"))
 	}
 
-	if ctx.IsSet("root_key_id") {
-		rootKeyID = ctx.Uint64("root_key_id")
+	if cmd.IsSet("root_key_id") {
+		rootKeyID = cmd.Uint("root_key_id")
 	}
 
 	// A command line argument can't be an empty string. So we'll check each
@@ -168,9 +169,9 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	var rawMacaroon *macaroon.Macaroon
 	switch {
-	case ctx.IsSet(bakeFromRootKeyFlag.Name):
+	case cmd.IsSet(bakeFromRootKeyFlag.Name):
 		macRootKey, err := hex.DecodeString(
-			ctx.String(bakeFromRootKeyFlag.Name),
+			cmd.String(bakeFromRootKeyFlag.Name),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to parse macaroon root key: "+
@@ -193,7 +194,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 		}
 
 	default:
-		client, cleanUp := getClient(ctx)
+		client, cleanUp := getClient(cmd)
 		defer cleanUp()
 
 		// Now we have gathered all the input we need and can do the
@@ -201,7 +202,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 		req := &lnrpc.BakeMacaroonRequest{
 			Permissions: parsedPermissions,
 			RootKeyId:   rootKeyID,
-			AllowExternalPermissions: ctx.Bool(
+			AllowExternalPermissions: cmd.Bool(
 				"allow_external_permissions",
 			),
 		}
@@ -224,7 +225,7 @@ func bakeMacaroon(ctx *cli.Context) error {
 
 	// Now apply the desired constraints to the macaroon. This will always
 	// create a new macaroon object, even if no constraints are added.
-	constrainedMac, err := applyMacaroonConstraints(ctx, rawMacaroon)
+	constrainedMac, err := applyMacaroonConstraints(cmd, rawMacaroon)
 	if err != nil {
 		return err
 	}
@@ -250,16 +251,16 @@ func bakeMacaroon(ctx *cli.Context) error {
 	return nil
 }
 
-var listMacaroonIDsCommand = cli.Command{
+var listMacaroonIDsCommand = &cli.Command{
 	Name:     "listmacaroonids",
 	Category: "Macaroons",
 	Usage:    "List all macaroons root key IDs in use.",
 	Action:   actionDecorator(listMacaroonIDs),
 }
 
-func listMacaroonIDs(ctx *cli.Context) error {
+func listMacaroonIDs(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ListMacaroonIDsRequest{}
@@ -272,7 +273,7 @@ func listMacaroonIDs(ctx *cli.Context) error {
 	return nil
 }
 
-var deleteMacaroonIDCommand = cli.Command{
+var deleteMacaroonIDCommand = &cli.Command{
 	Name:      "deletemacaroonid",
 	Category:  "Macaroons",
 	Usage:     "Delete a specific macaroon ID.",
@@ -291,17 +292,17 @@ var deleteMacaroonIDCommand = cli.Command{
 	Action: actionDecorator(deleteMacaroonID),
 }
 
-func deleteMacaroonID(ctx *cli.Context) error {
+func deleteMacaroonID(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	// Validate args length. Only one argument is allowed.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "deletemacaroonid")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "deletemacaroonid")
 	}
 
-	rootKeyIDString := ctx.Args().First()
+	rootKeyIDString := cmd.Args().Slice()[0]
 
 	// Convert string into uint64.
 	rootKeyID, err := strconv.ParseUint(rootKeyIDString, 10, 64)
@@ -329,7 +330,7 @@ func deleteMacaroonID(ctx *cli.Context) error {
 	return nil
 }
 
-var listPermissionsCommand = cli.Command{
+var listPermissionsCommand = &cli.Command{
 	Name:     "listpermissions",
 	Category: "Macaroons",
 	Usage: "Lists all RPC method URIs and the macaroon permissions they " +
@@ -337,9 +338,9 @@ var listPermissionsCommand = cli.Command{
 	Action: actionDecorator(listPermissions),
 }
 
-func listPermissions(ctx *cli.Context) error {
+func listPermissions(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	request := &lnrpc.ListPermissionsRequest{}
@@ -361,7 +362,7 @@ type macaroonContent struct {
 	Caveats     []string `json:"caveats"`
 }
 
-var printMacaroonCommand = cli.Command{
+var printMacaroonCommand = &cli.Command{
 	Name:      "printmacaroon",
 	Category:  "Macaroons",
 	Usage:     "Print the content of a macaroon in a human readable format.",
@@ -372,7 +373,7 @@ var printMacaroonCommand = cli.Command{
 	or loaded from a file.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "macaroon_file",
 			Usage: "load the macaroon from a file instead of the " +
 				"command line directly",
@@ -381,20 +382,20 @@ var printMacaroonCommand = cli.Command{
 	Action: actionDecorator(printMacaroon),
 }
 
-func printMacaroon(ctx *cli.Context) error {
+func printMacaroon(ctx context.Context, cmd *cli.Command) error {
 	// Show command help if no arguments or flags are set.
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "printmacaroon")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "printmacaroon")
 	}
 
 	var (
 		macBytes []byte
 		err      error
-		args     = ctx.Args()
+		args     = cmd.Args().Slice()
 	)
 	switch {
-	case ctx.IsSet("macaroon_file"):
-		macPath := lncfg.CleanAndExpandPath(ctx.String("macaroon_file"))
+	case cmd.IsSet("macaroon_file"):
+		macPath := lncfg.CleanAndExpandPath(cmd.String("macaroon_file"))
 
 		// Load the specified macaroon file.
 		macBytes, err = os.ReadFile(macPath)
@@ -403,8 +404,8 @@ func printMacaroon(ctx *cli.Context) error {
 				macPath, err)
 		}
 
-	case args.Present():
-		macBytes, err = hex.DecodeString(args.First())
+	case len(args) > 0:
+		macBytes, err = hex.DecodeString(args[0])
 		if err != nil {
 			return fmt.Errorf("unable to hex decode macaroon: %w",
 				err)
@@ -456,7 +457,7 @@ func printMacaroon(ctx *cli.Context) error {
 	return nil
 }
 
-var constrainMacaroonCommand = cli.Command{
+var constrainMacaroonCommand = &cli.Command{
 	Name:     "constrainmacaroon",
 	Category: "Macaroons",
 	Usage:    "Adds one or more restriction(s) to an existing macaroon",
@@ -476,15 +477,14 @@ var constrainMacaroonCommand = cli.Command{
 	Action: actionDecorator(constrainMacaroon),
 }
 
-func constrainMacaroon(ctx *cli.Context) error {
+func constrainMacaroon(ctx context.Context, cmd *cli.Command) error {
 	// Show command help if not enough arguments.
-	if ctx.NArg() != 2 {
-		return cli.ShowCommandHelp(ctx, "constrainmacaroon")
+	if cmd.NArg() != 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "constrainmacaroon")
 	}
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
-	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
-	args = args.Tail()
+	sourceMacFile := lncfg.CleanAndExpandPath(args[0])
 
 	sourceMacBytes, err := os.ReadFile(sourceMacFile)
 	if err != nil {
@@ -492,7 +492,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 			"%s: %v", sourceMacFile, err)
 	}
 
-	destMacFile := lncfg.CleanAndExpandPath(args.First())
+	destMacFile := lncfg.CleanAndExpandPath(args[1:][0])
 
 	// Now we should have gotten a valid macaroon. Unmarshal it so we can
 	// add first-party caveats (if necessary) to it.
@@ -504,7 +504,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 
 	// Now apply the desired constraints to the macaroon. This will always
 	// create a new macaroon object, even if no constraints are added.
-	constrainedMac, err := applyMacaroonConstraints(ctx, sourceMac)
+	constrainedMac, err := applyMacaroonConstraints(cmd, sourceMac)
 	if err != nil {
 		return err
 	}
@@ -529,13 +529,13 @@ func constrainMacaroon(ctx *cli.Context) error {
 // applyMacaroonConstraints parses and applies all currently supported macaroon
 // condition flags from the command line to the given macaroon and returns a new
 // macaroon instance.
-func applyMacaroonConstraints(ctx *cli.Context,
+func applyMacaroonConstraints(cmd *cli.Command,
 	mac *macaroon.Macaroon) (*macaroon.Macaroon, error) {
 
 	macConstraints := make([]macaroons.Constraint, 0)
 
-	if ctx.IsSet(macTimeoutFlag.Name) {
-		timeout := ctx.Int64(macTimeoutFlag.Name)
+	if cmd.IsSet(macTimeoutFlag.Name) {
+		timeout := cmd.Int(macTimeoutFlag.Name)
 		if timeout <= 0 {
 			return nil, fmt.Errorf("timeout must be greater than 0")
 		}
@@ -544,11 +544,11 @@ func applyMacaroonConstraints(ctx *cli.Context,
 		)
 	}
 
-	if ctx.IsSet(macIPAddressFlag.Name) {
-		ipAddress := net.ParseIP(ctx.String(macIPAddressFlag.Name))
+	if cmd.IsSet(macIPAddressFlag.Name) {
+		ipAddress := net.ParseIP(cmd.String(macIPAddressFlag.Name))
 		if ipAddress == nil {
 			return nil, fmt.Errorf("unable to parse ip_address: %s",
-				ctx.String("ip_address"))
+				cmd.String("ip_address"))
 		}
 
 		macConstraints = append(
@@ -557,8 +557,8 @@ func applyMacaroonConstraints(ctx *cli.Context,
 		)
 	}
 
-	if ctx.IsSet(macCustomCaveatNameFlag.Name) {
-		customCaveatName := ctx.String(macCustomCaveatNameFlag.Name)
+	if cmd.IsSet(macCustomCaveatNameFlag.Name) {
+		customCaveatName := cmd.String(macCustomCaveatNameFlag.Name)
 		if containsWhiteSpace(customCaveatName) {
 			return nil, fmt.Errorf("unexpected white space found " +
 				"in custom caveat name")
@@ -568,8 +568,8 @@ func applyMacaroonConstraints(ctx *cli.Context,
 		}
 
 		var customCaveatCond string
-		if ctx.IsSet(macCustomCaveatConditionFlag.Name) {
-			customCaveatCond = ctx.String(
+		if cmd.IsSet(macCustomCaveatConditionFlag.Name) {
+			customCaveatCond = cmd.String(
 				macCustomCaveatConditionFlag.Name,
 			)
 			if containsWhiteSpace(customCaveatCond) {

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,20 +15,20 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"google.golang.org/protobuf/proto"
 )
 
-var getDebugInfoCommand = cli.Command{
+var getDebugInfoCommand = &cli.Command{
 	Name:     "getdebuginfo",
 	Category: "Debug",
 	Usage:    "Returns debug information related to the active daemon.",
 	Action:   actionDecorator(getDebugInfo),
 }
 
-func getDebugInfo(ctx *cli.Context) error {
+func getDebugInfo(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.GetDebugInfoRequest{}
@@ -46,7 +47,7 @@ type DebugPackage struct {
 	EncryptedPayload string `json:"encrypted_payload"`
 }
 
-var encryptDebugPackageCommand = cli.Command{
+var encryptDebugPackageCommand = &cli.Command{
 	Name:     "encryptdebugpackage",
 	Category: "Debug",
 	Usage:    "Collects a package of debug information and encrypts it.",
@@ -82,7 +83,7 @@ var encryptDebugPackageCommand = cli.Command{
 	`,
 	ArgsUsage: "pubkey [--output_file F]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "pubkey",
 			Usage: "the public key to encrypt the information " +
 				"for (hex-encoded, e.g. 02aabb..), this " +
@@ -90,24 +91,24 @@ var encryptDebugPackageCommand = cli.Command{
 				"tracker or developer you're requesting " +
 				"support from",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "output_file",
 			Usage: "(optional) the file to write the encrypted " +
 				"package to; if not specified, the debug " +
 				"package is printed to stdout",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "peers",
 			Usage: "include information about connected peers " +
 				"(lncli listpeers)",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "onchain",
 			Usage: "include information about on-chain " +
 				"transactions (lncli listunspent, " +
 				"lncli listchaintxns)",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "channels",
 			Usage: "include information about channels " +
 				"(lncli listchannels, lncli pendingchannels, " +
@@ -117,21 +118,21 @@ var encryptDebugPackageCommand = cli.Command{
 	Action: actionDecorator(encryptDebugPackage),
 }
 
-func encryptDebugPackage(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "encryptdebugpackage")
+func encryptDebugPackage(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "encryptdebugpackage")
 	}
 
 	var (
-		args        = ctx.Args()
+		args        = cmd.Args().Slice()
 		pubKeyBytes []byte
 		err         error
 	)
 	switch {
-	case ctx.IsSet("pubkey"):
-		pubKeyBytes, err = hex.DecodeString(ctx.String("pubkey"))
-	case args.Present():
-		pubKeyBytes, err = hex.DecodeString(args.First())
+	case cmd.IsSet("pubkey"):
+		pubKeyBytes, err = hex.DecodeString(cmd.String("pubkey"))
+	case len(args) > 0:
+		pubKeyBytes, err = hex.DecodeString(args[0])
 	}
 	if err != nil {
 		return fmt.Errorf("unable to decode pubkey argument: %w", err)
@@ -143,7 +144,7 @@ func encryptDebugPackage(ctx *cli.Context) error {
 	}
 
 	// Collect the information we want to send from the daemon.
-	payload, err := collectDebugPackageInfo(ctx)
+	payload, err := collectDebugPackageInfo(cmd)
 	if err != nil {
 		return fmt.Errorf("unable to collect debug package "+
 			"information: %w", err)
@@ -196,8 +197,8 @@ func encryptDebugPackage(ctx *cli.Context) error {
 
 	// If the user specified an output file, we'll write the encrypted
 	// payload to that file.
-	if ctx.IsSet("output_file") {
-		fileName := lnd.CleanAndExpandPath(ctx.String("output_file"))
+	if cmd.IsSet("output_file") {
+		fileName := lnd.CleanAndExpandPath(cmd.String("output_file"))
 		jsonBytes, err := json.Marshal(response)
 		if err != nil {
 			return fmt.Errorf("unable to encode JSON: %w", err)
@@ -215,9 +216,9 @@ func encryptDebugPackage(ctx *cli.Context) error {
 
 // collectDebugPackageInfo collects the information we want to send to the
 // developer(s) from the daemon.
-func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
+func collectDebugPackageInfo(cmd *cli.Command) ([]byte, error) {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	info, err := client.GetInfo(ctxc, &lnrpc.GetInfoRequest{})
@@ -267,7 +268,7 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 	}
 
 	// Add optional information to the payload.
-	if ctx.Bool("peers") {
+	if cmd.Bool("peers") {
 		peers, err := client.ListPeers(ctxc, &lnrpc.ListPeersRequest{
 			LatestError: true,
 		})
@@ -279,7 +280,7 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 		}
 	}
 
-	if ctx.Bool("onchain") {
+	if cmd.Bool("onchain") {
 		unspent, err := client.ListUnspent(
 			ctxc, &lnrpc.ListUnspentRequest{
 				MaxConfs: math.MaxInt32,
@@ -300,7 +301,7 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 		}
 	}
 
-	if ctx.Bool("channels") {
+	if cmd.Bool("channels") {
 		channels, err := client.ListChannels(
 			ctxc, &lnrpc.ListChannelsRequest{},
 		)
@@ -332,7 +333,7 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 	return payloadBuf.Bytes(), nil
 }
 
-var decryptDebugPackageCommand = cli.Command{
+var decryptDebugPackageCommand = &cli.Command{
 	Name:     "decryptdebugpackage",
 	Category: "Debug",
 	Usage:    "Decrypts a package of debug information.",
@@ -349,12 +350,12 @@ var decryptDebugPackageCommand = cli.Command{
 	`,
 	ArgsUsage: "privkey [--input_file F]",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "privkey",
 			Usage: "the hex encoded private key to decrypt the " +
 				"debug package",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "input_file",
 			Usage: "(optional) the file to read the encrypted " +
 				"package from; if not specified, the debug " +
@@ -364,21 +365,21 @@ var decryptDebugPackageCommand = cli.Command{
 	Action: actionDecorator(decryptDebugPackage),
 }
 
-func decryptDebugPackage(ctx *cli.Context) error {
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "decryptdebugpackage")
+func decryptDebugPackage(ctx context.Context, cmd *cli.Command) error {
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "decryptdebugpackage")
 	}
 
 	var (
-		args         = ctx.Args()
+		args         = cmd.Args().Slice()
 		privKeyBytes []byte
 		err          error
 	)
 	switch {
-	case ctx.IsSet("pubkey"):
-		privKeyBytes, err = hex.DecodeString(ctx.String("pubkey"))
-	case args.Present():
-		privKeyBytes, err = hex.DecodeString(args.First())
+	case cmd.IsSet("pubkey"):
+		privKeyBytes, err = hex.DecodeString(cmd.String("pubkey"))
+	case len(args) > 0:
+		privKeyBytes, err = hex.DecodeString(args[0])
 	}
 	if err != nil {
 		return fmt.Errorf("unable to decode privkey argument: %w", err)
@@ -388,8 +389,8 @@ func decryptDebugPackage(ctx *cli.Context) error {
 
 	// Read the file from stdin and decode the JSON into a DebugPackage.
 	var pkg DebugPackage
-	if ctx.IsSet("input_file") {
-		fileName := lnd.CleanAndExpandPath(ctx.String("input_file"))
+	if cmd.IsSet("input_file") {
+		fileName := lnd.CleanAndExpandPath(cmd.String("input_file"))
 		jsonBytes, err := os.ReadFile(fileName)
 		if err != nil {
 			return fmt.Errorf("unable to read file '%s': %w",

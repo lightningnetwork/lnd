@@ -1,15 +1,16 @@
 package commands
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"strconv"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
-var AddInvoiceCommand = cli.Command{
+var AddInvoiceCommand = &cli.Command{
 	Name:     "addinvoice",
 	Category: "Invoices",
 	Usage:    "Add a new invoice.",
@@ -21,27 +22,27 @@ var AddInvoiceCommand = cli.Command{
 	to specify the amount of satoshis they wish to send.`,
 	ArgsUsage: "value preimage",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "memo",
 			Usage: "a description of the payment to attach along " +
 				"with the invoice (default=\"\")",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "preimage",
 			Usage: "the hex-encoded preimage (32 byte) which will " +
 				"allow settling an incoming HTLC payable to this " +
 				"preimage. If not set, a random preimage will be " +
 				"created.",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "amt",
 			Usage: "the amt of satoshis in this invoice",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "amt_msat",
 			Usage: "the amt of millisatoshis in this invoice",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "description_hash",
 			Usage: "SHA-256 hash of the description of the payment. " +
 				"Used if the purpose of payment cannot naturally " +
@@ -49,18 +50,18 @@ var AddInvoiceCommand = cli.Command{
 				"used instead of the description(memo) field in " +
 				"the encoded invoice.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "fallback_addr",
 			Usage: "fallback on-chain address that can be used in " +
 				"case the lightning payment fails",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "expiry",
 			Usage: "the invoice's expiry time in seconds. If not " +
 				"specified, an expiry of " +
 				"86400 seconds (24 hours) is implied.",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "cltv_expiry_delta",
 			Usage: "The minimum CLTV delta to use for the final " +
 				"hop. If this is set to 0, the default value " +
@@ -68,7 +69,7 @@ var AddInvoiceCommand = cli.Command{
 				"cltv_expiry_delta is configured by the " +
 				"'bitcoin.timelockdelta' option.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +
@@ -77,12 +78,12 @@ var AddInvoiceCommand = cli.Command{
 				"these channels can be included, which " +
 				"might not be desirable.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "amp",
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "blind",
 			Usage: "creates an invoice that contains blinded " +
 				"paths. Note that invoices with blinded " +
@@ -90,13 +91,13 @@ var AddInvoiceCommand = cli.Command{
 				"ephemeral key so as not to reveal the real " +
 				"node ID of this node.",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "min_real_blinded_hops",
 			Usage: "The minimum number of real hops to use in a " +
 				"blinded path. This option will only be used " +
 				"if `--blind` has also been set.",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "num_blinded_hops",
 			Usage: "The number of hops to use for each " +
 				"blinded path included in the invoice. This " +
@@ -104,13 +105,13 @@ var AddInvoiceCommand = cli.Command{
 				"also been set. Dummy hops will be used to " +
 				"pad paths shorter than this.",
 		},
-		cli.UintFlag{
+		&cli.UintFlag{
 			Name: "max_blinded_paths",
 			Usage: "The maximum number of blinded paths to add " +
 				"to an invoice. This option will only be " +
 				"used if `--blind` has also been set.",
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "blinded_path_omit_node",
 			Usage: "The pub key (in hex) of a node not to " +
 				"use on a blinded path. The flag may be " +
@@ -120,7 +121,7 @@ var AddInvoiceCommand = cli.Command{
 	Action: actionDecorator(addInvoice),
 }
 
-func addInvoice(ctx *cli.Context) error {
+func addInvoice(ctx context.Context, cmd *cli.Command) error {
 	var (
 		preimage []byte
 		descHash []byte
@@ -129,16 +130,15 @@ func addInvoice(ctx *cli.Context) error {
 		err      error
 	)
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
-	amt = ctx.Int64("amt")
-	amtMsat = ctx.Int64("amt_msat")
-	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
-		amt, err = strconv.ParseInt(args.First(), 10, 64)
-		args = args.Tail()
+	amt = cmd.Int("amt")
+	amtMsat = cmd.Int("amt_msat")
+	if !cmd.IsSet("amt") && !cmd.IsSet("amt_msat") && len(args) > 0 {
+		amt, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode amt argument: %w",
 				err)
@@ -146,44 +146,44 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("preimage"):
-		preimage, err = hex.DecodeString(ctx.String("preimage"))
-	case args.Present():
-		preimage, err = hex.DecodeString(args.First())
+	case cmd.IsSet("preimage"):
+		preimage, err = hex.DecodeString(cmd.String("preimage"))
+	case len(args[1:]) > 0:
+		preimage, err = hex.DecodeString(args[1:][0])
 	}
 
 	if err != nil {
 		return fmt.Errorf("unable to parse preimage: %w", err)
 	}
 
-	descHash, err = hex.DecodeString(ctx.String("description_hash"))
+	descHash, err = hex.DecodeString(cmd.String("description_hash"))
 	if err != nil {
 		return fmt.Errorf("unable to parse description_hash: %w", err)
 	}
 
-	if ctx.IsSet("private") && ctx.IsSet("blind") {
+	if cmd.IsSet("private") && cmd.IsSet("blind") {
 		return fmt.Errorf("cannot include both route hints and " +
 			"blinded paths in the same invoice")
 	}
 
-	blindedPathCfg, err := parseBlindedPathCfg(ctx)
+	blindedPathCfg, err := parseBlindedPathCfg(cmd)
 	if err != nil {
 		return fmt.Errorf("could not parse blinded path config: %w",
 			err)
 	}
 
 	invoice := &lnrpc.Invoice{
-		Memo:              ctx.String("memo"),
+		Memo:              cmd.String("memo"),
 		RPreimage:         preimage,
 		Value:             amt,
 		ValueMsat:         amtMsat,
 		DescriptionHash:   descHash,
-		FallbackAddr:      ctx.String("fallback_addr"),
-		Expiry:            ctx.Int64("expiry"),
-		CltvExpiry:        ctx.Uint64("cltv_expiry_delta"),
-		Private:           ctx.Bool("private"),
-		IsAmp:             ctx.Bool("amp"),
-		IsBlinded:         ctx.Bool("blind"),
+		FallbackAddr:      cmd.String("fallback_addr"),
+		Expiry:            cmd.Int("expiry"),
+		CltvExpiry:        cmd.Uint("cltv_expiry_delta"),
+		Private:           cmd.Bool("private"),
+		IsAmp:             cmd.Bool("amp"),
+		IsBlinded:         cmd.Bool("blind"),
 		BlindedPathConfig: blindedPathCfg,
 	}
 
@@ -197,12 +197,12 @@ func addInvoice(ctx *cli.Context) error {
 	return nil
 }
 
-func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
-	if !ctx.Bool("blind") {
-		if ctx.IsSet("min_real_blinded_hops") ||
-			ctx.IsSet("num_blinded_hops") ||
-			ctx.IsSet("max_blinded_paths") ||
-			ctx.IsSet("blinded_path_omit_node") {
+func parseBlindedPathCfg(cmd *cli.Command) (*lnrpc.BlindedPathConfig, error) {
+	if !cmd.Bool("blind") {
+		if cmd.IsSet("min_real_blinded_hops") ||
+			cmd.IsSet("num_blinded_hops") ||
+			cmd.IsSet("max_blinded_paths") ||
+			cmd.IsSet("blinded_path_omit_node") {
 
 			return nil, fmt.Errorf("blinded path options are " +
 				"only used if the `--blind` options is set")
@@ -213,22 +213,22 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 
 	var blindCfg lnrpc.BlindedPathConfig
 
-	if ctx.IsSet("min_real_blinded_hops") {
-		minNumRealHops := uint32(ctx.Uint("min_real_blinded_hops"))
+	if cmd.IsSet("min_real_blinded_hops") {
+		minNumRealHops := uint32(cmd.Uint("min_real_blinded_hops"))
 		blindCfg.MinNumRealHops = &minNumRealHops
 	}
 
-	if ctx.IsSet("num_blinded_hops") {
-		numHops := uint32(ctx.Uint("num_blinded_hops"))
+	if cmd.IsSet("num_blinded_hops") {
+		numHops := uint32(cmd.Uint("num_blinded_hops"))
 		blindCfg.NumHops = &numHops
 	}
 
-	if ctx.IsSet("max_blinded_paths") {
-		maxPaths := uint32(ctx.Uint("max_blinded_paths"))
+	if cmd.IsSet("max_blinded_paths") {
+		maxPaths := uint32(cmd.Uint("max_blinded_paths"))
 		blindCfg.MaxNumPaths = &maxPaths
 	}
 
-	for _, pubKey := range ctx.StringSlice("blinded_path_omit_node") {
+	for _, pubKey := range cmd.StringSlice("blinded_path_omit_node") {
 		pubKeyBytes, err := hex.DecodeString(pubKey)
 		if err != nil {
 			return nil, err
@@ -242,13 +242,13 @@ func parseBlindedPathCfg(ctx *cli.Context) (*lnrpc.BlindedPathConfig, error) {
 	return &blindCfg, nil
 }
 
-var lookupInvoiceCommand = cli.Command{
+var lookupInvoiceCommand = &cli.Command{
 	Name:      "lookupinvoice",
 	Category:  "Invoices",
 	Usage:     "Lookup an existing invoice by its payment hash.",
 	ArgsUsage: "rhash",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "rhash",
 			Usage: "the 32 byte payment hash of the invoice to query for, the hash " +
 				"should be a hex-encoded string",
@@ -257,9 +257,9 @@ var lookupInvoiceCommand = cli.Command{
 	Action: actionDecorator(lookupInvoice),
 }
 
-func lookupInvoice(ctx *cli.Context) error {
+func lookupInvoice(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var (
@@ -268,10 +268,10 @@ func lookupInvoice(ctx *cli.Context) error {
 	)
 
 	switch {
-	case ctx.IsSet("rhash"):
-		rHash, err = hex.DecodeString(ctx.String("rhash"))
-	case ctx.Args().Present():
-		rHash, err = hex.DecodeString(ctx.Args().First())
+	case cmd.IsSet("rhash"):
+		rHash, err = hex.DecodeString(cmd.String("rhash"))
+	case cmd.Args().Present():
+		rHash, err = hex.DecodeString(cmd.Args().First())
 	default:
 		return fmt.Errorf("rhash argument missing")
 	}
@@ -294,7 +294,7 @@ func lookupInvoice(ctx *cli.Context) error {
 	return nil
 }
 
-var listInvoicesCommand = cli.Command{
+var listInvoicesCommand = &cli.Command{
 	Name:     "listinvoices",
 	Category: "Invoices",
 	Usage: "List all invoices currently stored within the database. Any " +
@@ -315,34 +315,34 @@ var listInvoicesCommand = cli.Command{
 	first_offset_index of the response can be used as the index_offset of
 	the next listinvoices request.`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "pending_only",
 			Usage: "toggles if all invoices should be returned, " +
 				"or only those that are currently unsettled",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "index_offset",
 			Usage: "the index of an invoice that will be used as " +
 				"either the start or end of a query to " +
 				"determine which invoices should be returned " +
 				"in the response",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name:  "max_invoices",
 			Usage: "the max number of invoices to return",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "paginate-forwards",
 			Usage: "if set, invoices succeeding the " +
 				"index_offset will be returned",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "creation_date_start",
 			Usage: "timestamp in seconds, if set, filter " +
 				"invoices with creation date greater than or " +
 				"equal to it",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "creation_date_end",
 			Usage: "timestamp in seconds, if set, filter " +
 				"invoices with creation date less than or " +
@@ -352,18 +352,18 @@ var listInvoicesCommand = cli.Command{
 	Action: actionDecorator(listInvoices),
 }
 
-func listInvoices(ctx *cli.Context) error {
+func listInvoices(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly:       ctx.Bool("pending_only"),
-		IndexOffset:       ctx.Uint64("index_offset"),
-		NumMaxInvoices:    ctx.Uint64("max_invoices"),
-		Reversed:          !ctx.Bool("paginate-forwards"),
-		CreationDateStart: ctx.Uint64("creation_date_start"),
-		CreationDateEnd:   ctx.Uint64("creation_date_end"),
+		PendingOnly:       cmd.Bool("pending_only"),
+		IndexOffset:       cmd.Uint("index_offset"),
+		NumMaxInvoices:    cmd.Uint("max_invoices"),
+		Reversed:          !cmd.Bool("paginate-forwards"),
+		CreationDateStart: cmd.Uint("creation_date_start"),
+		CreationDateEnd:   cmd.Uint("creation_date_end"),
 	}
 
 	invoices, err := client.ListInvoices(ctxc, req)
@@ -376,14 +376,14 @@ func listInvoices(ctx *cli.Context) error {
 	return nil
 }
 
-var decodePayReqCommand = cli.Command{
+var decodePayReqCommand = &cli.Command{
 	Name:        "decodepayreq",
 	Category:    "Invoices",
 	Usage:       "Decode a payment request.",
 	Description: "Decode the passed payment request revealing the destination, payment hash and value of the payment request",
 	ArgsUsage:   "pay_req",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "pay_req",
 			Usage: "the bech32 encoded payment request",
 		},
@@ -391,18 +391,18 @@ var decodePayReqCommand = cli.Command{
 	Action: actionDecorator(decodePayReq),
 }
 
-func decodePayReq(ctx *cli.Context) error {
+func decodePayReq(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	var payreq string
 
 	switch {
-	case ctx.IsSet("pay_req"):
-		payreq = ctx.String("pay_req")
-	case ctx.Args().Present():
-		payreq = ctx.Args().First()
+	case cmd.IsSet("pay_req"):
+		payreq = cmd.String("pay_req")
+	case cmd.Args().Present():
+		payreq = cmd.Args().Slice()[0]
 	default:
 		return fmt.Errorf("pay_req argument missing")
 	}

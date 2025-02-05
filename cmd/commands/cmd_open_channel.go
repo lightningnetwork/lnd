@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 const (
@@ -64,7 +64,7 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to file): `
 )
 
 // TODO(roasbeef): change default number of confirmations.
-var openChannelCommand = cli.Command{
+var openChannelCommand = &cli.Command{
 	Name:     "openchannel",
 	Category: "Channels",
 	Usage:    "Open a channel to a node or an existing peer.",
@@ -101,28 +101,28 @@ var openChannelCommand = cli.Command{
 	channel's operation. Max allowed length is 500 characters.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "node_key",
 			Usage: "the identity public key of the target " +
 				"node/peer serialized in compressed format",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "connect",
 			Usage: "(optional) the host:port of the target node",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "local_amt",
 			Usage: "the number of satoshis the wallet should " +
 				"commit to the channel",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "fundmax",
 			Usage: "if set, the wallet will attempt to commit " +
 				"the maximum possible local amount to the " +
 				"channel. This must not be set at the same " +
 				"time as local_amt",
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "utxo",
 			Usage: "a utxo specified as outpoint(tx:idx) which " +
 				"will be used to fund a channel. This flag " +
@@ -133,13 +133,13 @@ var openChannelCommand = cli.Command{
 				"selecting a fraction of the sum of the " +
 				"outpoints in local_amt",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
 				"be charged for each forwarded HTLC, " +
 				"regardless of payment size",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
 				"will be charged proportionally based on the " +
@@ -147,7 +147,7 @@ var openChannelCommand = cli.Command{
 				"possible rate is 0 with a granularity of " +
 				"0.000001 (millionths)",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "push_amt",
 			Usage: "the number of satoshis to give the remote " +
 				"side as part of the initial commitment " +
@@ -155,28 +155,28 @@ var openChannelCommand = cli.Command{
 				"a channel and sending the remote party " +
 				"funds, but done all in one step",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "block",
 			Usage: "block and wait until the channel is fully open",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "private",
 			Usage: "make the channel private, such that it won't " +
 				"be announced to the greater network, and " +
@@ -184,12 +184,12 @@ var openChannelCommand = cli.Command{
 				"must be explicitly told about it to be able " +
 				"to route through it",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "min_htlc_msat",
 			Usage: "(optional) the minimum value we will require " +
 				"for incoming HTLCs on the channel",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "remote_csv_delay",
 			Usage: "(optional) the number of blocks we will " +
 				"require our channel counterparty to wait " +
@@ -198,21 +198,21 @@ var openChannelCommand = cli.Command{
 				"will scale the value according to the " +
 				"channel size",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "max_local_csv",
 			Usage: "(optional) the maximum number of blocks that " +
 				"we will allow the remote peer to require we " +
 				"wait before accessing our funds in the case " +
 				"of a unilateral close.",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of " +
 				"confirmations each one of your outputs used " +
 				"for the funding transaction must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "close_address",
 			Usage: "(optional) an address to enforce payout of " +
 				"our funds to on cooperative close. Note " +
@@ -220,7 +220,7 @@ var openChannelCommand = cli.Command{
 				"you will *not* be able to cooperatively " +
 				"close to a different address.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "psbt",
 			Usage: "start an interactive mode that initiates " +
 				"funding through a partially signed bitcoin " +
@@ -228,14 +228,14 @@ var openChannelCommand = cli.Command{
 				"funds to be added and signed from a " +
 				"hardware or other offline device.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "base_psbt",
 			Usage: "when using the interactive PSBT mode to open " +
 				"a new channel, use this base64 encoded PSBT " +
 				"as a base and add the new channel output to " +
 				"it instead of creating a new, empty one.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "no_publish",
 			Usage: "when using the interactive PSBT mode to open " +
 				"multiple channels in a batch, this flag " +
@@ -244,37 +244,37 @@ var openChannelCommand = cli.Command{
 				"this flag should be set for each of the " +
 				"batch's transactions except the very last",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "remote_max_value_in_flight_msat",
 			Usage: "(optional) the maximum value in msat that " +
 				"can be pending within the channel at any " +
 				"given time",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "channel_type",
 			Usage: fmt.Sprintf("(optional) the type of channel to "+
 				"propose to the remote peer (%q, %q, %q)",
 				channelTypeTweakless, channelTypeAnchors,
 				channelTypeSimpleTaproot),
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "zero_conf",
 			Usage: "(optional) whether a zero-conf channel open " +
 				"should be attempted.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "scid_alias",
 			Usage: "(optional) whether a scid-alias channel type" +
 				" should be negotiated.",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "remote_reserve_sats",
 			Usage: "(optional) the minimum number of satoshis we " +
 				"require the remote node to keep as a direct " +
 				"payment. If not specified, a default of 1% " +
 				"of the channel capacity will be used.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "memo",
 			Usage: `(optional) a note-to-self containing some useful
 				information about the channel. This is stored
@@ -286,64 +286,64 @@ var openChannelCommand = cli.Command{
 	Action: actionDecorator(openChannel),
 }
 
-func openChannel(ctx *cli.Context) error {
+func openChannel(ctx context.Context, cmd *cli.Command) error {
 	// TODO(roasbeef): add deadline to context
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 	var err error
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 && ctx.NumFlags() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "openchannel")
+	if cmd.NArg() == 0 && cmd.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "openchannel")
 		return nil
 	}
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		cmd, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
 		return err
 	}
 
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 	req := &lnrpc.OpenChannelRequest{
-		TargetConf:                 int32(ctx.Int64("conf_target")),
-		SatPerVbyte:                ctx.Uint64(feeRateFlag),
-		MinHtlcMsat:                ctx.Int64("min_htlc_msat"),
-		RemoteCsvDelay:             uint32(ctx.Uint64("remote_csv_delay")),
+		TargetConf:                 int32(cmd.Int("conf_target")),
+		SatPerVbyte:                cmd.Uint(feeRateFlag),
+		MinHtlcMsat:                cmd.Int("min_htlc_msat"),
+		RemoteCsvDelay:             uint32(cmd.Uint("remote_csv_delay")),
 		MinConfs:                   minConfs,
 		SpendUnconfirmed:           minConfs == 0,
-		CloseAddress:               ctx.String("close_address"),
-		RemoteMaxValueInFlightMsat: ctx.Uint64("remote_max_value_in_flight_msat"),
-		MaxLocalCsv:                uint32(ctx.Uint64("max_local_csv")),
-		ZeroConf:                   ctx.Bool("zero_conf"),
-		ScidAlias:                  ctx.Bool("scid_alias"),
-		RemoteChanReserveSat:       ctx.Uint64("remote_reserve_sats"),
-		FundMax:                    ctx.Bool("fundmax"),
-		Memo:                       ctx.String("memo"),
+		CloseAddress:               cmd.String("close_address"),
+		RemoteMaxValueInFlightMsat: cmd.Uint("remote_max_value_in_flight_msat"),
+		MaxLocalCsv:                uint32(cmd.Uint("max_local_csv")),
+		ZeroConf:                   cmd.Bool("zero_conf"),
+		ScidAlias:                  cmd.Bool("scid_alias"),
+		RemoteChanReserveSat:       cmd.Uint("remote_reserve_sats"),
+		FundMax:                    cmd.Bool("fundmax"),
+		Memo:                       cmd.String("memo"),
 	}
 
 	switch {
-	case ctx.IsSet("node_key"):
-		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
+	case cmd.IsSet("node_key"):
+		nodePubHex, err := hex.DecodeString(cmd.String("node_key"))
 		if err != nil {
 			return fmt.Errorf("unable to decode node public key: "+
 				"%v", err)
 		}
 		req.NodePubkey = nodePubHex
 
-	case args.Present():
-		nodePubHex, err := hex.DecodeString(args.First())
+	case len(args) > 0:
+		nodePubHex, err := hex.DecodeString(args[0])
 		if err != nil {
 			return fmt.Errorf("unable to decode node public key: "+
 				"%v", err)
 		}
-		args = args.Tail()
+		args = args[1:]
 		req.NodePubkey = nodePubHex
 	default:
 		return fmt.Errorf("node id argument missing")
@@ -352,10 +352,10 @@ func openChannel(ctx *cli.Context) error {
 	// As soon as we can confirm that the node's node_key was set, rather
 	// than the peer_id, we can check if the host:port was also set to
 	// connect to it before opening the channel.
-	if req.NodePubkey != nil && ctx.IsSet("connect") {
+	if req.NodePubkey != nil && cmd.IsSet("connect") {
 		addr := &lnrpc.LightningAddress{
 			Pubkey: hex.EncodeToString(req.NodePubkey),
-			Host:   ctx.String("connect"),
+			Host:   cmd.String("connect"),
 		}
 
 		req := &lnrpc.ConnectPeerRequest{
@@ -374,17 +374,17 @@ func openChannel(ctx *cli.Context) error {
 	}
 
 	switch {
-	case ctx.IsSet("local_amt"):
-		req.LocalFundingAmount = int64(ctx.Int("local_amt"))
-	case args.Present():
+	case cmd.IsSet("local_amt"):
+		req.LocalFundingAmount = int64(cmd.Int("local_amt"))
+	case len(args) > 0:
 		req.LocalFundingAmount, err = strconv.ParseInt(
-			args.First(), 10, 64,
+			args[0], 10, 64,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to decode local amt: %w", err)
 		}
-		args = args.Tail()
-	case !ctx.Bool("fundmax"):
+		args = args[1:]
+	case !cmd.Bool("fundmax"):
 		return fmt.Errorf("either local_amt or fundmax must be " +
 			"specified")
 	}
@@ -392,19 +392,19 @@ func openChannel(ctx *cli.Context) error {
 	// The fundmax flag is NOT allowed to be combined with local_amt above.
 	// It is allowed to be combined with push_amt, but only if explicitly
 	// set.
-	if ctx.Bool("fundmax") && req.LocalFundingAmount != 0 {
+	if cmd.Bool("fundmax") && req.LocalFundingAmount != 0 {
 		return fmt.Errorf("local amount cannot be set if attempting " +
 			"to commit the maximum amount out of the wallet")
 	}
 
 	// The fundmax flag is NOT allowed to be combined with the psbt flag.
-	if ctx.Bool("fundmax") && ctx.Bool("psbt") {
+	if cmd.Bool("fundmax") && cmd.Bool("psbt") {
 		return fmt.Errorf("psbt cannot be set if attempting " +
 			"to commit the maximum amount out of the wallet")
 	}
 
-	if ctx.IsSet("utxo") {
-		utxos := ctx.StringSlice("utxo")
+	if cmd.IsSet("utxo") {
+		utxos := cmd.StringSlice("utxo")
 
 		outpoints, err := UtxosToOutpoints(utxos)
 		if err != nil {
@@ -414,29 +414,29 @@ func openChannel(ctx *cli.Context) error {
 		req.Outpoints = outpoints
 	}
 
-	if ctx.IsSet("push_amt") {
-		req.PushSat = int64(ctx.Int("push_amt"))
-	} else if args.Present() {
-		req.PushSat, err = strconv.ParseInt(args.First(), 10, 64)
+	if cmd.IsSet("push_amt") {
+		req.PushSat = int64(cmd.Int("push_amt"))
+	} else if len(args) > 0 {
+		req.PushSat, err = strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("unable to decode push amt: %w", err)
 		}
 	}
 
-	if ctx.IsSet("base_fee_msat") {
-		req.BaseFee = ctx.Uint64("base_fee_msat")
+	if cmd.IsSet("base_fee_msat") {
+		req.BaseFee = cmd.Uint("base_fee_msat")
 		req.UseBaseFee = true
 	}
 
-	if ctx.IsSet("fee_rate_ppm") {
-		req.FeeRate = ctx.Uint64("fee_rate_ppm")
+	if cmd.IsSet("fee_rate_ppm") {
+		req.FeeRate = cmd.Uint("fee_rate_ppm")
 		req.UseFeeRate = true
 	}
 
-	req.Private = ctx.Bool("private")
+	req.Private = cmd.Bool("private")
 
 	// Parse the channel type and map it to its RPC representation.
-	channelType := ctx.String("channel_type")
+	channelType := cmd.String("channel_type")
 	switch channelType {
 	case "":
 		break
@@ -452,10 +452,10 @@ func openChannel(ctx *cli.Context) error {
 
 	// PSBT funding is a more involved, interactive process that is too
 	// large to also fit into this already long function.
-	if ctx.Bool("psbt") {
-		return openChannelPsbt(ctxc, ctx, client, req)
+	if cmd.Bool("psbt") {
+		return openChannelPsbt(ctxc, cmd, client, req)
 	}
-	if !ctx.Bool("psbt") && ctx.Bool("no_publish") {
+	if !cmd.Bool("psbt") && cmd.Bool("no_publish") {
 		return fmt.Errorf("the --no_publish flag can only be used in " +
 			"combination with the --psbt flag")
 	}
@@ -480,7 +480,7 @@ func openChannel(ctx *cli.Context) error {
 				return err
 			}
 
-			if !ctx.Bool("block") {
+			if !cmd.Bool("block") {
 				return nil
 			}
 
@@ -505,7 +505,7 @@ func openChannel(ctx *cli.Context) error {
 //	|  |-------channel pending------->|  |
 //	|  |-------channel open------------->|
 //	|                                    |
-func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
+func openChannelPsbt(rpcCtx context.Context, cmd *cli.Command,
 	client lnrpc.LightningClient,
 	req *lnrpc.OpenChannelRequest) error {
 
@@ -529,7 +529,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 
 	// If the user supplied a base PSBT, only make sure it's valid base64.
 	// The RPC server will make sure it's also a valid PSBT.
-	basePsbt := ctx.String("base_psbt")
+	basePsbt := cmd.String("base_psbt")
 	if basePsbt != "" {
 		basePsbtBytes, err = base64.StdEncoding.DecodeString(basePsbt)
 		if err != nil {
@@ -560,7 +560,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 					},
 				},
 			}
-			err := sendFundingState(ctxc, ctx, cancelMsg)
+			err := sendFundingState(ctxc, cmd, cancelMsg)
 			if err != nil {
 				fmt.Printf("Error canceling shim: %v\n", err)
 			}
@@ -579,7 +579,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			PsbtShim: &lnrpc.PsbtShim{
 				PendingChanId: pendingChanID[:],
 				BasePsbt:      basePsbtBytes,
-				NoPublish:     ctx.Bool("no_publish"),
+				NoPublish:     cmd.Bool("no_publish"),
 			},
 		},
 	}
@@ -695,7 +695,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 					},
 				},
 			}
-			err = sendFundingState(ctxc, ctx, verifyMsg)
+			err = sendFundingState(ctxc, cmd, verifyMsg)
 			if err != nil {
 				return fmt.Errorf("verifying PSBT by lnd "+
 					"failed: %v", err)
@@ -723,7 +723,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			transitionMsg := &lnrpc.FundingTransitionMsg{
 				Trigger: finalizeMsg,
 			}
-			err = sendFundingState(ctxc, ctx, transitionMsg)
+			err = sendFundingState(ctxc, cmd, transitionMsg)
 			if err != nil {
 				return fmt.Errorf("finalizing PSBT funding "+
 					"flow failed: %v", err)
@@ -740,7 +740,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 				return err
 			}
 
-			if !ctx.Bool("block") {
+			if !cmd.Bool("block") {
 				return nil
 			}
 
@@ -750,7 +750,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	}
 }
 
-var batchOpenChannelCommand = cli.Command{
+var batchOpenChannelCommand = &cli.Command{
 	Name:     "batchopenchannel",
 	Category: "Channels",
 	Usage: "Open multiple channels to existing peers in a single " +
@@ -791,26 +791,26 @@ var batchOpenChannelCommand = cli.Command{
 `,
 	ArgsUsage: "channels-json",
 	Flags: []cli.Flag{
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "conf_target",
 			Usage: "(optional) the number of blocks that the " +
 				"transaction *should* confirm in, will be " +
 				"used for fee estimation",
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vByte that should be used when crafting " +
 				"the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of " +
 				"confirmations each one of your outputs used " +
 				"for the funding transaction must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "label",
 			Usage: "(optional) a label to attach to the batch " +
 				"transaction when storing it to the local " +
@@ -832,31 +832,31 @@ type batchChannelJSON struct {
 	PendingChanID      string `json:"pending_chan_id,omitempty"`
 }
 
-func batchOpenChannel(ctx *cli.Context) error {
+func batchOpenChannel(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	// Show command help if no arguments provided
-	if ctx.NArg() == 0 {
-		_ = cli.ShowCommandHelp(ctx, "batchopenchannel")
+	if cmd.NArg() == 0 {
+		_ = cli.ShowCommandHelp(ctx, cmd, "batchopenchannel")
 		return nil
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 	req := &lnrpc.BatchOpenChannelRequest{
-		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           int64(ctx.Uint64("sat_per_vbyte")),
+		TargetConf:            int32(cmd.Int("conf_target")),
+		SatPerVbyte:           int64(cmd.Uint("sat_per_vbyte")),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
-		Label:                 ctx.String("label"),
+		Label:                 cmd.String("label"),
 		CoinSelectionStrategy: coinSelectionStrategy,
 	}
 
@@ -864,7 +864,7 @@ func batchOpenChannel(ctx *cli.Context) error {
 	// parse it directly into the RPC struct if we use the correct
 	// marshaler that keeps the original snake case.
 	var jsonChannels []*batchChannelJSON
-	if err := json.Unmarshal([]byte(args.First()), &jsonChannels); err != nil {
+	if err := json.Unmarshal([]byte(args[0]), &jsonChannels); err != nil {
 		return fmt.Errorf("error parsing channels JSON: %w", err)
 	}
 
@@ -1068,10 +1068,10 @@ func checkPsbtFlags(req *lnrpc.OpenChannelRequest) error {
 // client connection. This is necessary if the whole funding flow takes longer
 // than the default macaroon timeout, then we cannot use a single client
 // connection.
-func sendFundingState(cancelCtx context.Context, cliCtx *cli.Context,
+func sendFundingState(cancelCtx context.Context, cmd *cli.Command,
 	msg *lnrpc.FundingTransitionMsg) error {
 
-	client, cleanUp := getClient(cliCtx)
+	client, cleanUp := getClient(cmd)
 	defer cleanUp()
 
 	_, err := client.FundingStateStep(cancelCtx, msg)

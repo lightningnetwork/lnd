@@ -13,7 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"gopkg.in/macaroon.v2"
 )
 
@@ -53,8 +53,7 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 // exists, these global options might be read from a predefined profile. If no
 // profile exists, the global options from the command line are returned as an
 // ephemeral profile entry.
-func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
-	error) {
+func getGlobalOptions(cmd *cli.Command, skipMacaroons bool) (*profileEntry, error) {
 
 	var profileName string
 
@@ -64,11 +63,11 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 	switch {
 	// The legacy case where no profile file exists and the user also didn't
 	// request to use one. We only consider the global options here.
-	case err == errNoProfileFile && !ctx.GlobalIsSet("profile"):
-		return profileFromContext(ctx, false, skipMacaroons)
+	case err == errNoProfileFile && !cmd.IsSet("profile"):
+		return profileFromContext(cmd, false, skipMacaroons)
 
 	// The file doesn't exist but the user specified an explicit profile.
-	case err == errNoProfileFile && ctx.GlobalIsSet("profile"):
+	case err == errNoProfileFile && cmd.IsSet("profile"):
 		return nil, fmt.Errorf("profile file %s does not exist",
 			defaultProfileFile)
 
@@ -80,22 +79,22 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 	// The user explicitly disabled the use of profiles for this command by
 	// setting the flag to an empty string. We fall back to the default/old
 	// behavior.
-	case ctx.GlobalIsSet("profile") && ctx.GlobalString("profile") == "":
-		return profileFromContext(ctx, false, skipMacaroons)
+	case cmd.IsSet("profile") && cmd.String("profile") == "":
+		return profileFromContext(cmd, false, skipMacaroons)
 
 	// There is a file, but no default profile is specified. The user also
 	// didn't specify a profile to use so we fall back to the default/old
 	// behavior.
-	case !ctx.GlobalIsSet("profile") && len(f.Default) == 0:
-		return profileFromContext(ctx, false, skipMacaroons)
+	case !cmd.IsSet("profile") && len(f.Default) == 0:
+		return profileFromContext(cmd, false, skipMacaroons)
 
 	// The user didn't specify a profile but there is a default one defined.
-	case !ctx.GlobalIsSet("profile") && len(f.Default) > 0:
+	case !cmd.IsSet("profile") && len(f.Default) > 0:
 		profileName = f.Default
 
 	// The user specified a specific profile to use.
-	case ctx.GlobalIsSet("profile"):
-		profileName = ctx.GlobalString("profile")
+	case cmd.IsSet("profile"):
+		profileName = cmd.String("profile")
 	}
 
 	// If we got to here, we do have a profile file and know the name of the
@@ -112,17 +111,17 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 
 // profileFromContext creates an ephemeral profile entry from the global options
 // set in the CLI context.
-func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
+func profileFromContext(cmd *cli.Command, store, skipMacaroons bool) (
 	*profileEntry, error) {
 
 	// Parse the paths of the cert and macaroon. This will validate the
 	// chain and network value as well.
-	tlsCertPath, macPath, err := extractPathArgs(ctx)
+	tlsCertPath, macPath, err := extractPathArgs(cmd)
 	if err != nil {
 		return nil, err
 	}
 
-	insecure := ctx.GlobalBool("insecure")
+	insecure := cmd.Bool("insecure")
 
 	// Load the certificate file now, if specified. We store it as plain PEM
 	// directly.
@@ -137,7 +136,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	}
 
 	metadata := make(map[string]string)
-	for _, m := range ctx.GlobalStringSlice("metadata") {
+	for _, m := range cmd.StringSlice("metadata") {
 		pair := strings.Split(m, ":")
 		if len(pair) != 2 {
 			return nil, fmt.Errorf("invalid format for metadata " +
@@ -148,12 +147,12 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	}
 
 	entry := &profileEntry{
-		RPCServer: ctx.GlobalString("rpcserver"),
+		RPCServer: cmd.String("rpcserver"),
 		LndDir: lncfg.CleanAndExpandPath(
-			ctx.GlobalString("lnddir"),
+			cmd.String("lnddir"),
 		),
-		Network:     ctx.GlobalString("network"),
-		NoMacaroons: ctx.GlobalBool("no-macaroons"),
+		Network:     cmd.String("network"),
+		NoMacaroons: cmd.Bool("no-macaroons"),
 		TLSCert:     string(tlsCert),
 		Metadata:    metadata,
 		Insecure:    insecure,
@@ -162,7 +161,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	// If we aren't using macaroons in general (flag --no-macaroons) or
 	// don't need macaroons for this command (wallet unlocker), we can now
 	// return already.
-	if skipMacaroons || ctx.GlobalBool("no-macaroons") {
+	if skipMacaroons || cmd.Bool("no-macaroons") {
 		return entry, nil
 	}
 
@@ -207,8 +206,8 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	// with all the values populated.
 	entry.Macaroons = &macaroonJar{
 		Default: macEntry.Name,
-		Timeout: ctx.GlobalInt64("macaroontimeout"),
-		IP:      ctx.GlobalString("macaroonip"),
+		Timeout: cmd.Int("macaroontimeout"),
+		IP:      cmd.String("macaroonip"),
 		Jar:     []*macaroonEntry{macEntry},
 	}
 

@@ -4074,12 +4074,9 @@ var testNodeAnn = "01012674c2e7ef68c73a086b7de2603f4ef1567358df84bb4edaa06c" +
 	"80000000d0000000005cd2a001260706204c"
 
 // TestLightningNodePersistence takes a raw serialized node announcement
-// message, converts it to our internal models.LightningNode type and attempts
-// to persist this to disk.
-//
-// NOTE: Currently, this tests demonstrates that we are _unable_ to do this if
-// the node announcement has an address type unknown to LND. This will be fixed
-// in an upcoming commit.
+// message, converts it to our internal models.LightningNode type, persists it
+// to disk, reads it again and converts it back to a wire message and asserts
+// that the two messages are equal.
 func TestLightningNodePersistence(t *testing.T) {
 	t.Parallel()
 
@@ -4100,8 +4097,22 @@ func TestLightningNodePersistence(t *testing.T) {
 	// Convert the wire message to our internal node representation.
 	node := models.NodeFromWireAnnouncement(na)
 
-	// Attempt to persist the node to disk. This currently fails due to the
-	// unknown address type.
+	// Persist the node to disk.
 	err = graph.AddLightningNode(node)
-	require.ErrorContains(t, err, "address type cannot be resolved")
+	require.NoError(t, err)
+
+	// Read the node from disk.
+	diskNode, err := graph.FetchLightningNode(node.PubKeyBytes)
+	require.NoError(t, err)
+
+	// Convert it back to a wire message.
+	wireMsg, err := diskNode.NodeAnnouncement(true)
+	require.NoError(t, err)
+
+	// Encode it and compare against the original.
+	var b bytes.Buffer
+	_, err = lnwire.WriteMessage(&b, wireMsg, 0)
+	require.NoError(t, err)
+
+	require.Equal(t, nodeAnnBytes, b.Bytes())
 }

@@ -30,6 +30,11 @@ type testGraph interface {
 	addRandNode() (*btcec.PublicKey, error)
 }
 
+type testDBGraph struct {
+	db *graphdb.ChannelGraph
+	databaseChannelGraph
+}
+
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
 	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            t.TempDir(),
@@ -44,12 +49,15 @@ func newDiskChanGraph(t *testing.T) (testGraph, error) {
 	graphDB, err := graphdb.NewChannelGraph(backend)
 	require.NoError(t, err)
 
-	return &databaseChannelGraph{
+	return &testDBGraph{
 		db: graphDB,
+		databaseChannelGraph: databaseChannelGraph{
+			db: graphDB,
+		},
 	}, nil
 }
 
-var _ testGraph = (*databaseChannelGraph)(nil)
+var _ testGraph = (*testDBGraph)(nil)
 
 func newMemChanGraph(_ *testing.T) (testGraph, error) {
 	return newMemChannelGraph(), nil
@@ -378,7 +386,7 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 // addRandChannel creates a new channel two target nodes. This function is
 // meant to aide in the generation of random graphs for use within test cases
 // the exercise the autopilot package.
-func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
+func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
 
 	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
@@ -522,7 +530,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		nil
 }
 
-func (d *databaseChannelGraph) addRandNode() (*btcec.PublicKey, error) {
+func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 	nodeKey, err := randKey()
 	if err != nil {
 		return nil, err

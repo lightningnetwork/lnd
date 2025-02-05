@@ -153,7 +153,7 @@ type Builder struct {
 
 	// stats tracks newly processed channels, updates, and node
 	// announcements over a window of defaultStatInterval.
-	stats *routerStats
+	stats *builderStats
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -171,7 +171,7 @@ func NewBuilder(cfg *Config) (*Builder, error) {
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		channelEdgeMtx:    multimutex.NewMutex[uint64](),
 		statTicker:        ticker.New(defaultStatInterval),
-		stats:             new(routerStats),
+		stats:             new(builderStats),
 		quit:              make(chan struct{}),
 	}, nil
 }

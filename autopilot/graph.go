@@ -31,7 +31,7 @@ var (
 //
 // TODO(roasbeef): move inmpl to main package?
 type databaseChannelGraph struct {
-	db *graphdb.ChannelGraph
+	db GraphSource
 }
 
 // A compile time assertion to ensure databaseChannelGraph meets the
@@ -39,8 +39,8 @@ type databaseChannelGraph struct {
 var _ ChannelGraph = (*databaseChannelGraph)(nil)
 
 // ChannelGraphFromDatabase returns an instance of the autopilot.ChannelGraph
-// backed by a live, open channeldb instance.
-func ChannelGraphFromDatabase(db *graphdb.ChannelGraph) ChannelGraph {
+// backed by a GraphSource.
+func ChannelGraphFromDatabase(db GraphSource) ChannelGraph {
 	return &databaseChannelGraph{
 		db: db,
 	}
@@ -136,7 +136,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 // databaseChannelGraphCached wraps a channeldb.ChannelGraph instance with the
 // necessary API to properly implement the autopilot.ChannelGraph interface.
 type databaseChannelGraphCached struct {
-	db *graphdb.ChannelGraph
+	db GraphSource
 }
 
 // A compile time assertion to ensure databaseChannelGraphCached meets the
@@ -145,7 +145,7 @@ var _ ChannelGraph = (*databaseChannelGraphCached)(nil)
 
 // ChannelGraphFromCachedDatabase returns an instance of the
 // autopilot.ChannelGraph backed by a live, open channeldb instance.
-func ChannelGraphFromCachedDatabase(db *graphdb.ChannelGraph) ChannelGraph {
+func ChannelGraphFromCachedDatabase(db GraphSource) ChannelGraph {
 	return &databaseChannelGraphCached{
 		db: db,
 	}

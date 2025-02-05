@@ -514,18 +514,18 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	return &ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{
-				db:   d.db,
+			Peer: &dbNode{tx: &testNodeTx{
+				db:   d,
 				node: vertex1,
-			},
+			}},
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{
-				db:   d.db,
+			Peer: &dbNode{tx: &testNodeTx{
+				db:   d,
 				node: vertex2,
-			},
+			}},
 		},
 		nil
 }
@@ -702,3 +702,37 @@ func (m *memChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 
 	return newPub, nil
 }
+
+type testNodeTx struct {
+	db   *testDBGraph
+	node *models.LightningNode
+}
+
+func (t *testNodeTx) Node() *models.LightningNode {
+	return t.node
+}
+
+func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	return t.db.db.ForEachNodeChannel(t.node.PubKeyBytes, func(_ kvdb.RTx,
+		edge *models.ChannelEdgeInfo, policy1,
+		policy2 *models.ChannelEdgePolicy) error {
+
+		return f(edge, policy1, policy2)
+	})
+}
+
+func (t *testNodeTx) FetchNode(pub route.Vertex) (graphdb.NodeTx, error) {
+	node, err := t.db.db.FetchLightningNode(pub)
+	if err != nil {
+		return nil, err
+	}
+
+	return &testNodeTx{
+		db:   t.db,
+		node: node,
+	}, nil
+}
+
+var _ graphdb.NodeTx = (*testNodeTx)(nil)

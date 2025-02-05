@@ -4063,3 +4063,45 @@ func TestClosedScid(t *testing.T) {
 	require.Nil(t, err)
 	require.True(t, exists)
 }
+
+// testNodeAnn is a serialized node announcement message which contains an
+// address type (6) that LND is not aware of.
+var testNodeAnn = "01012674c2e7ef68c73a086b7de2603f4ef1567358df84bb4edaa06c" +
+	"f2132965b14e2434faab04170f0089216accbd79188fa3d40dbb0438bd89782cae" +
+	"27cc656bf60007800088082a69a2625e7a2a024b9a1fa8e006f1e3937f65f66c40" +
+	"8e6da8e1ca728ea43222a7381df1cc449605024b9a424c554549524f4e2d76302e" +
+	"31312e307263332d362d67663963613934650000001d0180c7caa8260702240061" +
+	"80000000d0000000005cd2a001260706204c"
+
+// TestLightningNodePersistence takes a raw serialized node announcement
+// message, converts it to our internal models.LightningNode type and attempts
+// to persist this to disk.
+//
+// NOTE: Currently, this tests demonstrates that we are _unable_ to do this if
+// the node announcement has an address type unknown to LND. This will be fixed
+// in an upcoming commit.
+func TestLightningNodePersistence(t *testing.T) {
+	t.Parallel()
+
+	// Create a new test graph instance.
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err)
+
+	nodeAnnBytes, err := hex.DecodeString(testNodeAnn)
+	require.NoError(t, err)
+
+	// Use the raw serialized node announcement message create an
+	// lnwire.NodeAnnouncement instance.
+	msg, err := lnwire.ReadMessage(bytes.NewBuffer(nodeAnnBytes), 0)
+	require.NoError(t, err)
+	na, ok := msg.(*lnwire.NodeAnnouncement)
+	require.True(t, ok)
+
+	// Convert the wire message to our internal node representation.
+	node := models.NodeFromWireAnnouncement(na)
+
+	// Attempt to persist the node to disk. This currently fails due to the
+	// unknown address type.
+	err = graph.AddLightningNode(node)
+	require.ErrorContains(t, err, "address type cannot be resolved")
+}

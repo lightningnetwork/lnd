@@ -4717,6 +4717,65 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 	return edge, nil
 }
 
+// chanGraphNodeTx is an implementation of the NodeRTx interface backed by the
+// ChannelGraph and a kvdb.RTx.
+type chanGraphNodeTx struct {
+	tx   kvdb.RTx
+	db   *ChannelGraph
+	node *models.LightningNode
+}
+
+// A compile-time constraint to ensure chanGraphNodeTx implements the NodeRTx
+// interface.
+var _ NodeRTx = (*chanGraphNodeTx)(nil)
+
+func newChanGraphNodeTx(tx kvdb.RTx, db *ChannelGraph,
+	node *models.LightningNode) *chanGraphNodeTx {
+
+	return &chanGraphNodeTx{
+		tx:   tx,
+		db:   db,
+		node: node,
+	}
+}
+
+// Node returns the raw information of the node.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (c *chanGraphNodeTx) Node() *models.LightningNode {
+	return c.node
+}
+
+// FetchNode fetches the node with the given pub key under the same transaction
+// used to fetch the current node. The returned node is also a NodeRTx and any
+// operations on that NodeRTx will also be done under the same transaction.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (c *chanGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
+	node, err := c.db.FetchLightningNodeTx(c.tx, nodePub)
+	if err != nil {
+		return nil, err
+	}
+
+	return newChanGraphNodeTx(c.tx, c.db, node), nil
+}
+
+// ForEachChannel can be used to iterate over the node's channels under
+// the same transaction used to fetch the node.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	return c.db.ForEachNodeChannelTx(c.tx, c.node.PubKeyBytes,
+		func(_ kvdb.RTx, info *models.ChannelEdgeInfo, policy1,
+			policy2 *models.ChannelEdgePolicy) error {
+
+			return f(info, policy1, policy2)
+		},
+	)
+}
+
 // MakeTestGraph creates a new instance of the ChannelGraph for testing
 // purposes.
 func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph,

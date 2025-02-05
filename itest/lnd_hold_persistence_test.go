@@ -185,9 +185,7 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 		payStream := alice.RPC.TrackPaymentV2(hash[:])
 		ht.ReceiveTrackPayment(payStream)
 
-		ht.AssertPaymentStatus(
-			alice, preimg, lnrpc.Payment_IN_FLIGHT,
-		)
+		ht.AssertPaymentStatus(alice, hash, lnrpc.Payment_IN_FLIGHT)
 	}
 
 	// Settle invoices half the invoices, cancel the rest.
@@ -211,11 +209,11 @@ func testHoldInvoicePersistence(ht *lntest.HarnessTest) {
 	for i, preimg := range preimages {
 		if i%2 == 0 {
 			ht.AssertPaymentStatus(
-				alice, preimg, lnrpc.Payment_SUCCEEDED,
+				alice, preimg.Hash(), lnrpc.Payment_SUCCEEDED,
 			)
 		} else {
 			payment := ht.AssertPaymentStatus(
-				alice, preimg, lnrpc.Payment_FAILED,
+				alice, preimg.Hash(), lnrpc.Payment_FAILED,
 			)
 			require.Equal(ht, reason, payment.FailureReason,
 				"wrong failure reason")

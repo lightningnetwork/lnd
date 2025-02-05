@@ -10,6 +10,5 @@ package lnd
 import (
 	_ "github.com/btcsuite/btcd"
 	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "github.com/ory/go-acc"
 	_ "github.com/rinchsan/gosimports/cmd/gosimports"
 )

@@ -76,7 +76,7 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 }
 
 func validateEndorsedAndResume(ht *lntest.HarnessTest,

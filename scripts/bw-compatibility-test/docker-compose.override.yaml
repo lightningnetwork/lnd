@@ -1,0 +1,43 @@
+services:
+  bob-pr:
+    build:
+      context: ../../
+      dockerfile: dev.Dockerfile
+    container_name: bob-pr
+    restart: unless-stopped
+    ports:
+      - 10012:10009
+      - 9742:9735
+      - 8092:8080
+    networks:
+      regtest:
+        aliases:
+          - bob
+    volumes:
+      - "bob:/root/.lnd"
+    depends_on:
+      - bitcoind
+    command: >
+      lnd
+      --logdir=/root/.lnd
+      --alias=bob
+      --rpclisten=0.0.0.0:10009
+      --restlisten=0.0.0.0:8080
+      --color=#cccccc
+      --noseedbackup
+      --bitcoin.active
+      --bitcoin.regtest
+      --bitcoin.node=bitcoind
+      --bitcoind.rpchost=bitcoind
+      --bitcoind.rpcuser=lightning
+      --bitcoind.rpcpass=lightning
+      --bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+      --bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+      --debuglevel=debug
+      --externalip=bob
+      --tlsextradomain=bob
+      --accept-keysend
+      --protocol.option-scid-alias
+      --protocol.zero-conf
+      --protocol.simple-taproot-chans
+      --trickledelay=50

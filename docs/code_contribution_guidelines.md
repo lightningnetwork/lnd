@@ -98,6 +98,20 @@ Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
 be recommended for newcomers to read first in order to get up to speed. 
 
+# Substantial contributions only
+
+Due to the prevalence of automated analysis and pull request authoring tools
+and online competitions that incentivize creating commits in popular
+repositories, the maintainers of this project are flooded with trivial pull
+requests that only change some typos or other insubstantial content (e.g. the
+year in the license file).
+If you are an honest user that wants to contribute to this project, please
+consider that every pull request takes precious time from the maintainers to
+review and consider the impact of changes. Time that could be spent writing
+features or fixing bugs.
+If you really want to contribute, consider reviewing and testing other users'
+pull requests instead. Or add value to the project by writing unit tests.
+
 # Development Practices
 
 Developers are expected to work in their own trees and submit pull requests when

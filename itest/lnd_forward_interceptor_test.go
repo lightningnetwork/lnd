@@ -122,7 +122,7 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	// We expect one in flight payment since we held the htlcs.
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
 	// At this point if we have more than one held htlcs then we should
 	// fail. This means we hold the same htlc twice which is a risk we want
@@ -275,7 +275,7 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 		copy(preimage[:], testCase.invoice.RPreimage)
 
 		payment := ht.AssertPaymentStatus(
-			alice, preimage, lnrpc.Payment_IN_FLIGHT,
+			alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT,
 		)
 		expectedAmt := testCase.invoice.ValueMsat
 		require.Equal(ht, expectedAmt, payment.ValueMsat,
@@ -408,7 +408,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	// The payment should now be in flight.
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
 	// We don't resume the payment on Carol, so it should be held there.
 	// We now restart first Bob, then Alice, so we can make sure we've
@@ -456,7 +456,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 
 	// Assert that the payment was successful.
 	ht.AssertPaymentStatus(
-		alice, preimage, lnrpc.Payment_SUCCEEDED,
+		alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED,
 		func(p *lnrpc.Payment) error {
 			recordsEqual := reflect.DeepEqual(
 				lntest.CustomRecordsWithUnendorsed(

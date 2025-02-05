@@ -8,14 +8,14 @@ package build
 //
 //nolint:ll
 type consoleLoggerCfg struct {
-	LoggerConfig
+	*LoggerConfig `yaml:",inline"`
 }
 
 // defaultConsoleLoggerCfg returns the default consoleLoggerCfg for the prod
 // console logger.
 func defaultConsoleLoggerCfg() *consoleLoggerCfg {
 	return &consoleLoggerCfg{
-		LoggerConfig: LoggerConfig{
+		LoggerConfig: &LoggerConfig{
 			CallSite: callSiteOff,
 		},
 	}

@@ -487,7 +487,7 @@ func (h *htlcTimeoutResolver) sweepTimeoutTx() error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 // resolveSecondLevelTxLegacy sends a second level timeout transaction to the
@@ -593,7 +593,7 @@ func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
 		return nil, err
 	}
 
-	return spend, err
+	return spend, nil
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

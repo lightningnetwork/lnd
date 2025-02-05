@@ -218,11 +218,11 @@ jobs:
       fail-fast: false
       matrix:
         unit_type:
-          - btcd unit-cover
+          - unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
-          - btcd unit-race
+          - unit-race
           - unit-module
 
     steps:
@@ -259,13 +259,18 @@ jobs:
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: matrix.unit_type == 'unit-cover'
+
       - name: Send coverage
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
-        if: matrix.unit_type == 'btcd unit-cover'
+        uses: coverallsapp/github-action@v2
+        if: matrix.unit_type == 'unit-cover'
         continue-on-error: true
         with:
-          path-to-profile: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'unit'
+          format: 'golang'
           parallel: true
 
 
@@ -314,13 +319,18 @@ jobs:
       - name: run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: ${{ contains(matrix.args, 'cover=1') }}
+
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         with:
-          path-to-profile: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'itest-${{ matrix.name }}'
+          format: 'golang'
           parallel: true
 
       - name: Zip log files on failure
@@ -382,13 +392,18 @@ jobs:
       - name: run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: ${{ contains(matrix.args, 'cover=1') }}
+
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         with:
-          path-to-profile: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'itest-${{ matrix.name }}'
+          format: 'golang'
           parallel: true
 
       - name: Zip log files on failure
@@ -528,7 +543,23 @@ jobs:
 
       - name: release notes check
         run: scripts/check-release-notes.sh
-  
+
+  ########################
+  # Backwards Compatibility Test
+  ########################
+  backwards-compatability-test:
+    name: backwards compatability test
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🛡️ backwards compatibility test
+        run: make backwards-compat-test
+
   # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}
@@ -536,7 +567,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send coverage
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         continue-on-error: true
         with:
           parallel-finished: true

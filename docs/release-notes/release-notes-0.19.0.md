@@ -235,6 +235,9 @@ config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
 a new option `channel-max-fee-exposure` which is unambiguous in its description.
 The underlying functionality between those two options remain the same.
 
+* [Abstraction of graph](https://github.com/lightningnetwork/lnd/pull/9480) 
+  access for autopilot. 
+
 * [Golang was updated to
   `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 
 

@@ -107,6 +107,12 @@ func (r *mockGraphSource) AddNode(node *models.LightningNode,
 	return nil
 }
 
+func (r *mockGraphSource) MarkZombieEdge(scid uint64) error {
+	return r.MarkEdgeZombie(
+		lnwire.NewShortChanIDFromInt(scid), [33]byte{}, [33]byte{},
+	)
+}
+
 func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	_ ...batch.SchedulerOption) error {
 

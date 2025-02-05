@@ -1008,9 +1008,9 @@ func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
 	return nil
 }
 
-// addZombieEdge adds a channel that failed complete validation into the zombie
+// MarkZombieEdge adds a channel that failed complete validation into the zombie
 // index so we can avoid having to re-validate it in the future.
-func (b *Builder) addZombieEdge(chanID uint64) error {
+func (b *Builder) MarkZombieEdge(chanID uint64) error {
 	// If the edge fails validation we'll mark the edge itself as a zombie
 	// so we don't continue to request it. We use the "zero key" for both
 	// node pubkeys so this edge can't be resurrected.
@@ -1306,7 +1306,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 			// we'll mark the edge itself as a zombie so we don't
 			// continue to request it. We use the "zero key" for
 			// both node pubkeys so this edge can't be resurrected.
-			zErr := b.addZombieEdge(edge.ChannelID)
+			zErr := b.MarkZombieEdge(edge.ChannelID)
 			if zErr != nil {
 				return zErr
 			}
@@ -1343,7 +1343,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 	if err != nil {
 		// Mark the edge as a zombie so we won't try to re-validate it
 		// on start up.
-		if err := b.addZombieEdge(edge.ChannelID); err != nil {
+		if err := b.MarkZombieEdge(edge.ChannelID); err != nil {
 			return err
 		}
 
@@ -1358,7 +1358,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 	)
 	if err != nil {
 		if errors.Is(err, btcwallet.ErrOutputSpent) {
-			zErr := b.addZombieEdge(edge.ChannelID)
+			zErr := b.MarkZombieEdge(edge.ChannelID)
 			if zErr != nil {
 				return zErr
 			}

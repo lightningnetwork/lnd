@@ -85,6 +85,9 @@ type ChannelGraphSource interface {
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
 	FetchLightningNode(route.Vertex) (*models.LightningNode, error)
+
+	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
+	MarkZombieEdge(chanID uint64) error
 }
 
 // DB is an interface describing a persisted Lightning Network graph.

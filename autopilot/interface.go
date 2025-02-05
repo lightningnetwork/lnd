@@ -6,7 +6,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // DefaultConfTarget is the default confirmation target for autopilot channels.
@@ -215,4 +217,21 @@ type ChannelController interface {
 	//
 	// TODO(roasbeef): add force option?
 	CloseChannel(chanPoint *wire.OutPoint) error
+}
+
+// GraphSource represents read access to the channel graph.
+type GraphSource interface {
+	// ForEachNode iterates through all the stored vertices/nodes in the
+	// graph, executing the passed callback with each node encountered. If
+	// the callback returns an error, then the transaction is aborted and
+	// the iteration stops early. Any operations performed on the NodeTx
+	// passed to the call-back are executed under the same read transaction.
+	ForEachNode(func(graphdb.NodeTx) error) error
+
+	// ForEachNodeCached is similar to ForEachNode, but it utilizes the
+	// channel graph cache if one is available. It is less consistent than
+	// ForEachNode since any further calls are made across multiple
+	// transactions.
+	ForEachNodeCached(cb func(node route.Vertex,
+		chans map[uint64]*graphdb.DirectedChannel) error) error
 }

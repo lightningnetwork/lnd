@@ -97,13 +97,6 @@ func TestBumpResultValidate(t *testing.T) {
 	}
 	require.ErrorIs(t, b.Validate(), ErrInvalidBumpResult)
 
-	// A confirmed event without fee info will give an error.
-	b = BumpResult{
-		Tx:    &wire.MsgTx{},
-		Event: TxConfirmed,
-	}
-	require.ErrorIs(t, b.Validate(), ErrInvalidBumpResult)
-
 	// Test a valid result.
 	b = BumpResult{
 		Tx:    &wire.MsgTx{},
@@ -420,6 +413,7 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		notifier:  notifier,
 		feeFunc:   feeFunc,
 	}
+	m.wallet.On("BackEnd").Return("test-backend").Maybe()
 
 	// Create a publisher using the mocks.
 	tp := NewTxPublisher(TxPublisherConfig{
@@ -504,9 +498,14 @@ func TestCreateAndCheckTx(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 
+		r := &monitorRecord{
+			req:         tc.req,
+			feeFunction: m.feeFunc,
+		}
+
 		t.Run(tc.name, func(t *testing.T) {
 			// Call the method under test.
-			_, err := tp.createAndCheckTx(tc.req, m.feeFunc)
+			_, err := tp.createAndCheckTx(r)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)
@@ -1575,6 +1574,10 @@ func TestProcessRecordsInitialSpent(t *testing.T) {
 		req:       req,
 	}
 
+	// Mock the wallet to be unaware of this tx.
+	m.wallet.On("FetchTx",
+		mock.Anything, mock.Anything).Return(nil, nil).Once()
+
 	// Setup the initial publisher state by adding the records to the maps.
 	subscriber := make(chan *BumpResult, 1)
 	tp.subscriberChans.Store(requestID, subscriber)
@@ -1760,17 +1763,28 @@ func TestProcessRecordsSpent(t *testing.T) {
 		&op, mock.Anything, mock.Anything).Return(se, nil).Once()
 
 	// Create a monitor record that's spent by txUnknown.
-	recordConfirmed := &monitorRecord{
+	record := &monitorRecord{
 		requestID:   requestID,
 		req:         req,
 		feeFunction: m.feeFunc,
 		tx:          tx,
 	}
 
+	// Mock the wallet to be unaware of this tx.
+	m.wallet.On("FetchTx",
+		mock.Anything, mock.Anything).Return(nil, nil).Once()
+
 	// Setup the initial publisher state by adding the records to the maps.
 	subscriber := make(chan *BumpResult, 1)
 	tp.subscriberChans.Store(requestID, subscriber)
-	tp.records.Store(requestID, recordConfirmed)
+	tp.records.Store(requestID, record)
+
+	// Mock the fee function to increase feerate.
+	m.feeFunc.On("Increment").Return(true, nil).Once()
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
 
 	// Call processRecords and expect the results are notified back.
 	tp.processRecords()
@@ -1784,6 +1798,9 @@ func TestProcessRecordsSpent(t *testing.T) {
 		// We expect the result to be TxUnknownSpend.
 		require.Equal(t, TxUnknownSpend, result.Event)
 		require.Equal(t, tx, result.Tx)
+
+		// We expect the fee rate to be updated.
+		require.Equal(t, feerate, result.FeeRate)
 
 		// No error should be set.
 		require.ErrorIs(t, result.Err, ErrUnknownSpent)

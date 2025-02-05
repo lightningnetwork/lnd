@@ -43,6 +43,10 @@ var (
 	// Err*ErrUnknownSpent is returned when a unknown tx has spent the input
 	// in the sweeping tx.
 	ErrUnknownSpent = errors.New("unknown spent of input")
+
+	// ErrInputMissing is returned when a given input no longer exists,
+	// e.g., spending from an orphan tx.
+	ErrInputMissing = errors.New("input no longer exists")
 )
 
 var (
@@ -273,6 +277,10 @@ type BumpResult struct {
 	// Err is the error that occurred during the broadcast.
 	Err error
 
+	// SpentInputs are the inputs spent by another tx which caused the
+	// current tx to be failed.
+	SpentInputs map[wire.OutPoint]*wire.MsgTx
+
 	// requestID is the ID of the request that created this record.
 	requestID uint64
 }
@@ -310,12 +318,6 @@ func (b *BumpResult) Validate() error {
 	// If it's a failed or fatal event, it must have an error.
 	if isFailureEvent && b.Err == nil {
 		return fmt.Errorf("%w: nil error", ErrInvalidBumpResult)
-	}
-
-	// If it's a confirmed event, it must have a fee rate and fee.
-	if b.Event == TxConfirmed && (b.FeeRate == 0 || b.Fee == 0) {
-		return fmt.Errorf("%w: missing fee rate or fee",
-			ErrInvalidBumpResult)
 	}
 
 	return nil
@@ -532,6 +534,9 @@ func (t *TxPublisher) initializeFeeFunction(
 // so by creating a tx, validate it using `TestMempoolAccept`, and bump its fee
 // and redo the process until the tx is valid, or return an error when non-RBF
 // related errors occur or the budget has been used up.
+//
+// NOTE: For neutrino backend, it will use PublishTransaction instead due to
+// CheckMempoolAcceptance not available.
 func (t *TxPublisher) createRBFCompliantTx(
 	r *monitorRecord) (*monitorRecord, error) {
 
@@ -540,7 +545,7 @@ func (t *TxPublisher) createRBFCompliantTx(
 	for {
 		// Create a new tx with the given fee rate and check its
 		// mempool acceptance.
-		sweepCtx, err := t.createAndCheckTx(r.req, f)
+		sweepCtx, err := t.createAndCheckTx(r)
 
 		switch {
 		case err == nil:
@@ -603,8 +608,12 @@ func (t *TxPublisher) createRBFCompliantTx(
 // script, and the fee rate. In addition, it validates the tx's mempool
 // acceptance before returning a tx that can be published directly, along with
 // its fee.
-func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
-	f FeeFunction) (*sweepTxCtx, error) {
+//
+// NOTE: For neutrino backend, it will use PublishTransaction instead due to
+// CheckMempoolAcceptance not available.
+func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
+	req := r.req
+	f := r.feeFunction
 
 	// Create the sweep tx with max fee rate of 0 as the fee function
 	// guarantees the fee rate used here won't exceed the max fee rate.
@@ -626,7 +635,17 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
 	req.ExtraTxOut = sweepCtx.extraTxOut
 
 	// Validate the tx's mempool acceptance.
-	err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	//
+	// For neutrino, we will publish tx instead as it's the only way to know
+	// whether the RBF requirements are met or not.
+	if t.isNeutrinoBackend() {
+		err = t.cfg.Wallet.PublishTransaction(
+			sweepCtx.tx,
+			labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
+		)
+	} else {
+		err = t.cfg.Wallet.CheckMempoolAcceptance(sweepCtx.tx)
+	}
 
 	// Exit early if the tx is valid.
 	if err == nil {
@@ -648,8 +667,74 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
 		return sweepCtx, nil
 	}
 
+	// If the inputs are spent by another tx, we will exit with the latest
+	// sweepCtx and an error.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Tx %v missing inputs, it's likely the input has "+
+			"been spent by others", sweepCtx.tx.TxHash())
+
+		t.handleMissingInputs(r, sweepCtx)
+
+		return sweepCtx, ErrInputMissing
+	}
+
 	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
 		sweepCtx.tx.TxHash(), err)
+}
+
+// handleMissingInputs handles the case when the chain backend reports back a
+// missing inputs error, which could happen when one of the input has been spent
+// in another tx, or the input is referencing an orphan. When the input is
+// spent, it will be handled via the TxUnknownSpend flow, otherwise, a TxFatal
+// event is notified.
+func (t *TxPublisher) handleMissingInputs(record *monitorRecord,
+	sweepCtx *sweepTxCtx) {
+
+	// Make sure to update the record with the latest attempt.
+	r := t.updateRecord(record, sweepCtx)
+
+	// Get the spending txns.
+	spends := t.hasInputSpent(r)
+
+	// Attach the spending txns.
+	r.spentInputs = spends
+
+	// If there are no spending txns found and the input is missing, the
+	// input is referencing an orphan tx that's no longer valid, e.g., the
+	// spending the anchor output from the remote commitment after the local
+	// commitment has confirmed. In this case we will mark it as fatal and
+	// exit.
+	if len(spends) == 0 {
+		log.Warnf("Failing record=%v: found orphan inputs: %v\n",
+			r.requestID, inputTypeSummary(r.req.Inputs))
+
+		// Create a result that will be sent to the resultChan which is
+		// listened by the caller.
+		result := &BumpResult{
+			Event:     TxFatal,
+			Tx:        r.tx,
+			requestID: r.requestID,
+			Err:       ErrInputMissing,
+		}
+
+		// Notify that this tx is confirmed and remove the record from
+		// the map.
+		t.handleResult(result)
+
+		return
+	}
+
+	// Check there the spending tx matches the sweeping tx - given the input
+	// is missing from the sweeping tx, it's impossible to match. We perform
+	// a sanity to chech here to catch the unexpected state.
+	if !t.isUnknownSpent(r, spends) {
+		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
+			"spending tx is the sweeping tx itself: %v",
+			r.tx.TxHash(), r.spentInputs)
+	}
+
+	t.wg.Add(1)
+	go t.handleUnknownSpent(r)
 }
 
 // broadcast takes a monitored tx and publishes it to the network. Prior to the
@@ -812,6 +897,10 @@ type monitorRecord struct {
 
 	// outpointToTxIndex is a map of outpoint to tx index.
 	outpointToTxIndex map[wire.OutPoint]int
+
+	// spentInputs are the inputs spent by another tx which caused the
+	// current tx failed.
+	spentInputs map[wire.OutPoint]*wire.MsgTx
 }
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
@@ -910,21 +999,18 @@ func (t *TxPublisher) processRecords() {
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
 		if len(spends) != 0 {
-			// When tx is nil, it means we haven't tried the initial
-			// broadcast yet the input is already spent. This could
-			// happen when the node shuts down, a previous sweeping
-			// tx confirmed, then the node comes back online and
-			// reoffers the inputs. Another case is the remote node
-			// spends the input quickly before we even attempt the
-			// sweep. In either case we will fail the record and let
-			// the sweeper handles it.
-			if r.tx == nil {
-				failedRecords[requestID] = r
-				return nil
-			}
+			// Attach the spending txns.
+			r.spentInputs = spends
 
 			// Check whether the inputs has been spent by a unknown
-			// tx.
+			// tx. Note the r.tx can be nil, which means we haven't
+			// tried the initial broadcast yet the input is already
+			// spent. This could happen when the node shuts down, a
+			// previous sweeping tx confirmed, then the node comes
+			// back online and reoffers the inputs. Another case is
+			// the remote node spends the input quickly before we
+			// even attempt the sweep. In either case we will fail
+			// the record and let the sweeper handles it.
 			if t.isUnknownSpent(r, spends) {
 				failedRecords[requestID] = r
 
@@ -1005,7 +1091,14 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 		Tx:        r.tx,
 		requestID: r.requestID,
 		Fee:       r.fee,
-		FeeRate:   r.feeFunction.FeeRate(),
+	}
+
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func.
+	//
+	// TODO(yy): can instead calculate the fee rate from the tx.
+	if r.feeFunction != nil {
+		result.FeeRate = r.feeFunction.FeeRate()
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1035,6 +1128,12 @@ func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		event = TxFailed
+
+	// Exit when there are missing inputs - we'll send a TxUnknownSpend
+	// event in `createAndCheckTx`` so the rest of the inputs can be
+	// retried.
+	case errors.Is(err, ErrInputMissing):
+		return
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which
@@ -1079,6 +1178,22 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 
 		// We now handle the initialization error and exit.
 		t.handleInitialTxError(r.requestID, err)
+
+		return
+	}
+
+	// For neutrino, initializeTx has already published the tx so we can
+	// return early.
+	if t.isNeutrinoBackend() {
+		result = &BumpResult{
+			Event:     TxPublished,
+			Tx:        record.tx,
+			Fee:       record.fee,
+			FeeRate:   record.feeFunction.FeeRate(),
+			Err:       err,
+			requestID: record.requestID,
+		}
+		t.handleResult(result)
 
 		return
 	}
@@ -1159,13 +1274,52 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 		"bumper, failing it now:\n%v", r.requestID,
 		inputTypeSummary(r.req.Inputs))
 
+	// Get the fee function, which will be used to decided the next fee rate
+	// to use if the sweeper decides to retry sweeping this input.
+	feeFunc := r.feeFunction
+
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func. In this case, we'll create the fee func
+	// here.
+	//
+	// NOTE: Since the current record is failed and will be deleted, we
+	// don't need to update the record on this fee function. We only need
+	// the fee rate data so the sweeper can pick up where we left off.
+	if feeFunc == nil {
+		f, err := t.initializeFeeFunction(r.req)
+		if err != nil {
+			log.Errorf("Failed to create fee func for record %v: "+
+				"%v", r.requestID, err)
+
+			return
+		}
+
+		feeFunc = f
+	}
+
+	// Since the sweeping tx has been replaced by another party's tx, we
+	// missed this block window to increase its fee rate. To make sure the
+	// fee rate stays in the initial line, we now ask the fee function to
+	// give us the next fee rate as if the sweeping tx were RBFed. This new
+	// fee rate will be used as the starting fee rate if the upper system
+	// decides to continue sweeping the rest of the inputs.
+	_, err := feeFunc.Increment()
+	if err != nil {
+		// The fee function has reached its max position - nothing we
+		// can do here other than letting the user increase the budget.
+		log.Errorf("Failed to calculate the next fee rate for "+
+			"Record(%v): %v", r.requestID, err)
+	}
+
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
 	result := &BumpResult{
-		Event:     TxUnknownSpend,
-		Tx:        r.tx,
-		requestID: r.requestID,
-		Err:       ErrUnknownSpent,
+		Event:       TxUnknownSpend,
+		Tx:          r.tx,
+		requestID:   r.requestID,
+		Err:         ErrUnknownSpent,
+		SpentInputs: r.spentInputs,
+		FeeRate:     feeFunc.FeeRate(),
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1186,7 +1340,7 @@ func (t *TxPublisher) createAndPublishTx(
 	// NOTE: The fee function is expected to have increased its returned
 	// fee rate after calling the SkipFeeBump method. So we can use it
 	// directly here.
-	sweepCtx, err := t.createAndCheckTx(r.req, r.feeFunction)
+	sweepCtx, err := t.createAndCheckTx(r)
 
 	// If the error is fee related, we will return no error and let the fee
 	// bumper retry it at next block.
@@ -1206,15 +1360,27 @@ func (t *TxPublisher) createAndPublishTx(
 	}
 
 	// If the error is not fee related, we will return a `TxFailed` event
-	// so this input can be retried.
+	// so this input can be retried, or `TxUnknownSpend` if the mempool
+	// gives us missing inputs error.
 	if err != nil {
+		switch {
+		// At least one of the inputs is missing, which means it has
+		// already been spent by another tx and confirmed. In this case
+		// we will handle it by spending the TxUnknownSpend event.
+		case errors.Is(err, ErrInputMissing):
+			log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(),
+				err)
+
+			return fn.None[BumpResult]()
+
 		// If the tx doesn't not have enought budget, we will return a
 		// result so the sweeper can handle it by re-clustering the
 		// utxos.
-		if errors.Is(err, ErrNotEnoughBudget) {
+		case errors.Is(err, ErrNotEnoughBudget):
 			log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(),
 				err)
-		} else {
+
+		default:
 			// Otherwise, an unexpected error occurred, we will
 			// fail the tx and let the sweeper retry the whole
 			// process.
@@ -1277,26 +1443,91 @@ func (t *TxPublisher) createAndPublishTx(
 // a tx not known to us. When a tx is not confirmed, yet its inputs has been
 // spent, then it must be spent by a different tx other than the sweeping tx
 // here.
+//
+// NOTE: This method will update `r.tx` if a confirmed wallet tx is found.
 func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
 	spends map[wire.OutPoint]*wire.MsgTx) bool {
 
-	txid := r.tx.TxHash()
+	// walletTx is the confirmed tx found in our wallet. When it's set, it
+	// means  a previous tx has spent the inputs, which could happen during
+	// restarts.
+	var walletTx *wire.MsgTx
 
 	// Iterate all the spending txns and check if they match the sweeping
 	// tx.
 	for op, spendingTx := range spends {
-		spendingTxID := spendingTx.TxHash()
+		spendingTxid := spendingTx.TxHash()
 
 		// If the spending tx is the same as the sweeping tx then we are
 		// good.
-		if spendingTxID == txid {
+		if r.tx != nil && spendingTxid == r.tx.TxHash() {
 			continue
+		}
+
+		// Fetch the wallet to see if it's our previous sweeping tx.
+		tx, err := t.cfg.Wallet.FetchTx(spendingTxid)
+		if err != nil {
+			log.Errorf("Failed to FetchTx for %v: %v", spendingTxid,
+				err)
+
+			continue
+		}
+
+		// Found a wallet tx, which means a previous sweeping tx is now
+		// confirmed.
+		if tx != nil {
+			// Assign the tx for the first time.
+			if walletTx == nil {
+				walletTx = tx
+				continue
+			}
+
+			// Inputs are spent via the same tx, which is the
+			// expected case.
+			if walletTx.TxHash() == tx.TxHash() {
+				continue
+			}
+
+			// We'd end up here if the inputs are spent by at least
+			// two previous sweeping txns, which could happen if the
+			// two sweeping txns are spending non-time sensitive
+			// inputs:
+			// 1. sweeping tx 1 published and stays in the mempool.
+			// 2. sweeping tx 2 published and stays in the mempool.
+			// 3. the node shuts down.
+			// 4. the two sweeping txns confirmed.
+			// 5. the node comes back and reoffers the inputs, which
+			//    could be grouped together if they all have non
+			//    deadline heights.
+			//
+			// This is fine as we will return the first tx and retry
+			// the sweeping process, which will end up here again
+			// with a deducted input set.
+			log.Warnf("Found tx %v and %v spending the same input "+
+				"set in record %v", walletTx.TxHash(),
+				tx.TxHash(), r.requestID)
 		}
 
 		log.Warnf("Detected unknown spent of input=%v in tx=%v", op,
 			spendingTx.TxHash())
 
 		return true
+	}
+
+	// Found a previous tx, we now change our record to use this one.
+	if walletTx != nil {
+		txid := walletTx.TxHash()
+
+		log.Debugf("Overwriting tx for record %v, old tx: %v, new tx: "+
+			"%v", r.requestID, lnutils.NewLogClosure(func() string {
+			if r.tx == nil {
+				return "nil"
+			}
+
+			return r.tx.TxHash().String()
+		}), txid)
+
+		r.tx = walletTx
 	}
 
 	return false

@@ -410,34 +410,50 @@ func (t *TxPublisher) Broadcast(req *BumpRequest) <-chan *BumpResult {
 		lnutils.SpewLogClosure(req))
 
 	// Store the request.
-	requestID, record := t.storeInitialRecord(req)
+	record := t.storeInitialRecord(req)
 
 	// Create a chan to send the result to the caller.
 	subscriber := make(chan *BumpResult, 1)
-	t.subscriberChans.Store(requestID, subscriber)
+	t.subscriberChans.Store(record.requestID, subscriber)
 
 	// Publish the tx immediately if specified.
 	if req.Immediate {
-		t.handleInitialBroadcast(record, requestID)
+		t.handleInitialBroadcast(record)
 	}
 
 	return subscriber
 }
 
 // storeInitialRecord initializes a monitor record and saves it in the map.
-func (t *TxPublisher) storeInitialRecord(req *BumpRequest) (
-	uint64, *monitorRecord) {
-
+func (t *TxPublisher) storeInitialRecord(req *BumpRequest) *monitorRecord {
 	// Increase the request counter.
 	//
 	// NOTE: this is the only place where we increase the counter.
 	requestID := t.requestCounter.Add(1)
 
 	// Register the record.
-	record := &monitorRecord{req: req}
+	record := &monitorRecord{
+		requestID: requestID,
+		req:       req,
+	}
 	t.records.Store(requestID, record)
 
-	return requestID, record
+	return record
+}
+
+// updateRecord updates the given record's tx and fee, and saves it in the
+// records map.
+func (t *TxPublisher) updateRecord(r *monitorRecord,
+	sweepCtx *sweepTxCtx) *monitorRecord {
+
+	r.tx = sweepCtx.tx
+	r.fee = sweepCtx.fee
+	r.outpointToTxIndex = sweepCtx.outpointToTxIndex
+
+	// Register the record.
+	t.records.Store(r.requestID, r)
+
+	return r
 }
 
 // NOTE: part of the `chainio.Consumer` interface.
@@ -447,21 +463,30 @@ func (t *TxPublisher) Name() string {
 
 // initializeTx initializes a fee function and creates an RBF-compliant tx. If
 // succeeded, the initial tx is stored in the records map.
-func (t *TxPublisher) initializeTx(requestID uint64, req *BumpRequest) error {
+func (t *TxPublisher) initializeTx(r *monitorRecord) (*monitorRecord, error) {
 	// Create a fee bumping algorithm to be used for future RBF.
-	feeAlgo, err := t.initializeFeeFunction(req)
+	feeAlgo, err := t.initializeFeeFunction(r.req)
 	if err != nil {
-		return fmt.Errorf("init fee function: %w", err)
+		return nil, fmt.Errorf("init fee function: %w", err)
 	}
+
+	// Attach the newly created fee function.
+	//
+	// TODO(yy): current we'd initialize a monitorRecord before creating the
+	// fee function, while we could instead create the fee function first
+	// then save it to the record. To make this happen we need to change the
+	// conf target calculation below since we would be initializing the fee
+	// function one block before.
+	r.feeFunction = feeAlgo
 
 	// Create the initial tx to be broadcasted. This tx is guaranteed to
 	// comply with the RBF restrictions.
-	err = t.createRBFCompliantTx(requestID, req, feeAlgo)
+	record, err := t.createRBFCompliantTx(r)
 	if err != nil {
-		return fmt.Errorf("create RBF-compliant tx: %w", err)
+		return nil, fmt.Errorf("create RBF-compliant tx: %w", err)
 	}
 
-	return nil
+	return record, nil
 }
 
 // initializeFeeFunction initializes a fee function to be used for this request
@@ -497,29 +522,28 @@ func (t *TxPublisher) initializeFeeFunction(
 // so by creating a tx, validate it using `TestMempoolAccept`, and bump its fee
 // and redo the process until the tx is valid, or return an error when non-RBF
 // related errors occur or the budget has been used up.
-func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
-	f FeeFunction) error {
+func (t *TxPublisher) createRBFCompliantTx(
+	r *monitorRecord) (*monitorRecord, error) {
+
+	f := r.feeFunction
 
 	for {
 		// Create a new tx with the given fee rate and check its
 		// mempool acceptance.
-		sweepCtx, err := t.createAndCheckTx(req, f)
+		sweepCtx, err := t.createAndCheckTx(r.req, f)
 
 		switch {
 		case err == nil:
 			// The tx is valid, store it.
-			t.storeRecord(
-				requestID, sweepCtx.tx, req, f, sweepCtx.fee,
-				sweepCtx.outpointToTxIndex,
-			)
+			record := t.updateRecord(r, sweepCtx)
 
 			log.Infof("Created initial sweep tx=%v for %v inputs: "+
 				"feerate=%v, fee=%v, inputs:\n%v",
-				sweepCtx.tx.TxHash(), len(req.Inputs),
+				sweepCtx.tx.TxHash(), len(r.req.Inputs),
 				f.FeeRate(), sweepCtx.fee,
-				inputTypeSummary(req.Inputs))
+				inputTypeSummary(r.req.Inputs))
 
-			return nil
+			return record, nil
 
 		// If the error indicates the fees paid is not enough, we will
 		// ask the fee function to increase the fee rate and retry.
@@ -550,7 +574,7 @@ func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
 				// cluster these inputs differetly.
 				increased, err = f.Increment()
 				if err != nil {
-					return err
+					return nil, err
 				}
 			}
 
@@ -560,24 +584,9 @@ func (t *TxPublisher) createRBFCompliantTx(requestID uint64, req *BumpRequest,
 		// mempool acceptance.
 		default:
 			log.Debugf("Failed to create RBF-compliant tx: %v", err)
-			return err
+			return nil, err
 		}
 	}
-}
-
-// storeRecord stores the given record in the records map.
-func (t *TxPublisher) storeRecord(requestID uint64, tx *wire.MsgTx,
-	req *BumpRequest, f FeeFunction, fee btcutil.Amount,
-	outpointToTxIndex map[wire.OutPoint]int) {
-
-	// Register the record.
-	t.records.Store(requestID, &monitorRecord{
-		tx:                tx,
-		req:               req,
-		feeFunction:       f,
-		fee:               fee,
-		outpointToTxIndex: outpointToTxIndex,
-	})
 }
 
 // createAndCheckTx creates a tx based on the given inputs, change output
@@ -638,13 +647,7 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
 // the event channel to the record. Any broadcast-related errors will not be
 // returned here, instead, they will be put inside the `BumpResult` and
 // returned to the caller.
-func (t *TxPublisher) broadcast(requestID uint64) (*BumpResult, error) {
-	// Get the record being monitored.
-	record, ok := t.records.Load(requestID)
-	if !ok {
-		return nil, fmt.Errorf("tx record %v not found", requestID)
-	}
-
+func (t *TxPublisher) broadcast(record *monitorRecord) (*BumpResult, error) {
 	txid := record.tx.TxHash()
 
 	tx := record.tx
@@ -691,7 +694,7 @@ func (t *TxPublisher) broadcast(requestID uint64) (*BumpResult, error) {
 		Fee:       record.fee,
 		FeeRate:   record.feeFunction.FeeRate(),
 		Err:       err,
-		requestID: requestID,
+		requestID: record.requestID,
 	}
 
 	return result, nil
@@ -777,6 +780,9 @@ func (t *TxPublisher) handleResult(result *BumpResult) {
 // monitorRecord is used to keep track of the tx being monitored by the
 // publisher internally.
 type monitorRecord struct {
+	// requestID is the ID of the request that created this record.
+	requestID uint64
+
 	// tx is the tx being monitored.
 	tx *wire.MsgTx
 
@@ -919,35 +925,35 @@ func (t *TxPublisher) processRecords() {
 	t.records.ForEach(visitor)
 
 	// Handle the initial broadcast.
-	for requestID, r := range initialRecords {
-		t.handleInitialBroadcast(r, requestID)
+	for _, r := range initialRecords {
+		t.handleInitialBroadcast(r)
 	}
 
 	// For records that are confirmed, we'll notify the caller about this
 	// result.
-	for requestID, r := range confirmedRecords {
+	for _, r := range confirmedRecords {
 		log.Debugf("Tx=%v is confirmed", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleTxConfirmed(r, requestID)
+		go t.handleTxConfirmed(r)
 	}
 
 	// Get the current height to be used in the following goroutines.
 	currentHeight := t.currentHeight.Load()
 
 	// For records that are not confirmed, we perform a fee bump if needed.
-	for requestID, r := range feeBumpRecords {
+	for _, r := range feeBumpRecords {
 		log.Debugf("Attempting to fee bump Tx=%v", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleFeeBumpTx(requestID, r, currentHeight)
+		go t.handleFeeBumpTx(r, currentHeight)
 	}
 
 	// For records that are failed, we'll notify the caller about this
 	// result.
-	for requestID, r := range failedRecords {
+	for _, r := range failedRecords {
 		log.Debugf("Tx=%v has inputs been spent by a third party, "+
 			"failing it now", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleThirdPartySpent(r, requestID)
+		go t.handleThirdPartySpent(r)
 	}
 }
 
@@ -955,7 +961,7 @@ func (t *TxPublisher) processRecords() {
 // notify the subscriber then remove the record from the maps .
 //
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
-func (t *TxPublisher) handleTxConfirmed(r *monitorRecord, requestID uint64) {
+func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	defer t.wg.Done()
 
 	// Create a result that will be sent to the resultChan which is
@@ -963,7 +969,7 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord, requestID uint64) {
 	result := &BumpResult{
 		Event:     TxConfirmed,
 		Tx:        r.tx,
-		requestID: requestID,
+		requestID: r.requestID,
 		Fee:       r.fee,
 		FeeRate:   r.feeFunction.FeeRate(),
 	}
@@ -1021,10 +1027,8 @@ func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
 // 1. init a fee function based on the given strategy.
 // 2. create an RBF-compliant tx and monitor it for confirmation.
 // 3. notify the initial broadcast result back to the caller.
-func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord,
-	requestID uint64) {
-
-	log.Debugf("Initial broadcast for requestID=%v", requestID)
+func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
+	log.Debugf("Initial broadcast for requestID=%v", r.requestID)
 
 	var (
 		result *BumpResult
@@ -1035,18 +1039,18 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord,
 	// RBF rules.
 	//
 	// Create the initial tx to be broadcasted.
-	err = t.initializeTx(requestID, r.req)
+	record, err := t.initializeTx(r)
 	if err != nil {
 		log.Errorf("Initial broadcast failed: %v", err)
 
 		// We now handle the initialization error and exit.
-		t.handleInitialTxError(requestID, err)
+		t.handleInitialTxError(r.requestID, err)
 
 		return
 	}
 
 	// Successfully created the first tx, now broadcast it.
-	result, err = t.broadcast(requestID)
+	result, err = t.broadcast(record)
 	if err != nil {
 		// The broadcast failed, which can only happen if the tx record
 		// cannot be found or the aux sweeper returns an error. In
@@ -1055,7 +1059,7 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord,
 		result = &BumpResult{
 			Event:     TxFailed,
 			Err:       err,
-			requestID: requestID,
+			requestID: r.requestID,
 		}
 	}
 
@@ -1066,9 +1070,7 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord,
 // attempt to bump the fee of the tx.
 //
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
-func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
-	currentHeight int32) {
-
+func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	defer t.wg.Done()
 
 	oldTxid := r.tx.TxHash()
@@ -1099,7 +1101,7 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
 
 	// The fee function now has a new fee rate, we will use it to bump the
 	// fee of the tx.
-	resultOpt := t.createAndPublishTx(requestID, r)
+	resultOpt := t.createAndPublishTx(r)
 
 	// If there's a result, we will notify the caller about the result.
 	resultOpt.WhenSome(func(result BumpResult) {
@@ -1113,9 +1115,7 @@ func (t *TxPublisher) handleFeeBumpTx(requestID uint64, r *monitorRecord,
 // and send a TxFailed event to the subscriber.
 //
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
-func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord,
-	requestID uint64) {
-
+func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
 	defer t.wg.Done()
 
 	// Create a result that will be sent to the resultChan which is
@@ -1127,7 +1127,7 @@ func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord,
 	result := &BumpResult{
 		Event:     TxFailed,
 		Tx:        r.tx,
-		requestID: requestID,
+		requestID: r.requestID,
 		Err:       ErrThirdPartySpent,
 	}
 
@@ -1138,7 +1138,7 @@ func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord,
 // createAndPublishTx creates a new tx with a higher fee rate and publishes it
 // to the network. It will update the record with the new tx and fee rate if
 // successfully created, and return the result when published successfully.
-func (t *TxPublisher) createAndPublishTx(requestID uint64,
+func (t *TxPublisher) createAndPublishTx(
 	r *monitorRecord) fn.Option[BumpResult] {
 
 	// Fetch the old tx.
@@ -1189,22 +1189,16 @@ func (t *TxPublisher) createAndPublishTx(requestID uint64,
 			Event:     TxFailed,
 			Tx:        oldTx,
 			Err:       err,
-			requestID: requestID,
+			requestID: r.requestID,
 		})
 	}
 
 	// The tx has been created without any errors, we now register a new
 	// record by overwriting the same requestID.
-	t.records.Store(requestID, &monitorRecord{
-		tx:                sweepCtx.tx,
-		req:               r.req,
-		feeFunction:       r.feeFunction,
-		fee:               sweepCtx.fee,
-		outpointToTxIndex: sweepCtx.outpointToTxIndex,
-	})
+	record := t.updateRecord(r, sweepCtx)
 
 	// Attempt to broadcast this new tx.
-	result, err := t.broadcast(requestID)
+	result, err := t.broadcast(record)
 	if err != nil {
 		log.Infof("Failed to broadcast replacement tx %v: %v",
 			sweepCtx.tx.TxHash(), err)

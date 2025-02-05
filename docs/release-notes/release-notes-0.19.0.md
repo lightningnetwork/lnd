@@ -87,6 +87,7 @@
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)
@@ -316,6 +317,10 @@ The underlying functionality between those two options remain the same.
 * [Update protofsm 
  StateMachine](https://github.com/lightningnetwork/lnd/pull/9342) to use the 
   new GoroutineManager API along with structured logging.
+
+* A minor [refactor](https://github.com/lightningnetwork/lnd/pull/9446) is done
+  to the sweeper to improve code quality, with a renaming of the internal state
+  (`Failed` -> `Fatal`) used by the inputs tracked in the sweeper.
 
 ## Tooling and Documentation
 

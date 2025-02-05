@@ -119,9 +119,12 @@ const (
 	// sweeping transactions confirmed, the remaining two will be excluded.
 	Excluded
 
-	// Failed is the state when a pending input has too many failed publish
-	// atttempts or unknown broadcast error is returned.
-	Failed
+	// Fatal is the final state of a pending input. Inputs ending in this
+	// state won't be retried. This could happen,
+	// - when a pending input has too many failed publish attempts;
+	// - the input has been spent by another party;
+	// - unknown broadcast error is returned.
+	Fatal
 )
 
 // String gives a human readable text for the sweep states.
@@ -145,8 +148,8 @@ func (s SweepState) String() string {
 	case Excluded:
 		return "Excluded"
 
-	case Failed:
-		return "Failed"
+	case Fatal:
+		return "Fatal"
 
 	default:
 		return "Unknown"
@@ -215,7 +218,7 @@ func (p *SweeperInput) terminated() bool {
 	// If the input has reached a final state, that it's either
 	// been swept, or failed, or excluded, we will remove it from
 	// our sweeper.
-	case Failed, Swept, Excluded:
+	case Fatal, Swept, Excluded:
 		return true
 
 	default:
@@ -1264,7 +1267,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) error {
 	)
 	if err != nil {
 		err := fmt.Errorf("wait for spend: %w", err)
-		s.markInputFailed(pi, err)
+		s.markInputFatal(pi, err)
 
 		return err
 	}
@@ -1477,12 +1480,12 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 	}
 }
 
-// markInputFailed marks the given input as failed and won't be retried. It
+// markInputFatal marks the given input as fatal and won't be retried. It
 // will also notify all the subscribers of this input.
-func (s *UtxoSweeper) markInputFailed(pi *SweeperInput, err error) {
+func (s *UtxoSweeper) markInputFatal(pi *SweeperInput, err error) {
 	log.Errorf("Failed to sweep input: %v, error: %v", pi, err)
 
-	pi.state = Failed
+	pi.state = Fatal
 
 	s.signalResult(pi, Result{Err: err})
 }
@@ -1784,15 +1787,15 @@ func (s *UtxoSweeper) handleBumpEventTxFatal(resp *bumpResp) error {
 		}
 	}
 
-	// Mark the inputs as failed.
-	s.markInputsFailed(resp.set, r.Err)
+	// Mark the inputs as fatal.
+	s.markInputsFatal(resp.set, r.Err)
 
 	return nil
 }
 
-// markInputsFailed marks all inputs found in the tx as failed. It will also
+// markInputsFatal  marks all inputs in the input set as failed. It will also
 // notify all the subscribers of these inputs.
-func (s *UtxoSweeper) markInputsFailed(set InputSet, err error) {
+func (s *UtxoSweeper) markInputsFatal(set InputSet, err error) {
 	for _, inp := range set.Inputs() {
 		outpoint := inp.OutPoint()
 
@@ -1816,7 +1819,7 @@ func (s *UtxoSweeper) markInputsFailed(set InputSet, err error) {
 			continue
 		}
 
-		s.markInputFailed(input, err)
+		s.markInputFatal(input, err)
 	}
 }
 

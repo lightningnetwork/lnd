@@ -1188,9 +1188,8 @@ message BumpFeeRequest {
     // The input we're attempting to bump the fee of.
     lnrpc.OutPoint outpoint = 1;
 
-    // Optional. The deadline in number of blocks that the input should be spent
-    // within. When not set, for new inputs, the default value (1008) is used;
-    // for existing inputs, their current values will be retained.
+    // Optional. The conf target the underlying fee estimator will use to
+    // estimate the starting fee rate for the fee function.
     uint32 target_conf = 2;
 
     /*
@@ -1230,6 +1229,12 @@ message BumpFeeRequest {
     retained.
     */
     uint64 budget = 7;
+
+    // Optional. The deadline delta in number of blocks that the output
+    // should be spent within. This translates internally to the width of the
+    // fee function that the sweeper will use to bump the fee rate. When the
+    // deadline is reached, ALL the budget will be spent as fees.
+    uint32 deadline_delta = 8;
 }
 
 message BumpFeeResponse {
@@ -1243,7 +1248,8 @@ message BumpForceCloseFeeRequest {
     lnrpc.ChannelPoint chan_point = 1;
 
     // Optional. The deadline delta in number of blocks that the anchor output
-    // should be spent within to bump the closing transaction.
+    // should be spent within to bump the closing transaction. When the
+    // deadline is reached, ALL the budget will be spent as fees
     uint32 deadline_delta = 2;
 
     /*
@@ -1270,6 +1276,10 @@ message BumpForceCloseFeeRequest {
     transaction of the force closed channel otherwise the fee bumping will fail.
     */
     uint64 budget = 5;
+
+    // Optional. The conf target the underlying fee estimator will use to
+    // estimate the starting fee rate for the fee function.
+    uint32 target_conf = 6;
 }
 
 message BumpForceCloseFeeResponse {

@@ -40,9 +40,9 @@ var (
 	// preparation, usually due to the output being dust.
 	ErrTxNoOutput = errors.New("tx has no output")
 
-	// ErrThirdPartySpent is returned when a third party has spent the
-	// input in the sweeping tx.
-	ErrThirdPartySpent = errors.New("third party spent the output")
+	// Err*ErrUnknownSpent is returned when a unknown tx has spent the input
+	// in the sweeping tx.
+	ErrUnknownSpent = errors.New("unknown spent of input")
 )
 
 var (
@@ -81,10 +81,6 @@ const (
 	// bumper. In either case the inputs in this tx should be retried with
 	// either a different grouping strategy or an increased budget.
 	//
-	// NOTE: We also send this event when there's a third party spend
-	// event, and the sweeper will handle cleaning this up once it's
-	// confirmed.
-	//
 	// TODO(yy): Remove the above usage once we remove sweeping non-CPFP
 	// anchors.
 	TxFailed
@@ -94,6 +90,17 @@ const (
 
 	// TxConfirmed is sent when the tx is confirmed.
 	TxConfirmed
+
+	// TxUnknownSpend is sent when at least one of the inputs is spent but
+	// not by the current sweeping tx, this can happen when,
+	// - a remote party has replaced our sweeping tx by spending the
+	//   input(s), e.g., via the direct preimage spend on our outgoing HTLC.
+	// - a third party has replaced our sweeping tx, e.g., the anchor output
+	//   after 16 blocks.
+	// - A previous sweeping tx has confirmed but the fee bumper is not
+	//   aware of it, e.g., a restart happens right after the sweeping tx is
+	//   broadcast and confirmed.
+	TxUnknownSpend
 
 	// TxFatal is sent when the inputs in this tx cannot be retried. Txns
 	// will end up in this state if they have encountered a non-fee related
@@ -117,6 +124,8 @@ func (e BumpEvent) String() string {
 		return "Confirmed"
 	case TxFatal:
 		return "Fatal"
+	case TxUnknownSpend:
+		return "UnknownSpend"
 	default:
 		return "Unknown"
 	}
@@ -280,7 +289,8 @@ func (b *BumpResult) String() string {
 
 // Validate validates the BumpResult so it's safe to use.
 func (b *BumpResult) Validate() error {
-	isFailureEvent := b.Event == TxFailed || b.Event == TxFatal
+	isFailureEvent := b.Event == TxFailed || b.Event == TxFatal ||
+		b.Event == TxUnknownSpend
 
 	// Every result must have a tx except the fatal or failed case.
 	if b.Tx == nil && !isFailureEvent {
@@ -754,6 +764,11 @@ func (t *TxPublisher) removeResult(result *BumpResult) {
 		log.Debugf("Removing monitor record=%v due to fatal err: %v",
 			id, result.Err)
 
+	case TxUnknownSpend:
+		// Remove the record if there's an unknown spend.
+		log.Debugf("Removing monitor record=%v due unknown spent: "+
+			"%v", id, result.Err)
+
 	// Do nothing if it's neither failed or confirmed.
 	default:
 		log.Tracef("Skipping record removal for id=%v, event=%v", id,
@@ -878,8 +893,6 @@ func (t *TxPublisher) processRecords() {
 
 	// failedRecords stores a map of records which has inputs being spent
 	// by a third party.
-	//
-	// NOTE: this is only used for neutrino backend.
 	failedRecords := make(map[uint64]*monitorRecord)
 
 	// initialRecords stores a map of records which are being created and
@@ -889,32 +902,55 @@ func (t *TxPublisher) processRecords() {
 	// visitor is a helper closure that visits each record and divides them
 	// into two groups.
 	visitor := func(requestID uint64, r *monitorRecord) error {
-		if r.tx == nil {
-			initialRecords[requestID] = r
-			return nil
-		}
+		log.Tracef("Checking monitor recordID=%v", requestID)
 
-		log.Tracef("Checking monitor recordID=%v for tx=%v", requestID,
-			r.tx.TxHash())
+		// Check whether the inputs have already been spent.
+		spends := t.hasInputSpent(r)
 
-		// If the tx is already confirmed, we can stop monitoring it.
-		if t.isConfirmed(r.tx.TxHash()) {
+		// If the any of the inputs has been spent, the record will be
+		// marked as failed or confirmed.
+		if len(spends) != 0 {
+			// When tx is nil, it means we haven't tried the initial
+			// broadcast yet the input is already spent. This could
+			// happen when the node shuts down, a previous sweeping
+			// tx confirmed, then the node comes back online and
+			// reoffers the inputs. Another case is the remote node
+			// spends the input quickly before we even attempt the
+			// sweep. In either case we will fail the record and let
+			// the sweeper handles it.
+			if r.tx == nil {
+				failedRecords[requestID] = r
+				return nil
+			}
+
+			// Check whether the inputs has been spent by a unknown
+			// tx.
+			if t.isUnknownSpent(r, spends) {
+				failedRecords[requestID] = r
+
+				// Move to the next record.
+				return nil
+			}
+
+			// The tx is ours, we can move it to the confirmed queue
+			// and stop monitoring it.
 			confirmedRecords[requestID] = r
 
 			// Move to the next record.
 			return nil
 		}
 
-		// Check whether the inputs has been spent by a third party.
-		//
-		// NOTE: this check is only done for neutrino backend.
-		if t.isThirdPartySpent(r.tx.TxHash(), r.req.Inputs) {
-			failedRecords[requestID] = r
+		// This is the first time we see this record, so we put it in
+		// the initial queue.
+		if r.tx == nil {
+			initialRecords[requestID] = r
 
-			// Move to the next record.
 			return nil
 		}
 
+		// We can only get here when the inputs are not spent and a
+		// previous sweeping tx has been attempted. In this case we will
+		// perform an RBF on it in the current block.
 		feeBumpRecords[requestID] = r
 
 		// Return nil to move to the next record.
@@ -932,7 +968,6 @@ func (t *TxPublisher) processRecords() {
 	// For records that are confirmed, we'll notify the caller about this
 	// result.
 	for _, r := range confirmedRecords {
-		log.Debugf("Tx=%v is confirmed", r.tx.TxHash())
 		t.wg.Add(1)
 		go t.handleTxConfirmed(r)
 	}
@@ -942,7 +977,6 @@ func (t *TxPublisher) processRecords() {
 
 	// For records that are not confirmed, we perform a fee bump if needed.
 	for _, r := range feeBumpRecords {
-		log.Debugf("Attempting to fee bump Tx=%v", r.tx.TxHash())
 		t.wg.Add(1)
 		go t.handleFeeBumpTx(r, currentHeight)
 	}
@@ -950,10 +984,8 @@ func (t *TxPublisher) processRecords() {
 	// For records that are failed, we'll notify the caller about this
 	// result.
 	for _, r := range failedRecords {
-		log.Debugf("Tx=%v has inputs been spent by a third party, "+
-			"failing it now", r.tx.TxHash())
 		t.wg.Add(1)
-		go t.handleThirdPartySpent(r)
+		go t.handleUnknownSpent(r)
 	}
 }
 
@@ -963,6 +995,8 @@ func (t *TxPublisher) processRecords() {
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
 func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 	defer t.wg.Done()
+
+	log.Debugf("Record %v is spent in tx=%v", r.requestID, r.tx.TxHash())
 
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
@@ -1073,6 +1107,9 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	defer t.wg.Done()
 
+	log.Debugf("Attempting to fee bump tx=%v in record %v", r.tx.TxHash(),
+		r.requestID)
+
 	oldTxid := r.tx.TxHash()
 
 	// Get the current conf target for this record.
@@ -1110,25 +1147,25 @@ func (t *TxPublisher) handleFeeBumpTx(r *monitorRecord, currentHeight int32) {
 	})
 }
 
-// handleThirdPartySpent is called when the inputs in an unconfirmed tx is
-// spent. It will notify the subscriber then remove the record from the maps
-// and send a TxFailed event to the subscriber.
+// handleUnknownSpent is called when the inputs are spent by a unknown tx. It
+// will notify the subscriber then remove the record from the maps and send a
+// TxFailed event to the subscriber.
 //
 // NOTE: Must be run as a goroutine to avoid blocking on sending the result.
-func (t *TxPublisher) handleThirdPartySpent(r *monitorRecord) {
+func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 	defer t.wg.Done()
+
+	log.Debugf("Record %v has inputs spent by a tx unknown to the fee "+
+		"bumper, failing it now:\n%v", r.requestID,
+		inputTypeSummary(r.req.Inputs))
 
 	// Create a result that will be sent to the resultChan which is
 	// listened by the caller.
-	//
-	// TODO(yy): create a new state `TxThirdPartySpent` to notify the
-	// sweeper to remove the input, hence moving the monitoring of inputs
-	// spent inside the fee bumper.
 	result := &BumpResult{
-		Event:     TxFailed,
+		Event:     TxUnknownSpend,
 		Tx:        r.tx,
 		requestID: r.requestID,
-		Err:       ErrThirdPartySpent,
+		Err:       ErrUnknownSpent,
 	}
 
 	// Notify that this tx is confirmed and remove the record from the map.
@@ -1236,43 +1273,59 @@ func (t *TxPublisher) createAndPublishTx(
 	return fn.Some(*result)
 }
 
-// isConfirmed checks the btcwallet to see whether the tx is confirmed.
-func (t *TxPublisher) isConfirmed(txid chainhash.Hash) bool {
-	details, err := t.cfg.Wallet.GetTransactionDetails(&txid)
-	if err != nil {
-		log.Warnf("Failed to get tx details for %v: %v", txid, err)
-		return false
+// isUnknownSpent checks whether the inputs of the tx has already been spent by
+// a tx not known to us. When a tx is not confirmed, yet its inputs has been
+// spent, then it must be spent by a different tx other than the sweeping tx
+// here.
+func (t *TxPublisher) isUnknownSpent(r *monitorRecord,
+	spends map[wire.OutPoint]*wire.MsgTx) bool {
+
+	txid := r.tx.TxHash()
+
+	// Iterate all the spending txns and check if they match the sweeping
+	// tx.
+	for op, spendingTx := range spends {
+		spendingTxID := spendingTx.TxHash()
+
+		// If the spending tx is the same as the sweeping tx then we are
+		// good.
+		if spendingTxID == txid {
+			continue
+		}
+
+		log.Warnf("Detected unknown spent of input=%v in tx=%v", op,
+			spendingTx.TxHash())
+
+		return true
 	}
 
-	return details.NumConfirmations > 0
+	return false
 }
 
-// isThirdPartySpent checks whether the inputs of the tx has already been spent
-// by a third party. When a tx is not confirmed, yet its inputs has been spent,
-// then it must be spent by a different tx other than the sweeping tx here.
-//
-// NOTE: this check is only performed for neutrino backend as it has no
-// reliable way to tell a tx has been replaced.
-func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
-	inputs []input.Input) bool {
+// hasInputSpent performs a non-blocking read on the spending subscriptions to
+// see whether any of the monitored inputs has been spent. A map of inputs with
+// their spending txns are returned if found.
+func (t *TxPublisher) hasInputSpent(
+	r *monitorRecord) map[wire.OutPoint]*wire.MsgTx {
 
-	// Skip this check for if this is not neutrino backend.
-	if !t.isNeutrinoBackend() {
-		return false
-	}
+	// Create a slice to record the inputs spent.
+	spentInputs := make(map[wire.OutPoint]*wire.MsgTx, len(r.req.Inputs))
 
 	// Iterate all the inputs and check if they have been spent already.
-	for _, inp := range inputs {
+	for _, inp := range r.req.Inputs {
 		op := inp.OutPoint()
 
 		// For wallet utxos, the height hint is not set - we don't need
 		// to monitor them for third party spend.
+		//
+		// TODO(yy): We need to properly lock wallet utxos before
+		// skipping this check as the same wallet utxo can be used by
+		// different sweeping txns.
 		heightHint := inp.HeightHint()
 		if heightHint == 0 {
-			log.Debugf("Skipped third party check for wallet "+
-				"input %v", op)
-
-			continue
+			heightHint = uint32(t.currentHeight.Load())
+			log.Debugf("Checking wallet input %v using heightHint "+
+				"%v", op, heightHint)
 		}
 
 		// If the input has already been spent after the height hint, a
@@ -1283,7 +1336,8 @@ func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
 		if err != nil {
 			log.Criticalf("Failed to register spend ntfn for "+
 				"input=%v: %v", op, err)
-			return false
+
+			return nil
 		}
 
 		// Remove the subscription when exit.
@@ -1294,28 +1348,24 @@ func (t *TxPublisher) isThirdPartySpent(txid chainhash.Hash,
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
 				log.Debugf("Spend ntfn for %v canceled", op)
-				return false
-			}
 
-			spendingTxID := spend.SpendingTx.TxHash()
-
-			// If the spending tx is the same as the sweeping tx
-			// then we are good.
-			if spendingTxID == txid {
 				continue
 			}
 
-			log.Warnf("Detected third party spent of output=%v "+
-				"in tx=%v", op, spend.SpendingTx.TxHash())
+			spendingTx := spend.SpendingTx
 
-			return true
+			log.Debugf("Detected spent of input=%v in tx=%v", op,
+				spendingTx.TxHash())
+
+			spentInputs[op] = spendingTx
 
 		// Move to the next input.
 		default:
+			log.Tracef("Input %v not spent yet", op)
 		}
 	}
 
-	return false
+	return spentInputs
 }
 
 // calcCurrentConfTarget calculates the current confirmation target based on

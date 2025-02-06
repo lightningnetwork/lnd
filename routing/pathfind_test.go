@@ -3788,7 +3788,20 @@ func TestFindBlindedPaths(t *testing.T) {
 		"charlie,dave",
 	})
 
-	// 2) Extend the search to include 2 hops other than the destination.
+	// 2) Now with bob-dave as the incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              1,
+		maxNumHops:              1,
+		incomingChainedChannels: []uint64{2},
+	})
+	require.NoError(t, err)
+
+	// We expect only B->D path to be chosen.
+	assertPaths(paths, []string{
+		"bob,dave",
+	})
+
+	// 3) Extend the search to include 2 hops other than the destination.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 1,
 		maxNumHops: 2,
@@ -3809,7 +3822,25 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,charlie,dave",
 	})
 
-	// 3) Extend the search even further and also increase the minimum path
+	// 4) Now with bob-dave as the incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              1,
+		maxNumHops:              2,
+		incomingChainedChannels: []uint64{2},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	// 	- B, D
+	//	- F, B, D
+	// 	- E, B, D
+	assertPaths(paths, []string{
+		"bob,dave",
+		"frank,bob,dave",
+		"eve,bob,dave",
+	})
+
+	// 5) Extend the search even further and also increase the minimum path
 	// length.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 2,
@@ -3831,7 +3862,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"charlie,eve,bob,dave",
 	})
 
-	// 4) Repeat the above test but instruct the function to never use
+	// 6) Repeat the above test but instruct the function to never use
 	// charlie.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 2,
@@ -3850,7 +3881,24 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,dave",
 	})
 
-	// 5) Finally, we will test the special case where the destination node
+	// 7) Repeat the test number 5, but now with charlie-dave as the
+	// incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              2,
+		maxNumHops:              3,
+		incomingChainedChannels: []uint64{3},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	// 	- E, C, D
+	// 	- B, E, C, D
+	assertPaths(paths, []string{
+		"eve,charlie,dave",
+		"bob,eve,charlie,dave",
+	})
+
+	// 8) Finally, we will test the special case where the destination node
 	// is also the recipient.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 0,

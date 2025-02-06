@@ -87,6 +87,9 @@ message NodeAnnouncementUpdateRequest {
 
     // Set of changes for the node's known addresses.
     repeated UpdateAddressAction address_updates = 4;
+
+    // The DNS hostname address of the node.
+    string dns_hostname_address = 5;
 }
 
 message NodeAnnouncementUpdateResponse {

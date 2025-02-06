@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -26,6 +27,9 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 3
+
+	// dnsHostnameAddr denotes a DNS hostname address.
+	dnsHostnameAddr addressType = 4
 )
 
 // encodeTCPAddr serializes a TCP address into its compact raw bytes
@@ -121,6 +125,47 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	return nil
 }
 
+// encodeDNSHostnameAddr serializes a DNS hostname address into its compact raw
+// bytes representation. It writes the address type, hostname length, hostname,
+// and port (in big-endian order) to the writer. The function validates that the
+// hostname is non-empty and does not exceed 255 characters. Returns an error if
+// any part of the serialization fails.
+func encodeDNSHostnameAddr(w io.Writer, addr *lnwire.DNSHostnameAddress) error {
+	// Validate the hostname.
+	if len(addr.Hostname) == 0 {
+		return errors.New("hostname cannot be empty")
+	}
+	if len(addr.Hostname) > 255 {
+		return errors.New("hostname exceeds maximum length of 255 " +
+			"characters")
+	}
+
+	// Write the address type.
+	if _, err := w.Write([]byte{byte(dnsHostnameAddr)}); err != nil {
+		return err
+	}
+
+	// Write the length of the hostname.
+	hostnameLen := byte(len(addr.Hostname))
+	if _, err := w.Write([]byte{hostnameLen}); err != nil {
+		return err
+	}
+
+	// Write the hostname bytes.
+	if _, err := w.Write([]byte(addr.Hostname)); err != nil {
+		return err
+	}
+
+	// Write the port in big-endian order.
+	var port [2]byte
+	binary.BigEndian.PutUint16(port[:], uint16(addr.Port))
+	if _, err := w.Write(port[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // DeserializeAddr reads the serialized raw representation of an address and
 // deserializes it into the actual address. This allows us to avoid address
 // resolution within the channeldb package.
@@ -200,6 +245,29 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			OnionService: onionService,
 			Port:         port,
 		}
+
+	case dnsHostnameAddr:
+		var hostnameLen byte
+		err := binary.Read(r, binary.BigEndian, &hostnameLen)
+		if err != nil {
+			return nil, err
+		}
+
+		hostname := make([]byte, hostnameLen)
+		if _, err := r.Read(hostname); err != nil {
+			return nil, err
+		}
+
+		var port [2]byte
+		if _, err := r.Read(port[:]); err != nil {
+			return nil, err
+		}
+
+		address = &lnwire.DNSHostnameAddress{
+			Hostname: string(hostname),
+			Port:     int(binary.BigEndian.Uint16(port[:])),
+		}
+
 	default:
 		return nil, ErrUnknownAddressType
 	}
@@ -215,6 +283,8 @@ func SerializeAddr(w io.Writer, address net.Addr) error {
 		return encodeTCPAddr(w, addr)
 	case *tor.OnionAddr:
 		return encodeOnionAddr(w, addr)
+	case *lnwire.DNSHostnameAddress:
+		return encodeDNSHostnameAddr(w, addr)
 	default:
 		return ErrUnknownAddressType
 	}

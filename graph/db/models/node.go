@@ -32,6 +32,9 @@ type LightningNode struct {
 	// Address is the TCP address this node is reachable over.
 	Addresses []net.Addr
 
+	// DNSHostnameAddress is the DNS hostname address for this node.
+	DNSHostnameAddress *lnwire.DNSHostnameAddress
+
 	// Color is the selected color for the node.
 	Color color.RGBA
 
@@ -109,13 +112,14 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 	}
 
 	nodeAnn := &lnwire.NodeAnnouncement{
-		Features:        l.Features.RawFeatureVector,
-		NodeID:          l.PubKeyBytes,
-		RGBColor:        l.Color,
-		Alias:           alias,
-		Addresses:       l.Addresses,
-		Timestamp:       uint32(l.LastUpdate.Unix()),
-		ExtraOpaqueData: l.ExtraOpaqueData,
+		Features:           l.Features.RawFeatureVector,
+		NodeID:             l.PubKeyBytes,
+		RGBColor:           l.Color,
+		Alias:              alias,
+		Addresses:          l.Addresses,
+		DNSHostnameAddress: l.DNSHostnameAddress,
+		Timestamp:          uint32(l.LastUpdate.Unix()),
+		ExtraOpaqueData:    l.ExtraOpaqueData,
 	}
 
 	if !signed {

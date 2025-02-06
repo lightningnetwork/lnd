@@ -3972,13 +3972,20 @@ func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // no
 		return err
 	}
 
-	numAddresses := uint16(len(node.Addresses))
+	var allAddresses []net.Addr
+	var numAddresses uint16
+	if node.DNSHostnameAddress != nil {
+		allAddresses = append(allAddresses, node.DNSHostnameAddress)
+		numAddresses += 1
+	}
+	allAddresses = append(allAddresses, node.Addresses...)
+	numAddresses += uint16(len(node.Addresses))
 	byteOrder.PutUint16(scratch[:2], numAddresses)
 	if _, err := b.Write(scratch[:2]); err != nil {
 		return err
 	}
 
-	for _, address := range node.Addresses {
+	for _, address := range allAddresses {
 		if err := SerializeAddr(&b, address); err != nil {
 			return err
 		}
@@ -4171,14 +4178,20 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
 	var addresses []net.Addr
+	var dnsHostnameAddress *lnwire.DNSHostnameAddress
 	for i := 0; i < numAddresses; i++ {
 		address, err := DeserializeAddr(r)
 		if err != nil {
 			return models.LightningNode{}, err
 		}
-		addresses = append(addresses, address)
+		if dnsAddr, ok := address.(*lnwire.DNSHostnameAddress); ok {
+			dnsHostnameAddress = dnsAddr
+		} else {
+			addresses = append(addresses, address)
+		}
 	}
 	node.Addresses = addresses
+	node.DNSHostnameAddress = dnsHostnameAddress
 
 	node.AuthSigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")
 	if err != nil {

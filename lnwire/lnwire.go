@@ -52,6 +52,9 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 4
+
+	// dnsHostnameAddr denotes a DNS hostname address.
+	dnsHostnameAddr addressType = 5
 )
 
 // AddrLen returns the number of bytes that it takes to encode the target
@@ -406,6 +409,35 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
+		var port [2]byte
+		binary.BigEndian.PutUint16(port[:], uint16(e.Port))
+		if _, err := w.Write(port[:]); err != nil {
+			return err
+		}
+
+	case *DNSHostnameAddress:
+		if e == nil {
+			return fmt.Errorf("cannot write nil DNSHostnameAddr")
+		}
+
+		// Write the address type.
+		_, err := w.Write([]byte{byte(dnsHostnameAddr)})
+		if err != nil {
+			return err
+		}
+
+		// Write the length of the hostname.
+		hostnameLen := byte(len(e.Hostname))
+		if _, err := w.Write([]byte{hostnameLen}); err != nil {
+			return err
+		}
+
+		// Write the hostname bytes.
+		if _, err := w.WriteString(e.Hostname); err != nil {
+			return err
+		}
+
+		// Write the port in big-endian order.
 		var port [2]byte
 		binary.BigEndian.PutUint16(port[:], uint16(e.Port))
 		if _, err := w.Write(port[:]); err != nil {
@@ -880,6 +912,35 @@ func ReadElement(r io.Reader, element interface{}) error {
 					Port:         port,
 				}
 				addrBytesRead += aType.AddrLen()
+
+			case dnsHostnameAddr:
+				var hostnameLen byte
+				err := binary.Read(
+					addrBuf, binary.BigEndian, &hostnameLen,
+				)
+				if err != nil {
+					return err
+				}
+
+				hostname := make([]byte, hostnameLen)
+				_, err = io.ReadFull(addrBuf, hostname)
+				if err != nil {
+					return err
+				}
+
+				var port [2]byte
+				_, err = io.ReadFull(addrBuf, port[:])
+				if err != nil {
+					return err
+				}
+
+				portNum := int(binary.BigEndian.Uint16(port[:]))
+				address = &DNSHostnameAddress{
+					Hostname: string(hostname),
+					Port:     portNum,
+				}
+				addrLen := uint16(1 + int(hostnameLen) + 2)
+				addrBytesRead += addrLen
 
 			default:
 				// If we don't understand this address type,

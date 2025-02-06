@@ -122,6 +122,10 @@
             "$ref": "#/definitions/peersrpcUpdateAddressAction"
           },
           "description": "Set of changes for the node's known addresses."
+        },
+        "dns_hostname_address": {
+          "type": "string",
+          "description": "The DNS hostname address of the node."
         }
       }
     },

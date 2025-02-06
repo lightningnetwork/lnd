@@ -22,6 +22,16 @@ func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
 	}
 }
 
+// NodeAnnSetAlias is a functional option that sets the alias of the
+// given node announcement.
+//
+//nolint:ll
+func NodeAnnSetDNSHostnameAddress(addr *lnwire.DNSHostnameAddress) func(*lnwire.NodeAnnouncement) {
+	return func(nodeAnn *lnwire.NodeAnnouncement) {
+		nodeAnn.DNSHostnameAddress = addr
+	}
+}
+
 // NodeAnnSetAddrs is a functional option that allows updating the addresses of
 // the given node announcement.
 func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement) {

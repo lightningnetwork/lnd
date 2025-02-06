@@ -3437,6 +3437,9 @@ message LightningNode {
 
     // Custom node announcement tlv records.
     map<uint64, bytes> custom_records = 7;
+
+    // The DNS hostname address of the node, if available.
+    NodeAddress dns_hostname_address = 8;
 }
 
 message NodeAddress {

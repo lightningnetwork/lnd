@@ -6873,18 +6873,27 @@ func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
 		nodeAddrs[i] = nodeAddr
 	}
 
+	var dnsHostNameAddr *lnrpc.NodeAddress
+	if node.DNSHostnameAddress != nil {
+		dnsHostNameAddr = &lnrpc.NodeAddress{
+			Network: node.DNSHostnameAddress.Network(),
+			Addr:    node.DNSHostnameAddress.String(),
+		}
+	}
+
 	features := invoicesrpc.CreateRPCFeatures(node.Features)
 
 	customRecords := marshalExtraOpaqueData(node.ExtraOpaqueData)
 
 	return &lnrpc.LightningNode{
-		LastUpdate:    uint32(node.LastUpdate.Unix()),
-		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
-		Addresses:     nodeAddrs,
-		Alias:         node.Alias,
-		Color:         graph.EncodeHexColor(node.Color),
-		Features:      features,
-		CustomRecords: customRecords,
+		LastUpdate:         uint32(node.LastUpdate.Unix()),
+		PubKey:             hex.EncodeToString(node.PubKeyBytes[:]),
+		Addresses:          nodeAddrs,
+		DnsHostnameAddress: dnsHostNameAddr,
+		Alias:              node.Alias,
+		Color:              graph.EncodeHexColor(node.Color),
+		Features:           features,
+		CustomRecords:      customRecords,
 	}
 }
 

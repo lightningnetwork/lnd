@@ -371,6 +371,32 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 		}
 	}
 
+	if req.DnsHostnameAddress != "" {
+		addr, err := s.cfg.ParseAddr(req.DnsHostnameAddress)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dns hostname address "+
+				"value: %w", err)
+		}
+		dnsAddr, ok := addr.(*lnwire.DNSHostnameAddress)
+		if !ok {
+			return nil, fmt.Errorf("failed to cast address to "+
+				"lnwire.DNSHostnameAddr: got %T", addr)
+		}
+
+		if dnsAddr != currentNodeAnn.DNSHostnameAddress {
+			resp.Ops = append(resp.Ops, &lnrpc.Op{
+				Entity: "dns_hostname_address",
+				Actions: []string{
+					fmt.Sprintf("changed to %v", dnsAddr),
+				},
+			})
+			nodeModifiers = append(
+				nodeModifiers,
+				netann.NodeAnnSetDNSHostnameAddress(dnsAddr),
+			)
+		}
+	}
+
 	if len(req.AddressUpdates) > 0 {
 		newAddrs, ops, err := s.updateAddresses(
 			currentNodeAnn.Addresses,

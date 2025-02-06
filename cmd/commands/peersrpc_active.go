@@ -69,6 +69,10 @@ var updateNodeAnnouncementCommand = cli.Command{
 			Name:  "color",
 			Usage: "the new color for this node, e.g. #c42a81",
 		},
+		cli.StringFlag{
+			Name:  "dns_hostname_address",
+			Usage: "the new dns hostname address for this node",
+		},
 		cli.Int64SliceFlag{
 			Name: "feature_bit_add",
 			Usage: "a feature bit index that needs to be enabled. " +
@@ -122,6 +126,11 @@ func updateNodeAnnouncement(ctx *cli.Context) error {
 	if ctx.IsSet("color") {
 		change = true
 		req.Color = ctx.String("color")
+	}
+
+	if ctx.IsSet("dns_hostname_address") {
+		change = true
+		req.DnsHostnameAddress = ctx.String("dns_hostname_address")
 	}
 
 	if ctx.IsSet("feature_bit_add") {

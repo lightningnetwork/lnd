@@ -481,16 +481,36 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 		port = portNum
 	}
 
+	// Handle Onion address type.
 	if tor.IsOnionHost(host) {
 		return &tor.OnionAddr{OnionService: host, Port: port}, nil
 	}
 
-	// If the host is part of a TCP address, we'll use the network
-	// specific ResolveTCPAddr function in order to resolve these
-	// addresses over Tor in order to prevent leaking your real IP
-	// address.
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	return netCfg.ResolveTCPAddr("tcp", hostPort)
+	// Handle loopback and IP address types. Use the ResolveTCPAddr function
+	// to resolve these addresses over Tor, preventing IP leakage.
+	if lncfg.IsLoopback(host) || isIP(host) {
+		hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+		return netCfg.ResolveTCPAddr("tcp", hostPort)
+	}
+
+	// Attempt DNS lookup for hostname.
+	_, err = netCfg.LookupHost(host)
+	if err == nil {
+		return &lnwire.DNSHostnameAddress{
+			Hostname: host,
+			Port:     port,
+		}, nil
+	}
+
+	// Return error if address is invalid.
+	return nil, fmt.Errorf("invalid address: %s, got error: %w", host, err)
+}
+
+// isIP checks if the provided host is an IP address (IPv4 or IPv6).
+func isIP(host string) bool {
+	// Try parsing the host as an IP address.
+	ip := net.ParseIP(host)
+	return ip != nil
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -900,6 +920,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
+		DNSHostnameAddress:   cfg.ExternalDNSHostnameAddress,
 		Alias:                nodeAlias.String(),
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
@@ -3268,6 +3289,7 @@ func (s *server) createNewHiddenService() error {
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
 		Addresses:            newNodeAnn.Addresses,
+		DNSHostnameAddress:   newNodeAnn.DNSHostnameAddress,
 		Alias:                newNodeAnn.Alias.String(),
 		Features: lnwire.NewFeatureVector(
 			newNodeAnn.Features, lnwire.Features,
@@ -3387,6 +3409,7 @@ func (s *server) updateAndBroadcastSelfNode(features *lnwire.RawFeatureVector,
 	selfNode.Features = s.featureMgr.Get(feature.SetNodeAnn)
 	selfNode.Color = newNodeAnn.RGBColor
 	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
+	selfNode.DNSHostnameAddress = newNodeAnn.DNSHostnameAddress
 
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
 

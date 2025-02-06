@@ -91,6 +91,9 @@ type NodeAnnouncement struct {
 	// which the node is accepting incoming connections.
 	Addresses []net.Addr
 
+	// DNSHostnameAddress is The DNS hostname address of the node.
+	DNSHostnameAddress *DNSHostnameAddress
+
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
 	// parse. By holding onto this data, we ensure that we're able to

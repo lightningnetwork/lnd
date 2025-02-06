@@ -186,6 +186,30 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	}
 }
 
+// TestPaymentControlFetchOrIndalidatePayment checks that payment status moves
+// to FailureReasonTracked if FetchOrIndalidatePayment is called on a payment
+// hash which wasn't initialized yet.
+func TestPaymentControlFetchOrIndalidatePayment(t *testing.T) {
+	t.Parallel()
+
+	db, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to init db")
+
+	pControl := NewPaymentControl(db)
+
+	info, _, _, err := genInfo()
+	require.NoError(t, err, "unable to generate htlc message")
+
+	// Invalidate the payment by attempting to load it with the method
+	// FetchOrIndalidatePayment.
+	_, err = pControl.FetchOrIndalidatePayment(info.PaymentIdentifier)
+	require.ErrorIs(t, err, ErrPaymentNotInitiated)
+
+	// Sends base htlc message which initiate StatusInFlight.
+	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	require.ErrorIs(t, err, ErrAlreadyTracked)
+}
+
 // TestPaymentControlSwitchDoubleSend checks the ability of payment control to
 // prevent double sending of htlc message, when message is in StatusInFlight.
 func TestPaymentControlSwitchDoubleSend(t *testing.T) {

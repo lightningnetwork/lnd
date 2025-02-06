@@ -1994,11 +1994,42 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// min relay fee rate is used as the current fee rate.
 	assertFeeRateEqual(startFeeRate)
 
+	// First we test the case where we specify the conf target to increase
+	// the starting fee rate of the fee function.
+	confTargetFeeRate := chainfee.SatPerVByte(50)
+	ht.SetFeeEstimateWithConf(confTargetFeeRate.FeePerKWeight(), 3)
+
+	// Second bump request - we will specify the conf target and expect a
+	// starting fee rate that is estimated using the provided estimator.
+	// - starting fee rate: 50 sat/vbyte (conf target 3).
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate:  true,
+		TargetConf: 3,
+	}
+
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Alice's old sweeping tx should be replaced.
+	ht.AssertTxNotInMempool(sweepTx1.TxHash())
+
+	// Assert the pending sweep is created with the expected values:
+	// - broadcast attempts: 2.
+	// - starting fee rate: 50 sat/vbyte (conf target 3).
+	// - deadline: 1008 (default deadline).
+	// - budget: 50% of the input value.
+	sweepTx2 := assertPendingSweepResp(
+		2, uint64(value/2), deadline, uint64(confTargetFeeRate),
+	)
+
 	// testFeeRate sepcifies a starting fee rate in sat/vbyte.
 	const testFeeRate = uint64(100)
 
-	// Second bump request - we will specify the fee rate and expect a fee
-	// func that has,
+	// Third bump request - we will specify the fee rate and expect a fee
+	// func to change the starting fee rate of the fee function,
 	// - starting fee rate: 100 sat/vbyte.
 	// - deadline: 1008 (default deadline).
 	// - budget: 50% of the input value.
@@ -2011,15 +2042,15 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.AssertTxNotInMempool(sweepTx1.TxHash())
+	ht.AssertTxNotInMempool(sweepTx2.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
-	// - broadcast attempts: 2.
+	// - broadcast attempts: 3.
 	// - starting fee rate: 100 sat/vbyte.
 	// - deadline: 1008 (default deadline).
 	// - budget: 50% of the input value.
-	sweepTx2 := assertPendingSweepResp(
-		2, uint64(value/2), deadline, testFeeRate,
+	sweepTx3 := assertPendingSweepResp(
+		3, uint64(value/2), deadline, testFeeRate,
 	)
 
 	// We expect the requested starting fee rate to be the current fee
@@ -2029,7 +2060,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// testBudget specifies a budget in sats.
 	testBudget := uint64(float64(value) * 0.1)
 
-	// Third bump request - we will specify the budget and expect a fee
+	// Fourth bump request - we will specify the budget and expect a fee
 	// func that has,
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
 	// - deadline: 1008 (default deadline).
@@ -2043,14 +2074,14 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.AssertTxNotInMempool(sweepTx2.TxHash())
+	ht.AssertTxNotInMempool(sweepTx3.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
-	// - broadcast attempts: 3.
+	// - broadcast attempts: 4.
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
 	// - deadline: 1008 (default deadline).
 	// - budget: 10% of the input value.
-	sweepTx3 := assertPendingSweepResp(3, testBudget, deadline, 0)
+	sweepTx4 := assertPendingSweepResp(4, testBudget, deadline, testFeeRate)
 
 	// We expect the current fee rate to be increased because we ensure the
 	// initial broadcast always succeeds.
@@ -2060,7 +2091,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	testDeadlineDelta := uint32(100)
 	deadlineHeight := uint32(currentHeight) + testDeadlineDelta
 
-	// Fourth bump request - we will specify the deadline and expect a fee
+	// Fifth bump request - we will specify the deadline and expect a fee
 	// func that has,
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
 	// - deadline: 100.
@@ -2068,26 +2099,29 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	bumpFeeReq = &walletrpc.BumpFeeRequest{
 		Outpoint: op,
 		// We use a force param to create the sweeping tx immediately.
-		Immediate:  true,
-		TargetConf: testDeadlineDelta,
+		Immediate:     true,
+		DeadlineDelta: testDeadlineDelta,
+		Budget:        testBudget,
 	}
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.AssertTxNotInMempool(sweepTx3.TxHash())
+	ht.AssertTxNotInMempool(sweepTx4.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
-	// - broadcast attempts: 4.
+	// - broadcast attempts: 5.
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
 	// - deadline: 100.
 	// - budget: 10% of the input value, stays unchanged.
-	sweepTx4 := assertPendingSweepResp(4, testBudget, deadlineHeight, 0)
+	sweepTx5 := assertPendingSweepResp(
+		5, testBudget, deadlineHeight, testFeeRate,
+	)
 
 	// We expect the current fee rate to be increased because we ensure the
 	// initial broadcast always succeeds.
 	assertFeeRateGreater(testFeeRate)
 
-	// Fifth bump request - we test the behavior of `Immediate` - every
+	// Sixth bump request - we test the behavior of `Immediate` - every
 	// time it's called, the fee function will keep increasing the fee rate
 	// until the broadcast can succeed. The fee func that has,
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
@@ -2101,14 +2135,16 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Alice's old sweeping tx should be replaced.
-	ht.AssertTxNotInMempool(sweepTx4.TxHash())
+	ht.AssertTxNotInMempool(sweepTx5.TxHash())
 
 	// Assert the pending sweep is created with the expected values:
-	// - broadcast attempts: 5.
+	// - broadcast attempts: 6.
 	// - starting fee rate: 100 sat/vbyte, stays unchanged.
 	// - deadline: 100, stays unchanged.
 	// - budget: 10% of the input value, stays unchanged.
-	sweepTx5 := assertPendingSweepResp(5, testBudget, deadlineHeight, 0)
+	sweepTx6 := assertPendingSweepResp(
+		6, testBudget, deadlineHeight, testFeeRate,
+	)
 
 	// We expect the current fee rate to be increased because we ensure the
 	// initial broadcast always succeeds.
@@ -2126,26 +2162,27 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 		// We use a force param to create the sweeping tx immediately.
 		Immediate:   true,
 		SatPerVbyte: startFeeRate,
-		Budget:      smallBudget,
-		TargetConf:  uint32(sweep.DefaultDeadlineDelta),
+		// The budget and the deadline delta must be set together.
+		Budget:        smallBudget,
+		DeadlineDelta: uint32(sweep.DefaultDeadlineDelta),
 	}
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Assert the pending sweep is created with the expected values:
-	// - broadcast attempts: 6.
+	// - broadcast attempts: 7.
 	// - starting fee rate: 1 sat/vbyte.
 	// - deadline: 1008.
 	// - budget: 1000 sats.
-	sweepTx6 := assertPendingSweepResp(
-		6, smallBudget, deadline, startFeeRate,
+	sweepTx7 := assertPendingSweepResp(
+		7, smallBudget, deadline, startFeeRate,
 	)
 
 	// Since this budget is too small to cover the RBF, we expect the
 	// sweeping attempt to fail.
 	//
-	require.Equal(ht, sweepTx5.TxHash(), sweepTx6.TxHash(), "tx5 should "+
-		"not be replaced: tx5=%v, tx6=%v", sweepTx5.TxHash(),
-		sweepTx6.TxHash())
+	require.Equal(ht, sweepTx6.TxHash(), sweepTx7.TxHash(), "tx6 should "+
+		"not be replaced: tx6=%v, tx7=%v", sweepTx6.TxHash(),
+		sweepTx7.TxHash())
 
 	// We expect the current fee rate to be increased because we ensure the
 	// initial broadcast always succeeds.

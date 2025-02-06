@@ -1360,7 +1360,7 @@
         "target_conf": {
           "type": "integer",
           "format": "int64",
-          "description": "Optional. The deadline in number of blocks that the input should be spent\nwithin. When not set, for new inputs, the default value (1008) is used;\nfor existing inputs, their current values will be retained."
+          "description": "Optional. The conf target the underlying fee estimator will use to\nestimate the starting fee rate for the fee function."
         },
         "sat_per_byte": {
           "type": "integer",
@@ -1384,6 +1384,11 @@
           "type": "string",
           "format": "uint64",
           "description": "Optional. The max amount in sats that can be used as the fees. Setting this\nvalue greater than the input's value may result in CPFP - one or more wallet\nutxos will be used to pay the fees specified by the budget. If not set, for\nnew inputs, by default 50% of the input's value will be treated as the\nbudget for fee bumping; for existing inputs, their current budgets will be\nretained."
+        },
+        "deadline_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Optional. The deadline delta in number of blocks that the output\nshould be spent within. This translates internally to the width of the\nfee function that the sweeper will use to bump the fee rate. When the\ndeadline is reached, ALL the budget will be spent as fees."
         }
       }
     },

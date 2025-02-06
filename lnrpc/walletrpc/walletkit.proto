@@ -1177,9 +1177,8 @@ message BumpFeeRequest {
     // The input we're attempting to bump the fee of.
     lnrpc.OutPoint outpoint = 1;
 
-    // Optional. The deadline in number of blocks that the input should be spent
-    // within. When not set, for new inputs, the default value (1008) is used;
-    // for existing inputs, their current values will be retained.
+    // Optional. The conf target the underlying fee estimator will use to
+    // estimate the starting fee rate for the fee function.
     uint32 target_conf = 2;
 
     /*
@@ -1219,6 +1218,12 @@ message BumpFeeRequest {
     retained.
     */
     uint64 budget = 7;
+
+    // Optional. The deadline delta in number of blocks that the output
+    // should be spent within. This translates internally to the width of the
+    // fee function that the sweeper will use to bump the fee rate. When the
+    // deadline is reached, ALL the budget will be spent as fees.
+    uint32 deadline_delta = 8;
 }
 
 message BumpFeeResponse {

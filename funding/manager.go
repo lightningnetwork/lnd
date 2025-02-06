@@ -530,9 +530,12 @@ type Config struct {
 	// the initiator for channels of the anchor type.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
 
-	// DeleteAliasEdge allows the Manager to delete an alias channel edge
-	// from the graph. It also returns our local to-be-deleted policy.
-	DeleteAliasEdge func(scid lnwire.ShortChannelID) (
+	// ReAssignSCID allows the Manager to assign a new SCID to an
+	// option-scid channel being part of the underlying graph. This is
+	// necessary because option-scid channels change their scid during their
+	// lifetime (public zeroconf channels for example) so we need to make
+	// sure to update the underlying graph.
+	ReAssignSCID func(aliasScID, newScID lnwire.ShortChannelID) (
 		*models.ChannelEdgePolicy, error)
 
 	// AliasManager is an implementation of the aliasHandler interface that
@@ -3719,19 +3722,29 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 					"maps: %v", err)
 			}
 
-			// We'll delete the edge and add it again via
-			// addToGraph. This is because the peer may have
-			// sent us a ChannelUpdate with an alias and we don't
-			// want to relay this.
-			ourPolicy, err := f.cfg.DeleteAliasEdge(baseScid)
+			// We reassign the same scid to the graph db. This will
+			// trigger a deletion of the current edge data and
+			// reinsert the channel with the same edge info and
+			// policy. This is done to guarantee that potential
+			// ChannelUpdates using the alias as the scid are
+			// removed and not relayed to the broader network
+			// because the alias is not a verifiable channel id.
+			ourPolicy, err := f.cfg.ReAssignSCID(
+				baseScid, baseScid,
+			)
 			if err != nil {
-				return fmt.Errorf("failed deleting real edge "+
-					"for alias channel from graph: %v",
-					err)
+				return fmt.Errorf("unable to reassign alias "+
+					"edge in graph: %w", err)
 			}
 
-			err = f.addToGraph(
-				completeChan, &baseScid, nil, ourPolicy,
+			log.Infof("Successfully reassigned alias edge in "+
+				"graph(non-zeroconf): %v(%d) -> %v(%d)",
+				baseScid, baseScid.ToUint64(),
+				baseScid, baseScid.ToUint64())
+
+			// We send the rassigned ChannelUpdate to the peer.
+			err = f.sendChanUpdate(
+				completeChan, &baseScid, ourPolicy,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to re-add to "+
@@ -3808,23 +3821,33 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel) error {
 				"six confirmations: %v", err)
 		}
 
-		// TODO: Make this atomic!
-		ourPolicy, err := f.cfg.DeleteAliasEdge(c.ShortChanID())
-		if err != nil {
-			return fmt.Errorf("unable to delete alias edge from "+
-				"graph: %v", err)
-		}
-
-		// We'll need to update the graph with the new ShortChannelID
-		// via an addToGraph call. We don't pass in the peer's
-		// alias since we'll be using the confirmed SCID from now on
-		// regardless if it's public or not.
-		err = f.addToGraph(
-			c, &confChan.shortChanID, nil, ourPolicy,
+		// The underlying graph entry for this channel id needs to be
+		// reassigned with the new confirmed scid. Moreover channel
+		// updates with the alias scid are removed so that we do not
+		// relay them to the broader network.
+		ourPolicy, err := f.cfg.ReAssignSCID(
+			c.ShortChanID(), confChan.shortChanID,
 		)
 		if err != nil {
-			return fmt.Errorf("failed adding confirmed zero-conf "+
-				"SCID to graph: %v", err)
+			return fmt.Errorf("unable to reassign alias edge in "+
+				"graph: %w", err)
+		}
+
+		aliasScid := c.ShortChanID()
+		confirmedScid := confChan.shortChanID
+
+		log.Infof("Successfully reassigned alias edge in "+
+			"graph(zeroconf): %v(%d) -> %v(%d)",
+			aliasScid, aliasScid.ToUint64(),
+			confirmedScid, confirmedScid.ToUint64())
+
+		// Send the ChannelUpdate with the confirmed scid to the peer.
+		err = f.sendChanUpdate(
+			c, &confChan.shortChanID, ourPolicy,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to send ChannelUpdate to "+
+				"gossiper: %v", err)
 		}
 	}
 
@@ -4583,6 +4606,52 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 			}
 		}
 
+	case <-f.quit:
+		return ErrFundingManagerShuttingDown
+	}
+
+	return nil
+}
+
+// sendChanUpdate sends a ChannelUpdate to the gossiper which is as a
+// consequence sent to the peer.
+//
+// TODO(ziggie): Refactor the gossip msgs so that not always all msgs have
+// to be created but only the ones which are needed.
+func (f *Manager) sendChanUpdate(completeChan *channeldb.OpenChannel,
+	shortChanID *lnwire.ShortChannelID,
+	ourPolicy *models.ChannelEdgePolicy) error {
+
+	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
+
+	fwdMinHTLC, fwdMaxHTLC := f.extractAnnounceParams(completeChan)
+
+	ann, err := f.newChanAnnouncement(
+		f.cfg.IDKey, completeChan.IdentityPub,
+		&completeChan.LocalChanCfg.MultiSigKey,
+		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
+		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
+		completeChan.ChanType,
+	)
+	if err != nil {
+		return fmt.Errorf("error generating channel "+
+			"announcement: %v", err)
+	}
+
+	errChan := f.cfg.SendAnnouncement(ann.chanUpdateAnn)
+	select {
+	case err := <-errChan:
+		if err != nil {
+			if graph.IsError(err, graph.ErrOutdated,
+				graph.ErrIgnored) {
+
+				log.Debugf("Graph rejected "+
+					"ChannelUpdate: %v", err)
+			} else {
+				return fmt.Errorf("error sending channel "+
+					"update: %v", err)
+			}
+		}
 	case <-f.quit:
 		return ErrFundingManagerShuttingDown
 	}

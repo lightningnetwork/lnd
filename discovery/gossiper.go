@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,10 +24,13 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/netann"
@@ -78,6 +82,23 @@ var (
 	// gossip syncer corresponding to a gossip query message received from
 	// the remote peer.
 	ErrGossipSyncerNotFound = errors.New("gossip syncer not found")
+
+	// ErrNoFundingTransaction is returned when we are unable to find the
+	// funding transaction described by the short channel ID on chain.
+	ErrNoFundingTransaction = errors.New(
+		"unable to find the funding transaction",
+	)
+
+	// ErrInvalidFundingOutput is returned if the channel funding output
+	// fails validation.
+	ErrInvalidFundingOutput = errors.New(
+		"channel funding output validation failed",
+	)
+
+	// ErrChannelSpent is returned when we go to validate a channel, but
+	// the purported funding output has actually already been spent on
+	// chain.
+	ErrChannelSpent = errors.New("channel output has been spent")
 
 	// emptyPubkey is used to compare compressed pubkeys against an empty
 	// byte array.
@@ -364,6 +385,11 @@ type Config struct {
 	// updates for a channel and returns true if the channel should be
 	// considered a zombie based on these timestamps.
 	IsStillZombieChannel func(time.Time, time.Time) bool
+
+	// AssumeChannelValid toggles whether the gossiper will check for
+	// spent-ness of channel outpoints. For neutrino, this saves long
+	// rescans from blocking initial usage of the daemon.
+	AssumeChannelValid bool
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -1977,7 +2003,7 @@ func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
 func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 	op ...batch.SchedulerOption) error {
 
-	if err := graph.ValidateNodeAnn(msg); err != nil {
+	if err := netann.ValidateNodeAnn(msg); err != nil {
 		return fmt.Errorf("unable to validate node announcement: %w",
 			err)
 	}
@@ -2086,7 +2112,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	// the existence of a channel and not yet the routing policies in
 	// either direction of the channel.
 	case *lnwire.ChannelAnnouncement1:
-		return d.handleChanAnnouncement(nMsg, msg, schedulerOp)
+		return d.handleChanAnnouncement(nMsg, msg, schedulerOp...)
 
 	// A new authenticated channel edge update has arrived. This indicates
 	// that the directional information for an already known channel has
@@ -2467,7 +2493,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
 // handleChanAnnouncement processes a new channel announcement.
 func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 	ann *lnwire.ChannelAnnouncement1,
-	ops []batch.SchedulerOption) ([]networkMsg, bool) {
+	ops ...batch.SchedulerOption) ([]networkMsg, bool) {
 
 	scid := ann.ShortChannelID
 
@@ -2641,61 +2667,14 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		edge.TapscriptRoot = nMsg.optionalMsgFields.tapscriptRoot
 	}
 
-	log.Debugf("Adding edge for short_chan_id: %v", scid.ToUint64())
-
-	// We will add the edge to the channel router. If the nodes present in
-	// this channel are not present in the database, a partial node will be
-	// added to represent each node while we wait for a node announcement.
-	//
-	// Before we add the edge to the database, we obtain the mutex for this
-	// channel ID. We do this to ensure no other goroutine has read the
-	// database and is now making decisions based on this DB state, before
-	// it writes to the DB.
-	d.channelMtx.Lock(scid.ToUint64())
-	err = d.cfg.Graph.AddEdge(edge, ops...)
+	fundingPoint, capacity, err := d.validateFundingTransaction(
+		ann, edge.TapscriptRoot,
+	)
 	if err != nil {
-		log.Debugf("Graph rejected edge for short_chan_id(%v): %v",
-			scid.ToUint64(), err)
-
-		defer d.channelMtx.Unlock(scid.ToUint64())
-
-		// If the edge was rejected due to already being known, then it
-		// may be the case that this new message has a fresh channel
-		// proof, so we'll check.
 		switch {
-		case graph.IsError(err, graph.ErrIgnored):
-			// Attempt to process the rejected message to see if we
-			// get any new announcements.
-			anns, rErr := d.processRejectedEdge(ann, proof)
-			if rErr != nil {
-				key := newRejectCacheKey(
-					scid.ToUint64(),
-					sourceToPub(nMsg.source),
-				)
-				cr := &cachedReject{}
-				_, _ = d.recentRejects.Put(key, cr)
+		case errors.Is(err, ErrNoFundingTransaction),
+			errors.Is(err, ErrInvalidFundingOutput):
 
-				nMsg.err <- rErr
-				return nil, false
-			}
-
-			log.Debugf("Extracted %v announcements from rejected "+
-				"msgs", len(anns))
-
-			// If while processing this rejected edge, we realized
-			// there's a set of announcements we could extract,
-			// then we'll return those directly.
-			//
-			// NOTE: since this is an ErrIgnored, we can return
-			// true here to signal "allow" to its dependants.
-			nMsg.err <- nil
-
-			return anns, true
-
-		case graph.IsError(
-			err, graph.ErrNoFundingTransaction,
-			graph.ErrInvalidFundingOutput,
-		):
 			key := newRejectCacheKey(
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),
@@ -2709,7 +2688,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 				d.banman.incrementBanScore(nMsg.peer.PubKey())
 			}
 
-		case graph.IsError(err, graph.ErrChannelSpent):
+		case errors.Is(err, ErrChannelSpent):
 			key := newRejectCacheKey(
 				scid.ToUint64(),
 				sourceToPub(nMsg.source),
@@ -2739,7 +2718,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 				d.banman.incrementBanScore(nMsg.peer.PubKey())
 			}
 
-		default:
+		case err != nil:
 			// Otherwise, this is just a regular rejected edge.
 			key := newRejectCacheKey(
 				scid.ToUint64(),
@@ -2747,6 +2726,100 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			)
 			_, _ = d.recentRejects.Put(key, &cachedReject{})
 		}
+
+		if !nMsg.isRemote {
+			log.Errorf("failed to add edge for local channel: %v",
+				err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
+		shouldDc, dcErr := d.ShouldDisconnect(nMsg.peer.IdentityKey())
+		if dcErr != nil {
+			log.Errorf("failed to check if we should disconnect "+
+				"peer: %v", dcErr)
+			nMsg.err <- dcErr
+
+			return nil, false
+		}
+
+		if shouldDc {
+			nMsg.peer.Disconnect(ErrPeerBanned)
+		}
+
+		nMsg.err <- err
+
+		return nil, false
+	}
+
+	// TODO(roasbeef): this is a hack, needs to be removed after commitment
+	// fees are dynamic.
+	capacity.WhenSome(func(capacity btcutil.Amount) {
+		edge.Capacity = capacity
+	})
+	fundingPoint.WhenSome(func(fundingPoint wire.OutPoint) {
+		edge.ChannelPoint = fundingPoint
+	})
+
+	log.Debugf("Adding edge for short_chan_id: %v", scid.ToUint64())
+
+	// We will add the edge to the channel router. If the nodes present in
+	// this channel are not present in the database, a partial node will be
+	// added to represent each node while we wait for a node announcement.
+	//
+	// Before we add the edge to the database, we obtain the mutex for this
+	// channel ID. We do this to ensure no other goroutine has read the
+	// database and is now making decisions based on this DB state, before
+	// it writes to the DB.
+	d.channelMtx.Lock(scid.ToUint64())
+	err = d.cfg.Graph.AddEdge(edge, ops...)
+	if err != nil {
+		log.Debugf("Graph rejected edge for short_chan_id(%v): %v",
+			scid.ToUint64(), err)
+
+		defer d.channelMtx.Unlock(scid.ToUint64())
+
+		// If the edge was rejected due to already being known, then it
+		// may be the case that this new message has a fresh channel
+		// proof, so we'll check.
+		if graph.IsError(err, graph.ErrIgnored) {
+			// Attempt to process the rejected message to see if we
+			// get any new announcements.
+			anns, rErr := d.processRejectedEdge(ann, proof)
+			if rErr != nil {
+				key := newRejectCacheKey(
+					scid.ToUint64(),
+					sourceToPub(nMsg.source),
+				)
+				cr := &cachedReject{}
+				_, _ = d.recentRejects.Put(key, cr)
+
+				nMsg.err <- rErr
+
+				return nil, false
+			}
+
+			log.Debugf("Extracted %v announcements from rejected "+
+				"msgs", len(anns))
+
+			// If while processing this rejected edge, we realized
+			// there's a set of announcements we could extract,
+			// then we'll return those directly.
+			//
+			// NOTE: since this is an ErrIgnored, we can return
+			// true here to signal "allow" to its dependants.
+			nMsg.err <- nil
+
+			return anns, true
+		}
+
+		// Otherwise, this is just a regular rejected edge.
+		key := newRejectCacheKey(
+			scid.ToUint64(),
+			sourceToPub(nMsg.source),
+		)
+		_, _ = d.recentRejects.Put(key, &cachedReject{})
 
 		if !nMsg.isRemote {
 			log.Errorf("failed to add edge for local channel: %v",
@@ -3607,4 +3680,181 @@ func (d *AuthenticatedGossiper) ShouldDisconnect(pubkey *btcec.PublicKey) (
 	}
 
 	return false, nil
+}
+
+// validateFundingTransaction fetches the channel announcements claimed funding
+// transaction from chain to ensure that it exists, is not spent and matches
+// the channel announcement proof. The transaction's outpoint and value are
+// returned if we can glean them from the work done in this method.
+func (d *AuthenticatedGossiper) validateFundingTransaction(
+	ann *lnwire.ChannelAnnouncement1,
+	tapscriptRoot fn.Option[chainhash.Hash]) (fn.Option[wire.OutPoint],
+	fn.Option[btcutil.Amount], error) {
+
+	scid := ann.ShortChannelID
+
+	// If AssumeChannelValid is present, then we are unable to perform any
+	// of the expensive checks below, so we'll short-circuit our path
+	// straight to adding the edge to our graph. If the passed
+	// ShortChannelID is an alias, then we'll skip validation as it will
+	// not map to a legitimate tx. This is not a DoS vector as only we can
+	// add an alias ChannelAnnouncement from the gossiper.
+	if d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid) {
+		return fn.None[wire.OutPoint](), fn.None[btcutil.Amount](), nil
+	}
+
+	// Before we can add the channel to the channel graph, we need to obtain
+	// the full funding outpoint that's encoded within the channel ID.
+	fundingTx, err := lnwallet.FetchFundingTxWrapper(
+		d.cfg.ChainIO, &scid, d.quit,
+	)
+	if err != nil {
+		//nolint:ll
+		//
+		// In order to ensure we don't erroneously mark a channel as a
+		// zombie due to an RPC failure, we'll attempt to string match
+		// for the relevant errors.
+		//
+		// * btcd:
+		//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1316
+		//    * https://github.com/btcsuite/btcd/blob/master/rpcserver.go#L1086
+		// * bitcoind:
+		//    * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L770
+		//     * https://github.com/bitcoin/bitcoin/blob/7fcf53f7b4524572d1d0c9a5fdc388e87eb02416/src/rpc/blockchain.cpp#L954
+		switch {
+		case strings.Contains(err.Error(), "not found"):
+			fallthrough
+
+		case strings.Contains(err.Error(), "out of range"):
+			// If the funding transaction isn't found at all, then
+			// we'll mark the edge itself as a zombie so we don't
+			// continue to request it. We use the "zero key" for
+			// both node pubkeys so this edge can't be resurrected.
+			zErr := d.cfg.Graph.AddZombieEdge(scid.ToUint64())
+			if zErr != nil {
+				return fn.None[wire.OutPoint](),
+					fn.None[btcutil.Amount](), err
+			}
+
+		default:
+		}
+
+		return fn.None[wire.OutPoint](), fn.None[btcutil.Amount](),
+			fmt.Errorf("%w: %w", err, ErrNoFundingTransaction)
+	}
+
+	// Recreate witness output to be sure that declared in channel edge
+	// bitcoin keys and channel value corresponds to the reality.
+	fundingPkScript, err := makeFundingScript(
+		ann.BitcoinKey1[:], ann.BitcoinKey2[:],
+		ann.Features, tapscriptRoot,
+	)
+	if err != nil {
+		return fn.None[wire.OutPoint](), fn.None[btcutil.Amount](), err
+	}
+
+	// Next we'll validate that this channel is actually well formed. If
+	// this check fails, then this channel either doesn't exist, or isn't
+	// the one that was meant to be created according to the passed channel
+	// proofs.
+	fundingPoint, err := chanvalidate.Validate(
+		&chanvalidate.Context{
+			Locator: &chanvalidate.ShortChanIDChanLocator{
+				ID: scid,
+			},
+			MultiSigPkScript: fundingPkScript,
+			FundingTx:        fundingTx,
+		},
+	)
+	if err != nil {
+		// Mark the edge as a zombie so we won't try to re-validate it
+		// on start up.
+		zErr := d.cfg.Graph.AddZombieEdge(scid.ToUint64())
+		if zErr != nil {
+			return fn.None[wire.OutPoint](),
+				fn.None[btcutil.Amount](), zErr
+		}
+
+		return fn.None[wire.OutPoint](), fn.None[btcutil.Amount](),
+			fmt.Errorf("%w: %w", ErrInvalidFundingOutput, err)
+	}
+
+	// Now that we have the funding outpoint of the channel, ensure
+	// that it hasn't yet been spent. If so, then this channel has
+	// been closed so we'll ignore it.
+	chanUtxo, err := d.cfg.ChainIO.GetUtxo(
+		fundingPoint, fundingPkScript, scid.BlockHeight, d.quit,
+	)
+	if err != nil {
+		if errors.Is(err, btcwallet.ErrOutputSpent) {
+			zErr := d.cfg.Graph.AddZombieEdge(scid.ToUint64())
+			if zErr != nil {
+				return fn.None[wire.OutPoint](),
+					fn.None[btcutil.Amount](), zErr
+			}
+		}
+
+		return fn.None[wire.OutPoint](), fn.None[btcutil.Amount](),
+			fmt.Errorf("%w: unable to fetch utxo for "+
+				"chan_id=%v, chan_point=%v: %w",
+				ErrChannelSpent, scid.ToUint64(), fundingPoint,
+				err)
+	}
+
+	return fn.Some(*fundingPoint), fn.Some(btcutil.Amount(chanUtxo.Value)),
+		nil
+}
+
+// makeFundingScript is used to make the funding script for both segwit v0 and
+// segwit v1 (taproot) channels.
+func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
+	features *lnwire.RawFeatureVector,
+	tapscriptRoot fn.Option[chainhash.Hash]) ([]byte, error) {
+
+	legacyFundingScript := func() ([]byte, error) {
+		witnessScript, err := input.GenMultiSigScript(
+			bitcoinKey1, bitcoinKey2,
+		)
+		if err != nil {
+			return nil, err
+		}
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+
+		return pkScript, nil
+	}
+
+	if features.IsEmpty() {
+		return legacyFundingScript()
+	}
+
+	chanFeatureBits := lnwire.NewFeatureVector(features, lnwire.Features)
+	if chanFeatureBits.HasFeature(
+		lnwire.SimpleTaprootChannelsOptionalStaging,
+	) {
+
+		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
+		if err != nil {
+			return nil, err
+		}
+		pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
+		if err != nil {
+			return nil, err
+		}
+
+		fundingScript, _, err := input.GenTaprootFundingScript(
+			pubKey1, pubKey2, 0, tapscriptRoot,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO(roasbeef): add tapscript root to gossip v1.5
+
+		return fundingScript, nil
+	}
+
+	return legacyFundingScript()
 }

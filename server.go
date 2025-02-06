@@ -1065,7 +1065,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FirstTimePruneDelay: graph.DefaultFirstTimePruneDelay,
 		AssumeChannelValid:  cfg.Routing.AssumeChannelValid,
 		StrictZombiePruning: strictPruning,
-		IsAlias:             aliasmgr.IsAlias,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create graph builder: %w", err)
@@ -1142,6 +1141,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindChannel:             s.findChannel,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 		ScidCloser:              scidCloserMan,
+		AssumeChannelValid:      cfg.Routing.AssumeChannelValid,
 	}, nodeKeyDesc)
 
 	selfVertex := route.Vertex(nodeKeyDesc.PubKey.SerializeCompressed())

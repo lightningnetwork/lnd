@@ -350,9 +350,6 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 
 		// We'll set the delay to zero to prune immediately.
 		FirstTimePruneDelay: 0,
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
 	})
 	require.NoError(t, err)
 
@@ -622,6 +619,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		ChannelPoint: *chanUTXO,
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -1208,122 +1206,6 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-}
-
-// edgeCreationModifier is an enum-like type used to modify steps that are
-// skipped when creating a channel in the test context.
-type edgeCreationModifier uint8
-
-const (
-	// edgeCreationNoFundingTx is used to skip adding the funding
-	// transaction of an edge to the chain.
-	edgeCreationNoFundingTx edgeCreationModifier = iota
-
-	// edgeCreationNoUTXO is used to skip adding the UTXO of a channel to
-	// the UTXO set.
-	edgeCreationNoUTXO
-
-	// edgeCreationBadScript is used to create the edge, but use the wrong
-	// scrip which should cause it to fail output validation.
-	edgeCreationBadScript
-)
-
-// newChannelEdgeInfo is a helper function used to create a new channel edge,
-// possibly skipping adding it to parts of the chain/state as well.
-func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
-	ecm edgeCreationModifier) (*models.ChannelEdgeInfo, error) {
-
-	node1 := createTestNode(t)
-	node2 := createTestNode(t)
-
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(), 100, fundingHeight,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create edge: %w", err)
-	}
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if ecm == edgeCreationNoFundingTx {
-		return edge, nil
-	}
-
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	if ecm == edgeCreationNoUTXO {
-		ctx.chain.delUtxo(wire.OutPoint{
-			Hash: fundingTx.TxHash(),
-		})
-	}
-
-	if ecm == edgeCreationBadScript {
-		fundingTx.TxOut[0].PkScript[0] ^= 1
-	}
-
-	return edge, nil
-}
-
-func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, failCode ErrorCode) {
-
-	t.Helper()
-
-	err := ctx.builder.AddEdge(edge)
-	if !IsError(err, failCode) {
-		t.Fatalf("validation should have failed: %v", err)
-	}
-
-	// This channel should now be present in the zombie channel index.
-	_, _, _, isZombie, err := ctx.graph.HasChannelEdge(
-		edge.ChannelID,
-	)
-	require.Nil(t, err)
-	require.True(t, isZombie, "edge should be marked as zombie")
-}
-
-// TestChannelOnChainRejectionZombie tests that if we fail validating a channel
-// due to some sort of on-chain rejection (no funding transaction, or invalid
-// UTXO), then we'll mark the channel as a zombie.
-func TestChannelOnChainRejectionZombie(t *testing.T) {
-	t.Parallel()
-
-	ctx := createTestCtxSingleNode(t, 0)
-
-	// To start,  we'll make an edge for the channel, but we won't add the
-	// funding transaction to the mock blockchain, which should cause the
-	// validation to fail below.
-	edge, err := newChannelEdgeInfo(t, ctx, 1, edgeCreationNoFundingTx)
-	require.Nil(t, err)
-
-	// We expect this to fail as the transaction isn't present in the
-	// chain (nor the block).
-	assertChanChainRejection(t, ctx, edge, ErrNoFundingTransaction)
-
-	// Next, we'll make another channel edge, but actually add it to the
-	// graph this time.
-	edge, err = newChannelEdgeInfo(t, ctx, 2, edgeCreationNoUTXO)
-	require.Nil(t, err)
-
-	// Instead now, we'll remove it from the set of UTXOs which should
-	// cause the spentness validation to fail.
-	assertChanChainRejection(t, ctx, edge, ErrChannelSpent)
-
-	// If we cause the funding transaction the chain to fail validation, we
-	// should see similar behavior.
-	edge, err = newChannelEdgeInfo(t, ctx, 3, edgeCreationBadScript)
-	require.Nil(t, err)
-	assertChanChainRejection(t, ctx, edge, ErrInvalidFundingOutput)
 }
 
 // TestBlockDifferenceFix tests if when the router is behind on blocks, the

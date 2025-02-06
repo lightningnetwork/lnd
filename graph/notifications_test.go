@@ -24,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/chainview"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -146,9 +145,6 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 		Index: 0,
 	}
 
-	// With the utxo constructed, we'll mark it as closed.
-	ctx.chain.addUtxo(chanUtxo, tx)
-
 	// Our fake channel will be "confirmed" at height 101.
 	chanID := &lnwire.ShortChannelID{
 		BlockHeight: fundingHeight,
@@ -160,11 +156,11 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 }
 
 type mockChain struct {
+	lnwallet.BlockChainIO
+
 	blocks           map[chainhash.Hash]*wire.MsgBlock
 	blockIndex       map[uint32]chainhash.Hash
 	blockHeightIndex map[chainhash.Hash]uint32
-
-	utxos map[wire.OutPoint]wire.TxOut
 
 	bestHeight int32
 
@@ -179,7 +175,6 @@ func newMockChain(currentHeight uint32) *mockChain {
 	return &mockChain{
 		bestHeight:       int32(currentHeight),
 		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
-		utxos:            make(map[wire.OutPoint]wire.TxOut),
 		blockIndex:       make(map[uint32]chainhash.Hash),
 		blockHeightIndex: make(map[chainhash.Hash]uint32),
 	}
@@ -216,31 +211,6 @@ func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	}
 
 	return &hash, nil
-}
-
-func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
-	m.Lock()
-	m.utxos[op] = *out
-	m.Unlock()
-}
-
-func (m *mockChain) delUtxo(op wire.OutPoint) {
-	m.Lock()
-	delete(m.utxos, op)
-	m.Unlock()
-}
-
-func (m *mockChain) GetUtxo(op *wire.OutPoint, _ []byte, _ uint32,
-	_ <-chan struct{}) (*wire.TxOut, error) {
-	m.RLock()
-	defer m.RUnlock()
-
-	utxo, ok := m.utxos[*op]
-	if !ok {
-		return nil, btcwallet.ErrOutputSpent
-	}
-
-	return &utxo, nil
 }
 
 func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32, nonce uint32) {
@@ -447,9 +417,10 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// First we'll create the utxo for the channel to be "closed"
 	const chanValue = 10000
-	fundingTx, chanPoint, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
-		chanValue, 0)
+	fundingTx, chanPoint, chanID, err := createChannelEdge(
+		ctx, bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(), chanValue, 0,
+	)
 	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
@@ -476,6 +447,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		ChannelPoint: *chanPoint,
+		Capacity:     chanValue,
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -887,9 +860,11 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// First we'll create the utxo for the channel to be "closed"
 	const chanValue = 10000
-	fundingTx, chanUtxo, chanID, err := createChannelEdge(ctx,
-		bitcoinKey1.SerializeCompressed(), bitcoinKey2.SerializeCompressed(),
-		chanValue, startingBlockHeight)
+	fundingTx, chanUtxo, chanID, err := createChannelEdge(
+		ctx, bitcoinKey1.SerializeCompressed(),
+		bitcoinKey2.SerializeCompressed(), chanValue,
+		startingBlockHeight,
+	)
 	require.NoError(t, err, "unable create channel edge")
 
 	// We'll also add a record for the block that included our funding
@@ -916,6 +891,8 @@ func TestChannelCloseNotification(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		ChannelPoint: *chanUtxo,
+		Capacity:     chanValue,
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -1074,9 +1051,6 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 		AssumeChannelValid:  c.builder.cfg.AssumeChannelValid,
 		FirstTimePruneDelay: c.builder.cfg.FirstTimePruneDelay,
 		StrictZombiePruning: c.builder.cfg.StrictZombiePruning,
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
 	})
 	require.NoError(t, err)
 	require.NoError(t, builder.Start())
@@ -1169,9 +1143,6 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		AssumeChannelValid:  assumeValid,
 		FirstTimePruneDelay: 0,
 		StrictZombiePruning: strictPruning,
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
 	})
 	require.NoError(t, err)
 	require.NoError(t, graphBuilder.Start())

@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -552,7 +553,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// If the hints don't indicate an LSP then chances are that our probe
 	// payment won't be blocked along the route to the destination. We send
 	// a probe payment with unmodified route hints.
-	if !isLSP(hints) {
+	if !isLSP(hints, s.cfg.RouterBackend) {
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
 		return s.sendProbePayment(ctx, probeRequest)
 	}
@@ -627,12 +628,13 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 // isLSP checks if the route hints indicate an LSP. An LSP is indicated with
 // true if the last node in each route hint has the same node id, false
 // otherwise.
-func isLSP(routeHints [][]zpay32.HopHint) bool {
+func isLSP(routeHints [][]zpay32.HopHint, routerBackend *RouterBackend) bool {
 	if len(routeHints) == 0 || len(routeHints[0]) == 0 {
 		return false
 	}
 
-	refNodeID := routeHints[0][len(routeHints[0])-1].NodeID
+	refHint := routeHints[0][len(routeHints[0])-1]
+	refNodeID := refHint.NodeID
 	for i := 1; i < len(routeHints); i++ {
 		// Skip empty route hints.
 		if len(routeHints[i]) == 0 {
@@ -649,7 +651,16 @@ func isLSP(routeHints [][]zpay32.HopHint) bool {
 		}
 	}
 
-	return true
+	// If the ref node hint contains a public channel we can send a probe to
+	// it directly, hence don't signal an LSP.
+	_, _, _, err := routerBackend.FetchChannelInfo(refHint.ChannelID)
+	if errors.Is(err, graphdb.ErrEdgeNotFound) {
+		return true
+	}
+
+	// The ref node hint contains a public channel, so we don't signal an
+	// LSP.
+	return false
 }
 
 // prepareLspRouteHints assumes that the isLsp heuristic returned true for the

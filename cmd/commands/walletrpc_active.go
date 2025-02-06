@@ -268,9 +268,10 @@ var bumpFeeCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: `
-	The deadline in number of blocks that the input should be spent within.
-	When not set, for new inputs, the default value (1008) is used; for
-	exiting inputs, their current values will be retained.`,
+	The conf target is the starting fee rate of the fee function expressed
+	in number of blocks. So instead of using sat_per_vbyte the conf target
+	can be specified and LND will query its fee estimator for the current
+	fee rate for the given target.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",

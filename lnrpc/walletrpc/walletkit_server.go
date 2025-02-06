@@ -955,7 +955,7 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 
 // validateBumpFeeRequest makes sure the deprecated fields are not used when
 // the new fields are set.
-func validateBumpFeeRequest(in *BumpFeeRequest) (
+func validateBumpFeeRequest(in *BumpFeeRequest, estimator chainfee.Estimator) (
 	fn.Option[chainfee.SatPerKWeight], bool, error) {
 
 	// Get the specified fee rate if set.
@@ -980,6 +980,31 @@ func validateBumpFeeRequest(in *BumpFeeRequest) (
 		satPerKwOpt = fn.Some(satPerKw)
 	}
 
+	// We make sure either the conf target or the exact fee rate is
+	// specified for the starting fee of the fee function not both.
+	if in.TargetConf != 0 && !satPerKwOpt.IsNone() {
+		return satPerKwOpt, false,
+			fmt.Errorf("either TargetConf or SatPerVbyte should " +
+				"be set, to specify the starting fee rate of " +
+				"the fee function")
+	}
+
+	// In case the user specified a conf target, we estimate the fee rate
+	// for the given target using the provided estimator.
+	if in.TargetConf != 0 {
+		startingFeeRate, err := estimator.EstimateFeePerKW(
+			in.TargetConf,
+		)
+		if err != nil {
+			return satPerKwOpt, false, fmt.Errorf("unable to "+
+				"estimate fee rate for target conf %d: %w",
+				in.TargetConf, err)
+		}
+
+		// Set the starting fee rate to the estimated fee rate.
+		satPerKwOpt = fn.Some(startingFeeRate)
+	}
+
 	var immediate bool
 	switch {
 	case in.Force && in.Immediate:
@@ -993,6 +1018,11 @@ func validateBumpFeeRequest(in *BumpFeeRequest) (
 		immediate = in.Immediate
 	}
 
+	if in.DeadlineDelta != 0 && in.Budget == 0 {
+		return satPerKwOpt, immediate, fmt.Errorf("budget must be " +
+			"set if deadline-delta is set")
+	}
+
 	return satPerKwOpt, immediate, nil
 }
 
@@ -1002,8 +1032,10 @@ func validateBumpFeeRequest(in *BumpFeeRequest) (
 func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 	op wire.OutPoint, currentHeight int32) (sweep.Params, bool, error) {
 
-	// Return an error if both deprecated and new fields are used.
-	feerate, immediate, err := validateBumpFeeRequest(in)
+	// Return an error if the bump fee request is invalid.
+	feerate, immediate, err := validateBumpFeeRequest(
+		in, w.cfg.FeeEstimator,
+	)
 	if err != nil {
 		return sweep.Params{}, false, err
 	}
@@ -1028,9 +1060,10 @@ func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 			StartingFeeRate: feerate,
 			Budget:          btcutil.Amount(in.Budget),
 		}
-		if in.TargetConf != 0 {
+
+		if in.DeadlineDelta != 0 {
 			params.DeadlineHeight = fn.Some(
-				int32(in.TargetConf) + currentHeight,
+				int32(in.DeadlineDelta) + currentHeight,
 			)
 		}
 
@@ -1041,7 +1074,9 @@ func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 	// must be greater than zero.
 	budget := inp.Params.Budget
 
-	// Set the new budget if specified.
+	// Set the new budget if specified. If a new deadline delta is
+	// specified we also require the budget value which is checked in the
+	// validateBumpFeeRequest function.
 	if in.Budget != 0 {
 		budget = btcutil.Amount(in.Budget)
 	}
@@ -1050,13 +1085,21 @@ func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 	// a deadline is requested.
 	deadline := inp.Params.DeadlineHeight
 
-	// Set the deadline if target conf is specified.
+	// Set the deadline if it was specified.
 	//
 	// TODO(yy): upgrade `falafel` so we can make this field optional. Atm
 	// we cannot distinguish between user's not setting the field and
 	// setting it to 0.
-	if in.TargetConf != 0 {
-		deadline = fn.Some(int32(in.TargetConf) + currentHeight)
+	if in.DeadlineDelta != 0 {
+		deadline = fn.Some(int32(in.DeadlineDelta) + currentHeight)
+	}
+
+	startingFeeRate := inp.Params.StartingFeeRate
+
+	// We only set the starting fee rate if it was specified else we keep
+	// the existing one.
+	if feerate.IsSome() {
+		startingFeeRate = feerate
 	}
 
 	// Prepare the new sweep params.
@@ -1065,15 +1108,13 @@ func (w *WalletKit) prepareSweepParams(in *BumpFeeRequest,
 	// specified, the params would have a zero budget.
 	params := sweep.Params{
 		Immediate:       immediate,
-		StartingFeeRate: feerate,
 		DeadlineHeight:  deadline,
+		StartingFeeRate: startingFeeRate,
 		Budget:          budget,
 	}
 
-	if ok {
-		log.Infof("[BumpFee]: bumping fee for existing input=%v, old "+
-			"params=%v, new params=%v", op, inp.Params, params)
-	}
+	log.Infof("[BumpFee]: bumping fee for existing input=%v, old "+
+		"params=%v, new params=%v", op, inp.Params, params)
 
 	return params, ok, nil
 }
@@ -1323,7 +1364,9 @@ func (w *WalletKit) sweepNewInput(op *wire.OutPoint, currentHeight uint32,
 			"transaction")
 	}
 
-	// If there's no budget set, use the default value.
+	// TODO(ziggie): This should only be set for CPFP requests. However
+	// this can lead to high fee rates in case the user specifies a
+	// deadline delta which is very low. So this should be revisited.
 	if params.Budget == 0 {
 		params.Budget = utxo.Value.MulF64(
 			contractcourt.DefaultBudgetRatio,

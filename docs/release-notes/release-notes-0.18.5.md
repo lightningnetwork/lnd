@@ -50,6 +50,9 @@
 
 * [Improved user experience](https://github.com/lightningnetwork/lnd/pull/9454)
  by returning a custom error code when HTLC carries incorrect custom records.
+
+* [Make input validation stricter](https://github.com/lightningnetwork/lnd/pull/9470)
+  when using the `BumpFee` RPC.
  
 ## Tooling and Documentation
 

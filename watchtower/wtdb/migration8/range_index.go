@@ -74,24 +74,6 @@ func (a *RangeIndex) addRange(start, end uint64) error {
 			"than end height %d", start, end)
 	}
 
-	// min is a helper closure that will return the minimum of two uint64s.
-	min := func(a, b uint64) uint64 {
-		if a < b {
-			return a
-		}
-
-		return b
-	}
-
-	// max is a helper closure that will return the maximum of two uint64s.
-	max := func(a, b uint64) uint64 {
-		if a > b {
-			return a
-		}
-
-		return b
-	}
-
 	// Collect the ranges that fall before and after the new range along
 	// with the start and end values of the new range.
 	var before, after []rangeItem

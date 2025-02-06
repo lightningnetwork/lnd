@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"sync"
 
@@ -9512,7 +9511,7 @@ func (lc *LightningChannel) MaxFeeRate(
 	// rather than us decreasing in local balance. The max fee rate is
 	// always floored by the current fee rate of the channel.
 	idealMaxFee := float64(baseBalance) * maxAllocation
-	maxFee := math.Max(float64(currentFee), idealMaxFee)
+	maxFee := max(float64(currentFee), idealMaxFee)
 	maxFeeAllocation := maxFee / float64(baseBalance)
 	maxFeeRate := chainfee.SatPerKWeight(maxFee / (float64(weight) / 1000))
 
@@ -9538,17 +9537,10 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	switch lc.channelState.ChanType.HasAnchors() &&
 		maxFeeRate > maxAnchorCommitFeeRate {
 	case true:
-		commitFeeRate = chainfee.SatPerKWeight(
-			math.Min(
-				float64(netFeeRate),
-				float64(maxAnchorCommitFeeRate),
-			),
-		)
+		commitFeeRate = min(netFeeRate, maxAnchorCommitFeeRate)
 
 	case false:
-		commitFeeRate = chainfee.SatPerKWeight(
-			math.Min(float64(netFeeRate), float64(maxFeeRate)),
-		)
+		commitFeeRate = min(netFeeRate, maxFeeRate)
 	}
 
 	if commitFeeRate >= minRelayFeeRate {

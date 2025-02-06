@@ -85,9 +85,7 @@ func NewSimpleGraph(g ChannelGraph) (*SimpleGraph, error) {
 func maxVal(mapping map[int]uint32) uint32 {
 	maxValue := uint32(0)
 	for _, value := range mapping {
-		if maxValue < value {
-			maxValue = value
-		}
+		maxValue = max(maxValue, value)
 	}
 	return maxValue
 }

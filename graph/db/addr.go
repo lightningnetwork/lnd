@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 )
 
@@ -26,6 +27,10 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 3
+
+	// opaqueAddrs denotes an address (or a set of addresses) that LND was
+	// not able to parse since LND is not yet aware of the address type.
+	opaqueAddrs addressType = 4
 )
 
 // encodeTCPAddr serializes a TCP address into its compact raw bytes
@@ -121,6 +126,27 @@ func encodeOnionAddr(w io.Writer, addr *tor.OnionAddr) error {
 	return nil
 }
 
+// encodeOpaqueAddrs serializes the lnwire.OpaqueAddrs type to a raw set of
+// bytes that we will persist.
+func encodeOpaqueAddrs(w io.Writer, addr *lnwire.OpaqueAddrs) error {
+	// Write the type byte.
+	if _, err := w.Write([]byte{byte(opaqueAddrs)}); err != nil {
+		return err
+	}
+
+	// Write the length of the payload.
+	var l [2]byte
+	binary.BigEndian.PutUint16(l[:], uint16(len(addr.Payload)))
+	if _, err := w.Write(l[:]); err != nil {
+		return err
+	}
+
+	// Write the payload.
+	_, err := w.Write(addr.Payload)
+
+	return err
+}
+
 // DeserializeAddr reads the serialized raw representation of an address and
 // deserializes it into the actual address. This allows us to avoid address
 // resolution within the channeldb package.
@@ -147,6 +173,7 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			IP:   net.IP(ip[:]),
 			Port: int(binary.BigEndian.Uint16(port[:])),
 		}
+
 	case tcp6Addr:
 		var ip [16]byte
 		if _, err := r.Read(ip[:]); err != nil {
@@ -162,6 +189,7 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			IP:   net.IP(ip[:]),
 			Port: int(binary.BigEndian.Uint16(port[:])),
 		}
+
 	case v2OnionAddr:
 		var h [tor.V2DecodedLen]byte
 		if _, err := r.Read(h[:]); err != nil {
@@ -181,6 +209,7 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			OnionService: onionService,
 			Port:         port,
 		}
+
 	case v3OnionAddr:
 		var h [tor.V3DecodedLen]byte
 		if _, err := r.Read(h[:]); err != nil {
@@ -200,6 +229,24 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			OnionService: onionService,
 			Port:         port,
 		}
+
+	case opaqueAddrs:
+		// Read the length of the payload.
+		var l [2]byte
+		if _, err := r.Read(l[:]); err != nil {
+			return nil, err
+		}
+
+		// Read the payload.
+		payload := make([]byte, binary.BigEndian.Uint16(l[:]))
+		if _, err := r.Read(payload); err != nil {
+			return nil, err
+		}
+
+		address = &lnwire.OpaqueAddrs{
+			Payload: payload,
+		}
+
 	default:
 		return nil, ErrUnknownAddressType
 	}
@@ -215,6 +262,8 @@ func SerializeAddr(w io.Writer, address net.Addr) error {
 		return encodeTCPAddr(w, addr)
 	case *tor.OnionAddr:
 		return encodeOnionAddr(w, addr)
+	case *lnwire.OpaqueAddrs:
+		return encodeOpaqueAddrs(w, addr)
 	default:
 		return ErrUnknownAddressType
 	}

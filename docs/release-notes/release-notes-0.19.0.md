@@ -64,6 +64,10 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9322) that caused
     estimateroutefee to ignore the default payment timeout.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9474) where LND would
+  fail to persist (and hence, propagate) node announcements containing address 
+  types (such as a DNS hostname) unknown to LND.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

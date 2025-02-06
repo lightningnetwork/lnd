@@ -64,7 +64,6 @@ var (
 		TotalAmount:   1234567,
 		SourcePubKey:  vertex,
 		Hops: []*route.Hop{
-			testHop3,
 			testHop2,
 			testHop1,
 		},
@@ -98,7 +97,7 @@ var (
 	}
 )
 
-func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
+func makeFakeInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo) {
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
@@ -113,9 +112,10 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		PaymentRequest: []byte("test"),
 	}
 
-	a := NewHtlcAttempt(
+	a, err := NewHtlcAttempt(
 		44, priv, testRoute, time.Unix(100, 0), &hash,
 	)
+	require.NoError(t, err)
 
 	return c, &a.HTLCAttemptInfo
 }
@@ -123,7 +123,7 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 func TestSentPaymentSerialization(t *testing.T) {
 	t.Parallel()
 
-	c, s := makeFakeInfo()
+	c, s := makeFakeInfo(t)
 
 	var b bytes.Buffer
 	require.NoError(t, serializePaymentCreationInfo(&b, c), "serialize")
@@ -173,6 +173,9 @@ func TestSentPaymentSerialization(t *testing.T) {
 	newWireInfo, err = deserializeHTLCAttemptInfo(&b)
 	require.NoError(t, err, "deserialize")
 	require.Equal(t, s.Route, newWireInfo.Route)
+
+	err = newWireInfo.attachOnionBlobAndCircuit()
+	require.NoError(t, err)
 
 	// Clear routes to allow DeepEqual to compare the remaining fields.
 	newWireInfo.Route = route.Route{}
@@ -517,7 +520,7 @@ func TestQueryPayments(t *testing.T) {
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
-				info, _, preimg, err := genInfo()
+				info, _, preimg, err := genInfo(t)
 				if err != nil {
 					t.Fatalf("unable to create test "+
 						"payment: %v", err)
@@ -618,7 +621,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	pControl := NewPaymentControl(db)
 
 	// Generate a test payment which does not have duplicates.
-	noDuplicates, _, _, err := genInfo()
+	noDuplicates, _, _, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -632,7 +635,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate a test payment which we will add duplicates to.
-	hasDuplicates, _, preimg, err := genInfo()
+	hasDuplicates, _, preimg, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -783,7 +786,7 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	require.NoError(t, err)
 
 	// Generate fake information for the duplicate payment.
-	info, _, _, err := genInfo()
+	info, _, _, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Write the payment info to disk under the creation info key. This code

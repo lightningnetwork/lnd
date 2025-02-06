@@ -535,15 +535,23 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	}
 
 	rhash := sha256.Sum256(preimage[:])
+	var hash lntypes.Hash
+	copy(hash[:], rhash[:])
+
+	attempt, err := channeldb.NewHtlcAttempt(
+		1, priv, testRoute, time.Time{}, &hash,
+	)
+	if err != nil {
+		return nil, nil, lntypes.Preimage{}, err
+	}
+
 	return &channeldb.PaymentCreationInfo{
 			PaymentIdentifier: rhash,
 			Value:             testRoute.ReceiverAmt(),
 			CreationTime:      time.Unix(time.Now().Unix(), 0),
 			PaymentRequest:    []byte("hola"),
 		},
-		&channeldb.NewHtlcAttempt(
-			1, priv, testRoute, time.Time{}, nil,
-		).HTLCAttemptInfo, preimage, nil
+		&attempt.HTLCAttemptInfo, preimage, nil
 }
 
 func genPreimage() ([32]byte, error) {

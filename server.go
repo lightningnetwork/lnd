@@ -109,6 +109,11 @@ const (
 	// multiAddrConnectionStagger is the number of seconds to wait between
 	// attempting to a peer with each of its advertised addresses.
 	multiAddrConnectionStagger = 10 * time.Second
+
+	// maxRestrictedSlots is the maximum number of restricted-access slots
+	// that we will reserve for our peers.
+	// TODO: Change this number.
+	maxRestrictedSlots = 30
 )
 
 var (
@@ -141,6 +146,25 @@ var (
 	//
 	// Per blip04: January 1, 2026 12:00:00 AM UTC in unix seconds.
 	EndorsementExperimentEnd = time.Unix(1767225600, 0)
+
+	// ErrGossiperBan is one of the errors that can be returned when we
+	// attempt to finalize a connection to a remote peer.
+	ErrGossiperBan = errors.New("gossiper has banned remote's key")
+
+	// ErrNoMoreRestrictedAccessSlots is one of the errors that can be
+	// returned when we attempt to finalize a connection. It means that
+	// this peer has no pending-open, open, or closed channels with us and
+	// are already at our connection ceiling for a peer with this access
+	// status.
+	ErrNoMoreRestrictedAccessSlots = errors.New("no more restricted slots")
+
+	// ErrNoPeerScore is returned when we expect to find a score in
+	// peerScores, but one does not exist.
+	ErrNoPeerScore = errors.New("peer score not found")
+
+	// ErrNoPendingPeerInfo is returned when we couldn't find any pending
+	// peer info.
+	ErrNoPendingPeerInfo = errors.New("no pending peer info")
 )
 
 // errPeerAlreadyConnected is an error returned by the server when we're
@@ -154,6 +178,32 @@ type errPeerAlreadyConnected struct {
 // NOTE: Part of the error interface.
 func (e *errPeerAlreadyConnected) Error() string {
 	return fmt.Sprintf("already connected to peer: %v", e.peer)
+}
+
+// peerAccessStatus denotes the p2p access status of a given peer. This will be
+// used to assign peer ban scores that determine an action the server will
+// take.
+type peerAccessStatus int
+
+const (
+	// restricted indicates that the peer only has access to the limited
+	// number of "free" reserved slots.
+	restricted peerAccessStatus = iota
+
+	// temporary indicates that the peer only has temporary p2p access to
+	// the server.
+	temporary
+
+	// protected indicates that the peer has been granted permanent p2p
+	// access to the server. The peer can still have its access revoked.
+	protected
+)
+
+// peerSlotStatus determines whether a peer gets access to one of our free
+// slots or gets to bypass this safety mechanism.
+type peerSlotStatus struct {
+	// state determines which privileges the peer has with our server.
+	state peerAccessStatus
 }
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -361,6 +411,26 @@ type server struct {
 	// of new blocks.
 	blockbeatDispatcher *chainio.BlockbeatDispatcher
 
+	// banScoreMtx is used for the server's ban tracking. This should only
+	// be locked after the server mutex has been locked.
+	banScoreMtx sync.RWMutex
+
+	// channelPeers denotes the set of nodes that have open or closed
+	// channels with us. This MUST be accessed with the banScoreMtx held.
+	channelPeers map[string]struct{}
+
+	// pendingChannelPeers denotes the set of nodes that have pending-open
+	// channels with us. This MUST be accessed with the banScoreMtx held.
+	pendingChannelPeers map[string]uint64
+
+	// peerScores stores each connected peer's access status. This MUST be
+	// accessed with the banScoreMtx held.
+	peerScores map[string]peerSlotStatus
+
+	// numRestricted tracks the number of peers with restricted access in
+	// peerScores. This MUST be accessed with the banScoreMtx held.
+	numRestricted uint64
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -526,19 +596,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		)
 	)
 
-	listeners := make([]net.Listener, len(listenAddrs))
-	for i, listenAddr := range listenAddrs {
-		// Note: though brontide.NewListener uses ResolveTCPAddr, it
-		// doesn't need to call the general lndResolveTCP function
-		// since we are resolving a local address.
-		listeners[i], err = brontide.NewListener(
-			nodeKeyECDH, listenAddr.String(),
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var serializedPubKey [33]byte
 	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
 
@@ -669,8 +726,33 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		tlsManager: tlsManager,
 
+		channelPeers:        make(map[string]struct{}),
+		pendingChannelPeers: make(map[string]uint64),
+		peerScores:          make(map[string]peerSlotStatus),
+
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
+	}
+
+	// Initialize the map that will contain ban scores.
+	genesisHash := *s.cfg.ActiveNetParams.GenesisHash
+	permPeers, tempPeers, err := s.chanStateDB.FetchPermAndTempPeers(
+		genesisHash[:],
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We haven't yet connected to these peers. We'll add the permPeers to
+	// the channelPeers map and the tempPeers to the pendingChannelPeers
+	// map.
+	// NOTE: We don't need to acquire banStoreMtx here or below.
+	for permPubHex := range permPeers {
+		s.channelPeers[permPubHex] = struct{}{}
+	}
+
+	for tempPubHex, count := range tempPeers {
+		s.pendingChannelPeers[tempPubHex] = count
 	}
 
 	// Start the low-level services once they are initialized.
@@ -1625,9 +1707,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxPendingChannels:            cfg.MaxPendingChannels,
 		RejectPush:                    cfg.RejectPush,
 		MaxLocalCSVDelay:              chainCfg.MaxLocalDelay,
-		NotifyOpenChannelEvent:        s.channelNotifier.NotifyOpenChannelEvent,
+		NotifyOpenChannelEvent:        s.notifyOpenChannelPeerEvent,
 		OpenChannelPredicate:          chanPredicate,
-		NotifyPendingOpenChannelEvent: s.channelNotifier.NotifyPendingOpenChannelEvent,
+		NotifyPendingOpenChannelEvent: s.notifyPendingOpenChannelPeerEvent,
+		NotifyFundingTimeout:          s.notifyFundingTimeoutPeerEvent,
 		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
@@ -1815,6 +1898,23 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	// Create liveness monitor.
 	s.createLivenessMonitor(cfg, cc, leaderElector)
+
+	listeners := make([]net.Listener, len(listenAddrs))
+	for i, listenAddr := range listenAddrs {
+		// Note: though brontide.NewListener uses ResolveTCPAddr, it
+		// doesn't need to call the general lndResolveTCP function
+		// since we are resolving a local address.
+
+		// RESOLVE: We are actually partially accepting inbound
+		// connection requests when we call NewListener.
+		listeners[i], err = brontide.NewListener(
+			nodeKeyECDH, listenAddr.String(),
+			s.checkIncomingConnBanScore,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Create the connection manager which will be responsible for
 	// maintaining persistent outbound connections and also accepting new
@@ -2397,6 +2497,11 @@ func (s *server) Start() error {
 			s.connMgr.Stop()
 			return nil
 		})
+
+		// RESOLVE: s.connMgr.Start() is called here, but
+		// brontide.NewListener() is called in newServer. This means
+		// that we are actually listening and partially accepting
+		// inbound connections even before the connMgr starts.
 		s.connMgr.Start()
 
 		// If peers are specified as a config option, we'll add those
@@ -3622,6 +3727,23 @@ func (s *server) prunePersistentPeerConnection(compressedPubKey [33]byte) {
 	s.mu.Unlock()
 }
 
+// bannedPersistentPeerConnection does not actually "ban" a persistent peer. It
+// is instead used to remove persistent peer state for a peer that has been
+// disconnected for good cause by the server. Currently, a gossip ban from
+// sending garbage and the server running out of restricted-access
+// (i.e. "free") connection slots are the only way this logic gets hit. In the
+// future, this function may expand when more ban criteria is added.
+//
+// NOTE: The server's write lock MUST be held when this is called.
+func (s *server) bannedPersistentPeerConnection(remotePub string) {
+	if perm, ok := s.persistentPeers[remotePub]; ok && !perm {
+		delete(s.persistentPeers, remotePub)
+		delete(s.persistentPeersBackoff, remotePub)
+		delete(s.persistentPeerAddrs, remotePub)
+		s.cancelConnReqs(remotePub, nil)
+	}
+}
+
 // BroadcastMessage sends a request to the server to broadcast a set of
 // messages to all peers other than the one specified by the `skips` parameter.
 // All messages sent via BroadcastMessage will be queued for lazy delivery to
@@ -3875,18 +3997,15 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	defer s.mu.Unlock()
 
 	// If the remote node's public key is banned, drop the connection.
-	shouldDc, dcErr := s.authGossiper.ShouldDisconnect(nodePub)
-	if dcErr != nil {
-		srvrLog.Errorf("Unable to check if we should disconnect "+
-			"peer: %v", dcErr)
-		conn.Close()
+	access, err := s.assignPeerPerms(nodePub)
+	if err != nil {
+		// Clean up the persistent peer maps if we're dropping this
+		// connection.
+		s.bannedPersistentPeerConnection(pubStr)
 
-		return
-	}
-
-	if shouldDc {
-		srvrLog.Debugf("Dropping connection for %v since they are "+
-			"banned.", pubSer)
+		srvrLog.Debugf("Dropping connection for %v since we are out "+
+			"of restricted-access connection slots: %v.", pubSer,
+			err)
 
 		conn.Close()
 
@@ -3927,7 +4046,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true)
+		s.peerConnected(conn, nil, true, access)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -3959,7 +4078,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true)
+			s.peerConnected(conn, nil, true, access)
 		}
 	}
 }
@@ -3984,19 +4103,15 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If the remote node's public key is banned, drop the connection.
-	shouldDc, dcErr := s.authGossiper.ShouldDisconnect(nodePub)
-	if dcErr != nil {
-		srvrLog.Errorf("Unable to check if we should disconnect "+
-			"peer: %v", dcErr)
-		conn.Close()
+	access, err := s.assignPeerPerms(nodePub)
+	if err != nil {
+		// Clean up the persistent peer maps if we're dropping this
+		// connection.
+		s.bannedPersistentPeerConnection(pubStr)
 
-		return
-	}
-
-	if shouldDc {
-		srvrLog.Debugf("Dropping connection for %v since they are "+
-			"banned.", pubSer)
+		srvrLog.Debugf("Dropping connection for %v since we are out "+
+			"of restricted-access connection slots: %v.", pubSer,
+			err)
 
 		if connReq != nil {
 			s.connMgr.Remove(connReq.ID())
@@ -4065,7 +4180,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false)
+		s.peerConnected(conn, connReq, false, access)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -4099,9 +4214,49 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false)
+			s.peerConnected(conn, connReq, false, access)
 		}
 	}
+}
+
+// assignPeerPerms assigns a new peer its permissions.
+func (s *server) assignPeerPerms(remotePub *btcec.PublicKey) (peerAccessStatus,
+	error) {
+
+	var access peerAccessStatus
+
+	shouldDc, dcErr := s.authGossiper.ShouldDisconnect(remotePub)
+	if dcErr != nil {
+		return access, dcErr
+	}
+
+	if shouldDc {
+		return access, ErrGossiperBan
+	}
+
+	remoteHex := hex.EncodeToString(remotePub.SerializeCompressed())
+
+	// Lock banScoreMtx for reading so that we can update the banning maps
+	// below.
+	s.banScoreMtx.RLock()
+	defer s.banScoreMtx.RUnlock()
+
+	if _, found := s.channelPeers[remoteHex]; found {
+		access = protected
+	}
+
+	if _, found := s.pendingChannelPeers[remoteHex]; found {
+		access = temporary
+	}
+
+	// If we've reached this point and access hasn't changed from
+	// restricted, then we need to check if we even have a slot for this
+	// peer.
+	if s.numRestricted >= maxRestrictedSlots && access == restricted {
+		return access, ErrNoMoreRestrictedAccessSlots
+	}
+
+	return access, nil
 }
 
 // UnassignedConnID is the default connection ID that a request can have before
@@ -4173,13 +4328,297 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
 }
 
+// notifyOpenChannelPeerEvent updates the server's peer maps and then calls
+// the channelNotifier's NotifyOpenChannelEvent.
+func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
+	remotePub string) error {
+
+	// Call NewOpenChan to update the server's maps for this peer.
+	if err := s.NewOpenChan(remotePub); err != nil {
+		return err
+	}
+
+	// Notify subscribers about this open channel event.
+	s.channelNotifier.NotifyOpenChannelEvent(op)
+
+	return nil
+}
+
+// notifyPendingOpenChannelPeerEvent updates the server's maps and then calls
+// the channelNotifier's NotifyPendingOpenChannelEvent.
+func (s *server) notifyPendingOpenChannelPeerEvent(op wire.OutPoint,
+	pendingChan *channeldb.OpenChannel, remotePub string) error {
+
+	// Call NewPendingOpenChan to update the server's maps for this peer.
+	if err := s.NewPendingOpenChan(remotePub); err != nil {
+		return err
+	}
+
+	// Notify subscribers about this event.
+	s.channelNotifier.NotifyPendingOpenChannelEvent(op, pendingChan)
+
+	return nil
+}
+
+// notifyFundingTimeoutPeerEvent updates the server's maps and then calls the
+// channelNotifier's NotifyFundingTimeout.
+func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
+	remotePub string) error {
+
+	// Call NewPendingCloseChan to potentially demote the peer.
+	if err := s.NewPendingCloseChan(remotePub); err != nil {
+		return err
+	}
+
+	// Notify subscribers about this event.
+	s.channelNotifier.NotifyFundingTimeout(op)
+
+	return nil
+}
+
+// NewPendingOpenChan is called after the pending-open channel has been
+// committed to the database. This may transition a restricted-access peer to a
+// temporary-access peer.
+func (s *server) NewPendingOpenChan(remoteHex string) error {
+	s.banScoreMtx.Lock()
+	defer s.banScoreMtx.Unlock()
+
+	// Fetch the peer's access status from peerScores.
+	status, found := s.peerScores[remoteHex]
+	if !found {
+		// If we didn't find the peer, we'll return an error.
+		return ErrNoPeerScore
+	}
+
+	switch status.state {
+	case protected:
+		// If this peer's access status is protected, we don't need to
+		// do anything.
+		return nil
+
+	case temporary:
+		// If this peer's access status is temporary, we'll need to
+		// update the pendingChannelPeers map. The peer's access status
+		// will stay temporary.
+		numPending, pendingFound := s.pendingChannelPeers[remoteHex]
+		if !pendingFound {
+			// Error if we did not find any info in
+			// pendingChannelPeers.
+			return ErrNoPendingPeerInfo
+		}
+
+		// Increment the numPending amount.
+		s.pendingChannelPeers[remoteHex] = numPending + 1
+
+	case restricted:
+		// If the peer's access status is restricted, then we can
+		// transition it to a temporary-access peer. We'll need to
+		// update numRestricted and also peerScores. We'll also need to
+		// update pendingChannelPeers.
+		s.pendingChannelPeers[remoteHex] = 1
+
+		// A restricted-access slot has opened up.
+		s.numRestricted -= 1
+
+		s.peerScores[remoteHex] = peerSlotStatus{state: temporary}
+
+	default:
+		// This should not be possible.
+		return fmt.Errorf("invalid peer access status")
+	}
+
+	return nil
+}
+
+// NewPendingCloseChan is called when a pending-open channel prematurely closes
+// before the funding transaction has confirmed. This potentially demotes a
+// temporary-access peer to a restricted-access peer. If no restricted-access
+// slots are available, the peer will be disconnected.
+func (s *server) NewPendingCloseChan(remoteHex string) error {
+	// Ensure that we don't lock banScoreMtx and _then_ lock the server
+	// mutex. This could lead to deadlock.
+	s.banScoreMtx.Lock()
+
+	// Fetch the peer's access status from peerScores.
+	status, found := s.peerScores[remoteHex]
+	if !found {
+		s.banScoreMtx.Unlock()
+
+		// If we didn't find the peer, we'll return an error.
+		return ErrNoPeerScore
+	}
+
+	switch status.state {
+	case protected:
+		s.banScoreMtx.Unlock()
+
+		// If this peer is protected, we don't do anything.
+		return nil
+
+	case temporary:
+		// If this peer is temporary, we need to check if it will revert
+		// to a restricted-access peer.
+		numPending, pendingFound := s.pendingChannelPeers[remoteHex]
+		if !pendingFound {
+			s.banScoreMtx.Unlock()
+
+			// Error if we did not find any info in
+			// pendingChannelPeers.
+			return ErrNoPendingPeerInfo
+		}
+
+		currentNumPending := numPending - 1
+
+		if currentNumPending == 0 {
+			// Remove the entry from pendingChannelPeers.
+			delete(s.pendingChannelPeers, remoteHex)
+
+			// If this is the only pending-open channel for this
+			// peer and it's getting removed, attempt to demote
+			// this peer to a restricted peer.
+			if s.numRestricted == maxRestrictedSlots {
+				// There are no available restricted slots, so
+				// we need to disconnect this peer.
+				s.banScoreMtx.Unlock()
+
+				remotePub, err := btcec.ParsePubKey(
+					[]byte(remoteHex),
+				)
+				if err != nil {
+					return err
+				}
+
+				// The banScoreMtx cannot be held when the
+				// below DisconnectPeer call occurs.
+				return s.DisconnectPeer(remotePub)
+			}
+
+			// Otherwise, there is an available restricted-access
+			// slot, so we can demote this peer.
+			s.peerScores[remoteHex] = peerSlotStatus{
+				state: restricted,
+			}
+
+			// Update numRestricted.
+			s.numRestricted++
+
+			s.banScoreMtx.Unlock()
+
+			return nil
+		}
+
+		// Else, we don't need to demote this peer since it has other
+		// pending-open channels with us.
+		s.pendingChannelPeers[remoteHex] = currentNumPending
+
+		s.banScoreMtx.Unlock()
+
+		return nil
+
+	case restricted:
+		s.banScoreMtx.Unlock()
+
+		// This should not be possible. This indicates an error.
+		return fmt.Errorf("invalid peer access state transition")
+
+	default:
+		s.banScoreMtx.Unlock()
+
+		// This should not be possible.
+		return fmt.Errorf("invalid peer access status")
+	}
+}
+
+// NewOpenChan is called when a pending-open channel becomes an open channel
+// (i.e. the funding transaction has confirmed). If the remote peer is a
+// temporary-access peer, it will be promoted to a protected-access peer.
+func (s *server) NewOpenChan(remoteHex string) error {
+	s.banScoreMtx.Lock()
+	defer s.banScoreMtx.Unlock()
+
+	// Fetch the peer's access status from peerScores.
+	status, found := s.peerScores[remoteHex]
+	if !found {
+		// If we didn't find the peer, we'll return an error.
+		return ErrNoPeerScore
+	}
+
+	switch status.state {
+	case protected:
+		// If the peer's state is already protected, we don't need to
+		// do anything more.
+		return nil
+
+	case temporary:
+		// If the peer's state is temporary, we'll upgrade the peer to
+		// a protected peer. This will remove its entry from
+		// pendingChannelPeers and insert an entry into channelPeers.
+		delete(s.pendingChannelPeers, remoteHex)
+		s.channelPeers[remoteHex] = struct{}{}
+
+		newStatus := peerSlotStatus{
+			state: protected,
+		}
+		s.peerScores[remoteHex] = newStatus
+
+		return nil
+
+	case restricted:
+		// This should not be possible. For the server to receive a
+		// state-transition event via NewOpenChan, the server must have
+		// previously granted this peer "temporary" access. This
+		// temporary access would not have been revoked or downgraded
+		// without `CloseChannel` being called with the pending
+		// argument set to true. This means that an open-channel state
+		// transition would be impossible. Therefore, we can return an
+		// error.
+		return fmt.Errorf("invalid peer access status")
+
+	default:
+		// This should not be possible.
+		return fmt.Errorf("invalid peer access status")
+	}
+}
+
+// checkIncomingConnBanScore checks whether, given the remote's public hex-
+// encoded key, we should accept this incoming connection or immediately
+// disconnect. This does not assign to the server's peerScores maps. This is
+// just an inbound filter that the brontide listeners use.
+func (s *server) checkIncomingConnBanScore(remoteHex string) (bool, error) {
+	s.banScoreMtx.RLock()
+	defer s.banScoreMtx.RUnlock()
+
+	// First, check if the remote's pubkey hex string is in channelPeers.
+	if _, found := s.channelPeers[remoteHex]; found {
+		// The remote is a "channel-peer" and can bypass the "free"
+		// slot mechanism.
+		return true, nil
+	}
+
+	// Check if this peer is tracked in pendingChannelPeers.
+	if _, found := s.pendingChannelPeers[remoteHex]; found {
+		// The remote is granted temporary access.
+		return true, nil
+	}
+
+	// Else, check numRestricted to see if there is an available slot.
+	// RESOLVE: Consider logic to rotate out slot connections?
+	if s.numRestricted < maxRestrictedSlots {
+		// There is an available slot.
+		return true, nil
+	}
+
+	// If there are no slots left, then we have to reject this connection.
+	return false, ErrNoMoreRestrictedAccessSlots
+}
+
 // peerConnected is a function that handles initialization a newly connected
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
-	inbound bool) {
-
+	inbound bool, access peerAccessStatus,
+) {
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
@@ -4318,6 +4757,25 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())
 
 	p := peer.NewBrontide(pCfg)
+
+	// Get the remote's hex encoded public key.
+	remotePubHex := hex.EncodeToString(pubKey.SerializeCompressed())
+
+	remoteStatus := peerSlotStatus{
+		state: access,
+	}
+
+	// Add the remote public key to peerScores.
+	s.banScoreMtx.Lock()
+	s.peerScores[remotePubHex] = remoteStatus
+
+	// Increment numRestricted.
+	// TODO: Is there a way we can easily/cheaply calculate it every time?
+	if access == restricted {
+		s.numRestricted++
+	}
+
+	s.banScoreMtx.Unlock()
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
@@ -4775,6 +5233,28 @@ func (s *server) removePeer(p *peer.Brontide) {
 	} else {
 		delete(s.outboundPeers, pubStr)
 	}
+
+	// Delete from peerScores.
+	remoteHex := hex.EncodeToString(pKey[:])
+
+	s.banScoreMtx.Lock()
+
+	status, found := s.peerScores[remoteHex]
+	if !found {
+		s.banScoreMtx.Unlock()
+		srvrLog.Errorf("unable to find peer score for %v", remoteHex)
+		return
+	}
+
+	if status.state == restricted {
+		// If the status is restricted, then we decrement from
+		// numRestrictedSlots.
+		s.numRestricted--
+	}
+
+	delete(s.peerScores, remoteHex)
+
+	s.banScoreMtx.Unlock()
 
 	// Copy the peer's error buffer across to the server if it has any items
 	// in it so that we can restore peer errors across connections.

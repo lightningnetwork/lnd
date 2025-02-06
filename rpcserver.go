@@ -6168,6 +6168,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				MaxHTLCMsat: 0,
 			},
 			MinNumPathHops: blindingRestrictions.NumHops,
+			MaxNumPaths:    blindingRestrictions.MaxNumPaths,
 		}
 	}
 

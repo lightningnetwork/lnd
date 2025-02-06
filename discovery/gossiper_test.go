@@ -24,14 +24,15 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -71,18 +72,20 @@ var (
 	// be rebroadcasted automaticallty during the tests.
 	testTimestamp       = uint32(1234567890)
 	rebroadcastInterval = time.Hour * 1000000
+
+	chanValue int64 = 10000
 )
 
 type mockGraphSource struct {
 	bestHeight uint32
 
-	mu             sync.Mutex
-	nodes          []models.LightningNode
-	infos          map[uint64]models.ChannelEdgeInfo
-	edges          map[uint64][]models.ChannelEdgePolicy
-	zombies        map[uint64][][33]byte
-	chansToReject  map[uint64]struct{}
-	addEdgeErrCode fn.Option[graph.ErrorCode]
+	mu            sync.Mutex
+	nodes         []models.LightningNode
+	infos         map[uint64]models.ChannelEdgeInfo
+	edges         map[uint64][]models.ChannelEdgePolicy
+	zombies       map[uint64][][33]byte
+	chansToReject map[uint64]struct{}
+	addEdgeErr    error
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -113,10 +116,8 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.addEdgeErrCode.IsSome() {
-		return graph.NewErrf(
-			r.addEdgeErrCode.UnsafeFromSome(), "received error",
-		)
+	if r.addEdgeErr != nil {
+		return r.addEdgeErr
 	}
 
 	if _, ok := r.infos[info.ChannelID]; ok {
@@ -131,12 +132,12 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	return nil
 }
 
-func (r *mockGraphSource) resetAddEdgeErrCode() {
-	r.addEdgeErrCode = fn.None[graph.ErrorCode]()
+func (r *mockGraphSource) resetAddEdgeErr() {
+	r.addEdgeErr = nil
 }
 
-func (r *mockGraphSource) setAddEdgeErrCode(code graph.ErrorCode) {
-	r.addEdgeErrCode = fn.Some[graph.ErrorCode](code)
+func (r *mockGraphSource) setAddEdgeErr(err error) {
+	r.addEdgeErr = err
 }
 
 func (r *mockGraphSource) queueValidationFail(chanID uint64) {
@@ -471,15 +472,23 @@ type annBatch struct {
 	remoteProofAnn *lnwire.AnnounceSignatures1
 }
 
-func createLocalAnnouncements(blockHeight uint32) (*annBatch, error) {
-	return createAnnouncements(blockHeight, selfKeyPriv, remoteKeyPriv1)
+func (ctx *testCtx) createLocalAnnouncements(blockHeight uint32) (*annBatch,
+	error) {
+
+	return ctx.createAnnouncements(blockHeight, selfKeyPriv, remoteKeyPriv1)
 }
 
-func createRemoteAnnouncements(blockHeight uint32) (*annBatch, error) {
-	return createAnnouncements(blockHeight, remoteKeyPriv1, remoteKeyPriv2)
+func (ctx *testCtx) createRemoteAnnouncements(blockHeight uint32) (*annBatch,
+	error) {
+
+	return ctx.createAnnouncements(
+		blockHeight, remoteKeyPriv1, remoteKeyPriv2,
+	)
 }
 
-func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*annBatch, error) {
+func (ctx *testCtx) createAnnouncements(blockHeight uint32, key1,
+	key2 *btcec.PrivateKey) (*annBatch, error) {
+
 	var err error
 	var batch annBatch
 	timestamp := testTimestamp
@@ -494,7 +503,9 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		return nil, err
 	}
 
-	batch.chanAnn, err = createChannelAnnouncement(blockHeight, key1, key2)
+	batch.chanAnn, err = ctx.createChannelAnnouncement(
+		blockHeight, key1, key2,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -619,9 +630,83 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate1) error {
 	return nil
 }
 
-func createAnnouncementWithoutProof(blockHeight uint32,
+// edgeCreationModifier is an enum-like type used to modify steps that are
+// skipped when creating a channel in the test context.
+type edgeCreationModifier uint8
+
+const (
+	// edgeCreationNormal is the default edge creation modifier that
+	// doesn't skip any steps.
+	edgeCreationNormal edgeCreationModifier = iota //nolint:unused
+
+	// edgeCreationNoFundingTx is used to skip adding the funding
+	// transaction of an edge to the chain.
+	edgeCreationNoFundingTx
+
+	// edgeCreationSpentUTXO is used to skip adding the UTXO of a channel to
+	// the UTXO set.
+	edgeCreationSpentUTXO
+
+	// edgeCreationBadScript is used to create the edge, but use the wrong
+	// scrip which should cause it to fail output validation.
+	edgeCreationBadScript
+)
+
+type edgeCreationOpts struct {
+	extraBytes []byte
+	value      btcutil.Amount
+	modifier   edgeCreationModifier
+}
+
+type edgeCreationOption func(*edgeCreationOpts)
+
+func withExtraBytes(extraBytes []byte) edgeCreationOption {
+	return func(opts *edgeCreationOpts) {
+		opts.extraBytes = extraBytes
+	}
+}
+
+func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
-	extraBytes ...[]byte) *lnwire.ChannelAnnouncement1 {
+	options ...edgeCreationOption) *lnwire.ChannelAnnouncement1 {
+
+	opts := &edgeCreationOpts{
+		value: btcutil.Amount(chanValue),
+	}
+	for _, opt := range options {
+		opt(opts)
+	}
+
+	fundingTx := wire.NewMsgTx(2)
+	_, tx, err := input.GenFundingPkScript(
+		bitcoinKeyPub1.SerializeCompressed(),
+		bitcoinKeyPub2.SerializeCompressed(),
+		int64(opts.value),
+	)
+	require.NoError(ctx.t, err)
+
+	fundingTx.TxOut = append(fundingTx.TxOut, tx)
+	chanUtxo := wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+
+	if opts.modifier != edgeCreationSpentUTXO {
+		ctx.chain.addUtxo(chanUtxo, tx)
+	} else {
+		ctx.chain.spendUtxo(chanUtxo)
+	}
+
+	var fundingBlock wire.MsgBlock
+	if opts.modifier != edgeCreationBadScript {
+		fundingBlock.Transactions = []*wire.MsgTx{fundingTx}
+	} else {
+		fundingBlock.Transactions = []*wire.MsgTx{{}}
+	}
+
+	if opts.modifier != edgeCreationNoFundingTx {
+		ctx.chain.addBlock(&fundingBlock, blockHeight, blockHeight)
+	}
 
 	a := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: lnwire.ShortChannelID{
@@ -635,23 +720,26 @@ func createAnnouncementWithoutProof(blockHeight uint32,
 	copy(a.NodeID2[:], key2.SerializeCompressed())
 	copy(a.BitcoinKey1[:], bitcoinKeyPub1.SerializeCompressed())
 	copy(a.BitcoinKey2[:], bitcoinKeyPub2.SerializeCompressed())
-	if len(extraBytes) == 1 {
-		a.ExtraOpaqueData = extraBytes[0]
-	}
+	a.ExtraOpaqueData = opts.extraBytes
 
 	return a
 }
 
-func createRemoteChannelAnnouncement(blockHeight uint32,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
+func (ctx *testCtx) createRemoteChannelAnnouncement(blockHeight uint32,
+	opts ...edgeCreationOption) (*lnwire.ChannelAnnouncement1, error) {
 
-	return createChannelAnnouncement(blockHeight, remoteKeyPriv1, remoteKeyPriv2, extraBytes...)
+	return ctx.createChannelAnnouncement(
+		blockHeight, remoteKeyPriv1, remoteKeyPriv2, opts...,
+	)
 }
 
-func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
-	extraBytes ...[]byte) (*lnwire.ChannelAnnouncement1, error) {
+func (ctx *testCtx) createChannelAnnouncement(blockHeight uint32, key1,
+	key2 *btcec.PrivateKey,
+	opts ...edgeCreationOption) (*lnwire.ChannelAnnouncement1, error) {
 
-	a := createAnnouncementWithoutProof(blockHeight, key1.PubKey(), key2.PubKey(), extraBytes...)
+	a := ctx.createAnnouncementWithoutProof(
+		blockHeight, key1.PubKey(), key2.PubKey(), opts...,
+	)
 
 	signer := mock.SingleSigner{Privkey: key1}
 	sig, err := netann.SignAnnouncement(&signer, testKeyLoc, a)
@@ -703,10 +791,12 @@ func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 }
 
 type testCtx struct {
+	t                  *testing.T
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
 	broadcastedMessage chan msgWithSenders
+	chain              *mockChain
 }
 
 func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
@@ -718,6 +808,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	// broadcast functions won't be populated.
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
+	chain := newMockChain(startHeight)
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
@@ -749,6 +840,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	}
 
 	gossiper := New(Config{
+		ChainIO:  chain,
 		Notifier: notifier,
 		Broadcast: func(senders map[route.Vertex]struct{},
 			msgs ...lnwire.Message) error {
@@ -820,10 +912,12 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	})
 
 	return &testCtx{
+		t:                  t,
 		router:             router,
 		notifier:           notifier,
 		gossiper:           gossiper,
 		broadcastedMessage: broadcastedMessage,
+		chain:              chain,
 	}, nil
 }
 
@@ -849,7 +943,7 @@ func TestProcessAnnouncement(t *testing.T) {
 
 	// First, we'll craft a valid remote channel announcement and send it to
 	// the gossiper so that it can be processed.
-	ca, err := createRemoteChannelAnnouncement(0)
+	ca, err := ctx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
@@ -961,7 +1055,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	// remote side, but block height of this announcement is greater than
 	// highest know to us, for that reason it should be ignored and not
 	// added to the router.
-	ca, err := createRemoteChannelAnnouncement(1)
+	ca, err := ctx.createRemoteChannelAnnouncement(1)
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
@@ -999,7 +1093,7 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		}
 	}
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -1175,7 +1269,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		}
 	}
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -1346,7 +1440,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -1581,7 +1675,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -1769,6 +1863,8 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	timestamp := testTimestamp
 	announcements := deDupedAnnouncements{}
 	announcements.Reset()
+	ctx, err := createTestCtx(t, 0, false)
+	require.NoError(t, err)
 
 	// Ensure that after new deDupedAnnouncements struct is created and
 	// reset that storage of each announcement type is empty.
@@ -1784,7 +1880,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Ensure that remote channel announcements are properly stored
 	// and de-duplicated.
-	ca, err := createRemoteChannelAnnouncement(0)
+	ca, err := ctx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "can't create remote channel announcement")
 
 	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
@@ -1800,7 +1896,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// We'll create a second instance of the same announcement with the
 	// same channel ID. Adding this shouldn't cause an increase in the
 	// number of items as they should be de-duplicated.
-	ca2, err := createRemoteChannelAnnouncement(0)
+	ca2, err := ctx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "can't create remote channel announcement")
 	announcements.AddMsgs(networkMsg{
 		msg:    ca2,
@@ -2025,7 +2121,7 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	// We'll start off by processing a channel announcement without a proof
 	// (i.e., an unadvertised channel), followed by a node announcement for
 	// this same channel announcement.
-	chanAnn := createAnnouncementWithoutProof(
+	chanAnn := ctx.createAnnouncementWithoutProof(
 		startingHeight-2, selfKeyDesc.PubKey, remoteKeyPub1,
 	)
 	pubKey := remoteKeyPriv1.PubKey()
@@ -2071,7 +2167,9 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	// by opening a public channel on the network. We'll create a
 	// ChannelAnnouncement and hand it off to the gossiper in order to
 	// process it.
-	remoteChanAnn, err := createRemoteChannelAnnouncement(startingHeight - 1)
+	remoteChanAnn, err := ctx.createRemoteChannelAnnouncement(
+		startingHeight - 1,
+	)
 	require.NoError(t, err, "unable to create remote channel announcement")
 	peer := &mockPeer{pubKey, nil, nil, atomic.Bool{}}
 
@@ -2121,7 +2219,7 @@ func TestRejectZombieEdge(t *testing.T) {
 	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := ctx.createRemoteAnnouncements(0)
 	require.NoError(t, err, "unable to create announcements")
 	remotePeer := &mockPeer{pk: remoteKeyPriv2.PubKey()}
 
@@ -2222,7 +2320,7 @@ func TestProcessZombieEdgeNowLive(t *testing.T) {
 	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := ctx.createRemoteAnnouncements(0)
 	require.NoError(t, err, "unable to create announcements")
 
 	remotePeer := &mockPeer{pk: remoteKeyPriv1.PubKey()}
@@ -2377,7 +2475,7 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -2584,7 +2682,9 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	// that we don't know of ourselves, but should still include in the
 	// final signature check.
 	extraBytes := []byte("gotta validate this still!")
-	ca, err := createRemoteChannelAnnouncement(0, extraBytes)
+	ca, err := ctx.createRemoteChannelAnnouncement(
+		0, withExtraBytes(extraBytes),
+	)
 	require.NoError(t, err, "can't create channel announcement")
 
 	// We'll now send the announcement to the main gossiper. We should be
@@ -2616,7 +2716,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	// In this scenario, we'll create two announcements, one regular
 	// channel announcement, and another channel update announcement, that
 	// has additional data that we won't be interpreting.
-	chanAnn, err := createRemoteChannelAnnouncement(0)
+	chanAnn, err := ctx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "unable to create chan ann")
 	chanUpdAnn1, err := createUpdateAnnouncement(
 		0, 0, remoteKeyPriv1, timestamp,
@@ -2732,7 +2832,7 @@ func TestRetransmit(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -2838,7 +2938,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := ctx.createRemoteAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -2931,7 +3031,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 
 	// In this scenario, we'll test whether the message flags field in a
 	// channel update is properly handled.
-	chanAnn, err := createRemoteChannelAnnouncement(chanUpdateHeight)
+	chanAnn, err := ctx.createRemoteChannelAnnouncement(chanUpdateHeight)
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
@@ -3022,7 +3122,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "unable to create test context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	// We'll also create two keys, one for ourselves and another for the
@@ -3379,7 +3479,7 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	const numChannels = 3
 	channelsToAnnounce := make([]*annBatch, 0, numChannels)
 	for i := 0; i < numChannels; i++ {
-		newChan, err := createLocalAnnouncements(uint32(i + 1))
+		newChan, err := ctx.createLocalAnnouncements(uint32(i + 1))
 		if err != nil {
 			t.Fatalf("unable to make new channel ann: %v", err)
 		}
@@ -3556,10 +3656,10 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
-	chanAnn1 := createAnnouncementWithoutProof(
+	chanAnn1 := ctx.createAnnouncementWithoutProof(
 		100, selfKeyDesc.PubKey, remoteKeyPub1,
 	)
-	chanAnn2 := createAnnouncementWithoutProof(
+	chanAnn2 := ctx.createAnnouncementWithoutProof(
 		101, selfKeyDesc.PubKey, remoteKeyPub1,
 	)
 
@@ -3775,7 +3875,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 
 	// A remote channel announcement should not be broadcast since the graph
 	// has not yet been synced.
-	chanAnn1, err := createRemoteChannelAnnouncement(0)
+	chanAnn1, err := ctx.createRemoteChannelAnnouncement(0)
 	require.NoError(t, err, "unable to create channel announcement")
 	assertBroadcast(chanAnn1, true, false)
 
@@ -3789,7 +3889,7 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 	// should to be broadcast.
 	ctx.gossiper.syncMgr.markGraphSynced()
 
-	chanAnn2, err := createRemoteChannelAnnouncement(1)
+	chanAnn2, err := ctx.createRemoteChannelAnnouncement(1)
 	require.NoError(t, err, "unable to create channel announcement")
 	assertBroadcast(chanAnn2, true, true)
 }
@@ -3814,7 +3914,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	// We'll create a batch of signed announcements, including updates for
 	// both sides, for a channel and process them. They should all be
 	// forwarded as this is our first time learning about the channel.
-	batch, err := createRemoteAnnouncements(blockHeight)
+	batch, err := ctx.createRemoteAnnouncements(blockHeight)
 	require.NoError(t, err)
 
 	nodePeer1 := &mockPeer{
@@ -3954,7 +4054,7 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 	ctx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
 
-	batch, err := createLocalAnnouncements(0)
+	batch, err := ctx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -4100,7 +4200,7 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 
 	// First, we create a channel announcement to send over to our test
 	// peer.
-	batch, err := createRemoteAnnouncements(0)
+	batch, err := ctx.createRemoteAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
@@ -4185,25 +4285,21 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
 	}
 
-	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
 		// the router.
-		ca, err := createRemoteChannelAnnouncement(uint32(i))
+		ca, err := ctx.createRemoteChannelAnnouncement(uint32(i))
 		require.NoError(t, err, "can't create channel announcement")
 
 		select {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer1,
 		):
-			require.True(
-				t, graph.IsError(
-					err, graph.ErrInvalidFundingOutput,
-				),
-			)
+			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")
@@ -4216,16 +4312,16 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	// Assert that nodePeer has been disconnected.
 	require.True(t, nodePeer1.disconnected.Load())
 
-	ca, err := createRemoteChannelAnnouncement(101)
+	ca, err := ctx.createRemoteChannelAnnouncement(101)
 	require.NoError(t, err, "can't create channel announcement")
 
 	// Set the error to ErrChannelSpent so that we can test that the
 	// gossiper ignores closed channels.
-	ctx.router.setAddEdgeErrCode(graph.ErrChannelSpent)
+	ctx.router.setAddEdgeErr(graph.ErrChannelSpent)
 
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
-		require.True(t, graph.IsError(err, graph.ErrChannelSpent))
+		require.ErrorIs(t, err, graph.ErrChannelSpent)
 
 	case <-time.After(2 * time.Second):
 		t.Fatalf("remote announcement not processed")
@@ -4248,7 +4344,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 
 	// Reset the AddEdge error and pass the same announcement again. An
 	// error should be returned even though AddEdge won't fail.
-	ctx.router.resetAddEdgeErrCode()
+	ctx.router.resetAddEdgeErr()
 
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
@@ -4269,25 +4365,21 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
 
-	ctx.router.setAddEdgeErrCode(graph.ErrInvalidFundingOutput)
+	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
 		// the router.
-		ca, err := createRemoteChannelAnnouncement(uint32(i))
+		ca, err := ctx.createRemoteChannelAnnouncement(uint32(i))
 		require.NoError(t, err, "can't create channel announcement")
 
 		select {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer,
 		):
-			require.True(
-				t, graph.IsError(
-					err, graph.ErrInvalidFundingOutput,
-				),
-			)
+			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")
@@ -4299,4 +4391,128 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	// Assert that the peer wasn't disconnected.
 	require.False(t, nodePeer.disconnected.Load())
+}
+
+type mockChain struct {
+	blocks           map[chainhash.Hash]*wire.MsgBlock
+	blockIndex       map[uint32]chainhash.Hash
+	blockHeightIndex map[chainhash.Hash]uint32
+
+	utxos      map[wire.OutPoint]wire.TxOut
+	spentUTXOs map[wire.OutPoint]bool
+
+	bestHeight int32
+
+	sync.RWMutex
+}
+
+func newMockChain(currentHeight uint32) *mockChain {
+	return &mockChain{
+		bestHeight:       int32(currentHeight),
+		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
+		utxos:            make(map[wire.OutPoint]wire.TxOut),
+		spentUTXOs:       make(map[wire.OutPoint]bool),
+		blockIndex:       make(map[uint32]chainhash.Hash),
+		blockHeightIndex: make(map[chainhash.Hash]uint32),
+	}
+}
+
+func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	blockHash := m.blockIndex[uint32(m.bestHeight)]
+
+	return &blockHash, m.bestHeight, nil
+}
+
+func (m *mockChain) GetTransaction(_ *chainhash.Hash) (*wire.MsgTx, error) {
+	return nil, nil
+}
+
+func (m *mockChain) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
+	m.RLock()
+	defer m.RUnlock()
+
+	hash, ok := m.blockIndex[uint32(blockHeight)]
+	if !ok {
+		return nil, fmt.Errorf("block number out of range: %v",
+			blockHeight)
+	}
+
+	return &hash, nil
+}
+
+func (m *mockChain) addUtxo(op wire.OutPoint, out *wire.TxOut) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.utxos[op] = *out
+}
+
+func (m *mockChain) spendUtxo(op wire.OutPoint) {
+	m.Lock()
+	defer m.Unlock()
+
+	delete(m.utxos, op)
+	m.spentUTXOs[op] = true
+}
+
+func (m *mockChain) GetUtxo(op *wire.OutPoint, _ []byte, _ uint32,
+	_ <-chan struct{}) (*wire.TxOut, error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	if m.spentUTXOs[*op] {
+		return nil, btcwallet.ErrOutputSpent
+	}
+
+	utxo, ok := m.utxos[*op]
+	if !ok {
+		return nil, fmt.Errorf("utxo not found")
+	}
+
+	return &utxo, nil
+}
+
+func (m *mockChain) addBlock(block *wire.MsgBlock, height uint32,
+	nonce uint32) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	block.Header.Nonce = nonce
+	hash := block.Header.BlockHash()
+	m.blocks[hash] = block
+	m.blockIndex[height] = hash
+	m.blockHeightIndex[hash] = height
+}
+
+func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	block, ok := m.blocks[*blockHash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	return block, nil
+}
+
+func (m *mockChain) GetBlockHeader(
+	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	block, ok := m.blocks[*blockHash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	return &block.Header, nil
 }

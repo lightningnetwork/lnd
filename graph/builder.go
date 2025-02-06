@@ -1205,8 +1205,8 @@ func (b *Builder) processUpdate(msg interface{},
 			default:
 			}
 
-			return NewErrf(ErrNoFundingTransaction, "unable to "+
-				"locate funding tx: %v", err)
+			return fmt.Errorf("%w: %w", ErrNoFundingTransaction,
+				err)
 		}
 
 		// Recreate witness output to be sure that declared in channel
@@ -1240,8 +1240,8 @@ func (b *Builder) processUpdate(msg interface{},
 				return err
 			}
 
-			return NewErrf(ErrInvalidFundingOutput, "output "+
-				"failed validation: %w", err)
+			return fmt.Errorf("%w: %w", ErrInvalidFundingOutput,
+				err)
 		}
 
 		// Now that we have the funding outpoint of the channel, ensure
@@ -1259,9 +1259,10 @@ func (b *Builder) processUpdate(msg interface{},
 				}
 			}
 
-			return NewErrf(ErrChannelSpent, "unable to fetch utxo "+
-				"for chan_id=%v, chan_point=%v: %v",
-				msg.ChannelID, fundingPoint, err)
+			return fmt.Errorf("%w: unable to fetch utxo for "+
+				"chan_id=%v, chan_point=%v: %w",
+				ErrChannelSpent, scid.ToUint64(), fundingPoint,
+				err)
 		}
 
 		// TODO(roasbeef): this is a hack, needs to be removed

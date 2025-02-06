@@ -239,6 +239,9 @@ The underlying functionality between those two options remain the same.
 * [Golang was updated to
   `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 
 
+* Various preparations for moving funding tx validation to the gossiper 
+  [1](https://github.com/lightningnetwork/lnd/pull/9477).
+
 ## Breaking Changes
 ## Performance Improvements
 

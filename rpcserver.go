@@ -2237,6 +2237,10 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	rpcsLog.Debugf("[openchannel]: using fee of %v sat/kw for "+
 		"funding tx", int64(feeRate))
 
+	if len(in.CloseAddress) == 0 {
+		in.CloseAddress = r.cfg.CloseAddress
+	}
+
 	script, err := chancloser.ParseUpfrontShutdownAddress(
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,
 	)

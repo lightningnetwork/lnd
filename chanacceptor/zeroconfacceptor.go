@@ -1,6 +1,9 @@
 package chanacceptor
 
-import "github.com/lightningnetwork/lnd/lnwire"
+import (
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/lnwire"
+)
 
 // ZeroConfAcceptor wraps a regular ChainedAcceptor. If no acceptors are in the
 // ChainedAcceptor, then Accept will reject all channel open requests. This
@@ -15,6 +18,19 @@ type ZeroConfAcceptor struct {
 func NewZeroConfAcceptor() *ZeroConfAcceptor {
 	return &ZeroConfAcceptor{
 		chainedAcceptor: NewChainedAcceptor(),
+	}
+}
+
+// NewZeroConfAcceptorWithOpts initializes a ZeroConfAcceptor with the given
+// closeAddress and params.
+func NewZeroConfAcceptorWithOpts(
+	closeAddress string,
+	params *chaincfg.Params,
+) *ZeroConfAcceptor {
+
+	return &ZeroConfAcceptor{
+		chainedAcceptor: NewChainedAcceptorWithOpts(closeAddress,
+			params),
 	}
 }
 

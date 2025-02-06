@@ -823,8 +823,8 @@ func (hn *HarnessNode) KillAndWait() error {
 
 // printErrf prints an error to the console.
 func (hn *HarnessNode) printErrf(format string, a ...interface{}) {
-	fmt.Printf("itest error from [%s:%s]: %s\n", //nolint:forbidigo
-		hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
+	fmt.Printf("%v: itest error from [%s:%s]: %s\n", //nolint:forbidigo
+		time.Now().UTC(), hn.Cfg.LogFilenamePrefix, hn.Cfg.Name,
 		fmt.Sprintf(format, a...))
 }
 

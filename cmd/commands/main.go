@@ -22,7 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -66,10 +66,10 @@ func fatal(err error) {
 	os.Exit(1)
 }
 
-func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient,
+func getWalletUnlockerClient(cmd *cli.Command) (lnrpc.WalletUnlockerClient,
 	func()) {
 
-	conn := getClientConn(ctx, true)
+	conn := getClientConn(cmd, true)
 
 	cleanUp := func() {
 		conn.Close()
@@ -78,8 +78,8 @@ func getWalletUnlockerClient(ctx *cli.Context) (lnrpc.WalletUnlockerClient,
 	return lnrpc.NewWalletUnlockerClient(conn), cleanUp
 }
 
-func getStateServiceClient(ctx *cli.Context) (lnrpc.StateClient, func()) {
-	conn := getClientConn(ctx, true)
+func getStateServiceClient(cmd *cli.Command) (lnrpc.StateClient, func()) {
+	conn := getClientConn(cmd, true)
 
 	cleanUp := func() {
 		conn.Close()
@@ -88,8 +88,8 @@ func getStateServiceClient(ctx *cli.Context) (lnrpc.StateClient, func()) {
 	return lnrpc.NewStateClient(conn), cleanUp
 }
 
-func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
-	conn := getClientConn(ctx, false)
+func getClient(cmd *cli.Command) (lnrpc.LightningClient, func()) {
+	conn := getClientConn(cmd, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -98,10 +98,10 @@ func getClient(ctx *cli.Context) (lnrpc.LightningClient, func()) {
 	return lnrpc.NewLightningClient(conn), cleanUp
 }
 
-func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
+func getClientConn(cmd *cli.Command, skipMacaroons bool) *grpc.ClientConn {
 	// First, we'll get the selected stored profile or an ephemeral one
 	// created from the global options in the CLI context.
-	profile, err := getGlobalOptions(ctx, skipMacaroons)
+	profile, err := getGlobalOptions(cmd, skipMacaroons)
 	if err != nil {
 		fatal(fmt.Errorf("could not load global options: %w", err))
 	}
@@ -147,8 +147,8 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	if !profile.NoMacaroons && !skipMacaroons {
 		// Find out which macaroon to load.
 		macName := profile.Macaroons.Default
-		if ctx.GlobalIsSet("macfromjar") {
-			macName = ctx.GlobalString("macfromjar")
+		if cmd.IsSet("macfromjar") {
+			macName = cmd.String("macfromjar")
 		}
 		var macEntry *macaroonEntry
 		for _, entry := range profile.Macaroons.Jar {
@@ -210,8 +210,8 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 
 	// If a socksproxy server is specified we use a tor dialer
 	// to connect to the grpc server.
-	if ctx.GlobalIsSet("socksproxy") {
-		socksProxy := ctx.GlobalString("socksproxy")
+	if cmd.IsSet("socksproxy") {
+		socksProxy := cmd.String("socksproxy")
 		torDialer := func(_ context.Context, addr string) (net.Conn,
 			error) {
 
@@ -283,8 +283,8 @@ func contextWithMetadata(ctx context.Context,
 
 // extractPathArgs parses the TLS certificate and macaroon paths from the
 // command.
-func extractPathArgs(ctx *cli.Context) (string, string, error) {
-	network := strings.ToLower(ctx.GlobalString("network"))
+func extractPathArgs(cmd *cli.Command) (string, string, error) {
+	network := strings.ToLower(cmd.String("network"))
 	switch network {
 	case "mainnet", "testnet", "regtest", "simnet", "signet":
 	default:
@@ -295,13 +295,13 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// properly read the macaroons (if needed) and also the cert. This will
 	// either be the default, or will have been overwritten by the end
 	// user.
-	lndDir := lncfg.CleanAndExpandPath(ctx.GlobalString("lnddir"))
+	lndDir := lncfg.CleanAndExpandPath(cmd.String("lnddir"))
 
 	// If the macaroon path as been manually provided, then we'll only
 	// target the specified file.
 	var macPath string
-	if ctx.GlobalString("macaroonpath") != "" {
-		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString(
+	if cmd.String("macaroonpath") != "" {
+		macPath = lncfg.CleanAndExpandPath(cmd.String(
 			"macaroonpath",
 		))
 	} else {
@@ -314,7 +314,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		)
 	}
 
-	tlsCertPath := lncfg.CleanAndExpandPath(ctx.GlobalString("tlscertpath"))
+	tlsCertPath := lncfg.CleanAndExpandPath(cmd.String("tlscertpath"))
 
 	// If a custom lnd directory was set, we'll also check if custom paths
 	// for the TLS cert and macaroon file were set as well. If not, we'll
@@ -331,14 +331,14 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 // checkNotBothSet accepts two flag names, a and b, and checks that only flag a
 // or flag b can be set, but not both. It returns the name of the flag or an
 // error.
-func checkNotBothSet(ctx *cli.Context, a, b string) (string, error) {
-	if ctx.IsSet(a) && ctx.IsSet(b) {
+func checkNotBothSet(cmd *cli.Command, a, b string) (string, error) {
+	if cmd.IsSet(a) && cmd.IsSet(b) {
 		return "", fmt.Errorf(
 			"either %s or %s should be set, but not both", a, b,
 		)
 	}
 
-	if ctx.IsSet(a) {
+	if cmd.IsSet(a) {
 		return a, nil
 	}
 
@@ -346,91 +346,95 @@ func checkNotBothSet(ctx *cli.Context, a, b string) (string, error) {
 }
 
 func Main() {
-	app := cli.NewApp()
+	// app := cli.NewApp()
+	app := &cli.Command{}
 	app.Name = "lncli"
 	app.Version = build.Version() + " commit=" + build.Commit
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
-		cli.StringFlag{
-			Name:   "rpcserver",
-			Value:  defaultRPCHostPort,
-			Usage:  "The host:port of LN daemon.",
-			EnvVar: envVarRPCServer,
+		&cli.StringFlag{
+			Name:    "rpcserver",
+			Value:   defaultRPCHostPort,
+			Usage:   "The host:port of LN daemon.",
+			Sources: cli.EnvVars(envVarRPCServer),
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "lnddir",
 			Value:     DefaultLndDir,
 			Usage:     "The path to lnd's base directory.",
 			TakesFile: true,
-			EnvVar:    envVarLNDDir,
+			Sources:   cli.EnvVars(envVarLNDDir),
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "socksproxy",
 			Usage: "The host:port of a SOCKS proxy through " +
 				"which all connections to the LN " +
 				"daemon will be established over.",
-			EnvVar: envVarSOCKSProxy,
+			Sources: cli.EnvVars(envVarSOCKSProxy),
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "tlscertpath",
 			Value:     defaultTLSCertPath,
 			Usage:     "The path to lnd's TLS certificate.",
 			TakesFile: true,
-			EnvVar:    envVarTLSCertPath,
+			Sources:   cli.EnvVars(envVarTLSCertPath),
 		},
-		cli.StringFlag{
-			Name:   "chain, c",
-			Usage:  "The chain lnd is running on, e.g. bitcoin.",
-			Value:  "bitcoin",
-			EnvVar: envVarChain,
+		&cli.StringFlag{
+			Name:    "chain",
+			Aliases: []string{"c"},
+			Usage:   "The chain lnd is running on, e.g. bitcoin.",
+			Value:   "bitcoin",
+			Sources: cli.EnvVars(envVarChain),
 		},
-		cli.StringFlag{
-			Name: "network, n",
+		&cli.StringFlag{
+			Name:    "network",
+			Aliases: []string{"n"},
 			Usage: "The network lnd is running on, e.g. mainnet, " +
 				"testnet, etc.",
-			Value:  "mainnet",
-			EnvVar: envVarNetwork,
+			Value:   "mainnet",
+			Sources: cli.EnvVars(envVarNetwork),
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "no-macaroons",
 			Usage: "Disable macaroon authentication.",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:      "macaroonpath",
 			Usage:     "The path to macaroon file.",
 			TakesFile: true,
-			EnvVar:    envVarMacaroonPath,
+			Sources:   cli.EnvVars(envVarMacaroonPath),
 		},
-		cli.Int64Flag{
+		&cli.IntFlag{
 			Name:  "macaroontimeout",
 			Value: 60,
 			Usage: "Anti-replay macaroon validity time in " +
 				"seconds.",
-			EnvVar: envVarMacaroonTimeout,
+			Sources: cli.EnvVars(envVarMacaroonTimeout),
 		},
-		cli.StringFlag{
-			Name:   "macaroonip",
-			Usage:  "If set, lock macaroon to specific IP address.",
-			EnvVar: envVarMacaroonIP,
+		&cli.StringFlag{
+			Name:    "macaroonip",
+			Usage:   "If set, lock macaroon to specific IP address.",
+			Sources: cli.EnvVars(envVarMacaroonIP),
 		},
-		cli.StringFlag{
-			Name: "profile, p",
+		&cli.StringFlag{
+			Name:    "profile",
+			Aliases: []string{"p"},
 			Usage: "Instead of reading settings from command " +
 				"line parameters or using the default " +
 				"profile, use a specific profile. If " +
 				"a default profile is set, this flag can be " +
 				"set to an empty string to disable reading " +
 				"values from the profiles file.",
-			EnvVar: envVarProfile,
+			Sources: cli.EnvVars(envVarProfile),
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "macfromjar",
 			Usage: "Use this macaroon from the profile's " +
 				"macaroon jar instead of the default one. " +
 				"Can only be used if profiles are defined.",
-			EnvVar: envVarMacFromJar,
+			Sources: cli.EnvVars(envVarMacFromJar),
 		},
-		cli.StringSliceFlag{
+		&cli.StringSliceFlag{
 			Name: "metadata",
 			Usage: "This flag can be used to specify a key-value " +
 				"pair that should be appended to the " +
@@ -438,14 +442,14 @@ func Main() {
 				"to lnd. This flag may be specified multiple " +
 				"times. The format is: \"key:value\".",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "insecure",
 			Usage: "Connect to the rpc server without TLS " +
 				"authentication",
 			Hidden: true,
 		},
 	}
-	app.Commands = []cli.Command{
+	app.Commands = []*cli.Command{
 		createCommand,
 		createWatchOnlyCommand,
 		unlockCommand,
@@ -529,7 +533,7 @@ func Main() {
 	app.Commands = append(app.Commands, peersCommands()...)
 	app.Commands = append(app.Commands, chainCommands()...)
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		fatal(err)
 	}
 }
@@ -549,8 +553,8 @@ func readPassword(text string) ([]byte, error) {
 }
 
 // networkParams parses the global network flag into a chaincfg.Params.
-func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
-	network := strings.ToLower(ctx.GlobalString("network"))
+func networkParams(cmd *cli.Command) (*chaincfg.Params, error) {
+	network := strings.ToLower(cmd.String("network"))
 	switch network {
 	case "mainnet":
 		return &chaincfg.MainNetParams, nil
@@ -574,11 +578,11 @@ func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
 
 // parseCoinSelectionStrategy parses a coin selection strategy string
 // from the CLI to its lnrpc.CoinSelectionStrategy counterpart proto type.
-func parseCoinSelectionStrategy(ctx *cli.Context) (
+func parseCoinSelectionStrategy(cmd *cli.Command) (
 	lnrpc.CoinSelectionStrategy, error) {
 
-	strategy := ctx.String(coinSelectionStrategyFlag.Name)
-	if !ctx.IsSet(coinSelectionStrategyFlag.Name) {
+	strategy := cmd.String(coinSelectionStrategyFlag.Name)
+	if !cmd.IsSet(coinSelectionStrategyFlag.Name) {
 		return lnrpc.CoinSelectionStrategy_STRATEGY_USE_GLOBAL_CONFIG,
 			nil
 	}

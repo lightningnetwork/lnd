@@ -5,6 +5,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -23,17 +24,17 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 var (
 	// psbtCommand is a wallet subcommand that is responsible for PSBT
 	// operations.
-	psbtCommand = cli.Command{
+	psbtCommand = &cli.Command{
 		Name: "psbt",
 		Usage: "Interact with partially signed bitcoin transactions " +
 			"(PSBTs).",
-		Subcommands: []cli.Command{
+		Commands: []*cli.Command{
 			fundPsbtCommand,
 			fundTemplatePsbtCommand,
 			finalizePsbtCommand,
@@ -42,10 +43,10 @@ var (
 
 	// accountsCommand is a wallet subcommand that is responsible for
 	// account management operations.
-	accountsCommand = cli.Command{
+	accountsCommand = &cli.Command{
 		Name:  "accounts",
 		Usage: "Interact with wallet accounts.",
-		Subcommands: []cli.Command{
+		Commands: []*cli.Command{
 			listAccountsCommand,
 			importAccountCommand,
 			importPubKeyCommand,
@@ -54,10 +55,10 @@ var (
 
 	// addressesCommand is a wallet subcommand that is responsible for
 	// address management operations.
-	addressesCommand = cli.Command{
+	addressesCommand = &cli.Command{
 		Name:  "addresses",
 		Usage: "Interact with wallet addresses.",
-		Subcommands: []cli.Command{
+		Commands: []*cli.Command{
 			listAddressesCommand,
 			signMessageWithAddrCommand,
 			verifyMessageWithAddrCommand,
@@ -69,14 +70,14 @@ var (
 
 // walletCommands will return the set of commands to enable for walletrpc
 // builds.
-func walletCommands() []cli.Command {
-	return []cli.Command{
+func walletCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:        "wallet",
 			Category:    "Wallet",
 			Usage:       "Interact with the wallet.",
 			Description: "",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				estimateFeeRateCommand,
 				pendingSweepsCommand,
 				bumpFeeCommand,
@@ -117,15 +118,15 @@ func parseAddrType(addrTypeStr string) (walletrpc.AddressType, error) {
 	}
 }
 
-func getWalletClient(ctx *cli.Context) (walletrpc.WalletKitClient, func()) {
-	conn := getClientConn(ctx, false)
+func getWalletClient(cmd *cli.Command) (walletrpc.WalletKitClient, func()) {
+	conn := getClientConn(cmd, false)
 	cleanUp := func() {
 		conn.Close()
 	}
 	return walletrpc.NewWalletKitClient(conn), cleanUp
 }
 
-var estimateFeeRateCommand = cli.Command{
+var estimateFeeRateCommand = &cli.Command{
 	Name: "estimatefeerate",
 	Usage: "Estimates the on-chain fee rate to achieve a confirmation " +
 		"target.",
@@ -139,14 +140,14 @@ var estimateFeeRateCommand = cli.Command{
 	Action: actionDecorator(estimateFeeRate),
 }
 
-func estimateFeeRate(ctx *cli.Context) error {
+func estimateFeeRate(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getWalletClient(ctx)
+	client, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
-	confTarget, err := strconv.ParseInt(ctx.Args().First(), 10, 64)
+	confTarget, err := strconv.ParseInt(cmd.Args().First(), 10, 64)
 	if err != nil {
-		return cli.ShowCommandHelp(ctx, "estimatefeerate")
+		return cli.ShowCommandHelp(ctx, cmd, "estimatefeerate")
 	}
 
 	if confTarget <= 0 || confTarget > math.MaxInt32 {
@@ -181,7 +182,7 @@ func estimateFeeRate(ctx *cli.Context) error {
 	return nil
 }
 
-var pendingSweepsCommand = cli.Command{
+var pendingSweepsCommand = &cli.Command{
 	Name:      "pendingsweeps",
 	Usage:     "List all outputs that are pending to be swept within lnd.",
 	ArgsUsage: "",
@@ -194,9 +195,9 @@ var pendingSweepsCommand = cli.Command{
 	Action: actionDecorator(pendingSweeps),
 }
 
-func pendingSweeps(ctx *cli.Context) error {
+func pendingSweeps(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getWalletClient(ctx)
+	client, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.PendingSweepsRequest{}
@@ -229,7 +230,7 @@ func pendingSweeps(ctx *cli.Context) error {
 	return nil
 }
 
-var bumpFeeCommand = cli.Command{
+var bumpFeeCommand = &cli.Command{
 	Name:      "bumpfee",
 	Usage:     "Bumps the fee of an arbitrary input/transaction.",
 	ArgsUsage: "outpoint",
@@ -265,24 +266,24 @@ var bumpFeeCommand = cli.Command{
 	fee transaction that is under the control of the wallet.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "conf_target",
 			Usage: `
 	The deadline in number of blocks that the input should be spent within.
 	When not set, for new inputs, the default value (1008) is used; for
 	exiting inputs, their current values will be retained.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_vbyte",
 			Usage: `
 	The starting fee rate, expressed in sat/vbyte, that will be used to
@@ -291,13 +292,13 @@ var bumpFeeCommand = cli.Command{
 	sweeper will use the estimated fee rate using the target_conf as the
 	starting fee rate.`,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "immediate",
 			Usage: `
 	Whether this input will be swept immediately. When set to true, the
 	sweeper will sweep this input without waiting for the next batch.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "budget",
 			Usage: `
 	The max amount in sats that can be used as the fees. Setting this value
@@ -311,44 +312,44 @@ var bumpFeeCommand = cli.Command{
 	Action: actionDecorator(bumpFee),
 }
 
-func bumpFee(ctx *cli.Context) error {
+func bumpFee(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "bumpfee")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "bumpfee")
 	}
 
 	// Validate and parse the relevant arguments/flags.
-	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
+	protoOutPoint, err := NewProtoOutPoint(cmd.Args().Get(0))
 	if err != nil {
 		return err
 	}
 
-	client, cleanUp := getWalletClient(ctx)
+	client, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	// Parse immediate flag (force flag was deprecated).
 	immediate := false
 	switch {
-	case ctx.IsSet("immediate") && ctx.IsSet("force"):
+	case cmd.IsSet("immediate") && cmd.IsSet("force"):
 		return fmt.Errorf("cannot set immediate and force flag at " +
 			"the same time")
 
-	case ctx.Bool("immediate"):
+	case cmd.Bool("immediate"):
 		immediate = true
 
-	case ctx.Bool("force"):
+	case cmd.Bool("force"):
 		immediate = true
 	}
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
 		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
+		TargetConf:  uint32(cmd.Uint("conf_target")),
 		Immediate:   immediate,
-		Budget:      ctx.Uint64("budget"),
-		SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		Budget:      cmd.Uint("budget"),
+		SatPerVbyte: cmd.Uint("sat_per_vbyte"),
 	})
 	if err != nil {
 		return err
@@ -359,7 +360,7 @@ func bumpFee(ctx *cli.Context) error {
 	return nil
 }
 
-var bumpCloseFeeCommand = cli.Command{
+var bumpCloseFeeCommand = &cli.Command{
 	Name:      "bumpclosefee",
 	Usage:     "Bumps the fee of a channel force closing transaction.",
 	ArgsUsage: "channel_point",
@@ -374,24 +375,24 @@ var bumpCloseFeeCommand = cli.Command{
 	NOTE: This cmd is DEPRECATED please use bumpforceclosefee instead.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "conf_target",
 			Usage: `
 	The deadline in number of blocks that the input should be spent within.
 	When not set, for new inputs, the default value (1008) is used; for
 	exiting inputs, their current values will be retained.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_vbyte",
 			Usage: `
 	The starting fee rate, expressed in sat/vbyte, that will be used to
@@ -400,13 +401,13 @@ var bumpCloseFeeCommand = cli.Command{
 	sweeper will use the estimated fee rate using the target_conf as the
 	starting fee rate.`,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "immediate",
 			Usage: `
 	Whether this input will be swept immediately. When set to true, the
 	sweeper will sweep this input without waiting for the next batch.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "budget",
 			Usage: `
 	The max amount in sats that can be used as the fees. Setting this value
@@ -420,7 +421,7 @@ var bumpCloseFeeCommand = cli.Command{
 	Action: actionDecorator(bumpForceCloseFee),
 }
 
-var bumpForceCloseFeeCommand = cli.Command{
+var bumpForceCloseFeeCommand = &cli.Command{
 	Name:      "bumpforceclosefee",
 	Usage:     "Bumps the fee of a channel force closing transaction.",
 	ArgsUsage: "channel_point",
@@ -432,18 +433,18 @@ var bumpForceCloseFeeCommand = cli.Command{
 	confirmation target and limit the fees to the specified budget.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "conf_target",
 			Usage: `
 	The deadline in number of blocks that the anchor output should be spent
 	within to bump the closing transaction.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name:   "sat_per_byte",
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_vbyte",
 			Usage: `
 	The starting fee rate, expressed in sat/vbyte. This value will be used
@@ -451,12 +452,12 @@ var bumpForceCloseFeeCommand = cli.Command{
 	the sweeper will use the estimated fee rate using the target_conf as the
 	starting fee rate.`,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:   "force",
 			Usage:  "Deprecated, use immediate instead.",
 			Hidden: true,
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "immediate",
 			Usage: `
 	Whether this cpfp transaction will be triggered immediately. When set to
@@ -464,7 +465,7 @@ var bumpForceCloseFeeCommand = cli.Command{
 	and trigger new batch transactions including the sweeping of the anchor 
 	output related to the selected force close transaction.`,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "budget",
 			Usage: `
 	The max amount in sats that can be used as the fees. For already
@@ -478,45 +479,45 @@ var bumpForceCloseFeeCommand = cli.Command{
 	Action: actionDecorator(bumpForceCloseFee),
 }
 
-func bumpForceCloseFee(ctx *cli.Context) error {
+func bumpForceCloseFee(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "bumpclosefee")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "bumpclosefee")
 	}
 
 	// Validate the channel point.
-	channelPoint := ctx.Args().Get(0)
+	channelPoint := cmd.Args().First()
 	rpcChannelPoint, err := parseChanPoint(channelPoint)
 	if err != nil {
 		return err
 	}
 
 	// `sat_per_byte` was deprecated we only use sats/vbyte now.
-	if ctx.IsSet("sat_per_byte") {
+	if cmd.IsSet("sat_per_byte") {
 		return fmt.Errorf("deprecated, use sat_per_vbyte instead")
 	}
 
 	// Retrieve pending sweeps.
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	// Parse immediate flag (force flag was deprecated).
-	if ctx.IsSet("immediate") && ctx.IsSet("force") {
+	if cmd.IsSet("immediate") && cmd.IsSet("force") {
 		return fmt.Errorf("cannot set immediate and force flag at " +
 			"the same time")
 	}
-	immediate := ctx.Bool("immediate") || ctx.Bool("force")
+	immediate := cmd.Bool("immediate") || cmd.Bool("force")
 
 	resp, err := walletClient.BumpForceCloseFee(
 		ctxc, &walletrpc.BumpForceCloseFeeRequest{
 			ChanPoint:       rpcChannelPoint,
-			DeadlineDelta:   uint32(ctx.Uint64("conf_target")),
-			Budget:          ctx.Uint64("budget"),
+			DeadlineDelta:   uint32(cmd.Uint("conf_target")),
+			Budget:          cmd.Uint("budget"),
 			Immediate:       immediate,
-			StartingFeerate: ctx.Uint64("sat_per_vbyte"),
+			StartingFeerate: cmd.Uint("sat_per_vbyte"),
 		})
 	if err != nil {
 		return err
@@ -527,15 +528,15 @@ func bumpForceCloseFee(ctx *cli.Context) error {
 	return nil
 }
 
-var listSweepsCommand = cli.Command{
+var listSweepsCommand = &cli.Command{
 	Name:  "listsweeps",
 	Usage: "Lists all sweeps that have been published by our node.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "verbose",
 			Usage: "lookup full transaction",
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "startheight",
 			Usage: "The start height to use when fetching " +
 				"sweeps. If not specified (0), the result " +
@@ -555,15 +556,15 @@ var listSweepsCommand = cli.Command{
 	Action: actionDecorator(listSweeps),
 }
 
-func listSweeps(ctx *cli.Context) error {
+func listSweeps(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
-	client, cleanUp := getWalletClient(ctx)
+	client, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	resp, err := client.ListSweeps(
 		ctxc, &walletrpc.ListSweepsRequest{
-			Verbose:     ctx.IsSet("verbose"),
-			StartHeight: int32(ctx.Int("startheight")),
+			Verbose:     cmd.IsSet("verbose"),
+			StartHeight: int32(cmd.Int("startheight")),
 		},
 	)
 	if err != nil {
@@ -575,7 +576,7 @@ func listSweeps(ctx *cli.Context) error {
 	return nil
 }
 
-var labelTxCommand = cli.Command{
+var labelTxCommand = &cli.Command{
 	Name:      "labeltx",
 	Usage:     "Adds a label to a transaction.",
 	ArgsUsage: "txid label",
@@ -586,7 +587,7 @@ var labelTxCommand = cli.Command{
 	in quotation marks ("").
 	`,
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "overwrite",
 			Usage: "set to overwrite existing labels",
 		},
@@ -594,32 +595,32 @@ var labelTxCommand = cli.Command{
 	Action: actionDecorator(labelTransaction),
 }
 
-func labelTransaction(ctx *cli.Context) error {
+func labelTransaction(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 2 {
-		return cli.ShowCommandHelp(ctx, "labeltx")
+	if cmd.NArg() != 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "labeltx")
 	}
 
 	// Get the transaction id and check that it is a valid hash.
-	txid := ctx.Args().Get(0)
+	txid := cmd.Args().First()
 	hash, err := chainhash.NewHashFromStr(txid)
 	if err != nil {
 		return err
 	}
 
-	label := ctx.Args().Get(1)
+	label := cmd.Args().Get(1)
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	_, err = walletClient.LabelTransaction(
 		ctxc, &walletrpc.LabelTransactionRequest{
 			Txid:      hash[:],
 			Label:     label,
-			Overwrite: ctx.Bool("overwrite"),
+			Overwrite: cmd.Bool("overwrite"),
 		},
 	)
 	if err != nil {
@@ -631,7 +632,7 @@ func labelTransaction(ctx *cli.Context) error {
 	return nil
 }
 
-var publishTxCommand = cli.Command{
+var publishTxCommand = &cli.Command{
 	Name:      "publishtx",
 	Usage:     "Attempts to publish the passed transaction to the network.",
 	ArgsUsage: "tx_hex",
@@ -642,7 +643,7 @@ var publishTxCommand = cli.Command{
 	that multi word labels must be contained in quotation marks ("").
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "label",
 			Usage: "(optional) transaction label",
 		},
@@ -650,19 +651,19 @@ var publishTxCommand = cli.Command{
 	Action: actionDecorator(publishTransaction),
 }
 
-func publishTransaction(ctx *cli.Context) error {
+func publishTransaction(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
-		return cli.ShowCommandHelp(ctx, "publishtx")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "publishtx")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
-	tx, err := hex.DecodeString(ctx.Args().First())
+	tx, err := hex.DecodeString(cmd.Args().First())
 	if err != nil {
 		return err
 	}
@@ -692,7 +693,7 @@ func publishTransaction(ctx *cli.Context) error {
 	return nil
 }
 
-var getTxCommand = cli.Command{
+var getTxCommand = &cli.Command{
 	Name:      "gettx",
 	Usage:     "Returns details of a transaction.",
 	ArgsUsage: "txid",
@@ -703,20 +704,20 @@ var getTxCommand = cli.Command{
 	Action: actionDecorator(getTransaction),
 }
 
-func getTransaction(ctx *cli.Context) error {
+func getTransaction(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "gettx")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "gettx")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.GetTransactionRequest{
-		Txid: ctx.Args().First(),
+		Txid: cmd.Args().First(),
 	}
 
 	res, err := walletClient.GetTransaction(ctxc, req)
@@ -729,7 +730,7 @@ func getTransaction(ctx *cli.Context) error {
 	return nil
 }
 
-var removeTxCommand = cli.Command{
+var removeTxCommand = &cli.Command{
 	Name: "removetx",
 	Usage: "Attempts to remove the unconfirmed transaction with the " +
 		"specified txid and all its children from the underlying " +
@@ -750,23 +751,23 @@ var removeTxCommand = cli.Command{
 	Action: actionDecorator(removeTransaction),
 }
 
-func removeTransaction(ctx *cli.Context) error {
+func removeTransaction(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 {
-		return cli.ShowCommandHelp(ctx, "removetx")
+	if cmd.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "removetx")
 	}
 
 	// Fetch the only cmd argument which must be a valid txid.
-	txid := ctx.Args().First()
+	txid := cmd.Args().First()
 	txHash, err := chainhash.NewHashFromStr(txid)
 	if err != nil {
 		return err
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.GetTransactionRequest{
@@ -806,7 +807,7 @@ type fundPsbtResponse struct {
 	Locks             []*utxoLease `json:"locks"`
 }
 
-var fundTemplatePsbtCommand = cli.Command{
+var fundTemplatePsbtCommand = &cli.Command{
 	Name: "fundtemplate",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT) from a " +
 		"template.",
@@ -860,40 +861,40 @@ var fundTemplatePsbtCommand = cli.Command{
 	selection key scope.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "template_psbt",
 			Usage: "the outputs to fund and optional inputs to " +
 				"spend provided in the base64 PSBT format",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "outputs",
 			Usage: "a JSON compatible map of destination " +
 				"addresses to amounts to send, must not " +
 				"include a change address as that will be " +
 				"added automatically by the wallet",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "inputs",
 			Usage: "an optional JSON compatible list of UTXO " +
 				"outpoints to use as the PSBT's inputs",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the transaction " +
 				"should be confirmed on-chain within",
 			Value: 6,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when creating the transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to use to " +
 				"create/fund the PSBT",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "change_type",
 			Usage: "(optional) the type of the change address to " +
 				"use to create/fund the PSBT. If no address " +
@@ -904,14 +905,14 @@ var fundTemplatePsbtCommand = cli.Command{
 				"always use the coin selection key scope to " +
 				"generate the change address",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of " +
 				"confirmations each input used for the PSBT " +
 				"transaction must satisfy",
 			Value: defaultUtxoMinConf,
 		},
-		cli.IntFlag{
+		&cli.IntFlag{
 			Name: "change_output_index",
 			Usage: "(optional) define an existing output in the " +
 				"PSBT template that should be used as the " +
@@ -928,16 +929,16 @@ var fundTemplatePsbtCommand = cli.Command{
 // fundTemplatePsbt implements the fundtemplate sub command.
 //
 //nolint:funlen
-func fundTemplatePsbt(ctx *cli.Context) error {
+func fundTemplatePsbt(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if there aren't any flags
 	// specified.
-	if ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "fund")
+	if cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "fund")
 	}
 
-	chainParams, err := networkParams(ctx)
+	chainParams, err := networkParams(cmd)
 	if err != nil {
 		return err
 	}
@@ -947,15 +948,15 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 	// Parse template flags.
 	switch {
 	// The PSBT flag is mutually exclusive with the outputs/inputs flags.
-	case ctx.IsSet("template_psbt") &&
-		(ctx.IsSet("inputs") || ctx.IsSet("outputs")):
+	case cmd.IsSet("template_psbt") &&
+		(cmd.IsSet("inputs") || cmd.IsSet("outputs")):
 
 		return fmt.Errorf("cannot set template_psbt and inputs/" +
 			"outputs flags at the same time")
 
 	// Use a pre-existing PSBT as the transaction template.
-	case len(ctx.String("template_psbt")) > 0:
-		psbtBase64 := ctx.String("template_psbt")
+	case len(cmd.String("template_psbt")) > 0:
+		psbtBase64 := cmd.String("template_psbt")
 		psbtBytes, err := base64.StdEncoding.DecodeString(psbtBase64)
 		if err != nil {
 			return err
@@ -965,18 +966,18 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 
 	// The user manually specified outputs and/or inputs in JSON
 	// format.
-	case len(ctx.String("outputs")) > 0 || len(ctx.String("inputs")) > 0:
+	case len(cmd.String("outputs")) > 0 || len(cmd.String("inputs")) > 0:
 		var (
 			inputs  []*wire.OutPoint
 			outputs []*wire.TxOut
 		)
 
-		if len(ctx.String("outputs")) > 0 {
+		if len(cmd.String("outputs")) > 0 {
 			var outputStrings []string
 
 			// Parse the address to amount map as JSON now. At least
 			// one entry must be present.
-			jsonMap := []byte(ctx.String("outputs"))
+			jsonMap := []byte(cmd.String("outputs"))
 			err := json.Unmarshal(jsonMap, &outputStrings)
 			if err != nil {
 				return fmt.Errorf("error parsing outputs "+
@@ -1026,10 +1027,10 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 		}
 
 		// Inputs are optional.
-		if len(ctx.String("inputs")) > 0 {
+		if len(cmd.String("inputs")) > 0 {
 			var inputStrings []string
 
-			jsonList := []byte(ctx.String("inputs"))
+			jsonList := []byte(cmd.String("inputs"))
 			err := json.Unmarshal(jsonList, &inputStrings)
 			if err != nil {
 				return fmt.Errorf("error parsing inputs JSON: "+
@@ -1069,14 +1070,14 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 			"inputs/outputs flag")
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 	req := &walletrpc.FundPsbtRequest{
-		Account:          ctx.String("account"),
+		Account:          cmd.String("account"),
 		MinConfs:         minConfs,
 		SpendUnconfirmed: minConfs == 0,
 		Template: &walletrpc.FundPsbtRequest_CoinSelect{
@@ -1087,26 +1088,26 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 
 	// Parse fee flags.
 	switch {
-	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte"):
+	case cmd.IsSet("conf_target") && cmd.IsSet("sat_per_vbyte"):
 		return fmt.Errorf("cannot set conf_target and sat_per_vbyte " +
 			"at the same time")
 
-	case ctx.Uint64("sat_per_vbyte") > 0:
+	case cmd.Uint("sat_per_vbyte") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+			SatPerVbyte: cmd.Uint("sat_per_vbyte"),
 		}
 
 	// Check conf_target last because it has a default value.
-	case ctx.Uint64("conf_target") > 0:
+	case cmd.Uint("conf_target") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
-			TargetConf: uint32(ctx.Uint64("conf_target")),
+			TargetConf: uint32(cmd.Uint("conf_target")),
 		}
 	}
 
 	type existingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
 
 	// Parse change type flag.
-	changeOutputIndex := ctx.Int("change_output_index")
+	changeOutputIndex := cmd.Int("change_output_index")
 	switch {
 	case changeOutputIndex == -1:
 		coinSelect.ChangeOutput = &walletrpc.PsbtCoinSelect_Add{
@@ -1122,8 +1123,8 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 			changeOutputIndex)
 	}
 
-	if ctx.IsSet("change_type") {
-		switch addressType := ctx.String("change_type"); addressType {
+	if cmd.IsSet("change_type") {
+		switch addressType := cmd.String("change_type"); addressType {
 		case "p2tr":
 			req.ChangeType = p2TrChangeType
 
@@ -1135,7 +1136,7 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 		}
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	response, err := walletClient.FundPsbt(ctxc, req)
@@ -1156,7 +1157,7 @@ func fundTemplatePsbt(ctx *cli.Context) error {
 	return nil
 }
 
-var fundPsbtCommand = cli.Command{
+var fundPsbtCommand = &cli.Command{
 	Name:  "fund",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT).",
 	ArgsUsage: "[--template_psbt=T | [--outputs=O [--inputs=I]]] " +
@@ -1195,45 +1196,45 @@ var fundPsbtCommand = cli.Command{
 	selection key scope.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "template_psbt",
 			Usage: "the outputs to fund and optional inputs to " +
 				"spend provided in the base64 PSBT format",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "outputs",
 			Usage: "a JSON compatible map of destination " +
 				"addresses to amounts to send, must not " +
 				"include a change address as that will be " +
 				"added automatically by the wallet",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "inputs",
 			Usage: "an optional JSON compatible list of UTXO " +
 				"outpoints to use as the PSBT's inputs",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the transaction " +
 				"should be confirmed on-chain within",
 			Value: 6,
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when creating the transaction",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "sat_per_kw",
 			Usage: "a manual fee expressed in sat/kw that " +
 				"should be used when creating the transaction",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to use to " +
 				"create/fund the PSBT",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "change_type",
 			Usage: "(optional) the type of the change address to " +
 				"use to create/fund the PSBT. If no address " +
@@ -1244,7 +1245,7 @@ var fundPsbtCommand = cli.Command{
 				"always use the coin selection key scope to " +
 				"generate the change address",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of " +
 				"confirmations each input used for the PSBT " +
@@ -1252,7 +1253,7 @@ var fundPsbtCommand = cli.Command{
 			Value: defaultUtxoMinConf,
 		},
 		coinSelectionStrategyFlag,
-		cli.Float64Flag{
+		&cli.FloatFlag{
 			Name: "max_fee_ratio",
 			Usage: "the maximum fee to total output amount ratio " +
 				"that this psbt should adhere to",
@@ -1262,23 +1263,23 @@ var fundPsbtCommand = cli.Command{
 	Action: actionDecorator(fundPsbt),
 }
 
-func fundPsbt(ctx *cli.Context) error {
+func fundPsbt(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if there aren't any flags
 	// specified.
-	if ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "fund")
+	if cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "fund")
 	}
 
-	coinSelectionStrategy, err := parseCoinSelectionStrategy(ctx)
+	coinSelectionStrategy, err := parseCoinSelectionStrategy(cmd)
 	if err != nil {
 		return err
 	}
 
-	minConfs := int32(ctx.Uint64("min_confs"))
+	minConfs := int32(cmd.Uint("min_confs"))
 	req := &walletrpc.FundPsbtRequest{
-		Account:               ctx.String("account"),
+		Account:               cmd.String("account"),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
@@ -1287,15 +1288,15 @@ func fundPsbt(ctx *cli.Context) error {
 	// Parse template flags.
 	switch {
 	// The PSBT flag is mutually exclusive with the outputs/inputs flags.
-	case ctx.IsSet("template_psbt") &&
-		(ctx.IsSet("inputs") || ctx.IsSet("outputs")):
+	case cmd.IsSet("template_psbt") &&
+		(cmd.IsSet("inputs") || cmd.IsSet("outputs")):
 
 		return fmt.Errorf("cannot set template_psbt and inputs/" +
 			"outputs flags at the same time")
 
 	// Use a pre-existing PSBT as the transaction template.
-	case len(ctx.String("template_psbt")) > 0:
-		psbtBase64 := ctx.String("template_psbt")
+	case len(cmd.String("template_psbt")) > 0:
+		psbtBase64 := cmd.String("template_psbt")
 		psbtBytes, err := base64.StdEncoding.DecodeString(psbtBase64)
 		if err != nil {
 			return err
@@ -1307,16 +1308,16 @@ func fundPsbt(ctx *cli.Context) error {
 
 	// The user manually specified outputs and/or inputs in JSON
 	// format.
-	case len(ctx.String("outputs")) > 0 || len(ctx.String("inputs")) > 0:
+	case len(cmd.String("outputs")) > 0 || len(cmd.String("inputs")) > 0:
 		var (
 			tpl          = &walletrpc.TxTemplate{}
 			amountToAddr map[string]uint64
 		)
 
-		if len(ctx.String("outputs")) > 0 {
+		if len(cmd.String("outputs")) > 0 {
 			// Parse the address to amount map as JSON now. At least
 			// one entry must be present.
-			jsonMap := []byte(ctx.String("outputs"))
+			jsonMap := []byte(cmd.String("outputs"))
 			err := json.Unmarshal(jsonMap, &amountToAddr)
 			if err != nil {
 				return fmt.Errorf("error parsing outputs "+
@@ -1326,10 +1327,10 @@ func fundPsbt(ctx *cli.Context) error {
 		}
 
 		// Inputs are optional.
-		if len(ctx.String("inputs")) > 0 {
+		if len(cmd.String("inputs")) > 0 {
 			var inputs []string
 
-			jsonList := []byte(ctx.String("inputs"))
+			jsonList := []byte(cmd.String("inputs"))
 			err := json.Unmarshal(jsonList, &inputs)
 			if err != nil {
 				return fmt.Errorf("error parsing inputs JSON: "+
@@ -1358,32 +1359,32 @@ func fundPsbt(ctx *cli.Context) error {
 
 	// Parse fee flags.
 	switch {
-	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte") ||
-		ctx.IsSet("conf_target") && ctx.IsSet("sat_per_kw") ||
-		ctx.IsSet("sat_per_vbyte") && ctx.IsSet("sat_per_kw"):
+	case cmd.IsSet("conf_target") && cmd.IsSet("sat_per_vbyte") ||
+		cmd.IsSet("conf_target") && cmd.IsSet("sat_per_kw") ||
+		cmd.IsSet("sat_per_vbyte") && cmd.IsSet("sat_per_kw"):
 
 		return fmt.Errorf("only one of conf_target, sat_per_vbyte, " +
 			"or sat_per_kw can be set at the same time")
 
-	case ctx.Uint64("sat_per_vbyte") > 0:
+	case cmd.Uint("sat_per_vbyte") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+			SatPerVbyte: cmd.Uint("sat_per_vbyte"),
 		}
 
-	case ctx.Uint64("sat_per_kw") > 0:
+	case cmd.Uint("sat_per_kw") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerKw{
-			SatPerKw: ctx.Uint64("sat_per_kw"),
+			SatPerKw: cmd.Uint("sat_per_kw"),
 		}
 
 	// Check conf_target last because it has a default value.
-	case ctx.Uint64("conf_target") > 0:
+	case cmd.Uint("conf_target") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
-			TargetConf: uint32(ctx.Uint64("conf_target")),
+			TargetConf: uint32(cmd.Uint("conf_target")),
 		}
 	}
 
-	if ctx.IsSet("change_type") {
-		switch addressType := ctx.String("change_type"); addressType {
+	if cmd.IsSet("change_type") {
+		switch addressType := cmd.String("change_type"); addressType {
 		case "p2tr":
 			req.ChangeType = p2TrChangeType
 
@@ -1396,9 +1397,9 @@ func fundPsbt(ctx *cli.Context) error {
 		}
 	}
 
-	req.MaxFeeRatio = ctx.Float64("max_fee_ratio")
+	req.MaxFeeRatio = cmd.Float("max_fee_ratio")
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	response, err := walletClient.FundPsbt(ctxc, req)
@@ -1443,7 +1444,7 @@ type finalizePsbtResponse struct {
 	FinalTx string `json:"final_tx"`
 }
 
-var finalizePsbtCommand = cli.Command{
+var finalizePsbtCommand = &cli.Command{
 	Name:      "finalize",
 	Usage:     "Finalize a Partially Signed Bitcoin Transaction (PSBT).",
 	ArgsUsage: "funded_psbt",
@@ -1460,11 +1461,11 @@ var finalizePsbtCommand = cli.Command{
 	successfully.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "funded_psbt",
 			Usage: "the base64 encoded PSBT to finalize",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account",
 			Usage: "(optional) the name of the account to " +
 				"finalize the PSBT with",
@@ -1473,24 +1474,24 @@ var finalizePsbtCommand = cli.Command{
 	Action: actionDecorator(finalizePsbt),
 }
 
-func finalizePsbt(ctx *cli.Context) error {
+func finalizePsbt(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 1 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "finalize")
+	if cmd.NArg() > 1 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "finalize")
 	}
 
 	var (
-		args       = ctx.Args()
+		args       = cmd.Args().Slice()
 		psbtBase64 string
 	)
 	switch {
-	case ctx.IsSet("funded_psbt"):
-		psbtBase64 = ctx.String("funded_psbt")
-	case args.Present():
-		psbtBase64 = args.First()
+	case cmd.IsSet("funded_psbt"):
+		psbtBase64 = cmd.String("funded_psbt")
+	case len(args) > 0:
+		psbtBase64 = args[0]
 	default:
 		return fmt.Errorf("funded_psbt argument missing")
 	}
@@ -1501,10 +1502,10 @@ func finalizePsbt(ctx *cli.Context) error {
 	}
 	req := &walletrpc.FinalizePsbtRequest{
 		FundedPsbt: psbtBytes,
-		Account:    ctx.String("account"),
+		Account:    cmd.String("account"),
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	response, err := walletClient.FinalizePsbt(ctxc, req)
@@ -1520,7 +1521,7 @@ func finalizePsbt(ctx *cli.Context) error {
 	return nil
 }
 
-var leaseOutputCommand = cli.Command{
+var leaseOutputCommand = &cli.Command{
 	Name:  "leaseoutput",
 	Usage: "Lease an output.",
 	Description: `
@@ -1531,15 +1532,15 @@ var leaseOutputCommand = cli.Command{
 	the output.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "outpoint",
 			Usage: "the output to lock",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "lockid",
 			Usage: "the hex-encoded app lock ID",
 		},
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name:  "expiry",
 			Usage: "expiration duration in seconds",
 		},
@@ -1547,22 +1548,22 @@ var leaseOutputCommand = cli.Command{
 	Action: actionDecorator(leaseOutput),
 }
 
-func leaseOutput(ctx *cli.Context) error {
+func leaseOutput(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 0 || ctx.NumFlags() == 0 {
-		return cli.ShowCommandHelp(ctx, "leaseoutput")
+	if cmd.NArg() != 0 || cmd.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "leaseoutput")
 	}
 
-	outpointStr := ctx.String("outpoint")
+	outpointStr := cmd.String("outpoint")
 	outpoint, err := NewProtoOutPoint(outpointStr)
 	if err != nil {
 		return fmt.Errorf("error parsing outpoint: %w", err)
 	}
 
-	lockIDStr := ctx.String("lockid")
+	lockIDStr := cmd.String("lockid")
 	if lockIDStr == "" {
 		return errors.New("lockid not specified")
 	}
@@ -1571,7 +1572,7 @@ func leaseOutput(ctx *cli.Context) error {
 		return fmt.Errorf("error parsing lockid: %w", err)
 	}
 
-	expiry := ctx.Uint64("expiry")
+	expiry := cmd.Uint("expiry")
 	if expiry == 0 {
 		return errors.New("expiry not specified or invalid")
 	}
@@ -1582,7 +1583,7 @@ func leaseOutput(ctx *cli.Context) error {
 		ExpirationSeconds: expiry,
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	response, err := walletClient.LeaseOutput(ctxc, req)
@@ -1595,7 +1596,7 @@ func leaseOutput(ctx *cli.Context) error {
 	return nil
 }
 
-var releaseOutputCommand = cli.Command{
+var releaseOutputCommand = &cli.Command{
 	Name:      "releaseoutput",
 	Usage:     "Release an output previously locked by lnd.",
 	ArgsUsage: "outpoint",
@@ -1608,11 +1609,11 @@ var releaseOutputCommand = cli.Command{
 	fundpsbt command can be released.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "outpoint",
 			Usage: "the output to unlock",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "lockid",
 			Usage: "the hex-encoded app lock ID",
 		},
@@ -1620,24 +1621,24 @@ var releaseOutputCommand = cli.Command{
 	Action: actionDecorator(releaseOutput),
 }
 
-func releaseOutput(ctx *cli.Context) error {
+func releaseOutput(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 1 && ctx.NumFlags() != 1 {
-		return cli.ShowCommandHelp(ctx, "releaseoutput")
+	if cmd.NArg() != 1 && cmd.NumFlags() != 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "releaseoutput")
 	}
 
 	var (
-		args        = ctx.Args()
+		args        = cmd.Args().Slice()
 		outpointStr string
 	)
 	switch {
-	case ctx.IsSet("outpoint"):
-		outpointStr = ctx.String("outpoint")
-	case args.Present():
-		outpointStr = args.First()
+	case cmd.IsSet("outpoint"):
+		outpointStr = cmd.String("outpoint")
+	case len(args) > 0:
+		outpointStr = args[0]
 	default:
 		return fmt.Errorf("outpoint argument missing")
 	}
@@ -1648,7 +1649,7 @@ func releaseOutput(ctx *cli.Context) error {
 	}
 
 	lockID := chanfunding.LndInternalLockID[:]
-	lockIDStr := ctx.String("lockid")
+	lockIDStr := cmd.String("lockid")
 	if lockIDStr != "" {
 		var err error
 		lockID, err = hex.DecodeString(lockIDStr)
@@ -1662,7 +1663,7 @@ func releaseOutput(ctx *cli.Context) error {
 		Id:       lockID,
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	response, err := walletClient.ReleaseOutput(ctxc, req)
@@ -1675,16 +1676,16 @@ func releaseOutput(ctx *cli.Context) error {
 	return nil
 }
 
-var listLeasesCommand = cli.Command{
+var listLeasesCommand = &cli.Command{
 	Name:   "listleases",
 	Usage:  "Return a list of currently held leases.",
 	Action: actionDecorator(listLeases),
 }
 
-func listLeases(ctx *cli.Context) error {
+func listLeases(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.ListLeasesRequest{}
@@ -1697,7 +1698,7 @@ func listLeases(ctx *cli.Context) error {
 	return nil
 }
 
-var listAccountsCommand = cli.Command{
+var listAccountsCommand = &cli.Command{
 	Name:  "list",
 	Usage: "Retrieve information of existing on-chain wallet accounts.",
 	Description: `
@@ -1706,12 +1707,12 @@ var listAccountsCommand = cli.Command{
 	accounts and return only those matching.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "name",
 			Usage: "(optional) only accounts matching this name " +
 				"are returned",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address_type",
 			Usage: "(optional) only accounts matching this " +
 				"address type are returned",
@@ -1720,25 +1721,25 @@ var listAccountsCommand = cli.Command{
 	Action: actionDecorator(listAccounts),
 }
 
-func listAccounts(ctx *cli.Context) error {
+func listAccounts(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "list")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "list")
 	}
 
-	addrType, err := parseAddrType(ctx.String("address_type"))
+	addrType, err := parseAddrType(cmd.String("address_type"))
 	if err != nil {
 		return err
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.ListAccountsRequest{
-		Name:        ctx.String("name"),
+		Name:        cmd.String("name"),
 		AddressType: addrType,
 	}
 	resp, err := walletClient.ListAccounts(ctxc, req)
@@ -1751,7 +1752,7 @@ func listAccounts(ctx *cli.Context) error {
 	return nil
 }
 
-var requiredReserveCommand = cli.Command{
+var requiredReserveCommand = &cli.Command{
 	Name:  "requiredreserve",
 	Usage: "Returns the wallet reserve.",
 	Description: `
@@ -1764,7 +1765,7 @@ var requiredReserveCommand = cli.Command{
 	on the additional channels you would like to open.
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		&cli.UintFlag{
 			Name: "additional_channels",
 			Usage: "(optional) specify the additional public channels " +
 				"that you would like to open",
@@ -1773,20 +1774,20 @@ var requiredReserveCommand = cli.Command{
 	Action: actionDecorator(requiredReserve),
 }
 
-func requiredReserve(ctx *cli.Context) error {
+func requiredReserve(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
-		return cli.ShowCommandHelp(ctx, "requiredreserve")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "requiredreserve")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.RequiredReserveRequest{
-		AdditionalPublicChannels: uint32(ctx.Uint64("additional_channels")),
+		AdditionalPublicChannels: uint32(cmd.Uint("additional_channels")),
 	}
 	resp, err := walletClient.RequiredReserve(ctxc, req)
 	if err != nil {
@@ -1798,7 +1799,7 @@ func requiredReserve(ctx *cli.Context) error {
 	return nil
 }
 
-var listAddressesCommand = cli.Command{
+var listAddressesCommand = &cli.Command{
 	Name:  "list",
 	Usage: "Retrieve information of existing on-chain wallet addresses.",
 	Description: `
@@ -1806,12 +1807,12 @@ var listAddressesCommand = cli.Command{
 	their type, internal/external and balance.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "account_name",
 			Usage: "(optional) only addresses matching this " +
 				"account are returned",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "show_custom_accounts",
 			Usage: "(optional) set this to true to show lnd's " +
 				"custom accounts",
@@ -1820,21 +1821,21 @@ var listAddressesCommand = cli.Command{
 	Action: actionDecorator(listAddresses),
 }
 
-func listAddresses(ctx *cli.Context) error {
+func listAddresses(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "list")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "list")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.ListAddressesRequest{
-		AccountName:        ctx.String("account_name"),
-		ShowCustomAccounts: ctx.Bool("show_custom_accounts"),
+		AccountName:        cmd.String("account_name"),
+		ShowCustomAccounts: cmd.Bool("show_custom_accounts"),
 	}
 	resp, err := walletClient.ListAddresses(ctxc, req)
 	if err != nil {
@@ -1846,7 +1847,7 @@ func listAddresses(ctx *cli.Context) error {
 	return nil
 }
 
-var signMessageWithAddrCommand = cli.Command{
+var signMessageWithAddrCommand = &cli.Command{
 	Name: "signmessage",
 	Usage: "Sign a message with the private key of the provided " +
 		"address.",
@@ -1860,12 +1861,12 @@ var signMessageWithAddrCommand = cli.Command{
 	accepted which are owned by the internal lnd wallet.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address",
 			Usage: "specify the address which private key " +
 				"will be used to sign the message",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to sign for",
 		},
@@ -1873,43 +1874,43 @@ var signMessageWithAddrCommand = cli.Command{
 	Action: actionDecorator(signMessageWithAddr),
 }
 
-func signMessageWithAddr(ctx *cli.Context) error {
+func signMessageWithAddr(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 2 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "signmessagewithaddr")
+	if cmd.NArg() > 2 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "signmessagewithaddr")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	var (
-		args = ctx.Args()
+		args = cmd.Args().Slice()
 		addr string
 		msg  []byte
 	)
 
 	switch {
-	case ctx.IsSet("address"):
-		addr = ctx.String("address")
+	case cmd.IsSet("address"):
+		addr = cmd.String("address")
 
-	case ctx.Args().Present():
-		addr = args.First()
-		args = args.Tail()
+	case cmd.Args().Present():
+		addr = args[0]
+		args = args[1:]
 
 	default:
 		return fmt.Errorf("address argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
+	case cmd.IsSet("msg"):
+		msg = []byte(cmd.String("msg"))
 
-	case ctx.Args().Present():
-		msg = []byte(args.First())
-		args = args.Tail()
+	case cmd.Args().Present():
+		msg = []byte(args[0])
+		args = args[1:]
 
 	default:
 		return fmt.Errorf("msg argument missing")
@@ -1931,7 +1932,7 @@ func signMessageWithAddr(ctx *cli.Context) error {
 	return nil
 }
 
-var verifyMessageWithAddrCommand = cli.Command{
+var verifyMessageWithAddrCommand = &cli.Command{
 	Name: "verifymessage",
 	Usage: "Verify a message signed with the private key of the " +
 		"provided address.",
@@ -1950,17 +1951,17 @@ var verifyMessageWithAddrCommand = cli.Command{
 	of the compact ECDSA signature is returned.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address",
 			Usage: "specify the address which corresponding" +
 				"public key will be used",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "sig",
 			Usage: "the base64 encoded compact signature " +
 				"of the message",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name:  "msg",
 			Usage: "the message to sign",
 		},
@@ -1968,56 +1969,56 @@ var verifyMessageWithAddrCommand = cli.Command{
 	Action: actionDecorator(verifyMessageWithAddr),
 }
 
-func verifyMessageWithAddr(ctx *cli.Context) error {
+func verifyMessageWithAddr(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() > 3 || ctx.NumFlags() > 3 {
-		return cli.ShowCommandHelp(ctx, "signmessagewithaddr")
+	if cmd.NArg() > 3 || cmd.NumFlags() > 3 {
+		return cli.ShowCommandHelp(ctx, cmd, "signmessagewithaddr")
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	var (
-		args = ctx.Args()
+		args = cmd.Args().Slice()
 		addr string
 		sig  string
 		msg  []byte
 	)
 
 	switch {
-	case ctx.IsSet("address"):
-		addr = ctx.String("address")
+	case cmd.IsSet("address"):
+		addr = cmd.String("address")
 
-	case args.Present():
-		addr = args.First()
-		args = args.Tail()
+	case len(args) > 0:
+		addr = args[0]
+		args = args[1:]
 
 	default:
 		return fmt.Errorf("address argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("sig"):
-		sig = ctx.String("sig")
+	case cmd.IsSet("sig"):
+		sig = cmd.String("sig")
 
-	case ctx.Args().Present():
-		sig = args.First()
-		args = args.Tail()
+	case cmd.Args().Present():
+		sig = args[0]
+		args = args[1:]
 
 	default:
 		return fmt.Errorf("sig argument missing")
 	}
 
 	switch {
-	case ctx.IsSet("msg"):
-		msg = []byte(ctx.String("msg"))
+	case cmd.IsSet("msg"):
+		msg = []byte(cmd.String("msg"))
 
-	case ctx.Args().Present():
-		msg = []byte(args.First())
-		args = args.Tail()
+	case cmd.Args().Present():
+		msg = []byte(args[0])
+		args = args[1:]
 
 	default:
 		return fmt.Errorf("msg argument missing")
@@ -2040,7 +2041,7 @@ func verifyMessageWithAddr(ctx *cli.Context) error {
 	return nil
 }
 
-var importAccountCommand = cli.Command{
+var importAccountCommand = &cli.Command{
 	Name: "import",
 	Usage: "Import an on-chain account into the wallet through its " +
 		"extended public key.",
@@ -2074,18 +2075,18 @@ var importAccountCommand = cli.Command{
 	detect past events will be supported later on.
 	`,
 	Flags: []cli.Flag{
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "address_type",
 			Usage: "(optional) specify the type of addresses the " +
 				"imported account should generate",
 		},
-		cli.StringFlag{
+		&cli.StringFlag{
 			Name: "master_key_fingerprint",
 			Usage: "(optional) the fingerprint of the root key " +
 				"(derivation path m/) corresponding to the " +
 				"account public key",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "dry_run",
 			Usage: "(optional) perform a dry run",
 		},
@@ -2093,24 +2094,24 @@ var importAccountCommand = cli.Command{
 	Action: actionDecorator(importAccount),
 }
 
-func importAccount(ctx *cli.Context) error {
+func importAccount(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 2 || ctx.NumFlags() > 3 {
-		return cli.ShowCommandHelp(ctx, "import")
+	if cmd.NArg() != 2 || cmd.NumFlags() > 3 {
+		return cli.ShowCommandHelp(ctx, cmd, "import")
 	}
 
-	addrType, err := parseAddrType(ctx.String("address_type"))
+	addrType, err := parseAddrType(cmd.String("address_type"))
 	if err != nil {
 		return err
 	}
 
 	var mkfpBytes []byte
-	if ctx.IsSet("master_key_fingerprint") {
+	if cmd.IsSet("master_key_fingerprint") {
 		mkfpBytes, err = hex.DecodeString(
-			ctx.String("master_key_fingerprint"),
+			cmd.String("master_key_fingerprint"),
 		)
 		if err != nil {
 			return fmt.Errorf("invalid master key fingerprint: %w",
@@ -2118,13 +2119,13 @@ func importAccount(ctx *cli.Context) error {
 		}
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
-	dryRun := ctx.Bool("dry_run")
+	dryRun := cmd.Bool("dry_run")
 	req := &walletrpc.ImportAccountRequest{
-		Name:                 ctx.Args().Get(1),
-		ExtendedPublicKey:    ctx.Args().Get(0),
+		Name:                 cmd.Args().Get(1),
+		ExtendedPublicKey:    cmd.Args().Get(0),
 		MasterKeyFingerprint: mkfpBytes,
 		AddressType:          addrType,
 		DryRun:               dryRun,
@@ -2138,7 +2139,7 @@ func importAccount(ctx *cli.Context) error {
 	return nil
 }
 
-var importPubKeyCommand = cli.Command{
+var importPubKeyCommand = &cli.Command{
 	Name:      "import-pubkey",
 	Usage:     "Import a public key as watch-only into the wallet.",
 	ArgsUsage: "public_key address_type",
@@ -2153,25 +2154,25 @@ var importPubKeyCommand = cli.Command{
 	Action: actionDecorator(importPubKey),
 }
 
-func importPubKey(ctx *cli.Context) error {
+func importPubKey(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
 	// number of arguments/flags.
-	if ctx.NArg() != 2 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "import-pubkey")
+	if cmd.NArg() != 2 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "import-pubkey")
 	}
 
-	pubKeyBytes, err := hex.DecodeString(ctx.Args().Get(0))
+	pubKeyBytes, err := hex.DecodeString(cmd.Args().Get(0))
 	if err != nil {
 		return err
 	}
-	addrType, err := parseAddrType(ctx.Args().Get(1))
+	addrType, err := parseAddrType(cmd.Args().Get(1))
 	if err != nil {
 		return err
 	}
 
-	walletClient, cleanUp := getWalletClient(ctx)
+	walletClient, cleanUp := getWalletClient(cmd)
 	defer cleanUp()
 
 	req := &walletrpc.ImportPublicKeyRequest{

@@ -1,24 +1,25 @@
 package commands
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc/wtclientrpc"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 // wtclientCommands is a list of commands that can be used to interact with the
 // watchtower client.
-func wtclientCommands() []cli.Command {
-	return []cli.Command{
+func wtclientCommands() []*cli.Command {
+	return []*cli.Command{
 		{
 			Name:     "wtclient",
 			Usage:    "Interact with the watchtower client.",
 			Category: "Watchtower",
-			Subcommands: []cli.Command{
+			Commands: []*cli.Command{
 				addTowerCommand,
 				removeTowerCommand,
 				deactivateTowerCommand,
@@ -34,15 +35,15 @@ func wtclientCommands() []cli.Command {
 
 // getWtclient initializes a connection to the watchtower client RPC in order to
 // interact with it.
-func getWtclient(ctx *cli.Context) (wtclientrpc.WatchtowerClientClient, func()) {
-	conn := getClientConn(ctx, false)
+func getWtclient(cmd *cli.Command) (wtclientrpc.WatchtowerClientClient, func()) {
+	conn := getClientConn(cmd, false)
 	cleanUp := func() {
 		conn.Close()
 	}
 	return wtclientrpc.NewWatchtowerClientClient(conn), cleanUp
 }
 
-var addTowerCommand = cli.Command{
+var addTowerCommand = &cli.Command{
 	Name:  "add",
 	Usage: "Register a watchtower to use for future sessions/backups.",
 	Description: "If the watchtower has already been registered, then " +
@@ -52,16 +53,16 @@ var addTowerCommand = cli.Command{
 	Action:    actionDecorator(addTower),
 }
 
-func addTower(ctx *cli.Context) error {
+func addTower(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "add")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "add")
 	}
 
-	parts := strings.Split(ctx.Args().First(), "@")
+	parts := strings.Split(cmd.Args().First(), "@")
 	if len(parts) != 2 {
 		return errors.New("expected tower of format pubkey@address")
 	}
@@ -71,7 +72,7 @@ func addTower(ctx *cli.Context) error {
 	}
 	address := parts[1]
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.AddTowerRequest{
@@ -87,7 +88,7 @@ func addTower(ctx *cli.Context) error {
 	return nil
 }
 
-var deactivateTowerCommand = cli.Command{
+var deactivateTowerCommand = &cli.Command{
 	Name: "deactivate",
 	Usage: "Deactivate a watchtower to temporarily prevent its use for " +
 		"sessions/backups.",
@@ -95,21 +96,21 @@ var deactivateTowerCommand = cli.Command{
 	Action:    actionDecorator(deactivateTower),
 }
 
-func deactivateTower(ctx *cli.Context) error {
+func deactivateTower(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "deactivate")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "deactivate")
 	}
 
-	pubKey, err := hex.DecodeString(ctx.Args().First())
+	pubKey, err := hex.DecodeString(cmd.Args().First())
 	if err != nil {
 		return fmt.Errorf("invalid public key: %w", err)
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.DeactivateTowerRequest{
@@ -125,7 +126,7 @@ func deactivateTower(ctx *cli.Context) error {
 	return nil
 }
 
-var removeTowerCommand = cli.Command{
+var removeTowerCommand = &cli.Command{
 	Name: "remove",
 	Usage: "Remove a watchtower to prevent its use for future " +
 		"sessions/backups.",
@@ -137,13 +138,13 @@ var removeTowerCommand = cli.Command{
 	Action:    actionDecorator(removeTower),
 }
 
-func removeTower(ctx *cli.Context) error {
+func removeTower(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "remove")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "remove")
 	}
 
 	// The command can have only one argument, but it can be interpreted in
@@ -154,7 +155,7 @@ func removeTower(ctx *cli.Context) error {
 	// The hex-encoded public key of the watchtower is always required,
 	// while the second is an optional address we'll remove from the
 	// watchtower's database record.
-	parts := strings.Split(ctx.Args().First(), "@")
+	parts := strings.Split(cmd.Args().First(), "@")
 	if len(parts) > 2 {
 		return errors.New("expected tower of format pubkey@address")
 	}
@@ -167,7 +168,7 @@ func removeTower(ctx *cli.Context) error {
 		address = parts[1]
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.RemoveTowerRequest{
@@ -183,16 +184,16 @@ func removeTower(ctx *cli.Context) error {
 	return nil
 }
 
-var listTowersCommand = cli.Command{
+var listTowersCommand = &cli.Command{
 	Name:  "towers",
 	Usage: "Display information about all registered watchtowers.",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_sessions",
 			Usage: "include sessions with the watchtower in the " +
 				"response",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "exclude_exhausted_sessions",
 			Usage: "Whether to exclude exhausted sessions in " +
 				"the response info. This option is only " +
@@ -202,21 +203,21 @@ var listTowersCommand = cli.Command{
 	Action: actionDecorator(listTowers),
 }
 
-func listTowers(ctx *cli.Context) error {
+func listTowers(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "towers")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "towers")
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.ListTowersRequest{
-		IncludeSessions: ctx.Bool("include_sessions"),
-		ExcludeExhaustedSessions: ctx.Bool(
+		IncludeSessions: cmd.Bool("include_sessions"),
+		ExcludeExhaustedSessions: cmd.Bool(
 			"exclude_exhausted_sessions",
 		),
 	}
@@ -230,17 +231,17 @@ func listTowers(ctx *cli.Context) error {
 	return nil
 }
 
-var getTowerCommand = cli.Command{
+var getTowerCommand = &cli.Command{
 	Name:      "tower",
 	Usage:     "Display information about a specific registered watchtower.",
 	ArgsUsage: "pubkey",
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "include_sessions",
 			Usage: "include sessions with the watchtower in the " +
 				"response",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "exclude_exhausted_sessions",
 			Usage: "Whether to exclude exhausted sessions in " +
 				"the response info. This option is only " +
@@ -250,30 +251,30 @@ var getTowerCommand = cli.Command{
 	Action: actionDecorator(getTower),
 }
 
-func getTower(ctx *cli.Context) error {
+func getTower(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 2 {
-		return cli.ShowCommandHelp(ctx, "tower")
+	if cmd.NArg() != 1 || cmd.NumFlags() > 2 {
+		return cli.ShowCommandHelp(ctx, cmd, "tower")
 	}
 
 	// The command only has one argument, which we expect to be the
 	// hex-encoded public key of the watchtower we'll display information
 	// about.
-	pubKey, err := hex.DecodeString(ctx.Args().Get(0))
+	pubKey, err := hex.DecodeString(cmd.Args().Get(0))
 	if err != nil {
 		return fmt.Errorf("invalid public key: %w", err)
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.GetTowerInfoRequest{
 		Pubkey:          pubKey,
-		IncludeSessions: ctx.Bool("include_sessions"),
-		ExcludeExhaustedSessions: ctx.Bool(
+		IncludeSessions: cmd.Bool("include_sessions"),
+		ExcludeExhaustedSessions: cmd.Bool(
 			"exclude_exhausted_sessions",
 		),
 	}
@@ -286,22 +287,22 @@ func getTower(ctx *cli.Context) error {
 	return nil
 }
 
-var statsCommand = cli.Command{
+var statsCommand = &cli.Command{
 	Name:   "stats",
 	Usage:  "Display the session stats of the watchtower client.",
 	Action: actionDecorator(stats),
 }
 
-func stats(ctx *cli.Context) error {
+func stats(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 0 {
-		return cli.ShowCommandHelp(ctx, "stats")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "stats")
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.StatsRequest{}
@@ -314,22 +315,22 @@ func stats(ctx *cli.Context) error {
 	return nil
 }
 
-var policyCommand = cli.Command{
+var policyCommand = &cli.Command{
 	Name:   "policy",
 	Usage:  "Display the active watchtower client policy configuration.",
 	Action: actionDecorator(policy),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "legacy",
 			Usage: "Retrieve the legacy tower client's current " +
 				"policy. (default)",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "anchor",
 			Usage: "Retrieve the anchor tower client's current " +
 				"policy.",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name: "taproot",
 			Usage: "Retrieve the taproot tower client's current " +
 				"policy.",
@@ -337,22 +338,22 @@ var policyCommand = cli.Command{
 	},
 }
 
-func policy(ctx *cli.Context) error {
+func policy(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
-		return cli.ShowCommandHelp(ctx, "policy")
+	if cmd.NArg() > 0 || cmd.NumFlags() > 1 {
+		return cli.ShowCommandHelp(ctx, cmd, "policy")
 	}
 
 	var policyType wtclientrpc.PolicyType
 	switch {
-	case ctx.Bool("anchor"):
+	case cmd.Bool("anchor"):
 		policyType = wtclientrpc.PolicyType_ANCHOR
-	case ctx.Bool("legacy"):
+	case cmd.Bool("legacy"):
 		policyType = wtclientrpc.PolicyType_LEGACY
-	case ctx.Bool("taproot"):
+	case cmd.Bool("taproot"):
 		policyType = wtclientrpc.PolicyType_TAPROOT
 
 	// For backwards compatibility with original rpc behavior.
@@ -360,7 +361,7 @@ func policy(ctx *cli.Context) error {
 		policyType = wtclientrpc.PolicyType_LEGACY
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
 	req := &wtclientrpc.PolicyRequest{
@@ -375,32 +376,32 @@ func policy(ctx *cli.Context) error {
 	return nil
 }
 
-var sessionCommands = cli.Command{
+var sessionCommands = &cli.Command{
 	Name: "session",
-	Subcommands: []cli.Command{
+	Commands: []*cli.Command{
 		terminateSessionCommand,
 	},
 }
 
-var terminateSessionCommand = cli.Command{
+var terminateSessionCommand = &cli.Command{
 	Name:      "terminate",
 	ArgsUsage: "id",
 	Action:    actionDecorator(terminateSession),
 }
 
-func terminateSession(ctx *cli.Context) error {
+func terminateSession(ctx context.Context, cmd *cli.Command) error {
 	ctxc := getContext()
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 1 || ctx.NumFlags() != 0 {
-		return cli.ShowCommandHelp(ctx, "terminate")
+	if cmd.NArg() > 1 || cmd.NumFlags() != 0 {
+		return cli.ShowCommandHelp(ctx, cmd, "terminate")
 	}
 
-	client, cleanUp := getWtclient(ctx)
+	client, cleanUp := getWtclient(cmd)
 	defer cleanUp()
 
-	sessionID, err := hex.DecodeString(ctx.Args().First())
+	sessionID, err := hex.DecodeString(cmd.Args().First())
 	if err != nil {
 		return fmt.Errorf("invalid session ID: %w", err)
 	}

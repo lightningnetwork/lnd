@@ -8,38 +8,38 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 )
 
 const argsStr = "[source node] [dest node] [unix ts seconds] [amount in msat]"
 
-var importMissionControlCommand = cli.Command{
+var importMissionControlCommand = &cli.Command{
 	Name:      "importmc",
 	Category:  "Payments",
 	Usage:     "Import a result to the internal mission control state.",
 	ArgsUsage: fmt.Sprintf("importmc %v", argsStr),
 	Action:    actionDecorator(importMissionControl),
 	Flags: []cli.Flag{
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "failure",
 			Usage: "whether the routing history entry was a failure",
 		},
-		cli.BoolFlag{
+		&cli.BoolFlag{
 			Name:  "force",
 			Usage: "whether to force the history entry import",
 		},
 	},
 }
 
-func importMissionControl(ctx *cli.Context) error {
-	conn := getClientConn(ctx, false)
+func importMissionControl(ctx context.Context, cmd *cli.Command) error {
+	conn := getClientConn(cmd, false)
 	defer conn.Close()
 
-	if ctx.NArg() != 4 {
+	if cmd.NArg() != 4 {
 		return fmt.Errorf("please provide args: %v", argsStr)
 	}
 
-	args := ctx.Args()
+	args := cmd.Args().Slice()
 
 	sourceNode, err := route.NewVertexFromStr(args[0])
 	if err != nil {
@@ -67,7 +67,7 @@ func importMissionControl(ctx *cli.Context) error {
 	}
 
 	// Allow 0 value as failure amount.
-	if !ctx.IsSet("failure") && amt <= 0 {
+	if !cmd.IsSet("failure") && amt <= 0 {
 		return errors.New("success amount must be >0")
 	}
 
@@ -79,7 +79,7 @@ func importMissionControl(ctx *cli.Context) error {
 		History:  &routerrpc.PairData{},
 	}
 
-	if ctx.IsSet("failure") {
+	if cmd.IsSet("failure") {
 		importResult.History.FailAmtMsat = amt
 		importResult.History.FailTime = ts
 	} else {
@@ -91,7 +91,7 @@ func importMissionControl(ctx *cli.Context) error {
 		Pairs: []*routerrpc.PairHistory{
 			importResult,
 		},
-		Force: ctx.IsSet("force"),
+		Force: cmd.IsSet("force"),
 	}
 
 	rpcCtx := context.Background()

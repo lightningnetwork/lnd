@@ -1982,21 +1982,7 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 			err)
 	}
 
-	timestamp := time.Unix(int64(msg.Timestamp), 0)
-	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           timestamp,
-		Addresses:            msg.Addresses,
-		PubKeyBytes:          msg.NodeID,
-		Alias:                msg.Alias.String(),
-		AuthSigBytes:         msg.Signature.ToSignatureBytes(),
-		Features:             features,
-		Color:                msg.RGBColor,
-		ExtraOpaqueData:      msg.ExtraOpaqueData,
-	}
-
-	return d.cfg.Graph.AddNode(node, op...)
+	return d.cfg.Graph.AddNode(models.NodeFromWireAnnouncement(msg), op...)
 }
 
 // isPremature decides whether a given network message has a block height+delta

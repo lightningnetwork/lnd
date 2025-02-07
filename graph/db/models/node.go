@@ -131,3 +131,22 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 
 	return nodeAnn, nil
 }
+
+// NodeFromWireAnnouncement creates a LightningNode instance from an
+// lnwire.NodeAnnouncement message.
+func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement) *LightningNode {
+	timestamp := time.Unix(int64(msg.Timestamp), 0)
+	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
+
+	return &LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           timestamp,
+		Addresses:            msg.Addresses,
+		PubKeyBytes:          msg.NodeID,
+		Alias:                msg.Alias.String(),
+		AuthSigBytes:         msg.Signature.ToSignatureBytes(),
+		Features:             features,
+		Color:                msg.RGBColor,
+		ExtraOpaqueData:      msg.ExtraOpaqueData,
+	}
+}

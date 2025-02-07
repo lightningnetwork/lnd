@@ -356,8 +356,8 @@ func TestChanUpdateChanFlags(t *testing.T) {
 	}
 }
 
-// TestDecodeUnknownAddressType shows that an unknown address type is currently
-// incorrectly dealt with.
+// TestDecodeUnknownAddressType shows that an unknown address type is correctly
+// decoded and encoded.
 func TestDecodeUnknownAddressType(t *testing.T) {
 	// Add a normal, clearnet address.
 	tcpAddr := &net.TCPAddr{

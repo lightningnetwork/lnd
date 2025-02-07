@@ -50,6 +50,15 @@
 
 * [Improved user experience](https://github.com/lightningnetwork/lnd/pull/9454)
  by returning a custom error code when HTLC carries incorrect custom records.
+
+* [Make input validation stricter](https://github.com/lightningnetwork/lnd/pull/9470)
+  when using the `BumpFee`, `BumpCloseFee(deprecated)` and `BumpForceCloseFee` 
+  RPCs. For the `BumpFee` RPC the new param `deadline_delta` is introduced. For
+  the `BumpForceCloseFee` RPC the param `conf_target` was added. The conf_target
+  changed in its meaning for all the RPCs which had it before. Now it is used
+  for estimating the starting fee rate instead of being treated as the deadline,
+  and it cannot be set together with `StartingFeeRate`. Moreover if the user now
+  specifies the `deadline_delta` param, the budget value has to be set as well.
  
 ## Tooling and Documentation
 

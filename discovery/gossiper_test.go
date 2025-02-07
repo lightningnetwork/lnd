@@ -644,8 +644,37 @@ func signUpdate(nodeKey *btcec.PrivateKey, a *lnwire.ChannelUpdate1) error {
 	return nil
 }
 
+// fundingTxPrepType determines how we will prep the mock Chain for calls during
+// a test run.
+type fundingTxPrepType int
+
+const (
+	// fundingTxPrepTypeGood is the default type and will result in a valid
+	// block and funding transaction being returned by the mock Chain.
+	fundingTxPrepTypeGood fundingTxPrepType = iota
+
+	// fundingTxPrepTypeNone will result in the mock Chain not being prepped
+	// for any calls.
+	fundingTxPrepTypeNone
+
+	// fundingTxPrepTypeInvalidOutput will result in the mock Chain
+	// behaving such that the funding transaction it returns in a block is
+	// invalid.
+	fundingTxPrepTypeInvalidOutput
+
+	// fundingTxPrepTypeNoTx will result in the mock Chain behaving such
+	// the desired block cannot be found.
+	fundingTxPrepTypeNoTx
+
+	// fundingTxPrepTypeSpent will result in the mock Chain behaving such
+	// that the block is valid but the GetUtxo call will return a
+	// btcwallet.ErrOutputSpent error.
+	fundingTxPrepTypeSpent
+)
+
 type fundingTxOpts struct {
-	extraBytes []byte
+	extraBytes    []byte
+	fundingTxPrep fundingTxPrepType
 }
 
 type fundingTxOption func(*fundingTxOpts)
@@ -656,6 +685,12 @@ func withExtraBytes(extraBytes []byte) fundingTxOption {
 	}
 }
 
+func withFundingTxPrep(prep fundingTxPrepType) fundingTxOption {
+	return func(opts *fundingTxOpts) {
+		opts.fundingTxPrep = prep
+	}
+}
+
 func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	key1, key2 *btcec.PublicKey,
 	options ...fundingTxOption) *lnwire.ChannelAnnouncement1 {
@@ -663,6 +698,19 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	var opts fundingTxOpts
 	for _, opt := range options {
 		opt(&opts)
+	}
+
+	// TODO(elle): prepare the mock chain calls accordingly.
+	switch opts.fundingTxPrep {
+	case fundingTxPrepTypeGood:
+
+	case fundingTxPrepTypeInvalidOutput:
+
+	case fundingTxPrepTypeSpent:
+
+	case fundingTxPrepTypeNoTx:
+
+	case fundingTxPrepTypeNone:
 	}
 
 	a := &lnwire.ChannelAnnouncement1{
@@ -1015,7 +1063,9 @@ func TestPrematureAnnouncement(t *testing.T) {
 	// remote side, but block height of this announcement is greater than
 	// highest know to us, for that reason it should be ignored and not
 	// added to the router.
-	ca, err := ctx.createRemoteChannelAnnouncement(1)
+	ca, err := ctx.createRemoteChannelAnnouncement(
+		1, withFundingTxPrep(fundingTxPrepTypeNone),
+	)
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
@@ -1840,7 +1890,9 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 
 	// Ensure that remote channel announcements are properly stored
 	// and de-duplicated.
-	ca, err := ctx.createRemoteChannelAnnouncement(0)
+	ca, err := ctx.createRemoteChannelAnnouncement(
+		0, withFundingTxPrep(fundingTxPrepTypeNone),
+	)
 	require.NoError(t, err, "can't create remote channel announcement")
 
 	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
@@ -1856,7 +1908,9 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// We'll create a second instance of the same announcement with the
 	// same channel ID. Adding this shouldn't cause an increase in the
 	// number of items as they should be de-duplicated.
-	ca2, err := ctx.createRemoteChannelAnnouncement(0)
+	ca2, err := ctx.createRemoteChannelAnnouncement(
+		0, withFundingTxPrep(fundingTxPrepTypeNone),
+	)
 	require.NoError(t, err, "can't create remote channel announcement")
 	announcements.AddMsgs(networkMsg{
 		msg:    ca2,
@@ -3616,11 +3670,18 @@ func TestProcessChannelAnnouncementOptionalMsgFields(t *testing.T) {
 	ctx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "unable to create test context")
 
+	// We set AssumeValid to true for this test so that the full validation
+	// of a funding transaction is not done and ie, we don't fetch the
+	// channel capacity from the on-chain transaction.
+	ctx.gossiper.cfg.AssumeChannelValid = true
+
 	chanAnn1 := ctx.createAnnouncementWithoutProof(
 		100, selfKeyDesc.PubKey, remoteKeyPub1,
+		withFundingTxPrep(fundingTxPrepTypeNone),
 	)
 	chanAnn2 := ctx.createAnnouncementWithoutProof(
 		101, selfKeyDesc.PubKey, remoteKeyPub1,
+		withFundingTxPrep(fundingTxPrepTypeNone),
 	)
 
 	// assertOptionalMsgFields is a helper closure that ensures the optional
@@ -4251,8 +4312,11 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
-		// the router.
-		ca, err := ctx.createRemoteChannelAnnouncement(uint32(i))
+		// the tx script.
+		ca, err := ctx.createRemoteChannelAnnouncement(
+			uint32(i),
+			withFundingTxPrep(fundingTxPrepTypeInvalidOutput),
+		)
 		require.NoError(t, err, "can't create channel announcement")
 
 		select {
@@ -4272,7 +4336,11 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	// Assert that nodePeer has been disconnected.
 	require.True(t, nodePeer1.disconnected.Load())
 
-	ca, err := ctx.createRemoteChannelAnnouncement(101)
+	// Mark the UTXO as spent so that we get the ErrChannelSpent error and
+	// can thus tests that the gossiper ignores closed channels.
+	ca, err := ctx.createRemoteChannelAnnouncement(
+		101, withFundingTxPrep(fundingTxPrepTypeSpent),
+	)
 	require.NoError(t, err, "can't create channel announcement")
 
 	// Set the error to ErrChannelSpent so that we can test that the
@@ -4332,7 +4400,10 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
 		// the router.
-		ca, err := ctx.createRemoteChannelAnnouncement(uint32(i))
+		ca, err := ctx.createRemoteChannelAnnouncement(
+			uint32(i),
+			withFundingTxPrep(fundingTxPrepTypeInvalidOutput),
+		)
 		require.NoError(t, err, "can't create channel announcement")
 
 		select {

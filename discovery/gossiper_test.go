@@ -28,6 +28,7 @@ import (
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -715,10 +716,12 @@ func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 }
 
 type testCtx struct {
+	t                  *testing.T
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
 	notifier           *mockNotifier
 	broadcastedMessage chan msgWithSenders
+	chain              *lnmock.MockChain
 }
 
 func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
@@ -730,6 +733,10 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	// broadcast functions won't be populated.
 	notifier := newMockNotifier()
 	router := newMockRouter(startHeight)
+	chain := &lnmock.MockChain{}
+	t.Cleanup(func() {
+		chain.AssertExpectations(t)
+	})
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
@@ -761,6 +768,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	}
 
 	gossiper := New(Config{
+		ChainIO:  chain,
 		Notifier: notifier,
 		Broadcast: func(senders map[route.Vertex]struct{},
 			msgs ...lnwire.Message) error {
@@ -832,10 +840,12 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 	})
 
 	return &testCtx{
+		t:                  t,
 		router:             router,
 		notifier:           notifier,
 		gossiper:           gossiper,
 		broadcastedMessage: broadcastedMessage,
+		chain:              chain,
 	}, nil
 }
 

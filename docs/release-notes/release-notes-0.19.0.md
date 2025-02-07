@@ -243,6 +243,9 @@ The underlying functionality between those two options remain the same.
 * [Golang was updated to
   `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 
 
+* Various refactors to simplify the 
+  `graph.Builder` [1](https://github.com/lightningnetwork/lnd/pull/9476).
+
 ## Breaking Changes
 ## Performance Improvements
 

@@ -493,12 +493,12 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 		commit.DeadlineHeight, anchor.DeadlineHeight)
 
 	// Update the anchor sweep's deadline and budget so it will always be
-	// swpet.
+	// swept.
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
-		Outpoint:   anchor.Outpoint,
-		TargetConf: uint32(deadline + 100),
-		Budget:     uint64(anchor.AmountSat * 10),
-		Immediate:  true,
+		Outpoint:      anchor.Outpoint,
+		DeadlineDelta: uint32(deadline + 100),
+		Budget:        uint64(anchor.AmountSat * 10),
+		Immediate:     true,
 	}
 	alice.RPC.BumpFee(bumpFeeReq)
 

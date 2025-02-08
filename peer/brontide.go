@@ -3732,7 +3732,7 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 			LocalBalance:  chanState.LocalBalance,
 			RemoteBalance: chanState.RemoteBalance,
 		}
-		ctx := context.Background()
+		ctx, _ := p.cg.Create(context.Background())
 		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
 			ShutdownBalances: chanBalances,
 			FreshFlush:       true,
@@ -3849,8 +3849,9 @@ func (p *Brontide) initRbfChanCloser(
 		),
 	}
 
-	ctx := context.Background()
 	chanCloser := protofsm.NewStateMachine(protoCfg)
+
+	ctx, _ := p.cg.Create(context.Background())
 	chanCloser.Start(ctx)
 
 	// Finally, we'll register this new endpoint with the message router so

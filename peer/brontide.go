@@ -3786,11 +3786,13 @@ func (p *Brontide) initRbfChanCloser(
 		return nil, fmt.Errorf("unable to get thaw height: %w", err)
 	}
 
-	msgMapper := chancloser.NewRbfMsgMapper(uint32(startingHeight), chanID)
+	peerPub := *p.IdentityKey()
+	msgMapper := chancloser.NewRbfMsgMapper(
+		uint32(startingHeight), chanID, peerPub,
+	)
 
 	initialState := chancloser.ChannelActive{}
 
-	peerPub := *p.IdentityKey()
 	scid := channel.ZeroConfRealScid().UnwrapOr(
 		channel.ShortChanID(),
 	)

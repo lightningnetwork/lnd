@@ -31,18 +31,13 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 		ht.Run(testName, func(t *testing.T) {
 			tt := ht.Subtest(t)
 
-			var alice, bob *node.HarnessNode
-			if !isRbf {
-				alice, bob = ht.Alice, ht.Bob
-			} else {
-				alice = tt.NewNode("Carol", rbfCoopFlags)
-				defer tt.Shutdown(alice)
-
-				bob = tt.NewNode("Dave", rbfCoopFlags)
-				defer tt.Shutdown(bob)
-
-				ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+			var flags []string
+			if isRbf {
+				flags = rbfCoopFlags
 			}
+
+			alice := ht.NewNodeWithCoins("Alice", flags)
+			bob := ht.NewNodeWithCoins("bob", flags)
 
 			coopCloseWithHTLCs(tt, alice, bob)
 		})
@@ -53,18 +48,13 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 		ht.Run(testName, func(t *testing.T) {
 			tt := ht.Subtest(t)
 
-			var alice, bob *node.HarnessNode
-			if !isRbf {
-				alice, bob = ht.Alice, ht.Bob
-			} else {
-				alice = tt.NewNode("Carol", rbfCoopFlags)
-				defer tt.Shutdown(alice)
-
-				bob = tt.NewNode("Dave", rbfCoopFlags)
-				defer tt.Shutdown(bob)
-
-				ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+			var flags []string
+			if isRbf {
+				flags = rbfCoopFlags
 			}
+
+			alice := ht.NewNodeWithCoins("Alice", flags)
+			bob := ht.NewNodeWithCoins("bob", flags)
 
 			coopCloseWithHTLCsWithRestart(tt, alice, bob)
 		})
@@ -74,9 +64,7 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 // coopCloseWithHTLCs tests the basic coop close scenario which occurs when one
 // channel party initiates a channel shutdown while an HTLC is still pending on
 // the channel.
-func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("bob", nil)
+func coopCloseWithHTLCs(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	ht.ConnectNodes(alice, bob)
 
 	// Here we set up a channel between Alice and Bob, beginning with a
@@ -165,9 +153,9 @@ func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
 // is still pending on the channel but this time it ensures that the shutdown
 // process continues as expected even if a channel re-establish happens after
 // one party has already initiated the shutdown.
-func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("bob", nil)
+func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest, alice,
+	bob *node.HarnessNode) {
+
 	ht.ConnectNodes(alice, bob)
 
 	// Open a channel between Alice and Bob with the balance split equally.

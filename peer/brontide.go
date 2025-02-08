@@ -5222,3 +5222,62 @@ func (p *Brontide) scaleTimeout(timeout time.Duration) time.Duration {
 
 	return timeout
 }
+
+// CoopCloseUpdates is a struct used to communicate updates for an active close
+// to the caller.
+type CoopCloseUpdates struct {
+	UpdateChan chan interface{}
+
+	ErrChan chan error
+}
+
+// ChanHasRbfCoopCloser returns true if the channel as identifier by the channel
+// point has an active RBF chan closer.
+func (p *Brontide) ChanHasRbfCoopCloser(chanPoint wire.OutPoint) bool {
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	chanCloser, found := p.activeChanCloses.Load(chanID)
+	if !found {
+		return false
+	}
+
+	return chanCloser.IsRight()
+}
+
+// TriggerCoopCloseRbfBump given a chan ID, and the params needed to trigger a
+// new RBF co-op close update, a bump is attempted. A channel used for updates,
+// along with one used to o=communicate any errors is returned. If no chan
+// closer is found, then false is returned for the second argument.
+func (p *Brontide) TriggerCoopCloseRbfBump(ctx context.Context,
+	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
+	deliveryScript lnwire.DeliveryAddress) (*CoopCloseUpdates, error) {
+
+	// If RBF coop close isn't permitted, then we'll an error.
+	if !p.rbfCoopCloseAllowed() {
+		return nil, fmt.Errorf("rbf coop close not enabled for " +
+			"channel")
+	}
+
+	closeUpdates := &CoopCloseUpdates{
+		UpdateChan: make(chan interface{}, 1),
+		ErrChan:    make(chan error, 1),
+	}
+
+	// We'll re-use the existing switch struct here, even though we're
+	// bypassing the switch entirely.
+	closeReq := htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      &chanPoint,
+		TargetFeePerKw: feeRate,
+		DeliveryScript: deliveryScript,
+		Updates:        closeUpdates.UpdateChan,
+		Err:            closeUpdates.ErrChan,
+		Ctx:            ctx,
+	}
+
+	err := p.startRbfChanCloser(newRPCShutdownInit(&closeReq), chanPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	return closeUpdates, nil
+}

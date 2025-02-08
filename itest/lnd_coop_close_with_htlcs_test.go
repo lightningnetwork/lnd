@@ -65,7 +65,6 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 // channel party initiates a channel shutdown while an HTLC is still pending on
 // the channel.
 func coopCloseWithHTLCs(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
-
 	ht.ConnectNodes(alice, bob)
 
 	// Here we set up a channel between Alice and Bob, beginning with a

@@ -1990,6 +1990,7 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	closeTxid, err := chainhash.NewHash(pendingClose.Txid)
 	require.NoError(ht, err)
 	closingTx := ht.AssertTxInMempool(*closeTxid)
+	require.NotNil(ht, closingTx)
 
 	// The default commitment fee for anchor channels is capped at 2500
 	// sat/kw but there might be some inaccuracies because of the witness

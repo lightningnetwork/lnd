@@ -2801,14 +2801,33 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			}
 		}
 
+		var (
+			chanInSwitch     = true
+			chanHasRbfCloser = r.server.ChanHasRbfCoopCloser(
+				channel.IdentityPub, *chanPoint,
+			)
+		)
+
 		// If the link is not known by the switch, we cannot gracefully close
 		// the channel.
 		channelID := lnwire.NewChanIDFromOutPoint(*chanPoint)
+
 		if _, err := r.server.htlcSwitch.GetLink(channelID); err != nil {
-			rpcsLog.Debugf("Trying to non-force close offline channel with "+
-				"chan_point=%v", chanPoint)
-			return fmt.Errorf("unable to gracefully close channel while peer "+
-				"is offline (try force closing it instead): %v", err)
+			chanInSwitch = false
+
+			// The channel isn't in the switch, but if there's an
+			// active chan closer for the channel, and it's of the
+			// RBF variant, then we can actually bypass the switch.
+			// Otherwise, we'll return an error.
+			if !chanHasRbfCloser {
+				rpcsLog.Debugf("Trying to non-force close "+
+					"offline channel with chan_point=%v",
+					chanPoint)
+
+				return fmt.Errorf("unable to gracefully close "+
+					"channel while peer is offline (try "+
+					"force closing it instead): %v", err)
+			}
 		}
 
 		// Keep the old behavior prior to 0.18.0 - when the user
@@ -2886,11 +2905,31 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 				feeRate)
 		}
 
-		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			updateStream.Context(), chanPoint,
-			contractcourt.CloseRegular, feeRate, maxFee,
-			deliveryScript,
-		)
+		if chanHasRbfCloser && !chanInSwitch {
+			rpcsLog.Infof("Bypassing Switch to do fee bump "+
+				"for ChannelPoint(%v)", chanPoint)
+
+			closeUpdates, err := r.server.AttemptRBFCloseUpdate(
+				updateStream.Context(), *chanPoint, feeRate,
+				deliveryScript,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to do RBF close "+
+					"update: %w", err)
+			}
+
+			updateChan = closeUpdates.UpdateChan
+			errChan = closeUpdates.ErrChan
+		} else {
+			maxFee := chainfee.SatPerKVByte(
+				in.MaxFeePerVbyte * 1000,
+			).FeePerKWeight()
+			updateChan, errChan = r.server.htlcSwitch.CloseLink(
+				updateStream.Context(), chanPoint,
+				contractcourt.CloseRegular, feeRate, maxFee,
+				deliveryScript,
+			)
+		}
 	}
 
 	// If the user doesn't want to wait for the txid to come back then we

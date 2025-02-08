@@ -1,6 +1,8 @@
 package lnmock
 
 import (
+	"encoding/json"
+
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -30,6 +32,28 @@ func (m *MockChain) Stop() {
 
 func (m *MockChain) WaitForShutdown() {
 	m.Called()
+}
+
+func (m *MockChain) GetPeerInfo() ([]btcjson.GetPeerInfoResult, error) {
+	args := m.Called()
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).([]btcjson.GetPeerInfoResult), args.Error(1)
+}
+
+func (m *MockChain) GetBlockChainInfo() (*btcjson.GetBlockChainInfoResult,
+	error) {
+
+	args := m.Called()
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*btcjson.GetBlockChainInfoResult), args.Error(1)
 }
 
 func (m *MockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
@@ -112,6 +136,18 @@ func (m *MockChain) SendRawTransaction(tx *wire.MsgTx, allowHighFees bool) (
 	}
 
 	return args.Get(0).(*chainhash.Hash), args.Error(1)
+}
+
+func (m *MockChain) RawRequest(method string,
+	params []json.RawMessage) (json.RawMessage, error) {
+
+	args := m.Called(method, params)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(json.RawMessage), args.Error(1)
 }
 
 func (m *MockChain) Rescan(startHash *chainhash.Hash, addrs []btcutil.Address,

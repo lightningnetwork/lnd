@@ -1,6 +1,7 @@
 package chancloser
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -425,9 +426,6 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		c.EarlyRemoteOffer = fn.Some(*msg)
 
-		// TODO(roasbeef): unit test!
-		//  * actually do this ^
-
 		// We'll perform a noop update so we can wait for the actual
 		// channel flushed event.
 		return &CloseStateTransition{
@@ -468,8 +466,6 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		// We'll then use that fee rate to determine the absolute fee
 		// we'd propose.
-		//
-		// TODO(roasbeef): need to sign the 3 diff versions of this?
 		localTxOut, remoteTxOut := closeTerms.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
@@ -521,12 +517,13 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: &ClosingNegotiation{
 				PeerState: lntypes.Dual[AsymmetricPeerState]{
 					Local: &LocalCloseStart{
-						CloseChannelTerms: closeTerms,
+						CloseChannelTerms: &closeTerms,
 					},
 					Remote: &RemoteCloseStart{
-						CloseChannelTerms: closeTerms,
+						CloseChannelTerms: &closeTerms,
 					},
 				},
+				CloseChannelTerms: &closeTerms,
 			},
 			NewEvents: newEvents,
 		}, nil
@@ -570,6 +567,63 @@ func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
 	}, nil
 }
 
+// updateAndValidateCloseTerms is a helper function that validates examines the
+// incoming event, and decide if we need to update the remote party's address,
+// or reject it if it doesn't include our latest address.
+func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
+) error {
+
+	assertLocalScriptMatches := func(localScriptInMsg []byte) error {
+		if !bytes.Equal(
+			c.LocalDeliveryScript, localScriptInMsg,
+		) {
+
+			return fmt.Errorf("%w: remote party sent wrong "+
+				"script, expected %x, got %x",
+				ErrWrongLocalScript, c.LocalDeliveryScript,
+				localScriptInMsg,
+			)
+		}
+
+		return nil
+	}
+
+	switch msg := event.(type) {
+	// The remote party is sending us a new request to counter sign their
+	// version of the commitment transaction.
+	case *OfferReceivedEvent:
+		// Make sure that they're sending our local script, and not
+		// something else.
+		err := assertLocalScriptMatches(msg.SigMsg.CloseeScript)
+		if err != nil {
+			return err
+		}
+
+		oldRemoteAddr := c.RemoteDeliveryScript
+		newRemoteAddr := msg.SigMsg.CloserScript
+
+		// If they're sending a new script, then we'll update to the new
+		// one.
+		if !bytes.Equal(oldRemoteAddr, newRemoteAddr) {
+			c.RemoteDeliveryScript = newRemoteAddr
+		}
+
+	// The remote party responded to our sig request with a signature for
+	// our version of the commitment transaction.
+	case *LocalSigReceived:
+		// Make sure that they're sending our local script, and not
+		// something else.
+		err := assertLocalScriptMatches(msg.SigMsg.CloserScript)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	return nil
+}
+
 // ProcessEvent drives forward the composite states for the local and remote
 // party in response to new events. From this state, we'll continue to drive
 // forward the local and remote states until we arrive at the StateFin stage,
@@ -596,22 +650,13 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 				ConfirmedTx: msg.Tx,
 			},
 		}, nil
+	}
 
-	// Otherwise, if we receive a shutdown, or receive an event to send a
-	// shutdown, then we'll go back up to the ChannelActive state, and have
-	// it handle this event by emitting an internal event.
-	//
-	// TODO(roasbeef): both will have fee rate specified, so ok?
-	case *ShutdownReceived, *SendShutdown:
-		chancloserLog.Infof("ChannelPoint(%v): RBF case triggered, "+
-			"restarting negotiation", env.ChanPoint)
-
-		return &CloseStateTransition{
-			NextState: &ChannelActive{},
-			NewEvents: fn.Some(RbfEvent{
-				InternalEvent: []ProtocolEvent{event},
-			}),
-		}, nil
+	// At this point, we know its a new signature message. We'll validate,
+	// and maybe update the set of close terms based on what we receive. We
+	// might update the remote party's address for example.
+	if err := c.updateAndValidateCloseTerms(event); err != nil {
+		return nil, fmt.Errorf("event violates close terms: %w", err)
 	}
 
 	// If we get to this point, then we have an event that'll drive forward
@@ -627,14 +672,14 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	case c.PeerState.GetForParty(lntypes.Remote).ShouldRouteTo(event):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to remote "+
-			"chan state", env.ChanPoint, event)
 
+			"chan state", env.ChanPoint, event)
 		// Drive forward the remote state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Remote)
 	}
 
-	return nil, fmt.Errorf("%w: received %T while in ClosingNegotiation",
-		ErrInvalidStateTransition, event)
+	return nil, fmt.Errorf("%w: received %T while in %v",
+		ErrInvalidStateTransition, event, c)
 }
 
 // newSigTlv is a helper function that returns a new optional TLV sig field for
@@ -653,13 +698,33 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 	// rate to generate for the closing transaction with our ideal fee
 	// rate.
 	case *SendOfferEvent:
-		// First, we'll figure out the absolute fee rate we should pay
 		// given the state of the local/remote outputs.
+		// First, we'll figure out the absolute fee rate we should pay
 		localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
 			msg.TargetFeeRate.FeePerKWeight(),
 		)
+
+		// If we can't actually pay for fees here, then we'll just do a
+		// noop back to the same state to await a new fee rate.
+		if !l.LocalCanPayFees(absoluteFee) {
+			chancloserLog.Infof("ChannelPoint(%v): unable to pay "+
+				"fee=%v with local balance %v, skipping "+
+				"closing_complete", env.ChanPoint, absoluteFee,
+				l.LocalBalance)
+
+			return &CloseStateTransition{
+				NextState: &CloseErr{
+					CloseChannelTerms: l.CloseChannelTerms,
+					Party:             lntypes.Local,
+					ErrState: NewErrStateCantPayForFee(
+						l.LocalBalance.ToSatoshis(),
+						absoluteFee,
+					),
+				},
+			}, nil
+		}
 
 		// Now that we know what fee we want to pay, we'll create a new
 		// signature over our co-op close transaction. For our
@@ -847,8 +912,10 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 
 		return &CloseStateTransition{
 			NextState: &ClosePending{
-				CloseTx: closeTx,
-				FeeRate: l.ProposedFeeRate,
+				CloseTx:           closeTx,
+				FeeRate:           l.ProposedFeeRate,
+				CloseChannelTerms: l.CloseChannelTerms,
+				Party:             lntypes.Local,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: broadcastEvent,
@@ -1021,8 +1088,10 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// the next state where we'll sign+broadcast the sig.
 		return &CloseStateTransition{
 			NextState: &ClosePending{
-				CloseTx: closeTx,
-				FeeRate: feeRate,
+				CloseTx:           closeTx,
+				FeeRate:           feeRate,
+				CloseChannelTerms: l.CloseChannelTerms,
+				Party:             lntypes.Remote,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: daemonEvents,
@@ -1050,6 +1119,32 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 		}, nil
 
+	// If we get a send offer event in this state, then we're doing a state
+	// transition to the LocalCloseStart state, so we can sign a new closing
+	// tx.
+	case *SendOfferEvent:
+		return &CloseStateTransition{
+			NextState: &LocalCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
+	// If we get an offer received event, then we're doing a state
+	// transition to the RemoteCloseStart, as the remote peer wants to sign
+	// a new closing tx.
+	case *OfferReceivedEvent:
+		return &CloseStateTransition{
+			NextState: &RemoteCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
 	default:
 
 		return &CloseStateTransition{
@@ -1066,4 +1161,45 @@ func (c *CloseFin) ProcessEvent(event ProtocolEvent, env *Environment,
 	return &CloseStateTransition{
 		NextState: c,
 	}, nil
+}
+
+// ProcessEvent is a semi-terminal state in the rbf-coop close state machine.
+// In this state, we hit a validation error in an earlier state, so we'll remain
+// in this state for the user to examine. We may also process new requests to
+// continue the state machine.
+func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
+) (*CloseStateTransition, error) {
+
+	switch msg := event.(type) {
+	// If we get a send offer event in this state, then we're doing a state
+	// transition to the LocalCloseStart state, so we can sign a new closing
+	// tx.
+	case *SendOfferEvent:
+		return &CloseStateTransition{
+			NextState: &LocalCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
+	// If we get an offer received event, then we're doing a state
+	// transition to the RemoteCloseStart, as the remote peer wants to sign
+	// a new closing tx.
+	case *OfferReceivedEvent:
+		return &CloseStateTransition{
+			NextState: &RemoteCloseStart{
+				CloseChannelTerms: c.CloseChannelTerms,
+			},
+			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
+				InternalEvent: []ProtocolEvent{msg},
+			}),
+		}, nil
+
+	default:
+		return &CloseStateTransition{
+			NextState: c,
+		}, nil
+	}
 }

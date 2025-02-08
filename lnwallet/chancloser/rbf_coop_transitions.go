@@ -722,12 +722,13 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		// TODO(roasbeef): type alias for protocol event
 		sendEvent := protofsm.DaemonEventSet{&protofsm.SendMsgEvent[ProtocolEvent]{ //nolint:ll
 			TargetPeer: env.ChanPeer,
-			// TODO(roasbeef): mew new func
 			Msgs: []lnwire.Message{&lnwire.ClosingComplete{
-				ChannelID:   env.ChanID,
-				FeeSatoshis: absoluteFee,
-				LockTime:    env.BlockHeight,
-				ClosingSigs: closingSigs,
+				ChannelID:    env.ChanID,
+				CloserScript: l.LocalDeliveryScript,
+				CloseeScript: l.RemoteDeliveryScript,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     env.BlockHeight,
+				ClosingSigs:  closingSigs,
 			}},
 		}}
 
@@ -991,8 +992,12 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		sendEvent := &protofsm.SendMsgEvent[ProtocolEvent]{
 			TargetPeer: env.ChanPeer,
 			Msgs: []lnwire.Message{&lnwire.ClosingSig{
-				ChannelID:   env.ChanID,
-				ClosingSigs: closingSigs,
+				ChannelID:    env.ChanID,
+				CloserScript: l.RemoteDeliveryScript,
+				CloseeScript: l.LocalDeliveryScript,
+				FeeSatoshis:  msg.SigMsg.FeeSatoshis,
+				LockTime:     msg.SigMsg.LockTime,
+				ClosingSigs:  closingSigs,
 			}},
 		}
 		broadcastEvent := &protofsm.BroadcastTxn{

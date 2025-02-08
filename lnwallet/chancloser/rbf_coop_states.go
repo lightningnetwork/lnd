@@ -959,3 +959,7 @@ type RbfState = protofsm.State[ProtocolEvent, *Environment]
 
 // RbfEvent is a type alias for the event type of the RBF channel closer.
 type RbfEvent = protofsm.EmittedEvent[ProtocolEvent]
+
+// RbfStateSub is a type alias for the state subscription type of the RBF chan
+// closer.
+type RbfStateSub = protofsm.StateSubscriber[ProtocolEvent, *Environment]

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -49,6 +50,10 @@ func (d *dummyEnv) Name() string {
 
 type dummyStateStart struct {
 	canSend *atomic.Bool
+}
+
+func (d *dummyStateStart) String() string {
+	return "dummyStateStart"
 }
 
 var (
@@ -132,6 +137,10 @@ func (d *dummyStateStart) IsTerminal() bool {
 }
 
 type dummyStateFin struct {
+}
+
+func (d *dummyStateFin) String() string {
+	return "dummyStateFin"
 }
 
 func (d *dummyStateFin) ProcessEvent(event dummyEvents, env *dummyEnv,

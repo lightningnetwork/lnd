@@ -361,6 +361,9 @@ type ProtocolState interface {
 	// ProcessEvent takes a protocol event, and implements a state
 	// transition for the state.
 	ProcessEvent(ProtocolEvent, *Environment) (*CloseStateTransition, error)
+
+	// String returns the name of the state.
+	String() string
 }
 
 // AsymmetricPeerState is an extension of the normal ProtocolState interface
@@ -399,6 +402,11 @@ type ProtocolStates interface {
 //   - SendShutdown
 //   - ShutdownReceived
 type ChannelActive struct {
+}
+
+// String returns the name of the state for ChannelActive.
+func (c *ChannelActive) String() string {
+	return "ChannelActive"
 }
 
 // IsTerminal returns true if the target state is a terminal state.
@@ -443,6 +451,11 @@ type ShutdownPending struct {
 	IdealFeeRate fn.Option[chainfee.SatPerVByte]
 }
 
+// String returns the name of the state for ShutdownPending.
+func (s *ShutdownPending) String() string {
+	return "ShutdownPending"
+}
+
 // IsTerminal returns true if the target state is a terminal state.
 func (s *ShutdownPending) IsTerminal() bool {
 	return false
@@ -478,6 +491,11 @@ type ChannelFlushing struct {
 	IdealFeeRate fn.Option[chainfee.SatPerVByte]
 }
 
+// String returns the name of the state for ChannelFlushing.
+func (c *ChannelFlushing) String() string {
+	return "ChannelFlushing"
+}
+
 // protocolStateSealed indicates that this struct is a ProtocolEvent instance.
 func (c *ChannelFlushing) protocolStateSealed() {}
 
@@ -505,6 +523,13 @@ type ClosingNegotiation struct {
 	// the ShouldRouteTo method to determine which state route incoming
 	// events to.
 	PeerState lntypes.Dual[AsymmetricPeerState]
+// String returns the name of the state for ClosingNegotiation.
+func (c *ClosingNegotiation) String() string {
+	localState := c.PeerState.GetForParty(lntypes.Local)
+	remoteState := c.PeerState.GetForParty(lntypes.Remote)
+
+	return fmt.Sprintf("ClosingNegotiation(local=%v, remote=%v)",
+		localState, remoteState)
 }
 
 // IsTerminal returns true if the target state is a terminal state.
@@ -594,6 +619,12 @@ type LocalCloseStart struct {
 	CloseChannelTerms
 }
 
+// String returns the name of the state for LocalCloseStart, including proposed
+// fee details.
+func (l *LocalCloseStart) String() string {
+	return fmt.Sprintf("LocalCloseStart")
+}
+
 // ShouldRouteTo returns true if the target state should process the target
 // event.
 func (l *LocalCloseStart) ShouldRouteTo(event ProtocolEvent) bool {
@@ -637,6 +668,13 @@ type LocalOfferSent struct {
 	LocalSig lnwire.Sig
 }
 
+// String returns the name of the state for LocalOfferSent, including proposed
+
+func (l *LocalOfferSent) String() string {
+	return fmt.Sprintf("LocalOfferSent(proposed_fee=%v, "+
+		"proposed_fee_rate=%v)", l.ProposedFee, l.ProposedFeeRate)
+}
+
 // ShouldRouteTo returns true if the target state should process the target
 // event.
 func (l *LocalOfferSent) ShouldRouteTo(event ProtocolEvent) bool {
@@ -674,6 +712,12 @@ type ClosePending struct {
 
 	// FeeRate is the fee rate of the closing transaction.
 	FeeRate chainfee.SatPerVByte
+// String returns the name of the state for ClosePending, including party and
+
+func (c *ClosePending) String() string {
+	return fmt.Sprintf("ClosePending(party=%v, fee_rate=%v)",
+		c.Party, c.FeeRate)
+}
 }
 
 // ShouldRouteTo returns true if the target state should process the target
@@ -702,6 +746,11 @@ type CloseFin struct {
 	ConfirmedTx *wire.MsgTx
 }
 
+// String returns the name of the state for CloseFin.
+func (c *CloseFin) String() string {
+	return "CloseFin"
+}
+
 // protocolStateSealed indicates that this struct is a ProtocolEvent instance.
 func (c *CloseFin) protocolStateSealed() {}
 
@@ -718,6 +767,11 @@ func (c *CloseFin) IsTerminal() bool {
 //   - toState: ClosePending
 type RemoteCloseStart struct {
 	CloseChannelTerms
+}
+
+// String returns the name of the state for RemoteCloseStart.
+func (r *RemoteCloseStart) String() string {
+	return "RemoteCloseStart"
 }
 
 // ShouldRouteTo returns true if the target state should process the target

@@ -3724,10 +3724,13 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 			LocalBalance:  chanState.LocalBalance,
 			RemoteBalance: chanState.RemoteBalance,
 		}
-		chanCloser.SendEvent(&chancloser.ChannelFlushed{
-			ShutdownBalances: chanBalances,
-			FreshFlush:       true,
-		})
+		chanCloser.SendEvent(
+			context.Background(),
+			&chancloser.ChannelFlushed{
+				ShutdownBalances: chanBalances,
+				FreshFlush:       true,
+			},
+		)
 	}
 
 	// We'll wait until the channel enters the ChannelFlushing state. We
@@ -3837,7 +3840,8 @@ func (p *Brontide) initRbfChanCloser(
 	}
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
-	chanCloser.Start()
+	ctx, _ := p.cg.Create(context.Background())
+	chanCloser.Start(ctx)
 
 	// Finally, we'll register this new endpoint with the message router so
 	// future co-op close messages are handled by this state machine.

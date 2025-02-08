@@ -9266,13 +9266,19 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		closeTx.LockTime = lockTime
 	})
 
-	// TODO(roasbeef): needs support for dropping inputs
-
-	// Create both cooperative closure outputs, properly respecting the
-	// dust limits of both parties.
+	// Create both cooperative closure outputs, properly respecting the dust
+	// limits of both parties.
 	var localOutputIdx fn.Option[int]
 	haveLocalOutput := ourBalance >= localDust
 	if haveLocalOutput {
+		// If a party's script is an OP_RETURN, then we set their
+		// balance to zero.
+		if opts.customSequence.IsSome() &&
+			input.ScriptIsOpReturn(ourDeliveryScript) {
+
+			ourBalance = 0
+		}
+
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
@@ -9284,6 +9290,14 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	var remoteOutputIdx fn.Option[int]
 	haveRemoteOutput := theirBalance >= remoteDust
 	if haveRemoteOutput {
+		// If a party's script is an OP_RETURN, then we set their
+		// balance to zero.
+		if opts.customSequence.IsSome() &&
+			input.ScriptIsOpReturn(theirDeliveryScript) {
+
+			theirBalance = 0
+		}
+
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),

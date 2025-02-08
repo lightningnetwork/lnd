@@ -5278,3 +5278,88 @@ func (s *server) getStartingBeat() (*chainio.Beat, error) {
 
 	return beat, nil
 }
+
+// ChanHasRbfCoopCloser returns true if the channel as identifier by the channel
+// point has an active RBF chan closer.
+func (s *server) ChanHasRbfCoopCloser(peerPub *btcec.PublicKey,
+	chanPoint wire.OutPoint) bool {
+
+	pubBytes := peerPub.SerializeCompressed()
+
+	s.mu.RLock()
+	targetPeer, ok := s.peersByPub[string(pubBytes)]
+	s.mu.RUnlock()
+	if !ok {
+		return false
+	}
+
+	return targetPeer.ChanHasRbfCoopCloser(chanPoint)
+}
+
+// attemptCoopRbfFeeBump attempts to look up the active chan closer for a
+// channel given the outpoint. If found, we'll attempt to do a fee bump,
+// returning channels used for updates. If the channel isn't currently active
+// (p2p connection established), then his function will return an error.
+func (s *server) attemptCoopRbfFeeBump(ctx context.Context,
+	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
+	deliveryScript lnwire.DeliveryAddress) (*peer.CoopCloseUpdates, error) {
+
+	// First, we'll attempt to look up the channel based on it's
+	// ChannelPoint.
+	channel, err := s.chanStateDB.FetchChannel(chanPoint)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	// From the channel, we can now get the pubkey of the peer, then use
+	// that to eventually get the chan closer.
+	peerPub := channel.IdentityPub.SerializeCompressed()
+
+	// Now that we have the peer pub, we can look up the peer itself.
+	s.mu.RLock()
+	targetPeer, ok := s.peersByPub[string(peerPub)]
+	s.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("peer for ChannelPoint(%v) is "+
+			"not online", chanPoint)
+	}
+
+	closeUpdates, err := targetPeer.TriggerCoopCloseRbfBump(
+		ctx, chanPoint, feeRate, deliveryScript,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to trigger coop rbf fee bump: "+
+			"%w", err)
+	}
+
+	return closeUpdates, nil
+}
+
+// AttemptRBFCloseUpdate attempts to trigger a new RBF iteration for a co-op
+// close update. This route it to be used only if the target channel in question
+// is no longer active in the link. This can happen when we restart while we
+// already have done a single RBF co-op close iteration.
+func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
+	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
+	deliveryScript lnwire.DeliveryAddress) (*peer.CoopCloseUpdates, error) {
+
+	// If the channel is present in the switch, then the request should flow
+	// through the switch instead.
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	if _, err := s.htlcSwitch.GetLink(chanID); err == nil {
+		return nil, fmt.Errorf("ChannelPoint(%v) is active in link, "+
+			"invalid request", chanPoint)
+	}
+
+	// At this point, we know that the channel isn't present in the link, so
+	// we'll check to see if we have an entry in the active chan closer map.
+	updates, err := s.attemptCoopRbfFeeBump(
+		ctx, chanPoint, feeRate, deliveryScript,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to attempt coop rbf fee bump "+
+			"ChannelPoint(%v)", chanPoint)
+	}
+
+	return updates, nil
+}

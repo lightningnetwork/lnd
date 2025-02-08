@@ -51,6 +51,10 @@ type dummyStateStart struct {
 	canSend *atomic.Bool
 }
 
+func (d *dummyStateStart) String() string {
+	return "dummyStateStart"
+}
+
 var (
 	hexDecode = func(keyStr string) []byte {
 		keyBytes, _ := hex.DecodeString(keyStr)
@@ -132,6 +136,10 @@ func (d *dummyStateStart) IsTerminal() bool {
 }
 
 type dummyStateFin struct {
+}
+
+func (d *dummyStateFin) String() string {
+	return "dummyStateFin"
 }
 
 func (d *dummyStateFin) ProcessEvent(event dummyEvents, env *dummyEnv,

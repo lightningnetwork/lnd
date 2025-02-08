@@ -146,10 +146,6 @@ type ChanCloseCfg struct {
 	// ChainParams holds the parameters of the chain that we're active on.
 	ChainParams *chaincfg.Params
 
-	// Quit is a channel that should be sent upon in the occasion the state
-	// machine should cease all progress and shutdown.
-	Quit chan struct{}
-
 	// FeeEstimator is used to estimate the absolute starting co-op close
 	// fee.
 	FeeEstimator CoopFeeEstimator

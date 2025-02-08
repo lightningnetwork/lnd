@@ -406,7 +406,7 @@ type dummyMsgMapper struct {
 	mock.Mock
 }
 
-func (d *dummyMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[dummyEvents] {
+func (d *dummyMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[dummyEvents] {
 	args := d.Called(wireMsg)
 
 	//nolint:forcetypeassert

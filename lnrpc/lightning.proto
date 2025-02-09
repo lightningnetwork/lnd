@@ -2146,9 +2146,13 @@ message CloseChannelRequest {
     // NOTE: This field is only respected if we're the initiator of the channel.
     uint64 max_fee_per_vbyte = 7;
 
-    // If true, then the rpc call will not block while it awaits a closing txid.
-    // Consequently this RPC call will not return a closing txid if this value
-    // is set.
+    // If true, then the rpc call will not block while it awaits a closing txid
+    // to be broadcasted to the mempool. To obtain the closing tx one has to
+    // listen to the stream for the particular updates. Moreover if a coop close
+    // is specified and this flag is set to true the coop closing flow will be
+    // intiatated even if HTLCs are active on the channel. The channel will wait
+    // until all HTLCs are resolved and then start the coop closing process. The
+    // channel will be disabled in the meantime and will disallow any new HTLCs.
     bool no_wait = 8;
 }
 
@@ -2166,6 +2170,10 @@ message PendingUpdate {
 }
 
 message InstantUpdate {
+    // The number of pending HTLCs that are currently active on the channel
+    // and which need to be resolved before the channel can be closed
+    // cooperatively.
+    int32 num_pending_htlcs = 1;
 }
 
 message ReadyForPsbtFunding {

@@ -5475,7 +5475,14 @@
       "default": "INITIATOR_UNKNOWN"
     },
     "lnrpcInstantUpdate": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "num_pending_htlcs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of pending HTLCs that are currently active on the channel\nand which need to be resolved before the channel can be closed\ncooperatively."
+        }
+      }
     },
     "lnrpcInterceptFeedback": {
       "type": "object",

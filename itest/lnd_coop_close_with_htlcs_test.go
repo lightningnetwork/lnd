@@ -93,14 +93,17 @@ func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
 	// closure is set up. Let's settle the invoice.
 	alice.RPC.SettleInvoice(preimage[:])
 
-	// Pull the instant update off the wire to clear the path for the
-	// close pending update.
-	_, err := closeClient.Recv()
+	// Pull the instant update off the wire and make sure the number of
+	// pending HTLCs is as expected.
+	update, err := closeClient.Recv()
 	require.NoError(ht, err)
+	closeInstant := update.GetCloseInstant()
+	require.NotNil(ht, closeInstant)
+	require.Equal(ht, closeInstant.NumPendingHtlcs, 1)
 
 	// Wait for the next channel closure update. Now that we have settled
 	// the only HTLC this should be imminent.
-	update, err := closeClient.Recv()
+	update, err = closeClient.Recv()
 	require.NoError(ht, err)
 
 	// This next update should be a GetClosePending as it should be the

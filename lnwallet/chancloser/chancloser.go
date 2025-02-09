@@ -360,6 +360,9 @@ func (c *ChanCloser) initFeeBaseline() {
 		)
 	}
 
+	// TODO(ziggie): Make sure the ideal fee is not higher than the max fee.
+	// Either error out or cap the ideal fee at the max fee.
+
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
 		"is: %v sat (max_fee=%v sat)", c.cfg.Channel.ChannelPoint(),
 		int64(c.idealFeeSat), int64(c.maxFee))

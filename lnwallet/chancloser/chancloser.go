@@ -360,6 +360,15 @@ func (c *ChanCloser) initFeeBaseline() {
 		)
 	}
 
+	// We make sure that our ideal fee is not higher than the max fee rate.
+	if c.idealFeeSat > c.maxFee {
+		chancloserLog.Warnf("Ideal fee (%v sat) is higher than the "+
+			"max fee (%v sat), using max fee instead",
+			c.idealFeeSat, c.maxFee)
+
+		c.idealFeeSat = c.maxFee
+	}
+
 	chancloserLog.Infof("Ideal fee for closure of ChannelPoint(%v) "+
 		"is: %v sat (max_fee=%v sat)", c.cfg.Channel.ChannelPoint(),
 		int64(c.idealFeeSat), int64(c.maxFee))

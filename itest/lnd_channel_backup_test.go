@@ -283,14 +283,16 @@ func (c *chanRestoreScenario) testScenario(ht *lntest.HarnessTest,
 
 	// We don't get an error directly but only when reading the first
 	// message of the stream.
-	err := ht.CloseChannelAssertErr(
-		dave, &lnrpc.ChannelPoint{
+	req := &lnrpc.CloseChannelRequest{
+		ChannelPoint: &lnrpc.ChannelPoint{
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidStr{
 				FundingTxidStr: chanPointParts[0],
 			},
 			OutputIndex: uint32(chanPointIndex),
-		}, true,
-	)
+		},
+		Force: true,
+	}
+	err := ht.CloseChannelAssertErr(dave, req)
 	require.Contains(ht, err.Error(), "cannot close channel with state: ")
 	require.Contains(ht, err.Error(), "ChanStatusRestored")
 

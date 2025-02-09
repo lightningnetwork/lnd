@@ -995,6 +995,11 @@ var closeChannelCommand = cli.Command{
 	comparison is the end boundary of the fee negotiation, if not specified
 	it's always x3 of the starting value. Increasing this value increases
 	the chance of a successful negotiation.
+	Moreover if the channel has active HTLCs on it, the coop close will
+	wait until all HTLCs are resolved and will not allow any new HTLCs on
+	the channel. The channel will appear as disabled in the listchannels
+	output. The command will block in that case until the channel close tx
+	is broadcasted.
 
 	In the case of a cooperative closure, one can manually set the address
 	to deliver funds to upon closure. This is optional, and may only be used
@@ -1026,8 +1031,10 @@ var closeChannelCommand = cli.Command{
 			Usage: "attempt an uncooperative closure",
 		},
 		cli.BoolFlag{
-			Name:  "block",
-			Usage: "block until the channel is closed",
+			Name: "block",
+			Usage: `block will wait for the channel to be closed,
+			"meaning that it will wait for the channel tx to get 1
+			confirmation.`,
 		},
 		cli.Int64Flag{
 			Name: "conf_target",
@@ -1101,6 +1108,9 @@ func closeChannel(ctx *cli.Context) error {
 		SatPerVbyte:     ctx.Uint64(feeRateFlag),
 		DeliveryAddress: ctx.String("delivery_addr"),
 		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
+		// This makes sure that a coop close will also be executed if
+		// active HTLCs are present on the channel.
+		NoWait: true,
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will
@@ -1157,9 +1167,11 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 
 		switch update := resp.Update.(type) {
 		case *lnrpc.CloseStatusUpdate_CloseInstant:
-			if req.NoWait {
-				return nil
-			}
+			fmt.Println("Channel close successfully initiated " +
+				"(potentially waiting for HTLCs to be " +
+				"resolved), waiting for close tx to be " +
+				"broadcasted ...")
+
 		case *lnrpc.CloseStatusUpdate_ClosePending:
 			closingHash := update.ClosePending.Txid
 			txid, err := chainhash.NewHash(closingHash)
@@ -1167,12 +1179,20 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 				return err
 			}
 
+			fmt.Println("Channel close transaction broadcasted")
+
 			txidChan <- txid.String()
 
 			if !block {
 				return nil
 			}
+
+			fmt.Println("Waiting for channel close " +
+				"confirmation ...")
+
 		case *lnrpc.CloseStatusUpdate_ChanClose:
+			fmt.Println("Channel close successfully confirmed")
+
 			return nil
 		}
 	}

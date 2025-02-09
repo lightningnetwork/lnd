@@ -2872,6 +2872,13 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		maxFee := chainfee.SatPerKVByte(
 			in.MaxFeePerVbyte * 1000,
 		).FeePerKWeight()
+
+		if maxFee != 0 && maxFee < feeRate {
+			return fmt.Errorf("max_fee_per_vbyte (%d) is less "+
+				"than the required fee rate (%d)", maxFee,
+				feeRate)
+		}
+
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
 			chanPoint, contractcourt.CloseRegular, feeRate,
 			maxFee, deliveryScript,
@@ -2896,7 +2903,9 @@ out:
 		case err := <-errChan:
 			rpcsLog.Errorf("[closechannel] unable to close "+
 				"ChannelPoint(%v): %v", chanPoint, err)
+
 			return err
+
 		case closingUpdate := <-updateChan:
 			rpcClosingUpdate, err := createRPCCloseUpdate(
 				closingUpdate,
@@ -2935,6 +2944,7 @@ out:
 					"txid(%v)", h)
 				break out
 			}
+
 		case <-r.quit:
 			return nil
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
@@ -242,4 +243,72 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 
 	// Show that the address used is the one she requested.
 	require.Equal(ht, outputDetail.Address, newAddr.Address)
+}
+
+// testCoopCloseExceedsMaxFee tests that we fail the coop close process if
+// the max fee rate exceeds the expected fee rate for the initial closing fee
+// proposal.
+func testCoopCloseExceedsMaxFee(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNodeWithCoins("bob", nil)
+	ht.ConnectNodes(alice, bob)
+
+	// Here we set up a channel between Alice and Bob, beginning with a
+	// balance on Bob's side.
+	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
+		Amt: btcutil.Amount(1000000),
+	})
+
+	// Wait for Bob to understand that the channel is ready to use.
+	ht.AssertChannelInGraph(bob, chanPoint)
+
+	// Set the fee estimate for one block to 10 sat/vbyte.
+	ht.SetFeeEstimateWithConf(chainfee.SatPerVByte(10).FeePerKWeight(), 1)
+
+	// Have alice attempt to close the channel but we the expected fee rate
+	// exceeds the max fee rate so we fail the closing process.
+	closeClient := alice.RPC.CloseChannel(&lnrpc.CloseChannelRequest{
+		ChannelPoint:   chanPoint,
+		NoWait:         true,
+		TargetConf:     1,
+		MaxFeePerVbyte: 5,
+	})
+	_, err := closeClient.Recv()
+	require.Error(ht, err)
+
+	// Now close the channel with a appropriate max fee rate.
+	closeClient = alice.RPC.CloseChannel(&lnrpc.CloseChannelRequest{
+		ChannelPoint:   chanPoint,
+		NoWait:         true,
+		TargetConf:     1,
+		MaxFeePerVbyte: 10,
+	})
+
+	// Pull the instant update off the wire to clear the path for the
+	// close pending update.
+	_, err = closeClient.Recv()
+	require.NoError(ht, err)
+
+	// Wait for the channel to be closed.
+	update, err := closeClient.Recv()
+	require.NoError(ht, err)
+
+	// This next update should be a GetClosePending as it should be the
+	// negotiation of the coop close tx.
+	closePending := update.GetClosePending()
+	require.NotNil(ht, closePending)
+
+	// Convert the txid we get from the PendingUpdate to a Hash so we can
+	// wait for it to be mined.
+	var closeTxid chainhash.Hash
+	require.NoError(
+		ht, closeTxid.SetBytes(closePending.Txid),
+		"invalid closing txid",
+	)
+
+	// Wait for the close tx to be in the Mempool.
+	ht.AssertTxInMempool(closeTxid)
+
+	// Wait for it to get mined and finish tearing down.
+	ht.AssertStreamChannelCoopClosed(alice, chanPoint, false, closeClient)
 }

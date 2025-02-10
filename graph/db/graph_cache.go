@@ -6,32 +6,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
-
-// GraphCacheNode is an interface for all the information the cache needs to know
-// about a lightning node.
-type GraphCacheNode interface {
-	// PubKey is the node's public identity key.
-	PubKey() route.Vertex
-
-	// Features returns the node's p2p features.
-	Features() *lnwire.FeatureVector
-
-	// ForEachChannel iterates through all channels of a given node,
-	// executing the passed callback with an edge info structure and the
-	// policies of each end of the channel. The first edge policy is the
-	// outgoing edge *to* the connecting node, while the second is the
-	// incoming edge *from* the connecting node. If the callback returns an
-	// error, then the iteration is halted with the error propagated back up
-	// to the caller.
-	ForEachChannel(kvdb.RTx,
-		func(kvdb.RTx, *models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy) error) error
-}
 
 // DirectedChannel is a type that stores the channel information as seen from
 // one side of the channel.
@@ -124,16 +101,13 @@ func (c *GraphCache) Stats() string {
 }
 
 // AddNodeFeatures adds a graph node and its features to the cache.
-func (c *GraphCache) AddNodeFeatures(node GraphCacheNode) {
-	nodePubKey := node.PubKey()
+func (c *GraphCache) AddNodeFeatures(node route.Vertex,
+	features *lnwire.FeatureVector) {
 
-	// Only hold the lock for a short time. The `ForEachChannel()` below is
-	// possibly slow as it has to go to the backend, so we can unlock
-	// between the calls. And the AddChannel() method will acquire its own
-	// lock anyway.
 	c.mtx.Lock()
-	c.nodeFeatures[nodePubKey] = node.Features()
-	c.mtx.Unlock()
+	defer c.mtx.Unlock()
+
+	c.nodeFeatures[node] = features
 }
 
 // AddChannel adds a non-directed channel, meaning that the order of policy 1

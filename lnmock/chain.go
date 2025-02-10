@@ -74,6 +74,18 @@ func (m *MockChain) GetBlockHeader(hash *chainhash.Hash) (
 	return args.Get(0).(*wire.BlockHeader), args.Error(1)
 }
 
+func (m *MockChain) GetUtxo(op *wire.OutPoint, pkScript []byte,
+	heightHint uint32, cancel <-chan struct{}) (*wire.TxOut, error) {
+
+	args := m.Called(op, pkScript, heightHint, cancel)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*wire.TxOut), args.Error(1)
+}
+
 func (m *MockChain) IsCurrent() bool {
 	args := m.Called()
 

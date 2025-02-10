@@ -1275,14 +1275,12 @@ func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
 }
 
 func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, failCode ErrorCode) {
+	edge *models.ChannelEdgeInfo, expectedErr error) {
 
 	t.Helper()
 
 	err := ctx.builder.AddEdge(edge)
-	if !IsError(err, failCode) {
-		t.Fatalf("validation should have failed: %v", err)
-	}
+	require.ErrorIs(t, err, expectedErr)
 
 	// This channel should now be present in the zombie channel index.
 	_, _, _, isZombie, err := ctx.graph.HasChannelEdge(

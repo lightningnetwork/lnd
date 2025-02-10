@@ -904,10 +904,7 @@ func (c *ChannelGraph) AddLightningNode(node *models.LightningNode,
 				cNode := newGraphCacheNode(
 					node.PubKeyBytes, node.Features,
 				)
-				err := c.graphCache.AddNode(tx, cNode)
-				if err != nil {
-					return err
-				}
+				c.graphCache.AddNodeFeatures(cNode)
 			}
 
 			return addLightningNode(tx, node)

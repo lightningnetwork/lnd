@@ -88,18 +88,16 @@ func TestGraphCacheAddNode(t *testing.T) {
 		node := &node{
 			pubKey:   nodeA,
 			features: lnwire.EmptyFeatureVector(),
-			edgeInfos: []*models.ChannelEdgeInfo{{
-				ChannelID: 1000,
-				// Those are direction independent!
-				NodeKey1Bytes: pubKey1,
-				NodeKey2Bytes: pubKey2,
-				Capacity:      500,
-			}},
-			outPolicies: []*models.ChannelEdgePolicy{outPolicy1},
-			inPolicies:  []*models.ChannelEdgePolicy{inPolicy1},
 		}
 		cache := NewGraphCache(10)
-		require.NoError(t, cache.AddNode(nil, node))
+		cache.AddNodeFeatures(node)
+		cache.AddChannel(&models.ChannelEdgeInfo{
+			ChannelID: 1000,
+			// Those are direction independent!
+			NodeKey1Bytes: pubKey1,
+			NodeKey2Bytes: pubKey2,
+			Capacity:      500,
+		}, outPolicy1, inPolicy1)
 
 		var fromChannels, toChannels []*DirectedChannel
 		_ = cache.ForEachChannel(nodeA, func(c *DirectedChannel) error {

@@ -136,23 +136,6 @@ func (c *GraphCache) AddNodeFeatures(node GraphCacheNode) {
 	c.mtx.Unlock()
 }
 
-// AddNode adds a graph node, including all the (directed) channels of that
-// node.
-func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
-	c.AddNodeFeatures(node)
-
-	return node.ForEachChannel(
-		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
-			outPolicy *models.ChannelEdgePolicy,
-			inPolicy *models.ChannelEdgePolicy) error {
-
-			c.AddChannel(info, outPolicy, inPolicy)
-
-			return nil
-		},
-	)
-}
-
 // AddChannel adds a non-directed channel, meaning that the order of policy 1
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy

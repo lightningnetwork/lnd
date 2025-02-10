@@ -582,7 +582,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 // TestChansClosedOfflinePruneGraph tests that if channels we know of are
 // closed while we're offline, then once we resume operation of the
 // ChannelRouter, then the channels are properly pruned.
-func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
+func TestChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
 
 	const startingBlockHeight = 101

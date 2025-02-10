@@ -329,6 +329,9 @@ The underlying functionality between those two options remain the same.
   to the sweeper to improve code quality, with a renaming of the internal state
   (`Failed` -> `Fatal`) used by the inputs tracked in the sweeper.
 
+* A code refactor that [replaces min/max helpers with built-in min/max
+  functions](https://github.com/lightningnetwork/lnd/pull/9451).
+
 ## Tooling and Documentation
 
 * [Improved `lncli create` command help text](https://github.com/lightningnetwork/lnd/pull/9077)

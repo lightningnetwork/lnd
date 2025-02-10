@@ -1,8 +1,6 @@
 package contractcourt
 
 import (
-	"math"
-
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -42,9 +40,7 @@ func (h *htlcLeaseResolver) deriveWaitHeight(csvDelay uint32,
 
 	waitHeight := uint32(commitSpend.SpendingHeight) + csvDelay - 1
 	if h.hasCLTV() {
-		waitHeight = uint32(math.Max(
-			float64(waitHeight), float64(h.leaseExpiry),
-		))
+		waitHeight = max(waitHeight, h.leaseExpiry)
 	}
 
 	return waitHeight

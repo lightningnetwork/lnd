@@ -6,7 +6,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -379,13 +378,11 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 
 			capMsat = edge.policy.MaxHTLC
 		}
-		maxCapMsat = lntypes.Max(capMsat, maxCapMsat)
+		maxCapMsat = max(capMsat, maxCapMsat)
 
 		// Track the maximum time lock of all channels that are
 		// candidate for non-strict forwarding at the routing node.
-		maxTimelock = lntypes.Max(
-			maxTimelock, edge.policy.TimeLockDelta,
-		)
+		maxTimelock = max(maxTimelock, edge.policy.TimeLockDelta)
 
 		outboundFee := int64(edge.policy.ComputeFee(amt))
 		fee := outboundFee + inboundFee
@@ -440,10 +437,10 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 
 // minAmt returns the minimum amount that can be forwarded on this connection.
 func (u *edgeUnifier) minAmt() lnwire.MilliSatoshi {
-	min := lnwire.MaxMilliSatoshi
+	minAmount := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		min = lntypes.Min(min, edge.policy.MinHTLC)
+		minAmount = min(minAmount, edge.policy.MinHTLC)
 	}
 
-	return min
+	return minAmount
 }

@@ -183,7 +183,7 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	// attempt. If we double something n times, that's the same as
 	// multiplying the value with 2^n. We limit the power to 32 to avoid
 	// overflows.
-	factor := time.Duration(math.Pow(2, math.Min(float64(attempt), 32)))
+	factor := time.Duration(math.Pow(2, min(float64(attempt), 32)))
 	actualDelay := initialDelay * factor
 
 	// Cap the delay at the maximum configured value.

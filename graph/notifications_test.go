@@ -176,13 +176,21 @@ type mockChain struct {
 var _ lnwallet.BlockChainIO = (*mockChain)(nil)
 
 func newMockChain(currentHeight uint32) *mockChain {
-	return &mockChain{
+	chain := &mockChain{
 		bestHeight:       int32(currentHeight),
 		blocks:           make(map[chainhash.Hash]*wire.MsgBlock),
 		utxos:            make(map[wire.OutPoint]wire.TxOut),
 		blockIndex:       make(map[uint32]chainhash.Hash),
 		blockHeightIndex: make(map[chainhash.Hash]uint32),
 	}
+
+	// Initialize the block index with the empty hash for the
+	// starting height.
+	startingHash := chainhash.Hash{}
+	chain.blockIndex[currentHeight] = startingHash
+	chain.blockHeightIndex[startingHash] = currentHeight
+
+	return chain
 }
 
 func (m *mockChain) setBestBlock(height int32) {
@@ -196,7 +204,11 @@ func (m *mockChain) GetBestBlock() (*chainhash.Hash, int32, error) {
 	m.RLock()
 	defer m.RUnlock()
 
-	blockHash := m.blockIndex[uint32(m.bestHeight)]
+	blockHash, exists := m.blockIndex[uint32(m.bestHeight)]
+	if !exists {
+		return nil, 0, fmt.Errorf("block at height %d not found",
+			m.bestHeight)
+	}
 
 	return &blockHash, m.bestHeight, nil
 }

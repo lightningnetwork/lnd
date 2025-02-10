@@ -121,6 +121,13 @@ const (
 )
 
 // decideNextStep is used to determine the next step in the payment lifecycle.
+// It first checks whether the current state of the payment allows more HTLC
+// attempts to be made. If allowed, it will return so the lifecycle can continue
+// making new attempts. Otherwise, it checks whether we need to wait for the
+// results of already sent attempts. If needed, it will block until one of the
+// results is sent back. then process its result here. When there's no need to
+// wait for results, the method will exit with `stepExit` such that the payment
+// lifecycle loop will terminate.
 func (p *paymentLifecycle) decideNextStep(
 	payment DBMPPayment) (stateStep, error) {
 
@@ -130,53 +137,53 @@ func (p *paymentLifecycle) decideNextStep(
 		return stepExit, err
 	}
 
-	if !allow {
-		// Check whether we need to wait for results.
-		wait, err := payment.NeedWaitAttempts()
+	// Exit early we need to make more attempts.
+	if allow {
+		return stepProceed, nil
+	}
+
+	// We cannot make more attempts, we now check whether we need to wait
+	// for results.
+	wait, err := payment.NeedWaitAttempts()
+	if err != nil {
+		return stepExit, err
+	}
+
+	// If we are not allowed to make new HTLC attempts and there's no need
+	// to wait, the lifecycle is done and we can exit.
+	if !wait {
+		return stepExit, nil
+	}
+
+	log.Tracef("Waiting for attempt results for payment %v", p.identifier)
+
+	// Otherwise we wait for the result for one HTLC attempt then continue
+	// the lifecycle.
+	select {
+	case r := <-p.resultCollected:
+		log.Tracef("Received attempt result for payment %v",
+			p.identifier)
+
+		// Handle the result here. If there's no error, we will return
+		// stepSkip and move to the next lifecycle iteration, which will
+		// refresh the payment and wait for the next attempt result, if
+		// any.
+		_, err := p.handleAttemptResult(r.attempt, r.result)
+
+		// We would only get a DB-related error here, which will cause
+		// us to abort the payment flow.
 		if err != nil {
 			return stepExit, err
 		}
 
-		// If we are not allowed to make new HTLC attempts and there's
-		// no need to wait, the lifecycle is done and we can exit.
-		if !wait {
-			return stepExit, nil
-		}
+	case <-p.quit:
+		return stepExit, ErrPaymentLifecycleExiting
 
-		log.Tracef("Waiting for attempt results for payment %v",
-			p.identifier)
-
-		// Otherwise we wait for the result for one HTLC attempt then
-		// continue the lifecycle.
-		select {
-		case r := <-p.resultCollected:
-			log.Tracef("Received attempt result for payment %v",
-				p.identifier)
-
-			// Handle the result here. If there's no error, we will
-			// return stepSkip and move to the next lifecycle
-			// iteration, which will refresh the payment and wait
-			// for the next attempt result, if any.
-			_, err := p.handleAttemptResult(r.attempt, r.result)
-
-			// We would only get a DB-related error here, which will
-			// cause us to abort the payment flow.
-			if err != nil {
-				return stepExit, err
-			}
-
-		case <-p.quit:
-			return stepExit, ErrPaymentLifecycleExiting
-
-		case <-p.router.quit:
-			return stepExit, ErrRouterShuttingDown
-		}
-
-		return stepSkip, nil
+	case <-p.router.quit:
+		return stepExit, ErrRouterShuttingDown
 	}
 
-	// Otherwise we need to make more attempts.
-	return stepProceed, nil
+	return stepSkip, nil
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.

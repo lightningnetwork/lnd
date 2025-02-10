@@ -270,9 +270,10 @@ var bumpFeeCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: `
-	The deadline in number of blocks that the input should be spent within.
-	When not set, for new inputs, the default value (1008) is used; for
-	exiting inputs, their current values will be retained.`,
+	The conf target is the starting fee rate of the fee function expressed
+	in number of blocks. So instead of using sat_per_vbyte the conf target
+	can be specified and LND will query its fee estimator for the current
+	fee rate for the given target.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
@@ -308,6 +309,14 @@ var bumpFeeCommand = cli.Command{
 	for new inputs, by default 50% of the input's value will be treated as
 	the budget for fee bumping; for existing inputs, their current budgets
 	will be retained.`,
+		},
+		cli.Uint64Flag{
+			Name: "deadline_delta",
+			Usage: `
+	The deadline delta in number of blocks that this input should be spent
+	within to bump the transaction. When specified also a budget value is
+	required. When the deadline is reached, ALL the budget will be spent as
+	fee.`,
 		},
 	},
 	Action: actionDecorator(bumpFee),
@@ -346,11 +355,12 @@ func bumpFee(ctx *cli.Context) error {
 	}
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		Immediate:   immediate,
-		Budget:      ctx.Uint64("budget"),
-		SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		Outpoint:      protoOutPoint,
+		TargetConf:    uint32(ctx.Uint64("conf_target")),
+		Immediate:     immediate,
+		Budget:        ctx.Uint64("budget"),
+		SatPerVbyte:   ctx.Uint64("sat_per_vbyte"),
+		DeadlineDelta: uint32(ctx.Uint64("deadline_delta")),
 	})
 	if err != nil {
 		return err
@@ -379,9 +389,10 @@ var bumpCloseFeeCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: `
-	The deadline in number of blocks that the input should be spent within.
-	When not set, for new inputs, the default value (1008) is used; for
-	exiting inputs, their current values will be retained.`,
+	The conf target is the starting fee rate of the fee function expressed
+	in number of blocks. So instead of using sat_per_vbyte the conf target
+	can be specified and LND will query its fee estimator for the current
+	fee rate for the given target.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",
@@ -438,9 +449,17 @@ var bumpForceCloseFeeCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "conf_target",
 			Usage: `
-	The deadline in number of blocks that the input should be spent within.
-	When not set, for new inputs, the default value (1008) is used; for
-	exiting inputs, their current values will be retained.`,
+	The conf target is the starting fee rate of the fee function expressed
+	in number of blocks. So instead of using sat_per_vbyte the conf target
+	can be specified and LND will query its fee estimator for the current
+	fee rate for the given target.`,
+		},
+		cli.Uint64Flag{
+			Name: "deadline_delta",
+			Usage: `
+	The deadline delta in number of blocks that the anchor output should
+	be spent within to bump the closing transaction. When the deadline is
+	reached, ALL the budget will be spent as fees.`,
 		},
 		cli.Uint64Flag{
 			Name:   "sat_per_byte",

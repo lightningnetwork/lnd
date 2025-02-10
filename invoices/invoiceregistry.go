@@ -704,7 +704,10 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 	// Try to mark the specified htlc as canceled in the invoice database.
 	// Intercept the update descriptor to set the local updated variable. If
 	// no invoice update is performed, we can return early.
+	// setID is only set for AMP HTLCs, so it can be nil and it is expected
+	// to be nil for non-AMP HTLCs.
 	setID := (*SetID)(invoiceRef.SetID())
+
 	var updated bool
 	invoice, err := i.idb.UpdateInvoice(
 		context.Background(), invoiceRef, setID,
@@ -1014,6 +1017,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	HtlcResolution, invoiceExpiry, error) {
 
 	invoiceRef := ctx.invoiceRef()
+
+	// This setID is only set for AMP HTLCs, so it can be nil and it is
+	// also expected to be nil for non-AMP HTLCs.
 	setID := (*SetID)(ctx.setID())
 
 	// We need to look up the current state of the invoice in order to send
@@ -1370,7 +1376,15 @@ func (i *InvoiceRegistry) SettleHodlInvoice(ctx context.Context,
 
 	hash := preimage.Hash()
 	invoiceRef := InvoiceRefByHash(hash)
-	invoice, err := i.idb.UpdateInvoice(ctx, invoiceRef, nil, updateInvoice)
+
+	// AMP hold invoices are not supported so we set the setID to nil.
+	// For non-AMP invoices this parameter is ignored during the fetching
+	// of the database state.
+	setID := (*SetID)(nil)
+
+	invoice, err := i.idb.UpdateInvoice(
+		ctx, invoiceRef, setID, updateInvoice,
+	)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v",
 			preimage, err)
@@ -1454,10 +1468,14 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 		}, nil
 	}
 
+	// If it's an AMP invoice we need to fetch all AMP HTLCs here so that
+	// we can cancel all of HTLCs which are in the accepted state across
+	// different setIDs.
+	setID := (*SetID)(nil)
 	invoiceRef := InvoiceRefByHash(payHash)
-
-	// We pass a nil setID which means no HTLCs will be read out.
-	invoice, err := i.idb.UpdateInvoice(ctx, invoiceRef, nil, updateInvoice)
+	invoice, err := i.idb.UpdateInvoice(
+		ctx, invoiceRef, setID, updateInvoice,
+	)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.
@@ -1483,8 +1501,8 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 	// that are waiting for resolution. Any htlcs that were already canceled
 	// before, will be notified again. This isn't necessary but doesn't hurt
 	// either.
-	//
-	// TODO(ziggie): Also consider AMP HTLCs here.
+	// For AMP invoices we fetched all AMP HTLCs for all sub AMP invoices
+	// here so we can clean up all of them.
 	for key, htlc := range invoice.Htlcs {
 		if htlc.State != HtlcStateCanceled {
 			continue
@@ -1496,6 +1514,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
 			),
 		)
 	}
+
 	i.notifyClients(payHash, invoice, nil)
 
 	// Attempt to also delete the invoice if requested through the registry

@@ -650,18 +650,13 @@ func (d *DB) UpdateInvoice(_ context.Context, ref invpkg.InvoiceRef,
 			return err
 		}
 
-		// If the set ID hint is non-nil, then we'll use that to filter
-		// out the HTLCs for AMP invoice so we don't need to read them
-		// all out to satisfy the invoice callback below. If it's nil,
-		// then we pass in the zero set ID which means no HTLCs will be
-		// read out.
-		var invSetID invpkg.SetID
-
-		if setIDHint != nil {
-			invSetID = *setIDHint
-		}
+		// setIDHint can also be nil here, which means all the HTLCs
+		// for AMP invoices are fetched. If the blank setID is passed
+		// in, then no HTLCs are fetched for the AMP invoice. If a
+		// specific setID is passed in, then only the HTLCs for that
+		// setID are fetched for a particular sub-AMP invoice.
 		invoice, err := fetchInvoice(
-			invoiceNum, invoices, []*invpkg.SetID{&invSetID}, false,
+			invoiceNum, invoices, []*invpkg.SetID{setIDHint}, false,
 		)
 		if err != nil {
 			return err
@@ -691,7 +686,7 @@ func (d *DB) UpdateInvoice(_ context.Context, ref invpkg.InvoiceRef,
 		// If this is an AMP update, then limit the returned AMP state
 		// to only the requested set ID.
 		if setIDHint != nil {
-			filterInvoiceAMPState(updatedInvoice, &invSetID)
+			filterInvoiceAMPState(updatedInvoice, setIDHint)
 		}
 
 		return nil
@@ -848,7 +843,10 @@ func (k *kvInvoiceUpdater) Finalize(updateType invpkg.UpdateType) error {
 		return k.storeSettleHodlInvoiceUpdate()
 
 	case invpkg.CancelInvoiceUpdate:
-		return k.serializeAndStoreInvoice()
+		// Persist all changes which where made when cancelling the
+		// invoice. All HTLCs which were accepted are now canceled, so
+		// we persist this state.
+		return k.storeCancelHtlcsUpdate()
 	}
 
 	return fmt.Errorf("unknown update type: %v", updateType)

@@ -31,7 +31,7 @@ func acceptHtlcsAmp(invoice *Invoice, setID SetID,
 }
 
 // cancelHtlcsAmp processes a cancellation of an HTLC that belongs to an AMP
-// HTLC set. We'll need to update the meta data in the  main invoice, and also
+// HTLC set. We'll need to update the meta data in the main invoice, and also
 // apply the new update to the update MAP, since all the HTLCs for a given HTLC
 // set need to be written in-line with each other.
 func cancelHtlcsAmp(invoice *Invoice, circuitKey models.CircuitKey,
@@ -552,6 +552,9 @@ func cancelInvoice(invoice *Invoice, hash *lntypes.Hash,
 	invoice.State = ContractCanceled
 
 	for key, htlc := range invoice.Htlcs {
+		// We might not have a setID here in case we are cancelling
+		// an AMP invoice however the setID is only important when
+		// settling an AMP HTLC.
 		canceled, _, err := getUpdatedHtlcState(
 			htlc, ContractCanceled, setID,
 		)
@@ -566,6 +569,19 @@ func cancelInvoice(invoice *Invoice, hash *lntypes.Hash,
 			)
 			if err != nil {
 				return err
+			}
+
+			// If its an AMP HTLC we need to make sure we persist
+			// this new state otherwise AMP HTLCs are not updated
+			// on disk because HTLCs for AMP invoices are stored
+			// separately.
+			if htlc.AMP != nil {
+				err := cancelHtlcsAmp(
+					invoice, key, htlc, updater,
+				)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

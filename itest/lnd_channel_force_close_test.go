@@ -100,7 +100,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	ht.SetFeeEstimate(commitFeeRate)
 
-	// Create a three hop network: Alice -> Carol.
+	// Create a simple network: Alice -> Carol.
 	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
 	alice, carol := nodes[0], nodes[1]
 	chanPoint := chanPoints[0]
@@ -118,7 +118,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Send payments from Alice to Carol, since Carol is htlchodl mode, the
 	// htlc outputs should be left unsettled, and should be swept by the
-	// utxo nursery.
+	// utxo nursery when the channel is force closed.
 	carolPubKey := carol.PubKey[:]
 	for i := 0; i < numInvoices; i++ {
 		req := &routerrpc.SendPaymentRequest{
@@ -444,7 +444,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout checking pending force close channel")
 
-	// Compute the height preceding that which will cause the htlc CLTV
+	// Compute the height preceding which will cause the htlc CLTV
 	// timeouts will expire. The outputs entered at the same height as the
 	// output spending from the commitment txn, so we must deduct the
 	// number of blocks we have generated since adding it to the nursery,
@@ -510,8 +510,9 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// Retrieve each htlc timeout txn from the mempool, and ensure it is
 	// well-formed. The sweeping tx should spend all the htlc outputs.
 	//
-	// NOTE: We also add 1 output as the outgoing HTLC is swept using twice
-	// its value as its budget, so a wallet utxo is used.
+	// NOTE: We also add 1 addtional input to sweep transaction because
+	// HTLC timeout txns cannot have a locked output and therefore a wallet
+	// utxo has to be used to pay for the fees of the sweep transaction.
 	numInputs := 6 + 1
 
 	// Construct a map of the already confirmed htlc timeout outpoints,
@@ -522,6 +523,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	var htlcLessFees uint64
 
+	// Seems like we only have one transaction why loop through the txids?
 	//nolint:ll
 	for _, htlcTxID := range htlcTxIDs {
 		// Fetch the sweep transaction, all input it's spending should
@@ -536,13 +538,15 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 		inputs := htlcTx.MsgTx().TxIn
 		require.Len(ht, inputs, numInputs, "num inputs mismatch")
 
-		// The number of outputs should be the same.
+		// The number of outputs should be the same, because HTLCs have
+		// a locked output which will be swept in the second stage and
+		// we will not use up the wallet utxo for the fees.
 		outputs := htlcTx.MsgTx().TxOut
 		require.Len(ht, outputs, numInputs, "num outputs mismatch")
 
 		// Ensure all the htlc transaction inputs are spending from the
 		// commitment transaction, except if this is an extra input
-		// added to pay for fees for anchor channels.
+		// added to pay for fees of the sweep transaction.
 		nonCommitmentInputs := 0
 		for i, txIn := range inputs {
 			if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
@@ -593,8 +597,8 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 				AmountSat:      uint64(paymentAmt),
 			}
 
-			// Recorf the HTLC outpoint, such that we can later
-			// check whether it gets swept
+			// Record the HTLC outpoint, such that we can later
+			// check whether it gets swept.
 			op := wire.OutPoint{
 				Hash:  htlcTxID,
 				Index: uint32(i),
@@ -630,7 +634,23 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	numBlocks := int(htlcCsvMaturityHeight - uint32(currentHeight) - 1)
 	ht.MineBlocks(numBlocks)
 
+	// We expect 6 CSV outputs to be swept and the anchor output which is
+	// still in the sweep set but is uneconomical to sweep.
 	ht.AssertNumPendingSweeps(alice, numInvoices+1)
+
+	// We need to make sure the sweep is saved to the sweep store otherwise
+	// we will not find the sweep in the listsweeps rpc output.
+	// Wait for the single sweep txn to appear in the mempool.
+	htlcSweepTxid := ht.AssertNumTxsInMempool(1)[0]
+
+	// Check that we can find the htlc sweep in our set of sweeps using
+	// the verbose output of the listsweeps output.
+	// TODO(ziggie): If we do not wait here we might shut down the node
+	// before the sweep is saved to the store and therefore would fail the
+	// test looking for the sweep tx in the listsweeps output. We need to
+	// guarantee that the sweep is saved to the store even after the node
+	// restarted.
+	ht.AssertSweepFound(alice, htlcSweepTxid.String(), true, 0)
 
 	// Restart Alice to ensure that she can recover from a failure.
 	//
@@ -658,9 +678,6 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
 	ht.AssertNumPendingSweeps(alice, numInvoices+1)
-
-	// Wait for the single sweep txn to appear in the mempool.
-	htlcSweepTxid := ht.AssertNumTxsInMempool(1)[0]
 
 	// Fetch the htlc sweep transaction from the mempool.
 	htlcSweepTx := ht.GetRawTransaction(htlcSweepTxid)
@@ -710,10 +727,6 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 		require.Equalf(ht, 1, num,
 			"HTLC outpoint:%s was spent times", op)
 	}
-
-	// Check that we can find the htlc sweep in our set of sweeps using
-	// the verbose output of the listsweeps output.
-	ht.AssertSweepFound(alice, htlcSweepTxid.String(), true, 0)
 
 	// The following restart checks to ensure that the sweeper is storing
 	// the txid of the previously broadcast htlc sweep txn, and that it

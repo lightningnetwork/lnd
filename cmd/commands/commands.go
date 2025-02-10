@@ -212,7 +212,23 @@ func printJSON(resp interface{}) {
 	_, _ = out.WriteTo(os.Stdout)
 }
 
+// printRespJSON prints the response in a json format.
 func printRespJSON(resp proto.Message) {
+	jsonBytes, err := lnrpc.ProtoJSONMarshalOpts.Marshal(resp)
+	if err != nil {
+		fmt.Println("unable to decode response: ", err)
+		return
+	}
+
+	// Make the custom data human readable.
+	jsonBytesReplaced := replaceCustomData(jsonBytes)
+
+	fmt.Printf("%s\n", jsonBytesReplaced)
+}
+
+// printModifiedProtoJSON prints the response with some additional formatting
+// and replacements.
+func printModifiedProtoJSON(resp proto.Message) {
 	jsonBytes, err := lnrpc.ProtoJSONMarshalOpts.Marshal(resp)
 	if err != nil {
 		fmt.Println("unable to decode response: ", err)
@@ -1853,7 +1869,7 @@ func ListChannels(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printModifiedProtoJSON(resp)
 
 	return nil
 }
@@ -1915,7 +1931,7 @@ func closedChannels(ctx *cli.Context) error {
 		return err
 	}
 
-	printRespJSON(resp)
+	printModifiedProtoJSON(resp)
 
 	return nil
 }

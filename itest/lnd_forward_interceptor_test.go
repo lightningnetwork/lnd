@@ -357,7 +357,7 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	cfgs := [][]string{nil, nil, nil, nil}
 
 	// Open and wait for channels.
-	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, p)
 	alice, bob, carol, dave := nodes[0], nodes[1], nodes[2], nodes[3]
 
 	// Connect an interceptor to Bob's node.
@@ -423,6 +423,13 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	defer cancelBobInterceptor()
 
 	require.NoError(ht, restartAlice(), "failed to restart alice")
+
+	// Once restarted, we will wait until the reestabilishment of the links,
+	// Alice=>Bob and Bob=>Carol, finish before calling the interceptors. We
+	// check this by asserting that Carol is now aware of the two channels
+	// being active again.
+	ht.AssertChannelInGraph(carol, chanPoints[0])
+	ht.AssertChannelInGraph(carol, chanPoints[1])
 
 	// We should get another notification about the held HTLC.
 	packet = ht.ReceiveHtlcInterceptor(bobInterceptor)

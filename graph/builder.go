@@ -1553,18 +1553,6 @@ func (b *Builder) FetchLightningNode(
 	return b.cfg.Graph.FetchLightningNode(node)
 }
 
-// ForEachNode is used to iterate over every node in router topology.
-//
-// NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) ForEachNode(
-	cb func(*models.LightningNode) error) error {
-
-	return b.cfg.Graph.ForEachNode(
-		func(_ kvdb.RTx, n *models.LightningNode) error {
-			return cb(n)
-		})
-}
-
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
 // the router.
 //

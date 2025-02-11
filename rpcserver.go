@@ -2887,8 +2887,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		}
 
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
-			chanPoint, contractcourt.CloseRegular, feeRate,
-			maxFee, deliveryScript,
+			updateStream.Context(), chanPoint,
+			contractcourt.CloseRegular, feeRate, maxFee,
+			deliveryScript,
 		)
 	}
 

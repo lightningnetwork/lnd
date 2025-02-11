@@ -1,6 +1,7 @@
 package funding
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -348,9 +349,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				)
 			}
 
+			if ok, _ := hasFeatures(localFeatures, remoteFeatures); testCase.expectsErr != nil {
+				require.Truef(t, ok, "expecting an error of kind %w", testCase.expectsErr)
+				require.Equal(t, fmt.Errorf("%w: missing features: local [] - remote [23]",
+					testCase.expectsErr), err)
+			}
+
 			require.Equal(t, testCase.zeroConf, localZc)
 			require.Equal(t, testCase.scidAlias, localScid)
-			require.Equal(t, testCase.expectsErr, err)
 
 			rChan, rCommit, err := negotiateCommitmentType(
 				channelType, remoteFeatures, localFeatures,
@@ -365,10 +371,14 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 					lnwire.ScidAliasRequired,
 				)
 			}
+			if ok, _ := hasFeatures(localFeatures, remoteFeatures); testCase.expectsErr != nil {
+				require.Truef(t, ok, "expecting an error of kind %w", testCase.expectsErr)
+				require.Equal(t, fmt.Errorf("%w: missing features: local [23] - remote []",
+					testCase.expectsErr), err)
+			}
 
 			require.Equal(t, testCase.zeroConf, remoteZc)
 			require.Equal(t, testCase.scidAlias, remoteScid)
-			require.Equal(t, testCase.expectsErr, err)
 
 			if testCase.expectsErr != nil {
 				return

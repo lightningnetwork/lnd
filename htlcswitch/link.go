@@ -3443,9 +3443,13 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 		return NewLinkError(&lnwire.FailTemporaryNodeFailure{})
 	}
 
-	auxBandwidth.WhenSome(func(bandwidth lnwire.MilliSatoshi) {
-		availableBandwidth = bandwidth
-	})
+	if auxBandwidth.IsHandled && auxBandwidth.Bandwidth.IsSome() {
+		auxBandwidth.Bandwidth.WhenSome(
+			func(bandwidth lnwire.MilliSatoshi) {
+				availableBandwidth = bandwidth
+			},
+		)
+	}
 
 	// Check to see if there is enough balance in this channel.
 	if amt > availableBandwidth {
@@ -3471,8 +3475,6 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	cid lnwire.ShortChannelID, htlcBlob fn.Option[tlv.Blob],
 	ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
 
-	unknownBandwidth := fn.None[lnwire.MilliSatoshi]()
-
 	fundingBlob := l.FundingCustomBlob()
 	shouldHandle, err := ts.ShouldHandleTraffic(cid, fundingBlob)
 	if err != nil {
@@ -3486,7 +3488,9 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	// If this channel isn't handled by the aux traffic shaper, we'll return
 	// early.
 	if !shouldHandle {
-		return fn.Ok(unknownBandwidth)
+		return fn.Ok(OptionalBandwidth{
+			IsHandled: false,
+		})
 	}
 
 	// Ask for a specific bandwidth to be used for the channel.
@@ -3502,7 +3506,10 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	log.Debugf("ShortChannelID=%v: aux traffic shaper reported available "+
 		"bandwidth: %v", cid, auxBandwidth)
 
-	return fn.Ok(fn.Some(auxBandwidth))
+	return fn.Ok(OptionalBandwidth{
+		IsHandled: true,
+		Bandwidth: fn.Some(auxBandwidth),
+	})
 }
 
 // Stats returns the statistics of channel link.

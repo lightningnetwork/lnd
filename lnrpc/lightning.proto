@@ -1758,6 +1758,10 @@ message ChannelCloseSummary {
 
     //  The confirmed SCID for a zero-conf channel.
     uint64 zero_conf_confirmed_scid = 15 [jstype = JS_STRING];
+
+    // The TLV encoded custom channel data records for this output, which might
+    // be set for custom channels.
+    bytes custom_channel_data = 16;
 }
 
 enum ResolutionType {

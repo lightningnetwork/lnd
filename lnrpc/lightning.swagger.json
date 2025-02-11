@@ -4182,6 +4182,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The confirmed SCID for a zero-conf channel."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TLV encoded custom channel data records for this output, which might\nbe set for custom channels."
         }
       }
     },

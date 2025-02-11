@@ -9885,6 +9885,14 @@ func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
 	return &lc.fundingOutput
 }
 
+// DeriveHeightHint derives the block height for the channel opening.
+func (lc *LightningChannel) DeriveHeightHint() uint32 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.DeriveHeightHint()
+}
+
 // MultiSigKeys returns the set of multi-sig keys for an channel.
 func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
 	keychain.KeyDescriptor) {

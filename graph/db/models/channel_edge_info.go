@@ -63,10 +63,11 @@ type ChannelEdgeInfo struct {
 	// the value output in the outpoint that created this channel.
 	Capacity btcutil.Amount
 
-	// TapscriptRoot is the optional Merkle root of the tapscript tree if
-	// this channel is a taproot channel that also commits to a tapscript
-	// tree (custom channel).
-	TapscriptRoot fn.Option[chainhash.Hash]
+	// FundingScript holds the script of the channel's funding transaction.
+	//
+	// NOTE: this is not currently persisted and so will not be present if
+	// the edge object is loaded from the database.
+	FundingScript fn.Option[[]byte]
 
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or

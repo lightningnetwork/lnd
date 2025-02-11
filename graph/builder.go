@@ -1,7 +1,6 @@
 package graph
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,15 +9,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1024,72 +1020,6 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 	return nil
 }
 
-// makeFundingScript is used to make the funding script for both segwit v0 and
-// segwit v1 (taproot) channels.
-//
-// TODO(roasbeef: export and use elsewhere?
-func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte, chanFeatures []byte,
-	tapscriptRoot fn.Option[chainhash.Hash]) ([]byte, error) {
-
-	legacyFundingScript := func() ([]byte, error) {
-		witnessScript, err := input.GenMultiSigScript(
-			bitcoinKey1, bitcoinKey2,
-		)
-		if err != nil {
-			return nil, err
-		}
-		pkScript, err := input.WitnessScriptHash(witnessScript)
-		if err != nil {
-			return nil, err
-		}
-
-		return pkScript, nil
-	}
-
-	if len(chanFeatures) == 0 {
-		return legacyFundingScript()
-	}
-
-	// In order to make the correct funding script, we'll need to parse the
-	// chanFeatures bytes into a feature vector we can interact with.
-	rawFeatures := lnwire.NewRawFeatureVector()
-	err := rawFeatures.Decode(bytes.NewReader(chanFeatures))
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse chan feature "+
-			"bits: %w", err)
-	}
-
-	chanFeatureBits := lnwire.NewFeatureVector(
-		rawFeatures, lnwire.Features,
-	)
-	if chanFeatureBits.HasFeature(
-		lnwire.SimpleTaprootChannelsOptionalStaging,
-	) {
-
-		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
-		if err != nil {
-			return nil, err
-		}
-		pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
-		if err != nil {
-			return nil, err
-		}
-
-		fundingScript, _, err := input.GenTaprootFundingScript(
-			pubKey1, pubKey2, 0, tapscriptRoot,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		// TODO(roasbeef): add tapscript root to gossip v1.5
-
-		return fundingScript, nil
-	}
-
-	return legacyFundingScript()
-}
-
 // routingMsg couples a routing related routing topology update to the
 // error channel.
 type routingMsg struct {
@@ -1278,6 +1208,16 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 		return nil
 	}
 
+	// If AssumeChannelValid is false, then we expect the funding script to
+	// be present on the edge since it would have been fetched when the
+	// gossiper validated the announcement.
+	fundingPkScript, err := edge.FundingScript.UnwrapOrErr(fmt.Errorf(
+		"expected the funding transaction script to be set",
+	))
+	if err != nil {
+		return err
+	}
+
 	// Before we can add the channel to the channel graph, we need to obtain
 	// the full funding outpoint that's encoded within the channel ID.
 	channelID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
@@ -1315,16 +1255,6 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 		}
 
 		return fmt.Errorf("%w: %w", ErrNoFundingTransaction, err)
-	}
-
-	// Recreate witness output to be sure that declared in channel edge
-	// bitcoin keys and channel value corresponds to the reality.
-	fundingPkScript, err := makeFundingScript(
-		edge.BitcoinKey1Bytes[:], edge.BitcoinKey2Bytes[:],
-		edge.Features, edge.TapscriptRoot,
-	)
-	if err != nil {
-		return err
 	}
 
 	// Next we'll validate that this channel is actually well formed. If

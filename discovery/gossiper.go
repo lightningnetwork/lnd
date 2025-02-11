@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -2619,6 +2620,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 	// If there were any optional message fields provided, we'll include
 	// them in its serialized disk representation now.
+	var tapscriptRoot fn.Option[chainhash.Hash]
 	if nMsg.optionalMsgFields != nil {
 		if nMsg.optionalMsgFields.capacity != nil {
 			edge.Capacity = *nMsg.optionalMsgFields.capacity
@@ -2629,7 +2631,24 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		}
 
 		// Optional tapscript root for custom channels.
-		edge.TapscriptRoot = nMsg.optionalMsgFields.tapscriptRoot
+		tapscriptRoot = nMsg.optionalMsgFields.tapscriptRoot
+	}
+
+	// We only make use of the funding script later on during funding
+	// transaction validation if AssumeChannelValid is not true.
+	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) {
+		fundingPkScript, err := makeFundingScript(
+			ann.BitcoinKey1[:], ann.BitcoinKey2[:], ann.Features,
+			tapscriptRoot,
+		)
+		if err != nil {
+			log.Errorf("Unable to make funding script %v", err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
+		edge.FundingScript = fn.Some(fundingPkScript)
 	}
 
 	log.Debugf("Adding edge for short_chan_id: %v", scid.ToUint64())
@@ -3597,4 +3616,58 @@ func (d *AuthenticatedGossiper) ShouldDisconnect(pubkey *btcec.PublicKey) (
 	}
 
 	return false, nil
+}
+
+// makeFundingScript is used to make the funding script for both segwit v0 and
+// segwit v1 (taproot) channels.
+func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
+	features *lnwire.RawFeatureVector,
+	tapscriptRoot fn.Option[chainhash.Hash]) ([]byte, error) {
+
+	legacyFundingScript := func() ([]byte, error) {
+		witnessScript, err := input.GenMultiSigScript(
+			bitcoinKey1, bitcoinKey2,
+		)
+		if err != nil {
+			return nil, err
+		}
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+
+		return pkScript, nil
+	}
+
+	if features.IsEmpty() {
+		return legacyFundingScript()
+	}
+
+	chanFeatureBits := lnwire.NewFeatureVector(features, lnwire.Features)
+	if chanFeatureBits.HasFeature(
+		lnwire.SimpleTaprootChannelsOptionalStaging,
+	) {
+
+		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
+		if err != nil {
+			return nil, err
+		}
+		pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
+		if err != nil {
+			return nil, err
+		}
+
+		fundingScript, _, err := input.GenTaprootFundingScript(
+			pubKey1, pubKey2, 0, tapscriptRoot,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO(roasbeef): add tapscript root to gossip v1.5
+
+		return fundingScript, nil
+	}
+
+	return legacyFundingScript()
 }

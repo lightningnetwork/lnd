@@ -976,7 +976,7 @@ func (f *mockChannelLink) AuxBandwidth(lnwire.MilliSatoshi,
 	lnwire.ShortChannelID,
 	fn.Option[tlv.Blob], AuxTrafficShaper) fn.Result[OptionalBandwidth] {
 
-	return fn.Ok(fn.None[lnwire.MilliSatoshi]())
+	return fn.Ok(OptionalBandwidth{})
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

@@ -208,8 +208,18 @@ const (
 
 // OptionalBandwidth is a type alias for the result of a bandwidth query that
 // may return a bandwidth value or fn.None if the bandwidth is not available or
-// not applicable.
-type OptionalBandwidth = fn.Option[lnwire.MilliSatoshi]
+// not applicable. IsHandled is set to false if the external traffic shaper does
+// not handle the channel in question.
+type OptionalBandwidth struct {
+	// IsHandled is true if the external traffic shaper handles the channel.
+	// If this is false, then the bandwidth value is not applicable.
+	IsHandled bool
+
+	// Bandwidth is the available bandwidth for the channel, as determined
+	// by the external traffic shaper. If the external traffic shaper is not
+	// handling the channel, this value will be fn.None.
+	Bandwidth fn.Option[lnwire.MilliSatoshi]
+}
 
 // ChannelLink is an interface which represents the subsystem for managing the
 // incoming htlc requests, applying the changes to the channel, and also

@@ -497,7 +497,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	}
 
 	// Regenerate the circuit for this attempt.
-	_, circuit, err := generateSphinxPacket(
+	_, circuit, err := GenerateSphinxPacket(
 		&attempt.Route, hash[:], attempt.SessionKey(),
 	)
 	// TODO(yy): We generate this circuit to create the error decryptor,
@@ -638,7 +638,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 	lastShard bool) (*channeldb.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
+	sessionKey, err := GenerateNewSessionKey()
 	if err != nil {
 		return nil, err
 	}
@@ -711,7 +711,7 @@ func (p *paymentLifecycle) sendAttempt(
 	// Generate the raw encoded sphinx packet to be included along
 	// with the htlcAdd message that we send directly to the
 	// switch.
-	onionBlob, _, err := generateSphinxPacket(
+	onionBlob, _, err := GenerateSphinxPacket(
 		&rt, attempt.Hash[:], attempt.SessionKey(),
 	)
 	if err != nil {

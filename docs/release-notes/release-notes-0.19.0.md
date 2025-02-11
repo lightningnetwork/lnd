@@ -85,6 +85,9 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9595) where the
   initial graph sync query may be failed due to inconsistent state.
 
+* [The aux bandwidth calculation was fixed for non-asset
+  channels](https://github.com/lightningnetwork/lnd/pull/9502).
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

@@ -3857,7 +3857,7 @@ func (p *Brontide) initRbfChanCloser(
 	spendEvent := protofsm.RegisterSpend[chancloser.ProtocolEvent]{
 		OutPoint:   channel.ChannelPoint(),
 		PkScript:   channel.FundingTxOut().PkScript,
-		HeightHint: scid.BlockHeight,
+		HeightHint: channel.DeriveHeightHint(),
 		PostSpendEvent: fn.Some[chancloser.RbfSpendMapper](
 			chancloser.SpendMapper,
 		),

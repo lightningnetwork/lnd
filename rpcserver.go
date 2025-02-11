@@ -3225,28 +3225,10 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	idPub := r.server.identityECDH.PubKey().SerializeCompressed()
 	encodedIDPub := hex.EncodeToString(idPub)
 
-	bestHash, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
+	// Get the system's chain sync info.
+	syncInfo, err := r.getChainSyncInfo()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get best block info: %w", err)
-	}
-
-	isSynced, bestHeaderTimestamp, err := r.server.cc.Wallet.IsSynced()
-	if err != nil {
-		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
-			"with current best block in the main chain: %v", err)
-	}
-
-	// If the router does full channel validation, it has a lot of work to
-	// do for each block. So it might be possible that it isn't yet up to
-	// date with the most recent block, even if the wallet is. This can
-	// happen in environments with high CPU load (such as parallel itests).
-	// Since the `synced_to_chain` flag in the response of this call is used
-	// by many wallets (and also our itests) to make sure everything's up to
-	// date, we add the router's state to it. So the flag will only toggle
-	// to true once the router was also able to catch up.
-	if !r.cfg.Routing.AssumeChannelValid {
-		routerHeight := r.server.graphBuilder.SyncedHeight()
-		isSynced = isSynced && uint32(bestHeight) == routerHeight
+		return nil, err
 	}
 
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
@@ -3297,15 +3279,15 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		NumActiveChannels:         activeChannels,
 		NumInactiveChannels:       inactiveChannels,
 		NumPeers:                  uint32(len(serverPeers)),
-		BlockHeight:               uint32(bestHeight),
-		BlockHash:                 bestHash.String(),
-		SyncedToChain:             isSynced,
+		BlockHeight:               uint32(syncInfo.bestHeight),
+		BlockHash:                 syncInfo.blockHash.String(),
+		SyncedToChain:             syncInfo.isSynced,
 		Testnet:                   isTestNet,
 		Chains:                    activeChains,
 		Uris:                      uris,
 		Alias:                     nodeAnn.Alias.String(),
 		Color:                     nodeColor,
-		BestHeaderTimestamp:       bestHeaderTimestamp,
+		BestHeaderTimestamp:       syncInfo.timestamp,
 		Version:                   version,
 		CommitHash:                build.CommitHash,
 		SyncedToGraph:             isGraphSynced,
@@ -8928,4 +8910,82 @@ func rpcInitiator(isInitiator bool) lnrpc.Initiator {
 	}
 
 	return lnrpc.Initiator_INITIATOR_REMOTE
+}
+
+// chainSyncInfo wraps info about the best block and whether the system is
+// synced to that block.
+type chainSyncInfo struct {
+	// isSynced specifies whether the whole system is considered synced.
+	// When true, it means the following subsystems are at the best height
+	// reported by the chain backend,
+	// - wallet.
+	// - channel graph.
+	// - blockbeat dispatcher.
+	isSynced bool
+
+	// bestHeight is the current height known to the chain backend.
+	bestHeight int32
+
+	// blockHash is the hash of the current block known to the chain
+	// backend.
+	blockHash chainhash.Hash
+
+	// timestamp is the block's timestamp the wallet has synced to.
+	timestamp int64
+}
+
+// getChainSyncInfo queries the chain backend, the wallet, the channel router
+// and the blockbeat dispatcher to determine the best block and whether the
+// system is considered synced.
+func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
+	bestHash, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get best block info: %w", err)
+	}
+
+	isSynced, bestHeaderTimestamp, err := r.server.cc.Wallet.IsSynced()
+	if err != nil {
+		return nil, fmt.Errorf("unable to sync PoV of the wallet "+
+			"with current best block in the main chain: %v", err)
+	}
+
+	// Create an info to be returned.
+	info := &chainSyncInfo{
+		isSynced:   isSynced,
+		bestHeight: bestHeight,
+		blockHash:  *bestHash,
+		timestamp:  bestHeaderTimestamp,
+	}
+
+	// Exit early if the wallet is not synced.
+	if !isSynced {
+		return info, nil
+	}
+
+	// If the router does full channel validation, it has a lot of work to
+	// do for each block. So it might be possible that it isn't yet up to
+	// date with the most recent block, even if the wallet is. This can
+	// happen in environments with high CPU load (such as parallel itests).
+	// Since the `synced_to_chain` flag in the response of this call is used
+	// by many wallets (and also our itests) to make sure everything's up to
+	// date, we add the router's state to it. So the flag will only toggle
+	// to true once the router was also able to catch up.
+	if !r.cfg.Routing.AssumeChannelValid {
+		routerHeight := r.server.graphBuilder.SyncedHeight()
+		isSynced = uint32(bestHeight) == routerHeight
+	}
+
+	// Exit early if the channel graph is not synced.
+	if !isSynced {
+		return info, nil
+	}
+
+	// Given the wallet and the channel router are synced, we now check
+	// whether the blockbeat dispatcher is synced.
+	height := r.server.blockbeatDispatcher.CurrentHeight()
+
+	// Overwrite isSynced and return.
+	info.isSynced = height == bestHeight
+
+	return info, nil
 }

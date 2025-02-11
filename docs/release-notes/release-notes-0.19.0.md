@@ -68,6 +68,9 @@
   fail to persist (and hence, propagate) node announcements containing address 
   types (such as a DNS hostname) unknown to LND.
 
+* [The aux bandwidth calculation was fixed for non-asset
+  channels](https://github.com/lightningnetwork/lnd/pull/9502).
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

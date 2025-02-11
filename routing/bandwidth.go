@@ -143,6 +143,13 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 					"auxiliary bandwidth: %w", err))
 			}
 
+			// If the external traffic shaper is not handling the
+			// channel, we'll just return the original bandwidth and
+			// no custom amount.
+			if !auxBandwidth.IsHandled {
+				return fn.Ok(bandwidthResult{})
+			}
+
 			// We don't know the actual HTLC amount that will be
 			// sent using the custom channel. But we'll still want
 			// to make sure we can add another HTLC, using the
@@ -152,7 +159,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 			// the max number of HTLCs on the channel. A proper
 			// balance check is done elsewhere.
 			return fn.Ok(bandwidthResult{
-				bandwidth:  auxBandwidth,
+				bandwidth:  auxBandwidth.Bandwidth,
 				htlcAmount: fn.Some[lnwire.MilliSatoshi](0),
 			})
 		},

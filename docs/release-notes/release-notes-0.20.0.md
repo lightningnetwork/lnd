@@ -20,6 +20,12 @@
 
 # Bug Fixes
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9334) in
+constructing blinded payment paths for invoices. The restriction on the maximum
+number of paths is now applied later during pathfinding, ensuring that all
+potential paths are considered before filtering out ineligible ones. This allows
+for better utilization of the available paths for payments.
+
 # New Features
 
 ## Functional Enhancements
@@ -72,3 +78,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Pins

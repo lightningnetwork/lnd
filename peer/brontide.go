@@ -618,8 +618,11 @@ type Brontide struct {
 	globalMsgRouter bool
 
 	startReady chan struct{}
-	quit       chan struct{}
-	wg         sync.WaitGroup
+
+	// cg is a helper that encapsulates a wait group and quit channel and
+	// allows contexts that either block or cancel on those depending on
+	// the use case.
+	cg *fn.ContextGuard
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
@@ -666,10 +669,10 @@ func NewBrontide(cfg Config) *Brontide {
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 		startReady:         make(chan struct{}),
-		quit:               make(chan struct{}),
 		log:                peerLog.WithPrefix(logPrefix),
 		msgRouter:          msgRouter,
 		globalMsgRouter:    globalMsgRouter,
+		cg:                 fn.NewContextGuard(),
 	}
 
 	if cfg.Conn != nil && cfg.Conn.RemoteAddr() != nil {
@@ -793,9 +796,9 @@ func (p *Brontide) Start() error {
 	// message MUST be sent before any other message.
 	readErr := make(chan error, 1)
 	msgChan := make(chan lnwire.Message, 1)
-	p.wg.Add(1)
+	p.cg.WgAdd(1)
 	go func() {
-		defer p.wg.Done()
+		defer p.cg.WgDone()
 
 		msg, err := p.readNextMessage()
 		if err != nil {
@@ -852,7 +855,8 @@ func (p *Brontide) Start() error {
 	// Register the message router now as we may need to register some
 	// endpoints while loading the channels below.
 	p.msgRouter.WhenSome(func(router msgmux.Router) {
-		router.Start(context.Background())
+		ctx, _ := p.cg.Create(context.Background())
+		router.Start(ctx)
 	})
 
 	msgs, err := p.loadActiveChannels(activeChans)
@@ -884,7 +888,7 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("could not start ping manager %w", err)
 	}
 
-	p.wg.Add(4)
+	p.cg.WgAdd(4)
 	go p.queueHandler()
 	go p.writeHandler()
 	go p.channelManager()
@@ -904,7 +908,7 @@ func (p *Brontide) Start() error {
 	//
 	// TODO(wilmer): Remove this once we're able to query for node
 	// announcements through their timestamps.
-	p.wg.Add(2)
+	p.cg.WgAdd(2)
 	go p.maybeSendNodeAnn(activeChans)
 	go p.maybeSendChannelUpdates()
 
@@ -963,7 +967,7 @@ func (p *Brontide) rbfCoopCloseAllowed() bool {
 //
 // NOTE: Part of the lnpeer.Peer interface.
 func (p *Brontide) QuitSignal() <-chan struct{} {
-	return p.quit
+	return p.cg.Done()
 }
 
 // addrWithInternalKey takes a delivery script, then attempts to supplement it
@@ -1367,7 +1371,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 		select {
 		case p.linkFailures <- failure:
-		case <-p.quit:
+		case <-p.cg.Done():
 		case <-p.cfg.Quit:
 		}
 	}
@@ -1444,7 +1448,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 // maybeSendNodeAnn sends our node announcement to the remote peer if at least
 // one confirmed public channel exists with them.
 func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
-	defer p.wg.Done()
+	defer p.cg.WgDone()
 
 	hasConfirmedPublicChan := false
 	for _, channel := range channels {
@@ -1476,7 +1480,7 @@ func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
 // maybeSendChannelUpdates sends our channel updates to the remote peer if we
 // have any active channels with them.
 func (p *Brontide) maybeSendChannelUpdates() {
-	defer p.wg.Done()
+	defer p.cg.WgDone()
 
 	// If we don't have any active channels, then we can exit early.
 	if p.activeChannels.Len() == 0 {
@@ -1552,16 +1556,16 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 	// set of goroutines are already active.
 	select {
 	case <-p.startReady:
-	case <-p.quit:
+	case <-p.cg.Done():
 		return
 	}
 
 	select {
 	case <-ready:
-	case <-p.quit:
+	case <-p.cg.Done():
 	}
 
-	p.wg.Wait()
+	p.cg.WgWait()
 }
 
 // Disconnect terminates the connection with the remote peer. Additionally, a
@@ -1583,7 +1587,7 @@ func (p *Brontide) Disconnect(reason error) {
 
 		select {
 		case <-p.startReady:
-		case <-p.quit:
+		case <-p.cg.Done():
 			return
 		}
 	}
@@ -1599,7 +1603,7 @@ func (p *Brontide) Disconnect(reason error) {
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()
 
-	close(p.quit)
+	p.cg.Quit()
 
 	// If our msg router isn't global (local to this instance), then we'll
 	// stop it. Otherwise, we'll leave it running.
@@ -1780,7 +1784,7 @@ func (ms *msgStream) msgConsumer() {
 			// Otherwise, we'll check the message queue for any new
 			// items.
 			select {
-			case <-ms.peer.quit:
+			case <-ms.peer.cg.Done():
 				ms.msgCond.L.Unlock()
 				return
 			case <-ms.quit:
@@ -1807,7 +1811,7 @@ func (ms *msgStream) msgConsumer() {
 		// grow indefinitely.
 		select {
 		case ms.producerSema <- struct{}{}:
-		case <-ms.peer.quit:
+		case <-ms.peer.cg.Done():
 			return
 		case <-ms.quit:
 			return
@@ -1825,7 +1829,7 @@ func (ms *msgStream) AddMsg(msg lnwire.Message) {
 	// we're signalled to quit, or a slot is freed up.
 	select {
 	case <-ms.producerSema:
-	case <-ms.peer.quit:
+	case <-ms.peer.cg.Done():
 		return
 	case <-ms.quit:
 		return
@@ -1902,7 +1906,7 @@ func waitUntilLinkActive(p *Brontide,
 			// calling function should catch it.
 			return p.fetchLinkFromKeyAndCid(cid)
 
-		case <-p.quit:
+		case <-p.cg.Done():
 			return nil
 		}
 	}
@@ -1936,7 +1940,7 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 		// as the peer is exiting, we'll check quickly to see
 		// if we need to exit.
 		select {
-		case <-p.quit:
+		case <-p.cg.Done():
 			return
 		default:
 		}
@@ -1976,7 +1980,7 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *Brontide) readHandler() {
-	defer p.wg.Done()
+	defer p.cg.WgDone()
 
 	// We'll stop the timer after a new messages is received, and also
 	// reset it after we process the next message.
@@ -2097,13 +2101,13 @@ out:
 		case *lnwire.Shutdown:
 			select {
 			case p.chanCloseMsgs <- &closeMsg{msg.ChannelID, msg}:
-			case <-p.quit:
+			case <-p.cg.Done():
 				break out
 			}
 		case *lnwire.ClosingSigned:
 			select {
 			case p.chanCloseMsgs <- &closeMsg{msg.ChannelID, msg}:
-			case <-p.quit:
+			case <-p.cg.Done():
 				break out
 			}
 
@@ -2675,7 +2679,7 @@ out:
 				break out
 			}
 
-		case <-p.quit:
+		case <-p.cg.Done():
 			exitErr = lnpeer.ErrPeerExiting
 			break out
 		}
@@ -2683,7 +2687,7 @@ out:
 
 	// Avoid an exit deadlock by ensuring WaitGroups are decremented before
 	// disconnect.
-	p.wg.Done()
+	p.cg.WgDone()
 
 	p.Disconnect(exitErr)
 
@@ -2695,7 +2699,7 @@ out:
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *Brontide) queueHandler() {
-	defer p.wg.Done()
+	defer p.cg.WgDone()
 
 	// priorityMsgs holds an in order list of messages deemed high-priority
 	// to be added to the sendQueue. This predominately includes messages
@@ -2736,7 +2740,7 @@ func (p *Brontide) queueHandler() {
 				} else {
 					lazyMsgs.PushBack(msg)
 				}
-			case <-p.quit:
+			case <-p.cg.Done():
 				return
 			}
 		} else {
@@ -2750,7 +2754,7 @@ func (p *Brontide) queueHandler() {
 				} else {
 					lazyMsgs.PushBack(msg)
 				}
-			case <-p.quit:
+			case <-p.cg.Done():
 				return
 			}
 		}
@@ -2784,7 +2788,7 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 
 	select {
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
-	case <-p.quit:
+	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
 			spew.Sdump(msg))
 		if errChan != nil {
@@ -2852,7 +2856,7 @@ func (p *Brontide) genDeliveryScript() ([]byte, error) {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *Brontide) channelManager() {
-	defer p.wg.Done()
+	defer p.cg.WgDone()
 
 	// reenableTimeout will fire once after the configured channel status
 	// interval has elapsed. This will trigger us to sign new channel
@@ -2928,7 +2932,7 @@ out:
 				p.channelEventClient.Cancel()
 			}
 
-		case <-p.quit:
+		case <-p.cg.Done():
 			// As, we've been signalled to exit, we'll reset all
 			// our active channel back to their default state.
 			p.activeChannels.ForEach(func(_ lnwire.ChannelID,
@@ -3213,7 +3217,7 @@ func (p *Brontide) retryRequestEnable(activeChans map[wire.OutPoint]struct{}) {
 			p.log.Warnf("Re-enable channel %v failed, received "+
 				"inactive link event", chanPoint)
 
-		case <-p.quit:
+		case <-p.cg.Done():
 			p.log.Debugf("Peer shutdown during retry enabling")
 			return
 		}
@@ -3407,7 +3411,6 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 				return p.cfg.DisconnectPeer(p.IdentityKey())
 			},
 			ChainParams: &p.cfg.Wallet.Cfg.NetParams,
-			Quit:        p.quit,
 		},
 		*deliveryScript,
 		fee,
@@ -3608,9 +3611,13 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				// update to the client.
 				closingTxid := closeState.ConfirmedTx.TxHash()
 				if closeReq != nil {
-					closeReq.Updates <- &ChannelCloseUpdate{
+					select {
+					case closeReq.Updates <- &ChannelCloseUpdate{ //nolint:ll
 						ClosingTxid: closingTxid[:],
 						Success:     true,
+					}:
+					case <-p.cg.Done():
+						return
 					}
 				}
 
@@ -3624,7 +3631,10 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 				return
 			}
 
-		case <-p.quit:
+		case <-closeReq.Ctx.Done():
+			return
+
+		case <-p.cg.Done():
 			return
 		}
 	}
@@ -3861,9 +3871,9 @@ func (p *Brontide) initRbfChanCloser(
 	// Now that we've created the rbf closer state machine, we'll launch a
 	// new goroutine to eventually send in the ChannelFlushed event once
 	// needed.
+	p.cg.WgAdd(1)
 	go func() {
-		p.wg.Add(1)
-		defer p.wg.Done()
+		defer p.cg.WgDone()
 		go p.chanFlushEventSentinel(&chanCloser, link, channel)
 	}()
 
@@ -3991,9 +4001,9 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		// TODO(roasbeef): make into a do once? otherwise new one for
 		// each RBF loop.
 		whenRpcShutdown(shutdown, func(req *htlcswitch.ChanClose) {
-			p.wg.Add(1)
+			p.cg.WgAdd(1)
 			go func() {
-				defer p.wg.Done()
+				defer p.cg.WgDone()
 				p.observeRbfCloseUpdates(rbfCloser, req)
 			}()
 		})
@@ -4185,7 +4195,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 
 	// Also clear the activeChanCloses map of this channel.
 	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
-	p.activeChanCloses.Delete(cid) // TODO(roasbeef): existing race
+	p.activeChanCloses.Delete(cid)
 
 	// Next, we'll launch a goroutine which will request to be notified by
 	// the ChainNotifier once the closure transaction obtains a single
@@ -4490,7 +4500,7 @@ func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) erro
 		select {
 		case err := <-errChan:
 			return err
-		case <-p.quit:
+		case <-p.cg.Done():
 			return lnpeer.ErrPeerExiting
 		case <-p.cfg.Quit:
 			return lnpeer.ErrPeerExiting
@@ -4538,7 +4548,7 @@ func (p *Brontide) AddNewChannel(newChan *lnpeer.NewChannel,
 	case p.newActiveChannel <- newChanMsg:
 	case <-cancel:
 		return errors.New("canceled adding new channel")
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 
@@ -4547,7 +4557,7 @@ func (p *Brontide) AddNewChannel(newChan *lnpeer.NewChannel,
 	select {
 	case err := <-errChan:
 		return err
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 }
@@ -4571,7 +4581,7 @@ func (p *Brontide) AddPendingChannel(cid lnwire.ChannelID,
 	case <-cancel:
 		return errors.New("canceled adding pending channel")
 
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 
@@ -4585,7 +4595,7 @@ func (p *Brontide) AddPendingChannel(cid lnwire.ChannelID,
 	case <-cancel:
 		return errors.New("canceled adding pending channel")
 
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 }
@@ -4602,7 +4612,7 @@ func (p *Brontide) RemovePendingChannel(cid lnwire.ChannelID) error {
 
 	select {
 	case p.removePendingChannel <- newChanMsg:
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 
@@ -4613,7 +4623,7 @@ func (p *Brontide) RemovePendingChannel(cid lnwire.ChannelID) error {
 	case err := <-errChan:
 		return err
 
-	case <-p.quit:
+	case <-p.cg.Done():
 		return lnpeer.ErrPeerExiting
 	}
 }
@@ -4780,7 +4790,7 @@ func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
 	case p.localCloseChanReqs <- req:
 		p.log.Info("Local close channel request is going to be " +
 			"delivered to the peer")
-	case <-p.quit:
+	case <-p.cg.Done():
 		p.log.Info("Unable to deliver local close channel request " +
 			"to peer")
 	}
@@ -5129,7 +5139,7 @@ func (p *Brontide) sendLinkUpdateMsg(cid lnwire.ChannelID, msg lnwire.Message) {
 
 		// Stop the stream when quit.
 		go func() {
-			<-p.quit
+			<-p.cg.Done()
 			chanStream.Stop()
 		}()
 	}

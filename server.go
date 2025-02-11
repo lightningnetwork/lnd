@@ -1248,7 +1248,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		// Instruct the switch to close the channel.  Provide no close out
 		// delivery script or target fee per kw because user input is not
 		// available when the remote peer closes the channel.
-		s.htlcSwitch.CloseLink(chanPoint, closureType, 0, 0, nil)
+		s.htlcSwitch.CloseLink(
+			context.Background(), chanPoint, closureType, 0, 0, nil,
+		)
 	}
 
 	// We will use the following channel to reliably hand off contract

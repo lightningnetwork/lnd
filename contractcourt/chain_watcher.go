@@ -281,7 +281,7 @@ func newChainWatcher(cfg chainWatcherConfig) (*chainWatcher, error) {
 	}
 
 	// Get the channel opening block height.
-	heightHint := deriveHeightHint(chanState)
+	heightHint := chanState.DeriveHeightHint()
 
 	// We'll register for a notification to be dispatched if the funding
 	// output is spent.
@@ -1326,34 +1326,6 @@ func deriveFundingPkScript(chanState *channeldb.OpenChannel) ([]byte, error) {
 	}
 
 	return fundingPkScript, nil
-}
-
-// deriveHeightHint derives the block height for the channel opening.
-func deriveHeightHint(chanState *channeldb.OpenChannel) uint32 {
-	// As a height hint, we'll try to use the opening height, but if the
-	// channel isn't yet open, then we'll use the height it was broadcast
-	// at. This may be an unconfirmed zero-conf channel.
-	heightHint := chanState.ShortChanID().BlockHeight
-	if heightHint == 0 {
-		heightHint = chanState.BroadcastHeight()
-	}
-
-	// Since no zero-conf state is stored in a channel backup, the below
-	// logic will not be triggered for restored, zero-conf channels. Set
-	// the height hint for zero-conf channels.
-	if chanState.IsZeroConf() {
-		if chanState.ZeroConfConfirmed() {
-			// If the zero-conf channel is confirmed, we'll use the
-			// confirmed SCID's block height.
-			heightHint = chanState.ZeroConfRealScid().BlockHeight
-		} else {
-			// The zero-conf channel is unconfirmed. We'll need to
-			// use the FundingBroadcastHeight.
-			heightHint = chanState.BroadcastHeight()
-		}
-	}
-
-	return heightHint
 }
 
 // handleCommitSpend takes a spending tx of the funding output and handles the

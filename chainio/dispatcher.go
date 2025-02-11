@@ -49,14 +49,35 @@ type BlockbeatDispatcher struct {
 
 	// quit is used to signal the BlockbeatDispatcher to stop.
 	quit chan struct{}
+
+	// queryHeightChan is used to receive queries on the current height of
+	// the dispatcher.
+	queryHeightChan chan *query
+}
+
+// query is used to fetch the internal state of the dispatcher.
+type query struct {
+	// respChan is used to send back the current height back to the caller.
+	//
+	// NOTE: This channel must be buffered.
+	respChan chan int32
+}
+
+// newQuery creates a query to be used to fetch the internal state of the
+// dispatcher.
+func newQuery() *query {
+	return &query{
+		respChan: make(chan int32, 1),
+	}
 }
 
 // NewBlockbeatDispatcher returns a new blockbeat dispatcher instance.
 func NewBlockbeatDispatcher(n chainntnfs.ChainNotifier) *BlockbeatDispatcher {
 	return &BlockbeatDispatcher{
-		notifier:       n,
-		quit:           make(chan struct{}),
-		consumerQueues: make(map[uint32][]Consumer),
+		notifier:        n,
+		quit:            make(chan struct{}),
+		consumerQueues:  make(map[uint32][]Consumer),
+		queryHeightChan: make(chan *query, 1),
 	}
 }
 
@@ -161,12 +182,48 @@ func (b *BlockbeatDispatcher) dispatchBlocks(
 			b.log().Infof("Notified all consumers on new block "+
 				"in %v", time.Since(start))
 
+		// A query has been made to fetch the current height, we now
+		// send the height from its current beat.
+		case query := <-b.queryHeightChan:
+			// The beat may not be set yet, e.g., during the startup
+			// the query is made before the block epoch being sent.
+			height := int32(0)
+			if b.beat != nil {
+				height = b.beat.Height()
+			}
+
+			query.respChan <- height
+
 		case <-b.quit:
 			b.log().Debugf("BlockbeatDispatcher quit signal " +
 				"received")
 
 			return
 		}
+	}
+}
+
+// CurrentHeight returns the current best height known to the dispatcher. 0 is
+// returned if the dispatcher is shutting down.
+func (b *BlockbeatDispatcher) CurrentHeight() int32 {
+	query := newQuery()
+
+	select {
+	case b.queryHeightChan <- query:
+
+	case <-b.quit:
+		clog.Debugf("BlockbeatDispatcher quit before query")
+		return 0
+	}
+
+	select {
+	case height := <-query.respChan:
+		clog.Debugf("Responded current height: %v", height)
+		return height
+
+	case <-b.quit:
+		clog.Debugf("BlockbeatDispatcher quit before response")
+		return 0
 	}
 }
 

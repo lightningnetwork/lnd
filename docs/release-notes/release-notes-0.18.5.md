@@ -30,7 +30,9 @@
 ## RPC Additions
 
 ## lncli Additions
-
+* [`updatechanpolicy`](https://github.com/lightningnetwork/lnd/pull/8805) will
+  now update the channel policy if the edge was not found in the graph
+  database if the `create_missing_edge` flag is set.
 
 # Improvements
 ## Functional Updates
@@ -46,7 +48,14 @@
 
 ## Testing
 ## Database
+* [Remove global application level lock for
+  Postgres](https://github.com/lightningnetwork/lnd/pull/9242) so multiple DB
+  transactions can run at once, increasing efficiency. Includes several bugfixes
+  to allow this to work properly.
 ## Code Health
+
+* [Golang was updated to
+  `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462).
 
 * [Improved user experience](https://github.com/lightningnetwork/lnd/pull/9454)
  by returning a custom error code when HTLC carries incorrect custom records.
@@ -65,3 +74,6 @@
 # Contributors (Alphabetical Order)
 
 * Ziggie
+* Jesse de Wit
+* Alex Akselrod
+* Konstantin Nick

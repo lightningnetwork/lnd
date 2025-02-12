@@ -131,10 +131,6 @@
 * The `lncli wallet fundpsbt` command now has a [`--max_fee_ratio` argument to
   specify the max fees to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
-* [`updatechanpolicy`](https://github.com/lightningnetwork/lnd/pull/8805) will
-  now update the channel policy if the edge was not found in the graph
-  database if the `create_missing_edge` flag is set.
-
 * [Enhance](https://github.com/lightningnetwork/lnd/pull/9390) the
   `lncli listchannels` output by adding the human readable short
   channel id and the channel id defined in BOLT02. Moreover change
@@ -252,9 +248,6 @@ The underlying functionality between those two options remain the same.
 * [Abstraction of graph](https://github.com/lightningnetwork/lnd/pull/9480) 
   access for autopilot. 
 
-* [Golang was updated to
-  `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 
-
 * Move funding transaction validation to the gossiper
    [1](https://github.com/lightningnetwork/lnd/pull/9476)
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
@@ -318,11 +311,6 @@ The underlying functionality between those two options remain the same.
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 
   namespaced. All existing results are written to the "default" namespace.
 
-* [Remove global application level lock for
-  Postgres](https://github.com/lightningnetwork/lnd/pull/9242) so multiple DB
-  transactions can run at once, increasing efficiency. Includes several bugfixes
-  to allow this to work properly.
-
 * [Migrate KV invoices to
   SQL](https://github.com/lightningnetwork/lnd/pull/8831) as part of a larger
   effort to support SQL databases natively in LND.
@@ -365,7 +353,6 @@ The underlying functionality between those two options remain the same.
 # Contributors (Alphabetical Order)
 
 * Abdullahi Yunus
-* Alex Akselrod
 * Andras Banki-Horvath
 * Animesh Bilthare
 * Boris Nagaev
@@ -374,7 +361,6 @@ The underlying functionality between those two options remain the same.
 * Elle Mouton
 * George Tsagkarelis
 * hieblmi
-* Jesse de Wit
 * Keagan McClelland
 * Nishant Bansal
 * Oliver Gugger

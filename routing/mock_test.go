@@ -574,8 +574,8 @@ func (m *mockControlTowerOld) FetchInFlightPayments() (
 	return fl, nil
 }
 
-func (m *mockControlTowerOld) SubscribePayment(paymentHash lntypes.Hash) (
-	ControlTowerSubscriber, error) {
+func (m *mockControlTowerOld) SubscribePayment(paymentHash lntypes.Hash,
+	preventSubsequentPayment bool) (ControlTowerSubscriber, error) {
 
 	return nil, errors.New("not implemented")
 }
@@ -805,8 +805,8 @@ func (m *mockControlTower) FetchInFlightPayments() (
 	return args.Get(0).([]*channeldb.MPPayment), args.Error(1)
 }
 
-func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	ControlTowerSubscriber, error) {
+func (m *mockControlTower) SubscribePayment(paymentHash lntypes.Hash,
+	preventSubsequentPayment bool) (ControlTowerSubscriber, error) {
 
 	args := m.Called(paymentHash)
 	return args.Get(0).(ControlTowerSubscriber), args.Error(1)

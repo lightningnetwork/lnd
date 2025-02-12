@@ -1172,6 +1172,19 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 
 	// Create a result that will be sent to the resultChan which is listened
 	// by the caller.
+	result := t.createUnknownSpentBumpResult(r)
+
+	// Notify the sweeper about this result in the end.
+	t.handleResult(result)
+}
+
+// createUnknownSpentBumpResult creates and returns a BumpResult given the
+// monitored record has unknown spends.
+func (t *TxPublisher) createUnknownSpentBumpResult(
+	r *monitorRecord) *BumpResult {
+
+	// Create a result that will be sent to the resultChan which is listened
+	// by the caller.
 	result := &BumpResult{
 		Event:       TxUnknownSpend,
 		Tx:          r.tx,
@@ -1208,10 +1221,7 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 			result.Event = TxFatal
 			result.Err = err
 
-			// Notify the sweeper about this result in the end.
-			t.handleResult(result)
-
-			return
+			return result
 		}
 
 		feeFunc = f
@@ -1234,8 +1244,7 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 	// Attach the new fee rate to be used for the next sweeping attempt.
 	result.FeeRate = feeFunc.FeeRate()
 
-	// Notify the sweeper about this result in the end.
-	t.handleResult(result)
+	return result
 }
 
 // createAndPublishTx creates a new tx with a higher fee rate and publishes it

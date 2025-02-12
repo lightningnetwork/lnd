@@ -1394,12 +1394,7 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 	// Query store to find out if we ever published this tx.
 	spendHash := *spend.SpenderTxHash
-	isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
-	if err != nil {
-		log.Errorf("cannot determine if tx %v is ours: %v",
-			spendHash, err)
-		return
-	}
+	isOurTx := s.cfg.Store.IsOurTx(spendHash)
 
 	// If this isn't our transaction, it means someone else swept outputs
 	// that we were attempting to sweep. This can happen for anchor outputs
@@ -1879,22 +1874,7 @@ func (s *UtxoSweeper) handleBumpEvent(r *bumpResp) error {
 // NOTE: It is enough to check the txid because the sweeper will create
 // outpoints which solely belong to the internal LND wallet.
 func (s *UtxoSweeper) IsSweeperOutpoint(op wire.OutPoint) bool {
-	found, err := s.cfg.Store.IsOurTx(op.Hash)
-	// In case there is an error fetching the transaction details from the
-	// sweeper store we assume the outpoint is still used by the sweeper
-	// (worst case scenario).
-	//
-	// TODO(ziggie): Ensure that confirmed outpoints are deleted from the
-	// bucket.
-	if err != nil && !errors.Is(err, errNoTxHashesBucket) {
-		log.Errorf("failed to fetch info for outpoint(%v:%d) "+
-			"with: %v, we assume it is still in use by the sweeper",
-			op.Hash, op.Index, err)
-
-		return true
-	}
-
-	return found
+	return s.cfg.Store.IsOurTx(op.Hash)
 }
 
 // markInputSwept marks the given input as swept by the tx. It will also notify
@@ -1923,11 +1903,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 	op := inp.OutPoint()
 	txid := tx.TxHash()
 
-	isOurTx, err := s.cfg.Store.IsOurTx(txid)
-	if err != nil {
-		log.Errorf("Cannot determine if tx %v is ours: %v", txid, err)
-		return
-	}
+	isOurTx := s.cfg.Store.IsOurTx(txid)
 
 	// If this is our tx, it means it's a previous sweeping tx that got
 	// confirmed, which could happen when a restart happens during the
@@ -1955,7 +1931,7 @@ func (s *UtxoSweeper) handleUnknownSpendTx(inp *SweeperInput, tx *wire.MsgTx) {
 		spentInputs[txIn.PreviousOutPoint] = struct{}{}
 	}
 
-	err = s.removeConflictSweepDescendants(spentInputs)
+	err := s.removeConflictSweepDescendants(spentInputs)
 	if err != nil {
 		log.Warnf("unable to remove descendant transactions "+
 			"due to tx %v: ", txid)

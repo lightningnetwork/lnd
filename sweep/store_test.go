@@ -57,18 +57,15 @@ func TestStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assert that both txes are recognized as our own.
-	ours, err := store.IsOurTx(tx1.TxHash())
-	require.NoError(t, err)
+	ours := store.IsOurTx(tx1.TxHash())
 	require.True(t, ours, "expected tx to be ours")
 
-	ours, err = store.IsOurTx(tx2.TxHash())
-	require.NoError(t, err)
+	ours = store.IsOurTx(tx2.TxHash())
 	require.True(t, ours, "expected tx to be ours")
 
 	// An different hash should be reported as not being ours.
 	var unknownHash chainhash.Hash
-	ours, err = store.IsOurTx(unknownHash)
-	require.NoError(t, err)
+	ours = store.IsOurTx(unknownHash)
 	require.False(t, ours, "expected tx to not be ours")
 
 	txns, err := store.ListSweeps()

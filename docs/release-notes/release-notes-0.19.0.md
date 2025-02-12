@@ -136,6 +136,11 @@
   the misnomer of `chan_id` which was describing the short channel
   id to `scid` to represent what it really is.
 
+* [Trigger](https://github.com/lightningnetwork/lnd/pull/9491) the cooperative
+  channel closure even if there are HTLCs active on the channel. LND will block
+  any new HTLCs on the channel and will wait until all HTLCs are resolved to
+  start the cooperative close negotiation.
+
 # Improvements
 ## Functional Updates
 

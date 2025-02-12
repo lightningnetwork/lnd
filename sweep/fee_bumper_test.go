@@ -504,9 +504,14 @@ func TestCreateAndCheckTx(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 
+		r := &monitorRecord{
+			req:         tc.req,
+			feeFunction: m.feeFunc,
+		}
+
 		t.Run(tc.name, func(t *testing.T) {
 			// Call the method under test.
-			_, err := tp.createAndCheckTx(tc.req, m.feeFunc)
+			_, err := tp.createAndCheckTx(r)
 
 			// Check the result is as expected.
 			require.ErrorIs(t, err, tc.expectedErr)

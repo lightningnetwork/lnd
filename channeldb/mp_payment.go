@@ -10,7 +10,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -45,12 +48,19 @@ type HTLCAttemptInfo struct {
 	// in which the payment's PaymentHash in the PaymentCreationInfo should
 	// be used.
 	Hash *lntypes.Hash
+
+	// onionBlob is the cached value for onion blob created from the sphinx
+	// construction.
+	onionBlob [lnwire.OnionPacketSize]byte
+
+	// circuit is the cached value for sphinx circuit.
+	circuit *sphinx.Circuit
 }
 
 // NewHtlcAttempt creates a htlc attempt.
 func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
 	route route.Route, attemptTime time.Time,
-	hash *lntypes.Hash) *HTLCAttempt {
+	hash *lntypes.Hash) (*HTLCAttempt, error) {
 
 	var scratch [btcec.PrivKeyBytesLen]byte
 	copy(scratch[:], sessionKey.Serialize())
@@ -64,7 +74,11 @@ func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
 		Hash:             hash,
 	}
 
-	return &HTLCAttempt{HTLCAttemptInfo: info}
+	if err := info.attachOnionBlobAndCircuit(); err != nil {
+		return nil, err
+	}
+
+	return &HTLCAttempt{HTLCAttemptInfo: info}, nil
 }
 
 // SessionKey returns the ephemeral key used for a htlc attempt. This function
@@ -77,6 +91,45 @@ func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
 	}
 
 	return h.cachedSessionKey
+}
+
+// OnionBlob returns the onion blob created from the sphinx construction.
+func (h *HTLCAttemptInfo) OnionBlob() ([lnwire.OnionPacketSize]byte, error) {
+	var zeroBytes [lnwire.OnionPacketSize]byte
+	if h.onionBlob == zeroBytes {
+		if err := h.attachOnionBlobAndCircuit(); err != nil {
+			return zeroBytes, err
+		}
+	}
+
+	return h.onionBlob, nil
+}
+
+// Circuit returns the sphinx circuit for this attempt.
+func (h *HTLCAttemptInfo) Circuit() (*sphinx.Circuit, error) {
+	if h.circuit == nil {
+		if err := h.attachOnionBlobAndCircuit(); err != nil {
+			return nil, err
+		}
+	}
+
+	return h.circuit, nil
+}
+
+// attachOnionBlobAndCircuit creates a sphinx packet and caches the onion blob
+// and circuit for this attempt.
+func (h *HTLCAttemptInfo) attachOnionBlobAndCircuit() error {
+	onionBlob, circuit, err := generateSphinxPacket(
+		&h.Route, h.Hash[:], h.SessionKey(),
+	)
+	if err != nil {
+		return err
+	}
+
+	copy(h.onionBlob[:], onionBlob)
+	h.circuit = circuit
+
+	return nil
 }
 
 // HTLCAttempt contains information about a specific HTLC attempt for a given
@@ -628,4 +681,70 @@ func serializeTime(w io.Writer, t time.Time) error {
 	byteOrder.PutUint64(scratch[:], uint64(unixNano))
 	_, err := w.Write(scratch[:])
 	return err
+}
+
+// generateSphinxPacket generates then encodes a sphinx packet which encodes
+// the onion route specified by the passed layer 3 route. The blob returned
+// from this function can immediately be included within an HTLC add packet to
+// be sent to the first hop within the route.
+func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
+
+	// Now that we know we have an actual route, we'll map the route into a
+	// sphinx payment path which includes per-hop payloads for each hop
+	// that give each node within the route the necessary information
+	// (fees, CLTV value, etc.) to properly forward the payment.
+	sphinxPath, err := rt.ToSphinxPath()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
+		paymentHash, lnutils.NewLogClosure(func() string {
+			path := make(
+				[]sphinx.OnionHop, sphinxPath.TrueRouteLength(),
+			)
+			for i := range path {
+				hopCopy := sphinxPath[i]
+				path[i] = hopCopy
+			}
+
+			return spew.Sdump(path)
+		}),
+	)
+
+	// Next generate the onion routing packet which allows us to perform
+	// privacy preserving source routing across the network.
+	sphinxPacket, err := sphinx.NewOnionPacket(
+		sphinxPath, sessionKey, paymentHash,
+		sphinx.DeterministicPacketFiller,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Finally, encode Sphinx packet using its wire representation to be
+	// included within the HTLC add packet.
+	var onionBlob bytes.Buffer
+	if err := sphinxPacket.Encode(&onionBlob); err != nil {
+		return nil, nil, err
+	}
+
+	log.Tracef("Generated sphinx packet: %v",
+		lnutils.NewLogClosure(func() string {
+			// We make a copy of the ephemeral key and unset the
+			// internal curve here in order to keep the logs from
+			// getting noisy.
+			key := *sphinxPacket.EphemeralKey
+			packetCopy := *sphinxPacket
+			packetCopy.EphemeralKey = &key
+
+			return spew.Sdump(packetCopy)
+		}),
+	)
+
+	return onionBlob.Bytes(), &sphinx.Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: sphinxPath.NodeKeys(),
+	}, nil
 }

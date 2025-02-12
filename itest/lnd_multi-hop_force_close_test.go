@@ -357,8 +357,11 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// We'll create two random payment hashes unknown to carol, then send
 	// each of them by manually specifying the HTLC details.
 	carolPubKey := carol.PubKey[:]
-	dustPayHash := ht.Random32Bytes()
-	payHash := ht.Random32Bytes()
+
+	preimageDust := ht.RandomPreimage()
+	preimage := ht.RandomPreimage()
+	dustPayHash := preimageDust.Hash()
+	payHash := preimage.Hash()
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -370,7 +373,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	req := &routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(dustHtlcAmt),
-		PaymentHash:    dustPayHash,
+		PaymentHash:    dustPayHash[:],
 		FinalCltvDelta: finalCltvDelta,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
@@ -380,7 +383,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	req = &routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(htlcAmt),
-		PaymentHash:    payHash,
+		PaymentHash:    payHash[:],
 		FinalCltvDelta: finalCltvDelta,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
@@ -530,6 +533,25 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// Once this transaction has been confirmed, Bob should detect that he
 	// no longer has any pending channels.
 	ht.AssertNumPendingForceClose(bob, 0)
+
+	// Now that Bob has claimed his HTLCs, Alice should mark the two
+	// payments as failed.
+	//
+	// Alice will mark this payment as failed with no route as the only
+	// route she has is Alice->Bob->Carol. This won't be the case if she
+	// has a second route, as another attempt will be tried.
+	//
+	// TODO(yy): we should instead mark this payment as timed out if she has
+	// a second route to try this payment, which is the timeout set by Alice
+	// when sending the payment.
+	expectedReason := lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE
+	p := ht.AssertPaymentFailureReason(alice, preimage, expectedReason)
+	require.Equal(ht, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE,
+		p.Htlcs[0].Failure.Code)
+
+	p = ht.AssertPaymentFailureReason(alice, preimageDust, expectedReason)
+	require.Equal(ht, lnrpc.Failure_PERMANENT_CHANNEL_FAILURE,
+		p.Htlcs[0].Failure.Code)
 }
 
 // testMultiHopReceiverPreimageClaimAnchor tests

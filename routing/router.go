@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math"
@@ -15,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -722,71 +720,6 @@ func generateNewSessionKey() (*btcec.PrivateKey, error) {
 	return btcec.NewPrivateKey()
 }
 
-// generateSphinxPacket generates then encodes a sphinx packet which encodes
-// the onion route specified by the passed layer 3 route. The blob returned
-// from this function can immediately be included within an HTLC add packet to
-// be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte,
-	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
-
-	// Now that we know we have an actual route, we'll map the route into a
-	// sphinx payment path which includes per-hop payloads for each hop
-	// that give each node within the route the necessary information
-	// (fees, CLTV value, etc.) to properly forward the payment.
-	sphinxPath, err := rt.ToSphinxPath()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
-		paymentHash, lnutils.NewLogClosure(func() string {
-			path := make(
-				[]sphinx.OnionHop, sphinxPath.TrueRouteLength(),
-			)
-			for i := range path {
-				hopCopy := sphinxPath[i]
-				path[i] = hopCopy
-			}
-
-			return spew.Sdump(path)
-		}),
-	)
-
-	// Next generate the onion routing packet which allows us to perform
-	// privacy preserving source routing across the network.
-	sphinxPacket, err := sphinx.NewOnionPacket(
-		sphinxPath, sessionKey, paymentHash,
-		sphinx.DeterministicPacketFiller,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Finally, encode Sphinx packet using its wire representation to be
-	// included within the HTLC add packet.
-	var onionBlob bytes.Buffer
-	if err := sphinxPacket.Encode(&onionBlob); err != nil {
-		return nil, nil, err
-	}
-
-	log.Tracef("Generated sphinx packet: %v",
-		lnutils.NewLogClosure(func() string {
-			// We make a copy of the ephemeral key and unset the
-			// internal curve here in order to keep the logs from
-			// getting noisy.
-			key := *sphinxPacket.EphemeralKey
-			packetCopy := *sphinxPacket
-			packetCopy.EphemeralKey = &key
-			return spew.Sdump(packetCopy)
-		}),
-	)
-
-	return onionBlob.Bytes(), &sphinx.Circuit{
-		SessionKey:  sessionKey,
-		PaymentPath: sphinxPath.NodeKeys(),
-	}, nil
-}
-
 // LightningPayment describes a payment to be sent through the network to the
 // final destination.
 type LightningPayment struct {
@@ -1253,7 +1186,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// The attempt was successfully sent, wait for the result to be
 	// available.
-	result, err = p.collectResult(attempt)
+	result, err = p.collectAndHandleResult(attempt)
 	if err != nil {
 		return nil, err
 	}

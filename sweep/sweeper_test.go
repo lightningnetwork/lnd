@@ -1227,7 +1227,7 @@ func TestHandleUnknownSpendTxOurs(t *testing.T) {
 	txid := tx.TxHash()
 
 	// Mock the store to return true when calling IsOurTx.
-	store.On("IsOurTx", txid).Return(true, nil).Once()
+	store.On("IsOurTx", txid).Return(true).Once()
 
 	// Call the method under test.
 	s.handleUnknownSpendTx(si, tx)
@@ -1271,7 +1271,7 @@ func TestHandleInputSpendTxThirdParty(t *testing.T) {
 	txid := tx.TxHash()
 
 	// Mock the store to return false when calling IsOurTx.
-	store.On("IsOurTx", txid).Return(false, nil).Once()
+	store.On("IsOurTx", txid).Return(false).Once()
 
 	// Mock `ListSweeps` to return an empty slice as we are testing the
 	// workflow here, not the method `removeConflictSweepDescendants`.
@@ -1333,7 +1333,7 @@ func TestHandleBumpEventTxUnknownSpendNoRetry(t *testing.T) {
 	}
 
 	// Mock the store to return true when calling IsOurTx.
-	store.On("IsOurTx", txid).Return(true, nil).Once()
+	store.On("IsOurTx", txid).Return(true).Once()
 
 	// Call the method under test.
 	s.handleBumpEventTxUnknownSpend(resp)
@@ -1419,7 +1419,7 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 	}
 
 	// Mock the store to return true when calling IsOurTx.
-	store.On("IsOurTx", txid).Return(true, nil).Once()
+	store.On("IsOurTx", txid).Return(true).Once()
 
 	// Mock the aggregator to return an empty slice as we are not testing
 	// the actual sweeping behavior.

@@ -24,10 +24,10 @@ func NewMockSweeperStore() *MockSweeperStore {
 }
 
 // IsOurTx determines whether a tx is published by us, based on its hash.
-func (s *MockSweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
+func (s *MockSweeperStore) IsOurTx(hash chainhash.Hash) bool {
 	args := s.Called(hash)
 
-	return args.Bool(0), args.Error(1)
+	return args.Bool(0)
 }
 
 // StoreTx stores a tx we are about to publish.

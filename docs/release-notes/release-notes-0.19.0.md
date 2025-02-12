@@ -90,6 +90,23 @@
 
 # New Features
 
+* Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)
+ in a designated folder which allows for easy referencing in the future. A new 
+ config is added `disable-backup-archive`, with default set to false, to 
+ determine if previous channel backups should be archived or not.
+
+## Protocol Updates
+
+* `lnd` now [supports the new RBF cooperative close
+flow](https://github.com/lightningnetwork/lnd/pull/8453). Unlike the old flow,
+this version now uses RBF to enable either side to increase their fee rate using
+their _own_ channel funds. This removes the old "negotiation" logic that could
+fail, with a version where either side can increase the fee on their coop close
+transaction using their channel balance. 
+
+This new feature can be activated with a new config flag:
+`--protocol.rbf-coop-close`.
+
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
   [experimental endorsement](https://github.com/lightning/blips/pull/27) 
   signal relay was added. This signal has *no impact* on routing, and
@@ -103,10 +120,7 @@
   initial historical sync may be blocked due to a race condition in handling the
   syncer's internal state.
 
-* Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)
- in a designated folder which allows for easy referencing in the future. A new 
- config is added `disable-backup-archive`, with default set to false, to 
- determine if previous channel backups should be archived or not.
+
 
 * [The max fee rate](https://github.com/lightningnetwork/lnd/pull/9491) is now
   respected when a coop close is initiated. Before the max fee rate would only
@@ -428,6 +442,7 @@ The underlying functionality between those two options remain the same.
 * Keagan McClelland
 * Nishant Bansal
 * Oliver Gugger
+* Olaoluwa Osuntokun
 * Pins
 * Viktor Tigerström
 * Yong Yu

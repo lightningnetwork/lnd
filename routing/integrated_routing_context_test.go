@@ -394,11 +394,11 @@ func (g *mockGraphSessionChanDB) close() error {
 func (g *mockGraphSessionChanDB) ForEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeDirectedChannelTx(g.tx, nodePub, cb)
 }
 
 func (g *mockGraphSessionChanDB) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(g.tx, nodePub)
+	return g.graph.FetchNodeFeaturesTx(g.tx, nodePub)
 }

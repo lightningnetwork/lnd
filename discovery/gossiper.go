@@ -2634,6 +2634,14 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		tapscriptRoot = nMsg.optionalMsgFields.tapscriptRoot
 	}
 
+	// Before we start validation or add the edge to the database, we obtain
+	// the mutex for this channel ID. We do this to ensure no other
+	// goroutine has read the database and is now making decisions based on
+	// this DB state, before it writes to the DB. It also ensures that we
+	// don't perform the expensive validation check on the same channel
+	// announcement at the same time.
+	d.channelMtx.Lock(scid.ToUint64())
+
 	// We only make use of the funding script later on during funding
 	// transaction validation if AssumeChannelValid is not true.
 	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) {
@@ -2642,6 +2650,8 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			tapscriptRoot,
 		)
 		if err != nil {
+			defer d.channelMtx.Unlock(scid.ToUint64())
+
 			log.Errorf("Unable to make funding script %v", err)
 			nMsg.err <- err
 
@@ -2656,12 +2666,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 	// We will add the edge to the channel router. If the nodes present in
 	// this channel are not present in the database, a partial node will be
 	// added to represent each node while we wait for a node announcement.
-	//
-	// Before we add the edge to the database, we obtain the mutex for this
-	// channel ID. We do this to ensure no other goroutine has read the
-	// database and is now making decisions based on this DB state, before
-	// it writes to the DB.
-	d.channelMtx.Lock(scid.ToUint64())
 	err = d.cfg.Graph.AddEdge(edge, ops...)
 	if err != nil {
 		log.Debugf("Graph rejected edge for short_chan_id(%v): %v",

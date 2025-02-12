@@ -1254,46 +1254,10 @@ func (t *TxPublisher) createAndPublishTx(
 	// directly here.
 	sweepCtx, err := t.createAndCheckTx(r.req, r.feeFunction)
 
-	// If the error is fee related, we will return no error and let the fee
-	// bumper retry it at next block.
-	//
-	// NOTE: we can check the RBF error here and ask the fee function to
-	// recalculate the fee rate. However, this would defeat the purpose of
-	// using a deadline based fee function:
-	// - if the deadline is far away, there's no rush to RBF the tx.
-	// - if the deadline is close, we expect the fee function to give us a
-	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
-	//   means the budget is not enough.
-	if errors.Is(err, chain.ErrInsufficientFee) ||
-		errors.Is(err, lnwallet.ErrMempoolFee) {
-
-		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
-		return fn.None[BumpResult]()
-	}
-
-	// If the error is not fee related, we will return a `TxFailed` event
-	// so this input can be retried.
+	// If there's an error creating the replacement tx, we need to abort the
+	// flow and handle it.
 	if err != nil {
-		// If the tx doesn't not have enought budget, we will return a
-		// result so the sweeper can handle it by re-clustering the
-		// utxos.
-		if errors.Is(err, ErrNotEnoughBudget) {
-			log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(),
-				err)
-		} else {
-			// Otherwise, an unexpected error occurred, we will
-			// fail the tx and let the sweeper retry the whole
-			// process.
-			log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(),
-				err)
-		}
-
-		return fn.Some(BumpResult{
-			Event:     TxFailed,
-			Tx:        oldTx,
-			Err:       err,
-			requestID: r.requestID,
-		})
+		return t.handleReplacementTxError(r, oldTx, err)
 	}
 
 	// The tx has been created without any errors, we now register a new
@@ -1785,4 +1749,50 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		estimator.parentsFee, estimator.parentsWeight, currentHeight)
 
 	return txFee, changeOutsOpt, locktimeOpt, nil
+}
+
+// handleReplacementTxError handles the error returned from creating the
+// replacement tx. It returns a BumpResult that should be notified to the
+// sweeper.
+func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
+	oldTx *wire.MsgTx, err error) fn.Option[BumpResult] {
+
+	// If the error is fee related, we will return no error and let the fee
+	// bumper retry it at next block.
+	//
+	// NOTE: we can check the RBF error here and ask the fee function to
+	// recalculate the fee rate. However, this would defeat the purpose of
+	// using a deadline based fee function:
+	// - if the deadline is far away, there's no rush to RBF the tx.
+	// - if the deadline is close, we expect the fee function to give us a
+	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
+	//   means the budget is not enough.
+	if errors.Is(err, chain.ErrInsufficientFee) ||
+		errors.Is(err, lnwallet.ErrMempoolFee) {
+
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+		return fn.None[BumpResult]()
+	}
+
+	// If the error is not fee related, we will return a `TxFailed` event
+	// so this input can be retried.
+	result := fn.Some(BumpResult{
+		Event:     TxFailed,
+		Tx:        oldTx,
+		Err:       err,
+		requestID: r.requestID,
+	})
+
+	// If the tx doesn't not have enought budget, we will return a result so
+	// the sweeper can handle it by re-clustering the utxos.
+	if errors.Is(err, ErrNotEnoughBudget) {
+		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		return result
+	}
+
+	// Otherwise, an unexpected error occurred, we will log an error and let
+	// the sweeper retry the whole process.
+	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+
+	return result
 }

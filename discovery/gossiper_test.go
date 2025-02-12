@@ -27,15 +27,18 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
+	tmock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,7 +85,6 @@ type mockGraphSource struct {
 	edges         map[uint64][]models.ChannelEdgePolicy
 	zombies       map[uint64][][33]byte
 	chansToReject map[uint64]struct{}
-	addEdgeErr    error
 }
 
 func newMockRouter(height uint32) *mockGraphSource {
@@ -130,10 +132,6 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.addEdgeErr != nil {
-		return r.addEdgeErr
-	}
-
 	if _, ok := r.infos[info.ChannelID]; ok {
 		return errors.New("info already exist")
 	}
@@ -144,14 +142,6 @@ func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
 
 	r.infos[info.ChannelID] = *info
 	return nil
-}
-
-func (r *mockGraphSource) resetAddEdgeErr() {
-	r.addEdgeErr = nil
-}
-
-func (r *mockGraphSource) setAddEdgeErr(err error) {
-	r.addEdgeErr = err
 }
 
 func (r *mockGraphSource) queueValidationFail(chanID uint64) {
@@ -600,7 +590,7 @@ func createUpdateAnnouncement(blockHeight uint32,
 
 	var err error
 
-	htlcMinMsat := lnwire.MilliSatoshi(prand.Int63())
+	htlcMinMsat := lnwire.MilliSatoshi(100)
 	a := &lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
@@ -700,15 +690,55 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 		opt(&opts)
 	}
 
-	// TODO(elle): prepare the mock chain calls accordingly.
 	switch opts.fundingTxPrep {
 	case fundingTxPrepTypeGood:
+		info := makeFundingTxInBlock(ctx.t)
+
+		ctx.chain.On("GetBlockHash", int64(blockHeight)).
+			Return(&chainhash.Hash{}, nil).Once()
+
+		ctx.chain.On("GetBlock", tmock.Anything).
+			Return(info.fundingBlock, nil).Once()
+
+		ctx.chain.On(
+			"GetUtxo", tmock.Anything, tmock.Anything,
+			tmock.Anything, tmock.Anything,
+		).Return(info.fundingTx, nil).Once()
 
 	case fundingTxPrepTypeInvalidOutput:
+		ctx.chain.On(
+			"GetBlockHash", int64(blockHeight),
+		).Return(&chainhash.Hash{}, nil).Once()
+
+		ctx.chain.On(
+			"GetBlock", tmock.Anything,
+		).Return(
+			&wire.MsgBlock{Transactions: []*wire.MsgTx{{}}}, nil,
+		).Once()
 
 	case fundingTxPrepTypeSpent:
+		info := makeFundingTxInBlock(ctx.t)
+
+		ctx.chain.On(
+			"GetBlockHash", int64(blockHeight),
+		).Return(&chainhash.Hash{}, nil).Once()
+
+		ctx.chain.On(
+			"GetBlock", tmock.Anything,
+		).Return(info.fundingBlock, nil).Once()
+
+		ctx.chain.On(
+			"GetUtxo", tmock.Anything, tmock.Anything,
+			tmock.Anything, tmock.Anything,
+		).Return(nil, btcwallet.ErrOutputSpent).Once()
 
 	case fundingTxPrepTypeNoTx:
+		ctx.chain.On("GetBlockHash", int64(blockHeight)).Return(
+			&chainhash.Hash{}, nil,
+		).Once()
+		ctx.chain.On("GetBlock", tmock.Anything).Return(
+			nil, fmt.Errorf("block not found"),
+		).Once()
 
 	case fundingTxPrepTypeNone:
 	}
@@ -728,6 +758,38 @@ func (ctx *testCtx) createAnnouncementWithoutProof(blockHeight uint32,
 	a.ExtraOpaqueData = opts.extraBytes
 
 	return a
+}
+
+type fundingTxInfo struct {
+	chanUtxo     *wire.OutPoint
+	fundingBlock *wire.MsgBlock
+	fundingTx    *wire.TxOut
+}
+
+func makeFundingTxInBlock(t *testing.T) *fundingTxInfo {
+	fundingTx := wire.NewMsgTx(2)
+	_, tx, err := input.GenFundingPkScript(
+		bitcoinKeyPub1.SerializeCompressed(),
+		bitcoinKeyPub2.SerializeCompressed(),
+		int64(1000),
+	)
+	require.NoError(t, err)
+
+	fundingTx.TxOut = append(fundingTx.TxOut, tx)
+	chanUtxo := &wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+
+	block := &wire.MsgBlock{
+		Transactions: []*wire.MsgTx{fundingTx},
+	}
+
+	return &fundingTxInfo{
+		chanUtxo:     chanUtxo,
+		fundingBlock: block,
+		fundingTx:    tx,
+	}
 }
 
 func (ctx *testCtx) createRemoteChannelAnnouncement(blockHeight uint32,
@@ -4306,8 +4368,6 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
 	}
 
-	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
-
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
 		// Craft a valid channel announcement for a channel we don't
@@ -4323,7 +4383,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer1,
 		):
-			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
+			require.ErrorIs(t, err, ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")
@@ -4343,13 +4403,9 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	)
 	require.NoError(t, err, "can't create channel announcement")
 
-	// Set the error to ErrChannelSpent so that we can test that the
-	// gossiper ignores closed channels.
-	ctx.router.setAddEdgeErr(graph.ErrChannelSpent)
-
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
-		require.ErrorIs(t, err, graph.ErrChannelSpent)
+		require.ErrorIs(t, err, ErrChannelSpent)
 
 	case <-time.After(2 * time.Second):
 		t.Fatalf("remote announcement not processed")
@@ -4370,13 +4426,15 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 
 	ctx.gossiper.recentRejects.Delete(key)
 
-	// Reset the AddEdge error and pass the same announcement again. An
-	// error should be returned even though AddEdge won't fail.
-	ctx.router.resetAddEdgeErr()
+	// The validateFundingTransaction method will mark this channel
+	// as a zombie if any error occurs in the chanvalidate.Validate call.
+	// For the sake of the rest of the test, however, we mark it as live
+	// here.
+	_ = ctx.router.MarkEdgeLive(ca.ShortChannelID)
 
 	select {
 	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ca, nodePeer2):
-		require.NotNil(t, err)
+		require.ErrorContains(t, err, "ignoring closed channel")
 
 	case <-time.After(2 * time.Second):
 		t.Fatalf("remote announcement not processed")
@@ -4393,8 +4451,6 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
 
-	ctx.router.setAddEdgeErr(graph.ErrInvalidFundingOutput)
-
 	// Loop 100 times to get nodePeer banned.
 	for i := 0; i < 100; i++ {
 		// Craft a valid channel announcement for a channel we don't
@@ -4410,7 +4466,7 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 		case err = <-ctx.gossiper.ProcessRemoteAnnouncement(
 			ca, nodePeer,
 		):
-			require.ErrorIs(t, err, graph.ErrInvalidFundingOutput)
+			require.ErrorIs(t, err, ErrInvalidFundingOutput)
 
 		case <-time.After(2 * time.Second):
 			t.Fatalf("remote announcement not processed")
@@ -4422,4 +4478,76 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 
 	// Assert that the peer wasn't disconnected.
 	require.False(t, nodePeer.disconnected.Load())
+}
+
+// TestChannelOnChainRejectionZombie tests that if we fail validating a channel
+// due to some sort of on-chain rejection (no funding transaction, or invalid
+// UTXO), then we'll mark the channel as a zombie.
+func TestChannelOnChainRejectionZombie(t *testing.T) {
+	t.Parallel()
+
+	ctx, err := createTestCtx(t, 1000, true)
+	require.NoError(t, err)
+
+	// To start,  we'll make an edge for the channel, but we won't add the
+	// funding transaction to the mock blockchain, which should cause the
+	// validation to fail below.
+	chanAnn, err := ctx.createRemoteChannelAnnouncement(
+		1, withFundingTxPrep(fundingTxPrepTypeNoTx),
+	)
+	require.NoError(t, err)
+
+	// We expect this to fail as the transaction isn't present in the
+	// chain (nor the block).
+	assertChanChainRejection(t, ctx, chanAnn, ErrNoFundingTransaction)
+
+	// Next, we'll make another channel edge, but actually add it to the
+	// graph this time.
+	chanAnn, err = ctx.createRemoteChannelAnnouncement(
+		2, withFundingTxPrep(fundingTxPrepTypeSpent),
+	)
+	require.NoError(t, err)
+
+	// Instead now, we'll remove it from the set of UTXOs which should
+	// cause the spentness validation to fail.
+	assertChanChainRejection(t, ctx, chanAnn, ErrChannelSpent)
+
+	// If we cause the funding transaction the chain to fail validation, we
+	// should see similar behavior.
+	chanAnn, err = ctx.createRemoteChannelAnnouncement(
+		3, withFundingTxPrep(fundingTxPrepTypeInvalidOutput),
+	)
+	require.NoError(t, err)
+	assertChanChainRejection(t, ctx, chanAnn, ErrInvalidFundingOutput)
+}
+
+func assertChanChainRejection(t *testing.T, ctx *testCtx,
+	edge *lnwire.ChannelAnnouncement1, expectedErr error) {
+
+	t.Helper()
+
+	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
+	errChan := make(chan error, 1)
+	nMsg := &networkMsg{
+		msg:      edge,
+		isRemote: true,
+		peer:     nodePeer,
+		source:   nodePeer.IdentityKey(),
+		err:      errChan,
+	}
+
+	_, added := ctx.gossiper.handleChanAnnouncement(nMsg, edge)
+	require.False(t, added)
+
+	select {
+	case err := <-errChan:
+		require.ErrorIs(t, err, expectedErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("channel announcement not processed")
+	}
+
+	// This channel should now be present in the zombie channel index.
+	isZombie, err := ctx.router.IsZombieEdge(edge.ShortChannelID)
+	require.NoError(t, err)
+	require.True(t, isZombie, "edge should be marked as zombie")
 }

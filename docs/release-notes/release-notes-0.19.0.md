@@ -93,6 +93,10 @@
  config is added `disable-backup-archive`, with default set to false, to 
  determine if previous channel backups should be archived or not.
 
+* [The max fee rate](https://github.com/lightningnetwork/lnd/pull/9491) is now
+  respected when a coop close is initiated. Before the max fee rate would only
+  be effective for the remote party in the negotiation.
+
 ## Functional Enhancements
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.
@@ -140,6 +144,11 @@
   channel id and the channel id defined in BOLT02. Moreover change
   the misnomer of `chan_id` which was describing the short channel
   id to `scid` to represent what it really is.
+
+* [In the coop close](https://github.com/lightningnetwork/lnd/pull/9491) case
+  we always initiate the cooperative close flow even if there are HTLCs active
+  on the channel. LND will disable the channel for new HTLCs and kick of the
+  cooperative close flow automatically when the channel has no HTLCs left.
 
 # Improvements
 ## Functional Updates

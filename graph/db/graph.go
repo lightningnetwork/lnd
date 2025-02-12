@@ -500,7 +500,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	}, func() {})
 }
 
-// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// ForEachNodeDirectedChannelTx iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration
 // is halted with the error propagated back up to the caller. An optional read
@@ -509,7 +509,7 @@ func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: this is part of the graphsession.graph interface.
-func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
+func (c *ChannelGraph) ForEachNodeDirectedChannelTx(tx kvdb.RTx,
 	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
 	if c.graphCache != nil {
@@ -520,7 +520,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	toNodeCallback := func() route.Vertex {
 		return node
 	}
-	toNodeFeatures, err := c.FetchNodeFeatures(tx, node)
+	toNodeFeatures, err := c.FetchNodeFeaturesTx(tx, node)
 	if err != nil {
 		return err
 	}
@@ -564,12 +564,12 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	return nodeTraversal(tx, node[:], c.db, dbCallback)
 }
 
-// FetchNodeFeatures returns the features of a given node. If no features are
+// FetchNodeFeaturesTx returns the features of a given node. If no features are
 // known for the node, an empty feature vector is returned. An optional read
 // transaction may be provided. If none is provided, a new one will be created.
 //
 // NOTE: this is part of the graphsession.graph interface.
-func (c *ChannelGraph) FetchNodeFeatures(tx kvdb.RTx,
+func (c *ChannelGraph) FetchNodeFeaturesTx(tx kvdb.RTx,
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
 	if c.graphCache != nil {
@@ -623,7 +623,7 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 				toNodeCallback := func() route.Vertex {
 					return node.PubKeyBytes
 				}
-				toNodeFeatures, err := c.FetchNodeFeatures(
+				toNodeFeatures, err := c.FetchNodeFeaturesTx(
 					tx, node.PubKeyBytes,
 				)
 				if err != nil {

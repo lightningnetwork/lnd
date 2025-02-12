@@ -86,7 +86,7 @@ func (g *session) close() error {
 func (g *session) ForEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeDirectedChannelTx(g.tx, nodePub, cb)
 }
 
 // FetchNodeFeatures returns the features of the given node. If the node is
@@ -96,7 +96,7 @@ func (g *session) ForEachNodeChannel(nodePub route.Vertex,
 func (g *session) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return g.graph.FetchNodeFeatures(g.tx, nodePub)
+	return g.graph.FetchNodeFeaturesTx(g.tx, nodePub)
 }
 
 // A compile-time check to ensure that *session implements the
@@ -118,7 +118,7 @@ type ReadOnlyGraph interface {
 // database implementation, like channeldb.ChannelGraph, in order to be used by
 // the Router for pathfinding.
 type graph interface {
-	// ForEachNodeDirectedChannel iterates through all channels of a given
+	// ForEachNodeDirectedChannelTx iterates through all channels of a given
 	// node, executing the passed callback on the directed edge representing
 	// the channel and its incoming policy. If the callback returns an
 	// error, then the iteration is halted with the error propagated back
@@ -128,15 +128,15 @@ type graph interface {
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	ForEachNodeDirectedChannel(tx kvdb.RTx, node route.Vertex,
+	ForEachNodeDirectedChannelTx(tx kvdb.RTx, node route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error) error
 
-	// FetchNodeFeatures returns the features of a given node. If no
+	// FetchNodeFeaturesTx returns the features of a given node. If no
 	// features are known for the node, an empty feature vector is returned.
 	//
 	// NOTE: if a nil tx is provided, then it is expected that the
 	// implementation create a read only tx.
-	FetchNodeFeatures(tx kvdb.RTx, node route.Vertex) (
+	FetchNodeFeaturesTx(tx kvdb.RTx, node route.Vertex) (
 		*lnwire.FeatureVector, error)
 }
 

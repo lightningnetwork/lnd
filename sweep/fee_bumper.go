@@ -43,6 +43,10 @@ var (
 	// ErrUnknownSpent is returned when an unknown tx has spent an input in
 	// the sweeping tx.
 	ErrUnknownSpent = errors.New("unknown spend of input")
+
+	// ErrInputMissing is returned when a given input no longer exists,
+	// e.g., spending from an orphan tx.
+	ErrInputMissing = errors.New("input no longer exists")
 )
 
 var (
@@ -653,8 +657,66 @@ func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
 		return sweepCtx, nil
 	}
 
+	// If the inputs are spent by another tx, we will exit with the latest
+	// sweepCtx and an error.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Tx %v missing inputs, it's likely the input has "+
+			"been spent by others", sweepCtx.tx.TxHash())
+
+		// Make sure to update the record with the latest attempt.
+		t.updateRecord(r, sweepCtx)
+
+		return sweepCtx, ErrInputMissing
+	}
+
 	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
 		sweepCtx.tx.TxHash(), err)
+}
+
+// handleMissingInputs handles the case when the chain backend reports back a
+// missing inputs error, which could happen when one of the input has been spent
+// in another tx, or the input is referencing an orphan. When the input is
+// spent, it will be handled via the TxUnknownSpend flow by creating a
+// TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
+	// Get the spending txns.
+	spends := t.getSpentInputs(r)
+
+	// Attach the spending txns.
+	r.spentInputs = spends
+
+	// If there are no spending txns found and the input is missing, the
+	// input is referencing an orphan tx that's no longer valid, e.g., the
+	// spending the anchor output from the remote commitment after the local
+	// commitment has confirmed. In this case we will mark it as fatal and
+	// exit.
+	if len(spends) == 0 {
+		log.Warnf("Failing record=%v: found orphan inputs: %v\n",
+			r.requestID, inputTypeSummary(r.req.Inputs))
+
+		// Create a result that will be sent to the resultChan which is
+		// listened by the caller.
+		result := &BumpResult{
+			Event:     TxFatal,
+			Tx:        r.tx,
+			requestID: r.requestID,
+			Err:       ErrInputMissing,
+		}
+
+		return result
+	}
+
+	// Check that the spending tx matches the sweeping tx - given that the
+	// current sweeping tx has been failed due to missing inputs, the
+	// spending tx must be a different tx, thus it should NOT be matched. We
+	// perform a sanity check here to catch the unexpected state.
+	if !t.isUnknownSpent(r, spends) {
+		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
+			"spending tx is the sweeping tx itself: %v",
+			r.tx.TxHash(), r.spentInputs)
+	}
+
+	return t.createUnknownSpentBumpResult(r)
 }
 
 // broadcast takes a monitored tx and publishes it to the network. Prior to the
@@ -1051,6 +1113,11 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
+
+	// When there are missing inputs, we'll create a TxUnknownSpend bump
+	// result here so the rest of the inputs can be retried.
+	case errors.Is(err, ErrInputMissing):
+		result = t.handleMissingInputs(r)
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which
@@ -1780,6 +1847,16 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 
 		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 		return fn.None[BumpResult]()
+	}
+
+	// At least one of the inputs is missing, which means it has already
+	// been spent by another tx and confirmed. In this case we will handle
+	// it by returning a TxUnknownSpend bump result.
+	if errors.Is(err, ErrInputMissing) {
+		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		bumpResult := t.handleMissingInputs(r)
+
+		return fn.Some(*bumpResult)
 	}
 
 	// If the error is not fee related, we will return a `TxFailed` event

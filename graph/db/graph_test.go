@@ -1105,24 +1105,22 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Iterate through all the known channels within the graph DB by
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
-	var nodes []GraphCacheNode
-	err = graph.ForEachNodeCacheable(
-		func(tx kvdb.RTx, node GraphCacheNode) error {
-			delete(nodeMap, node.PubKey())
+	var nodes []route.Vertex
+	err = graph.ForEachNodeCacheable(func(node route.Vertex,
+		features *lnwire.FeatureVector) error {
 
-			nodes = append(nodes, node)
+		delete(nodeMap, node)
+		nodes = append(nodes, node)
 
-			return nil
-		},
-	)
+		return nil
+	})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
 
 	err = graph.db.View(func(tx kvdb.RTx) error {
 		for _, node := range nodes {
-			err := node.ForEachChannel(
-				tx, func(tx kvdb.RTx,
-					info *models.ChannelEdgeInfo,
+			err := graph.ForEachNodeChannelTx(tx, node,
+				func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
 					policy *models.ChannelEdgePolicy,
 					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
 
@@ -3883,44 +3881,37 @@ func BenchmarkForEachChannel(b *testing.B) {
 			maxHTLCs      lnwire.MilliSatoshi
 		)
 
-		var nodes []GraphCacheNode
-		err = graph.ForEachNodeCacheable(
-			func(tx kvdb.RTx, node GraphCacheNode) error {
-				nodes = append(nodes, node)
+		var nodes []route.Vertex
+		err = graph.ForEachNodeCacheable(func(node route.Vertex,
+			vector *lnwire.FeatureVector) error {
 
-				return nil
-			},
-		)
-		require.NoError(b, err)
-
-		err = graph.db.View(func(tx kvdb.RTx) error {
-			for _, n := range nodes {
-				cb := func(tx kvdb.RTx,
-					info *models.ChannelEdgeInfo,
-					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
-
-					// We need to do something with
-					// the data here, otherwise the
-					// compiler is going to optimize
-					// this away, and we get bogus
-					// results.
-					totalCapacity += info.Capacity
-					maxHTLCs += policy.MaxHTLC
-					maxHTLCs += policy2.MaxHTLC
-
-					return nil
-				}
-
-				err := n.ForEachChannel(tx, cb)
-				if err != nil {
-					return err
-				}
-			}
+			nodes = append(nodes, node)
 
 			return nil
-		}, func() {})
+		})
 		require.NoError(b, err)
+
+		for _, n := range nodes {
+			cb := func(tx kvdb.RTx,
+				info *models.ChannelEdgeInfo,
+				policy *models.ChannelEdgePolicy,
+				policy2 *models.ChannelEdgePolicy) error { //nolint:ll
+
+				// We need to do something with
+				// the data here, otherwise the
+				// compiler is going to optimize
+				// this away, and we get bogus
+				// results.
+				totalCapacity += info.Capacity
+				maxHTLCs += policy.MaxHTLC
+				maxHTLCs += policy2.MaxHTLC
+
+				return nil
+			}
+
+			err := graph.ForEachNodeChannel(n, cb)
+			require.NoError(b, err)
+		}
 	}
 }
 

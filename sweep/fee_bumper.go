@@ -544,7 +544,7 @@ func (t *TxPublisher) createRBFCompliantTx(
 	for {
 		// Create a new tx with the given fee rate and check its
 		// mempool acceptance.
-		sweepCtx, err := t.createAndCheckTx(r.req, f)
+		sweepCtx, err := t.createAndCheckTx(r)
 
 		switch {
 		case err == nil:
@@ -607,8 +607,9 @@ func (t *TxPublisher) createRBFCompliantTx(
 // script, and the fee rate. In addition, it validates the tx's mempool
 // acceptance before returning a tx that can be published directly, along with
 // its fee.
-func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
-	f FeeFunction) (*sweepTxCtx, error) {
+func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
+	req := r.req
+	f := r.feeFunction
 
 	// Create the sweep tx with max fee rate of 0 as the fee function
 	// guarantees the fee rate used here won't exceed the max fee rate.
@@ -1025,27 +1026,31 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
-func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
-	// We now decide what type of event to send.
-	var event BumpEvent
+func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
+	// Create a bump result to be sent to the sweeper.
+	result := &BumpResult{
+		Err:       err,
+		requestID: r.requestID,
+	}
 
+	// We now decide what type of event to send.
 	switch {
 	// When the error is due to a dust output, we'll send a TxFailed so
 	// these inputs can be retried with a different group in the next
 	// block.
 	case errors.Is(err, ErrTxNoOutput):
-		event = TxFailed
+		result.Event = TxFailed
 
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
 	// block.
 	case errors.Is(err, ErrMaxPosition):
-		event = TxFailed
+		result.Event = TxFailed
 
 	// When the error is due to zero fee rate delta, we'll send a TxFailed
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
-		event = TxFailed
+		result.Event = TxFailed
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which
@@ -1055,13 +1060,7 @@ func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
 	// TODO(yy): Find out which input is causing the failure and fail that
 	// one only.
 	default:
-		event = TxFatal
-	}
-
-	result := &BumpResult{
-		Event:     event,
-		Err:       err,
-		requestID: requestID,
+		result.Event = TxFatal
 	}
 
 	t.handleResult(result)
@@ -1089,7 +1088,7 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 		log.Errorf("Initial broadcast failed: %v", err)
 
 		// We now handle the initialization error and exit.
-		t.handleInitialTxError(r.requestID, err)
+		t.handleInitialTxError(r, err)
 
 		return
 	}
@@ -1261,7 +1260,7 @@ func (t *TxPublisher) createAndPublishTx(
 	// NOTE: The fee function is expected to have increased its returned
 	// fee rate after calling the SkipFeeBump method. So we can use it
 	// directly here.
-	sweepCtx, err := t.createAndCheckTx(r.req, r.feeFunction)
+	sweepCtx, err := t.createAndCheckTx(r)
 
 	// If there's an error creating the replacement tx, we need to abort the
 	// flow and handle it.

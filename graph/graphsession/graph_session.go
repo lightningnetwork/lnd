@@ -56,15 +56,6 @@ type session struct {
 	tx    kvdb.RTx
 }
 
-// NewRoutingGraph constructs a session that which does not first start a
-// read-only transaction and so each call on the routing.Graph will create a
-// new transaction.
-func NewRoutingGraph(graph ReadOnlyGraph) routing.Graph {
-	return &session{
-		graph: graph,
-	}
-}
-
 // close closes the read-only transaction being used to access the backing
 // graph. If no transaction was started then this is a no-op.
 func (g *session) close() error {

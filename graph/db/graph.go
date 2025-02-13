@@ -594,6 +594,30 @@ func (c *ChannelGraph) FetchNodeFeaturesTx(tx kvdb.RTx,
 	}
 }
 
+// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// executing the passed callback on the directed edge representing the channel
+// and its incoming policy. If the callback returns an error, then the iteration
+// is halted with the error propagated back up to the caller. If the graphCache
+// is available, then it will be used to retrieve the node's channels instead
+// of the database.
+//
+// Unknown policies are passed into the callback as nil values.
+func (c *ChannelGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	return c.ForEachNodeDirectedChannelTx(nil, nodePub, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If no features are
+// known for the node, an empty feature vector is returned.
+// If the graphCache is available, then it will be used to retrieve the node's
+// features instead of the database.
+func (c *ChannelGraph) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	return c.FetchNodeFeaturesTx(nil, nodePub)
+}
+
 // ForEachNodeCached is similar to forEachNode, but it utilizes the channel
 // graph cache instead. Note that this doesn't return all the information the
 // regular forEachNode method does.

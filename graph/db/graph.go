@@ -602,6 +602,8 @@ func (c *ChannelGraph) FetchNodeFeaturesTx(tx kvdb.RTx,
 // of the database.
 //
 // Unknown policies are passed into the callback as nil values.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
 func (c *ChannelGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
 	cb func(channel *DirectedChannel) error) error {
 
@@ -612,6 +614,8 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
 // known for the node, an empty feature vector is returned.
 // If the graphCache is available, then it will be used to retrieve the node's
 // features instead of the database.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
 func (c *ChannelGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 

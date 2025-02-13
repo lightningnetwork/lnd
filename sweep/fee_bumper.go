@@ -1356,7 +1356,9 @@ func (t *TxPublisher) createAndPublishTx(
 	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
 		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
 
-		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(),
+			result.Err)
+
 		return fn.None[BumpResult]()
 	}
 

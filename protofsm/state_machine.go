@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 const (
@@ -77,7 +78,8 @@ type State[Event any, Env Environment] interface {
 	// otherwise.
 	IsTerminal() bool
 
-	// TODO(roasbeef): also add state serialization?
+	// String returns a human readable string that represents the state.
+	String() string
 }
 
 // DaemonAdapters is a set of methods that server as adapters to bridge the
@@ -249,7 +251,7 @@ func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
 
 // CanHandle returns true if the target message can be routed to the state
 // machine.
-func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
+func (s *StateMachine[Event, Env]) CanHandle(msg msgmux.PeerMsg) bool {
 	cfgMapper := s.cfg.MsgMapper
 	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
 		return mapper.MapMsg(msg).IsSome()
@@ -266,7 +268,7 @@ func (s *StateMachine[Event, Env]) Name() string {
 // returned indicating that the message was processed. Otherwise, false is
 // returned.
 func (s *StateMachine[Event, Env]) SendMessage(ctx context.Context,
-	msg lnwire.Message) bool {
+	msg msgmux.PeerMsg) bool {
 
 	// If we have no message mapper, then return false as we can't process
 	// this message.
@@ -435,7 +437,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to broadcast txn: %w", err)
+			log.Errorf("unable to broadcast txn: %v", err)
 		}
 
 		return nil
@@ -597,8 +599,8 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 			}
 
 			s.log.InfoS(ctx, "State transition",
-				btclog.Fmt("from_state", "%T", currentState),
-				btclog.Fmt("to_state", "%T", transition.NextState))
+				btclog.Fmt("from_state", "%v", currentState),
+				btclog.Fmt("to_state", "%v", transition.NextState))
 
 			// With our events processed, we'll now update our
 			// internal state.

@@ -1355,6 +1355,18 @@ func TestLightningWireProtocol(t *testing.T) {
 				LockTime:    uint32(r.Int63()),
 				ClosingSigs: ClosingSigs{},
 			}
+			req.CloserScript, err = randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery "+
+					"address: %v", err)
+				return
+			}
+			req.CloseeScript, err = randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery "+
+					"address: %v", err)
+				return
+			}
 
 			if r.Intn(2) == 0 {
 				sig := req.CloserNoClosee.Zero()
@@ -1403,6 +1415,20 @@ func TestLightningWireProtocol(t *testing.T) {
 			req := ClosingSig{
 				ChannelID:   ChannelID(c),
 				ClosingSigs: ClosingSigs{},
+				FeeSatoshis: btcutil.Amount(r.Int63()),
+				LockTime:    uint32(r.Int63()),
+			}
+			req.CloserScript, err = randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery "+
+					"address: %v", err)
+				return
+			}
+			req.CloseeScript, err = randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery "+
+					"address: %v", err)
+				return
 			}
 
 			if r.Intn(2) == 0 {

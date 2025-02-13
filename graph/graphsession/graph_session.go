@@ -80,10 +80,11 @@ func (g *session) close() error {
 	return nil
 }
 
-// ForEachNodeChannel calls the callback for every channel of the given node.
+// ForEachNodeDirectedChannel calls the callback for every channel of the given
+// node.
 //
 // NOTE: Part of the routing.Graph interface.
-func (g *session) ForEachNodeChannel(nodePub route.Vertex,
+func (g *session) ForEachNodeDirectedChannel(nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
 	return g.graph.ForEachNodeDirectedChannelTx(g.tx, nodePub, cb)

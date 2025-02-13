@@ -125,7 +125,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 	}
 
 	// Iterate over all channels of the to node.
-	return g.ForEachNodeChannel(u.toNode, cb)
+	return g.ForEachNodeDirectedChannel(u.toNode, cb)
 }
 
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier

@@ -12,9 +12,9 @@ import (
 // Graph is an abstract interface that provides information about nodes and
 // edges to pathfinding.
 type Graph interface {
-	// ForEachNodeChannel calls the callback for every channel of the given
-	// node.
-	ForEachNodeChannel(nodePub route.Vertex,
+	// ForEachNodeDirectedChannel calls the callback for every channel of
+	// the given node.
+	ForEachNodeDirectedChannel(nodePub route.Vertex,
 		cb func(channel *graphdb.DirectedChannel) error) error
 
 	// FetchNodeFeatures returns the features of the given node.

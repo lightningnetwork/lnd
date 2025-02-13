@@ -391,7 +391,7 @@ func (g *mockGraphSessionChanDB) close() error {
 	return nil
 }
 
-func (g *mockGraphSessionChanDB) ForEachNodeChannel(nodePub route.Vertex,
+func (g *mockGraphSessionChanDB) ForEachNodeDirectedChannel(nodePub route.Vertex,
 	cb func(channel *graphdb.DirectedChannel) error) error {
 
 	return g.graph.ForEachNodeDirectedChannelTx(g.tx, nodePub, cb)

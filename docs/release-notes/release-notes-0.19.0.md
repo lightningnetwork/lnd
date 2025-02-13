@@ -245,7 +245,7 @@ config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
 a new option `channel-max-fee-exposure` which is unambiguous in its description.
 The underlying functionality between those two options remain the same.
 
-* [Abstraction of graph](https://github.com/lightningnetwork/lnd/pull/9480) 
+* [Abstraction of graph]
   access for autopilot. 
 
 * [Golang was updated to
@@ -256,6 +256,9 @@ The underlying functionality between those two options remain the same.
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
    [3](https://github.com/lightningnetwork/lnd/pull/9478).
 
+* Graph abstraction work:
+  - [Abstract autopilot access](https://github.com/lightningnetwork/lnd/pull/9480)
+  - [Refactor to hide DB transactions](https://github.com/lightningnetwork/lnd/pull/9513)
 
 ## Breaking Changes
 ## Performance Improvements

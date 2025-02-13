@@ -1142,6 +1142,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindChannel:             s.findChannel,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 		ScidCloser:              scidCloserMan,
+		AssumeChannelValid:      cfg.Routing.AssumeChannelValid,
 	}, nodeKeyDesc)
 
 	selfVertex := route.Vertex(nodeKeyDesc.PubKey.SerializeCompressed())

@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -52,8 +53,8 @@ func TestAddProof(t *testing.T) {
 
 	// In order to be able to add the edge we should have a valid funding
 	// UTXO within the blockchain.
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
+	script, fundingTx, _, chanID, err := createChannelEdge(
+		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(), 100, 0,
 	)
 	require.NoError(t, err, "unable create channel edge")
@@ -68,6 +69,7 @@ func TestAddProof(t *testing.T) {
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof:     nil,
+		FundingScript: fn.Some(script),
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -136,8 +138,8 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 
 	// Add the edge between the two unknown nodes to the graph, and check
 	// that the nodes are found after the fact.
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
+	script, fundingTx, _, chanID, err := createChannelEdge(
+		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(), 10000, 500,
 	)
 	require.NoError(t, err, "unable to create channel edge")
@@ -153,6 +155,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		FundingScript:    fn.Some(script),
 	}
 	edgePolicy := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -199,22 +202,25 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	var chanID2 uint64
 
 	// Create 10 common blocks, confirming chanID1.
+	var fundingScript1 []byte
 	for i := uint32(1); i <= 10; i++ {
 		block := &wire.MsgBlock{
 			Transactions: []*wire.MsgTx{},
 		}
 		height := startingBlockHeight + i
 		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
+			script, fundingTx, _, chanID, err := createChannelEdge(
 				bitcoinKey1.SerializeCompressed(),
 				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
+				chanValue, height,
+			)
 			if err != nil {
 				t.Fatalf("unable create channel edge: %v", err)
 			}
 			block.Transactions = append(block.Transactions,
 				fundingTx)
 			chanID1 = chanID.ToUint64()
+			fundingScript1 = script
 		}
 		ctx.chain.addBlock(block, height, rand.Uint32())
 		ctx.chain.setBestBlock(int32(height))
@@ -229,13 +235,14 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	require.NoError(t, err, "unable to ge best block")
 
 	// Create 10 blocks on the minority chain, confirming chanID2.
+	var fundingScript2 []byte
 	for i := uint32(1); i <= 10; i++ {
 		block := &wire.MsgBlock{
 			Transactions: []*wire.MsgTx{},
 		}
 		height := uint32(forkHeight) + i
 		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
+			script, fundingTx, _, chanID, err := createChannelEdge(
 				bitcoinKey1.SerializeCompressed(),
 				bitcoinKey2.SerializeCompressed(),
 				chanValue, height)
@@ -245,6 +252,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			block.Transactions = append(block.Transactions,
 				fundingTx)
 			chanID2 = chanID.ToUint64()
+			fundingScript2 = script
 		}
 		ctx.chain.addBlock(block, height, rand.Uint32())
 		ctx.chain.setBestBlock(int32(height))
@@ -269,6 +277,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		FundingScript: fn.Some(fundingScript1),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -287,6 +296,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		FundingScript: fn.Some(fundingScript2),
 	}
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -406,10 +416,11 @@ func TestDisconnectedBlocks(t *testing.T) {
 		}
 		height := startingBlockHeight + i
 		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
+			_, fundingTx, _, chanID, err := createChannelEdge(
 				bitcoinKey1.SerializeCompressed(),
 				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
+				chanValue, height,
+			)
 			if err != nil {
 				t.Fatalf("unable create channel edge: %v", err)
 			}
@@ -437,10 +448,11 @@ func TestDisconnectedBlocks(t *testing.T) {
 		}
 		height := uint32(forkHeight) + i
 		if i == 5 {
-			fundingTx, _, chanID, err := createChannelEdge(ctx,
+			_, fundingTx, _, chanID, err := createChannelEdge(
 				bitcoinKey1.SerializeCompressed(),
 				bitcoinKey2.SerializeCompressed(),
-				chanValue, height)
+				chanValue, height,
+			)
 			if err != nil {
 				t.Fatalf("unable create channel edge: %v", err)
 			}
@@ -474,6 +486,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		FundingScript: fn.Some([]byte{}),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -494,6 +507,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		FundingScript: fn.Some([]byte{}),
 	}
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -595,10 +609,11 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 		Transactions: []*wire.MsgTx{},
 	}
 	nextHeight := startingBlockHeight + 1
-	fundingTx1, chanUTXO, chanID1, err := createChannelEdge(ctx,
+	script, fundingTx1, chanUTXO, chanID1, err := createChannelEdge(
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
-		chanValue, uint32(nextHeight))
+		chanValue, uint32(nextHeight),
+	)
 	require.NoError(t, err, "unable create channel edge")
 	block102.Transactions = append(block102.Transactions, fundingTx1)
 	ctx.chain.addBlock(block102, uint32(nextHeight), rand.Uint32())
@@ -622,6 +637,9 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		ChannelPoint:  *chanUTXO,
+		Capacity:      chanValue,
+		FundingScript: fn.Some(script),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
@@ -1007,10 +1025,11 @@ func TestIsStaleNode(t *testing.T) {
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
+	script, fundingTx, _, chanID, err := createChannelEdge(
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
+		10000, 500,
+	)
 	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
@@ -1024,6 +1043,7 @@ func TestIsStaleNode(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		FundingScript:    fn.Some(script),
 	}
 	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -1083,10 +1103,11 @@ func TestIsKnownEdge(t *testing.T) {
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
+	script, fundingTx, _, chanID, err := createChannelEdge(
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
+		10000, 500,
+	)
 	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
@@ -1100,6 +1121,7 @@ func TestIsKnownEdge(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		FundingScript:    fn.Some(script),
 	}
 	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -1129,10 +1151,11 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	copy(pub1[:], priv1.PubKey().SerializeCompressed())
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
-	fundingTx, _, chanID, err := createChannelEdge(ctx,
+	script, fundingTx, _, chanID, err := createChannelEdge(
 		bitcoinKey1.SerializeCompressed(),
 		bitcoinKey2.SerializeCompressed(),
-		10000, 500)
+		10000, 500,
+	)
 	require.NoError(t, err, "unable to create channel edge")
 	fundingBlock := &wire.MsgBlock{
 		Transactions: []*wire.MsgTx{fundingTx},
@@ -1156,6 +1179,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		FundingScript:    fn.Some(script),
 	}
 	if err := ctx.builder.AddEdge(edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -1208,120 +1232,6 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	if ctx.builder.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-}
-
-// edgeCreationModifier is an enum-like type used to modify steps that are
-// skipped when creating a channel in the test context.
-type edgeCreationModifier uint8
-
-const (
-	// edgeCreationNoFundingTx is used to skip adding the funding
-	// transaction of an edge to the chain.
-	edgeCreationNoFundingTx edgeCreationModifier = iota
-
-	// edgeCreationNoUTXO is used to skip adding the UTXO of a channel to
-	// the UTXO set.
-	edgeCreationNoUTXO
-
-	// edgeCreationBadScript is used to create the edge, but use the wrong
-	// scrip which should cause it to fail output validation.
-	edgeCreationBadScript
-)
-
-// newChannelEdgeInfo is a helper function used to create a new channel edge,
-// possibly skipping adding it to parts of the chain/state as well.
-func newChannelEdgeInfo(t *testing.T, ctx *testCtx, fundingHeight uint32,
-	ecm edgeCreationModifier) (*models.ChannelEdgeInfo, error) {
-
-	node1 := createTestNode(t)
-	node2 := createTestNode(t)
-
-	fundingTx, _, chanID, err := createChannelEdge(
-		ctx, bitcoinKey1.SerializeCompressed(),
-		bitcoinKey2.SerializeCompressed(), 100, fundingHeight,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create edge: %w", err)
-	}
-
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-
-	if ecm == edgeCreationNoFundingTx {
-		return edge, nil
-	}
-
-	fundingBlock := &wire.MsgBlock{
-		Transactions: []*wire.MsgTx{fundingTx},
-	}
-	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
-
-	if ecm == edgeCreationNoUTXO {
-		ctx.chain.delUtxo(wire.OutPoint{
-			Hash: fundingTx.TxHash(),
-		})
-	}
-
-	if ecm == edgeCreationBadScript {
-		fundingTx.TxOut[0].PkScript[0] ^= 1
-	}
-
-	return edge, nil
-}
-
-func assertChanChainRejection(t *testing.T, ctx *testCtx,
-	edge *models.ChannelEdgeInfo, expectedErr error) {
-
-	t.Helper()
-
-	err := ctx.builder.AddEdge(edge)
-	require.ErrorIs(t, err, expectedErr)
-
-	// This channel should now be present in the zombie channel index.
-	_, _, _, isZombie, err := ctx.graph.HasChannelEdge(
-		edge.ChannelID,
-	)
-	require.Nil(t, err)
-	require.True(t, isZombie, "edge should be marked as zombie")
-}
-
-// TestChannelOnChainRejectionZombie tests that if we fail validating a channel
-// due to some sort of on-chain rejection (no funding transaction, or invalid
-// UTXO), then we'll mark the channel as a zombie.
-func TestChannelOnChainRejectionZombie(t *testing.T) {
-	t.Parallel()
-
-	ctx := createTestCtxSingleNode(t, 0)
-
-	// To start,  we'll make an edge for the channel, but we won't add the
-	// funding transaction to the mock blockchain, which should cause the
-	// validation to fail below.
-	edge, err := newChannelEdgeInfo(t, ctx, 1, edgeCreationNoFundingTx)
-	require.Nil(t, err)
-
-	// We expect this to fail as the transaction isn't present in the
-	// chain (nor the block).
-	assertChanChainRejection(t, ctx, edge, ErrNoFundingTransaction)
-
-	// Next, we'll make another channel edge, but actually add it to the
-	// graph this time.
-	edge, err = newChannelEdgeInfo(t, ctx, 2, edgeCreationNoUTXO)
-	require.Nil(t, err)
-
-	// Instead now, we'll remove it from the set of UTXOs which should
-	// cause the spentness validation to fail.
-	assertChanChainRejection(t, ctx, edge, ErrChannelSpent)
-
-	// If we cause the funding transaction the chain to fail validation, we
-	// should see similar behavior.
-	edge, err = newChannelEdgeInfo(t, ctx, 3, edgeCreationBadScript)
-	require.Nil(t, err)
-	assertChanChainRejection(t, ctx, edge, ErrInvalidFundingOutput)
 }
 
 // TestBlockDifferenceFix tests if when the router is behind on blocks, the

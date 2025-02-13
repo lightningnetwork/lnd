@@ -2,25 +2,6 @@ package graph
 
 import "github.com/go-errors/errors"
 
-var (
-	// ErrNoFundingTransaction is returned when we are unable to find the
-	// funding transaction described by the short channel ID on chain.
-	ErrNoFundingTransaction = errors.New(
-		"unable to find the funding transaction",
-	)
-
-	// ErrInvalidFundingOutput is returned if the channel funding output
-	// fails validation.
-	ErrInvalidFundingOutput = errors.New(
-		"channel funding output validation failed",
-	)
-
-	// ErrChannelSpent is returned when we go to validate a channel, but
-	// the purported funding output has actually already been spent on
-	// chain.
-	ErrChannelSpent = errors.New("channel output has been spent")
-)
-
 // ErrorCode is used to represent the various errors that can occur within this
 // package.
 type ErrorCode uint8

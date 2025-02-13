@@ -227,6 +227,17 @@ func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	return lnwire.EmptyFeatureVector(), nil
 }
 
+// GraphSession will provide the call-back with access to a
+// graphdb.NodeTraverser instance which can be used to perform queries against
+// the channel graph.
+//
+// NOTE: Part of the GraphSessionFactory interface.
+func (m *mockGraph) GraphSession(
+	cb func(graph graphdb.NodeTraverser) error) error {
+
+	return cb(m)
+}
+
 // htlcResult describes the resolution of an htlc. If failure is nil, the htlc
 // was settled.
 type htlcResult struct {

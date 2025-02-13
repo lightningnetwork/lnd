@@ -3221,30 +3221,25 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 		return nil, err
 	}
 
-	graphSessFactory := newMockGraphSessionFactoryFromChanDB(graph)
+	var route []*unifiedEdge
+	err = graph.GraphSession(func(graph graphdb.NodeTraverser) error {
+		route, _, err = findPath(
+			&graphParams{
+				additionalEdges: additionalEdges,
+				bandwidthHints:  bandwidthHints,
+				graph:           graph,
+			},
+			r, cfg, sourceNode.PubKeyBytes, source, target, amt,
+			timePref, finalHtlcExpiry,
+		)
 
-	graphSess, closeGraphSess, err := graphSessFactory.NewGraphSession()
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	defer func() {
-		if err := closeGraphSess(); err != nil {
-			log.Errorf("Error closing graph session: %v", err)
-		}
-	}()
-
-	route, _, err := findPath(
-		&graphParams{
-			additionalEdges: additionalEdges,
-			bandwidthHints:  bandwidthHints,
-			graph:           graphSess,
-		},
-		r, cfg, sourceNode.PubKeyBytes, source, target, amt, timePref,
-		finalHtlcExpiry,
-	)
-
-	return route, err
+	return route, nil
 }
 
 // dbFindBlindedPaths calls findBlindedPaths after getting a db transaction from
@@ -3258,8 +3253,7 @@ func dbFindBlindedPaths(graph *graphdb.ChannelGraph,
 	}
 
 	return findBlindedPaths(
-		newMockGraphSessionChanDB(graph), sourceNode.PubKeyBytes,
-		restrictions,
+		graph, sourceNode.PubKeyBytes, restrictions,
 	)
 }
 

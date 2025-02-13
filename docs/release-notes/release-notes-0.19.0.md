@@ -170,6 +170,10 @@
  use the configured budget values for HTLCs (first level sweep) in parcticular
  `--sweeper.budget.deadlinehtlcratio` and `--sweeper.budget.deadlinehtlc`.
 
+* When deciding whether `lnd` is synced to chain, the current height from the
+  blockbeat dispatcher is now also [taken into
+  consideration](https://github.com/lightningnetwork/lnd/pull/9501).
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

@@ -381,3 +381,60 @@ func TestNotifyQueuesError(t *testing.T) {
 	err := b.notifyQueues()
 	require.ErrorIs(t, err, errDummy)
 }
+
+// TestCurrentHeight asserts `CurrentHeight` returns the expected block height.
+func TestCurrentHeight(t *testing.T) {
+	t.Parallel()
+
+	testHeight := int32(1000)
+
+	// Create a mock chain notifier.
+	mockNotifier := &chainntnfs.MockChainNotifier{}
+	defer mockNotifier.AssertExpectations(t)
+
+	// Create a mock beat.
+	mockBeat := &MockBlockbeat{}
+	defer mockBeat.AssertExpectations(t)
+	mockBeat.On("logger").Return(clog)
+	mockBeat.On("Height").Return(testHeight).Once()
+
+	// Create a mock consumer.
+	consumer := &MockConsumer{}
+	defer consumer.AssertExpectations(t)
+	consumer.On("Name").Return("mocker1")
+
+	// Create one queue.
+	queue := []Consumer{consumer}
+
+	// Create a new dispatcher.
+	b := NewBlockbeatDispatcher(mockNotifier)
+
+	// Register the queues.
+	b.RegisterQueue(queue)
+
+	// Attach the blockbeat.
+	b.beat = mockBeat
+
+	// Mock the chain notifier to return a valid notifier.
+	blockEpochs := &chainntnfs.BlockEpochEvent{
+		Cancel: func() {},
+	}
+	mockNotifier.On("RegisterBlockEpochNtfn",
+		mock.Anything).Return(blockEpochs, nil).Once()
+
+	// Start the dispatcher now should not return an error.
+	err := b.Start()
+	require.NoError(t, err)
+
+	// Make a query on the current height and assert it equals to
+	// testHeight.
+	height := b.CurrentHeight()
+	require.Equal(t, testHeight, height)
+
+	// Stop the dispatcher.
+	b.Stop()
+
+	// Make a query on the current height and assert it equals to 0.
+	height = b.CurrentHeight()
+	require.Zero(t, height)
+}

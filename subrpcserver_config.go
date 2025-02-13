@@ -262,7 +262,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 			subCfgValue.FieldByName("DefaultCLTVExpiry").Set(
 				reflect.ValueOf(defaultDelta),
 			)
-			subCfgValue.FieldByName("GraphDB").Set(
+			subCfgValue.FieldByName("Graph").Set(
 				reflect.ValueOf(graphDB),
 			)
 			subCfgValue.FieldByName("ChanStateDB").Set(

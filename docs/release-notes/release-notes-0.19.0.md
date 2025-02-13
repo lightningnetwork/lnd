@@ -195,6 +195,9 @@
 * When deciding whether `lnd` is synced to chain, the current height from the
   blockbeat dispatcher is now also [taken into
   consideration](https://github.com/lightningnetwork/lnd/pull/9501).
+  
+* [The server](https://github.com/lightningnetwork/lnd/pull/9458) now allocates
+ restricted slots for certain peers. This is configured by --num-restricted-slots.
 
 ## RPC Updates
 

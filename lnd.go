@@ -615,9 +615,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Otherwise, this will be a ChainedAcceptor.
 	var multiAcceptor chanacceptor.MultiplexAcceptor
 	if cfg.ProtocolOptions.ZeroConf() {
-		multiAcceptor = chanacceptor.NewZeroConfAcceptor()
+		multiAcceptor = chanacceptor.NewZeroConfAcceptorWithOpts(
+			cfg.CloseAddress, cfg.ActiveNetParams.Params,
+		)
 	} else {
-		multiAcceptor = chanacceptor.NewChainedAcceptor()
+		multiAcceptor = chanacceptor.NewChainedAcceptorWithOpts(
+			cfg.CloseAddress, cfg.ActiveNetParams.Params,
+		)
 	}
 
 	// Set up the core server which will listen for incoming peer

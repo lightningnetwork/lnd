@@ -35,7 +35,7 @@ func makeListener() (*Listener, *lnwire.NetAddress, error) {
 	addr := "localhost:0"
 
 	// Our listener will be local, and the connection remote.
-	listener, err := NewListener(localKeyECDH, addr)
+	listener, err := NewListener(localKeyECDH, addr, DisabledBanClosure)
 	if err != nil {
 		return nil, nil, err
 	}

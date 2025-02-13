@@ -107,6 +107,10 @@ type testChannelParams struct {
 	// openChannel is set to true if the channel should be fully marked as
 	// open if this is false, the channel will be left in pending state.
 	openChannel bool
+
+	// closedChannel is set to true if the channel should be marked as
+	// closed after opening it.
+	closedChannel bool
 }
 
 // testChannelOption is a functional option which can be used to alter the
@@ -126,6 +130,21 @@ func pendingHeightOption(height uint32) testChannelOption {
 func openChannelOption() testChannelOption {
 	return func(params *testChannelParams) {
 		params.openChannel = true
+	}
+}
+
+// closedChannelOption is an option which can be used to create a test channel
+// that is open.
+func closedChannelOption() testChannelOption {
+	return func(params *testChannelParams) {
+		params.closedChannel = true
+	}
+}
+
+// pubKeyOption is an option which can be used to set the remote's pubkey.
+func pubKeyOption(pubKey *btcec.PublicKey) testChannelOption {
+	return func(params *testChannelParams) {
+		params.channel.IdentityPub = pubKey
 	}
 }
 
@@ -230,6 +249,15 @@ func createTestChannel(t *testing.T, cdb *ChannelStateDB,
 	// Mark the channel as open with the short channel id provided.
 	err = params.channel.MarkAsOpen(params.channel.ShortChannelID)
 	require.NoError(t, err, "unable to mark channel open")
+
+	if params.closedChannel {
+		err = params.channel.CloseChannel(&ChannelCloseSummary{
+			RemotePub:               params.channel.IdentityPub,
+			RemoteCurrentRevocation: params.channel.IdentityPub,
+			RemoteNextRevocation:    params.channel.IdentityPub,
+		})
+		require.NoError(t, err, "unable to close channel")
+	}
 
 	return params.channel
 }

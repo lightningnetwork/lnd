@@ -121,7 +121,7 @@ func deserializeTxRecord(r io.Reader) (*TxRecord, error) {
 type SweeperStore interface {
 	// IsOurTx determines whether a tx is published by us, based on its
 	// hash.
-	IsOurTx(hash chainhash.Hash) (bool, error)
+	IsOurTx(hash chainhash.Hash) bool
 
 	// StoreTx stores a tx hash we are about to publish.
 	StoreTx(*TxRecord) error
@@ -276,15 +276,17 @@ func (s *sweeperStore) StoreTx(tr *TxRecord) error {
 	}, func() {})
 }
 
-// IsOurTx determines whether a tx is published by us, based on its
-// hash.
-func (s *sweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
+// IsOurTx determines whether a tx is published by us, based on its hash.
+func (s *sweeperStore) IsOurTx(hash chainhash.Hash) bool {
 	var ours bool
 
 	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		txHashesBucket := tx.ReadBucket(txHashesBucketKey)
+		// If the root bucket cannot be found, we consider the tx to be
+		// not found in our db.
 		if txHashesBucket == nil {
-			return errNoTxHashesBucket
+			log.Error("Tx hashes bucket not found in sweeper store")
+			return nil
 		}
 
 		ours = txHashesBucket.Get(hash[:]) != nil
@@ -294,10 +296,10 @@ func (s *sweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 		ours = false
 	})
 	if err != nil {
-		return false, err
+		return false
 	}
 
-	return ours, nil
+	return ours
 }
 
 // ListSweeps lists all the sweep transactions we have in the sweeper store.

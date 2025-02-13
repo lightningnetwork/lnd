@@ -43,6 +43,10 @@ var (
 	// ErrUnknownSpent is returned when an unknown tx has spent an input in
 	// the sweeping tx.
 	ErrUnknownSpent = errors.New("unknown spend of input")
+
+	// ErrInputMissing is returned when a given input no longer exists,
+	// e.g., spending from an orphan tx.
+	ErrInputMissing = errors.New("input no longer exists")
 )
 
 var (
@@ -272,6 +276,10 @@ type BumpResult struct {
 
 	// Err is the error that occurred during the broadcast.
 	Err error
+
+	// SpentInputs are the inputs spent by another tx which caused the
+	// current tx to be failed.
+	SpentInputs map[wire.OutPoint]*wire.MsgTx
 
 	// requestID is the ID of the request that created this record.
 	requestID uint64
@@ -540,7 +548,7 @@ func (t *TxPublisher) createRBFCompliantTx(
 	for {
 		// Create a new tx with the given fee rate and check its
 		// mempool acceptance.
-		sweepCtx, err := t.createAndCheckTx(r.req, f)
+		sweepCtx, err := t.createAndCheckTx(r)
 
 		switch {
 		case err == nil:
@@ -603,8 +611,9 @@ func (t *TxPublisher) createRBFCompliantTx(
 // script, and the fee rate. In addition, it validates the tx's mempool
 // acceptance before returning a tx that can be published directly, along with
 // its fee.
-func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
-	f FeeFunction) (*sweepTxCtx, error) {
+func (t *TxPublisher) createAndCheckTx(r *monitorRecord) (*sweepTxCtx, error) {
+	req := r.req
+	f := r.feeFunction
 
 	// Create the sweep tx with max fee rate of 0 as the fee function
 	// guarantees the fee rate used here won't exceed the max fee rate.
@@ -648,8 +657,66 @@ func (t *TxPublisher) createAndCheckTx(req *BumpRequest,
 		return sweepCtx, nil
 	}
 
+	// If the inputs are spent by another tx, we will exit with the latest
+	// sweepCtx and an error.
+	if errors.Is(err, chain.ErrMissingInputs) {
+		log.Debugf("Tx %v missing inputs, it's likely the input has "+
+			"been spent by others", sweepCtx.tx.TxHash())
+
+		// Make sure to update the record with the latest attempt.
+		t.updateRecord(r, sweepCtx)
+
+		return sweepCtx, ErrInputMissing
+	}
+
 	return sweepCtx, fmt.Errorf("tx=%v failed mempool check: %w",
 		sweepCtx.tx.TxHash(), err)
+}
+
+// handleMissingInputs handles the case when the chain backend reports back a
+// missing inputs error, which could happen when one of the input has been spent
+// in another tx, or the input is referencing an orphan. When the input is
+// spent, it will be handled via the TxUnknownSpend flow by creating a
+// TxUnknownSpend bump result, otherwise, a TxFatal bump result is returned.
+func (t *TxPublisher) handleMissingInputs(r *monitorRecord) *BumpResult {
+	// Get the spending txns.
+	spends := t.getSpentInputs(r)
+
+	// Attach the spending txns.
+	r.spentInputs = spends
+
+	// If there are no spending txns found and the input is missing, the
+	// input is referencing an orphan tx that's no longer valid, e.g., the
+	// spending the anchor output from the remote commitment after the local
+	// commitment has confirmed. In this case we will mark it as fatal and
+	// exit.
+	if len(spends) == 0 {
+		log.Warnf("Failing record=%v: found orphan inputs: %v\n",
+			r.requestID, inputTypeSummary(r.req.Inputs))
+
+		// Create a result that will be sent to the resultChan which is
+		// listened by the caller.
+		result := &BumpResult{
+			Event:     TxFatal,
+			Tx:        r.tx,
+			requestID: r.requestID,
+			Err:       ErrInputMissing,
+		}
+
+		return result
+	}
+
+	// Check that the spending tx matches the sweeping tx - given that the
+	// current sweeping tx has been failed due to missing inputs, the
+	// spending tx must be a different tx, thus it should NOT be matched. We
+	// perform a sanity check here to catch the unexpected state.
+	if !t.isUnknownSpent(r, spends) {
+		log.Errorf("Sweeping tx %v has missing inputs, yet the "+
+			"spending tx is the sweeping tx itself: %v",
+			r.tx.TxHash(), r.spentInputs)
+	}
+
+	return t.createUnknownSpentBumpResult(r)
 }
 
 // broadcast takes a monitored tx and publishes it to the network. Prior to the
@@ -812,6 +879,10 @@ type monitorRecord struct {
 
 	// outpointToTxIndex is a map of outpoint to tx index.
 	outpointToTxIndex map[wire.OutPoint]int
+
+	// spentInputs are the inputs spent by another tx which caused the
+	// current tx failed.
+	spentInputs map[wire.OutPoint]*wire.MsgTx
 }
 
 // Start starts the publisher by subscribing to block epoch updates and kicking
@@ -910,6 +981,9 @@ func (t *TxPublisher) processRecords() {
 		// If the any of the inputs has been spent, the record will be
 		// marked as failed or confirmed.
 		if len(spends) != 0 {
+			// Attach the spending txns.
+			r.spentInputs = spends
+
 			// When tx is nil, it means we haven't tried the initial
 			// broadcast yet the input is already spent. This could
 			// happen when the node shuts down, a previous sweeping
@@ -1014,27 +1088,36 @@ func (t *TxPublisher) handleTxConfirmed(r *monitorRecord) {
 
 // handleInitialTxError takes the error from `initializeTx` and decides the
 // bump event. It will construct a BumpResult and handles it.
-func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
-	// We now decide what type of event to send.
-	var event BumpEvent
+func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
+	// Create a bump result to be sent to the sweeper.
+	result := &BumpResult{
+		Err:       err,
+		requestID: r.requestID,
+	}
 
+	// We now decide what type of event to send.
 	switch {
 	// When the error is due to a dust output, we'll send a TxFailed so
 	// these inputs can be retried with a different group in the next
 	// block.
 	case errors.Is(err, ErrTxNoOutput):
-		event = TxFailed
+		result.Event = TxFailed
 
 	// When the error is due to budget being used up, we'll send a TxFailed
 	// so these inputs can be retried with a different group in the next
 	// block.
 	case errors.Is(err, ErrMaxPosition):
-		event = TxFailed
+		result.Event = TxFailed
 
 	// When the error is due to zero fee rate delta, we'll send a TxFailed
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
-		event = TxFailed
+		result.Event = TxFailed
+
+	// When there are missing inputs, we'll create a TxUnknownSpend bump
+	// result here so the rest of the inputs can be retried.
+	case errors.Is(err, ErrInputMissing):
+		result = t.handleMissingInputs(r)
 
 	// Otherwise this is not a fee-related error and the tx cannot be
 	// retried. In that case we will fail ALL the inputs in this tx, which
@@ -1044,13 +1127,7 @@ func (t *TxPublisher) handleInitialTxError(requestID uint64, err error) {
 	// TODO(yy): Find out which input is causing the failure and fail that
 	// one only.
 	default:
-		event = TxFatal
-	}
-
-	result := &BumpResult{
-		Event:     event,
-		Err:       err,
-		requestID: requestID,
+		result.Event = TxFatal
 	}
 
 	t.handleResult(result)
@@ -1078,7 +1155,7 @@ func (t *TxPublisher) handleInitialBroadcast(r *monitorRecord) {
 		log.Errorf("Initial broadcast failed: %v", err)
 
 		// We now handle the initialization error and exit.
-		t.handleInitialTxError(r.requestID, err)
+		t.handleInitialTxError(r, err)
 
 		return
 	}
@@ -1159,17 +1236,81 @@ func (t *TxPublisher) handleUnknownSpent(r *monitorRecord) {
 		"bumper, failing it now:\n%v", r.requestID,
 		inputTypeSummary(r.req.Inputs))
 
-	// Create a result that will be sent to the resultChan which is
-	// listened by the caller.
+	// Create a result that will be sent to the resultChan which is listened
+	// by the caller.
+	result := t.createUnknownSpentBumpResult(r)
+
+	// Notify the sweeper about this result in the end.
+	t.handleResult(result)
+}
+
+// createUnknownSpentBumpResult creates and returns a BumpResult given the
+// monitored record has unknown spends.
+func (t *TxPublisher) createUnknownSpentBumpResult(
+	r *monitorRecord) *BumpResult {
+
+	// Create a result that will be sent to the resultChan which is listened
+	// by the caller.
 	result := &BumpResult{
-		Event:     TxUnknownSpend,
-		Tx:        r.tx,
-		requestID: r.requestID,
-		Err:       ErrUnknownSpent,
+		Event:       TxUnknownSpend,
+		Tx:          r.tx,
+		requestID:   r.requestID,
+		Err:         ErrUnknownSpent,
+		SpentInputs: r.spentInputs,
 	}
 
-	// Notify that this tx is confirmed and remove the record from the map.
-	t.handleResult(result)
+	// Get the fee function, which will be used to decided the next fee rate
+	// to use if the sweeper decides to retry sweeping this input.
+	feeFunc := r.feeFunction
+
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func. In this case, we'll create the fee func
+	// here.
+	//
+	// NOTE: Since the current record is failed and will be deleted, we
+	// don't need to update the record on this fee function. We only need
+	// the fee rate data so the sweeper can pick up where we left off.
+	if feeFunc == nil {
+		f, err := t.initializeFeeFunction(r.req)
+		// TODO(yy): The only error we would receive here is when the
+		// pkScript is not recognized by the weightEstimator. What we
+		// should do instead is to check the pkScript immediately after
+		// receiving a sweep request so we don't need to check it again,
+		// which will also save us from error checking from several
+		// callsites.
+		if err != nil {
+			log.Errorf("Failed to create fee func for record %v: "+
+				"%v", r.requestID, err)
+
+			// Overwrite the event and error so the sweeper will
+			// remove this input.
+			result.Event = TxFatal
+			result.Err = err
+
+			return result
+		}
+
+		feeFunc = f
+	}
+
+	// Since the sweeping tx has been replaced by another party's tx, we
+	// missed this block window to increase its fee rate. To make sure the
+	// fee rate stays in the initial line, we now ask the fee function to
+	// give us the next fee rate as if the sweeping tx were RBFed. This new
+	// fee rate will be used as the starting fee rate if the upper system
+	// decides to continue sweeping the rest of the inputs.
+	_, err := feeFunc.Increment()
+	if err != nil {
+		// The fee function has reached its max position - nothing we
+		// can do here other than letting the user increase the budget.
+		log.Errorf("Failed to calculate the next fee rate for "+
+			"Record(%v): %v", r.requestID, err)
+	}
+
+	// Attach the new fee rate to be used for the next sweeping attempt.
+	result.FeeRate = feeFunc.FeeRate()
+
+	return result
 }
 
 // createAndPublishTx creates a new tx with a higher fee rate and publishes it
@@ -1186,48 +1327,12 @@ func (t *TxPublisher) createAndPublishTx(
 	// NOTE: The fee function is expected to have increased its returned
 	// fee rate after calling the SkipFeeBump method. So we can use it
 	// directly here.
-	sweepCtx, err := t.createAndCheckTx(r.req, r.feeFunction)
+	sweepCtx, err := t.createAndCheckTx(r)
 
-	// If the error is fee related, we will return no error and let the fee
-	// bumper retry it at next block.
-	//
-	// NOTE: we can check the RBF error here and ask the fee function to
-	// recalculate the fee rate. However, this would defeat the purpose of
-	// using a deadline based fee function:
-	// - if the deadline is far away, there's no rush to RBF the tx.
-	// - if the deadline is close, we expect the fee function to give us a
-	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
-	//   means the budget is not enough.
-	if errors.Is(err, chain.ErrInsufficientFee) ||
-		errors.Is(err, lnwallet.ErrMempoolFee) {
-
-		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
-		return fn.None[BumpResult]()
-	}
-
-	// If the error is not fee related, we will return a `TxFailed` event
-	// so this input can be retried.
+	// If there's an error creating the replacement tx, we need to abort the
+	// flow and handle it.
 	if err != nil {
-		// If the tx doesn't not have enought budget, we will return a
-		// result so the sweeper can handle it by re-clustering the
-		// utxos.
-		if errors.Is(err, ErrNotEnoughBudget) {
-			log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(),
-				err)
-		} else {
-			// Otherwise, an unexpected error occurred, we will
-			// fail the tx and let the sweeper retry the whole
-			// process.
-			log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(),
-				err)
-		}
-
-		return fn.Some(BumpResult{
-			Event:     TxFailed,
-			Tx:        oldTx,
-			Err:       err,
-			requestID: r.requestID,
-		})
+		return t.handleReplacementTxError(r, oldTx, err)
 	}
 
 	// The tx has been created without any errors, we now register a new
@@ -1251,7 +1356,9 @@ func (t *TxPublisher) createAndPublishTx(
 	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
 		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
 
-		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(),
+			result.Err)
+
 		return fn.None[BumpResult]()
 	}
 
@@ -1719,4 +1826,60 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		estimator.parentsFee, estimator.parentsWeight, currentHeight)
 
 	return txFee, changeOutsOpt, locktimeOpt, nil
+}
+
+// handleReplacementTxError handles the error returned from creating the
+// replacement tx. It returns a BumpResult that should be notified to the
+// sweeper.
+func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
+	oldTx *wire.MsgTx, err error) fn.Option[BumpResult] {
+
+	// If the error is fee related, we will return no error and let the fee
+	// bumper retry it at next block.
+	//
+	// NOTE: we can check the RBF error here and ask the fee function to
+	// recalculate the fee rate. However, this would defeat the purpose of
+	// using a deadline based fee function:
+	// - if the deadline is far away, there's no rush to RBF the tx.
+	// - if the deadline is close, we expect the fee function to give us a
+	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
+	//   means the budget is not enough.
+	if errors.Is(err, chain.ErrInsufficientFee) ||
+		errors.Is(err, lnwallet.ErrMempoolFee) {
+
+		log.Debugf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+		return fn.None[BumpResult]()
+	}
+
+	// At least one of the inputs is missing, which means it has already
+	// been spent by another tx and confirmed. In this case we will handle
+	// it by returning a TxUnknownSpend bump result.
+	if errors.Is(err, ErrInputMissing) {
+		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		bumpResult := t.handleMissingInputs(r)
+
+		return fn.Some(*bumpResult)
+	}
+
+	// If the error is not fee related, we will return a `TxFailed` event
+	// so this input can be retried.
+	result := fn.Some(BumpResult{
+		Event:     TxFailed,
+		Tx:        oldTx,
+		Err:       err,
+		requestID: r.requestID,
+	})
+
+	// If the tx doesn't not have enought budget, we will return a result so
+	// the sweeper can handle it by re-clustering the utxos.
+	if errors.Is(err, ErrNotEnoughBudget) {
+		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
+		return result
+	}
+
+	// Otherwise, an unexpected error occurred, we will log an error and let
+	// the sweeper retry the whole process.
+	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
+
+	return result
 }

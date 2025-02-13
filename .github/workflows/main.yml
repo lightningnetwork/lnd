@@ -385,7 +385,7 @@ jobs:
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
-        uses: shogo82148/actions-goveralls@v1
+        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
         with:
           path-to-profile: coverage.txt
           flag-name: 'itest-${{ matrix.name }}'
@@ -535,6 +535,8 @@ jobs:
     needs: [unit-test, basic-integration-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+      - name: Send coverage
+        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        continue-on-error: true
         with:
           parallel-finished: true

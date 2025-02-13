@@ -1,6 +1,7 @@
 package fn
 
 import (
+	"fmt"
 	"os"
 )
 
@@ -42,4 +43,27 @@ func WriteFileRemove(name string, data []byte, perm os.FileMode) error {
 	}
 
 	return err
+}
+
+// CreateDir creates a directory if it doesn't exist and also handles
+// symlink-related errors with user-friendly messages. It creates all necessary
+// parent directories with the specified permissions.
+func CreateDir(dir string, perm os.FileMode) error {
+	err := os.MkdirAll(dir, perm)
+	if err == nil {
+		return nil
+	}
+	// Show a nicer error message if it's because a symlink
+	// is linked to a directory that does not exist
+	// (probably because it's not mounted).
+	if e, ok := err.(*os.PathError); ok && os.IsExist(err) {
+		link, lerr := os.Readlink(e.Path)
+		if lerr == nil {
+			return fmt.Errorf("is symlink %s -> %s "+
+				"mounted?", e.Path, link)
+		}
+	}
+
+	return fmt.Errorf("failed to create directory '%s': %v",
+		dir, err)
 }

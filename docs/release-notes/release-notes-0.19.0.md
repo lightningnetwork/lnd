@@ -248,12 +248,15 @@ The underlying functionality between those two options remain the same.
 * Graph abstraction work:
     - [Abstract autopilot access](https://github.com/lightningnetwork/lnd/pull/9480)
     - [Abstract invoicerpc server access](https://github.com/lightningnetwork/lnd/pull/9516)
+    - [Refactor to hide DB transactions](https://github.com/lightningnetwork/lnd/pull/9513)
+
+* [Golang was updated to
+  `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 
 
 * Move funding transaction validation to the gossiper
    [1](https://github.com/lightningnetwork/lnd/pull/9476)
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
    [3](https://github.com/lightningnetwork/lnd/pull/9478).
-
 
 ## Breaking Changes
 ## Performance Improvements

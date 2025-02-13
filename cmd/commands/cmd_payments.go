@@ -1254,6 +1254,7 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	printRespJSON(route)
+
 	return nil
 }
 

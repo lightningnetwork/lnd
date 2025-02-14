@@ -43,7 +43,7 @@ func randomStringRapid(t *rapid.T, length int) string {
 }
 
 // randTimeBetween generates a random time between min and max.
-func randTimeBetween(min, max time.Time) time.Time {
+func randTimeBetween(minTime, maxTime time.Time) time.Time {
 	var timeZones = []*time.Location{
 		time.UTC,
 		time.FixedZone("EST", -5*3600),
@@ -53,16 +53,16 @@ func randTimeBetween(min, max time.Time) time.Time {
 	}
 
 	// Ensure max is after min
-	if max.Before(min) {
-		min, max = max, min
+	if maxTime.Before(minTime) {
+		minTime, maxTime = maxTime, minTime
 	}
 
 	// Calculate the range in nanoseconds
-	duration := max.Sub(min)
+	duration := maxTime.Sub(minTime)
 	randDuration := time.Duration(rand.Int63n(duration.Nanoseconds()))
 
 	// Generate the random time
-	randomTime := min.Add(randDuration)
+	randomTime := minTime.Add(randDuration)
 
 	// Assign a random time zone
 	randomTimeZone := timeZones[rand.Intn(len(timeZones))]
@@ -73,10 +73,10 @@ func randTimeBetween(min, max time.Time) time.Time {
 
 // randTime generates a random time between 2009 and 2140.
 func randTime() time.Time {
-	min := time.Date(2009, 1, 3, 0, 0, 0, 0, time.UTC)
-	max := time.Date(2140, 1, 1, 0, 0, 0, 1000, time.UTC)
+	minTime := time.Date(2009, 1, 3, 0, 0, 0, 0, time.UTC)
+	maxTime := time.Date(2140, 1, 1, 0, 0, 0, 1000, time.UTC)
 
-	return randTimeBetween(min, max)
+	return randTimeBetween(minTime, maxTime)
 }
 
 func randInvoiceTime(invoice *Invoice) time.Time {

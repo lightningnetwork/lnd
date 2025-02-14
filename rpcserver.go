@@ -2717,6 +2717,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		return err
 	}
 
+	// Retrieve the number of active HTLCs on the channel.
+	activeHtlcs := channel.ActiveHtlcs()
+
 	// If a force closure was requested, then we'll handle all the details
 	// around the creation and broadcast of the unilateral closure
 	// transaction here rather than going to the switch as we don't require
@@ -2833,9 +2836,11 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// If the user hasn't specified NoWait, then before we attempt
 		// to close the channel we ensure there are no active HTLCs on
 		// the link.
-		if !in.NoWait && len(channel.ActiveHtlcs()) != 0 {
-			return fmt.Errorf("cannot co-op close channel " +
-				"with active htlcs")
+		if !in.NoWait && len(activeHtlcs) != 0 {
+			return fmt.Errorf("cannot co-op close channel with "+
+				"active htlcs (number of active htlcs: %d), "+
+				"coop close nonetheless by setting "+
+				"no_wait=true", len(activeHtlcs))
 		}
 
 		// Otherwise, the caller has requested a regular interactive
@@ -2872,6 +2877,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		maxFee := chainfee.SatPerKVByte(
 			in.MaxFeePerVbyte * 1000,
 		).FeePerKWeight()
+
+		// In case the max fee was specified, we check if it's less than
+		// the initial fee rate and abort if it is.
+		if maxFee != 0 && maxFee < feeRate {
+			return fmt.Errorf("max_fee_per_vbyte (%v) is less "+
+				"than the required fee rate (%v)", maxFee,
+				feeRate)
+		}
+
 		updateChan, errChan = r.server.htlcSwitch.CloseLink(
 			chanPoint, contractcourt.CloseRegular, feeRate,
 			maxFee, deliveryScript,
@@ -2879,12 +2893,19 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	}
 
 	// If the user doesn't want to wait for the txid to come back then we
-	// will send an empty update to kick off the stream.
+	// will send an empty update to kick off the stream. This is also used
+	// when active htlcs are still on the channel to give the client
+	// immediate feedback.
 	if in.NoWait {
 		rpcsLog.Trace("[closechannel] sending instant update")
 		if err := updateStream.Send(
+			//nolint:ll
 			&lnrpc.CloseStatusUpdate{
-				Update: &lnrpc.CloseStatusUpdate_CloseInstant{},
+				Update: &lnrpc.CloseStatusUpdate_CloseInstant{
+					CloseInstant: &lnrpc.InstantUpdate{
+						NumPendingHtlcs: int32(len(activeHtlcs)),
+					},
+				},
 			},
 		); err != nil {
 			return err
@@ -2896,7 +2917,9 @@ out:
 		case err := <-errChan:
 			rpcsLog.Errorf("[closechannel] unable to close "+
 				"ChannelPoint(%v): %v", chanPoint, err)
+
 			return err
+
 		case closingUpdate := <-updateChan:
 			rpcClosingUpdate, err := createRPCCloseUpdate(
 				closingUpdate,
@@ -2935,6 +2958,7 @@ out:
 					"txid(%v)", h)
 				break out
 			}
+
 		case <-r.quit:
 			return nil
 		}

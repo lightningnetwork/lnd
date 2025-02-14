@@ -878,7 +878,7 @@
           },
           {
             "name": "no_wait",
-            "description": "If true, then the rpc call will not block while it awaits a closing txid.\nConsequently this RPC call will not return a closing txid if this value\nis set.",
+            "description": "If true, then the rpc call will not block while it awaits a closing txid\nto be broadcasted to the mempool. To obtain the closing tx one has to\nlisten to the stream for the particular updates. Moreover if a coop close\nis specified and this flag is set to true the coop closing flow will be\ninitiated even if HTLCs are active on the channel. The channel will wait\nuntil all HTLCs are resolved and then start the coop closing process. The\nchannel will be disabled in the meantime and will disallow any new HTLCs.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -5475,7 +5475,14 @@
       "default": "INITIATOR_UNKNOWN"
     },
     "lnrpcInstantUpdate": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "num_pending_htlcs": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of pending HTLCs that are currently active on the channel\nand which need to be resolved before the channel can be closed\ncooperatively."
+        }
+      }
     },
     "lnrpcInterceptFeedback": {
       "type": "object",

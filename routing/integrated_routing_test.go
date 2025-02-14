@@ -404,5 +404,5 @@ func TestPaymentAddrOnlyNoSplit(t *testing.T) {
 	// The payment should have failed since we need to split in order to
 	// route a payment to the destination, but they don't actually support
 	// MPP.
-	require.Equal(t, err.Error(), errNoPathFound.Error())
+	require.ErrorIs(t, err, errNoPathFound)
 }

@@ -135,20 +135,18 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
-		GraphSessionFactory: newMockGraphSessionFactoryFromChanDB(
-			graphInstance.graph,
-		),
-		SourceNode:        sourceNode,
-		GetLink:           graphInstance.getLink,
-		PathFindingConfig: pathFindingConfig,
-		MissionControl:    mc,
+		GraphSessionFactory: graphInstance.graph,
+		SourceNode:          sourceNode,
+		GetLink:             graphInstance.getLink,
+		PathFindingConfig:   pathFindingConfig,
+		MissionControl:      mc,
 	}
 
 	graphBuilder := newMockGraphBuilder(graphInstance.graph)
 
 	router, err := New(Config{
 		SelfNode:       sourceNode.PubKeyBytes,
-		RoutingGraph:   newMockGraphSessionChanDB(graphInstance.graph),
+		RoutingGraph:   graphInstance.graph,
 		Chain:          chain,
 		Payer:          &mockPaymentAttemptDispatcherOld{},
 		Control:        makeMockControlTower(),

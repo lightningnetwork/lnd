@@ -245,8 +245,9 @@ config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
 a new option `channel-max-fee-exposure` which is unambiguous in its description.
 The underlying functionality between those two options remain the same.
 
-* [Abstraction of graph](https://github.com/lightningnetwork/lnd/pull/9480) 
-  access for autopilot. 
+* Graph abstraction work:
+    - [Abstract autopilot access](https://github.com/lightningnetwork/lnd/pull/9480)
+    - [Abstract invoicerpc server access](https://github.com/lightningnetwork/lnd/pull/9516)
 
 * Move funding transaction validation to the gossiper
    [1](https://github.com/lightningnetwork/lnd/pull/9476)

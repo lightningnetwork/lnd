@@ -1658,14 +1658,6 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 				return err
 			}
 
-			if c.graphCache != nil {
-				c.graphCache.RemoveChannel(
-					edgeInfo.NodeKey1Bytes,
-					edgeInfo.NodeKey2Bytes,
-					edgeInfo.ChannelID,
-				)
-			}
-
 			removedChans = append(removedChans, edgeInfo)
 		}
 
@@ -1772,7 +1764,7 @@ func (c *KVStore) PruneTip() (*chainhash.Hash, uint32, error) {
 // that resurrects the channel from its zombie state. The markZombie bool
 // denotes whether or not to mark the channel as a zombie.
 func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
-	chanIDs ...uint64) error {
+	chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error) {
 
 	// TODO(roasbeef): possibly delete from node bucket if node has no more
 	// channels
@@ -1781,6 +1773,7 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
+	var infos []*models.ChannelEdgeInfo
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {
@@ -1814,19 +1807,15 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 				return err
 			}
 
-			if c.graphCache != nil {
-				c.graphCache.RemoveChannel(
-					edgeInfo.NodeKey1Bytes,
-					edgeInfo.NodeKey2Bytes,
-					edgeInfo.ChannelID,
-				)
-			}
+			infos = append(infos, edgeInfo)
 		}
 
 		return nil
-	}, func() {})
+	}, func() {
+		infos = nil
+	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, chanID := range chanIDs {
@@ -1834,7 +1823,7 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		c.chanCache.remove(chanID)
 	}
 
-	return nil
+	return infos, nil
 }
 
 // ChannelID attempt to lookup the 8-byte compact channel ID which maps to the

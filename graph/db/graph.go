@@ -242,3 +242,60 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 
 	return nil
 }
+
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether or not to mark the channel as a zombie.
+func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
+	chanIDs ...uint64) error {
+
+	infos, err := c.KVStore.DeleteChannelEdges(
+		strictZombiePruning, markZombie, chanIDs...,
+	)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		for _, info := range infos {
+			c.graphCache.RemoveChannel(
+				info.NodeKey1Bytes, info.NodeKey2Bytes,
+				info.ChannelID,
+			)
+		}
+	}
+
+	return err
+}
+
+// DisconnectBlockAtHeight is used to indicate that the block specified
+// by the passed height has been disconnected from the main chain. This
+// will "rewind" the graph back to the height below, deleting channels
+// that are no longer confirmed from the graph. The prune log will be
+// set to the last prune height valid for the remaining chain.
+// Channels that were removed from the graph resulting from the
+// disconnected block are returned.
+func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
+	[]*models.ChannelEdgeInfo, error) {
+
+	edges, err := c.KVStore.DisconnectBlockAtHeight(height)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.graphCache != nil {
+		for _, edge := range edges {
+			c.graphCache.RemoveChannel(
+				edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+				edge.ChannelID,
+			)
+		}
+	}
+
+	return edges, nil
+}

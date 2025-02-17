@@ -186,7 +186,7 @@ func serializeResult(rp *paymentResult) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	return key, buff.Bytes(), err
+	return key, buff.Bytes(), nil
 }
 
 // deserializeResult deserializes a payment result.

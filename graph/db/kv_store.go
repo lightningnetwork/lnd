@@ -1316,15 +1316,19 @@ const (
 // Additionally, the "prune tip", or the last block which has been used to
 // prune the graph is stored so callers can ensure the graph is fully in sync
 // with the current UTXO state. A slice of channels that have been closed by
-// the target block are returned if the function succeeds without error.
+// the target block along with any pruned nodes are returned if the function
+// succeeds without error.
 func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
-	[]*models.ChannelEdgeInfo, error) {
+	[]*models.ChannelEdgeInfo, []route.Vertex, error) {
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	var chansClosed []*models.ChannelEdgeInfo
+	var (
+		chansClosed []*models.ChannelEdgeInfo
+		prunedNodes []route.Vertex
+	)
 
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		// First grab the edges bucket which houses the information
@@ -1387,14 +1391,6 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 				return err
 			}
 
-			if c.graphCache != nil {
-				c.graphCache.RemoveChannel(
-					edgeInfo.NodeKey1Bytes,
-					edgeInfo.NodeKey2Bytes,
-					edgeInfo.ChannelID,
-				)
-			}
-
 			chansClosed = append(chansClosed, edgeInfo)
 		}
 
@@ -1427,23 +1423,15 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		// Now that the graph has been pruned, we'll also attempt to
 		// prune any nodes that have had a channel closed within the
 		// latest block.
-		prunedNodes, err := c.pruneGraphNodes(nodes, edgeIndex)
-		if err != nil {
-			return err
-		}
+		prunedNodes, err = c.pruneGraphNodes(nodes, edgeIndex)
 
-		if c.graphCache != nil {
-			for _, nodePubKey := range prunedNodes {
-				c.graphCache.RemoveNode(nodePubKey)
-			}
-		}
-
-		return nil
+		return err
 	}, func() {
 		chansClosed = nil
+		prunedNodes = nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for _, channel := range chansClosed {
@@ -1451,20 +1439,16 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		c.chanCache.remove(channel.ChannelID)
 	}
 
-	if c.graphCache != nil {
-		log.Debugf("Pruned graph, cache now has %s",
-			c.graphCache.Stats())
-	}
-
-	return chansClosed, nil
+	return chansClosed, prunedNodes, nil
 }
 
 // PruneGraphNodes is a garbage collection method which attempts to prune out
 // any nodes from the channel graph that are currently unconnected. This ensure
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
-func (c *KVStore) PruneGraphNodes() error {
-	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+func (c *KVStore) PruneGraphNodes() ([]route.Vertex, error) {
+	var prunedNodes []route.Vertex
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		nodes := tx.ReadWriteBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodesNotFound
@@ -1478,19 +1462,18 @@ func (c *KVStore) PruneGraphNodes() error {
 			return ErrGraphNoEdgesFound
 		}
 
-		prunedNodes, err := c.pruneGraphNodes(nodes, edgeIndex)
+		var err error
+		prunedNodes, err = c.pruneGraphNodes(nodes, edgeIndex)
 		if err != nil {
 			return err
 		}
 
-		if c.graphCache != nil {
-			for _, nodePubKey := range prunedNodes {
-				c.graphCache.RemoveNode(nodePubKey)
-			}
-		}
-
 		return nil
-	}, func() {})
+	}, func() {
+		prunedNodes = nil
+	})
+
+	return prunedNodes, err
 }
 
 // pruneGraphNodes attempts to remove any nodes from the graph who have had a

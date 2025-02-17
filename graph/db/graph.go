@@ -460,3 +460,35 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 
 	return nil
 }
+
+// UpdateEdgePolicy updates the edge routing policy for a single directed edge
+// within the database for the referenced channel. The `flags` attribute within
+// the ChannelEdgePolicy determines which of the directed edges are being
+// updated. If the flag is 1, then the first node's information is being
+// updated, otherwise it's the second node's information. The node ordering is
+// determined by the lexicographical ordering of the identity public keys of the
+// nodes on either side of the channel.
+func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	op ...batch.SchedulerOption) error {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	from, to, err := c.KVStore.UpdateEdgePolicy(edge, op...)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache == nil {
+		return nil
+	}
+
+	var isUpdate1 bool
+	if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+		isUpdate1 = true
+	}
+
+	c.graphCache.UpdatePolicy(edge, from, to, isUpdate1)
+
+	return nil
+}

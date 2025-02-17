@@ -38,10 +38,6 @@ linters-settings:
     # Check for incorrect fmt.Errorf error wrapping.
     errorf: true
 
-  govet:
-    # Don't report about shadowed variables
-    check-shadowing: false
-
   gofmt:
     # simplify code: gofmt with `-s` option, true by default
     simplify: true
@@ -60,6 +56,7 @@ linters-settings:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
       - G601 # Implicit memory aliasing in for loop.
+      - G115 # Integer overflow in conversion.
 
   staticcheck:
     checks: ["-SA1019"]
@@ -151,9 +148,7 @@ linters:
     - gofumpt
 
     # Disable whitespace linter as it has conflict rules against our
-    # contribution guidelines. See https://github.com/bombsimon/wsl/issues/109.
-    #
-    # TODO(yy): bring it back when the above issue is fixed.
+    # contribution guidelines.
     - wsl
 
     # Allow using default empty values.
@@ -182,7 +177,7 @@ linters:
     - wrapcheck
 
     # Allow dynamic errors.
-    - goerr113
+    - err113
 
     # We use ErrXXX instead.
     - errname
@@ -197,7 +192,7 @@ linters:
     
     # The linter is too aggressive and doesn't add much value since reviewers
     # will also catch magic numbers that make sense to extract.
-    - gomnd
+    - mnd
 
     # Some of the tests cannot be parallelized. On the other hand, we don't
     # gain much performance with this check so we disable it for now until
@@ -218,16 +213,7 @@ linters:
     - goconst
 
     # Deprecated linters that have been replaced by newer ones.
-    - deadcode
-    - exhaustivestruct
-    - ifshort
-    - golint
-    - interfacer
-    - varcheck
-    - nosnakecase
-    - scopelint
-    - structcheck
-    - maligned
+    - tenv
 
 issues:
   # Only show newly introduced problems.

@@ -2728,11 +2728,12 @@ func makeZombiePubkeys(info *models.ChannelEdgeInfo,
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
 func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
-	op ...batch.SchedulerOption) error {
+	op ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
 		isUpdate1    bool
 		edgeNotFound bool
+		from, to     route.Vertex
 	)
 
 	r := &batch.Request{
@@ -2742,10 +2743,7 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 		},
 		Update: func(tx kvdb.RwTx) error {
 			var err error
-			isUpdate1, err = updateEdgePolicy(
-				tx, edge, c.graphCache,
-			)
-
+			from, to, isUpdate1, err = updateEdgePolicy(tx, edge)
 			if err != nil {
 				log.Errorf("UpdateEdgePolicy faild: %v", err)
 			}
@@ -2776,7 +2774,9 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 		f(r)
 	}
 
-	return c.chanScheduler.Execute(r)
+	err := c.chanScheduler.Execute(r)
+
+	return from, to, err
 }
 
 func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
@@ -2813,16 +2813,18 @@ func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // buckets using an existing database transaction. The returned boolean will be
 // true if the updated policy belongs to node1, and false if the policy belonged
 // to node2.
-func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
-	graphCache *GraphCache) (bool, error) {
+func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy) (
+	route.Vertex, route.Vertex, bool, error) {
+
+	var noVertex route.Vertex
 
 	edges := tx.ReadWriteBucket(edgeBucket)
 	if edges == nil {
-		return false, ErrEdgeNotFound
+		return noVertex, noVertex, false, ErrEdgeNotFound
 	}
 	edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
 	if edgeIndex == nil {
-		return false, ErrEdgeNotFound
+		return noVertex, noVertex, false, ErrEdgeNotFound
 	}
 
 	// Create the channelID key be converting the channel ID
@@ -2834,7 +2836,7 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 	// nodes which connect this channel edge.
 	nodeInfo := edgeIndex.Get(chanID[:])
 	if nodeInfo == nil {
-		return false, ErrEdgeNotFound
+		return noVertex, noVertex, false, ErrEdgeNotFound
 	}
 
 	// Depending on the flags value passed above, either the first
@@ -2855,7 +2857,7 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 	// identified, we update the on-disk edge representation.
 	err := putChanEdgePolicy(edges, edge, fromNode, toNode)
 	if err != nil {
-		return false, err
+		return noVertex, noVertex, false, err
 	}
 
 	var (
@@ -2865,13 +2867,7 @@ func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 	copy(fromNodePubKey[:], fromNode)
 	copy(toNodePubKey[:], toNode)
 
-	if graphCache != nil {
-		graphCache.UpdatePolicy(
-			edge, fromNodePubKey, toNodePubKey, isUpdate1,
-		)
-	}
-
-	return isUpdate1, nil
+	return fromNodePubKey, toNodePubKey, isUpdate1, nil
 }
 
 // isPublic determines whether the node is seen as public within the graph from

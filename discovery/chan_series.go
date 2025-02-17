@@ -204,9 +204,39 @@ func (c *ChanSeries) FilterKnownChanIDs(_ chainhash.Hash,
 	isZombieChan func(time.Time, time.Time) bool) (
 	[]lnwire.ShortChannelID, error) {
 
-	newChanIDs, err := c.graph.FilterKnownChanIDs(superSet, isZombieChan)
+	newChanIDs, knownZombies, err := c.graph.FilterKnownChanIDs(superSet)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, info := range knownZombies {
+		// TODO(ziggie): Make sure that for the strict pruning case we
+		// compare the pubkeys and whether the right timestamp is not
+		// older than the `ChannelPruneExpiry`.
+		//
+		// NOTE: The timestamp data has no verification attached to it
+		// in the `ReplyChannelRange` msg so we are trusting this data
+		// at this point. However it is not critical because we are
+		// just removing the channel from the db when the timestamps are
+		// more recent. During the querying of the gossip msg
+		// verification happens as usual. However we should start
+		// punishing peers when they don't provide us honest data ?
+		isStillZombie := isZombieChan(
+			info.Node1UpdateTimestamp, info.Node2UpdateTimestamp,
+		)
+
+		// If we have marked it as a zombie but the latest update
+		// timestamps could bring it back from the dead, then we mark
+		// it alive, and we let it be added to the set of IDs to query
+		// our peer for.
+		if !isStillZombie {
+			err = c.graph.MarkEdgeLive(
+				info.ShortChannelID.ToUint64(),
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	filteredIDs := make([]lnwire.ShortChannelID, 0, len(newChanIDs))

@@ -1928,12 +1928,6 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
-	isZombieUpdate := func(updateTime1 time.Time,
-		updateTime2 time.Time) bool {
-
-		return true
-	}
-
 	var (
 		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
 		scid2 = lnwire.ShortChannelID{BlockHeight: 2}
@@ -1947,7 +1941,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		{ShortChannelID: scid2},
 		{ShortChannelID: scid3},
 	}
-	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs, isZombieUpdate)
+	filteredIDs, _, err := graph.FilterKnownChanIDs(preChanIDs)
 	require.NoError(t, err, "unable to filter chan IDs")
 	require.EqualValues(t, []uint64{
 		scid1.ToUint64(),
@@ -2080,9 +2074,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	}
 
 	for _, queryCase := range queryCases {
-		resp, err := graph.FilterKnownChanIDs(
-			queryCase.queryIDs, isZombieUpdate,
-		)
+		resp, _, err := graph.FilterKnownChanIDs(queryCase.queryIDs)
 		require.NoError(t, err)
 
 		expectedSCIDs := make([]uint64, len(queryCase.resp))
@@ -2252,12 +2244,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 					)
 				}
 
-				_, err := graph.FilterKnownChanIDs(
-					chanIDs,
-					func(t time.Time, t2 time.Time) bool {
-						return rand.Intn(2) == 0
-					},
-				)
+				_, _, err := graph.FilterKnownChanIDs(chanIDs)
 
 				return err
 			},

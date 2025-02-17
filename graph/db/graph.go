@@ -2184,15 +2184,18 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime,
 // words, we perform a set difference of our set of chan ID's and the ones
 // passed in. This method can be used by callers to determine the set of
 // channels another peer knows of that we don't.
-func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
-	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
+func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) (
+	[]uint64, []ChannelUpdateInfo, error) {
 
-	var newChanIDs []uint64
+	var (
+		newChanIDs   []uint64
+		knownZombies []ChannelUpdateInfo
+	)
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -2225,45 +2228,13 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 					zombieIndex, scid,
 				)
 
-				// TODO(ziggie): Make sure that for the strict
-				// pruning case we compare the pubkeys and
-				// whether the right timestamp is not older than
-				// the `ChannelPruneExpiry`.
-				//
-				// NOTE: The timestamp data has no verification
-				// attached to it in the `ReplyChannelRange` msg
-				// so we are trusting this data at this point.
-				// However it is not critical because we are
-				// just removing the channel from the db when
-				// the timestamps are more recent. During the
-				// querying of the gossip msg verification
-				// happens as usual.
-				// However we should start punishing peers when
-				// they don't provide us honest data ?
-				isStillZombie := isZombieChan(
-					info.Node1UpdateTimestamp,
-					info.Node2UpdateTimestamp,
-				)
-
-				switch {
-				// If the edge is a known zombie and if we
-				// would still consider it a zombie given the
-				// latest update timestamps, then we skip this
-				// channel.
-				case isZombie && isStillZombie:
+				if isZombie {
+					knownZombies = append(
+						knownZombies, info,
+					)
 					continue
-
-				// Otherwise, if we have marked it as a zombie
-				// but the latest update timestamps could bring
-				// it back from the dead, then we mark it alive,
-				// and we let it be added to the set of IDs to
-				// query our peer for.
-				case isZombie && !isStillZombie:
-					err := c.markEdgeLiveUnsafe(tx, scid)
-					if err != nil {
-						return err
-					}
 				}
+
 			}
 
 			newChanIDs = append(newChanIDs, scid)
@@ -2272,6 +2243,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 		return nil
 	}, func() {
 		newChanIDs = nil
+		knownZombies = nil
 	})
 	switch {
 	// If we don't know of any edges yet, then we'll return the entire set
@@ -2282,13 +2254,13 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 			ogChanIDs[i] = info.ShortChannelID.ToUint64()
 		}
 
-		return ogChanIDs, nil
+		return ogChanIDs, nil, nil
 
 	case err != nil:
-		return nil, err
+		return nil, nil, err
 	}
 
-	return newChanIDs, nil
+	return newChanIDs, knownZombies, nil
 }
 
 // ChannelUpdateInfo couples the SCID of a channel with the timestamps of the

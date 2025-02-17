@@ -561,7 +561,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	if err != nil {
 		return 0, 0, err
 	}
-	return max, total, err
+	return max, total, nil
 }
 
 // findPath attempts to find a path from the source node within the ChannelGraph

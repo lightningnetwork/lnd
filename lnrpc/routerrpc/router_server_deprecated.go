@@ -118,7 +118,7 @@ func (s *Server) SendToRoute(ctx context.Context,
 		Failure:  resp.Failure,
 	}
 
-	return legacyResp, err
+	return legacyResp, nil
 }
 
 // QueryProbability returns the current success probability estimate for a

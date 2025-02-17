@@ -1431,7 +1431,18 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		// Now that the graph has been pruned, we'll also attempt to
 		// prune any nodes that have had a channel closed within the
 		// latest block.
-		return c.pruneGraphNodes(nodes, edgeIndex)
+		prunedNodes, err := c.pruneGraphNodes(nodes, edgeIndex)
+		if err != nil {
+			return err
+		}
+
+		if c.graphCache != nil {
+			for _, nodePubKey := range prunedNodes {
+				c.graphCache.RemoveNode(nodePubKey)
+			}
+		}
+
+		return nil
 	}, func() {
 		chansClosed = nil
 	})
@@ -1471,7 +1482,18 @@ func (c *KVStore) PruneGraphNodes() error {
 			return ErrGraphNoEdgesFound
 		}
 
-		return c.pruneGraphNodes(nodes, edgeIndex)
+		prunedNodes, err := c.pruneGraphNodes(nodes, edgeIndex)
+		if err != nil {
+			return err
+		}
+
+		if c.graphCache != nil {
+			for _, nodePubKey := range prunedNodes {
+				c.graphCache.RemoveNode(nodePubKey)
+			}
+		}
+
+		return nil
 	}, func() {})
 }
 
@@ -1479,7 +1501,7 @@ func (c *KVStore) PruneGraphNodes() error {
 // channel closed within the current block. If the node still has existing
 // channels in the graph, this will act as a no-op.
 func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
-	edgeIndex kvdb.RwBucket) error {
+	edgeIndex kvdb.RwBucket) ([]route.Vertex, error) {
 
 	log.Trace("Pruning nodes from graph with no open channels")
 
@@ -1487,7 +1509,7 @@ func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
 	// even if it no longer has any open channels.
 	sourceNode, err := c.sourceNode(nodes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// We'll use this map to keep count the number of references to a node
@@ -1509,7 +1531,7 @@ func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// To ensure we never delete the source node, we'll start off by
@@ -1535,22 +1557,18 @@ func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
 		return nil
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Finally, we'll make a second pass over the set of nodes, and delete
 	// any nodes that have a ref count of zero.
-	var numNodesPruned int
+	var pruned []route.Vertex
 	for nodePubKey, refCount := range nodeRefCounts {
 		// If the ref count of the node isn't zero, then we can safely
 		// skip it as it still has edges to or from it within the
 		// graph.
 		if refCount != 0 {
 			continue
-		}
-
-		if c.graphCache != nil {
-			c.graphCache.RemoveNode(nodePubKey)
 		}
 
 		// If we reach this point, then there are no longer any edges
@@ -1565,21 +1583,21 @@ func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
 				continue
 			}
 
-			return err
+			return nil, err
 		}
 
 		log.Infof("Pruned unconnected node %x from channel graph",
 			nodePubKey[:])
 
-		numNodesPruned++
+		pruned = append(pruned, nodePubKey)
 	}
 
-	if numNodesPruned > 0 {
+	if len(pruned) > 0 {
 		log.Infof("Pruned %v unconnected nodes from the channel graph",
-			numNodesPruned)
+			len(pruned))
 	}
 
-	return nil
+	return pruned, err
 }
 
 // DisconnectBlockAtHeight is used to indicate that the block specified

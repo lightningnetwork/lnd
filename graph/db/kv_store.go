@@ -1375,19 +1375,11 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 				continue
 			}
 
-			// However, if it does, then we'll read out the full
-			// version so we can add it to the set of deleted
-			// channels.
-			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
-			if err != nil {
-				return err
-			}
-
 			// Attempt to delete the channel, an ErrEdgeNotFound
 			// will be returned if that outpoint isn't known to be
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
-			err = c.delChannelEdgeUnsafe(
+			edgeInfo, err := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				chanID, false, false,
 			)
@@ -1395,7 +1387,15 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 				return err
 			}
 
-			chansClosed = append(chansClosed, &edgeInfo)
+			if c.graphCache != nil {
+				c.graphCache.RemoveChannel(
+					edgeInfo.NodeKey1Bytes,
+					edgeInfo.NodeKey2Bytes,
+					edgeInfo.ChannelID,
+				)
+			}
+
+			chansClosed = append(chansClosed, edgeInfo)
 		}
 
 		metaBucket, err := tx.CreateTopLevelBucket(graphMetaBucket)
@@ -1640,26 +1640,29 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 		cursor := edgeIndex.ReadWriteCursor()
 
 		//nolint:ll
-		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
-			bytes.Compare(k, chanIDEnd[:]) < 0; k, v = cursor.Next() {
-			edgeInfoReader := bytes.NewReader(v)
-			edgeInfo, err := deserializeChanEdgeInfo(edgeInfoReader)
-			if err != nil {
-				return err
-			}
-
+		for k, _ := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) < 0; k, _ = cursor.Next() {
 			keys = append(keys, k)
-			removedChans = append(removedChans, &edgeInfo)
 		}
 
 		for _, k := range keys {
-			err = c.delChannelEdgeUnsafe(
+			edgeInfo, err := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				k, false, false,
 			)
 			if err != nil && !errors.Is(err, ErrEdgeNotFound) {
 				return err
 			}
+
+			if c.graphCache != nil {
+				c.graphCache.RemoveChannel(
+					edgeInfo.NodeKey1Bytes,
+					edgeInfo.NodeKey2Bytes,
+					edgeInfo.ChannelID,
+				)
+			}
+
+			removedChans = append(removedChans, edgeInfo)
 		}
 
 		// Delete all the entries in the prune log having a height
@@ -1799,12 +1802,20 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		var rawChanID [8]byte
 		for _, chanID := range chanIDs {
 			byteOrder.PutUint64(rawChanID[:], chanID)
-			err := c.delChannelEdgeUnsafe(
+			edgeInfo, err := c.delChannelEdgeUnsafe(
 				edges, edgeIndex, chanIndex, zombieIndex,
 				rawChanID[:], markZombie, strictZombiePruning,
 			)
 			if err != nil {
 				return err
+			}
+
+			if c.graphCache != nil {
+				c.graphCache.RemoveChannel(
+					edgeInfo.NodeKey1Bytes,
+					edgeInfo.NodeKey2Bytes,
+					edgeInfo.ChannelID,
+				)
 			}
 		}
 
@@ -2623,18 +2634,11 @@ func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
 // acquired.
 func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	zombieIndex kvdb.RwBucket, chanID []byte, isZombie,
-	strictZombie bool) error {
+	strictZombie bool) (*models.ChannelEdgeInfo, error) {
 
 	edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 	if err != nil {
-		return err
-	}
-
-	if c.graphCache != nil {
-		c.graphCache.RemoveChannel(
-			edgeInfo.NodeKey1Bytes, edgeInfo.NodeKey2Bytes,
-			edgeInfo.ChannelID,
-		)
+		return nil, err
 	}
 
 	// We'll also remove the entry in the edge update index bucket before
@@ -2643,11 +2647,11 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	cid := byteOrder.Uint64(chanID)
 	edge1, edge2, err := fetchChanEdgePolicies(edgeIndex, edges, chanID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = delEdgeUpdateIndexEntry(edges, cid, edge1, edge2)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// The edge key is of the format pubKey || chanID. First we construct
@@ -2661,13 +2665,13 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	copy(edgeKey[:33], edgeInfo.NodeKey1Bytes[:])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	copy(edgeKey[:33], edgeInfo.NodeKey2Bytes[:])
 	if edges.Get(edgeKey[:]) != nil {
 		if err := edges.Delete(edgeKey[:]); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -2676,31 +2680,31 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	// directions.
 	err = updateEdgePolicyDisabledIndex(edges, cid, false, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	err = updateEdgePolicyDisabledIndex(edges, cid, true, false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// With the edge data deleted, we can purge the information from the two
 	// edge indexes.
 	if err := edgeIndex.Delete(chanID); err != nil {
-		return err
+		return nil, err
 	}
 	var b bytes.Buffer
 	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
-		return err
+		return nil, err
 	}
 	if err := chanIndex.Delete(b.Bytes()); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Finally, we'll mark the edge as a zombie within our index if it's
 	// being removed due to the channel becoming a zombie. We do this to
 	// ensure we don't store unnecessary data for spent channels.
 	if !isZombie {
-		return nil
+		return &edgeInfo, nil
 	}
 
 	nodeKey1, nodeKey2 := edgeInfo.NodeKey1Bytes, edgeInfo.NodeKey2Bytes
@@ -2708,7 +2712,7 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 		nodeKey1, nodeKey2 = makeZombiePubkeys(&edgeInfo, edge1, edge2)
 	}
 
-	return markEdgeZombie(
+	return &edgeInfo, markEdgeZombie(
 		zombieIndex, byteOrder.Uint64(chanID), nodeKey1, nodeKey2,
 	)
 }

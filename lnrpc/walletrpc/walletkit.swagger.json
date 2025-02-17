@@ -1440,7 +1440,7 @@
         },
         "immediate": {
           "type": "boolean",
-          "description": "Optional. Whether this input will be swept immediately. When set to true,\nthe sweeper will sweep this input without waiting for the next batch."
+          "description": "Optional. Whether this input will be swept immediately. When set to true,\nthe sweeper will sweep this input without waiting for the next block."
         },
         "budget": {
           "type": "string",

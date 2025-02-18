@@ -1991,19 +1991,21 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	}
 
 	queryCases := []struct {
-		queryIDs []ChannelUpdateInfo
-
-		resp []ChannelUpdateInfo
+		queryIDs     []ChannelUpdateInfo
+		resp         []ChannelUpdateInfo
+		knownZombies []ChannelUpdateInfo
 	}{
 		// If we attempt to filter out all chanIDs we know of, the
 		// response should be the empty set.
 		{
 			queryIDs: chanIDs,
 		},
-		// If we attempt to filter out all zombies that we know of, the
-		// response should be the empty set.
+		// If we attempt to filter out all zombies that we know of,
+		// then these should be returned by FilterKnownChanIDs as the
+		// second return parameter.
 		{
-			queryIDs: zombieIDs,
+			queryIDs:     zombieIDs,
+			knownZombies: zombieIDs,
 		},
 
 		// If we query for a set of ID's that we didn't insert, we
@@ -2066,7 +2068,9 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	}
 
 	for _, queryCase := range queryCases {
-		resp, _, err := graph.FilterKnownChanIDs(queryCase.queryIDs)
+		resp, knownZombies, err := graph.FilterKnownChanIDs(
+			queryCase.queryIDs,
+		)
 		require.NoError(t, err)
 
 		expectedSCIDs := make([]uint64, len(queryCase.resp))
@@ -2079,6 +2083,8 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		}
 
 		require.EqualValues(t, expectedSCIDs, resp)
+
+		require.Equal(t, queryCase.knownZombies, knownZombies)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -118,7 +119,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 		func(Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		newMockGraphSessionFactory(&sessionGraph{}),
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -196,7 +197,7 @@ func TestRequestRoute(t *testing.T) {
 		func(Graph) (bandwidthHints, error) {
 			return &mockBandwidthHints{}, nil
 		},
-		newMockGraphSessionFactory(&sessionGraph{}),
+		&sessionGraph{},
 		&MissionControl{},
 		PathFindingConfig{},
 	)
@@ -256,4 +257,10 @@ type sessionGraph struct {
 
 func (g *sessionGraph) sourceNode() route.Vertex {
 	return route.Vertex{}
+}
+
+func (g *sessionGraph) GraphSession(
+	cb func(graph graphdb.NodeTraverser) error) error {
+
+	return cb(g)
 }

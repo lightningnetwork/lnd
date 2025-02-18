@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -22,4 +23,17 @@ type NodeRTx interface {
 	// a NodeRTx and any operations on that NodeRTx will also be done under
 	// the same transaction.
 	FetchNode(node route.Vertex) (NodeRTx, error)
+}
+
+// NodeTraverser is an abstract read only interface that provides information
+// about nodes and their edges. The interface is about providing fast read-only
+// access to the graph and so if a cache is available, it should be used.
+type NodeTraverser interface {
+	// ForEachNodeDirectedChannel calls the callback for every channel of
+	// the given node.
+	ForEachNodeDirectedChannel(nodePub route.Vertex,
+		cb func(channel *DirectedChannel) error) error
+
+	// FetchNodeFeatures returns the features of the given node.
+	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }

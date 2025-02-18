@@ -403,16 +403,6 @@ func initChannelGraph(db kvdb.Backend) error {
 	return nil
 }
 
-// NewPathFindTx returns a new read transaction that can be used for a single
-// path finding session. Will return nil if the graph cache is enabled.
-func (c *ChannelGraph) NewPathFindTx() (kvdb.RTx, error) {
-	if c.graphCache != nil {
-		return nil, nil
-	}
-
-	return c.db.BeginReadTx()
-}
-
 // AddrsForNode returns all known addresses for the target node public key that
 // the graph DB is aware of. The returned boolean indicates if the given node is
 // unknown to the graph DB or not.
@@ -500,13 +490,14 @@ func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	}, func() {})
 }
 
-// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// forEachNodeDirectedChannel iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration
-// is halted with the error propagated back up to the caller.
+// is halted with the error propagated back up to the caller. An optional read
+// transaction may be provided. If none is provided, a new one will be created.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
+func (c *ChannelGraph) forEachNodeDirectedChannel(tx kvdb.RTx,
 	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
 	if c.graphCache != nil {
@@ -517,7 +508,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	toNodeCallback := func() route.Vertex {
 		return node
 	}
-	toNodeFeatures, err := c.FetchNodeFeatures(node)
+	toNodeFeatures, err := c.fetchNodeFeatures(tx, node)
 	if err != nil {
 		return err
 	}
@@ -561,9 +552,10 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 	return nodeTraversal(tx, node[:], c.db, dbCallback)
 }
 
-// FetchNodeFeatures returns the features of a given node. If no features are
-// known for the node, an empty feature vector is returned.
-func (c *ChannelGraph) FetchNodeFeatures(
+// fetchNodeFeatures returns the features of a given node. If no features are
+// known for the node, an empty feature vector is returned. An optional read
+// transaction may be provided. If none is provided, a new one will be created.
+func (c *ChannelGraph) fetchNodeFeatures(tx kvdb.RTx,
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
 	if c.graphCache != nil {
@@ -571,7 +563,7 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	}
 
 	// Fallback that uses the database.
-	targetNode, err := c.FetchLightningNode(node)
+	targetNode, err := c.FetchLightningNodeTx(tx, node)
 	switch err {
 	// If the node exists and has features, return them directly.
 	case nil:
@@ -586,6 +578,34 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	default:
 		return nil, err
 	}
+}
+
+// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// executing the passed callback on the directed edge representing the channel
+// and its incoming policy. If the callback returns an error, then the iteration
+// is halted with the error propagated back up to the caller. If the graphCache
+// is available, then it will be used to retrieve the node's channels instead
+// of the database.
+//
+// Unknown policies are passed into the callback as nil values.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *ChannelGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	return c.forEachNodeDirectedChannel(nil, nodePub, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If no features are
+// known for the node, an empty feature vector is returned.
+// If the graphCache is available, then it will be used to retrieve the node's
+// features instead of the database.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *ChannelGraph) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	return c.fetchNodeFeatures(nil, nodePub)
 }
 
 // ForEachNodeCached is similar to forEachNode, but it utilizes the channel
@@ -617,8 +637,8 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 				toNodeCallback := func() route.Vertex {
 					return node.PubKeyBytes
 				}
-				toNodeFeatures, err := c.FetchNodeFeatures(
-					node.PubKeyBytes,
+				toNodeFeatures, err := c.fetchNodeFeatures(
+					tx, node.PubKeyBytes,
 				)
 				if err != nil {
 					return err
@@ -3871,6 +3891,64 @@ func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 	}
 
 	return isClosed, nil
+}
+
+// GraphSession will provide the call-back with access to a NodeTraverser
+// instance which can be used to perform queries against the channel graph. If
+// the graph cache is not enabled, then the call-back will  be provided with
+// access to the graph via a consistent read-only transaction.
+func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
+	var (
+		tx     kvdb.RTx
+		err    error
+		commit = func() {}
+	)
+	if c.graphCache == nil {
+		tx, err = c.db.BeginReadTx()
+		if err != nil {
+			return err
+		}
+
+		commit = func() {
+			if err := tx.Rollback(); err != nil {
+				log.Errorf("Unable to rollback tx: %v", err)
+			}
+		}
+	}
+	defer commit()
+
+	return cb(&nodeTraverserSession{
+		db: c,
+		tx: tx,
+	})
+}
+
+// nodeTraverserSession implements the NodeTraverser interface but with a
+// backing read only transaction for a consistent view of the graph in the case
+// where the graph Cache has not been enabled.
+type nodeTraverserSession struct {
+	tx kvdb.RTx
+	db *ChannelGraph
+}
+
+// ForEachNodeDirectedChannel calls the callback for every channel of the given
+// node.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (c *nodeTraverserSession) ForEachNodeDirectedChannel(nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	return c.db.forEachNodeDirectedChannel(c.tx, nodePub, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If the node is
+// unknown, assume no additional features are supported.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (c *nodeTraverserSession) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	return c.db.fetchNodeFeatures(c.tx, nodePub)
 }
 
 func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // nolint:dupl

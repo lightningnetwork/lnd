@@ -2,6 +2,18 @@ package graphdb
 
 import "github.com/lightningnetwork/lnd/kvdb"
 
+// Config is a struct that holds all the necessary dependencies for a
+// ChannelGraph.
+type Config struct {
+	// KVDB is the kvdb.Backend that will be used for initializing the
+	// KVStore CRUD layer.
+	KVDB kvdb.Backend
+
+	// KVStoreOpts is a list of functional options that will be used when
+	// initializing the KVStore.
+	KVStoreOpts []KVStoreOptionModifier
+}
+
 // ChannelGraph is a layer above the graph's CRUD layer.
 //
 // NOTE: currently, this is purely a pass-through layer directly to the backing
@@ -12,10 +24,8 @@ type ChannelGraph struct {
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
-func NewChannelGraph(db kvdb.Backend, options ...KVStoreOptionModifier) (
-	*ChannelGraph, error) {
-
-	store, err := NewKVStore(db, options...)
+func NewChannelGraph(cfg *Config) (*ChannelGraph, error) {
+	store, err := NewKVStore(cfg.KVDB, cfg.KVStoreOpts...)
 	if err != nil {
 		return nil, err
 	}

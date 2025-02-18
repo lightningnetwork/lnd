@@ -198,7 +198,7 @@ type KVStore struct {
 
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func NewKVStore(db kvdb.Backend, options ...OptionModifier) (*KVStore,
+func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 	error) {
 
 	opts := DefaultOptions()
@@ -4827,8 +4827,8 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 
 // MakeTestGraph creates a new instance of the KVStore for testing
 // purposes.
-func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph,
-	error) {
+func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
+	*ChannelGraph, error) {
 
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {

@@ -733,7 +733,7 @@ func (c *ChannelGraph) ForEachNode(cb func(tx NodeRTx) error) error {
 // early.
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
-// traversal when graph gets mega
+// traversal when graph gets mega.
 func (c *ChannelGraph) forEachNode(
 	cb func(kvdb.RTx, *models.LightningNode) error) error {
 

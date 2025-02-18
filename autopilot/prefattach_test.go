@@ -578,7 +578,7 @@ func newMemChannelGraph() *memChannelGraph {
 // error, then execution should be terminated.
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
-func (m memChannelGraph) ForEachNode(cb func(Node) error) error {
+func (m *memChannelGraph) ForEachNode(cb func(Node) error) error {
 	for _, node := range m.graph {
 		if err := cb(node); err != nil {
 			return err

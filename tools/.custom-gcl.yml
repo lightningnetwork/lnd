@@ -1,4 +1,4 @@
-version: v1.57.0
+version: v1.64.5
 plugins:
   - module: 'github.com/lightningnetwork/lnd/tools/linters'
     path: ./linters

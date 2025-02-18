@@ -246,12 +246,12 @@ unit-debug: $(BTCD_BIN)
 	$(UNIT_DEBUG)
 
 #? unit-cover: Run unit tests in coverage mode
-unit-cover:
+unit-cover: $(BTCD_BIN)
 	@$(call print, "Running unit coverage tests.")
 	$(UNIT_COVER)
 
 #? unit-race: Run unit tests in race detector mode
-unit-race:
+unit-race: $(BTCD_BIN)
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 

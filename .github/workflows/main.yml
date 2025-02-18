@@ -218,11 +218,11 @@ jobs:
       fail-fast: false
       matrix:
         unit_type:
-          - btcd unit-cover
+          - unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
-          - btcd unit-race
+          - unit-race
           - unit-module
 
     steps:
@@ -260,12 +260,13 @@ jobs:
         run: make ${{ matrix.unit_type }}
 
       - name: Send coverage
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
-        if: matrix.unit_type == 'btcd unit-cover'
+        uses: coverallsapp/github-action@v2
+        if: matrix.unit_type == 'unit-cover'
         continue-on-error: true
         with:
-          path-to-profile: coverage.txt
+          file: coverage.txt
           flag-name: 'unit'
+          format: 'golang'
           parallel: true
 
 
@@ -317,10 +318,11 @@ jobs:
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         with:
-          path-to-profile: coverage.txt
+          file: coverage.txt
           flag-name: 'itest-${{ matrix.name }}'
+          format: 'golang'
           parallel: true
 
       - name: Zip log files on failure
@@ -385,10 +387,11 @@ jobs:
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         with:
-          path-to-profile: coverage.txt
+          file: coverage.txt
           flag-name: 'itest-${{ matrix.name }}'
+          format: 'golang'
           parallel: true
 
       - name: Zip log files on failure
@@ -552,7 +555,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Send coverage
-        uses: ziggie1984/actions-goveralls@c440f43938a4032b627d2b03d61d4ae1a2ba2b5c
+        uses: coverallsapp/github-action@v2
         continue-on-error: true
         with:
           parallel-finished: true

@@ -98,7 +98,7 @@ function check_tag_correct() {
   fi
 
   # Build lnd to extract version.
-  env GOEXPERIMENT=loopvar go build ${PKG}/cmd/lnd
+  go build ${PKG}/cmd/lnd
 
   # Extract version command output.
   lnd_version_output=$(./lnd --version)
@@ -189,8 +189,8 @@ required Go version ($goversion)."
     pushd "${dir}"
 
     green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
-    env GOEXPERIMENT=loopvar CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
-    env GOEXPERIMENT=loopvar CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lnd
+    env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
     popd
 
     # Add the hashes for the individual binaries as well for easy verification

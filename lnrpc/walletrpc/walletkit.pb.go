@@ -3116,7 +3116,7 @@ type BumpFeeRequest struct {
 	// the estimated fee rate using the `target_conf` as the starting fee rate.
 	SatPerVbyte uint64 `protobuf:"varint,5,opt,name=sat_per_vbyte,json=satPerVbyte,proto3" json:"sat_per_vbyte,omitempty"`
 	// Optional. Whether this input will be swept immediately. When set to true,
-	// the sweeper will sweep this input without waiting for the next batch.
+	// the sweeper will sweep this input without waiting for the next block.
 	Immediate bool `protobuf:"varint,6,opt,name=immediate,proto3" json:"immediate,omitempty"`
 	// Optional. The max amount in sats that can be used as the fees. Setting this
 	// value greater than the input's value may result in CPFP - one or more wallet

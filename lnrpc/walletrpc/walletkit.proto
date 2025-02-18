@@ -1216,7 +1216,7 @@ message BumpFeeRequest {
 
     /*
     Optional. Whether this input will be swept immediately. When set to true,
-    the sweeper will sweep this input without waiting for the next batch.
+    the sweeper will sweep this input without waiting for the next block.
     */
     bool immediate = 6;
 

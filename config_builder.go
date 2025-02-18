@@ -1026,7 +1026,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			"instances")
 	}
 
-	graphDBOptions := []graphdb.OptionModifier{
+	graphDBOptions := []graphdb.KVStoreOptionModifier{
 		graphdb.WithRejectCacheSize(cfg.Caches.RejectCacheSize),
 		graphdb.WithChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		graphdb.WithBatchCommitInterval(cfg.DB.BatchCommitInterval),

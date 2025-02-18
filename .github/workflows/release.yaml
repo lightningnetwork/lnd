@@ -121,8 +121,8 @@ jobs:
             ```
             tar -xvzf vendor.tar.gz
             tar -xvzf lnd-source-${{ env.RELEASE_VERSION }}.tar.gz
-            GO111MODULE=on go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lnd
-            GO111MODULE=on go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lncli
+            go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lnd
+            go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lncli
             ```
 
             The `-mod=vendor` flag tells the `go build` command that it doesn't need to fetch the dependencies, and instead, they're all enclosed in the local vendor directory. 

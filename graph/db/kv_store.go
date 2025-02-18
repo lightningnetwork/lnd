@@ -888,12 +888,6 @@ func (c *KVStore) AddLightningNode(node *models.LightningNode,
 
 	r := &batch.Request{
 		Update: func(tx kvdb.RwTx) error {
-			if c.graphCache != nil {
-				c.graphCache.AddNodeFeatures(
-					node.PubKeyBytes, node.Features,
-				)
-			}
-
 			return addLightningNode(tx, node)
 		},
 	}
@@ -971,10 +965,6 @@ func (c *KVStore) DeleteLightningNode(nodePub route.Vertex) error {
 		nodes := tx.ReadWriteBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodeNotFound
-		}
-
-		if c.graphCache != nil {
-			c.graphCache.RemoveNode(nodePub)
 		}
 
 		return c.deleteLightningNode(nodes, nodePub[:])
@@ -1106,10 +1096,6 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	// so, then we can exit early as this method is meant to be idempotent.
 	if edgeInfo := edgeIndex.Get(chanKey[:]); edgeInfo != nil {
 		return ErrEdgeAlreadyExist
-	}
-
-	if c.graphCache != nil {
-		c.graphCache.AddChannel(edge, nil, nil)
 	}
 
 	// Before we insert the channel into the database, we'll ensure that
@@ -3721,22 +3707,6 @@ func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 
 	c.rejectCache.remove(chanID)
 	c.chanCache.remove(chanID)
-
-	// We need to add the channel back into our graph cache, otherwise we
-	// won't use it for path finding.
-	if c.graphCache != nil {
-		edgeInfos, err := c.fetchChanInfos(tx, []uint64{chanID})
-		if err != nil {
-			return err
-		}
-
-		for _, edgeInfo := range edgeInfos {
-			c.graphCache.AddChannel(
-				edgeInfo.Info, edgeInfo.Policy1,
-				edgeInfo.Policy2,
-			)
-		}
-	}
 
 	return nil
 }

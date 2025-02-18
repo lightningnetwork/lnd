@@ -4843,7 +4843,10 @@ func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
 		return nil, err
 	}
 
-	graph, err := NewChannelGraph(backend)
+	graph, err := NewChannelGraph(&Config{
+		KVDB:        backend,
+		KVStoreOpts: modifiers,
+	})
 	if err != nil {
 		backendCleanup()
 

@@ -1952,14 +1952,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	// We'll start by creating two nodes which will seed our test graph.
 	node1, err := createTestVertex(graph.db)
 	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.AddLightningNode(node1))
+
 	node2, err := createTestVertex(graph.db)
 	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.AddLightningNode(node2))
 
 	// Next, we'll add 5 channel ID's to the graph, each of them having a
 	// block height 10 blocks after the previous.
@@ -1970,9 +1967,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			uint32(i*10), 0, 0, 0, node1, node2,
 		)
 
-		if err := graph.AddChannelEdge(&channel); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel))
 
 		chanIDs = append(chanIDs, NewChannelUpdateInfo(
 			chanID, time.Time{}, time.Time{},
@@ -1985,13 +1980,10 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		channel, chanID := createEdge(
 			uint32(i*10+1), 0, 0, 0, node1, node2,
 		)
-		if err := graph.AddChannelEdge(&channel); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
-		err := graph.DeleteChannelEdges(false, true, channel.ChannelID)
-		if err != nil {
-			t.Fatalf("unable to mark edge zombie: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel))
+
+		err = graph.DeleteChannelEdges(false, true, channel.ChannelID)
+		require.NoError(t, err)
 
 		zombieIDs = append(
 			zombieIDs, ChannelUpdateInfo{ShortChannelID: chanID},

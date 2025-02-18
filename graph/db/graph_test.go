@@ -3953,7 +3953,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 
 	getSingleChannel := func() *DirectedChannel {
 		var ch *DirectedChannel
-		err = graph.forEachNodeDirectedChannel(nil, node1.PubKeyBytes,
+		err = graph.ForEachNodeDirectedChannel(node1.PubKeyBytes,
 			func(c *DirectedChannel) error {
 				require.Nil(t, ch)
 				ch = c

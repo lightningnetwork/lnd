@@ -91,3 +91,65 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 		graphCache: graphCache,
 	}, nil
 }
+
+// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// executing the passed callback on the directed edge representing the channel
+// and its incoming policy. If the callback returns an error, then the iteration
+// is halted with the error propagated back up to the caller. If the graphCache
+// is available, then it will be used to retrieve the node's channels instead
+// of the database.
+//
+// Unknown policies are passed into the callback as nil values.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	if c.graphCache != nil {
+		return c.graphCache.ForEachChannel(node, cb)
+	}
+
+	return c.KVStore.ForEachNodeDirectedChannel(node, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If no features are
+// known for the node, an empty feature vector is returned.
+// If the graphCache is available, then it will be used to retrieve the node's
+// features instead of the database.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	if c.graphCache != nil {
+		return c.graphCache.GetFeatures(node), nil
+	}
+
+	return c.KVStore.FetchNodeFeatures(node)
+}
+
+// GraphSession will provide the call-back with access to a NodeTraverser
+// instance which can be used to perform queries against the channel graph. If
+// the graph cache is not enabled, then the call-back will  be provided with
+// access to the graph via a consistent read-only transaction.
+func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
+	if c.graphCache != nil {
+		return cb(c)
+	}
+
+	return c.KVStore.GraphSession(cb)
+}
+
+// ForEachNodeCached iterates through all the stored vertices/nodes in the
+// graph, executing the passed callback with each node encountered.
+//
+// NOTE: The callback contents MUST not be modified.
+func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
+	chans map[uint64]*DirectedChannel) error) error {
+
+	if c.graphCache != nil {
+		return c.graphCache.ForEachNode(cb)
+	}
+
+	return c.KVStore.ForEachNodeCached(cb)
+}

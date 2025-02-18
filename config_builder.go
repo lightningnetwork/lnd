@@ -1030,14 +1030,17 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		graphdb.WithRejectCacheSize(cfg.Caches.RejectCacheSize),
 		graphdb.WithChannelCacheSize(cfg.Caches.ChannelCacheSize),
 		graphdb.WithBatchCommitInterval(cfg.DB.BatchCommitInterval),
+	}
+
+	chanGraphOpts := []graphdb.ChanGraphOption{
 		graphdb.WithUseGraphCache(!cfg.DB.NoGraphCache),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we
 	// expect for mainnet to speed up memory allocation.
 	if cfg.ActiveNetParams.Name == chaincfg.MainNetParams.Name {
-		graphDBOptions = append(
-			graphDBOptions, graphdb.WithPreAllocCacheNumNodes(
+		chanGraphOpts = append(
+			chanGraphOpts, graphdb.WithPreAllocCacheNumNodes(
 				graphdb.DefaultPreAllocCacheNumNodes,
 			),
 		)
@@ -1046,7 +1049,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	dbs.GraphDB, err = graphdb.NewChannelGraph(&graphdb.Config{
 		KVDB:        databaseBackends.GraphDB,
 		KVStoreOpts: graphDBOptions,
-	})
+	}, chanGraphOpts...)
 	if err != nil {
 		cleanUp()
 

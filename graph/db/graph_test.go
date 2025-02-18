@@ -3924,6 +3924,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// Unset the channel graph cache to simulate the user running with the
 	// option turned off.
 	graph.graphCache = nil
+	graph.KVStore.graphCache = nil
 
 	node1, err := createTestVertex(graph.db)
 	require.Nil(t, err)

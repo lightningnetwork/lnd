@@ -93,8 +93,6 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 	log.Debugf("Finished populating in-memory channel graph (took %v, %s)",
 		time.Since(startTime), graphCache.Stats())
 
-	store.setGraphCache(graphCache)
-
 	return &ChannelGraph{
 		KVStore:    store,
 		graphCache: graphCache,

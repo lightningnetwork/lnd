@@ -12,8 +12,8 @@ type ChannelGraph struct {
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
-func NewChannelGraph(db kvdb.Backend, options ...OptionModifier) (*ChannelGraph,
-	error) {
+func NewChannelGraph(db kvdb.Backend, options ...KVStoreOptionModifier) (
+	*ChannelGraph, error) {
 
 	store, err := NewKVStore(db, options...)
 	if err != nil {

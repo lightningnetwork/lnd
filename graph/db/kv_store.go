@@ -224,41 +224,16 @@ func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 		db, nil, opts.BatchCommitInterval,
 	)
 
-	// The graph cache can be turned off (e.g. for mobile users) for a
-	// speed/memory usage tradeoff.
-	if opts.UseGraphCache {
-		g.graphCache = NewGraphCache(opts.PreAllocCacheNumNodes)
-		startTime := time.Now()
-		log.Debugf("Populating in-memory channel graph, this might " +
-			"take a while...")
-
-		err := g.ForEachNodeCacheable(func(node route.Vertex,
-			features *lnwire.FeatureVector) error {
-
-			g.graphCache.AddNodeFeatures(node, features)
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		err = g.ForEachChannel(func(info *models.ChannelEdgeInfo,
-			policy1, policy2 *models.ChannelEdgePolicy) error {
-
-			g.graphCache.AddChannel(info, policy1, policy2)
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("Finished populating in-memory channel graph (took "+
-			"%v, %s)", time.Since(startTime), g.graphCache.Stats())
-	}
-
 	return g, nil
+}
+
+// setGraphCache sets the KVStore's graphCache.
+//
+// NOTE: this is temporary and will only be called from the ChannelGraph's
+// constructor before the KVStore methods are available to be called. This will
+// be removed once the graph cache is fully owned by the ChannelGraph.
+func (c *KVStore) setGraphCache(cache *GraphCache) {
+	c.graphCache = cache
 }
 
 // channelMapKey is the key structure used for storing channel edge policies.

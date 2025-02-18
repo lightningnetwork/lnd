@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -3898,29 +3899,16 @@ func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 // the graph cache is not enabled, then the call-back will  be provided with
 // access to the graph via a consistent read-only transaction.
 func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
-	var (
-		tx     kvdb.RTx
-		err    error
-		commit = func() {}
-	)
-	if c.graphCache == nil {
-		tx, err = c.db.BeginReadTx()
-		if err != nil {
-			return err
-		}
-
-		commit = func() {
-			if err := tx.Rollback(); err != nil {
-				log.Errorf("Unable to rollback tx: %v", err)
-			}
-		}
+	if c.graphCache != nil {
+		return cb(&nodeTraverserSession{db: c})
 	}
-	defer commit()
 
-	return cb(&nodeTraverserSession{
-		db: c,
-		tx: tx,
-	})
+	return c.db.View(func(tx walletdb.ReadTx) error {
+		return cb(&nodeTraverserSession{
+			db: c,
+			tx: tx,
+		})
+	}, func() {})
 }
 
 // nodeTraverserSession implements the NodeTraverser interface but with a

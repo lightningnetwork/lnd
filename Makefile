@@ -25,19 +25,14 @@ COMMIT := $(shell git describe --tags --dirty)
 ACTIVE_GO_VERSION := $(shell $(GOCC) version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
 ACTIVE_GO_VERSION_MINOR := $(shell echo $(ACTIVE_GO_VERSION) | cut -d. -f2)
 
-LOOPVARFIX :=
-ifeq ($(shell expr $(ACTIVE_GO_VERSION_MINOR) \>= 21), 1)
-	LOOPVARFIX := GOEXPERIMENT=loopvar
-endif
-
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
 GO_VERSION = 1.23.6
 
-GOBUILD := $(LOOPVARFIX) $(GOCC) build -v
-GOINSTALL := $(LOOPVARFIX) $(GOCC) install -v
-GOTEST := $(LOOPVARFIX) $(GOCC) test
+GOBUILD := $(GOCC) build -v
+GOINSTALL := $(GOCC) install -v
+GOTEST := $(GOCC) test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 

@@ -1309,7 +1309,7 @@ func (c *ChannelGraph) UpdateChannelEdge(edge *models.ChannelEdgeInfo) error {
 
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
-		if edge == nil {
+		if edges == nil {
 			return ErrEdgeNotFound
 		}
 

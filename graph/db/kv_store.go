@@ -480,10 +480,6 @@ func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 func (c *KVStore) forEachNodeDirectedChannel(tx kvdb.RTx,
 	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
-	if c.graphCache != nil {
-		return c.graphCache.ForEachChannel(node, cb)
-	}
-
 	// Fallback that uses the database.
 	toNodeCallback := func() route.Vertex {
 		return node
@@ -539,10 +535,6 @@ func (c *KVStore) forEachNodeDirectedChannel(tx kvdb.RTx,
 func (c *KVStore) fetchNodeFeatures(tx kvdb.RTx,
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
-	if c.graphCache != nil {
-		return c.graphCache.GetFeatures(node), nil
-	}
-
 	// Fallback that uses the database.
 	targetNode, err := c.FetchLightningNodeTx(tx, node)
 	switch {
@@ -589,17 +581,12 @@ func (c *KVStore) FetchNodeFeatures(nodePub route.Vertex) (
 	return c.fetchNodeFeatures(nil, nodePub)
 }
 
-// ForEachNodeCached is similar to forEachNode, but it utilizes the channel
-// graph cache instead. Note that this doesn't return all the information the
-// regular forEachNode method does.
+// ForEachNodeCached is similar to forEachNode, but it returns DirectedChannel
+// data to the call-back.
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
 	chans map[uint64]*DirectedChannel) error) error {
-
-	if c.graphCache != nil {
-		return c.graphCache.ForEachNode(cb)
-	}
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each
@@ -3888,10 +3875,6 @@ func (c *KVStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 // the graph cache is not enabled, then the call-back will  be provided with
 // access to the graph via a consistent read-only transaction.
 func (c *KVStore) GraphSession(cb func(graph NodeTraverser) error) error {
-	if c.graphCache != nil {
-		return cb(&nodeTraverserSession{db: c})
-	}
-
 	return c.db.View(func(tx walletdb.ReadTx) error {
 		return cb(&nodeTraverserSession{
 			db: c,

@@ -4005,7 +4005,7 @@ func TestGraphLoading(t *testing.T) {
 	defer backend.Close()
 	defer backendCleanup()
 
-	graph, err := NewChannelGraph(backend)
+	graph, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
 
 	// Populate the graph with test data.
@@ -4015,7 +4015,7 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(backend)
+	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
 
 	// Assert that the cache content is identical.

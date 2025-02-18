@@ -1093,9 +1093,12 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 
 	t.Cleanup(backendCleanup)
 
-	graph, err := graphdb.NewChannelGraph(
-		backend, graphdb.WithUseGraphCache(useCache),
-	)
+	graph, err := graphdb.NewChannelGraph(&graphdb.Config{
+		KVDB: backend,
+		KVStoreOpts: []graphdb.KVStoreOptionModifier{
+			graphdb.WithUseGraphCache(useCache),
+		},
+	})
 	if err != nil {
 		return nil, nil, err
 	}

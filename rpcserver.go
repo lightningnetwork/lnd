@@ -48,7 +48,6 @@ import (
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
-	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -3294,7 +3293,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	// TODO(roasbeef): add synced height n stuff
 
 	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
-	nodeColor := graph.EncodeHexColor(nodeAnn.RGBColor)
+	nodeColor := graphdb.EncodeHexColor(nodeAnn.RGBColor)
 	version := build.Version() + " commit=" + build.Commit
 
 	return &lnrpc.GetInfoResponse{
@@ -6886,7 +6885,7 @@ func marshalNode(node *models.LightningNode) *lnrpc.LightningNode {
 		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
 		Addresses:     nodeAddrs,
 		Alias:         node.Alias,
-		Color:         graph.EncodeHexColor(node.Color),
+		Color:         graphdb.EncodeHexColor(node.Color),
 		Features:      features,
 		CustomRecords: customRecords,
 	}
@@ -7084,7 +7083,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 
 	// First, we start by subscribing to a new intent to receive
 	// notifications from the channel router.
-	client, err := r.server.graphBuilder.SubscribeTopology()
+	client, err := r.server.graphDB.SubscribeTopology()
 	if err != nil {
 		return err
 	}
@@ -7137,7 +7136,7 @@ func (r *rpcServer) SubscribeChannelGraph(req *lnrpc.GraphTopologySubscription,
 // returned by the router to the form of notifications expected by the current
 // gRPC service.
 func marshallTopologyChange(
-	topChange *graph.TopologyChange) *lnrpc.GraphTopologyUpdate {
+	topChange *graphdb.TopologyChange) *lnrpc.GraphTopologyUpdate {
 
 	// encodeKey is a simple helper function that converts a live public
 	// key into a hex-encoded version of the compressed serialization for

@@ -262,6 +262,8 @@ The underlying functionality between those two options remain the same.
     - [Abstract autopilot access](https://github.com/lightningnetwork/lnd/pull/9480)
     - [Abstract invoicerpc server access](https://github.com/lightningnetwork/lnd/pull/9516)
     - [Refactor to hide DB transactions](https://github.com/lightningnetwork/lnd/pull/9513)
+    - Move the graph cache out of the graph CRUD layer:
+      - [1](https://github.com/lightningnetwork/lnd/pull/9533)
 
 * [Golang was updated to
   `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 

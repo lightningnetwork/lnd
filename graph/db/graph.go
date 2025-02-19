@@ -416,3 +416,21 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 
 	return unknown, nil
 }
+
+// MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
+// zombie. This method is used on an ad-hoc basis, when channels need to be
+// marked as zombies outside the normal pruning cycle.
+func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	err := c.KVStore.MarkEdgeZombie(chanID, pubKey1, pubKey2)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		c.graphCache.RemoveChannel(pubKey1, pubKey2, chanID)
+	}
+
+	return nil
+}

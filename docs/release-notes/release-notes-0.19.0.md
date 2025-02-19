@@ -268,6 +268,7 @@ The underlying functionality between those two options remain the same.
       - [3](https://github.com/lightningnetwork/lnd/pull/9550)
       - [4](https://github.com/lightningnetwork/lnd/pull/9551)
       - [5](https://github.com/lightningnetwork/lnd/pull/9552)
+      - [6](https://github.com/lightningnetwork/lnd/pull/9555)
 
 * [Golang was updated to
   `v1.22.11`](https://github.com/lightningnetwork/lnd/pull/9462). 

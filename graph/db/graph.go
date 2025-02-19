@@ -3,6 +3,7 @@ package graphdb
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -32,13 +33,20 @@ type Config struct {
 // KVStore. Upcoming commits will move the graph cache out of the KVStore and
 // into this layer so that the KVStore is only responsible for CRUD operations.
 type ChannelGraph struct {
+	started atomic.Bool
+	stopped atomic.Bool
+
 	// cacheMu guards any writes to the graphCache. It should be held
 	// across the DB write call and the graphCache update to make the
 	// two updates as atomic as possible.
-	cacheMu    sync.Mutex
+	cacheMu sync.Mutex
+
 	graphCache *GraphCache
 
 	*KVStore
+
+	quit chan struct{}
+	wg   sync.WaitGroup
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
@@ -58,6 +66,7 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 	if !opts.useGraphCache {
 		return &ChannelGraph{
 			KVStore: store,
+			quit:    make(chan struct{}),
 		}, nil
 	}
 
@@ -96,7 +105,36 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 	return &ChannelGraph{
 		KVStore:    store,
 		graphCache: graphCache,
+		quit:       make(chan struct{}),
 	}, nil
+}
+
+// Start kicks off any goroutines required for the ChannelGraph to function.
+// If the graph cache is enabled, then it will be populated with the contents of
+// the database.
+func (c *ChannelGraph) Start() error {
+	if !c.started.CompareAndSwap(false, true) {
+		return nil
+	}
+	log.Debugf("ChannelGraph starting")
+	defer log.Debug("ChannelGraph started")
+
+	return nil
+}
+
+// Stop signals any active goroutines for a graceful closure.
+func (c *ChannelGraph) Stop() error {
+	if !c.stopped.CompareAndSwap(false, true) {
+		return nil
+	}
+
+	log.Debugf("ChannelGraph shutting down...")
+	defer log.Debug("ChannelGraph shutdown complete")
+
+	close(c.quit)
+	c.wg.Wait()
+
+	return nil
 }
 
 // ForEachNodeDirectedChannel iterates through all channels of a given node,

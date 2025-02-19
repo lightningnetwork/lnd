@@ -6,7 +6,8 @@ ITEST_FLAGS =
 ITEST_COVERAGE =
 COLLECT_ITEST_COVERAGE =
 EXEC_SUFFIX =
-COVER_PKG = $$($(GOCC) list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
+COVER_PKG = $$($(GOCC) list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)')
+COVER_FLAGS = -coverprofile=coverage.txt -covermode=atomic -coverpkg=$(PKG)/...
 NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
@@ -116,7 +117,6 @@ TEST_FLAGS += -test.count=1
 endif
 
 GOLIST := $(GOCC) list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
-GOLISTCOVER := $(shell $(GOCC) list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
 # not being targeted.
@@ -150,4 +150,4 @@ endif
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration $(backend)
 
 # Construct the coverage test command with the added build flags.
-GOACC := $(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT_COVER := $(GOTEST) $(COVER_FLAGS) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(COVER_PKG)

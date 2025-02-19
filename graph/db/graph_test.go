@@ -4077,6 +4077,10 @@ func TestGraphLoading(t *testing.T) {
 
 	graph, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
 
 	// Populate the graph with test data.
 	const numNodes = 100
@@ -4087,6 +4091,10 @@ func TestGraphLoading(t *testing.T) {
 	// populated.
 	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graphReloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graphReloaded.Stop())
+	})
 
 	// Assert that the cache content is identical.
 	require.Equal(

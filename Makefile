@@ -1,19 +1,16 @@
 PKG := github.com/lightningnetwork/lnd
-ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
 
 PREFIX ?= /usr/local
 
 BTCD_PKG := github.com/btcsuite/btcd
-GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := $(GO_BIN)/gomobile
-GOACC_BIN := $(GO_BIN)/go-acc
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
 IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
@@ -27,19 +24,14 @@ COMMIT := $(shell git describe --tags --dirty)
 ACTIVE_GO_VERSION := $(shell go version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
 ACTIVE_GO_VERSION_MINOR := $(shell echo $(ACTIVE_GO_VERSION) | cut -d. -f2)
 
-LOOPVARFIX :=
-ifeq ($(shell expr $(ACTIVE_GO_VERSION_MINOR) \>= 21), 1)
-	LOOPVARFIX := GOEXPERIMENT=loopvar
-endif
-
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
 GO_VERSION = 1.23.6
 
-GOBUILD := $(LOOPVARFIX) go build -v
-GOINSTALL := $(LOOPVARFIX) go install -v
-GOTEST := $(LOOPVARFIX) go test
+GOBUILD := go build -v
+GOINSTALL := go install -v
+GOTEST := go test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 
@@ -91,10 +83,6 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-$(GOACC_BIN):
-	@$(call print, "Installing go-acc.")
-	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
-
 $(BTCD_BIN):
 	@$(call print, "Installing btcd.")
 	cd $(TOOLS_DIR); go install -trimpath $(BTCD_PKG)
@@ -257,12 +245,12 @@ unit-debug: $(BTCD_BIN)
 	$(UNIT_DEBUG)
 
 #? unit-cover: Run unit tests in coverage mode
-unit-cover: $(GOACC_BIN)
+unit-cover: $(BTCD_BIN)
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC)
+	$(UNIT_COVER)
 
 #? unit-race: Run unit tests in race detector mode
-unit-race:
+unit-race: $(BTCD_BIN)
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 

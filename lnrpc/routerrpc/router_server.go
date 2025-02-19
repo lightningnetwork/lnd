@@ -382,7 +382,7 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 
 	// Subscribe to the payment before sending it to make sure we won't
 	// miss events.
-	sub, err := s.subscribePayment(payHash)
+	sub, err := s.subscribePayment(payHash, false)
 	if err != nil {
 		return err
 	}
@@ -1307,7 +1307,9 @@ func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 	log.Debugf("TrackPayment called for payment %v", payHash)
 
 	// Make the subscription.
-	sub, err := s.subscribePayment(payHash)
+	sub, err := s.subscribePayment(
+		payHash, request.PreventSubsequentPayment,
+	)
 	if err != nil {
 		return err
 	}
@@ -1316,13 +1318,17 @@ func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 }
 
 // subscribePayment subscribes to the payment updates for the given payment
-// hash.
-func (s *Server) subscribePayment(identifier lntypes.Hash) (
-	routing.ControlTowerSubscriber, error) {
+// hash. If preventSubsequentPayment is set and the payment hasn't started yet,
+// it will be blocked in the future. This is useful to enforce the order of
+// requests.
+func (s *Server) subscribePayment(identifier lntypes.Hash,
+	preventSubsequentPayment bool) (routing.ControlTowerSubscriber, error) {
 
 	// Make the subscription.
 	router := s.cfg.RouterBackend
-	sub, err := router.Tower.SubscribePayment(identifier)
+	sub, err := router.Tower.SubscribePayment(
+		identifier, preventSubsequentPayment,
+	)
 
 	switch {
 	case errors.Is(err, channeldb.ErrPaymentNotInitiated):

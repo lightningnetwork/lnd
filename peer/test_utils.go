@@ -619,6 +619,10 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 		KVDB: graphBackend,
 	})
 	require.NoError(t, err)
+	require.NoError(t, dbAliceGraph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, dbAliceGraph.Stop())
+	})
 
 	dbAliceChannel := channeldb.OpenForTesting(t, dbPath)
 

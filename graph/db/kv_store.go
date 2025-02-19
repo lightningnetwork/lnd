@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -4714,10 +4715,12 @@ func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
 
 		return nil, err
 	}
+	require.NoError(t, graph.Start())
 
 	t.Cleanup(func() {
 		_ = backend.Close()
 		backendCleanup()
+		require.NoError(t, graph.Stop())
 	})
 
 	return graph, nil

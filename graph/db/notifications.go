@@ -1,4 +1,4 @@
-package graph
+package graphdb
 
 import (
 	"fmt"
@@ -54,16 +54,16 @@ type topologyClientUpdate struct {
 // topology occurs. Changes that will be sent at notifications include: new
 // nodes appearing, node updating their attributes, new channels, channels
 // closing, and updates in the routing policies of a channel's directed edges.
-func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
+func (c *ChannelGraph) SubscribeTopology() (*TopologyClient, error) {
 	// If the router is not yet started, return an error to avoid a
 	// deadlock waiting for it to handle the subscription request.
-	if !b.started.Load() {
+	if !c.started.Load() {
 		return nil, fmt.Errorf("router not started")
 	}
 
 	// We'll first atomically obtain the next ID for this client from the
 	// incrementing client ID counter.
-	clientID := b.ntfnClientCounter.Add(1)
+	clientID := c.ntfnClientCounter.Add(1)
 
 	log.Debugf("New graph topology client subscription, client %v",
 		clientID)
@@ -71,12 +71,12 @@ func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
 	ntfnChan := make(chan *TopologyChange, 10)
 
 	select {
-	case b.ntfnClientUpdates <- &topologyClientUpdate{
+	case c.ntfnClientUpdates <- &topologyClientUpdate{
 		cancel:   false,
 		clientID: clientID,
 		ntfnChan: ntfnChan,
 	}:
-	case <-b.quit:
+	case <-c.quit:
 		return nil, errors.New("ChannelRouter shutting down")
 	}
 
@@ -84,11 +84,11 @@ func (b *Builder) SubscribeTopology() (*TopologyClient, error) {
 		TopologyChanges: ntfnChan,
 		Cancel: func() {
 			select {
-			case b.ntfnClientUpdates <- &topologyClientUpdate{
+			case c.ntfnClientUpdates <- &topologyClientUpdate{
 				cancel:   true,
 				clientID: clientID,
 			}:
-			case <-b.quit:
+			case <-c.quit:
 				return
 			}
 		},
@@ -114,7 +114,7 @@ type topologyClient struct {
 
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
-func (b *Builder) notifyTopologyChange(topologyDiff *TopologyChange) {
+func (c *ChannelGraph) notifyTopologyChange(topologyDiff *TopologyChange) {
 	// notifyClient is a helper closure that will send topology updates to
 	// the given client.
 	notifyClient := func(clientID uint64, client *topologyClient) bool {
@@ -127,23 +127,22 @@ func (b *Builder) notifyTopologyChange(topologyDiff *TopologyChange) {
 			len(topologyDiff.ChannelEdgeUpdates),
 			len(topologyDiff.ClosedChannels))
 
-		go func(c *topologyClient) {
-			defer c.wg.Done()
+		go func(t *topologyClient) {
+			defer t.wg.Done()
 
 			select {
 
 			// In this case we'll try to send the notification
 			// directly to the upstream client consumer.
-			case c.ntfnChan <- topologyDiff:
+			case t.ntfnChan <- topologyDiff:
 
 			// If the client cancels the notifications, then we'll
 			// exit early.
-			case <-c.exit:
+			case <-t.exit:
 
 			// Similarly, if the ChannelRouter itself exists early,
 			// then we'll also exit ourselves.
-			case <-b.quit:
-
+			case <-c.quit:
 			}
 		}(client)
 
@@ -154,7 +153,29 @@ func (b *Builder) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 	// Range over the set of active clients, and attempt to send the
 	// topology updates.
-	b.topologyClients.Range(notifyClient)
+	c.topologyClients.Range(notifyClient)
+}
+
+// handleTopologyUpdate is responsible for sending any topology changes
+// notifications to registered clients.
+//
+// NOTE: must be run inside goroutine.
+func (c *ChannelGraph) handleTopologyUpdate(update any) {
+	defer c.wg.Done()
+
+	topChange := &TopologyChange{}
+	err := c.addToTopologyChange(topChange, update)
+	if err != nil {
+		log.Errorf("unable to update topology change notification: %v",
+			err)
+		return
+	}
+
+	if topChange.isEmpty() {
+		return
+	}
+
+	c.notifyTopologyChange(topChange)
 }
 
 // TopologyChange represents a new set of modifications to the channel graph.
@@ -310,8 +331,8 @@ type ChannelEdgeUpdate struct {
 // constitutes. This function will also fetch any required auxiliary
 // information required to create the topology change update from the graph
 // database.
-func addToTopologyChange(graph DB, update *TopologyChange,
-	msg interface{}) error {
+func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
+	msg any) error {
 
 	switch m := msg.(type) {
 
@@ -345,7 +366,7 @@ func addToTopologyChange(graph DB, update *TopologyChange,
 		// We'll need to fetch the edge's information from the database
 		// in order to get the information concerning which nodes are
 		// being connected.
-		edgeInfo, _, _, err := graph.FetchChannelEdgesByID(m.ChannelID)
+		edgeInfo, _, _, err := c.FetchChannelEdgesByID(m.ChannelID)
 		if err != nil {
 			return errors.Errorf("unable fetch channel edge: %v",
 				err)

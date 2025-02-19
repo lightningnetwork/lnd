@@ -972,6 +972,23 @@ func randEdgePolicy(chanID uint64, db kvdb.Backend) *models.ChannelEdgePolicy {
 	return newEdgePolicy(chanID, db, update)
 }
 
+func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
+	return &models.ChannelEdgePolicy{
+		SigBytes:                  p.SigBytes,
+		ChannelID:                 p.ChannelID,
+		LastUpdate:                p.LastUpdate,
+		MessageFlags:              p.MessageFlags,
+		ChannelFlags:              p.ChannelFlags,
+		TimeLockDelta:             p.TimeLockDelta,
+		MinHTLC:                   p.MinHTLC,
+		MaxHTLC:                   p.MaxHTLC,
+		FeeBaseMSat:               p.FeeBaseMSat,
+		FeeProportionalMillionths: p.FeeProportionalMillionths,
+		ToNode:                    p.ToNode,
+		ExtraOpaqueData:           p.ExtraOpaqueData,
+	}
+}
+
 func newEdgePolicy(chanID uint64, db kvdb.Backend,
 	updateTime int64) *models.ChannelEdgePolicy {
 
@@ -2937,6 +2954,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	edge2 := randEdgePolicy(chanID.ToUint64(), graph.db)
 	edge2.ChannelFlags = 1
@@ -2945,6 +2963,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge2 = copyEdgePolicy(edge2) // Avoid read/write race conditions.
 
 	// checkIndexTimestamps is a helper function that checks the edge update
 	// index only includes the given timestamps.
@@ -4052,6 +4071,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
 	}
 	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	directedChan := getSingleChannel()
 	require.NotNil(t, directedChan)

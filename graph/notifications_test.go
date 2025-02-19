@@ -469,7 +469,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
-	ntfnClient, err := ctx.builder.SubscribeTopology()
+	ntfnClient, err := ctx.graph.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Create random policy edges that are stemmed to the channel id
@@ -489,7 +489,8 @@ func TestEdgeUpdateNotification(t *testing.T) {
 		t.Fatalf("unable to add edge update: %v", err)
 	}
 
-	assertEdgeCorrect := func(t *testing.T, edgeUpdate *ChannelEdgeUpdate,
+	assertEdgeCorrect := func(t *testing.T,
+		edgeUpdate *graphdb.ChannelEdgeUpdate,
 		edgeAnn *models.ChannelEdgePolicy) {
 
 		if edgeUpdate.ChanID != edgeAnn.ChannelID {
@@ -659,7 +660,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	}
 
 	// Create a new client to receive notifications.
-	ntfnClient, err := ctx.builder.SubscribeTopology()
+	ntfnClient, err := ctx.graph.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Change network topology by adding the updated info for the two nodes
@@ -672,7 +673,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	}
 
 	assertNodeNtfnCorrect := func(t *testing.T, ann *models.LightningNode,
-		nodeUpdate *NetworkNodeUpdate) {
+		nodeUpdate *graphdb.NetworkNodeUpdate) {
 
 		nodeKey, _ := ann.PubKey()
 
@@ -699,9 +700,10 @@ func TestNodeUpdateNotification(t *testing.T) {
 			t.Fatalf("node alias doesn't match: expected %v, got %v",
 				ann.Alias, nodeUpdate.Alias)
 		}
-		if nodeUpdate.Color != EncodeHexColor(ann.Color) {
-			t.Fatalf("node color doesn't match: expected %v, got %v",
-				EncodeHexColor(ann.Color), nodeUpdate.Color)
+		if nodeUpdate.Color != graphdb.EncodeHexColor(ann.Color) {
+			t.Fatalf("node color doesn't match: expected %v, "+
+				"got %v", graphdb.EncodeHexColor(ann.Color),
+				nodeUpdate.Color)
 		}
 	}
 
@@ -793,7 +795,7 @@ func TestNotificationCancellation(t *testing.T) {
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
 
 	// Create a new client to receive notifications.
-	ntfnClient, err := ctx.builder.SubscribeTopology()
+	ntfnClient, err := ctx.graph.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// We'll create the utxo for a new channel.
@@ -919,7 +921,7 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// With the channel edge now in place, we'll subscribe for topology
 	// notifications.
-	ntfnClient, err := ctx.builder.SubscribeTopology()
+	ntfnClient, err := ctx.graph.SubscribeTopology()
 	require.NoError(t, err, "unable to subscribe for channel notifications")
 
 	// Next, we'll simulate the closure of our channel by generating a new
@@ -1002,7 +1004,9 @@ func TestEncodeHexColor(t *testing.T) {
 	}
 
 	for _, tc := range colorTestCases {
-		encoded := EncodeHexColor(color.RGBA{tc.R, tc.G, tc.B, 0})
+		encoded := graphdb.EncodeHexColor(
+			color.RGBA{tc.R, tc.G, tc.B, 0},
+		)
 		if (encoded == tc.encoded) != tc.isValid {
 			t.Fatalf("incorrect color encoding, "+
 				"want: %v, got: %v", tc.encoded, encoded)

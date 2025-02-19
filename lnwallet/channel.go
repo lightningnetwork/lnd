@@ -8871,13 +8871,16 @@ func (lc *LightningChannel) availableCommitmentBalance(view *HtlcView,
 			ourBalance, futureCommitWeight, feePerKw, buffer,
 		)
 		if err != nil {
-			lc.log.Warnf("Set available amount to 0 because we "+
-				"could not pay for the CommitmentFee of the "+
-				"new ChannelState: ourBalance is negative "+
-				"after applying the fee: ourBalance=%v, "+
+			lc.log.Debugf("No available local balance after "+
+				"applying the CommitmentFee of the new "+
+				"CommitmentState(%v): ourBalance would drop "+
+				"below the reserve: "+
+				"ourBalance(w/o reserve)=%v, reserve=%v, "+
 				"current commitFee(w/o additional htlc)=%v, "+
-				"feeBuffer=%v (type=%v) local_chan_initiator",
-				ourBalance, commitFee, bufferAmt, buffer)
+				"feeBuffer=%v (type=%v) "+
+				"local_chan_initiator=%v", whoseCommitChain,
+				ourBalance, ourReserve, commitFee, bufferAmt,
+				buffer, lc.channelState.IsInitiator)
 
 			return 0, commitWeight
 		}

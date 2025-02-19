@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,50 +64,18 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 		return nil, err
 	}
 
-	if !opts.useGraphCache {
-		return &ChannelGraph{
-			KVStore: store,
-			quit:    make(chan struct{}),
-		}, nil
+	g := &ChannelGraph{
+		KVStore: store,
+		quit:    make(chan struct{}),
 	}
 
 	// The graph cache can be turned off (e.g. for mobile users) for a
 	// speed/memory usage tradeoff.
-	graphCache := NewGraphCache(opts.preAllocCacheNumNodes)
-	startTime := time.Now()
-	log.Debugf("Populating in-memory channel graph, this might take a " +
-		"while...")
-
-	err = store.ForEachNodeCacheable(func(node route.Vertex,
-		features *lnwire.FeatureVector) error {
-
-		graphCache.AddNodeFeatures(node, features)
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	if opts.useGraphCache {
+		g.graphCache = NewGraphCache(opts.preAllocCacheNumNodes)
 	}
 
-	err = store.ForEachChannel(func(info *models.ChannelEdgeInfo,
-		policy1, policy2 *models.ChannelEdgePolicy) error {
-
-		graphCache.AddChannel(info, policy1, policy2)
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	log.Debugf("Finished populating in-memory channel graph (took %v, %s)",
-		time.Since(startTime), graphCache.Stats())
-
-	return &ChannelGraph{
-		KVStore:    store,
-		graphCache: graphCache,
-		quit:       make(chan struct{}),
-	}, nil
+	return g, nil
 }
 
 // Start kicks off any goroutines required for the ChannelGraph to function.
@@ -118,6 +87,13 @@ func (c *ChannelGraph) Start() error {
 	}
 	log.Debugf("ChannelGraph starting")
 	defer log.Debug("ChannelGraph started")
+
+	if c.graphCache != nil {
+		if err := c.populateCache(); err != nil {
+			return fmt.Errorf("could not populate the graph "+
+				"cache: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -133,6 +109,42 @@ func (c *ChannelGraph) Stop() error {
 
 	close(c.quit)
 	c.wg.Wait()
+
+	return nil
+}
+
+// populateCache loads the entire channel graph into the in-memory graph cache.
+//
+// NOTE: This should only be called if the graphCache has been constructed.
+func (c *ChannelGraph) populateCache() error {
+	startTime := time.Now()
+	log.Info("Populating in-memory channel graph, this might take a " +
+		"while...")
+
+	err := c.KVStore.ForEachNodeCacheable(func(node route.Vertex,
+		features *lnwire.FeatureVector) error {
+
+		c.graphCache.AddNodeFeatures(node, features)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	err = c.KVStore.ForEachChannel(func(info *models.ChannelEdgeInfo,
+		policy1, policy2 *models.ChannelEdgePolicy) error {
+
+		c.graphCache.AddChannel(info, policy1, policy2)
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Infof("Finished populating in-memory channel graph (took %v, %s)",
+		time.Since(startTime), c.graphCache.Stats())
 
 	return nil
 }

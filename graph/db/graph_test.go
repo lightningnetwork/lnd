@@ -1919,6 +1919,76 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	}
 }
 
+// TestFilterKnownChanIDsZombieRevival tests that if a ChannelUpdateInfo is
+// passed to FilterKnownChanIDs that contains a channel that we have marked as
+// a zombie, then we will mark it as live again if the new ChannelUpdate has
+// timestamps that would make the channel be considered live again.
+//
+// NOTE: this tests focuses on zombie revival. The main logic of
+// FilterKnownChanIDs is tested in TestFilterKnownChanIDs.
+func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err)
+
+	var (
+		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
+		scid2 = lnwire.ShortChannelID{BlockHeight: 2}
+		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
+	)
+
+	isZombie := func(scid lnwire.ShortChannelID) bool {
+		zombie, _, _ := graph.IsZombieEdge(scid.ToUint64())
+		return zombie
+	}
+
+	// Mark channel 1 and 2 as zombies.
+	err = graph.MarkEdgeZombie(scid1.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+	err = graph.MarkEdgeZombie(scid2.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Call FilterKnownChanIDs with an isStillZombie call-back that would
+	// result in the current zombies still be considered as zombies.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{ShortChannelID: scid2},
+		{ShortChannelID: scid3},
+	}, func(_ time.Time, _ time.Time) bool {
+		return true
+	})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Now call it again but this time with a isStillZombie call-back that
+	// would result in channel with SCID 2 no longer being considered a
+	// zombie.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{
+			ShortChannelID:       scid2,
+			Node1UpdateTimestamp: time.Unix(1000, 0),
+		},
+		{ShortChannelID: scid3},
+	}, func(t1 time.Time, _ time.Time) bool {
+		return !t1.Equal(time.Unix(1000, 0))
+	})
+	require.NoError(t, err)
+
+	// Show that SCID 2 has been marked as live.
+	require.True(t, isZombie(scid1))
+	require.False(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+}
+
 // TestFilterKnownChanIDs tests that we're able to properly perform the set
 // differences of an incoming set of channel ID's, and those that we already
 // know of on disk.

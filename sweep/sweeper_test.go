@@ -497,10 +497,9 @@ func TestUpdateSweeperInputs(t *testing.T) {
 	require.Equal(expectedInputs, s.inputs)
 }
 
-// TestDecideStateAndRBFInfo checks that the expected state and RBFInfo are
-// returned based on whether this input can be found both in mempool and the
-// sweeper store.
-func TestDecideStateAndRBFInfo(t *testing.T) {
+// TestDecideRBFInfo checks that the expected RBFInfo is returned based on
+// whether this input can be found both in mempool and the sweeper store.
+func TestDecideRBFInfo(t *testing.T) {
 	t.Parallel()
 
 	require := require.New(t)
@@ -524,11 +523,9 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	mockMempool.On("LookupInputMempoolSpend", op).Return(
 		fn.None[wire.MsgTx]()).Once()
 
-	// Since the mempool lookup failed, we exepect state Init and no
-	// RBFInfo.
-	state, rbf := s.decideStateAndRBFInfo(op)
+	// Since the mempool lookup failed, we expect no RBFInfo.
+	rbf := s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Init, state)
 
 	// Mock the mempool lookup to return a tx three times as we are calling
 	// attachAvailableRBFInfo three times.
@@ -539,19 +536,17 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	// Mock the store to return an error saying the tx cannot be found.
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
 
-	// Although the db lookup failed, we expect the state to be Published.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	// The db lookup failed, we expect no RBFInfo.
+	rbf = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Published, state)
 
 	// Mock the store to return a db error.
 	dummyErr := errors.New("dummy error")
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
-	// Although the db lookup failed, we expect the state to be Published.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	// The db lookup failed, we expect no RBFInfo.
+	rbf = s.decideRBFInfo(op)
 	require.True(rbf.IsNone())
-	require.Equal(Published, state)
 
 	// Mock the store to return a record.
 	tr := &TxRecord{
@@ -561,7 +556,7 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
 
 	// Call the method again.
-	state, rbf = s.decideStateAndRBFInfo(op)
+	rbf = s.decideRBFInfo(op)
 
 	// Assert that the RBF info is returned.
 	rbfInfo := fn.Some(RBFInfo{
@@ -570,9 +565,6 @@ func TestDecideStateAndRBFInfo(t *testing.T) {
 		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 	})
 	require.Equal(rbfInfo, rbf)
-
-	// Assert the state is updated.
-	require.Equal(Published, state)
 }
 
 // TestMarkInputFatal checks that the input is marked as expected.
@@ -596,7 +588,7 @@ func TestMarkInputFailed(t *testing.T) {
 	}
 
 	// Call the method under test.
-	s.markInputFatal(pi, errors.New("dummy error"))
+	s.markInputFatal(pi, nil, errors.New("dummy error"))
 
 	// Assert the state is updated.
 	require.Equal(t, Fatal, pi.state)
@@ -1198,4 +1190,247 @@ func TestHandleBumpEventTxFatal(t *testing.T) {
 	// Call the method under test and assert no error is returned.
 	err = s.handleBumpEventTxFatal(resp)
 	rt.NoError(err)
+}
+
+// TestHandleUnknownSpendTxOurs checks that `handleUnknownSpendTx` correctly
+// marks an input as swept given the tx is ours.
+func TestHandleUnknownSpendTxOurs(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a mock input.
+	inp := createMockInput(t, s, PublishFailed)
+	op := inp.OutPoint()
+
+	si, ok := s.inputs[op]
+	require.True(t, ok)
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+	txid := tx.TxHash()
+
+	// Mock the store to return true when calling IsOurTx.
+	store.On("IsOurTx", txid).Return(true).Once()
+
+	// Call the method under test.
+	s.handleUnknownSpendTx(si, tx)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, Swept, s.inputs[op].state)
+}
+
+// TestHandleUnknownSpendTxThirdParty checks that `handleUnknownSpendTx`
+// correctly marks an input as fatal given the tx is not ours.
+func TestHandleInputSpendTxThirdParty(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a mock input.
+	inp := createMockInput(t, s, PublishFailed)
+	op := inp.OutPoint()
+
+	si, ok := s.inputs[op]
+	require.True(t, ok)
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+	txid := tx.TxHash()
+
+	// Mock the store to return false when calling IsOurTx.
+	store.On("IsOurTx", txid).Return(false).Once()
+
+	// Mock `ListSweeps` to return an empty slice as we are testing the
+	// workflow here, not the method `removeConflictSweepDescendants`.
+	store.On("ListSweeps").Return([]chainhash.Hash{}, nil).Once()
+
+	// Call the method under test.
+	s.handleUnknownSpendTx(si, tx)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, Fatal, s.inputs[op].state)
+}
+
+// TestHandleBumpEventTxUnknownSpendNoRetry checks the case when all the inputs
+// are failed due to them being spent by another party.
+func TestHandleBumpEventTxUnknownSpendNoRetry(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a mock input.
+	inp := createMockInput(t, s, PendingPublish)
+	set.On("Inputs").Return([]input.Input{inp})
+
+	op := inp.OutPoint()
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+	txid := tx.TxHash()
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxUnknownSpend,
+		SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+			op: tx,
+		},
+	}
+
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
+	// Mock the store to return true when calling IsOurTx.
+	store.On("IsOurTx", txid).Return(true).Once()
+
+	// Call the method under test.
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, Swept, s.inputs[op].state)
+}
+
+// TestHandleBumpEventTxUnknownSpendWithRetry checks the case when some the
+// inputs are retried after the bad inputs are filtered out.
+func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a mock wallet and aggregator.
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Wallet:     wallet,
+		Aggregator: aggregator,
+		Publisher:  publisher,
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			//nolint:ll
+			return fn.Ok(lnwallet.AddrWithKey{
+				DeliveryAddress: testPubKey.SerializeCompressed(),
+			})
+		},
+		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
+		Store:                store,
+	})
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+
+	// Create mock inputs - inp1 will be the bad input, and inp2 will be
+	// retried.
+	inp1 := createMockInput(t, s, PendingPublish)
+	inp2 := createMockInput(t, s, PendingPublish)
+	set.On("Inputs").Return([]input.Input{inp1, inp2})
+
+	op1 := inp1.OutPoint()
+	op2 := inp2.OutPoint()
+
+	inp2.On("RequiredLockTime").Return(
+		uint32(s.currentHeight), false).Once()
+	inp2.On("BlocksToMaturity").Return(uint32(0)).Once()
+	inp2.On("HeightHint").Return(uint32(s.currentHeight)).Once()
+
+	// Create a testing tx that spends inp1.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op1},
+		},
+	}
+	txid := tx.TxHash()
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxUnknownSpend,
+		SpentInputs: map[wire.OutPoint]*wire.MsgTx{
+			op1: tx,
+		},
+	}
+
+	// Create a testing bump response.
+	resp := &bumpResp{
+		result: br,
+		set:    set,
+	}
+
+	// Mock the store to return true when calling IsOurTx.
+	store.On("IsOurTx", txid).Return(true).Once()
+
+	// Mock the aggregator to return an empty slice as we are not testing
+	// the actual sweeping behavior.
+	aggregator.On("ClusterInputs", mock.Anything).Return([]InputSet{})
+
+	// Call the method under test.
+	s.handleBumpEventTxUnknownSpend(resp)
+
+	// Assert the first input is removed.
+	require.NotContains(t, s.inputs, op1)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, PublishFailed, s.inputs[op2].state)
 }

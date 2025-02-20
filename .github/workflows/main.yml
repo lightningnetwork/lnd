@@ -528,7 +528,23 @@ jobs:
 
       - name: release notes check
         run: scripts/check-release-notes.sh
-  
+
+  ########################
+  # Backwards Compatibility Test
+  ########################
+  backwards-compatability-test:
+    name: backwards compatability test
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🛡️ backwards compatibility test
+        run: make backwards-compat-test
+
   # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}

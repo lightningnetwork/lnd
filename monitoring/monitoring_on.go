@@ -27,12 +27,14 @@ func GetPromInterceptors() ([]grpc.UnaryServerInterceptor, []grpc.StreamServerIn
 	return unaryInterceptors, streamInterceptors
 }
 
-// ExportPrometheusMetrics sets server options, registers gRPC metrics and
-// launches the Prometheus exporter on the specified address.
+// ExportPrometheusMetrics sets server options, registers gRPC metrics,
+// and launches the Prometheus exporter on the specified address.
 func ExportPrometheusMetrics(grpcServer *grpc.Server, cfg lncfg.Prometheus) error {
+	var metricErr error
 	started.Do(func() {
 		log.Infof("Prometheus exporter started on %v/metrics", cfg.Listen)
 
+		// Register gRPC Prometheus interceptors.
 		grpc_prometheus.Register(grpcServer)
 
 		// Enable the histograms which can allow plotting latency
@@ -43,11 +45,21 @@ func ExportPrometheusMetrics(grpcServer *grpc.Server, cfg lncfg.Prometheus) erro
 			grpc_prometheus.EnableHandlingTimeHistogram()
 		}
 
+		// Initialize additional metric groups (e.g., payment tracking).
+		err := InitializeMetrics(&cfg)
+		if err != nil {
+			log.Warnf("Failed to initialize additional metrics: %v",
+				err)
+
+			metricErr = err
+		}
+
+		// Start the Prometheus HTTP handler.
 		http.Handle("/metrics", promhttp.Handler())
 		go func() {
 			http.ListenAndServe(cfg.Listen, nil)
 		}()
 	})
 
-	return nil
+	return metricErr
 }

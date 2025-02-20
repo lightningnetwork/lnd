@@ -98,9 +98,11 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 
 	select {
 	case sweepRes := <-c.sweepResultChan:
-		switch sweepRes.Err {
+		err := sweepRes.Err
+
+		switch {
 		// Anchor was swept successfully.
-		case nil:
+		case err == nil:
 			sweepTxID := sweepRes.Tx.TxHash()
 
 			spendTx = &sweepTxID
@@ -108,7 +110,9 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 
 		// Anchor was swept by someone else. This is possible after the
 		// 16 block csv lock.
-		case sweep.ErrRemoteSpend:
+		case errors.Is(err, sweep.ErrRemoteSpend),
+			errors.Is(err, sweep.ErrInputMissing):
+
 			c.log.Warnf("our anchor spent by someone else")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 

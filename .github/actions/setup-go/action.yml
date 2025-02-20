@@ -22,6 +22,7 @@ runs:
       uses: actions/setup-go@v5
       with:
         go-version: '${{ inputs.go-version }}'
+        cache: 'false'
 
     - name: go cache
       if: ${{ inputs.use-build-cache == 'yes' }}
@@ -44,7 +45,7 @@ runs:
 
     - name: go module cache
       if: ${{ inputs.use-build-cache == 'no' }}
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         # Just the module download cache.
         path: |

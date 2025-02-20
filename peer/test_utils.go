@@ -337,7 +337,7 @@ func createTestPeerWithChannel(t *testing.T, updateChan func(a,
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels.Store(chanID, channelAlice)
 
-	alicePeer.wg.Add(1)
+	alicePeer.cg.WgAdd(1)
 	go alicePeer.channelManager()
 
 	return &peerTestCtx{

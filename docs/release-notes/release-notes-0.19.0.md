@@ -73,6 +73,12 @@
   restarts, for details check [this
   issue](https://github.com/lightningnetwork/lnd/issues/8975#issuecomment-2270528222).
 
+* [Bimodal pathfinding probability
+  improvements](https://github.com/lightningnetwork/lnd/pull/8329). A fallback
+  probability is used if the bimodal model is not applicable. Fixes are added
+  such that the probability is evaluated quicker and to be more accurate in
+  outdated scenarios.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
@@ -359,6 +365,7 @@ The underlying functionality between those two options remain the same.
 * Abdullahi Yunus
 * Andras Banki-Horvath
 * Animesh Bilthare
+* bitromortac
 * Boris Nagaev
 * Carla Kirk-Cohen
 * CharlieZKSmith

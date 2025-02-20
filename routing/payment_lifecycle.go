@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -595,6 +596,9 @@ func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 	err = p.router.cfg.Control.RegisterAttempt(
 		p.identifier, &attempt.HTLCAttemptInfo,
 	)
+
+	// Observe a new HTLC attempt for the payment.
+	monitoring.IncrementHTLCAttemptCount()
 
 	return attempt, err
 }

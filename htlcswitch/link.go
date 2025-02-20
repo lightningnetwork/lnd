@@ -3450,7 +3450,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	// Check to see if there is enough balance in this channel.
 	if amt > availableBandwidth {
 		l.log.Warnf("insufficient bandwidth to route htlc: %v is "+
-			"larger than %v", amt, l.Bandwidth())
+			"larger than %v", amt, availableBandwidth)
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewTemporaryChannelFailure(upd)
 		}

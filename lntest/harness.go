@@ -1296,14 +1296,10 @@ func (h *HarnessTest) ForceCloseChannel(hn *node.HarnessNode,
 // CloseChannelAssertErr closes the given channel and asserts an error
 // returned.
 func (h *HarnessTest) CloseChannelAssertErr(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, force bool) error {
+	req *lnrpc.CloseChannelRequest) error {
 
 	// Calls the rpc to close the channel.
-	closeReq := &lnrpc.CloseChannelRequest{
-		ChannelPoint: cp,
-		Force:        force,
-	}
-	stream := hn.RPC.CloseChannel(closeReq)
+	stream := hn.RPC.CloseChannel(req)
 
 	// Consume the "channel close" update in order to wait for the closing
 	// transaction to be broadcast, then wait for the closing tx to be seen

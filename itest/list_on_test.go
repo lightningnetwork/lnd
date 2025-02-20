@@ -603,6 +603,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testCoopCloseWithHtlcs,
 	},
 	{
+		Name:     "coop close exceeds max fee",
+		TestFunc: testCoopCloseExceedsMaxFee,
+	},
+	{
 		Name:     "open channel locked balance",
 		TestFunc: testOpenChannelLockedBalance,
 	},

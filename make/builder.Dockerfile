@@ -7,7 +7,6 @@ MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 # Golang build related environment variables that are static and used for all
 # architectures/OSes.
 ENV GODEBUG netdns=cgo
-ENV GO111MODULE=auto
 ENV CGO_ENABLED=0
 
 # Set up cache directories. Those will be mounted from the host system to speed

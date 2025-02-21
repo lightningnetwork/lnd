@@ -3146,7 +3146,7 @@ func (c *OpenChannel) RemoteCommitChainTip() (*CommitDiff, error) {
 		return nil, err
 	}
 
-	return cd, err
+	return cd, nil
 }
 
 // UnsignedAckedUpdates retrieves the persisted unsigned acked remote log

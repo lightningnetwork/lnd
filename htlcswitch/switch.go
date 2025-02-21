@@ -1556,7 +1556,7 @@ out:
 			s.indexMtx.RUnlock()
 
 			peerPub := link.PeerPubKey()
-			log.Debugf("Requesting local channel close: peer=%v, "+
+			log.Debugf("Requesting local channel close: peer=%x, "+
 				"chan_id=%x", link.PeerPubKey(), chanID[:])
 
 			go s.cfg.LocalChannelClose(peerPub[:], req)

@@ -674,7 +674,10 @@ func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// First, we'll try to close the channel as Carol, the initiator. This
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
-	err := ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	req := &lnrpc.CloseChannelRequest{
+		ChannelPoint: chanPoint2,
+	}
+	err := ht.CloseChannelAssertErr(carol, req)
 	require.Contains(ht, err.Error(), "cannot co-op close frozen channel")
 
 	// Before Dave closes the channel, he needs to check the invoice is
@@ -831,7 +834,10 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// First, we'll try to close the channel as Carol, the initiator. This
 	// should fail as a frozen channel only allows the responder to
 	// initiate a channel close.
-	err := ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	req := &lnrpc.CloseChannelRequest{
+		ChannelPoint: chanPoint2,
+	}
+	err := ht.CloseChannelAssertErr(carol, req)
 	require.Contains(ht, err.Error(), "cannot co-op close frozen channel")
 
 	// Before Dave closes the channel, he needs to check the invoice is

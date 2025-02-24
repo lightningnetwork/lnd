@@ -149,6 +149,49 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 			assert.Contains(t, res.Address, "bcrt1")
 		},
 	}, {
+		// Fifth test: Check first-party caveat with invalid IP range.
+		name: "invalid IP range macaroon",
+		run: func(ctxt context.Context, t *testing.T) {
+			readonlyMac, err := testNode.ReadMacaroon(
+				testNode.Cfg.ReadMacPath, defaultTimeout,
+			)
+			require.NoError(t, err)
+			invalidIPRangeMac, err := macaroons.AddConstraints(
+				readonlyMac, macaroons.IPRangeLockConstraint(
+					"1.1.1.1/32",
+				),
+			)
+			require.NoError(t, err)
+			cleanup, client := macaroonClient(
+				t, testNode, invalidIPRangeMac,
+			)
+			defer cleanup()
+			_, err = client.GetInfo(ctxt, infoReq)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "different IP range")
+		},
+	}, {
+		// Sixth test: Make sure that if we do everything correct and
+		// send the admin macaroon with first-party caveats that we can
+		// satisfy, we get a correct answer.
+		name: "correct macaroon",
+		run: func(ctxt context.Context, t *testing.T) {
+			adminMac, err := testNode.ReadMacaroon(
+				testNode.Cfg.AdminMacPath, defaultTimeout,
+			)
+			require.NoError(t, err)
+			adminMac, err = macaroons.AddConstraints(
+				adminMac, macaroons.TimeoutConstraint(30),
+				macaroons.IPRangeLockConstraint("127.0.0.1/32"),
+			)
+			require.NoError(t, err)
+			cleanup, client := macaroonClient(t, testNode, adminMac)
+			defer cleanup()
+			res, err := client.NewAddress(ctxt, newAddrReq)
+			require.NoError(t, err, "get new address")
+			assert.Contains(t, res.Address, "bcrt1")
+		},
+	}, {
 		// Seventh test: Bake a macaroon that can only access exactly
 		// two RPCs and make sure it works as expected.
 		name: "custom URI permissions",

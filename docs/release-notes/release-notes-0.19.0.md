@@ -317,6 +317,9 @@ The underlying functionality between those two options remain the same.
   now documented and
   [fixed](https://github.com/lightningnetwork/lnd/pull/9368).
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9549) a long standing
+  unit test flake found in the `chainntnfs/bitcoindnotify` package.
+
 ## Database
 
 * [Migrate the mission control 

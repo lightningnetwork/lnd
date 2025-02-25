@@ -730,6 +730,20 @@ var interfaceImpls = []struct {
 				chainConn, blockCache,
 			)
 
+			// When running in rpc polling mode, the `reorg` method
+			// in `BitcoindClient`'s `ntfnHandler` may be invoked to
+			// handle the last block received from the miner during
+			// bitcoind's startup. This behavior will cause a block
+			// disconnected and a block connected notifications to
+			// be sent to the channels.
+			//
+			// TODO(yy): unify the chain backend logic and put
+			// everything in `btcwallet/chain` instead. The only
+			// place we use this chain view is in `graph/builder`,
+			// in which we subscribe to `FilteredBlocks` and
+			// `DisconnectedBlocks`.
+			time.Sleep(1 * time.Second)
+
 			return chainView, nil
 		},
 	},

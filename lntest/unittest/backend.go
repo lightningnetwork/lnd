@@ -37,9 +37,15 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 
 	t.Helper()
 
-	// Add the trickle interval argument to the extra args.
-	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
-	extraArgs = append(extraArgs, trickle)
+	args := []string{
+		"--nobanning",
+		"--debuglevel=debug",
+		fmt.Sprintf("--trickleinterval=%v", TrickleInterval),
+
+		// Don't disconnect if a reply takes too long.
+		"--nostalldetect",
+	}
+	extraArgs = append(extraArgs, args...)
 
 	node, err := rpctest.New(netParams, nil, extraArgs, "")
 	require.NoError(t, err, "unable to create backend node")
@@ -88,6 +94,11 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqBlockPort)
 	zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqTxPort)
 
+	// TODO(yy): Make this configurable via `chain.BitcoindConfig` and
+	// replace the default P2P port when set.
+	p2pPort := port.NextAvailablePort()
+	netParams.DefaultPort = fmt.Sprintf("%d", p2pPort)
+
 	args := []string{
 		"-connect=" + minerAddr,
 		"-datadir=" + tempBitcoindDir,
@@ -96,6 +107,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 			"284294edb5773b05544b220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
+		fmt.Sprintf("-port=%d", p2pPort),
 		"-disablewallet",
 		"-zmqpubrawblock=" + zmqBlockHost,
 		"-zmqpubrawtx=" + zmqTxHost,

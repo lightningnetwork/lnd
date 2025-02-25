@@ -198,7 +198,7 @@ type KVStore struct {
 
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func NewKVStore(db kvdb.Backend, options ...OptionModifier) (*KVStore,
+func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 	error) {
 
 	opts := DefaultOptions()
@@ -224,41 +224,16 @@ func NewKVStore(db kvdb.Backend, options ...OptionModifier) (*KVStore,
 		db, nil, opts.BatchCommitInterval,
 	)
 
-	// The graph cache can be turned off (e.g. for mobile users) for a
-	// speed/memory usage tradeoff.
-	if opts.UseGraphCache {
-		g.graphCache = NewGraphCache(opts.PreAllocCacheNumNodes)
-		startTime := time.Now()
-		log.Debugf("Populating in-memory channel graph, this might " +
-			"take a while...")
-
-		err := g.ForEachNodeCacheable(func(node route.Vertex,
-			features *lnwire.FeatureVector) error {
-
-			g.graphCache.AddNodeFeatures(node, features)
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		err = g.ForEachChannel(func(info *models.ChannelEdgeInfo,
-			policy1, policy2 *models.ChannelEdgePolicy) error {
-
-			g.graphCache.AddChannel(info, policy1, policy2)
-
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("Finished populating in-memory channel graph (took "+
-			"%v, %s)", time.Since(startTime), g.graphCache.Stats())
-	}
-
 	return g, nil
+}
+
+// setGraphCache sets the KVStore's graphCache.
+//
+// NOTE: this is temporary and will only be called from the ChannelGraph's
+// constructor before the KVStore methods are available to be called. This will
+// be removed once the graph cache is fully owned by the ChannelGraph.
+func (c *KVStore) setGraphCache(cache *GraphCache) {
+	c.graphCache = cache
 }
 
 // channelMapKey is the key structure used for storing channel edge policies.
@@ -4827,8 +4802,8 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 
 // MakeTestGraph creates a new instance of the KVStore for testing
 // purposes.
-func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph,
-	error) {
+func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
+	*ChannelGraph, error) {
 
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
@@ -4843,7 +4818,10 @@ func MakeTestGraph(t testing.TB, modifiers ...OptionModifier) (*ChannelGraph,
 		return nil, err
 	}
 
-	graph, err := NewChannelGraph(backend)
+	graph, err := NewChannelGraph(&Config{
+		KVDB:        backend,
+		KVStoreOpts: modifiers,
+	})
 	if err != nil {
 		backendCleanup()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
@@ -101,7 +102,6 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	netParams.DefaultPort = fmt.Sprintf("%d", p2pPort)
 
 	args := []string{
-		"-connect=" + minerAddr,
 		"-datadir=" + tempBitcoindDir,
 		"-regtest",
 		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6fd$507c670e800a95" +
@@ -177,6 +177,48 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 			"%v", tempBitcoindDir, err)
 	}
 	t.Cleanup(conn.Stop)
+
+	// Assert that the connection with the miner is made.
+	//
+	// Create a new RPC client.
+	rpcCfg := rpcclient.ConnConfig{
+		Host:                 cfg.Host,
+		User:                 cfg.User,
+		Pass:                 cfg.Pass,
+		DisableConnectOnNew:  true,
+		DisableAutoReconnect: false,
+		DisableTLS:           true,
+		HTTPPostMode:         true,
+	}
+
+	rpcClient, err := rpcclient.New(&rpcCfg, nil)
+	require.NoError(t, err, "failed to create RPC client")
+
+	// Connect to the miner node.
+	err = rpcClient.AddNode(minerAddr, rpcclient.ANAdd)
+	require.NoError(t, err, "failed to connect to miner")
+
+	// Get the network info and assert the num of outbound connections is 1.
+	err = wait.NoError(func() error {
+		result, err := rpcClient.GetNetworkInfo()
+		require.NoError(t, err)
+
+		if int(result.Connections) != 1 {
+			return fmt.Errorf("want 1 conn, got %d",
+				result.Connections)
+		}
+
+		if int(result.ConnectionsOut) != 1 {
+			return fmt.Errorf("want 1 outbound conn, got %d",
+				result.Connections)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(t, err, "timeout connecting to the miner")
+
+	// Tear down the rpc client.
+	rpcClient.Shutdown()
 
 	return conn
 }

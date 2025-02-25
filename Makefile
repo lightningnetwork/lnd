@@ -3,6 +3,7 @@ ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
 
+GOCC ?= go
 PREFIX ?= /usr/local
 
 BTCD_PKG := github.com/btcsuite/btcd
@@ -24,7 +25,7 @@ ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 COMMIT := $(shell git describe --tags --dirty)
 
 # Determine the minor version of the active Go installation.
-ACTIVE_GO_VERSION := $(shell go version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
+ACTIVE_GO_VERSION := $(shell $(GOCC) version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
 ACTIVE_GO_VERSION_MINOR := $(shell echo $(ACTIVE_GO_VERSION) | cut -d. -f2)
 
 LOOPVARFIX :=
@@ -37,9 +38,9 @@ endif
 # versions are checked against this version.
 GO_VERSION = 1.23.6
 
-GOBUILD := $(LOOPVARFIX) go build -v
-GOINSTALL := $(LOOPVARFIX) go install -v
-GOTEST := $(LOOPVARFIX) go test
+GOBUILD := $(LOOPVARFIX) $(GOCC) build -v
+GOINSTALL := $(LOOPVARFIX) $(GOCC) install -v
+GOTEST := $(LOOPVARFIX) $(GOCC) test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 
@@ -73,8 +74,8 @@ endif
 
 DOCKER_TOOLS = docker run \
   --rm \
-  -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
-  -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -v $(shell bash -c "$(GOCC) env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
+  -v $(shell bash -c "$(GOCC) env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build lnd-tools
 
@@ -93,15 +94,15 @@ all: scratch check install
 # ============
 $(GOACC_BIN):
 	@$(call print, "Installing go-acc.")
-	cd $(TOOLS_DIR); go install -trimpath -tags=tools $(GOACC_PKG)
+	cd $(TOOLS_DIR); $(GOCC) install -trimpath -tags=tools $(GOACC_PKG)
 
 $(BTCD_BIN):
 	@$(call print, "Installing btcd.")
-	cd $(TOOLS_DIR); go install -trimpath $(BTCD_PKG)
+	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(BTCD_PKG)
 
 $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
+	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -407,7 +408,7 @@ mobile-rpc:
 #? vendor: Create a vendor directory with all dependencies
 vendor:
 	@$(call print, "Re-creating vendor directory.")
-	rm -r vendor/; go mod vendor
+	rm -r vendor/; $(GOCC) mod vendor
 
 #? apple: Build mobile RPC stubs and project template for iOS and macOS
 apple: mobile-rpc

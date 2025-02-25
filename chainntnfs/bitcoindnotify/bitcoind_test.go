@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -103,6 +104,54 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 				"err=%v, minerHeight=%v, bitcoindHeight=%v",
 				err, minerHeight, bitcoindHeight)
 		}
+
+		// Get the num of connections the miner has. We expect it to
+		// have at least one connection with the chain backend.
+		count, err := miner.Client.GetConnectionCount()
+		require.NoError(t, err)
+		if count != 0 {
+			continue
+		}
+
+		// Reconnect the miner and the chain backend.
+		//
+		// NOTE: The connection should have been made before we perform
+		// the `syncNotifierWithMiner`. However, due to an unknown
+		// reason, the miner may refuse to process the inbound
+		// connection made by the bitcoind node, causing the connection
+		// to fail. It's possible there's a bug in the handshake between
+		// the two nodes.
+		//
+		// A normal flow is, bitcoind starts a v2 handshake flow, which
+		// btcd will fail and disconnect. Upon seeing this
+		// disconnection, bitcoind will try a v1 handshake and succeeds.
+		// The failed flow is, upon seeing the v2 handshake, btcd
+		// doesn't seem to perform the disconnect. Instead an EOF
+		// websocket error is found.
+		//
+		// TODO(yy): Fix the above bug in `btcd`. This can be reproduced
+		// using `make flakehunter-unit pkg=$pkg case=$case`, with,
+		// `case=TestHistoricalConfDetailsNoTxIndex/rpc_polling_enabled`
+		// `pkg=chainntnfs/bitcoindnotify`.
+		// Also need to modify the temp dir logic so we can save the
+		// debug logs.
+		// This bug is likely to be fixed when we implement the
+		// encrypted p2p conn, or when we properly fix the shutdown
+		// issues in all our RPC conns.
+		t.Log("Expected to the chain backend to have one conn with " +
+			"the miner, instead it's disconnected!")
+
+		// We now ask the miner to add the chain backend back.
+		host := fmt.Sprintf(
+			"127.0.0.1:%s", notifier.chainParams.DefaultPort,
+		)
+
+		// NOTE:AddNode must take a host that has the format
+		// `host:port`, otherwise the default port will be used. Check
+		// `normalizeAddress` in btcd for details.
+		err = miner.Client.AddNode(host, rpcclient.ANAdd)
+		require.NoError(t, err, "Failed to connect miner to the chain "+
+			"backend")
 	}
 }
 
@@ -236,7 +285,9 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	hintCache := initHintCache(t)
 	blockCache := blockcache.NewBlockCache(10000)
 
-	notifier := setUpNotifier(t, bitcoindConn, hintCache, hintCache, blockCache)
+	notifier := setUpNotifier(
+		t, bitcoindConn, hintCache, hintCache, blockCache,
+	)
 
 	// Since the node has its txindex disabled, we fall back to scanning the
 	// chain manually. A transaction unknown to the network should not be

@@ -112,6 +112,15 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 		"-disablewallet",
 		"-zmqpubrawblock=" + zmqBlockHost,
 		"-zmqpubrawtx=" + zmqTxHost,
+
+		// whitelist localhost to speed up relay.
+		"-whitelist=127.0.0.1",
+
+		// Disable v2 transport as btcd doesn't support it yet.
+		//
+		// TODO(yy): Remove this line once v2 conn is supported in
+		// `btcd`.
+		"-v2transport=0",
 	}
 	if txindex {
 		args = append(args, "-txindex")

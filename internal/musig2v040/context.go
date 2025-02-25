@@ -514,7 +514,7 @@ func (s *Session) PublicNonce() [PubNonceSize]byte {
 }
 
 // NumRegisteredNonces returns the total number of nonces that have been
-// regsitered so far.
+// registered so far.
 func (s *Session) NumRegisteredNonces() int {
 	return len(s.pubNonces)
 }

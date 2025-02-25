@@ -189,8 +189,6 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 		t, bitcoindConn, hintCache, hintCache, blockCache,
 	)
 
-	syncNotifierWithMiner(t, notifier, miner)
-
 	// A transaction unknown to the node should not be found within the
 	// txindex even if it is enabled, so we should not proceed with any
 	// fallback methods.
@@ -296,7 +294,11 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	copy(unknownHash[:], bytes.Repeat([]byte{0x10}, 32))
 	unknownConfReq, err := chainntnfs.NewConfRequest(&unknownHash, testScript)
 	require.NoError(t, err, "unable to create conf request")
-	broadcastHeight := syncNotifierWithMiner(t, notifier, miner)
+
+	// Get the current best height.
+	_, broadcastHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve miner's current height")
+
 	_, txStatus, err := notifier.historicalConfDetails(
 		unknownConfReq, uint32(broadcastHeight), uint32(broadcastHeight),
 	)

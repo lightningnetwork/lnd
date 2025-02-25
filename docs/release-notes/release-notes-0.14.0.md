@@ -445,7 +445,7 @@ messages directly. There is no routing/path finding involved.
 
 * [server.go: dedupe pubkey output in debug/log msgs](https://github.com/lightningnetwork/lnd/pull/5722).
 
-* [Fixed flakes caused by graph topology subcription](https://github.com/lightningnetwork/lnd/pull/5611).
+* [Fixed flakes caused by graph topology subscription](https://github.com/lightningnetwork/lnd/pull/5611).
 
 * [Order of the start/stop on subsystems are changed to promote better safety](https://github.com/lightningnetwork/lnd/pull/1783).
 

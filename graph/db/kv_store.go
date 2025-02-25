@@ -3588,10 +3588,6 @@ func (c *KVStore) MarkEdgeZombie(chanID uint64,
 				"bucket: %w", err)
 		}
 
-		if c.graphCache != nil {
-			c.graphCache.RemoveChannel(pubKey1, pubKey2, chanID)
-		}
-
 		return markEdgeZombie(zombieIndex, chanID, pubKey1, pubKey2)
 	})
 	if err != nil {

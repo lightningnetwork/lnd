@@ -7,10 +7,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -269,6 +271,14 @@ func TestIsLsp(t *testing.T) {
 			FeeProportionalMillionths: 2_000,
 			ChannelID:                 815,
 		}
+
+		publicChannelID       = uint64(42)
+		daveHopHintPublicChan = zpay32.HopHint{
+			NodeID:                    davePubKey,
+			FeeBaseMSat:               2_000,
+			FeeProportionalMillionths: 2_000,
+			ChannelID:                 publicChannelID,
+		}
 	)
 
 	bobExpensiveCopy := bobHopHint.Copy()
@@ -383,11 +393,56 @@ func TestIsLsp(t *testing.T) {
 			expectedHints:  [][]zpay32.HopHint{},
 			expectedLspHop: nil,
 		},
+		{
+			name: "multiple routes, same public hops",
+			routeHints: [][]zpay32.HopHint{
+				{
+					aliceHopHint, daveHopHintPublicChan,
+				},
+				{
+					carolHopHint, daveHopHintPublicChan,
+				},
+			},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          false,
+			expectedHints:  [][]zpay32.HopHint{},
+			expectedLspHop: nil,
+		},
+		{
+			name: "multiple routes, same public hops",
+			routeHints: [][]zpay32.HopHint{
+				{
+					aliceHopHint, daveHopHint,
+				},
+				{
+					carolHopHint, daveHopHintPublicChan,
+				},
+				{
+					aliceHopHint, daveHopHintPublicChan,
+				},
+			},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          false,
+			expectedHints:  [][]zpay32.HopHint{},
+			expectedLspHop: nil,
+		},
+	}
+
+	// Returns ErrEdgeNotFound for private channels.
+	fetchChannelEndpoints := func(chanID uint64) (route.Vertex,
+		route.Vertex, error) {
+
+		if chanID == publicChannelID {
+			return route.Vertex{}, route.Vertex{}, nil
+		}
+
+		return route.Vertex{}, route.Vertex{}, graphdb.ErrEdgeNotFound
 	}
 
 	for _, tc := range lspTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.isLsp, isLSP(tc.routeHints))
+			isLsp := isLSP(tc.routeHints, fetchChannelEndpoints)
+			require.Equal(t, tc.isLsp, isLsp)
 			if !tc.isLsp {
 				return
 			}

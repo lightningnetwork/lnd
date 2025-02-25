@@ -179,7 +179,7 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	)
 
 	bitcoindConn := unittest.NewBitcoindBackend(
-		t, unittest.NetParams, miner.P2PAddress(), true, rpcPolling,
+		t, unittest.NetParams, miner, true, rpcPolling,
 	)
 
 	hintCache := initHintCache(t)
@@ -279,7 +279,7 @@ func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {
 	miner := unittest.NewMiner(t, unittest.NetParams, nil, true, 25)
 
 	bitcoindConn := unittest.NewBitcoindBackend(
-		t, unittest.NetParams, miner.P2PAddress(), false, rpcpolling,
+		t, unittest.NetParams, miner, false, rpcpolling,
 	)
 
 	hintCache := initHintCache(t)

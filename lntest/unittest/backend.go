@@ -83,7 +83,7 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 // used for block and tx notifications or if its ZMQ interface should be used.
 // A connection to the newly spawned bitcoind node is returned.
 func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
-	minerAddr string, txindex, rpcpolling bool) *chain.BitcoindConn {
+	miner *rpctest.Harness, txindex, rpcpolling bool) *chain.BitcoindConn {
 
 	t.Helper()
 
@@ -204,7 +204,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	require.NoError(t, err, "failed to create RPC client")
 
 	// Connect to the miner node.
-	err = rpcClient.AddNode(minerAddr, rpcclient.ANAdd)
+	err = rpcClient.AddNode(miner.P2PAddress(), rpcclient.ANAdd)
 	require.NoError(t, err, "failed to connect to miner")
 
 	// Get the network info and assert the num of outbound connections is 1.

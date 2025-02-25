@@ -460,7 +460,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 
 	// Init a chain view that has this node as its block source.
 	reorgView, err := chainViewInit(
-		t, reorgNode.RPCConfig(), reorgNode.P2PAddress(), bestHeight,
+		t, reorgNode.RPCConfig(), reorgNode, bestHeight,
 	)
 	require.NoError(t, err, "unable to create chain view")
 
@@ -632,7 +632,7 @@ func testFilterBlockDisconnected(node *rpctest.Harness,
 }
 
 type chainViewInitFunc func(t *testing.T, rpcInfo rpcclient.ConnConfig,
-	p2pAddr string, bestHeight int32) (FilteredChainView, error)
+	miner *rpctest.Harness, bestHeight int32) (FilteredChainView, error)
 
 type testCase struct {
 	name string
@@ -666,12 +666,12 @@ var interfaceImpls = []struct {
 	{
 		name: "bitcoind_zmq",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView,
-			error) {
+			miner *rpctest.Harness, bestHeight int32) (
+			FilteredChainView, error) {
 
 			// Start a bitcoind instance.
 			chainConn := unittest.NewBitcoindBackend(
-				t, unittest.NetParams, p2pAddr, true,
+				t, unittest.NetParams, miner, true,
 				false,
 			)
 			blockCache := blockcache.NewBlockCache(10000)
@@ -686,12 +686,12 @@ var interfaceImpls = []struct {
 	{
 		name: "bitcoind_polling",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView,
-			error) {
+			miner *rpctest.Harness, bestHeight int32) (
+			FilteredChainView, error) {
 
 			// Wait for the bitcoind instance to start up.
 			chainConn := unittest.NewBitcoindBackend(
-				t, unittest.NetParams, p2pAddr, true,
+				t, unittest.NetParams, miner, true,
 				true,
 			)
 			blockCache := blockcache.NewBlockCache(10000)
@@ -706,8 +706,8 @@ var interfaceImpls = []struct {
 	{
 		name: "p2p_neutrino",
 		chainViewInit: func(t *testing.T, _ rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView,
-			error) {
+			miner *rpctest.Harness, bestHeight int32) (
+			FilteredChainView, error) {
 
 			spvDir := t.TempDir()
 
@@ -723,7 +723,7 @@ var interfaceImpls = []struct {
 				DataDir:      spvDir,
 				Database:     spvDatabase,
 				ChainParams:  *netParams,
-				ConnectPeers: []string{p2pAddr},
+				ConnectPeers: []string{miner.P2PAddress()},
 			}
 
 			spvNode, err := neutrino.NewChainService(spvConfig)
@@ -776,8 +776,8 @@ var interfaceImpls = []struct {
 	{
 		name: "btcd_websockets",
 		chainViewInit: func(_ *testing.T, config rpcclient.ConnConfig,
-			p2pAddr string, bestHeight int32) (FilteredChainView,
-			error) {
+			_ *rpctest.Harness, _ int32) (
+			FilteredChainView, error) {
 
 			blockCache := blockcache.NewBlockCache(10000)
 			chainView, err := NewBtcdFilteredChainView(
@@ -802,7 +802,6 @@ func TestFilteredChainView(t *testing.T) {
 	)
 
 	rpcConfig := miner.RPCConfig()
-	p2pAddr := miner.P2PAddress()
 
 	for _, chainViewImpl := range interfaceImpls {
 		t.Logf("Testing '%v' implementation of FilteredChainView",
@@ -814,7 +813,7 @@ func TestFilteredChainView(t *testing.T) {
 		}
 
 		chainView, err := chainViewImpl.chainViewInit(
-			t, rpcConfig, p2pAddr, bestHeight,
+			t, rpcConfig, miner, bestHeight,
 		)
 		if err != nil {
 			t.Fatalf("unable to make chain view: %v", err)

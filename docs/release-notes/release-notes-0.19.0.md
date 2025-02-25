@@ -213,6 +213,9 @@
 
 ## lncli Updates
 
+* [Added](https://github.com/lightningnetwork/lnd/pull/9558) additional 
+  guardrails to the listchaintxns command to make behavior match docs.
+
 ## Code Health
 
 * [Add retry logic](https://github.com/lightningnetwork/lnd/pull/8381) for
@@ -390,6 +393,7 @@ The underlying functionality between those two options remain the same.
 * Nishant Bansal
 * Oliver Gugger
 * Pins
+* kornpow
 * Viktor Tigerström
 * Yong Yu
 * Ziggie

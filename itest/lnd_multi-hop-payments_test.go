@@ -171,7 +171,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 
 	// Next, ensure that if we issue the vanilla query for the forwarding
 	// history, it returns 5 values, and each entry is formatted properly.
-	// From David's perspective he receives a payement from Carol and
+	// From David's perspective he receives a payment from Carol and
 	// forwards it to Alice. So let's ensure that the forwarding history
 	// returns Carol's peer alias as inbound and Alice's alias as outbound.
 	info := carol.RPC.GetInfo()

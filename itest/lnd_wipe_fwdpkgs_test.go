@@ -93,7 +93,7 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	// close channel should now become pending force closed channel.
 	pendingAB = ht.AssertChannelPendingForceClose(bob, chanPointAB).Channel
 
-	// Check the forwarding pacakges are deleted.
+	// Check the forwarding packages are deleted.
 	require.Zero(ht, pendingAB.NumForwardingPackages)
 
 	// For Alice, the forwarding packages should have been wiped too.

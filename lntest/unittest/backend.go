@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,12 +118,20 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	}
 
 	bitcoind := exec.Command("bitcoind", args...)
-	if err := bitcoind.Start(); err != nil {
-		t.Fatalf("unable to start bitcoind: %v", err)
-	}
+	err := bitcoind.Start()
+	require.NoError(t, err, "unable to start bitcoind")
+
 	t.Cleanup(func() {
-		_ = bitcoind.Process.Kill()
-		_ = bitcoind.Wait()
+		// Kill `bitcoind` and assert there's no error.
+		err = bitcoind.Process.Kill()
+		require.NoError(t, err)
+
+		err = bitcoind.Wait()
+		if strings.Contains(err.Error(), "signal: killed") {
+			return
+		}
+
+		require.NoError(t, err)
 	})
 
 	// Wait for the bitcoind instance to start up.
@@ -154,7 +163,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	}
 
 	var conn *chain.BitcoindConn
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		var err error
 		conn, err = chain.NewBitcoindConn(cfg)
 		if err != nil {

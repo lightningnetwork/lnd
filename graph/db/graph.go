@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -255,6 +257,131 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 		info := infos[0]
 
 		c.graphCache.AddChannel(info.Info, info.Policy1, info.Policy2)
+	}
+
+	return nil
+}
+
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether to mark the channel as a zombie.
+func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
+	chanIDs ...uint64) error {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	infos, err := c.KVStore.DeleteChannelEdges(
+		strictZombiePruning, markZombie, chanIDs...,
+	)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		for _, info := range infos {
+			c.graphCache.RemoveChannel(
+				info.NodeKey1Bytes, info.NodeKey2Bytes,
+				info.ChannelID,
+			)
+		}
+	}
+
+	return err
+}
+
+// DisconnectBlockAtHeight is used to indicate that the block specified
+// by the passed height has been disconnected from the main chain. This
+// will "rewind" the graph back to the height below, deleting channels
+// that are no longer confirmed from the graph. The prune log will be
+// set to the last prune height valid for the remaining chain.
+// Channels that were removed from the graph resulting from the
+// disconnected block are returned.
+func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
+	[]*models.ChannelEdgeInfo, error) {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	edges, err := c.KVStore.DisconnectBlockAtHeight(height)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.graphCache != nil {
+		for _, edge := range edges {
+			c.graphCache.RemoveChannel(
+				edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+				edge.ChannelID,
+			)
+		}
+	}
+
+	return edges, nil
+}
+
+// PruneGraph prunes newly closed channels from the channel graph in response
+// to a new block being solved on the network. Any transactions which spend the
+// funding output of any known channels within he graph will be deleted.
+// Additionally, the "prune tip", or the last block which has been used to
+// prune the graph is stored so callers can ensure the graph is fully in sync
+// with the current UTXO state. A slice of channels that have been closed by
+// the target block are returned if the function succeeds without error.
+func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
+	blockHash *chainhash.Hash, blockHeight uint32) (
+	[]*models.ChannelEdgeInfo, error) {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	edges, nodes, err := c.KVStore.PruneGraph(
+		spentOutputs, blockHash, blockHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if c.graphCache != nil {
+		for _, edge := range edges {
+			c.graphCache.RemoveChannel(
+				edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+				edge.ChannelID,
+			)
+		}
+
+		for _, node := range nodes {
+			c.graphCache.RemoveNode(node)
+		}
+
+		log.Debugf("Pruned graph, cache now has %s",
+			c.graphCache.Stats())
+	}
+
+	return edges, nil
+}
+
+// PruneGraphNodes is a garbage collection method which attempts to prune out
+// any nodes from the channel graph that are currently unconnected. This ensure
+// that we only maintain a graph of reachable nodes. In the event that a pruned
+// node gains more channels, it will be re-added back to the graph.
+func (c *ChannelGraph) PruneGraphNodes() error {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	nodes, err := c.KVStore.PruneGraphNodes()
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		for _, node := range nodes {
+			c.graphCache.RemoveNode(node)
+		}
 	}
 
 	return nil

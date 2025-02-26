@@ -1932,7 +1932,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		case "bitcoind":
 			var bitcoindConn *chain.BitcoindConn
 			bitcoindConn = unittest.NewBitcoindBackend(
-				t, unittest.NetParams, p2pAddr, true, false,
+				t, unittest.NetParams, miner, true, false,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(
@@ -1944,7 +1944,7 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		case "bitcoind-rpc-polling":
 			var bitcoindConn *chain.BitcoindConn
 			bitcoindConn = unittest.NewBitcoindBackend(
-				t, unittest.NetParams, p2pAddr, true, true,
+				t, unittest.NetParams, miner, true, true,
 			)
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return bitcoindnotify.New(

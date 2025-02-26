@@ -276,18 +276,18 @@ unit-bench: $(BTCD_BIN)
 # FLAKE HUNTING
 # =============
 
-#? flakehunter: Run the integration tests continuously until one fails
-flakehunter: build-itest
+#? flakehunter-itest: Run the integration tests continuously until one fails
+flakehunter-itest: build-itest
 	@$(call print, "Flake hunting ${backend} integration tests.")
 	while [ $$? -eq 0 ]; do make itest-only icase='${icase}' backend='${backend}'; done
 
-#? flake-unit: Run the unit tests continuously until one fails
-flake-unit:
-	@$(call print, "Flake hunting unit tests.")
-	while [ $$? -eq 0 ]; do GOTRACEBACK=all $(UNIT) -count=1; done
+#? flakehunter-unit: Run the unit tests continuously until one fails
+flakehunter-unit:
+	@$(call print, "Flake hunting unit test.")
+	scripts/unit-test-flake-hunter.sh ${pkg} ${case}
 
-#? flakehunter-parallel: Run the integration tests continuously until one fails, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
-flakehunter-parallel:
+#? flakehunter-itest-parallel: Run the integration tests continuously until one fails, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
+flakehunter-itest-parallel:
 	@$(call print, "Flake hunting ${backend} integration tests in parallel.")
 	while [ $$? -eq 0 ]; do make itest-parallel tranches=1 parallel=${ITEST_PARALLELISM} icase='${icase}' backend='${backend}'; done
 

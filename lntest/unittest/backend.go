@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightninglabs/neutrino"
@@ -37,9 +39,15 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 
 	t.Helper()
 
-	// Add the trickle interval argument to the extra args.
-	trickle := fmt.Sprintf("--trickleinterval=%v", TrickleInterval)
-	extraArgs = append(extraArgs, trickle)
+	args := []string{
+		"--nobanning",
+		"--debuglevel=debug",
+		fmt.Sprintf("--trickleinterval=%v", TrickleInterval),
+
+		// Don't disconnect if a reply takes too long.
+		"--nostalldetect",
+	}
+	extraArgs = append(extraArgs, args...)
 
 	node, err := rpctest.New(netParams, nil, extraArgs, "")
 	require.NoError(t, err, "unable to create backend node")
@@ -73,9 +81,10 @@ func NewMiner(t *testing.T, netParams *chaincfg.Params, extraArgs []string,
 // backend node should maintain a transaction index. The rpcpolling boolean
 // can be set to determine whether bitcoind's RPC polling interface should be
 // used for block and tx notifications or if its ZMQ interface should be used.
-// A connection to the newly spawned bitcoind node is returned.
+// A connection to the newly spawned bitcoind node is returned once the bitcoind
+// is synced to the miner's best height.
 func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
-	minerAddr string, txindex, rpcpolling bool) *chain.BitcoindConn {
+	miner *rpctest.Harness, txindex, rpcpolling bool) *chain.BitcoindConn {
 
 	t.Helper()
 
@@ -88,29 +97,51 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqBlockPort)
 	zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d", zmqTxPort)
 
+	// TODO(yy): Make this configurable via `chain.BitcoindConfig` and
+	// replace the default P2P port when set.
+	p2pPort := port.NextAvailablePort()
+	netParams.DefaultPort = fmt.Sprintf("%d", p2pPort)
+
 	args := []string{
-		"-connect=" + minerAddr,
 		"-datadir=" + tempBitcoindDir,
 		"-regtest",
 		"-rpcauth=weks:469e9bb14ab2360f8e226efed5ca6fd$507c670e800a95" +
 			"284294edb5773b05544b220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
 		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
+		fmt.Sprintf("-port=%d", p2pPort),
 		"-disablewallet",
 		"-zmqpubrawblock=" + zmqBlockHost,
 		"-zmqpubrawtx=" + zmqTxHost,
+
+		// whitelist localhost to speed up relay.
+		"-whitelist=127.0.0.1",
+
+		// Disable v2 transport as btcd doesn't support it yet.
+		//
+		// TODO(yy): Remove this line once v2 conn is supported in
+		// `btcd`.
+		"-v2transport=0",
 	}
 	if txindex {
 		args = append(args, "-txindex")
 	}
 
 	bitcoind := exec.Command("bitcoind", args...)
-	if err := bitcoind.Start(); err != nil {
-		t.Fatalf("unable to start bitcoind: %v", err)
-	}
+	err := bitcoind.Start()
+	require.NoError(t, err, "unable to start bitcoind")
+
 	t.Cleanup(func() {
-		_ = bitcoind.Process.Kill()
-		_ = bitcoind.Wait()
+		// Kill `bitcoind` and assert there's no error.
+		err = bitcoind.Process.Kill()
+		require.NoError(t, err)
+
+		err = bitcoind.Wait()
+		if strings.Contains(err.Error(), "signal: killed") {
+			return
+		}
+
+		require.NoError(t, err)
 	})
 
 	// Wait for the bitcoind instance to start up.
@@ -142,7 +173,7 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	}
 
 	var conn *chain.BitcoindConn
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		var err error
 		conn, err = chain.NewBitcoindConn(cfg)
 		if err != nil {
@@ -157,7 +188,129 @@ func NewBitcoindBackend(t *testing.T, netParams *chaincfg.Params,
 	}
 	t.Cleanup(conn.Stop)
 
+	// Assert that the connection with the miner is made.
+	//
+	// Create a new RPC client.
+	rpcCfg := rpcclient.ConnConfig{
+		Host:                 cfg.Host,
+		User:                 cfg.User,
+		Pass:                 cfg.Pass,
+		DisableConnectOnNew:  true,
+		DisableAutoReconnect: false,
+		DisableTLS:           true,
+		HTTPPostMode:         true,
+	}
+
+	rpcClient, err := rpcclient.New(&rpcCfg, nil)
+	require.NoError(t, err, "failed to create RPC client")
+
+	// Connect to the miner node.
+	err = rpcClient.AddNode(miner.P2PAddress(), rpcclient.ANAdd)
+	require.NoError(t, err, "failed to connect to miner")
+
+	// Get the network info and assert the num of outbound connections is 1.
+	err = wait.NoError(func() error {
+		result, err := rpcClient.GetNetworkInfo()
+		require.NoError(t, err)
+
+		if int(result.Connections) != 1 {
+			return fmt.Errorf("want 1 conn, got %d",
+				result.Connections)
+		}
+
+		if int(result.ConnectionsOut) != 1 {
+			return fmt.Errorf("want 1 outbound conn, got %d",
+				result.Connections)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(t, err, "timeout connecting to the miner")
+
+	// Assert the chain backend is synced to the miner.
+	syncBitcoindWithMiner(t, rpcClient, miner, p2pPort)
+
+	// Tear down the rpc client.
+	rpcClient.Shutdown()
+
 	return conn
+}
+
+// syncBitcoindWithMiner waits until the bitcoind node is synced with the miner.
+func syncBitcoindWithMiner(t *testing.T, notifier *rpcclient.Client,
+	miner *rpctest.Harness, p2pPort int) uint32 {
+
+	_, minerHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to retrieve miner's current height")
+
+	timeout := time.After(10 * time.Second)
+	for {
+		info, err := notifier.GetBlockChainInfo()
+		require.NoError(t, err)
+
+		bitcoindHeight := info.Blocks
+
+		t.Logf("miner height=%v, bitcoind height=%v", minerHeight,
+			bitcoindHeight)
+
+		if bitcoindHeight == minerHeight {
+			return uint32(bitcoindHeight)
+		}
+
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-timeout:
+			t.Fatalf("timed out in syncNotifierWithMiner, got "+
+				"err=%v, minerHeight=%v, bitcoindHeight=%v",
+				err, minerHeight, bitcoindHeight)
+		}
+
+		// Get the num of connections the miner has. We expect it to
+		// have at least one connection with the chain backend.
+		count, err := miner.Client.GetConnectionCount()
+		require.NoError(t, err)
+		if count != 0 {
+			continue
+		}
+
+		// Reconnect the miner and the chain backend.
+		//
+		// NOTE: The connection should have been made before we perform
+		// the `syncNotifierWithMiner`. However, due unknown reason, the
+		// miner may refuse to process the inbound connection made by
+		// the bitcoind node, causing the connection to fail. It's
+		// possible there's a bug in the handshake between the two
+		// nodes.
+		//
+		// A normal flow is, bitcoind starts a v2 handshake flow, which
+		// btcd will fail and disconnect. Upon seeing this
+		// disconnection, bitcoind will try a v1 handshake and succeeds.
+		// The failed flow is, upon seeing the v2 handshake, btcd
+		// doesn't seem to perform the disconnect. Instead an EOF
+		// websocket error is found.
+		//
+		// TODO(yy): Fix the above bug in `btcd`. This can be reproduced
+		// using `make flakehunter-unit pkg=$pkg case=$case`, with,
+		// `case=TestHistoricalConfDetailsNoTxIndex/rpc_polling_enabled`
+		// `pkg=chainntnfs/bitcoindnotify`.
+		// Also need to modify the temp dir logic so we can save the
+		// debug logs.
+		// This bug is likely to be fixed when we implement the
+		// encrypted p2p conn, or when we properly fix the shutdown
+		// issues in all our RPC conns.
+		t.Log("Expected to the chain backend to have one conn with " +
+			"the miner, instead it's disconnected!")
+
+		// We now ask the miner to add the chain backend back.
+		host := fmt.Sprintf("127.0.0.1:%d", p2pPort)
+
+		// NOTE:AddNode must take a host that has the format
+		// `host:port`, otherwise the default port will be used. Check
+		// `normalizeAddress` in btcd for details.
+		err = miner.Client.AddNode(host, rpcclient.ANAdd)
+		require.NoError(t, err, "Failed to connect miner to the chain "+
+			"backend")
+	}
 }
 
 // NewNeutrinoBackend spawns a new neutrino node that connects to a miner at

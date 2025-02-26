@@ -3352,8 +3352,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		case "bitcoind":
 			// Start a bitcoind instance.
 			chainConn := unittest.NewBitcoindBackend(
-				t, unittest.NetParams, miningNode.P2PAddress(),
-				true, false,
+				t, unittest.NetParams, miningNode, true, false,
 			)
 
 			// Create a btcwallet bitcoind client for both Alice and
@@ -3364,8 +3363,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		case "bitcoind-rpc-polling":
 			// Start a bitcoind instance.
 			chainConn := unittest.NewBitcoindBackend(
-				t, unittest.NetParams, miningNode.P2PAddress(),
-				true, true,
+				t, unittest.NetParams, miningNode, true, true,
 			)
 
 			// Create a btcwallet bitcoind client for both Alice and

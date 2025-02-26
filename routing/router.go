@@ -1200,7 +1200,12 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// as failed if we don't skip temp error.
 	if !skipTempErr {
 		err := r.cfg.Control.FailPayment(paymentIdentifier, reason)
-		if err != nil {
+
+		// We might attempt to fail the payment twice here because the
+		// payment might already be failed when handling the switch
+		// error in the result collector.
+		if err != nil &&
+			!errors.Is(err, channeldb.ErrPaymentAlreadyFailed) {
 			return nil, err
 		}
 	}

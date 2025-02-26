@@ -582,12 +582,22 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 		// lets the last attempt to fail with a terminal write its
 		// failure to the PaymentControl without synchronizing with
 		// other attempts.
-		_, err = fetchPaymentStatus(bucket)
+		status, err := fetchPaymentStatus(bucket)
 		if errors.Is(err, ErrPaymentNotInitiated) {
 			updateErr = ErrPaymentNotInitiated
 			return nil
 		} else if err != nil {
 			return err
+		}
+
+		// We make sure that if the payment is already failed we do not
+		// overwrite the failure reason and remain consistent. We do
+		// not return the error in the batch function to avoid retrying
+		// the transaction.
+		if status == StatusFailed {
+			updateErr = ErrPaymentAlreadyFailed
+
+			return nil
 		}
 
 		// Put the failure reason in the bucket for record keeping.

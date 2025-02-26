@@ -3133,32 +3133,37 @@ func (p *Brontide) retryRequestEnable(activeChans map[wire.OutPoint]struct{}) {
 // chooseDeliveryScript takes two optionally set shutdown scripts and returns
 // a suitable script to close out to. This may be nil if neither script is
 // set. If both scripts are set, this function will error if they do not match.
-func chooseDeliveryScript(upfront,
-	requested lnwire.DeliveryAddress) (lnwire.DeliveryAddress, error) {
+func chooseDeliveryScript(upfront, requested lnwire.DeliveryAddress,
+	genDeliveryScript func() ([]byte, error),
+) (lnwire.DeliveryAddress, error) {
+
+	switch {
+	// If no script was provided, then we'll generate a new delivery script.
+	case len(upfront) == 0 && len(requested) == 0:
+		return genDeliveryScript()
 
 	// If no upfront shutdown script was provided, return the user
 	// requested address (which may be nil).
-	if len(upfront) == 0 {
+	case len(upfront) == 0:
 		return requested, nil
-	}
 
 	// If an upfront shutdown script was provided, and the user did not
 	// request a custom shutdown script, return the upfront address.
-	if len(requested) == 0 {
+	case len(requested) == 0:
 		return upfront, nil
-	}
 
 	// If both an upfront shutdown script and a custom close script were
 	// provided, error if the user provided shutdown script does not match
 	// the upfront shutdown script (because closing out to a different
 	// script would violate upfront shutdown).
-	if !bytes.Equal(upfront, requested) {
+	case !bytes.Equal(upfront, requested):
 		return nil, chancloser.ErrUpfrontShutdownScriptMismatch
-	}
 
 	// The user requested script matches the upfront shutdown script, so we
 	// can return it without error.
-	return upfront, nil
+	default:
+		return upfront, nil
+	}
 }
 
 // restartCoopClose checks whether we need to restart the cooperative close

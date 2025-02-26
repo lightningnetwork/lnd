@@ -472,7 +472,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		}
 		macaroonService, err = macaroons.NewService(
 			rootKeyStore, "lnd", walletInitParams.StatelessInit,
-			macaroons.IPLockChecker,
+			macaroons.IPLockChecker, macaroons.IPRangeLockChecker,
 			macaroons.CustomChecker(interceptorChain),
 		)
 		if err != nil {

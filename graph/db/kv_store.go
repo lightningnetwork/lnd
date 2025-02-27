@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -184,13 +185,12 @@ const (
 type KVStore struct {
 	db kvdb.Backend
 
-	// cacheMu guards all caches (rejectCache, chanCache, graphCache). If
+	// cacheMu guards all caches (rejectCache and chanCache). If
 	// this mutex will be acquired at the same time as the DB mutex then
 	// the cacheMu MUST be acquired first to prevent deadlock.
 	cacheMu     sync.RWMutex
 	rejectCache *rejectCache
 	chanCache   *channelCache
-	graphCache  *GraphCache
 
 	chanScheduler batch.Scheduler
 	nodeScheduler batch.Scheduler
@@ -225,15 +225,6 @@ func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 	)
 
 	return g, nil
-}
-
-// setGraphCache sets the KVStore's graphCache.
-//
-// NOTE: this is temporary and will only be called from the ChannelGraph's
-// constructor before the KVStore methods are available to be called. This will
-// be removed once the graph cache is fully owned by the ChannelGraph.
-func (c *KVStore) setGraphCache(cache *GraphCache) {
-	c.graphCache = cache
 }
 
 // channelMapKey is the key structure used for storing channel edge policies.
@@ -4732,10 +4723,12 @@ func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
 
 		return nil, err
 	}
+	require.NoError(t, graph.Start())
 
 	t.Cleanup(func() {
 		_ = backend.Close()
 		backendCleanup()
+		require.NoError(t, graph.Stop())
 	})
 
 	return graph, nil

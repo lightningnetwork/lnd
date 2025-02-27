@@ -22,6 +22,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+var (
+	// ErrInvalidStateTransition is returned if the remote party tries to
+	// close, but the thaw height hasn't been matched yet.
+	ErrThawHeightNotReached = fmt.Errorf("thaw height not reached")
+)
+
 // sendShutdownEvents is a helper function that returns a set of daemon events
 // we need to emit when we decide that we should send a shutdown message. We'll
 // also mark the channel as borked as well, as at this point, we no longer want
@@ -107,11 +113,11 @@ func validateShutdown(chanThawHeight fn.Option[uint32],
 		// reject the shutdown message as we can't yet co-op close the
 		// channel.
 		if msg.BlockHeight < thawHeight {
-			return fmt.Errorf("initiator attempting to "+
+			return fmt.Errorf("%w: initiator attempting to "+
 				"co-op close frozen ChannelPoint(%v) "+
 				"(current_height=%v, thaw_height=%v)",
-				chanPoint, msg.BlockHeight,
-				thawHeight)
+				ErrThawHeightNotReached, chanPoint,
+				msg.BlockHeight, thawHeight)
 		}
 
 		return nil
@@ -693,18 +699,27 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 		return nil, fmt.Errorf("event violates close terms: %w", err)
 	}
 
+	shouldRouteTo := func(party lntypes.ChannelParty) bool {
+		state := c.PeerState.GetForParty(party)
+		if state == nil {
+			return false
+		}
+
+		return state.ShouldRouteTo(event)
+	}
+
 	// If we get to this point, then we have an event that'll drive forward
 	// the negotiation process.  Based on the event, we'll figure out which
 	// state we'll be modifying.
 	switch {
-	case c.PeerState.GetForParty(lntypes.Local).ShouldRouteTo(event):
+	case shouldRouteTo(lntypes.Local):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to local "+
 			"chan state", env.ChanPoint, event)
 
 		// Drive forward the local state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Local)
 
-	case c.PeerState.GetForParty(lntypes.Remote).ShouldRouteTo(event):
+	case shouldRouteTo(lntypes.Remote):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to remote "+
 
 			"chan state", env.ChanPoint, event)
@@ -1205,14 +1220,6 @@ func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
 ) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
-	// If we can a spend while waiting for the close, then we'll go to our
-	// terminal state.
-	case *SpendEvent:
-		return &CloseStateTransition{
-			NextState: &CloseFin{
-				ConfirmedTx: msg.Tx,
-			},
-		}, nil
 
 	// If we get a send offer event in this state, then we're doing a state
 	// transition to the LocalCloseStart state, so we can sign a new closing

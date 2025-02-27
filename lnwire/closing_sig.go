@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/btcsuite/btcd/btcutil"
 )
 
 // ClosingSig is sent in response to a ClosingComplete message. It carries the
@@ -10,6 +12,22 @@ import (
 type ClosingSig struct {
 	// ChannelID serves to identify which channel is to be closed.
 	ChannelID ChannelID
+
+	// CloserScript is the script to which the channel funds will be paid
+	// for the closer (the person sending the ClosingComplete) message.
+	CloserScript DeliveryAddress
+
+	// CloseeScript is the script to which the channel funds will be paid
+	// (the person receiving the ClosingComplete message).
+	CloseeScript DeliveryAddress
+
+	// FeeSatoshis is the total fee in satoshis that the party to the
+	// channel proposed for the close transaction.
+	FeeSatoshis btcutil.Amount
+
+	// LockTime is the locktime number to be used in the input spending the
+	// funding transaction.
+	LockTime uint32
 
 	// ClosingSigs houses the 3 possible signatures that can be sent.
 	ClosingSigs
@@ -24,7 +42,10 @@ type ClosingSig struct {
 // io.Reader.
 func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 	// First, read out all the fields that are hard coded into the message.
-	err := ReadElements(r, &c.ChannelID)
+	err := ReadElements(
+		r, &c.ChannelID, &c.CloserScript, &c.CloseeScript,
+		&c.FeeSatoshis, &c.LockTime,
+	)
 	if err != nil {
 		return err
 	}
@@ -50,6 +71,21 @@ func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 // Encode serializes the target ClosingSig into the passed io.Writer.
 func (c *ClosingSig) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, c.ChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteDeliveryAddress(w, c.CloserScript); err != nil {
+		return err
+	}
+	if err := WriteDeliveryAddress(w, c.CloseeScript); err != nil {
+		return err
+	}
+
+	if err := WriteSatoshi(w, c.FeeSatoshis); err != nil {
+		return err
+	}
+
+	if err := WriteUint32(w, c.LockTime); err != nil {
 		return err
 	}
 

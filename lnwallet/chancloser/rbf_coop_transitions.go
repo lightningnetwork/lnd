@@ -291,6 +291,22 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			},
 		}, nil
 
+	// The remote party sent an offer early. We'll go to the ChannelFlushing
+	// case, and then emit the offer as a internal event, which'll be
+	// handled as an early offer.
+	case *OfferReceivedEvent:
+		chancloserLog.Infof("ChannelPoint(%v): got an early offer "+
+			"in ShutdownPending, emitting as external event",
+			env.ChanPoint)
+
+		s.EarlyRemoteOffer = fn.Some(*msg)
+
+		// We'll perform a noop update so we can wait for the actual
+		// channel flushed event.
+		return &CloseStateTransition{
+			NextState: s,
+		}, nil
+
 	// When we receive a shutdown from the remote party, we'll validate the
 	// shutdown message, then transition to the ChannelFlushing state.
 	case *ShutdownReceived:
@@ -314,7 +330,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// If the channel is *already* flushed, and the close is
 		// go straight into negotiation, as this is the RBF loop.
 		// already in progress, then we can skip the flushing state and
-		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
+		var eventsToEmit []ProtocolEvent
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,
 		)
@@ -322,11 +338,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			channelFlushed := ProtocolEvent(&ChannelFlushed{
 				ShutdownBalances: finalBalances,
 			})
-			eventsToEmit = fn.Some(RbfEvent{
-				InternalEvent: []ProtocolEvent{
-					channelFlushed,
-				},
-			})
+			eventsToEmit = append(eventsToEmit, channelFlushed)
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): disabling incoming adds",
@@ -342,6 +354,19 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		chancloserLog.Infof("ChannelPoint(%v): waiting for channel to "+
 			"be flushed...", env.ChanPoint)
 
+		// If we received a remote offer early from the remote party,
+		// then we'll add that to the set of internal events to emit.
+		s.EarlyRemoteOffer.WhenSome(func(offer OfferReceivedEvent) {
+			eventsToEmit = append(eventsToEmit, &offer)
+		})
+
+		var newEvents fn.Option[RbfEvent]
+		if len(eventsToEmit) > 0 {
+			newEvents = fn.Some(RbfEvent{
+				InternalEvent: eventsToEmit,
+			})
+		}
+
 		// We transition to the ChannelFlushing state, where we await
 		// the ChannelFlushed event.
 		return &CloseStateTransition{
@@ -352,7 +377,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 					RemoteDeliveryScript: msg.ShutdownScript,    //nolint:ll
 				},
 			},
-			NewEvents: eventsToEmit,
+			NewEvents: newEvents,
 		}, nil
 
 	// If we get this message, then this means that we were finally able to
@@ -365,7 +390,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		// If the channel is *already* flushed, and the close is
 		// already in progress, then we can skip the flushing state and
 		// go straight into negotiation, as this is the RBF loop.
-		var eventsToEmit fn.Option[protofsm.EmittedEvent[ProtocolEvent]]
+		var eventsToEmit []ProtocolEvent
 		finalBalances := env.ChanObserver.FinalBalances().UnwrapOr(
 			unknownBalance,
 		)
@@ -373,10 +398,19 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 			channelFlushed := ProtocolEvent(&ChannelFlushed{
 				ShutdownBalances: finalBalances,
 			})
-			eventsToEmit = fn.Some(RbfEvent{
-				InternalEvent: []ProtocolEvent{
-					channelFlushed,
-				},
+			eventsToEmit = append(eventsToEmit, channelFlushed)
+		}
+
+		// If we received a remote offer early from the remote party,
+		// then we'll add that to the set of internal events to emit.
+		s.EarlyRemoteOffer.WhenSome(func(offer OfferReceivedEvent) {
+			eventsToEmit = append(eventsToEmit, &offer)
+		})
+
+		var newEvents fn.Option[RbfEvent]
+		if len(eventsToEmit) > 0 {
+			newEvents = fn.Some(RbfEvent{
+				InternalEvent: eventsToEmit,
 			})
 		}
 
@@ -387,7 +421,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 				IdealFeeRate:    s.IdealFeeRate,
 				ShutdownScripts: s.ShutdownScripts,
 			},
-			NewEvents: eventsToEmit,
+			NewEvents: newEvents,
 		}, nil
 
 	// Any other messages in this state will result in an error, as this is

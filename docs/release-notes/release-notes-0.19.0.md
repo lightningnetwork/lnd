@@ -77,6 +77,9 @@
   restarts, for details check [this
   issue](https://github.com/lightningnetwork/lnd/issues/8975#issuecomment-2270528222).
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

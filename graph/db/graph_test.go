@@ -964,6 +964,23 @@ func randEdgePolicy(chanID uint64, db kvdb.Backend) *models.ChannelEdgePolicy {
 	return newEdgePolicy(chanID, db, update)
 }
 
+func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
+	return &models.ChannelEdgePolicy{
+		SigBytes:                  p.SigBytes,
+		ChannelID:                 p.ChannelID,
+		LastUpdate:                p.LastUpdate,
+		MessageFlags:              p.MessageFlags,
+		ChannelFlags:              p.ChannelFlags,
+		TimeLockDelta:             p.TimeLockDelta,
+		MinHTLC:                   p.MinHTLC,
+		MaxHTLC:                   p.MaxHTLC,
+		FeeBaseMSat:               p.FeeBaseMSat,
+		FeeProportionalMillionths: p.FeeProportionalMillionths,
+		ToNode:                    p.ToNode,
+		ExtraOpaqueData:           p.ExtraOpaqueData,
+	}
+}
+
 func newEdgePolicy(chanID uint64, db kvdb.Backend,
 	updateTime int64) *models.ChannelEdgePolicy {
 
@@ -1919,6 +1936,76 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	}
 }
 
+// TestFilterKnownChanIDsZombieRevival tests that if a ChannelUpdateInfo is
+// passed to FilterKnownChanIDs that contains a channel that we have marked as
+// a zombie, then we will mark it as live again if the new ChannelUpdate has
+// timestamps that would make the channel be considered live again.
+//
+// NOTE: this tests focuses on zombie revival. The main logic of
+// FilterKnownChanIDs is tested in TestFilterKnownChanIDs.
+func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err)
+
+	var (
+		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
+		scid2 = lnwire.ShortChannelID{BlockHeight: 2}
+		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
+	)
+
+	isZombie := func(scid lnwire.ShortChannelID) bool {
+		zombie, _, _ := graph.IsZombieEdge(scid.ToUint64())
+		return zombie
+	}
+
+	// Mark channel 1 and 2 as zombies.
+	err = graph.MarkEdgeZombie(scid1.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+	err = graph.MarkEdgeZombie(scid2.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Call FilterKnownChanIDs with an isStillZombie call-back that would
+	// result in the current zombies still be considered as zombies.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{ShortChannelID: scid2},
+		{ShortChannelID: scid3},
+	}, func(_ time.Time, _ time.Time) bool {
+		return true
+	})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Now call it again but this time with a isStillZombie call-back that
+	// would result in channel with SCID 2 no longer being considered a
+	// zombie.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{
+			ShortChannelID:       scid2,
+			Node1UpdateTimestamp: time.Unix(1000, 0),
+		},
+		{ShortChannelID: scid3},
+	}, func(t1 time.Time, _ time.Time) bool {
+		return !t1.Equal(time.Unix(1000, 0))
+	})
+	require.NoError(t, err)
+
+	// Show that SCID 2 has been marked as live.
+	require.True(t, isZombie(scid1))
+	require.False(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+}
+
 // TestFilterKnownChanIDs tests that we're able to properly perform the set
 // differences of an incoming set of channel ID's, and those that we already
 // know of on disk.
@@ -2859,6 +2946,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	edge2 := randEdgePolicy(chanID.ToUint64(), graph.db)
 	edge2.ChannelFlags = 1
@@ -2867,6 +2955,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge2 = copyEdgePolicy(edge2) // Avoid read/write race conditions.
 
 	// checkIndexTimestamps is a helper function that checks the edge update
 	// index only includes the given timestamps.
@@ -3952,7 +4041,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 
 	getSingleChannel := func() *DirectedChannel {
 		var ch *DirectedChannel
-		err = graph.forEachNodeDirectedChannel(nil, node1.PubKeyBytes,
+		err = graph.ForEachNodeDirectedChannel(node1.PubKeyBytes,
 			func(c *DirectedChannel) error {
 				require.Nil(t, ch)
 				ch = c
@@ -3974,6 +4063,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
 	}
 	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	directedChan := getSingleChannel()
 	require.NotNil(t, directedChan)
@@ -4005,8 +4095,12 @@ func TestGraphLoading(t *testing.T) {
 	defer backend.Close()
 	defer backendCleanup()
 
-	graph, err := NewChannelGraph(backend)
+	graph, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
 
 	// Populate the graph with test data.
 	const numNodes = 100
@@ -4015,8 +4109,12 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(backend)
+	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graphReloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graphReloaded.Stop())
+	})
 
 	// Assert that the cache content is identical.
 	require.Equal(

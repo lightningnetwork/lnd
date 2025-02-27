@@ -89,7 +89,7 @@ func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
 	policy2, ok := args.Get(2).(*models.ChannelEdgePolicy)
 	require.True(h.t, ok)
 
-	return edgeInfo, policy1, policy2, err
+	return edgeInfo, policy1, policy2, nil
 }
 
 // getTestPubKey returns a valid parsed pub key to be used in our tests.

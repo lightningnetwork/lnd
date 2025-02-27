@@ -157,6 +157,27 @@ func assertUnknownEventFail(t *testing.T, startingState ProtocolState) {
 	})
 }
 
+// assertSpendEventCloseFin asserts that the state machine transitions to the
+// CloseFin state when a spend event is received.
+func assertSpendEventCloseFin(t *testing.T, startingState ProtocolState) {
+	t.Helper()
+
+	// If a spend event is received, the state machine should transition to
+	// the CloseFin state.
+	t.Run("spend_event", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some(startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.chanCloser.SendEvent(
+			context.Background(), &SpendEvent{},
+		)
+
+		closeHarness.assertStateTransitions(&CloseFin{})
+	})
+}
+
 type harnessCfg struct {
 	initialState fn.Option[ProtocolState]
 
@@ -628,7 +649,8 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	initEvent *OfferReceivedEvent, balanceAfterClose,
-	absoluteFee btcutil.Amount, sequence uint32, iteration bool) {
+	absoluteFee btcutil.Amount, sequence uint32, iteration bool,
+	sendInit bool) {
 
 	ctx := context.Background()
 
@@ -640,7 +662,9 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		absoluteFee, balanceAfterClose, false,
 	)
 
-	r.chanCloser.SendEvent(ctx, initEvent)
+	if sendInit {
+		r.chanCloser.SendEvent(ctx, initEvent)
+	}
 
 	// Our outer state should transition to ClosingNegotiation state.
 	r.assertStateTransitions(&ClosingNegotiation{})
@@ -862,7 +886,28 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		closeHarness.waitForMsgSent()
 	})
 
-	// TODO(roasbeef): thaw height fail
+	// If the remote party attempts to close, and a thaw height is active,
+	// but not yet met, then we should fail.
+	t.Run("remote_initiated_thaw_height_close_fail", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+			thawHeight:       fn.Some(uint32(100000)),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Next, we'll emit the recv event, with the addr of the remote
+		// party.
+		closeHarness.chanCloser.SendEvent(
+			ctx, &ShutdownReceived{
+				ShutdownScript: remoteAddr,
+				BlockHeight:    1,
+			},
+		)
+
+		// We expect a failure as the block height is less than the
+		// start height.
+		closeHarness.expectFailure(ErrThawHeightNotReached)
+	})
 
 	// When we receive a shutdown, we should transition to the shutdown
 	// pending state, with the local+remote shutdown addrs known.
@@ -906,6 +951,9 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 
 	// Any other event should be ignored.
 	assertUnknownEventFail(t, &ChannelActive{})
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, &ChannelActive{})
 }
 
 // TestRbfShutdownPendingTransitions tests the transitions of the RBF closer
@@ -1134,6 +1182,9 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 
 	// Any other event should be ignored.
 	assertUnknownEventFail(t, startingState)
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, startingState)
 }
 
 // TestRbfChannelFlushingTransitions tests the transitions of the RBF closer
@@ -1241,7 +1292,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 				closeHarness.expectChanPendingClose()
 			}
 
-			// From where, we expect the state transition to go
+			// From here, we expect the state transition to go
 			// back to closing negotiated, for a ClosingComplete
 			// message to be sent and then for us to terminate at
 			// that state. This is 1/2 of the normal RBF signer
@@ -1253,8 +1304,65 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		})
 	}
 
+	// This tests that if we receive an `OfferReceivedEvent` while in the
+	// flushing state, then we'll cache that, and once we receive
+	// ChannelFlushed, we'll emit an internal `OfferReceivedEvent` in the
+	// negotiation state.
+	t.Run("early_offer", func(t *testing.T) {
+		firstState := *startingState
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+		})
+		defer closeHarness.stopAndAssert()
+
+		flushEvent := *flushTemplate
+
+		// Set up the fee estimate s.t the local party doesn't have
+		// balance to close.
+		closeHarness.expectFeeEstimate(absoluteFee, 1)
+
+		// First, we'll emit an `OfferReceivedEvent` to simulate an
+		// early offer (async network, they determine the channel is
+		// "flushed" before we do, and send their offer over).
+		remoteOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		closeHarness.chanCloser.SendEvent(ctx, remoteOffer)
+
+		// We should do a self transition, and still be in the
+		// ChannelFlushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		sequence := uint32(mempool.MaxRBFSequence)
+
+		// Now we'll send in the channel flushed event, and assert that
+		// this triggers a remote RBF iteration (we process their early
+		// offer and send our sig).
+		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
+		closeHarness.assertSingleRemoteRbfIteration(
+			remoteOffer, absoluteFee, absoluteFee, sequence, false,
+			true,
+		)
+	})
+
 	// Any other event should be ignored.
 	assertUnknownEventFail(t, startingState)
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, startingState)
 }
 
 // TestRbfCloseClosingNegotiationLocal tests the local portion of the primary
@@ -1496,6 +1604,59 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 			&ClosingNegotiation{},
 		)
 	})
+
+	// Make sure that we'll go to the error state if we try to try a close
+	// that we can't pay for.
+	t.Run("send_offer_cannot_pay_for_fees", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closeTerms,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](firstState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll prep to return an absolute fee that's much higher than
+		// the amount we have in the channel.
+		closeHarness.expectFeeEstimate(btcutil.SatoshiPerBitcoin, 1)
+
+		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte()
+		localOffer := &SendOfferEvent{
+			TargetFeeRate: rbfFeeBump,
+		}
+
+		// Next, we'll send in this event, which should fail as we can't
+		// actually pay for fees.
+		closeHarness.chanCloser.SendEvent(ctx, localOffer)
+
+		// We should transition to the CloseErr (within
+		// ClosingNegotiation) state.
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+
+		// If we get the state, we should see the expected ErrState.
+		currentState := assertStateT[*ClosingNegotiation](closeHarness)
+
+		closeErrState, ok := currentState.PeerState.GetForParty(
+			lntypes.Local,
+		).(*CloseErr)
+		require.True(t, ok)
+		require.IsType(
+			t, &ErrStateCantPayForFee{}, closeErrState.ErrState,
+		)
+	})
+
+	// Any other event should be ignored.
+	assertUnknownEventFail(t, startingState)
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, startingState)
 }
 
 // TestRbfCloseClosingNegotiationRemote tests that state machine is able to
@@ -1503,6 +1664,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 // party.
 func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	t.Parallel()
+
 	ctx := context.Background()
 
 	localBalance := lnwire.NewMSatFromSatoshis(40_000)
@@ -1533,7 +1695,6 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	}
 
 	balanceAfterClose := remoteBalance.ToSatoshis() - absoluteFee
-
 	sequence := uint32(mempool.MaxRBFSequence)
 
 	// This case tests that if we receive a signature from the remote
@@ -1688,7 +1849,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false,
+			false, true,
 		)
 
 		// Next, we'll receive an offer from the remote party, and drive
@@ -1698,12 +1859,14 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		absoluteFee = feeOffer.SigMsg.FeeSatoshis
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true,
+			true, true,
 		)
 
 		closeHarness.assertNoStateTransitions()
 	})
 
+	// This tests that if we get an offer that has the wrong local script,
+	// then we'll emit a hard error.
 	t.Run("recv_offer_wrong_local_script", func(t *testing.T) {
 		closeHarness := newCloser(t, &harnessCfg{
 			initialState: fn.Some[ProtocolState](startingState),
@@ -1734,6 +1897,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
+	// If we receive an offer from the remote party with a different remote
+	// script, then this ensures that we'll process that and use that create
+	// the next offer.
 	t.Run("recv_offer_remote_addr_change", func(t *testing.T) {
 		closingTerms := *closeTerms
 
@@ -1782,7 +1948,115 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false,
+			false, true,
 		)
 	})
+
+	// Any other event should be ignored.
+	assertUnknownEventFail(t, startingState)
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, startingState)
+}
+
+// TestRbfCloseErr tests that the state machine is able to properly restart
+// the state machine if we encounter an error.
+func TestRbfCloseErr(t *testing.T) {
+	localBalance := lnwire.NewMSatFromSatoshis(40_000)
+	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
+
+	closeTerms := &CloseChannelTerms{
+		ShutdownBalances: ShutdownBalances{
+			LocalBalance:  localBalance,
+			RemoteBalance: remoteBalance,
+		},
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+	}
+	startingState := &ClosingNegotiation{
+		PeerState: lntypes.Dual[AsymmetricPeerState]{
+			Local: &CloseErr{
+				CloseChannelTerms: closeTerms,
+			},
+		},
+		CloseChannelTerms: closeTerms,
+	}
+
+	absoluteFee := btcutil.Amount(10_100)
+	balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+
+	// From the error state, we should be able to kick off a new iteration
+	// for a local fee bump.
+	t.Run("send_offer_restart", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte()
+		localOffer := &SendOfferEvent{
+			TargetFeeRate: rbfFeeBump,
+		}
+
+		// Now we expect that another full RBF iteration takes place (we
+		// initiate a new local sig).
+		closeHarness.assertSingleRbfIteration(
+			localOffer, balanceAfterClose, absoluteFee,
+			noDustExpect,
+		)
+
+		// We should terminate in the negotiation state.
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{},
+		)
+	})
+
+	// From the error state, we should be able to handle the remote party
+	// kicking off a new iteration for a fee bump.
+	t.Run("recv_offer_restart", func(t *testing.T) {
+		startingState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Remote: &CloseErr{
+					CloseChannelTerms: closeTerms,
+					Party:             lntypes.Remote,
+				},
+			},
+			CloseChannelTerms: closeTerms,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](startingState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				FeeSatoshis:  absoluteFee,
+				LockTime:     1,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		sequence := uint32(mempool.MaxRBFSequence)
+
+		// As we're already in the negotiation phase, we'll now trigger
+		// a new iteration by having the remote party send a new offer
+		// sig.
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee, sequence,
+			false, true,
+		)
+	})
+
+	// Sending a Spend event should transition to CloseFin.
+	assertSpendEventCloseFin(t, startingState)
 }

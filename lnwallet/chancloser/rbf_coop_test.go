@@ -251,6 +251,8 @@ func (r *rbfCloserTestHarness) assertNoStateTransitions() {
 }
 
 func (r *rbfCloserTestHarness) assertStateTransitions(states ...RbfState) {
+	r.T.Helper()
+
 	assertStateTransitions(r.T, r.stateSub, states)
 }
 
@@ -1033,6 +1035,101 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 
 		// We should transition to the channel flushing state.
 		closeHarness.assertStateTransitions(&ChannelFlushing{})
+	})
+
+	// If we an early offer from the remote party, then we should stash
+	// that, transition to the channel flushing state. Once there, another
+	// self transition should emit the stashed offer.
+	t.Run("early_remote_offer_shutdown_complete", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// In this case we're doing the shutdown dance for the first
+		// time, so we'll mark the channel as not being flushed.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+
+		// Before we send the shutdown complete event, we'll send in an
+		// early offer from the remote party.
+		closeHarness.chanCloser.SendEvent(ctx, &OfferReceivedEvent{})
+
+		// This will cause a self transition back to ShutdownPending.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		// Next, we'll send in a shutdown complete event.
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownComplete{})
+
+		// We should transition to the channel flushing state, then the
+		// self event to have this state cache he early offer should
+		// follow.
+		closeHarness.assertStateTransitions(
+			&ChannelFlushing{}, &ChannelFlushing{},
+		)
+
+		// If we get the current state, we should see that the offer is
+		// cached.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+		require.NotNil(t, currentState.EarlyRemoteOffer)
+	})
+
+	// If we an early offer from the remote party, then we should stash
+	// that, transition to the channel flushing state. Once there, another
+	// self transition should emit the stashed offer.
+	t.Run("early_remote_offer_shutdown_received", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// In this case we're doing the shutdown dance for the first
+		// time, so we'll mark the channel as not being flushed.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+
+		// Before we send the shutdown complete event, we'll send in an
+		// early offer from the remote party.
+		closeHarness.chanCloser.SendEvent(ctx, &OfferReceivedEvent{})
+
+		// This will cause a self transition back to ShutdownPending.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		// Next, we'll send in a shutdown complete event.
+		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{})
+
+		// We should transition to the channel flushing state, then the
+		// self event to have this state cache he early offer should
+		// follow.
+		closeHarness.assertStateTransitions(
+			&ChannelFlushing{}, &ChannelFlushing{},
+		)
+
+		// If we get the current state, we should see that the offer is
+		// cached.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+		require.NotNil(t, currentState.EarlyRemoteOffer)
 	})
 
 	// Any other event should be ignored.

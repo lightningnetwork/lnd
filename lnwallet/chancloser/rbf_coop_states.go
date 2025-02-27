@@ -454,6 +454,11 @@ type ShutdownPending struct {
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
 	IdealFeeRate fn.Option[chainfee.SatPerVByte]
+
+	// EarlyRemoteOffer is the offer we received from the remote party
+	// before we received their shutdown message. We'll stash it to process
+	// later.
+	EarlyRemoteOffer fn.Option[OfferReceivedEvent]
 }
 
 // String returns the name of the state for ShutdownPending.

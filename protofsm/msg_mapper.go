@@ -2,7 +2,7 @@ package protofsm
 
 import (
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 // MsgMapper is used to map incoming wire messages into a FSM event. This is
@@ -11,5 +11,5 @@ import (
 type MsgMapper[Event any] interface {
 	// MapMsg maps a wire message into a FSM event. If the message is not
 	// mappable, then an None is returned.
-	MapMsg(msg lnwire.Message) fn.Option[Event]
+	MapMsg(msg msgmux.PeerMsg) fn.Option[Event]
 }

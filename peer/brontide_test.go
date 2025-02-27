@@ -689,15 +689,9 @@ func TestChooseDeliveryScript(t *testing.T) {
 		userScript     lnwire.DeliveryAddress
 		shutdownScript lnwire.DeliveryAddress
 		expectedScript lnwire.DeliveryAddress
+		newAddr        func() ([]byte, error)
 		expectedError  error
 	}{
-		{
-			name:           "Neither set",
-			userScript:     nil,
-			shutdownScript: nil,
-			expectedScript: nil,
-			expectedError:  nil,
-		},
 		{
 			name:           "Both set and equal",
 			userScript:     script1,
@@ -726,6 +720,16 @@ func TestChooseDeliveryScript(t *testing.T) {
 			expectedScript: script2,
 			expectedError:  nil,
 		},
+		{
+			name:           "no script generate new one",
+			userScript:     nil,
+			shutdownScript: nil,
+			expectedScript: script2,
+			newAddr: func() ([]byte, error) {
+				return script2, nil
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, test := range tests {
@@ -734,13 +738,16 @@ func TestChooseDeliveryScript(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			script, err := chooseDeliveryScript(
 				test.shutdownScript, test.userScript,
+				test.newAddr,
 			)
 			if err != test.expectedError {
-				t.Fatalf("Expected: %v, got: %v", test.expectedError, err)
+				t.Fatalf("Expected: %v, got: %v",
+					test.expectedError, err)
 			}
 
 			if !bytes.Equal(script, test.expectedScript) {
-				t.Fatalf("Expected: %x, got: %x", test.expectedScript, script)
+				t.Fatalf("Expected: %x, got: %x",
+					test.expectedScript, script)
 			}
 		})
 	}

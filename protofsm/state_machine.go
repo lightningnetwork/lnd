@@ -77,7 +77,8 @@ type State[Event any, Env Environment] interface {
 	// otherwise.
 	IsTerminal() bool
 
-	// TODO(roasbeef): also add state serialization?
+	// String returns a human readable string that represents the state.
+	String() string
 }
 
 // DaemonAdapters is a set of methods that server as adapters to bridge the
@@ -435,7 +436,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to broadcast txn: %w", err)
+			log.Errorf("unable to broadcast txn: %v", err)
 		}
 
 		return nil
@@ -597,8 +598,8 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 			}
 
 			s.log.InfoS(ctx, "State transition",
-				btclog.Fmt("from_state", "%T", currentState),
-				btclog.Fmt("to_state", "%T", transition.NextState))
+				btclog.Fmt("from_state", "%v", currentState),
+				btclog.Fmt("to_state", "%v", transition.NextState))
 
 			// With our events processed, we'll now update our
 			// internal state.

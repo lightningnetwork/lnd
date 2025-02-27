@@ -967,3 +967,57 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	// Finally, we check to make sure the balance is unlocked again.
 	ht.AssertWalletLockedBalance(alice, 0)
 }
+
+// testFundingManagerFundingTimeout tests that after an OpenChannel, and before
+// the funding transaction is confirmed, if a user is not the channel initiator
+// ,the channel is forgotten after maxWaitNumBlocksFundingConf.
+func testFundingManagerFundingTimeout(ht *lntest.HarnessTest) {
+	// Set the maximum wait blocks for funding confirmation.
+	maxWaitNumBlocksFundingConf := 10
+
+	// Create nodes for testing, ensuring Alice has sufficient initial
+	// funds.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	// Restart Bob with the custom configuration for funding confirmation
+	// timeout.
+	ht.RestartNodeWithExtraArgs(bob, []string{
+		"--dev.maxwaitnumblocksfundingconf=10",
+	})
+
+	// Ensure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Open the channel between Alice and Bob.
+	// This runs through the process up until the funding transaction is
+	// broadcasted.
+	ht.OpenChannelAssertPending(alice, bob,
+		lntest.OpenChannelParams{
+			Amt:     500000,
+			PushAmt: 0,
+		})
+
+	// At this point, both nodes have a pending channel waiting for the
+	// funding transaction to be confirmed.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// We expect Bob to forget the channel after maxWaitNumBlocksFundingConf
+	//  blocks, so mine maxWaitNumBlocksFundingConf-1, and check that it is
+	// still pending.
+	ht.MineEmptyBlocks(maxWaitNumBlocksFundingConf - 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Now mine one additional block to reach maxWaitNumBlocksFundingConf.
+	ht.MineEmptyBlocks(1)
+
+	// Bob should now have forgotten the channel.
+	ht.AssertNumPendingOpenChannels(bob, 0)
+
+	// Since Alice was the initiator, her pending channel should remain.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+
+	// Cleanup the mempool by mining blocks.
+	ht.MineBlocksAndAssertNumTxes(6, 1)
+}

@@ -16,7 +16,7 @@ var (
 	ErrSignersNotSpecified = fmt.Errorf("total number of signers or all " +
 		"signers must be known")
 
-	// ErrSignerNotInKeySet is returned when a the private key for a signer
+	// ErrSignerNotInKeySet is returned when a private key for a signer
 	// isn't included in the set of signing public keys.
 	ErrSignerNotInKeySet = fmt.Errorf("signing key is not found in key" +
 		" set")
@@ -99,7 +99,7 @@ type ContextOption func(*contextOptions)
 // contextOptions houses the set of functional options that can be used to
 // musig2 signing protocol.
 type contextOptions struct {
-	// tweaks is the set of optinoal tweaks to apply to the combined public
+	// tweaks is the set of optional tweaks to apply to the combined public
 	// key.
 	tweaks []KeyTweakDesc
 
@@ -154,7 +154,7 @@ func WithTaprootTweakCtx(scriptRoot []byte) ContextOption {
 // WithBip86TweakCtx specifies that within this context, the final key should
 // use the taproot tweak as defined in BIP 341, with the BIP 86 modification:
 // outputKey = internalKey + h_tapTweak(internalKey)*G. In this case, the
-// aggreaged key before the tweak will be used as the internal key.
+// aggregated key before the tweak will be used as the internal key.
 func WithBip86TweakCtx() ContextOption {
 	return func(o *contextOptions) {
 		o.bip86Tweak = true
@@ -514,7 +514,7 @@ func (s *Session) PublicNonce() [PubNonceSize]byte {
 }
 
 // NumRegisteredNonces returns the total number of nonces that have been
-// regsitered so far.
+// registered so far.
 func (s *Session) NumRegisteredNonces() int {
 	return len(s.pubNonces)
 }
@@ -530,7 +530,7 @@ func (s *Session) RegisterPubNonce(nonce [PubNonceSize]byte) (bool, error) {
 		return false, ErrAlredyHaveAllNonces
 	}
 
-	// Add this nonce and check again if we already have tall the nonces we
+	// Add this nonce and check again if we already have all the nonces we
 	// need.
 	s.pubNonces = append(s.pubNonces, nonce)
 	haveAllNonces = len(s.pubNonces) == s.ctx.opts.numSigners

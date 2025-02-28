@@ -330,6 +330,11 @@ The underlying functionality between those two options remain the same.
 * Add a new CI-step to do some basic [backwards compatibility 
   testing](https://github.com/lightningnetwork/lnd/pull/9540) for each PR. 
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/9567) an itest flake where 
+  if a channel update is sent too quickly after the previous one, then it would 
+  be ignored due to the timestamp of the second update not being after the 
+  previous one. 
+
 ## Database
 
 * [Migrate the mission control 

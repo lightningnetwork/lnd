@@ -377,6 +377,12 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		)
 	}
 
+	// Channel Updates actually also have a natural rate limit of 1 update
+	// per second due to the fact that the timestamp carried in the update
+	// is only accurate to the second. So we need to ensure that the next
+	// update we send in the burst is at least 1 second after the last one.
+	time.Sleep(time.Second)
+
 	// Double the base fee and attach to the policy. Moreover, we set the
 	// inbound fee to nil and test that it does not change the propagated
 	// inbound fee.
@@ -402,6 +408,12 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr, expectedPolicy, chanPoint3,
 	)
+
+	// Similarly to above, we again wait for the natural rate limit of the
+	// ChannelUpdate to pass so that we are really testing that Carol is
+	// _not_ getting this next update due to her rate limiting settings and
+	// not due to the natural rate limit being met.
+	time.Sleep(time.Second)
 
 	// Double the base fee and attach to the policy.
 	baseFee2 := baseFee1 * 2

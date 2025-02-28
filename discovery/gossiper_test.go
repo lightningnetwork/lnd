@@ -71,7 +71,7 @@ var (
 	proofMatureDelta uint32
 
 	// The test timestamp + rebroadcast interval makes sure messages won't
-	// be rebroadcasted automaticallty during the tests.
+	// be rebroadcasted automatically during the tests.
 	testTimestamp       = uint32(1234567890)
 	rebroadcastInterval = time.Hour * 1000000
 )

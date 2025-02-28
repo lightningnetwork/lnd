@@ -509,7 +509,7 @@ func (b *blindedForwardTest) sendToRoute(route *lnrpc.Route,
 	require.NoError(b.ht, err)
 
 	pmt := b.ht.AssertPaymentStatus(
-		b.alice, preimage, lnrpc.Payment_FAILED,
+		b.alice, preimage.Hash(), lnrpc.Payment_FAILED,
 	)
 	require.Len(b.ht, pmt.Htlcs, 1)
 

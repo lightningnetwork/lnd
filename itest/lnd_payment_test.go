@@ -98,8 +98,10 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 
 	// We also check the payments are marked as IN_FLIGHT in Alice's
 	// database.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(
+		alice, dustPreimage.Hash(), lnrpc.Payment_IN_FLIGHT,
+	)
 
 	// Bob should have two incoming HTLC.
 	ht.AssertIncomingHTLCActive(bob, chanPoint, payHash[:])
@@ -166,12 +168,12 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	dustPayStream := alice.RPC.TrackPaymentV2(dustPayHash[:])
 
 	// Check that the dust payment is failed in both the stream and DB.
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_FAILED)
+	ht.AssertPaymentStatus(alice, dustPreimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(dustPayStream, lnrpc.Payment_FAILED)
 
 	// We expect the non-dust payment to marked as succeeded in Alice's
 	// database and also from her stream.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_SUCCEEDED)
 }
 
@@ -263,8 +265,10 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 
 	// We also check the payments are marked as IN_FLIGHT in Alice's
 	// database.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(
+		alice, dustPreimage.Hash(), lnrpc.Payment_IN_FLIGHT,
+	)
 
 	// Bob should have two incoming HTLC.
 	ht.AssertIncomingHTLCActive(bob, chanPoint, payHash[:])
@@ -310,14 +314,14 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	// mark the non-dust payment as succeeded.
 	//
 	// Check that the dust payment is failed in both the stream and DB.
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_FAILED)
+	ht.AssertPaymentStatus(alice, dustPreimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(dustPayStream, lnrpc.Payment_FAILED)
 
 	// Check that the non-dust payment is still in-flight.
 	//
 	// NOTE: we don't check the payment status from the stream here as
 	// there's no new status being sent.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
 	// We now have two possible cases for the non-dust payment:
 	// - Bob stays offline, and Alice will sweep her outgoing HTLC, which
@@ -335,7 +339,7 @@ func runTestPaymentHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 
 	// We expect the non-dust payment to marked as failed in Alice's
 	// database and also from her stream.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_FAILED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
 }
 
@@ -1114,7 +1118,7 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
 	payment := ht.AssertPaymentStatus(
-		alice, preimage, lnrpc.Payment_IN_FLIGHT,
+		alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT,
 	)
 	reasonNone := lnrpc.PaymentFailureReason_FAILURE_REASON_NONE
 	require.Equal(ht, reasonNone, payment.FailureReason)
@@ -1127,7 +1131,7 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 	require.NoError(ht, err, "failed to send request")
 
 	// Assert that the payment status is as expected.
-	ht.AssertPaymentStatus(alice, preimage, expectedPaymentStatus)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), expectedPaymentStatus)
 
 	// Since the payment context was cancelled, no further payment attempts
 	// should've been made, and we observe FAILURE_REASON_CANCELED.
@@ -1245,7 +1249,7 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	}()
 
 	// Check that the payment is in-flight.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
 	// Construct a route to send the dust payment.
 	go func() {
@@ -1281,7 +1285,9 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	}()
 
 	// Check that the dust payment is in-flight.
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(
+		alice, dustPreimage.Hash(), lnrpc.Payment_IN_FLIGHT,
+	)
 
 	// Bob should have two incoming HTLC.
 	ht.AssertIncomingHTLCActive(bob, chanPoint, payHash[:])
@@ -1323,14 +1329,14 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	// HTLC is resolved onchain.
 	//
 	// Check that the dust payment is failed in both the stream and DB.
-	ht.AssertPaymentStatus(alice, dustPreimage, lnrpc.Payment_FAILED)
+	ht.AssertPaymentStatus(alice, dustPreimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(dustPayStream, lnrpc.Payment_FAILED)
 
 	// Check that the non-dust payment is still in-flight.
 	//
 	// NOTE: we don't check the payment status from the stream here as
 	// there's no new status being sent.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_IN_FLIGHT)
 
 	// We now have two possible cases for the non-dust payment:
 	// - Bob stays offline, and Alice will sweep her outgoing HTLC, which
@@ -1348,6 +1354,6 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 
 	// We expect the non-dust payment to marked as failed in Alice's
 	// database and also from her stream.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_FAILED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
 }

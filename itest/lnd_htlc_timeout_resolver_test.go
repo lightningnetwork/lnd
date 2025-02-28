@@ -197,7 +197,7 @@ func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
 	// Finally, check that the Alice's payment is marked as succeeded as
 	// Bob has settled the htlc using the preimage extracted from Carol's
 	// 2nd level success tx.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 
 	// Mine a block to clean the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -371,7 +371,7 @@ func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
 	// Finally, check that the Alice's payment is marked as succeeded as
 	// Bob has settled the htlc using the preimage extracted from Carol's
 	// direct spend tx.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 
 	// NOTE: for non-standby nodes there's no need to clean up the force
 	// close as long as the mempool is cleaned.

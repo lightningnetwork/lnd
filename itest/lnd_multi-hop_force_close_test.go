@@ -894,7 +894,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	ht.AssertNumActiveHtlcs(alice, 0)
 
 	// Check that the Alice's payment is correctly marked succeeded.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 
 	// Carol's pending channel report should now show two outputs under
 	// limbo: her commitment output, as well as the second-layer claim
@@ -1918,7 +1918,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 }
 
 // testLocalClaimIncomingHTLCLeasedZeroConf tests
@@ -2221,7 +2221,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 }
 
 // testLocalPreimageClaimAnchorZeroConf tests `runLocalPreimageClaim` with
@@ -2575,7 +2575,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 }
 
 // testLocalPreimageClaimLeasedZeroConf tests `runLocalPreimageClaim` with
@@ -2839,7 +2839,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	ht.AssertInvoiceState(stream, lnrpc.Invoice_SETTLED)
 
 	// Check that the Alice's payment is correctly marked succeeded.
-	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 
 	// With the script-enforced lease commitment type, Alice and Bob still
 	// haven't been able to sweep their respective commit outputs due to

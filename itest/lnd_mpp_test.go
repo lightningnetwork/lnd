@@ -200,7 +200,7 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 		copy(preimage[:], invoices[0].RPreimage)
 
 		payment := ht.AssertPaymentStatus(
-			hn, preimage, lnrpc.Payment_SUCCEEDED,
+			hn, preimage.Hash(), lnrpc.Payment_SUCCEEDED,
 		)
 
 		htlcs := payment.Htlcs

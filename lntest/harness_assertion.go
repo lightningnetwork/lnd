@@ -1550,16 +1550,15 @@ func (h *HarnessTest) findPayment(hn *node.HarnessNode,
 // PaymentCheck is a function that checks a payment for a specific condition.
 type PaymentCheck func(*lnrpc.Payment) error
 
-// AssertPaymentStatus asserts that the given node list a payment with the
-// given preimage has the expected status. It also checks that the payment has
-// the expected preimage, which is empty when it's not settled and matches the
-// given preimage when it's succeeded.
+// AssertPaymentStatus asserts that the given node list a payment with the given
+// payment hash has the expected status. It also checks that the payment has the
+// expected preimage, which is empty when it's not settled and matches the given
+// preimage when it's succeeded.
 func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
-	preimage lntypes.Preimage, status lnrpc.Payment_PaymentStatus,
+	payHash lntypes.Hash, status lnrpc.Payment_PaymentStatus,
 	checks ...PaymentCheck) *lnrpc.Payment {
 
 	var target *lnrpc.Payment
-	payHash := preimage.Hash()
 
 	err := wait.NoError(func() error {
 		p, err := h.findPayment(hn, payHash.String())
@@ -1581,8 +1580,11 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	// If this expected status is SUCCEEDED, we expect the final
 	// preimage.
 	case lnrpc.Payment_SUCCEEDED:
-		require.Equal(h, preimage.String(), target.PaymentPreimage,
-			"preimage not match")
+		preimage, err := lntypes.MakePreimageFromStr(
+			target.PaymentPreimage,
+		)
+		require.NoError(h, err, "fail to make preimage")
+		require.Equal(h, payHash, preimage.Hash(), "preimage not match")
 
 	// Otherwise we expect an all-zero preimage.
 	default:

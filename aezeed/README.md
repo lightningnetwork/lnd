@@ -5,11 +5,11 @@ seed scheme (based on [aez](http://web.cs.ucdavis.edu/~rogaway/aez/)).
 
 This new scheme aims to address
 two major features lacking in [BIP39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki): versioning, and a
-wallet birthday. The lack a version means that wallets may not
+wallet birthday. The lack of a version means that wallets may not
 necessarily know how to re-derive addresses during the recovery
 process. A lack of a birthday means that wallets don’t know how far
 back to look in the chain to ensure that they derive all the proper
-user addresses. Additionally, BIP39 use a very weak [KDF](https://en.wikipedia.org/wiki/Key_derivation_function). We use
+user addresses. Additionally, BIP39 uses a very weak [KDF](https://en.wikipedia.org/wiki/Key_derivation_function). We use
 scrypt with modern parameters (n=32768, r=8, p=1). A set of benchmarks has
 been added, on my laptop I get about 100ms per attempt:
 
@@ -90,7 +90,7 @@ plaintext is advisable if the user also sets a passphrase. This is in
 contrast to BIP 39 where the mnemonic alone (without a passphrase) may
 be sufficient to steal funds.
 * A cipherseed can be modified to change the passphrase. This
-means that if the users wants a stronger passphrase, they can decipher
+means that if the user wants a stronger passphrase, they can decipher
 (with the old passphrase), then encipher (with a new passphrase).
 Compared to BIP 39, where if the users used a passphrase, since the
 mapping is one way, they can’t change the passphrase of their existing

@@ -738,7 +738,7 @@ func serializeNewResult(rp *paymentResultNew) ([]byte, []byte, error) {
 		return nil, nil, err
 	}
 
-	return key, buff.Bytes(), err
+	return key, buff.Bytes(), nil
 }
 
 // getResultKeyNew returns a byte slice representing a unique key for this

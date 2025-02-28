@@ -259,12 +259,16 @@ jobs:
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: matrix.unit_type == 'unit-cover'
+
       - name: Send coverage
         uses: coverallsapp/github-action@v2
         if: matrix.unit_type == 'unit-cover'
         continue-on-error: true
         with:
-          file: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'unit'
           format: 'golang'
           parallel: true
@@ -315,12 +319,16 @@ jobs:
       - name: run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: ${{ contains(matrix.args, 'cover=1') }}
+
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
-          file: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'itest-${{ matrix.name }}'
           format: 'golang'
           parallel: true
@@ -384,12 +392,16 @@ jobs:
       - name: run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
+      - name: Clean coverage
+        run: grep -Ev '(\.pb\.go|\.pb\.json\.go|\.pb\.gw\.go)' coverage.txt > coverage-norpc.txt
+        if: ${{ contains(matrix.args, 'cover=1') }}
+
       - name: Send coverage
         if: ${{ contains(matrix.args, 'cover=1') }}
         continue-on-error: true
         uses: coverallsapp/github-action@v2
         with:
-          file: coverage.txt
+          file: coverage-norpc.txt
           flag-name: 'itest-${{ matrix.name }}'
           format: 'golang'
           parallel: true

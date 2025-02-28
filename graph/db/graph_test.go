@@ -3994,7 +3994,6 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// Unset the channel graph cache to simulate the user running with the
 	// option turned off.
 	graph.graphCache = nil
-	graph.KVStore.graphCache = nil
 
 	node1, err := createTestVertex(graph.db)
 	require.Nil(t, err)
@@ -4078,6 +4077,10 @@ func TestGraphLoading(t *testing.T) {
 
 	graph, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
 
 	// Populate the graph with test data.
 	const numNodes = 100
@@ -4088,6 +4091,10 @@ func TestGraphLoading(t *testing.T) {
 	// populated.
 	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graphReloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graphReloaded.Stop())
+	})
 
 	// Assert that the cache content is identical.
 	require.Equal(

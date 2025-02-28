@@ -49,6 +49,11 @@ func newDiskChanGraph(t *testing.T) (testGraph, error) {
 	graphDB, err := graphdb.NewChannelGraph(&graphdb.Config{KVDB: backend})
 	require.NoError(t, err)
 
+	require.NoError(t, graphDB.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graphDB.Stop())
+	})
+
 	return &testDBGraph{
 		db: graphDB,
 		databaseChannelGraph: databaseChannelGraph{

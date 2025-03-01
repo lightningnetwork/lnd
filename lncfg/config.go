@@ -72,6 +72,11 @@ const (
 	// DefaultZombieSweeperInterval is the default time interval at which
 	// unfinished (zombiestate) open channel flows are purged from memory.
 	DefaultZombieSweeperInterval = 1 * time.Minute
+
+	// DefaultMaxWaitNumBlocksFundingConf is the maximum number of blocks to
+	// wait for the funding transaction to confirm before forgetting
+	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
+	DefaultMaxWaitNumBlocksFundingConf = 2016
 )
 
 // CleanAndExpandPath expands environment variables and leading ~ in the

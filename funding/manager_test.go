@@ -2334,14 +2334,15 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	// mine 2016-1, and check that it is still pending.
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight +
-			MaxWaitNumBlocksFundingConf - 1,
+			lncfg.DefaultMaxWaitNumBlocksFundingConf - 1,
 	}
 
 	// Bob should still be waiting for the channel to open.
 	assertNumPendingChannelsRemains(t, bob, 1)
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight +
+			lncfg.DefaultMaxWaitNumBlocksFundingConf,
 	}
 
 	// Bob should have sent an Error message to Alice.
@@ -2387,16 +2388,16 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
-	// Increase the height to 1 minus the MaxWaitNumBlocksFundingConf
+	// Increase the height to 1 minus the DefaultMaxWaitNumBlocksFundingConf
 	// height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight +
-			MaxWaitNumBlocksFundingConf - 1,
+			lncfg.DefaultMaxWaitNumBlocksFundingConf - 1,
 	}
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
 		Height: fundingBroadcastHeight +
-			MaxWaitNumBlocksFundingConf - 1,
+			lncfg.DefaultMaxWaitNumBlocksFundingConf - 1,
 	}
 
 	// Assert both and Alice and Bob still have 1 pending channels.
@@ -2404,13 +2405,16 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	assertNumPendingChannelsRemains(t, bob, 1)
 
-	// Increase both Alice and Bob to MaxWaitNumBlocksFundingConf height.
+	// Increase both Alice and Bob to DefaultMaxWaitNumBlocksFundingConf
+	// height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight +
+			lncfg.DefaultMaxWaitNumBlocksFundingConf,
 	}
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight +
+			lncfg.DefaultMaxWaitNumBlocksFundingConf,
 	}
 
 	// Since Alice was the initiator, the channel should not have timed out.

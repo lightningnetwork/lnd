@@ -3,6 +3,7 @@ package funding
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -1112,7 +1113,7 @@ func (f *Manager) advanceFundingState(channel *channeldb.OpenChannel,
 		channelState, shortChanID, err := f.getChannelOpeningState(
 			&channel.FundingOutpoint,
 		)
-		if err == channeldb.ErrChannelNotFound {
+		if errors.Is(err, channeldb.ErrChannelNotFound) {
 			// Channel not in fundingManager's opening database,
 			// meaning it was successfully announced to the
 			// network.
@@ -1326,7 +1327,7 @@ func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
 	}
 
 	confChannel, err := f.waitForFundingWithTimeout(channel)
-	if err == ErrConfirmationTimeout {
+	if errors.Is(err, ErrConfirmationTimeout) {
 		return f.fundingTimeout(channel, pendingChanID)
 	} else if err != nil {
 		return fmt.Errorf("error waiting for funding "+

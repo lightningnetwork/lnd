@@ -4001,7 +4001,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	chanCloser, err := p.fetchActiveChanCloser(msg.cid)
 	if err != nil {
 		// If the channel is not known to us, we'll simply ignore this message.
-		if err == ErrChannelNotFound {
+		if errors.Is(err, ErrChannelNotFound) {
 			return
 		}
 

@@ -1440,7 +1440,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// If sending everything to this address would invalidate our
 		// reserved wallet balance, we create a new sweep tx, where
 		// we'll send the reserved value back to our wallet.
-		if err == lnwallet.ErrReservedValueInvalidated {
+		if errors.Is(err, lnwallet.ErrReservedValueInvalidated) {
 			sweepTxPkg.CancelSweepAttempt()
 
 			rpcsLog.Debugf("Reserved value %v not satisfied after "+
@@ -4348,7 +4348,7 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// didn't have any time-locked outputs, then the nursery may not know of
 	// the contract.
 	nurseryInfo, err := r.server.utxoNursery.NurseryReport(chanPoint)
-	if err == contractcourt.ErrContractNotFound {
+	if errors.Is(err, contractcourt.ErrContractNotFound) {
 		return nil
 	}
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	prand "math/rand"
@@ -4906,7 +4907,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
 	peer, err := s.findPeerByPubStr(pubStr)
-	if err == ErrPeerNotConnected {
+	if errors.Is(err, ErrPeerNotConnected) {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 

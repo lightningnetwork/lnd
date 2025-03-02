@@ -2,7 +2,7 @@ package amp
 
 import (
 	"crypto/rand"
-	"fmt"
+	"errors"
 )
 
 // zeroShare is the all-zero 32-byte share.
@@ -97,7 +97,7 @@ func (s *SeedSharer) Root() Share {
 func (s *SeedSharer) Split() (Sharer, Sharer, error) {
 	// We cannot split the zero-Sharer.
 	if s.curr == zeroShare {
-		return nil, nil, fmt.Errorf("cannot split zero-Sharer")
+		return nil, nil, errors.New("cannot split zero-Sharer")
 	}
 
 	shareLeft, shareRight, err := split(&s.curr)

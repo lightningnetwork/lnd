@@ -43,7 +43,7 @@ func (e *profileEntry) cert() (*x509.CertPool, error) {
 
 	cp := x509.NewCertPool()
 	if !cp.AppendCertsFromPEM([]byte(e.TLSCert)) {
-		return nil, fmt.Errorf("credentials: failed to append " +
+		return nil, errors.New("credentials: failed to append " +
 			"certificate")
 	}
 	return cp, nil
@@ -140,7 +140,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	for _, m := range ctx.GlobalStringSlice("metadata") {
 		pair := strings.Split(m, ":")
 		if len(pair) != 2 {
-			return nil, fmt.Errorf("invalid format for metadata " +
+			return nil, errors.New("invalid format for metadata " +
 				"flag; expected \"key:value\"")
 		}
 

@@ -572,7 +572,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if cfg.ProtocolOptions.TaprootOverlayChans &&
 		implCfg.AuxFundingController.IsNone() {
 
-		return nil, fmt.Errorf("taproot overlay flag set, but not " +
+		return nil, errors.New("taproot overlay flag set, but not " +
 			"aux controllers")
 	}
 
@@ -1428,7 +1428,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		if ourPolicy == nil {
 			// Something is wrong, so return an error.
-			return nil, fmt.Errorf("we don't have an edge")
+			return nil, errors.New("we don't have an edge")
 		}
 
 		err = s.graphDB.DeleteChannelEdges(

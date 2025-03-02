@@ -1,7 +1,7 @@
 package fn
 
 import (
-	"fmt"
+	"errors"
 	"time"
 )
 
@@ -14,7 +14,7 @@ func RecvOrTimeout[T any](c <-chan T, timeout time.Duration) (T, error) {
 
 	case <-time.After(timeout):
 		var zero T
-		return zero, fmt.Errorf("timeout hit")
+		return zero, errors.New("timeout hit")
 	}
 }
 
@@ -33,6 +33,6 @@ func RecvResp[T any](r <-chan T, e <-chan error, q <-chan struct{}) (T, error) {
 		return noResp, err
 
 	case <-q:
-		return noResp, fmt.Errorf("quitting")
+		return noResp, errors.New("quitting")
 	}
 }

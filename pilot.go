@@ -66,7 +66,7 @@ func validateAtplCfg(cfg *lncfg.AutoPilot) ([]*autopilot.WeightedHeuristic,
 	}
 
 	if sum != 1.0 {
-		return nil, fmt.Errorf("heuristic weights must sum to 1.0")
+		return nil, errors.New("heuristic weights must sum to 1.0")
 	}
 	return heuristics, nil
 }

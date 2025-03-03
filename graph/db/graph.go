@@ -609,6 +609,17 @@ func (c *ChannelGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	return c.fetchNodeFeatures(nil, nodePub)
 }
 
+// FetchChannelEdgesByID attempts to lookup the two directed edges for
+// the channel identified by the channel ID.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.fetchChannelEdgesByID(chanID)
+}
+
 // ForEachNodeCached is similar to forEachNode, but it utilizes the channel
 // graph cache instead. Note that this doesn't return all the information the
 // regular forEachNode method does.
@@ -3395,7 +3406,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	return edgeInfo, policy1, policy2, nil
 }
 
-// FetchChannelEdgesByID attempts to lookup the two directed edges for the
+// fetchChannelEdgesByID attempts to lookup the two directed edges for the
 // channel identified by the channel ID. If the channel can't be found, then
 // ErrEdgeNotFound is returned. A struct which houses the general information
 // for the channel itself is returned as well as two structs that contain the
@@ -3404,7 +3415,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 // ErrZombieEdge an be returned if the edge is currently marked as a zombie
 // within the database. In this case, the ChannelEdgePolicy's will be nil, and
 // the ChannelEdgeInfo will only include the public keys of each node.
-func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
+func (c *ChannelGraph) fetchChannelEdgesByID(chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
@@ -3934,6 +3945,17 @@ func (c *nodeTraverserSession) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
 	return c.db.fetchNodeFeatures(c.tx, nodePub)
+}
+
+// FetchChannelEdgesByID attempts to lookup the two directed edges for
+// the channel identified by the channel ID.
+//
+// NOTE: this is part of the graphdb.NodeTraverser interface.
+func (c *nodeTraverserSession) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.fetchChannelEdgesByID(chanID)
 }
 
 func putLightningNode(nodeBucket kvdb.RwBucket, aliasBucket kvdb.RwBucket, // nolint:dupl

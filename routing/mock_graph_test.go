@@ -211,6 +211,45 @@ func (m *mockGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
 	return nil
 }
 
+// FetchChannelEdgesByID attempts to lookup the two directed edges for the
+// channel identified by the channel ID.
+//
+// NOTE: Part of the Graph interface.
+func (m *mockGraph) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	// Iterate over all mock nodes.
+	for _, node := range m.nodes {
+		// Iterate over the channels of each mock node.
+		for peer, channel := range node.channels {
+			peerNode := m.nodes[peer]
+
+			if chanID == channel.id {
+				return &models.ChannelEdgeInfo{
+						ChannelID:     channel.id,
+						NodeKey1Bytes: node.pubkey,
+						NodeKey2Bytes: peerNode.pubkey,
+						Capacity:      channel.capacity,
+					},
+					&models.ChannelEdgePolicy{
+						ChannelID:   channel.id,
+						ToNode:      node.pubkey,
+						FeeBaseMSat: node.baseFee,
+					},
+					&models.ChannelEdgePolicy{
+						ChannelID:   channel.id,
+						ToNode:      peerNode.pubkey,
+						FeeBaseMSat: peerNode.baseFee,
+					},
+					nil
+			}
+		}
+	}
+
+	return nil, nil, nil, fmt.Errorf("channel %v not found", chanID)
+}
+
 // sourceNode returns the source node of the graph.
 //
 // NOTE: Part of the Graph interface.

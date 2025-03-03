@@ -341,10 +341,10 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// but not the second, as she only allows two updates per day and a day
 	// has yet to elapse from the previous update.
 
-	// assertAliceAndBob is a helper closure which updates Alice's policy
-	// and asserts that both Alice and Bob have heard and updated the
+	// updateAndAssertAliceAndBob is a helper closure which updates Alice's
+	// policy and asserts that both Alice and Bob have heard and updated the
 	// policy in their graph.
-	assertAliceAndBob := func(req *lnrpc.PolicyUpdateRequest,
+	updateAndAssertAliceAndBob := func(req *lnrpc.PolicyUpdateRequest,
 		expectedPolicy *lnrpc.RoutingPolicy) {
 
 		alice.RPC.UpdateChannelPolicy(req)
@@ -390,7 +390,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	expectedPolicy.FeeBaseMsat = baseFee1
 	req.BaseFeeMsat = baseFee1
 	req.InboundFee = nil
-	assertAliceAndBob(req, expectedPolicy)
+	updateAndAssertAliceAndBob(req, expectedPolicy)
 
 	// Check that Carol has both heard the policy and updated it in her
 	// graph.
@@ -419,7 +419,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	baseFee2 := baseFee1 * 2
 	expectedPolicy.FeeBaseMsat = baseFee2
 	req.BaseFeeMsat = baseFee2
-	assertAliceAndBob(req, expectedPolicy)
+	updateAndAssertAliceAndBob(req, expectedPolicy)
 
 	// Since Carol didn't receive the last update, she still has Alice's
 	// old policy. We validate this by checking the base fee is the older

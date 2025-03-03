@@ -684,19 +684,27 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			prevNode = path[j].vertex
 		}
 
-		// Don't bother adding a route if its success probability less
-		// minimum that can be assigned to any single pair.
-		if totalRouteProbability <= DefaultMinRouteProbability {
-			continue
-		}
-
-		routes = append(routes, &routeWithProbability{
+		routeWithProbability := &routeWithProbability{
 			route: &route.Route{
 				SourcePubKey: introNode,
 				Hops:         hops,
 			},
 			probability: totalRouteProbability,
-		})
+		}
+
+		// Don't bother adding a route if its success probability less
+		// minimum that can be assigned to any single pair.
+		if totalRouteProbability <= DefaultMinRouteProbability {
+			log.Debugf("Not using route (%v) as a blinded "+
+				"path since it resulted in an low "+
+				"probability path(%.3f)",
+				route.ChanIDString(routeWithProbability.route),
+				routeWithProbability.probability,
+			)
+			continue
+		}
+
+		routes = append(routes, routeWithProbability)
 	}
 
 	// Sort the routes based on probability.

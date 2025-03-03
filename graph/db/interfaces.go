@@ -36,4 +36,9 @@ type NodeTraverser interface {
 
 	// FetchNodeFeatures returns the features of the given node.
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+
+	// FetchChannelEdgesByID attempts to lookup the two directed edges for
+	// the channel identified by the channel ID.
+	FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 }

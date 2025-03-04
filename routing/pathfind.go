@@ -1192,6 +1192,11 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
+
+	// incomingChainedChannels holds the chained channels list (specified
+	// via channel id) starting from a channel which points to the receiver
+	// node.
+	incomingChainedChannels []uint64
 }
 
 // blindedHop holds the information about a hop we have selected for a blinded
@@ -1221,6 +1226,15 @@ func findBlindedPaths(g Graph, target route.Vertex,
 			restrictions.minNumHops)
 	}
 
+	numChainedChannels :=
+		uint8(len(restrictions.incomingChainedChannels))
+	if restrictions.minNumHops < numChainedChannels {
+		return nil, fmt.Errorf("minimum number of blinded path hops "+
+			"(%d) must be greater than or equal to the number of "+
+			"hops on the chained channels specified (%d)",
+			restrictions.minNumHops, numChainedChannels)
+	}
+
 	// If the node is not the destination node, then it is required that the
 	// node advertise the route blinding feature-bit in order for it to be
 	// chosen as a node on the blinded path.
@@ -1237,16 +1251,77 @@ func findBlindedPaths(g Graph, target route.Vertex,
 		return features.HasFeature(lnwire.RouteBlindingOptional), nil
 	}
 
+	// Initialize the map to track visited vertices.
+	alreadyVisited := map[route.Vertex]bool{}
+	partiallySpecifiedPath := make([]blindedHop, 0)
+
+	// Sanity checking the partially specified blinded path.
+	// Check if the order makes sense (ie, the chain is valid).
+	// Check if the all the channels exist.
+	// Check if all the nodes involved are advertising route blinding.
+	node := target
+	var otherNode, node1, node2 route.Vertex
+
+	for _, chanID := range restrictions.incomingChainedChannels {
+		channEdge, _, _, err := g.FetchChannelEdgesByID(chanID)
+
+		// If the channel can't befound, then an error is returned.
+		if err != nil {
+			return nil, err
+		}
+
+		node1 = channEdge.NodeKey1Bytes
+		node2 = channEdge.NodeKey2Bytes
+
+		switch node {
+		case node1:
+			otherNode = node2
+		case node2:
+			otherNode = node1
+		default:
+			return nil, fmt.Errorf("specified path %v not found",
+				restrictions.incomingChainedChannels)
+		}
+
+		// If route blinding is not supported returns an error.
+		_, err = supportsRouteBlinding(otherNode)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add this node to the visited set.
+		alreadyVisited[node] = true
+		hop := blindedHop{
+			vertex:       otherNode,
+			channelID:    channEdge.ChannelID,
+			edgeCapacity: channEdge.Capacity,
+		}
+		partiallySpecifiedPath = append(partiallySpecifiedPath, hop)
+
+		node = otherNode
+	}
+
 	// This function will have some recursion. We will spin out from the
 	// target node & append edges to the paths until we reach various exit
 	// conditions such as: The maxHops number being reached or reaching
 	// a node that doesn't have any other edges - in that final case, the
 	// whole path should be ignored.
-	paths, _, err := processNodeForBlindedPath(
-		g, target, supportsRouteBlinding, nil, restrictions,
-	)
+	paths, _, err := processNodeForBlindedPath(g, node,
+		supportsRouteBlinding, alreadyVisited, restrictions)
 	if err != nil {
 		return nil, err
+	}
+
+	// Append the partially specified path to each returned path.
+	for i := range paths {
+		paths[i] = append(partiallySpecifiedPath, paths[i]...)
+	}
+
+	// Partially specified path is big enought to be a path.
+	if len(partiallySpecifiedPath) > 0 &&
+		len(partiallySpecifiedPath) >= int(restrictions.minNumHops) {
+
+		paths = append(paths, partiallySpecifiedPath)
 	}
 
 	// Reverse each path so that the order is correct (from introduction

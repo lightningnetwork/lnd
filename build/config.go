@@ -57,7 +57,7 @@ func DefaultLogConfig() *LogConfig {
 			Compressor:     defaultLogCompressor,
 			MaxLogFiles:    DefaultMaxLogFiles,
 			MaxLogFileSize: DefaultMaxLogFileSize,
-			LoggerConfig: LoggerConfig{
+			LoggerConfig: &LoggerConfig{
 				CallSite: callSiteOff,
 			},
 		},
@@ -92,7 +92,7 @@ func (cfg *LoggerConfig) HandlerOptions() []btclog.HandlerOption {
 //
 //nolint:ll
 type FileLoggerConfig struct {
-	LoggerConfig
+	*LoggerConfig  `yaml:",inline"`
 	Compressor     string `long:"compressor" description:"Compression algorithm to use when rotating logs." choice:"gzip" choice:"zstd"`
 	MaxLogFiles    int    `long:"max-files" description:"Maximum logfiles to keep (0 for no rotation)"`
 	MaxLogFileSize int    `long:"max-file-size" description:"Maximum logfile size in MB"`

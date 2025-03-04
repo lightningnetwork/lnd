@@ -24,15 +24,15 @@ const (
 //
 //nolint:ll
 type consoleLoggerCfg struct {
-	LoggerConfig
-	Style bool `long:"style" description:"If set, the output will be styled with color and fonts"`
+	*LoggerConfig `yaml:",inline"`
+	Style         bool `long:"style" description:"If set, the output will be styled with color and fonts"`
 }
 
 // defaultConsoleLoggerCfg returns the default consoleLoggerCfg for the dev
 // console logger.
 func defaultConsoleLoggerCfg() *consoleLoggerCfg {
 	return &consoleLoggerCfg{
-		LoggerConfig: LoggerConfig{
+		LoggerConfig: &LoggerConfig{
 			CallSite: callSiteShort,
 		},
 	}

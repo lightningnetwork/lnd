@@ -4104,6 +4104,34 @@ func (c *OpenChannel) AbsoluteThawHeight() (uint32, error) {
 	return c.ThawHeight, nil
 }
 
+// DeriveHeightHint derives the block height for the channel opening.
+func (c *OpenChannel) DeriveHeightHint() uint32 {
+	// As a height hint, we'll try to use the opening height, but if the
+	// channel isn't yet open, then we'll use the height it was broadcast
+	// at. This may be an unconfirmed zero-conf channel.
+	heightHint := c.ShortChanID().BlockHeight
+	if heightHint == 0 {
+		heightHint = c.BroadcastHeight()
+	}
+
+	// Since no zero-conf state is stored in a channel backup, the below
+	// logic will not be triggered for restored, zero-conf channels. Set
+	// the height hint for zero-conf channels.
+	if c.IsZeroConf() {
+		if c.ZeroConfConfirmed() {
+			// If the zero-conf channel is confirmed, we'll use the
+			// confirmed SCID's block height.
+			heightHint = c.ZeroConfRealScid().BlockHeight
+		} else {
+			// The zero-conf channel is unconfirmed. We'll need to
+			// use the FundingBroadcastHeight.
+			heightHint = c.BroadcastHeight()
+		}
+	}
+
+	return heightHint
+}
+
 func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 	summary *ChannelCloseSummary, lastChanState *OpenChannel) error {
 

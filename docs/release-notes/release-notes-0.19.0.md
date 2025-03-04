@@ -323,6 +323,9 @@ The underlying functionality between those two options remain the same.
 * Add a new CI-step to do some basic [backwards compatibility 
   testing](https://github.com/lightningnetwork/lnd/pull/9540) for each PR. 
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/9574) an integration test 
+  flake that could lead to a "close of a closed channel" panic.
+
 ## Database
 
 * [Migrate the mission control 

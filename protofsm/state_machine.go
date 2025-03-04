@@ -345,7 +345,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 	// any preconditions as well as post-send events.
 	case *SendMsgEvent[Event]:
 		sendAndCleanUp := func() error {
-			s.log.DebugS(ctx, "Sending message to target",
+			s.log.DebugS(ctx, "Sending message:",
 				btclog.Hex6("target", daemonEvent.TargetPeer.SerializeCompressed()),
 				"messages", lnutils.SpewLogClosure(daemonEvent.Msgs))
 

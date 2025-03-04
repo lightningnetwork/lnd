@@ -193,7 +193,8 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 	// also emit similar events like the above to send out shutdown, and
 	// also disable the channel.
 	case *ShutdownReceived:
-		chancloserLog.Infof("ChannelPoint(%v): received shutdown msg")
+		chancloserLog.Infof("ChannelPoint(%v): received shutdown msg",
+			env.ChanPoint)
 
 		// Validate that they can send the message now, and also that
 		// they haven't violated their commitment to a prior upfront
@@ -204,7 +205,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		)
 		if err != nil {
 			chancloserLog.Errorf("ChannelPoint(%v): rejecting "+
-				"shutdown attempt: %v", err)
+				"shutdown attempt: %v", env.ChanPoint, err)
 
 			return nil, err
 		}
@@ -302,7 +303,7 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 		)
 		if err != nil {
 			chancloserLog.Errorf("ChannelPoint(%v): rejecting "+
-				"shutdown attempt: %v", err)
+				"shutdown attempt: %v", env.ChanPoint, err)
 
 			return nil, err
 		}

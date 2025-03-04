@@ -238,6 +238,10 @@ const (
 	// defaultHTTPHeaderTimeout is the default timeout for HTTP requests.
 	DefaultHTTPHeaderTimeout = 5 * time.Second
 
+	// DefaultNumRestrictedSlots is the default number of restricted slots
+	// we'll allocate in the server.
+	DefaultNumRestrictedSlots = 30
+
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"
 
@@ -518,6 +522,10 @@ type Config struct {
 	// HTTPHeaderTimeout is the maximum duration that the server will wait
 	// before timing out reading the headers of an HTTP request.
 	HTTPHeaderTimeout time.Duration `long:"http-header-timeout" description:"The maximum duration that the server will wait before timing out reading the headers of an HTTP request."`
+
+	// NumRestrictedSlots is the number of restricted slots we'll allocate
+	// in the server.
+	NumRestrictedSlots uint64 `long:"num-restricted-slots" description:"The number of restricted slots we'll allocate in the server."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.
@@ -735,9 +743,10 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
-		LogConfig:         build.DefaultLogConfig(),
-		WtClient:          lncfg.DefaultWtClientCfg(),
-		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
+		LogConfig:          build.DefaultLogConfig(),
+		WtClient:           lncfg.DefaultWtClientCfg(),
+		HTTPHeaderTimeout:  DefaultHTTPHeaderTimeout,
+		NumRestrictedSlots: DefaultNumRestrictedSlots,
 	}
 }
 

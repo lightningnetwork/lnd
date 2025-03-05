@@ -5,6 +5,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -242,4 +244,92 @@ func testAddPeerConfig(ht *lntest.HarnessTest) {
 	)
 
 	require.Equal(ht, parsedKeyStr, listPeersResp.Peers[0].PubKey)
+}
+
+// testDisconnectingTargetPeer performs a test which disconnects Alice-peer
+// from Bob-peer and then re-connects them again. We expect Alice to be able to
+// disconnect at any point.
+func testDisconnectingTargetPeer(ht *lntest.HarnessTest) {
+	// We'll start both nodes with a high backoff so that they don't
+	// reconnect automatically during our test.
+	args := []string{
+		"--minbackoff=1m",
+		"--maxbackoff=1m",
+	}
+
+	alice := ht.NewNodeWithCoins("Alice", args)
+	bob := ht.NewNodeWithCoins("Bob", args)
+
+	// Start by connecting Alice and Bob with no channels.
+	ht.EnsureConnected(alice, bob)
+
+	chanAmt := funding.MaxBtcFundingAmount
+	pushAmt := btcutil.Amount(0)
+
+	// Create a new channel that requires 1 confs before it's considered
+	// open, then broadcast the funding transaction
+	const numConfs = 1
+	p := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+	}
+	stream := ht.OpenChannelAssertStream(alice, bob, p)
+
+	// At this point, the channel's funding transaction will have been
+	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
+	// this when queried via RPC.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
+
+	// Assert that the connection was torn down.
+	ht.AssertNotConnected(alice, bob)
+
+	// Mine a block, then wait for Alice's node to notify us that the
+	// channel has been opened.
+	ht.MineBlocksAndAssertNumTxes(numConfs, 1)
+
+	// At this point, the channel should be fully opened and there should
+	// be no pending channels remaining for either node.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertNumPendingOpenChannels(bob, 0)
+
+	// Reconnect the nodes so that the channel can become active.
+	ht.ConnectNodes(alice, bob)
+
+	// The channel should be listed in the peer information returned by
+	// both peers.
+	chanPoint := ht.WaitForChannelOpenEvent(stream)
+
+	// Check both nodes to ensure that the channel is ready for operation.
+	ht.AssertChannelExists(alice, chanPoint)
+	ht.AssertChannelExists(bob, chanPoint)
+
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
+
+	// Check existing connection.
+	ht.AssertNotConnected(alice, bob)
+
+	// Reconnect both nodes before force closing the channel.
+	ht.ConnectNodes(alice, bob)
+
+	// Finally, immediately close the channel. This function will also
+	// block until the channel is closed and will additionally assert the
+	// relevant channel closing post conditions.
+	ht.ForceCloseChannel(alice, chanPoint)
+
+	// Disconnect Alice-peer from Bob-peer should have no error.
+	ht.DisconnectNodes(alice, bob)
+
+	// Check that the nodes not connected.
+	ht.AssertNotConnected(alice, bob)
+
+	// Finally, re-connect both nodes.
+	ht.ConnectNodes(alice, bob)
+
+	// Check existing connection.
+	ht.AssertConnected(alice, bob)
 }

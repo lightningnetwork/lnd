@@ -2243,6 +2243,9 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	chanID := pkt.outgoingChanID
 	aliasID := s.cfg.IsAlias(chanID)
 
+	log.Debugf("Querying outgoing link using chanID=%v, aliasID=%v", chanID,
+		aliasID)
+
 	// Set the originalOutgoingChanID so the proper channel_update can be
 	// sent back if the option-scid-alias feature bit was negotiated.
 	pkt.originalOutgoingChanID = chanID
@@ -2299,6 +2302,9 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	// forward over it and this is a channel where the option-scid-alias
 	// feature bit was negotiated.
 	if link.IsUnadvertised() {
+		log.Debugf("Link is unadvertised, chanID=%v, baseScid=%v",
+			chanID, baseScid)
+
 		return nil, ErrChannelLinkNotFound
 	}
 

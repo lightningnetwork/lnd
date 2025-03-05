@@ -2404,7 +2404,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ID, msg.Reason)
 
 	case *lnwire.UpdateFulfillHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, pre_image=%x, "+
+		return fmt.Sprintf("chan_id=%v, id=%v, preimage=%x, "+
 			"custom_records=%v", msg.ChanID, msg.ID,
 			msg.PaymentPreimage[:], msg.CustomRecords)
 

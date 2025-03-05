@@ -1932,8 +1932,6 @@ func testLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest) {
 // we force close a channel with an incoming HTLC, and later find out the
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
-//
-// TODO(yy): simplify or remove this test as it's too complicated.
 func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	cfgs [][]string, params lntest.OpenChannelParams) {
 

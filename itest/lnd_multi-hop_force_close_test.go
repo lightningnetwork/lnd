@@ -423,22 +423,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(bob, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Bob's force close tx.
@@ -795,22 +780,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Carol's force close tx.
@@ -2365,22 +2335,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -2620,22 +2575,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -3043,22 +2983,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(bob, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
 
 	// Bob's force close tx and anchor sweeping tx should now be found in
 	// the mempool.

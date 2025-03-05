@@ -26,7 +26,7 @@ func (m *mockEndpoint) CanHandle(msg PeerMsg) bool {
 }
 
 func (m *mockEndpoint) SendMessage(ctx context.Context, msg PeerMsg) bool {
-	args := m.Called(msg)
+	args := m.Called(ctx, msg)
 
 	return args.Bool(0)
 }

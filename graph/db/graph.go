@@ -12,7 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -50,26 +49,7 @@ type ChannelGraph struct {
 	graphCache *GraphCache
 
 	*KVStore
-
-	// ntfnClientCounter is an atomic counter that's used to assign unique
-	// notification client IDs to new clients.
-	ntfnClientCounter atomic.Uint64
-
-	// topologyUpdate is a channel that carries new topology updates
-	// messages from outside the ChannelGraph to be processed by the
-	// networkHandler.
-	topologyUpdate chan any
-
-	// topologyClients maps a client's unique notification ID to a
-	// topologyClient client that contains its notification dispatch
-	// channel.
-	topologyClients *lnutils.SyncMap[uint64, *topologyClient]
-
-	// ntfnClientUpdates is a channel that's used to send new updates to
-	// topology notification clients to the ChannelGraph. Updates either
-	// add a new notification client, or cancel notifications for an
-	// existing client.
-	ntfnClientUpdates chan *topologyClientUpdate
+	*topologyManager
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -90,11 +70,9 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 	}
 
 	g := &ChannelGraph{
-		KVStore:           store,
-		topologyUpdate:    make(chan any),
-		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
-		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		quit:              make(chan struct{}),
+		KVStore:         store,
+		topologyManager: newTopologyManager(),
+		quit:            make(chan struct{}),
 	}
 
 	// The graph cache can be turned off (e.g. for mobile users) for a

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	prand "math/rand"
@@ -572,7 +573,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if cfg.ProtocolOptions.TaprootOverlayChans &&
 		implCfg.AuxFundingController.IsNone() {
 
-		return nil, fmt.Errorf("taproot overlay flag set, but not " +
+		return nil, errors.New("taproot overlay flag set, but not " +
 			"aux controllers")
 	}
 
@@ -1428,7 +1429,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		if ourPolicy == nil {
 			// Something is wrong, so return an error.
-			return nil, fmt.Errorf("we don't have an edge")
+			return nil, errors.New("we don't have an edge")
 		}
 
 		err = s.graphDB.DeleteChannelEdges(
@@ -4906,7 +4907,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
 	peer, err := s.findPeerByPubStr(pubStr)
-	if err == ErrPeerNotConnected {
+	if errors.Is(err, ErrPeerNotConnected) {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 

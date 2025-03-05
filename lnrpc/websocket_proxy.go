@@ -5,6 +5,7 @@ package lnrpc
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"net/http"
 	"net/textproto"
@@ -500,7 +501,7 @@ func IsClosedConnError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if err == http.ErrServerClosed {
+	if errors.Is(err, http.ErrServerClosed) {
 		return true
 	}
 

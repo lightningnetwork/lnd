@@ -1930,7 +1930,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 			splitCookie := strings.Split(string(cookie), ":")
 			if len(splitCookie) != 2 {
-				return fmt.Errorf("cookie file has a wrong " +
+				return errors.New("cookie file has a wrong " +
 					"format")
 			}
 			conf.RPCUser = splitCookie[0]
@@ -1968,7 +1968,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 	// the RPC credentials from the configuration. So if lnd wasn't
 	// specified the parameters, then we won't be able to start.
 	if cConfig.SimNet {
-		return fmt.Errorf("rpcuser and rpcpass must be set to your " +
+		return errors.New("rpcuser and rpcpass must be set to your " +
 			"btcd node's RPC parameters for simnet mode")
 	}
 
@@ -2097,7 +2097,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 	}
 	userSubmatches := rpcUserRegexp.FindSubmatch(configContents)
 	if userSubmatches == nil {
-		return "", "", fmt.Errorf("unable to find rpcuser in config")
+		return "", "", errors.New("unable to find rpcuser in config")
 	}
 
 	// Similarly, we'll use another regular expression to find the set

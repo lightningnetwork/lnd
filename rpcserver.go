@@ -226,7 +226,7 @@ var (
 	// If the --no-macaroons flag is used to start lnd, the macaroon service
 	// is not initialized. errMacaroonDisabled is then returned when
 	// macaroon related services are used.
-	errMacaroonDisabled = fmt.Errorf("macaroon authentication disabled, " +
+	errMacaroonDisabled = errors.New("macaroon authentication disabled, " +
 		"remove --no-macaroons flag to enable")
 )
 
@@ -1355,7 +1355,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	decodedAddr, _ := hex.DecodeString(in.Addr)
 	_, err = btcec.ParsePubKey(decodedAddr)
 	if err == nil {
-		return nil, fmt.Errorf("cannot send coins to pubkeys")
+		return nil, errors.New("cannot send coins to pubkeys")
 	}
 
 	label, err := labels.ValidateAPI(in.Label)
@@ -1385,7 +1385,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 
 		if fn.HasDuplicates(wireOutpoints) {
-			return nil, fmt.Errorf("selected outpoints contain " +
+			return nil, errors.New("selected outpoints contain " +
 				"duplicate values")
 		}
 
@@ -1400,7 +1400,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// At this point, the amount shouldn't be set since we've been
 		// instructed to sweep all the coins from the wallet.
 		if in.Amount != 0 {
-			return nil, fmt.Errorf("amount set while SendAll is " +
+			return nil, errors.New("amount set while SendAll is " +
 				"active")
 		}
 
@@ -1440,7 +1440,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// If sending everything to this address would invalidate our
 		// reserved wallet balance, we create a new sweep tx, where
 		// we'll send the reserved value back to our wallet.
-		if err == lnwallet.ErrReservedValueInvalidated {
+		if errors.Is(err, lnwallet.ErrReservedValueInvalidated) {
 			sweepTxPkg.CancelSweepAttempt()
 
 			rpcsLog.Debugf("Reserved value %v not satisfied after "+
@@ -4348,7 +4348,7 @@ func (r *rpcServer) nurseryPopulateForceCloseResp(chanPoint *wire.OutPoint,
 	// didn't have any time-locked outputs, then the nursery may not know of
 	// the contract.
 	nurseryInfo, err := r.server.utxoNursery.NurseryReport(chanPoint)
-	if err == contractcourt.ErrContractNotFound {
+	if errors.Is(err, contractcourt.ErrContractNotFound) {
 		return nil
 	}
 	if err != nil {

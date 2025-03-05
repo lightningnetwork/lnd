@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/monitoring"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -202,6 +203,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	)
 	AddV1SubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
+	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

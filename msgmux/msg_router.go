@@ -244,7 +244,7 @@ func (p *MultiMsgRouter) msgRouter(ctx context.Context) {
 			var err error
 			if !couldSend {
 				log.Tracef("MsgRouter: unable to route "+
-					"msg %T", msg)
+					"msg %T", msg.Message)
 
 				err = ErrUnableToRouteMsg
 			}

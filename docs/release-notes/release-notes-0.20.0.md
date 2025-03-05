@@ -69,6 +69,15 @@
 
 ## Code Health
 
+* Graph abstraction and refactoring work:
+    - Move the [graph cache out of the graph 
+      CRUD](https://github.com/lightningnetwork/lnd/pull/9544) layer.
+    - Move [topology 
+      subscription](https://github.com/lightningnetwork/lnd/pull/9577) and 
+      notification handling from the graph.Builder to the ChannelGraph.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Elle Mouton

@@ -131,6 +131,35 @@ func (c *CommitSet) toActiveHTLCSets() map[HtlcSetKey]htlcSet {
 	return htlcSets
 }
 
+// String return a human-readable representation of the CommitSet.
+func (c *CommitSet) String() string {
+	if c == nil {
+		return "nil"
+	}
+
+	// Create a descriptive string for the ConfCommitKey.
+	commitKey := "none"
+	c.ConfCommitKey.WhenSome(func(k HtlcSetKey) {
+		commitKey = k.String()
+	})
+
+	// Create a map to hold all the htlcs.
+	htlcSet := make(map[string]string)
+	for k, htlcs := range c.HtlcSets {
+		// Create a map for this particular set.
+		desc := make([]string, len(htlcs))
+		for i, htlc := range htlcs {
+			desc[i] = fmt.Sprintf("%x", htlc.RHash)
+		}
+
+		// Add the description to the set key.
+		htlcSet[k.String()] = fmt.Sprintf("count: %v, htlcs=%v",
+			len(htlcs), desc)
+	}
+
+	return fmt.Sprintf("ConfCommitKey=%v, HtlcSets=%v", commitKey, htlcSet)
+}
+
 // ChainEventSubscription is a struct that houses a subscription to be notified
 // for any on-chain events related to a channel. There are three types of
 // possible on-chain events: a cooperative channel closure, a unilateral

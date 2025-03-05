@@ -1371,13 +1371,7 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	// Carol will use the correct preimage to resolve the HTLC on-chain.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Carol should have broadcast her sweeping tx.
 	ht.AssertNumTxsInMempool(1)

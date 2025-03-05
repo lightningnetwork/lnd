@@ -1842,13 +1842,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// At this point, Bob should have broadcast his second layer success
 	// tx, and should have sent it to his sweeper.
@@ -2126,13 +2120,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// At this point, Bob should have broadcast his second layer success
 	// tx, and should have sent it to his sweeper.
@@ -2527,13 +2515,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 		ht.MineEmptyBlocks(1)
 	}
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Bob should broadcast the sweeping of the direct preimage spent now.
 	bobHtlcSweep := ht.GetNumTxsFromMempool(1)[0]
@@ -2791,13 +2773,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// - the htlc sweeping tx.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Bob should broadcast the sweeping of the direct preimage spent now.
 	bobHtlcSweep := ht.GetNumTxsFromMempool(1)[0]
@@ -3223,13 +3199,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// txns.
 	ht.AssertNumPendingSweeps(bob, numInvoices*2)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// We expect to see three sweeping txns:
 	// 1. Bob's sweeping tx for all timeout HTLCs.

@@ -2052,6 +2052,9 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 	msg lnwire.Message) {
 
+	l.log.Tracef("receive upstream msg %v, handling now... ", msg.MsgType())
+	defer l.log.Tracef("handled upstream msg %v", msg.MsgType())
+
 	// First check if the message is an update and we are capable of
 	// receiving updates right now.
 	if msg.MsgType().IsChannelUpdate() && !l.quiescer.CanRecvUpdates() {

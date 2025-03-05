@@ -2824,7 +2824,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		case beat := <-c.BlockbeatChan:
 			bestHeight = beat.Height()
 
-			log.Debugf("ChannelArbitrator(%v): new block height=%v",
+			log.Debugf("ChannelArbitrator(%v): received new "+
+				"block: height=%v, processing...",
 				c.cfg.ChanPoint, bestHeight)
 
 			err := c.handleBlockbeat(beat)

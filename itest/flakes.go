@@ -46,3 +46,27 @@ func flakeFundExtraUTXO(ht *lntest.HarnessTest, node *node.HarnessNode) {
 	// - https://github.com/lightningnetwork/lnd/issues/8786
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, node)
 }
+
+// flakeTxNotifierNeutrino documents a flake found when running force close
+// tests using neutrino backend, which is a race between two notifications - one
+// for the spending notification, the other for the block which contains the
+// spending tx.
+//
+// TODO(yy): remove it once the issue is resolved.
+func flakeTxNotifierNeutrino(ht *lntest.HarnessTest) {
+	// Mine an empty block the for neutrino backend. We need this step to
+	// trigger Bob's chain watcher to detect the force close tx. Deep down,
+	// this happens because the notification system for neutrino is very
+	// different from others. Specifically, when a block contains the force
+	// close tx is notified, these two calls,
+	// - RegisterBlockEpochNtfn, will notify the block first.
+	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
+	//   the block, then perform a GetUtxo, which, by the time the spend
+	//   details are sent, the blockbeat is considered processed in Bob's
+	//   chain watcher.
+	//
+	// TODO(yy): refactor txNotifier to fix the above issue.
+	if ht.IsNeutrinoBackend() {
+		ht.MineEmptyBlocks(1)
+	}
+}

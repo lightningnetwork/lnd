@@ -846,21 +846,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		ht.AssertNumPendingSweeps(bob, 2)
 	}
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	if params.CommitmentType == leasedType {
 		// We expect to see 1 txns in the mempool,
@@ -1775,21 +1761,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	// Assert txns can be found in the mempool.
 	//
@@ -2428,21 +2400,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// - the commit output sweep from the channel with Carol, no timelock.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
@@ -2456,21 +2414,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// - the htlc sweeping tx.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	flakePreimageSettlement(ht)
 

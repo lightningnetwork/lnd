@@ -947,9 +947,9 @@ func (c *ChannelArbitrator) stateStep(
 	// If we're in the default state, then we'll check our set of actions
 	// to see if while we were down, conditions have changed.
 	case StateDefault:
-		log.Debugf("ChannelArbitrator(%v): new block (height=%v) "+
-			"examining active HTLC's", c.cfg.ChanPoint,
-			triggerHeight)
+		log.Debugf("ChannelArbitrator(%v): examining active HTLCs in "+
+			"block %v, confCommitSet: %v", c.cfg.ChanPoint,
+			triggerHeight, lnutils.LogClosure(confCommitSet.String))
 
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain

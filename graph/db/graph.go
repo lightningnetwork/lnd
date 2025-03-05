@@ -16,6 +16,10 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// ErrChanGraphShuttingDown indicates that the ChannelGraph has shutdown or is
+// busy shutting down.
+var ErrChanGraphShuttingDown = fmt.Errorf("ChannelGraph shutting down")
+
 // Config is a struct that holds all the necessary dependencies for a
 // ChannelGraph.
 type Config struct {
@@ -45,6 +49,7 @@ type ChannelGraph struct {
 	graphCache *GraphCache
 
 	*KVStore
+	*topologyManager
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -65,8 +70,9 @@ func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
 	}
 
 	g := &ChannelGraph{
-		KVStore: store,
-		quit:    make(chan struct{}),
+		KVStore:         store,
+		topologyManager: newTopologyManager(),
+		quit:            make(chan struct{}),
 	}
 
 	// The graph cache can be turned off (e.g. for mobile users) for a
@@ -95,6 +101,9 @@ func (c *ChannelGraph) Start() error {
 		}
 	}
 
+	c.wg.Add(1)
+	go c.handleTopologySubscriptions()
+
 	return nil
 }
 
@@ -111,6 +120,57 @@ func (c *ChannelGraph) Stop() error {
 	c.wg.Wait()
 
 	return nil
+}
+
+// handleTopologySubscriptions ensures that topology client subscriptions,
+// subscription cancellations and topology notifications are handled
+// synchronously.
+//
+// NOTE: this MUST be run in a goroutine.
+func (c *ChannelGraph) handleTopologySubscriptions() {
+	defer c.wg.Done()
+
+	for {
+		select {
+		// A new fully validated topology update has just arrived.
+		// We'll notify any registered clients.
+		case update := <-c.topologyUpdate:
+			c.wg.Add(1)
+			go c.handleTopologyUpdate(update)
+
+			// TODO(roasbeef): remove all unconnected vertexes
+			// after N blocks pass with no corresponding
+			// announcements.
+
+		// A new notification client update has arrived. We're either
+		// gaining a new client, or cancelling notifications for an
+		// existing client.
+		case ntfnUpdate := <-c.ntfnClientUpdates:
+			clientID := ntfnUpdate.clientID
+
+			if ntfnUpdate.cancel {
+				client, ok := c.topologyClients.LoadAndDelete(
+					clientID,
+				)
+				if ok {
+					close(client.exit)
+					client.wg.Wait()
+
+					close(client.ntfnChan)
+				}
+
+				continue
+			}
+
+			c.topologyClients.Store(clientID, &topologyClient{
+				ntfnChan: ntfnUpdate.ntfnChan,
+				exit:     make(chan struct{}),
+			})
+
+		case <-c.quit:
+			return
+		}
+	}
 }
 
 // populateCache loads the entire channel graph into the in-memory graph cache.
@@ -234,6 +294,17 @@ func (c *ChannelGraph) AddLightningNode(node *models.LightningNode,
 		)
 	}
 
+	// No need to send topology updates for shell nodes.
+	if !node.HaveNodeAnnouncement {
+		return nil
+	}
+
+	select {
+	case c.topologyUpdate <- node:
+	case <-c.quit:
+		return ErrChanGraphShuttingDown
+	}
+
 	return nil
 }
 
@@ -274,6 +345,12 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 
 	if c.graphCache != nil {
 		c.graphCache.AddChannel(edge, nil, nil)
+	}
+
+	select {
+	case c.topologyUpdate <- edge:
+	case <-c.quit:
+		return ErrChanGraphShuttingDown
 	}
 
 	return nil
@@ -411,6 +488,17 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			c.graphCache.Stats())
 	}
 
+	if len(edges) != 0 {
+		// Notify all currently registered clients of the newly closed
+		// channels.
+		closeSummaries := createCloseSummaries(
+			blockHeight, edges...,
+		)
+		c.notifyTopologyChange(&TopologyChange{
+			ClosedChannels: closeSummaries,
+		})
+	}
+
 	return edges, nil
 }
 
@@ -527,16 +615,20 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 		return err
 	}
 
-	if c.graphCache == nil {
-		return nil
+	if c.graphCache != nil {
+		var isUpdate1 bool
+		if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+			isUpdate1 = true
+		}
+
+		c.graphCache.UpdatePolicy(edge, from, to, isUpdate1)
 	}
 
-	var isUpdate1 bool
-	if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-		isUpdate1 = true
+	select {
+	case c.topologyUpdate <- edge:
+	case <-c.quit:
+		return ErrChanGraphShuttingDown
 	}
-
-	c.graphCache.UpdatePolicy(edge, from, to, isUpdate1)
 
 	return nil
 }

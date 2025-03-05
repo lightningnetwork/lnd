@@ -5,14 +5,49 @@ import (
 	"image/color"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// topologyManager holds all the fields required to manage the network topology
+// subscriptions and notifications.
+type topologyManager struct {
+	// ntfnClientCounter is an atomic counter that's used to assign unique
+	// notification client IDs to new clients.
+	ntfnClientCounter atomic.Uint64
+
+	// topologyUpdate is a channel that carries new topology updates
+	// messages from outside the ChannelGraph to be processed by the
+	// networkHandler.
+	topologyUpdate chan any
+
+	// topologyClients maps a client's unique notification ID to a
+	// topologyClient client that contains its notification dispatch
+	// channel.
+	topologyClients *lnutils.SyncMap[uint64, *topologyClient]
+
+	// ntfnClientUpdates is a channel that's used to send new updates to
+	// topology notification clients to the ChannelGraph. Updates either
+	// add a new notification client, or cancel notifications for an
+	// existing client.
+	ntfnClientUpdates chan *topologyClientUpdate
+}
+
+// newTopologyManager creates a new instance of the topologyManager.
+func newTopologyManager() *topologyManager {
+	return &topologyManager{
+		topologyUpdate:    make(chan any),
+		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
+		ntfnClientUpdates: make(chan *topologyClientUpdate),
+	}
+}
 
 // TopologyClient represents an intent to receive notifications from the
 // channel router regarding changes to the topology of the channel graph. The

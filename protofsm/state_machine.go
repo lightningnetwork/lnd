@@ -377,9 +377,18 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			})
 		}
 
-		// If this doesn't have a SendWhen predicate, then we can just
-		// send it off right away.
-		if !daemonEvent.SendWhen.IsSome() {
+		canSend := func() bool {
+			return fn.MapOptionZ(
+				daemonEvent.SendWhen,
+				func(pred SendPredicate) bool {
+					return pred()
+				},
+			)
+		}
+
+		// If this doesn't have a SendWhen predicate, or if it's already
+		// true, then we can just send it off right away.
+		if !daemonEvent.SendWhen.IsSome() || canSend() {
 			return sendAndCleanUp()
 		}
 
@@ -397,14 +406,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			for {
 				select {
 				case <-predicateTicker.C:
-					canSend := fn.MapOptionZ(
-						daemonEvent.SendWhen,
-						func(pred SendPredicate) bool {
-							return pred()
-						},
-					)
-
-					if canSend {
+					if canSend() {
 						s.log.InfoS(ctx, "Send active predicate")
 
 						err := sendAndCleanUp()

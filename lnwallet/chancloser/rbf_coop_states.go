@@ -49,6 +49,11 @@ var (
 	// ErrCloserAndClosee is returned when we expect a sig covering both
 	// outputs, it isn't present.
 	ErrCloserAndClosee = fmt.Errorf("expected CloserAndClosee sig")
+
+	// ErrWrongLocalScript is returned when the remote party sends a
+	// ClosingComplete message that doesn't carry our last local script
+	// sent.
+	ErrWrongLocalScript = fmt.Errorf("wrong local script")
 )
 
 // ProtocolEvent is a special interface used to create the equivalent of a
@@ -382,7 +387,7 @@ type AsymmetricPeerState interface {
 type ProtocolStates interface {
 	ChannelActive | ShutdownPending | ChannelFlushing | ClosingNegotiation |
 		LocalCloseStart | LocalOfferSent | RemoteCloseStart |
-		ClosePending | CloseFin
+		ClosePending | CloseFin | CloseErr
 }
 
 // ChannelActive is the base state for the channel closer state machine. In
@@ -449,6 +454,11 @@ type ShutdownPending struct {
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
 	IdealFeeRate fn.Option[chainfee.SatPerVByte]
+
+	// EarlyRemoteOffer is the offer we received from the remote party
+	// before we received their shutdown message. We'll stash it to process
+	// later.
+	EarlyRemoteOffer fn.Option[OfferReceivedEvent]
 }
 
 // String returns the name of the state for ShutdownPending.
@@ -523,6 +533,13 @@ type ClosingNegotiation struct {
 	// the ShouldRouteTo method to determine which state route incoming
 	// events to.
 	PeerState lntypes.Dual[AsymmetricPeerState]
+
+	// CloseChannelTerms is the terms we'll use to close the channel. We
+	// hold a value here which is pointed to by the various
+	// AsymmetricPeerState instances. This allows us to update this value if
+	// the remote peer sends a new address, with each of the state noting
+	// the new value via a pointer.
+	*CloseChannelTerms
 }
 
 // String returns the name of the state for ClosingNegotiation.
@@ -542,6 +559,56 @@ func (c *ClosingNegotiation) IsTerminal() bool {
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
 func (c *ClosingNegotiation) protocolStateSealed() {}
 
+// ErrState can be used to introspect into a benign error related to a state
+// transition.
+type ErrState interface {
+	sealed()
+
+	error
+
+	// Err returns an error for the ErrState.
+	Err() error
+}
+
+// ErrStateCantPayForFee is sent when the local party attempts a fee update
+// that they can't actually party for.
+type ErrStateCantPayForFee struct {
+	localBalance btcutil.Amount
+
+	attemptedFee btcutil.Amount
+}
+
+// NewErrStateCantPayForFee returns a new NewErrStateCantPayForFee error.
+func NewErrStateCantPayForFee(localBalance, attemptedFee btcutil.Amount,
+) *ErrStateCantPayForFee {
+
+	return &ErrStateCantPayForFee{
+		localBalance: localBalance,
+		attemptedFee: attemptedFee,
+	}
+}
+
+// sealed makes this a sealed interface.
+func (e *ErrStateCantPayForFee) sealed() {
+}
+
+// Err returns an error for the ErrState.
+func (e *ErrStateCantPayForFee) Err() error {
+	return fmt.Errorf("cannot pay for fee of %v, only have %v local "+
+		"balance", e.attemptedFee, e.localBalance)
+}
+
+// Error returns the error string for the ErrState.
+func (e *ErrStateCantPayForFee) Error() string {
+	return e.Err().Error()
+}
+
+// String returns the string for the ErrStateCantPayForFee.
+func (e *ErrStateCantPayForFee) String() string {
+	return fmt.Sprintf("ErrStateCantPayForFee(local_balance=%v, "+
+		"attempted_fee=%v)", e.localBalance, e.attemptedFee)
+}
+
 // CloseChannelTerms is a set of terms that we'll use to close the channel. This
 // includes the balances of the channel, and the scripts we'll use to send each
 // party's funds to.
@@ -553,11 +620,11 @@ type CloseChannelTerms struct {
 
 // DeriveCloseTxOuts takes the close terms, and returns the local and remote tx
 // out for the close transaction. If an output is dust, then it'll be nil.
-//
-// TODO(roasbeef): add func for w/e heuristic to not manifest own output?
 func (c *CloseChannelTerms) DeriveCloseTxOuts() (*wire.TxOut, *wire.TxOut) {
 	//nolint:ll
 	deriveTxOut := func(balance btcutil.Amount, pkScript []byte) *wire.TxOut {
+		// We'll base the existence of the output on our normal dust
+		// check.
 		dustLimit := lnwallet.DustLimitForSize(len(pkScript))
 		if balance >= dustLimit {
 			return &wire.TxOut{
@@ -618,7 +685,7 @@ func (c *CloseChannelTerms) RemoteCanPayFees(absoluteFee btcutil.Amount) bool {
 // input events:
 //   - SendOfferEvent
 type LocalCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // String returns the name of the state for LocalCloseStart, including proposed
@@ -658,10 +725,13 @@ func (l *LocalCloseStart) protocolStateSealed() {}
 // input events:
 //   - LocalSigReceived
 type LocalOfferSent struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 
 	// ProposedFee is the fee we proposed to the remote party.
 	ProposedFee btcutil.Amount
+
+	// ProposedFeeRate is the fee rate we proposed to the remote party.
+	ProposedFeeRate chainfee.SatPerVByte
 
 	// LocalSig is the signature we sent to the remote party.
 	LocalSig lnwire.Sig
@@ -706,11 +776,27 @@ func (l *LocalOfferSent) IsTerminal() bool {
 type ClosePending struct {
 	// CloseTx is the pending close transaction.
 	CloseTx *wire.MsgTx
+
+	*CloseChannelTerms
+
+	// FeeRate is the fee rate of the closing transaction.
+	FeeRate chainfee.SatPerVByte
+
+	// Party indicates which party is at this state. This is used to
+	// implement the state transition properly, based on ShouldRouteTo.
+	Party lntypes.ChannelParty
 }
 
 // String returns the name of the state for ClosePending.
 func (c *ClosePending) String() string {
-	return fmt.Sprintf("ClosePending(txid=%v)", c.CloseTx.TxHash())
+	return fmt.Sprintf("ClosePending(txid=%v, party=%v, fee_rate=%v)",
+		c.CloseTx.TxHash(), c.Party, c.FeeRate)
+}
+
+// isType returns true if the value is of type T.
+func isType[T any](value any) bool {
+	_, ok := value.(T)
+	return ok
 }
 
 // ShouldRouteTo returns true if the target state should process the target
@@ -720,6 +806,17 @@ func (c *ClosePending) ShouldRouteTo(event ProtocolEvent) bool {
 	case *SpendEvent:
 		return true
 	default:
+		switch {
+		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+			return true
+
+		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
+			event,
+		):
+
+			return true
+		}
+
 		return false
 	}
 }
@@ -759,7 +856,7 @@ func (c *CloseFin) IsTerminal() bool {
 //   - fromState: ChannelFlushing
 //   - toState: ClosePending
 type RemoteCloseStart struct {
-	CloseChannelTerms
+	*CloseChannelTerms
 }
 
 // String returns the name of the state for RemoteCloseStart.
@@ -784,6 +881,54 @@ func (l *RemoteCloseStart) protocolStateSealed() {}
 // IsTerminal returns true if the target state is a terminal state.
 func (l *RemoteCloseStart) IsTerminal() bool {
 	return false
+}
+
+// CloseErr is an error state in the protocol. We enter this state when a
+// protocol constraint is violated, or an upfront sanity check fails.
+type CloseErr struct {
+	ErrState
+
+	*CloseChannelTerms
+
+	// Party indicates which party is at this state. This is used to
+	// implement the state transition properly, based on ShouldRouteTo.
+	Party lntypes.ChannelParty
+}
+
+// String returns the name of the state for CloseErr, including error and party
+// details.
+func (c *CloseErr) String() string {
+	return fmt.Sprintf("CloseErr(Party: %v, Error: %v)", c.Party, c.Err())
+}
+
+// ShouldRouteTo returns true if the target state should process the target
+// event.
+func (c *CloseErr) ShouldRouteTo(event ProtocolEvent) bool {
+	switch event.(type) {
+	case *SpendEvent:
+		return true
+	default:
+		switch {
+		case c.Party == lntypes.Local && isType[*SendOfferEvent](event):
+			return true
+
+		case c.Party == lntypes.Remote && isType[*OfferReceivedEvent](
+			event,
+		):
+
+			return true
+		}
+
+		return false
+	}
+}
+
+// protocolStateSealed indicates that this struct is a ProtocolEvent instance.
+func (c *CloseErr) protocolStateSealed() {}
+
+// IsTerminal returns true if the target state is a terminal state.
+func (c *CloseErr) IsTerminal() bool {
+	return true
 }
 
 // RbfChanCloser is a state machine that handles the RBF-enabled cooperative

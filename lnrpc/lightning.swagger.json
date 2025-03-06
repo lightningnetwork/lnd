@@ -5302,6 +5302,10 @@
           "type": "string",
           "format": "uint64",
           "description": "Index identifying the htlc on the forwarding channel."
+        },
+        "locked_in": {
+          "type": "boolean",
+          "description": "Whether the HTLC is locked in. An HTLC is considered locked in when the\nremote party has sent us the `revoke_and_ack` to irrevocably commit this\nHTLC."
         }
       }
     },

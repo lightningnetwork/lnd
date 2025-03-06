@@ -155,62 +155,70 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where
-// where only the pubkey is known to the database.
+// only the pubkey is known to the database.
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
-	// We want to be able to insert nodes into the graph that only has the
-	// PubKey set.
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: false,
-		PubKeyBytes:          testPub,
-	}
+	// To insert a partial node, we need to add a channel edge that has
+	// node keys for nodes we are not yet aware
+	var node1, node2 models.LightningNode
+	copy(node1.PubKeyBytes[:], pubKey1Bytes)
+	copy(node2.PubKeyBytes[:], pubKey2Bytes)
 
-	if err := graph.AddLightningNode(node); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	assertNodeInCache(t, graph, node, nil)
+	// Create an edge attached to these nodes and add it to the graph.
+	edgeInfo, _ := createEdge(140, 0, 0, 0, &node1, &node2)
+	require.NoError(t, graph.AddChannelEdge(&edgeInfo))
 
-	// Next, fetch the node from the database to ensure everything was
+	// Both of the nodes should now be in both the graph (as partial/shell)
+	// nodes _and_ the cache should also have an awareness of both nodes.
+	assertNodeInCache(t, graph, &node1, nil)
+	assertNodeInCache(t, graph, &node2, nil)
+
+	// Next, fetch the node2 from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(testPub)
-	require.NoError(t, err, "unable to locate node")
+	dbNode1, err := graph.FetchLightningNode(pubKey1)
+	require.NoError(t, err)
+	dbNode2, err := graph.FetchLightningNode(pubKey2)
+	require.NoError(t, err)
 
-	_, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to query for node: %v", err)
-	} else if !exists {
-		t.Fatalf("node should be found but wasn't")
-	}
+	_, exists, err := graph.HasLightningNode(dbNode1.PubKeyBytes)
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	node = &models.LightningNode{
+	expectedNode1 := &models.LightningNode{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          testPub,
+		PubKeyBytes:          pubKey1,
 	}
+	require.NoError(t, compareNodes(dbNode1, expectedNode1))
 
-	if err := compareNodes(node, dbNode); err != nil {
-		t.Fatalf("nodes don't match: %v", err)
+	_, exists, err = graph.HasLightningNode(dbNode2.PubKeyBytes)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	// The two nodes should match exactly! (with default values for
+	// LastUpdate and db set to satisfy compareNodes())
+	expectedNode2 := &models.LightningNode{
+		HaveNodeAnnouncement: false,
+		LastUpdate:           time.Unix(0, 0),
+		PubKeyBytes:          pubKey2,
 	}
+	require.NoError(t, compareNodes(dbNode2, expectedNode2))
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	if err := graph.DeleteLightningNode(testPub); err != nil {
-		t.Fatalf("unable to delete node: %v", err)
-	}
+	require.NoError(t, graph.DeleteLightningNode(pubKey1))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
-	if err != ErrGraphNodeNotFound {
-		t.Fatalf("fetch after delete should fail!")
-	}
+	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
 func TestAliasLookup(t *testing.T) {

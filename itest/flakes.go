@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"runtime"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -70,39 +69,6 @@ func flakeTxNotifierNeutrino(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.MineEmptyBlocks(1)
 	}
-}
-
-// flakeSkipPendingSweepsCheckDarwin documents a flake found only in macOS
-// build. When running in macOS, we might see three anchor sweeps - one from the
-// local, one from the remote, and one from the pending remote:
-//   - the local one will be swept.
-//   - the remote one will be marked as failed due to `testmempoolaccept` check.
-//   - the pending remote one will not be attempted due to it being uneconomical
-//     since it was not used for CPFP.
-//
-// The anchor from the pending remote may or may not appear, which is a bug
-// found only in macOS - when updating the commitments, the channel state
-// machine somehow thinks we still have a pending remote commitment, causing it
-// to sweep the anchor from that version.
-//
-// TODO(yy): fix the above bug in the channel state machine.
-func flakeSkipPendingSweepsCheckDarwin(ht *lntest.HarnessTest,
-	node *node.HarnessNode, num int) {
-
-	// Skip the assertion below if it's on macOS.
-	if isDarwin() {
-		ht.Logf("Skipped AssertNumPendingSweeps for node %s",
-			node.Name())
-
-		return
-	}
-
-	ht.AssertNumPendingSweeps(node, num)
-}
-
-// isDarwin returns true if the test is running on a macOS.
-func isDarwin() bool {
-	return runtime.GOOS == "darwin"
 }
 
 // flakeInconsistentHTLCView documents a flake found that the `ListChannels` RPC

@@ -254,11 +254,6 @@ func getLndBinary(t *testing.T) string {
 	return binary
 }
 
-// isDarwin returns true if the test is running on a macOS.
-func isDarwin() bool {
-	return runtime.GOOS == "darwin"
-}
-
 // isWindowsOS returns true if the test is running on a Windows OS.
 func isWindowsOS() bool {
 	return runtime.GOOS == "windows"

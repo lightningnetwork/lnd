@@ -89,13 +89,6 @@ func testHoldInvoiceForceClose(ht *lntest.HarnessTest) {
 	blocksTillCancel := blocksTillExpiry -
 		lncfg.DefaultHoldInvoiceExpiryDelta
 
-	// When using ht.MineBlocks, for bitcoind backend, the block height
-	// synced differ significantly among subsystems. From observation, the
-	// LNWL syncs much faster than other subsystems, with more than 10
-	// blocks ahead. For this test case, CRTR may be lagging behind for
-	// more than 20 blocks. Thus we use slow mining instead.
-	// TODO(yy): fix block height asymmetry among all the subsystems.
-	//
 	// We first mine enough blocks to trigger an invoice cancelation.
 	ht.MineBlocks(int(blocksTillCancel))
 

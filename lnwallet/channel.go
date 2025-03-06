@@ -9935,3 +9935,16 @@ func (lc *LightningChannel) FundingBlob() fn.Option[tlv.Blob] {
 		return newBlob
 	})(lc.channelState.CustomBlob)
 }
+
+// ZeroConfRealScid returns an optional real scid for the channel. If this
+// returns None, then this isn't a zero conf channel. Otherwise, the real scid
+// value will be returned.
+//
+//nolint:ll
+func (lc *LightningChannel) ZeroConfRealScid() fn.Option[lnwire.ShortChannelID] {
+	if lc.channelState.IsZeroConf() {
+		return fn.Some(lc.channelState.ZeroConfRealScid())
+	}
+
+	return fn.None[lnwire.ShortChannelID]()
+}

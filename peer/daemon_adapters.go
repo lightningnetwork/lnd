@@ -23,8 +23,6 @@ type MessageSender interface {
 
 // flexMessageSender is a message sender-like interface that is aware of
 // sync/async semantics, and is bound to a single peer.
-//
-//nolint:unused
 type flexMessageSender interface {
 	// SendMessage sends a variadic number of high-priority messages to the
 	// remote peer. The first argument denotes if the method should block
@@ -36,16 +34,12 @@ type flexMessageSender interface {
 // peerMsgSender implements the MessageSender interface for a single peer.
 // It'll return an error if the target public isn't equal to public key of the
 // backing peer.
-//
-//nolint:unused
 type peerMsgSender struct {
 	sender  flexMessageSender
 	peerPub btcec.PublicKey
 }
 
 // newPeerMsgSender creates a new instance of a peerMsgSender.
-//
-//nolint:unused
 func newPeerMsgSender(peerPub btcec.PublicKey,
 	msgSender flexMessageSender) *peerMsgSender {
 
@@ -59,8 +53,6 @@ func newPeerMsgSender(peerPub btcec.PublicKey,
 //
 // TODO(roasbeef): current impl bound to single peer, need server pointer
 // otherwise?
-//
-//nolint:unused
 func (p *peerMsgSender) SendMessages(pub btcec.PublicKey,
 	msgs []lnwire.Message) error {
 

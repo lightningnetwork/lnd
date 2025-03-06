@@ -422,8 +422,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		numSweeps = 2
 	}
-
-	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
+	ht.AssertNumPendingSweeps(bob, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Bob's force close tx.
@@ -753,6 +752,9 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// channel arbitrator won't go to chain.
 	carol.RPC.SettleInvoice(preimage[:])
 
+	// Carol should still have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
+
 	// We now advance the block height to the point where Carol will force
 	// close her channel with Bob, broadcast the closing tx but keep it
 	// unconfirmed.
@@ -780,8 +782,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		numSweeps = 2
 	}
-
-	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
+	ht.AssertNumPendingSweeps(carol, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Carol's force close tx.
@@ -1700,6 +1701,9 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// channel arbitrator won't go to chain.
 	carol.RPC.SettleInvoice(preimage[:])
 
+	// Carol should still have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
+
 	// We now advance the block height to the point where Carol will force
 	// close her channel with Bob, broadcast the closing tx but keep it
 	// unconfirmed.
@@ -1977,6 +1981,9 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// invoice in the accepted state, because without a known preimage, the
 	// channel arbitrator won't go to chain.
 	carol.RPC.SettleInvoice(preimage[:])
+
+	// Carol should still have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
 
 	// We now advance the block height to the point where Carol will force
 	// close her channel with Bob, broadcast the closing tx but keep it
@@ -2319,6 +2326,9 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// channel arbitrator won't go to chain.
 	carol.RPC.SettleInvoice(preimage[:])
 
+	// Carol should still have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
+
 	ht.Logf("Invoice expire height: %d, current: %d", invoiceExpiry,
 		ht.CurrentHeight())
 
@@ -2338,8 +2348,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		numSweeps = 2
 	}
-
-	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
+	ht.AssertNumPendingSweeps(carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -2560,6 +2569,9 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// channel arbitrator won't go to chain.
 	carol.RPC.SettleInvoice(preimage[:])
 
+	// Carol should still have one incoming HTLC on channel Bob -> Carol.
+	ht.AssertNumActiveHtlcs(carol, 1)
+
 	ht.Logf("Invoice expire height: %d, current: %d", invoiceExpiry,
 		ht.CurrentHeight())
 
@@ -2579,8 +2591,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		numSweeps = 2
 	}
-
-	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
+	ht.AssertNumPendingSweeps(carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -2988,8 +2999,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		numSweeps = 2
 	}
-
-	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
+	ht.AssertNumPendingSweeps(bob, numSweeps)
 
 	// Bob's force close tx and anchor sweeping tx should now be found in
 	// the mempool.

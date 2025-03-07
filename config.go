@@ -1416,9 +1416,15 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		return nil, mkErr("error validating logging config: %w", err)
 	}
 
-	cfg.SubLogMgr = build.NewSubLoggerManager(build.NewDefaultLogHandlers(
-		cfg.LogConfig, cfg.LogRotator,
-	)...)
+	// If a sub-log manager was not already created, then we'll create one
+	// now using the default log handlers.
+	if cfg.SubLogMgr == nil {
+		cfg.SubLogMgr = build.NewSubLoggerManager(
+			build.NewDefaultLogHandlers(
+				cfg.LogConfig, cfg.LogRotator,
+			)...,
+		)
+	}
 
 	// Initialize logging at the default logging level.
 	SetupLoggers(cfg.SubLogMgr, interceptor)

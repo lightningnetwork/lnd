@@ -7,12 +7,13 @@ import (
 	"net"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
 // defaultHandshakes is the maximum number of handshakes that can be done in
 // parallel.
-const defaultHandshakes = 1000
+const defaultHandshakes = 50
 
 // Listener is an implementation of a net.Conn which executes an authenticated
 // key exchange and message encryption protocol dubbed "Machine" after
@@ -24,6 +25,10 @@ type Listener struct {
 
 	tcp *net.TCPListener
 
+	// shouldAccept is a closure that determines if we should accept the
+	// incoming connection or not based on its public key.
+	shouldAccept func(*btcec.PublicKey) (bool, error)
+
 	handshakeSema chan struct{}
 	conns         chan maybeConn
 	quit          chan struct{}
@@ -34,8 +39,8 @@ var _ net.Listener = (*Listener)(nil)
 
 // NewListener returns a new net.Listener which enforces the Brontide scheme
 // during both initial connection establishment and data transfer.
-func NewListener(localStatic keychain.SingleKeyECDH,
-	listenAddr string) (*Listener, error) {
+func NewListener(localStatic keychain.SingleKeyECDH, listenAddr string,
+	shouldAccept func(*btcec.PublicKey) (bool, error)) (*Listener, error) {
 
 	addr, err := net.ResolveTCPAddr("tcp", listenAddr)
 	if err != nil {
@@ -50,6 +55,7 @@ func NewListener(localStatic keychain.SingleKeyECDH,
 	brontideListener := &Listener{
 		localStatic:   localStatic,
 		tcp:           l,
+		shouldAccept:  shouldAccept,
 		handshakeSema: make(chan struct{}, defaultHandshakes),
 		conns:         make(chan maybeConn),
 		quit:          make(chan struct{}),
@@ -193,6 +199,28 @@ func (l *Listener) doHandshake(conn net.Conn) {
 		return
 	}
 
+	// Call the shouldAccept closure to see if the remote node's public key
+	// is allowed according to our banning heuristic. This is here because
+	// we do not learn the remote node's public static key until we've
+	// received and validated Act 3.
+	remoteKey := brontideConn.RemotePub()
+	if remoteKey == nil {
+		connErr := fmt.Errorf("no remote pubkey")
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(connErr, remoteAddr))
+
+		return
+	}
+
+	accepted, acceptErr := l.shouldAccept(remoteKey)
+	if !accepted {
+		// Reject the connection.
+		brontideConn.conn.Close()
+		l.rejectConn(rejectedConnErr(acceptErr, remoteAddr))
+
+		return
+	}
+
 	l.acceptConn(brontideConn)
 }
 
@@ -254,4 +282,10 @@ func (l *Listener) Close() error {
 // Part of the net.Listener interface.
 func (l *Listener) Addr() net.Addr {
 	return l.tcp.Addr()
+}
+
+// DisabledBanClosure is used in places that NewListener is invoked to bypass
+// the ban-scoring.
+func DisabledBanClosure(p *btcec.PublicKey) (bool, error) {
+	return true, nil
 }

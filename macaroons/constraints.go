@@ -80,9 +80,9 @@ func TimeoutConstraint(seconds int64) func(*macaroon.Macaroon) error {
 	}
 }
 
-// IPLockConstraint locks macaroon to a specific IP address.
-// If address is an empty string, this constraint does nothing to
-// accommodate default value's desired behavior.
+// IPLockConstraint locks a macaroon to a specific IP address. If ipAddr is an
+// empty string, this constraint does nothing to accommodate  default value's
+// desired behavior.
 func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 	return func(mac *macaroon.Macaroon) error {
 		if ipAddr != "" {
@@ -93,8 +93,30 @@ func IPLockConstraint(ipAddr string) func(*macaroon.Macaroon) error {
 			}
 			caveat := checkers.Condition("ipaddr",
 				macaroonIPAddr.String())
+
 			return mac.AddFirstPartyCaveat([]byte(caveat))
 		}
+
+		return nil
+	}
+}
+
+// IPRangeLockConstraint locks a macaroon to a specific IP address range. If
+// ipRange is an empty string, this constraint does nothing to accommodate
+// default value's desired behavior.
+func IPRangeLockConstraint(ipRange string) func(*macaroon.Macaroon) error {
+	return func(mac *macaroon.Macaroon) error {
+		if ipRange != "" {
+			_, net, err := net.ParseCIDR(ipRange)
+			if err != nil {
+				return fmt.Errorf("incorrect macaroon IP " +
+					"range")
+			}
+			caveat := checkers.Condition("iprange", net.String())
+
+			return mac.AddFirstPartyCaveat([]byte(caveat))
+		}
+
 		return nil
 	}
 }
@@ -118,6 +140,37 @@ func IPLockChecker() (string, checkers.Func) {
 			msg := "macaroon locked to different IP address"
 			return fmt.Errorf(msg)
 		}
+		return nil
+	}
+}
+
+// IPRangeLockChecker accepts client IP range from the validation context and
+// compares it with the IP range locked in the macaroon. It is of the `Checker`
+// type.
+func IPRangeLockChecker() (string, checkers.Func) {
+	return "iprange", func(ctx context.Context, cond, arg string) error {
+		// Get peer info and extract IP range from it for macaroon
+		// check.
+		pr, ok := peer.FromContext(ctx)
+		if !ok {
+			return fmt.Errorf("unable to get peer info from " +
+				"context")
+		}
+		peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
+		if err != nil {
+			return fmt.Errorf("unable to parse peer address")
+		}
+
+		_, ipNet, err := net.ParseCIDR(arg)
+		if err != nil {
+			return fmt.Errorf("unable to parse macaroon IP range")
+		}
+
+		if !ipNet.Contains(net.ParseIP(peerAddr)) {
+			msg := "macaroon locked to different IP range"
+			return fmt.Errorf(msg)
+		}
+
 		return nil
 	}
 }

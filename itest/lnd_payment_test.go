@@ -152,13 +152,7 @@ func testPaymentSucceededHTLCRemoteSwept(ht *lntest.HarnessTest) {
 	// Alice should have a pending force close channel.
 	ht.AssertNumPendingForceClose(alice, 1)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Mine Bob's sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)

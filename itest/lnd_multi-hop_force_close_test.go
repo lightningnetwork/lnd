@@ -341,13 +341,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
-	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Bob's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	flakeFundExtraUTXO(ht, bob)
 
 	// Now that our channels are set up, we'll send two HTLC's from Alice
 	// to Carol. The first HTLC will be universally considered "dust",
@@ -429,22 +423,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(bob, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Bob's force close tx.
@@ -707,14 +686,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Carol's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	flakeFundExtraUTXO(ht, carol)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -808,22 +780,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We expect to see tow txns in the mempool,
 	// 1. Carol's force close tx.
@@ -859,21 +816,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		ht.AssertNumPendingSweeps(bob, 2)
 	}
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	if params.CommitmentType == leasedType {
 		// We expect to see 1 txns in the mempool,
@@ -1656,22 +1599,8 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Carol's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Bob's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	flakeFundExtraUTXO(ht, carol)
+	flakeFundExtraUTXO(ht, bob)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -1802,21 +1731,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	// Assert txns can be found in the mempool.
 	//
@@ -1842,13 +1757,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// At this point, Bob should have broadcast his second layer success
 	// tx, and should have sent it to his sweeper.
@@ -1965,8 +1874,6 @@ func testLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest) {
 // we force close a channel with an incoming HTLC, and later find out the
 // preimage via the witness beacon, we properly settle the HTLC on-chain using
 // the HTLC success transaction in order to ensure we don't lose any funds.
-//
-// TODO(yy): simplify or remove this test as it's too complicated.
 func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	cfgs [][]string, params lntest.OpenChannelParams) {
 
@@ -1984,14 +1891,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Carol's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	flakeFundExtraUTXO(ht, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -2126,13 +2026,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// - the anchor output from channel Bob=>Carol.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// At this point, Bob should have broadcast his second layer success
 	// tx, and should have sent it to his sweeper.
@@ -2326,14 +2220,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Carol's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	flakeFundExtraUTXO(ht, carol)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -2448,22 +2335,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -2483,21 +2355,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// - the commit output sweep from the channel with Carol, no timelock.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
@@ -2511,29 +2369,9 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// - the htlc sweeping tx.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine an empty block the for neutrino backend. We need this step to
-	// trigger Bob's chain watcher to detect the force close tx. Deep down,
-	// this happens because the notification system for neutrino is very
-	// different from others. Specifically, when a block contains the force
-	// close tx is notified, these two calls,
-	// - RegisterBlockEpochNtfn, will notify the block first.
-	// - RegisterSpendNtfn, will wait for the neutrino notifier to sync to
-	//   the block, then perform a GetUtxo, which, by the time the spend
-	//   details are sent, the blockbeat is considered processed in Bob's
-	//   chain watcher.
-	//
-	// TODO(yy): refactor txNotifier to fix the above issue.
-	if ht.IsNeutrinoBackend() {
-		ht.MineEmptyBlocks(1)
-	}
+	flakeTxNotifierNeutrino(ht)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Bob should broadcast the sweeping of the direct preimage spent now.
 	bobHtlcSweep := ht.GetNumTxsFromMempool(1)[0]
@@ -2639,14 +2477,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-
-	// Carol should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Carol's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	flakeFundExtraUTXO(ht, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -2744,22 +2575,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(carol, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, carol, numSweeps)
 
 	// We should see two txns in the mempool, we now a block to confirm,
 	// - Carol's force close tx.
@@ -2791,13 +2607,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// - the htlc sweeping tx.
 	ht.AssertNumPendingSweeps(bob, 3)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// Bob should broadcast the sweeping of the direct preimage spent now.
 	bobHtlcSweep := ht.GetNumTxsFromMempool(1)[0]
@@ -3016,14 +2826,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// We need one additional UTXO to create the sweeping tx for the
 	// second-level success txes.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
-
-	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Bob's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this step once the issue is resolved.
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+	flakeFundExtraUTXO(ht, bob)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice+Carol can actually find a route.
@@ -3180,22 +2983,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		numSweeps = 2
 	}
 
-	// When running in macOS, we might see three anchor sweeps - one from
-	// the local, one from the remote, and one from the pending remote:
-	// - the local one will be swept.
-	// - the remote one will be marked as failed due to `testmempoolaccept`
-	//   check.
-	// - the pending remote one will not be attempted due to it being
-	//   uneconomical since it was not used for CPFP.
-	// The anchor from the pending remote may or may not appear, which is a
-	// bug found only in macOS - when updating the commitments, the channel
-	// state machine somehow thinks we still have a pending remote
-	// commitment, causing it to sweep the anchor from that version.
-	//
-	// TODO(yy): fix the above bug in the channel state machine.
-	if !isDarwin() {
-		ht.AssertNumPendingSweeps(bob, numSweeps)
-	}
+	flakeSkipPendingSweepsCheckDarwin(ht, bob, numSweeps)
 
 	// Bob's force close tx and anchor sweeping tx should now be found in
 	// the mempool.
@@ -3223,13 +3011,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// txns.
 	ht.AssertNumPendingSweeps(bob, numInvoices*2)
 
-	// Mine a block to trigger the sweep. This is needed because the
-	// preimage extraction logic from the link is not managed by the
-	// blockbeat, which means the preimage may be sent to the contest
-	// resolver after it's launched.
-	//
-	// TODO(yy): Expose blockbeat to the link layer.
-	ht.MineEmptyBlocks(1)
+	flakePreimageSettlement(ht)
 
 	// We expect to see three sweeping txns:
 	// 1. Bob's sweeping tx for all timeout HTLCs.

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -559,17 +558,6 @@ func runChannelFundingInputTypes(ht *lntest.HarnessTest, alice,
 		checkChannelBalance(carol, carolLocalBalance, 0, 0, 0)
 		checkChannelBalance(alice, 0, carolLocalBalance, 0, 0)
 
-		// TODO(yy): remove the sleep once the following bug is fixed.
-		//
-		// We may get the error `unable to gracefully close channel
-		// while peer is offline (try force closing it instead):
-		// channel link not found`. This happens because the channel
-		// link hasn't been added yet but we now proceed to closing the
-		// channel. We may need to revisit how the channel open event
-		// is created and make sure the event is only sent after all
-		// relevant states have been updated.
-		time.Sleep(2 * time.Second)
-
 		// Now that we're done with the test, the channel can be closed.
 		ht.CloseChannel(carol, chanPoint)
 
@@ -684,14 +672,6 @@ func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// settled to avoid an error saying cannot close channel due to active
 	// HTLCs.
 	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
 
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.
@@ -844,14 +824,6 @@ func runExternalFundingTaproot(ht *lntest.HarnessTest) {
 	// settled to avoid an error saying cannot close channel due to active
 	// HTLCs.
 	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
-
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
 
 	// Next we'll try but this time with Dave (the responder) as the
 	// initiator. This time the channel should be closed as normal.

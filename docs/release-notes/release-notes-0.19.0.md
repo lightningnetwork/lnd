@@ -270,6 +270,11 @@ The underlying functionality between those two options remain the same.
    [1](https://github.com/lightningnetwork/lnd/pull/9476)
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
    [3](https://github.com/lightningnetwork/lnd/pull/9478).
+   
+* [Watchtower Client Commands](https://github.com/lightningnetwork/lnd/pull/9588): -  
+Added detailed descriptions for the session and terminate commands in lncli wtclient.
+The session command now explains its purpose and how it manages watchtower sessions.
+The terminate command provides clear guidance on terminating an active session by specifying its unique session ID.
 
 ## Breaking Changes
 ## Performance Improvements

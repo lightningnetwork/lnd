@@ -2997,6 +2997,12 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		graphScid = upd.ShortChannelID
 	}
 
+	// We make sure to obtain the mutex for this channel ID before we access
+	// the database. This ensures the state we read from the database has
+	// not changed between this point and when we call UpdateEdge() later.
+	d.channelMtx.Lock(graphScid.ToUint64())
+	defer d.channelMtx.Unlock(graphScid.ToUint64())
+
 	if d.cfg.Graph.IsStaleEdgePolicy(
 		graphScid, timestamp, upd.ChannelFlags,
 	) {
@@ -3029,14 +3035,6 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// Get the node pub key as far since we don't have it in the channel
 	// update announcement message. We'll need this to properly verify the
 	// message's signature.
-	//
-	// We make sure to obtain the mutex for this channel ID before we
-	// access the database. This ensures the state we read from the
-	// database has not changed between this point and when we call
-	// UpdateEdge() later.
-	d.channelMtx.Lock(graphScid.ToUint64())
-	defer d.channelMtx.Unlock(graphScid.ToUint64())
-
 	chanInfo, e1, e2, err := d.cfg.Graph.GetChannelByID(graphScid)
 	switch {
 	// No error, break.

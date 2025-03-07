@@ -77,6 +77,11 @@
   restarts, for details check [this
   issue](https://github.com/lightningnetwork/lnd/issues/8975#issuecomment-2270528222).
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9573) where 
+  processing duplicate ChannelUpdates from different peers in quick succession 
+  could lead to our ChannelUpdate rate limiting logic being prematurely 
+  triggered.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

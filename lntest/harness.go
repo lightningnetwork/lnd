@@ -59,6 +59,13 @@ const (
 	thawHeightDelta = finalCltvDelta * 2   // 36.
 )
 
+var (
+	// MaxBlocksMinedPerTest is the maximum number of blocks that we allow
+	// a test to mine. This is an exported global variable so it can be
+	// overwritten by other projects that don't have the same constraints.
+	MaxBlocksMinedPerTest = 50
+)
+
 // TestCase defines a test case that's been used in the integration test.
 type TestCase struct {
 	// Name specifies the test name.
@@ -396,10 +403,14 @@ func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
 		"5. use `CreateSimpleNetwork` for efficient channel creation.\n"
 	h.Log(desc)
 
-	// We enforce that the test should not mine more than 50 blocks, which
-	// is more than enough to test a multi hop force close scenario.
-	require.LessOrEqual(h, int(blocksMined), 50, "cannot mine more than "+
-		"50 blocks in one test")
+	// We enforce that the test should not mine more than
+	// MaxBlocksMinedPerTest (50 by default) blocks, which is more than
+	// enough to test a multi hop force close scenario.
+	require.LessOrEqualf(
+		h, int(blocksMined), MaxBlocksMinedPerTest,
+		"cannot mine more than %d blocks in one test",
+		MaxBlocksMinedPerTest,
+	)
 }
 
 // shutdownNodesNoAssert will shutdown all running nodes without assertions.

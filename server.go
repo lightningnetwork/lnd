@@ -1449,6 +1449,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if lncfg.IsDevBuild() {
 		devCfg = &funding.DevConfig{
 			ProcessChannelReadyWait: cfg.Dev.ChannelReadyWait(),
+			MaxWaitNumBlocksFundingConf: cfg.Dev.
+				GetMaxWaitNumBlocksFundingConf(),
 		}
 
 		reservationTimeout = cfg.Dev.GetReservationTimeout()

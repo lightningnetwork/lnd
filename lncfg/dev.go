@@ -46,3 +46,9 @@ func (d *DevConfig) GetReservationTimeout() time.Duration {
 func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
 	return DefaultZombieSweeperInterval
 }
+
+// GetMaxWaitNumBlocksFundingConf returns the config value for
+// `MaxWaitNumBlocksFundingConf`.
+func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
+	return DefaultMaxWaitNumBlocksFundingConf
+}

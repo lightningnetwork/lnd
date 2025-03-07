@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -100,11 +101,6 @@ const (
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
 
 	msgBufferSize = 50
-
-	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
-	// for the funding transaction to be confirmed before forgetting
-	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
-	MaxWaitNumBlocksFundingConf = 2016
 
 	// pendingChansLimit is the maximum number of pending channels that we
 	// can have. After this point, pending channel opens will start to be
@@ -339,6 +335,11 @@ type DevConfig struct {
 	// remote node's channel ready message once the channel as been marked
 	// as `channelReadySent`.
 	ProcessChannelReadyWait time.Duration
+
+	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
+	// for the funding transaction to be confirmed before forgetting
+	// channels that aren't initiated by us.
+	MaxWaitNumBlocksFundingConf uint32
 }
 
 // Config defines the configuration for the FundingManager. All elements
@@ -3164,9 +3165,21 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 
 	defer epochClient.Cancel()
 
+	// The value of waitBlocksForFundingConf is adjusted in a development
+	// environment to enhance test capabilities. Otherwise, it is set to
+	// DefaultMaxWaitNumBlocksFundingConf.
+	waitBlocksForFundingConf := uint32(
+		lncfg.DefaultMaxWaitNumBlocksFundingConf,
+	)
+
+	if lncfg.IsDevBuild() {
+		waitBlocksForFundingConf =
+			f.cfg.Dev.MaxWaitNumBlocksFundingConf
+	}
+
 	// On block maxHeight we will cancel the funding confirmation wait.
 	broadcastHeight := completeChan.BroadcastHeight()
-	maxHeight := broadcastHeight + MaxWaitNumBlocksFundingConf
+	maxHeight := broadcastHeight + waitBlocksForFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -3182,7 +3195,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 				log.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.",
-					MaxWaitNumBlocksFundingConf)
+					waitBlocksForFundingConf)
 
 				// Notify the caller of the timeout.
 				close(timeoutChan)

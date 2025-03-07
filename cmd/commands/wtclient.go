@@ -376,7 +376,10 @@ func policy(ctx *cli.Context) error {
 }
 
 var sessionCommands = cli.Command{
-	Name: "session",
+	Name:  "session",
+	Usage: "Manage watchtower client sessions.",
+	Description: "This command allows users to interact with their watchtower " +
+		"client sessions, including listing and terminating active sessions.",
 	Subcommands: []cli.Command{
 		terminateSessionCommand,
 	},
@@ -384,6 +387,10 @@ var sessionCommands = cli.Command{
 
 var terminateSessionCommand = cli.Command{
 	Name:      "terminate",
+	Usage:     "Terminate an active watchtower session.",
+	Description: "This command terminates an active session identified by its " +
+		"unique session ID. Terminating a session prevents it from being used " +
+		"for further backups but does not remove past backup data.",
 	ArgsUsage: "id",
 	Action:    actionDecorator(terminateSession),
 }

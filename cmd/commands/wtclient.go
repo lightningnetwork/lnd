@@ -376,7 +376,10 @@ func policy(ctx *cli.Context) error {
 }
 
 var sessionCommands = cli.Command{
-	Name: "session",
+	Name:  "session",
+	Usage: "Manage watchtower client sessions.",
+	Description: "This command allows users to interact with their watchtower " +
+		"client sessions, including listing and terminating active sessions.",
 	Subcommands: []cli.Command{
 		terminateSessionCommand,
 	},
@@ -384,6 +387,10 @@ var sessionCommands = cli.Command{
 
 var terminateSessionCommand = cli.Command{
 	Name:      "terminate",
+	Usage:     "Terminate an active watchtower session.",
+	Description: "This command terminates an active session identified by its " +
+		"unique session ID. Terminating a session prevents it from being used " +
+		"for further backups but does not remove past backup data.",
 	ArgsUsage: "id",
 	Action:    actionDecorator(terminateSession),
 }
@@ -393,7 +400,7 @@ func terminateSession(ctx *cli.Context) error {
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 1 || ctx.NumFlags() != 0 {
+	if ctx.NArg() != 1 || ctx.NumFlags() != 0 {
 		return cli.ShowCommandHelp(ctx, "terminate")
 	}
 
@@ -411,9 +418,10 @@ func terminateSession(ctx *cli.Context) error {
 		},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to terminate session: %w", err)
 	}
 
+	fmt.Println("Session successfully terminated.")
 	printRespJSON(resp)
 
 	return nil

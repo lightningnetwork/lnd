@@ -163,6 +163,10 @@
   on the channel. LND will disable the channel for new HTLCs and kick off the
   cooperative close flow automatically when the channel has no HTLCs left.
 
+* [A new macaroon constraint](https://github.com/lightningnetwork/lnd/pull/9546)
+  to allow for restriction of access based on an IP range. Prior to this only
+  specific IPs could be allowed or denied.
+
 # Improvements
 ## Functional Updates
 

@@ -110,6 +110,11 @@
 * [Add ability](https://github.com/lightningnetwork/lnd/pull/8998) to paginate 
  wallet transactions.
 
+* [Make](https://github.com/lightningnetwork/lnd/pull/9562)
+  `MaxWaitNumBlocksFundingConf` configurable, allowing integration/development
+  tests to set a lower value for faster funding confirmation timeout while
+  keeping the default of 2016 blocks for production stability.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

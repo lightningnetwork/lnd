@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -125,6 +126,9 @@ type ChanClose struct {
 
 	// Err is used by request creator to receive request execution error.
 	Err chan error
+
+	// Ctx is a context linked to the lifetime of the caller.
+	Ctx context.Context //nolint:containedctx
 }
 
 // Config defines the configuration for the service. ALL elements within the
@@ -1413,7 +1417,7 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 // targetFeePerKw parameter should be the ideal fee-per-kw that will be used as
 // a starting point for close negotiation. The deliveryScript parameter is an
 // optional parameter which sets a user specified script to close out to.
-func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
+func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 	closeType contractcourt.ChannelCloseType,
 	targetFeePerKw, maxFee chainfee.SatPerKWeight,
 	deliveryScript lnwire.DeliveryAddress) (chan interface{}, chan error) {
@@ -1427,9 +1431,10 @@ func (s *Switch) CloseLink(chanPoint *wire.OutPoint,
 		ChanPoint:      chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: targetFeePerKw,
-		MaxFee:         maxFee,
 		DeliveryScript: deliveryScript,
 		Err:            errChan,
+		MaxFee:         maxFee,
+		Ctx:            ctx,
 	}
 
 	select {

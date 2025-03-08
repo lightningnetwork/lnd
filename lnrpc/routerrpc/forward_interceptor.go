@@ -8,6 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -60,6 +61,9 @@ func (r *forwardInterceptor) run() error {
 			return err
 		}
 
+		log.Tracef("Received packet from stream: %v",
+			lnutils.SpewLogClosure(resp))
+
 		if err := r.resolveFromClient(resp); err != nil {
 			return err
 		}
@@ -73,7 +77,8 @@ func (r *forwardInterceptor) run() error {
 func (r *forwardInterceptor) onIntercept(
 	htlc htlcswitch.InterceptedPacket) error {
 
-	log.Tracef("Sending intercepted packet to client %v", htlc)
+	log.Tracef("Sending intercepted packet to client %v",
+		lnutils.SpewLogClosure(htlc))
 
 	inKey := htlc.IncomingCircuit
 

@@ -43,7 +43,7 @@ require (
 	github.com/lightningnetwork/lnd/sqldb v1.0.7
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.0
-	github.com/lightningnetwork/lnd/tor v1.1.4
+	github.com/lightningnetwork/lnd/tor v1.1.5
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/pkg/errors v0.9.1

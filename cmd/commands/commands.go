@@ -267,7 +267,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 					c.Command.Name == "changepassword" ||
 					c.Command.Name == "createwatchonly") {
 
-				return fmt.Errorf("Wallet is already unlocked")
+				return errors.New("Wallet is already unlocked")
 			}
 
 			// lnd might be active, but not possible to contact
@@ -277,7 +277,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			// WalletUnlocker server active) and most likely this
 			// is because of an encrypted wallet.
 			if ok && s.Code() == codes.Unimplemented {
-				return fmt.Errorf("Wallet is encrypted. " +
+				return errors.New("Wallet is encrypted. " +
 					"Please unlock using 'lncli unlock', " +
 					"or set password using 'lncli create'" +
 					" if this is the first time starting " +

@@ -4,8 +4,6 @@
 package commands
 
 import (
-	"fmt"
-
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/urfave/cli"
@@ -147,7 +145,7 @@ func updateNodeAnnouncement(ctx *cli.Context) error {
 	}
 
 	if !change {
-		return fmt.Errorf("no changes for the node information " +
+		return errors.New("no changes for the node information " +
 			"detected")
 	}
 

@@ -3,6 +3,7 @@ package amp
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -139,7 +140,7 @@ func (s *ShardTracker) CancelShard(pid uint64) error {
 
 	c, ok := s.shards[pid]
 	if !ok {
-		return fmt.Errorf("pid not found")
+		return errors.New("pid not found")
 	}
 	delete(s.shards, pid)
 

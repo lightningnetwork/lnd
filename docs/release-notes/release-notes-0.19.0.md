@@ -82,6 +82,9 @@
   could lead to our ChannelUpdate rate limiting logic being prematurely 
   triggered.
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

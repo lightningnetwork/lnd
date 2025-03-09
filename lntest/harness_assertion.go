@@ -401,7 +401,7 @@ func (h *HarnessTest) assertChannelStatus(hn *node.HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: timeout checking for channel point: %v",
-		hn.Name(), cp)
+		hn.Name(), h.OutPointFromChannelPoint(cp))
 
 	return channel
 }

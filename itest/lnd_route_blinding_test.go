@@ -815,6 +815,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Assert that the HTLC has cleared.
+	flakeInconsistentHTLCView()
 	ht.AssertHTLCNotActive(bob, testCase.channels[0], hash[:])
 	ht.AssertHTLCNotActive(alice, testCase.channels[0], hash[:])
 

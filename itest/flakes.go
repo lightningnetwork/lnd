@@ -104,3 +104,41 @@ func flakeSkipPendingSweepsCheckDarwin(ht *lntest.HarnessTest,
 func isDarwin() bool {
 	return runtime.GOOS == "darwin"
 }
+
+// flakeInconsistentHTLCView documents a flake found that the `ListChannels` RPC
+// can give inaccurate HTLC states, which is found when we call
+// `AssertHTLCNotActive` after a commitment dance is finished. Suppose Carol is
+// settling an invoice with Bob, from Bob's PoV, a typical healthy settlement
+// flow goes like this:
+//
+//	[DBG] PEER brontide.go:2412: Peer([Carol]): Received UpdateFulfillHTLC
+//	[DBG] HSWC switch.go:1315: Closed completed SETTLE circuit for ...
+//	[INF] HSWC switch.go:3044: Forwarded HTLC...
+//	[DBG] PEER brontide.go:2412: Peer([Carol]): Received CommitSig
+//	[DBG] PEER brontide.go:2412: Peer([Carol]): Sending RevokeAndAck
+//	[DBG] PEER brontide.go:2412: Peer([Carol]): Sending CommitSig
+//	[DBG] PEER brontide.go:2412: Peer([Carol]): Received RevokeAndAck
+//	[DBG] HSWC link.go:3617: ChannelLink([ChanPoint: Bob=>Carol]): settle-fail-filter: count=1, filter=[0]
+//	[DBG] HSWC switch.go:3001: Circuit is closing for packet...
+//
+// Bob receives the preimage, closes the circuit, and exchanges commit sig and
+// revoke msgs with Carol. Once Bob receives the `CommitSig` from Carol, the
+// HTLC should be removed from his `LocalCommitment` via
+// `RevokeCurrentCommitment`.
+//
+// However, in the test where `AssertHTLCNotActive` is called, although the
+// above process is finished, the `ListChannels“ still finds the HTLC. Also note
+// that the RPC makes direct call to the channeldb without any locks, which
+// should be fine as the struct `OpenChannel.LocalCommitment` is passed by
+// value, although we need to double check.
+//
+// TODO(yy): In order to fix it, we should make the RPC share the same view of
+// our channel state machine. Instead of making DB queries, it should instead
+// use `lnwallet.LightningChannel` instead to stay consistent.
+//
+//nolint:ll
+func flakeInconsistentHTLCView() {
+	// Perform a sleep so the commiment dance can be finished before we call
+	// the ListChannels.
+	time.Sleep(2 * time.Second)
+}

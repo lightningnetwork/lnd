@@ -142,3 +142,22 @@ func flakeInconsistentHTLCView() {
 	// the ListChannels.
 	time.Sleep(2 * time.Second)
 }
+
+// flakePaymentStreamReturnEarly documents a flake found in the test which
+// relies on a given payment to be settled before testing other state changes.
+// The issue comes from the payment stream created from the RPC `SendPaymentV2`
+// gives premature settled event for a given payment, which is found in,
+//   - if we force close the channel immediately, we may get an error because
+//     the commitment dance is not finished.
+//   - if we subscribe HTLC events immediately, we may get extra events, which
+//     is also related to the above unfinished commitment dance.
+//
+// TODO(yy): Make sure we only mark the payment being settled once the
+// commitment dance is finished. In addition, we should also fix the exit hop
+// logic in the invoice settlement flow to make sure the invoice is only marked
+// as settled after the commitment dance is finished.
+func flakePaymentStreamReturnEarly() {
+	// Sleep 2 seconds so the pending HTLCs will be removed from the
+	// commitment.
+	time.Sleep(2 * time.Second)
+}

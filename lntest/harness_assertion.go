@@ -2329,7 +2329,8 @@ func (h *HarnessTest) AssertHtlcEvents(client rpc.HtlcEventsClient,
 		event := h.ReceiveHtlcEvent(client)
 
 		require.Containsf(h, eventTypes, event.EventType,
-			"wrong event type, got %v", userType, event.EventType)
+			"wrong event type, want %v, got %v", userType,
+			event.EventType)
 
 		events = append(events, event)
 

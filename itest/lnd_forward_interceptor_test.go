@@ -438,12 +438,6 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 	require.Equal(ht, lntest.CustomRecordsWithUnendorsed(customRecords),
 		packet.InWireCustomRecords)
 
-	err = carolInterceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
-		IncomingCircuitKey: packet.IncomingCircuitKey,
-		Action:             actionResume,
-	})
-	require.NoError(ht, err, "failed to send request")
-
 	// And now we forward the payment at Carol, expecting only an
 	// endorsement signal in our incoming custom records.
 	packet = ht.ReceiveHtlcInterceptor(carolInterceptor)

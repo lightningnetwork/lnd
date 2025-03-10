@@ -1582,6 +1582,11 @@ loop:
 		select {
 		case item := <-l.hodlQueue.ChanOut():
 			htlcResolution = item.(invoices.HtlcResolution)
+
+		// No need to process it if the link is broken.
+		case <-l.cg.Done():
+			return ErrLinkShuttingDown
+
 		default:
 			break loop
 		}

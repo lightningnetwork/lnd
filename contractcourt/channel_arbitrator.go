@@ -2155,6 +2155,20 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
+		if err != nil {
+			log.Errorf("ChannelArbitrator(%v): failed to query "+
+				"preimage for dangling htlc=%x from remote "+
+				"commitments diff", c.cfg.ChanPoint,
+				htlc.RHash[:])
+
+			continue
+		}
+
+		if preimageAvailable {
+			continue
+		}
+
 		// Dust htlcs can be canceled back even before the commitment
 		// transaction confirms. Dust htlcs are not enforceable onchain.
 		// If another version of the commit tx would confirm we either

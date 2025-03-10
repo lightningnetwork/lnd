@@ -1478,10 +1478,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 
 	for i := 0; i < chunkSize*2; i += 2 {
 		// With our set up complete, we'll request a sync of chan ID's.
-		done, err := syncer.synchronizeChanIDs()
-		if err != nil {
-			t.Fatalf("unable to sync chan IDs: %v", err)
-		}
+		done := syncer.synchronizeChanIDs()
 
 		// At this point, we shouldn't yet be done as only 2 items
 		// should have been queried for.
@@ -1528,8 +1525,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 
 	// If we issue another query, the syncer should tell us that it's done.
-	done, err := syncer.synchronizeChanIDs()
-	require.NoError(t, err, "unable to sync chan IDs")
+	done := syncer.synchronizeChanIDs()
 	if done {
 		t.Fatalf("syncer should be finished!")
 	}

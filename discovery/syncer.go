@@ -571,15 +571,11 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			// First, we'll attempt to continue our channel
 			// synchronization by continuing to send off another
 			// query chunk.
-			done, err := g.synchronizeChanIDs()
-			if err != nil {
-				log.Errorf("Unable to sync chan IDs: %v", err)
-			}
+			done := g.synchronizeChanIDs()
 
 			// If this wasn't our last query, then we'll need to
 			// transition to our waiting state.
 			if !done {
-				g.setSyncState(waitingQueryChanReply)
 				continue
 			}
 
@@ -736,14 +732,15 @@ func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
 // been queried for with a response received. We'll chunk our requests as
 // required to ensure they fit into a single message. We may re-renter this
 // state in the case that chunking is required.
-func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
+func (g *GossipSyncer) synchronizeChanIDs() bool {
 	// If we're in this state yet there are no more new channels to query
 	// for, then we'll transition to our final synced state and return true
 	// to signal that we're fully synchronized.
 	if len(g.newChansToQuery) == 0 {
 		log.Infof("GossipSyncer(%x): no more chans to query",
 			g.cfg.peerPub[:])
-		return true, nil
+
+		return true
 	}
 
 	// Otherwise, we'll issue our next chunked query to receive replies
@@ -767,6 +764,9 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 	log.Infof("GossipSyncer(%x): querying for %v new channels",
 		g.cfg.peerPub[:], len(queryChunk))
 
+	// Change the state before sending the query msg.
+	g.setSyncState(waitingQueryChanReply)
+
 	// With our chunk obtained, we'll send over our next query, then return
 	// false indicating that we're net yet fully synced.
 	err := g.cfg.sendToPeer(&lnwire.QueryShortChanIDs{
@@ -774,8 +774,11 @@ func (g *GossipSyncer) synchronizeChanIDs() (bool, error) {
 		EncodingType: lnwire.EncodingSortedPlain,
 		ShortChanIDs: queryChunk,
 	})
+	if err != nil {
+		log.Errorf("Unable to sync chan IDs: %v", err)
+	}
 
-	return false, err
+	return false
 }
 
 // isLegacyReplyChannelRange determines where a ReplyChannelRange message is

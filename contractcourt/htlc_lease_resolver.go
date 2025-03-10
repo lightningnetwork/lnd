@@ -58,10 +58,8 @@ func (h *htlcLeaseResolver) makeSweepInput(op *wire.OutPoint,
 
 	if h.hasCLTV() {
 		return input.NewCsvInputWithCltv(
-			op, cltvWtype, signDesc,
-			broadcastHeight, csvDelay,
-			h.leaseExpiry,
-			input.WithResolutionBlob(resBlob),
+			op, cltvWtype, signDesc, broadcastHeight, csvDelay,
+			h.leaseExpiry, input.WithResolutionBlob(resBlob),
 		)
 	}
 

@@ -413,17 +413,22 @@ func (c *commitSweepResolver) Launch() error {
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
 			c.broadcastHeight, c.commitResolution.MaturityDelay,
-			c.leaseExpiry,
+			c.leaseExpiry, input.WithResolutionBlob(
+				c.commitResolution.ResolutionBlob,
+			),
 		)
 	} else {
 		inp = input.NewCsvInput(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
 			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			input.WithResolutionBlob(
+				c.commitResolution.ResolutionBlob,
+			),
 		)
 	}
 
-	// TODO(roasbeef): instead of ading ctrl block to the sign desc, make
+	// TODO(roasbeef): instead of adding ctrl block to the sign desc, make
 	// new input type, have sweeper set it?
 
 	// Calculate the budget for the sweeping this input.

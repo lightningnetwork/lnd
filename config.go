@@ -248,6 +248,9 @@ const (
 	bitcoindBackendName = "bitcoind"
 	btcdBackendName     = "btcd"
 	neutrinoBackendName = "neutrino"
+
+	defaultPrunedNodeMaxPeers = 4
+	defaultNeutrinoMaxPeers   = 8
 )
 
 var (
@@ -285,8 +288,6 @@ var (
 	// estimatesmartfee RPC call.
 	defaultBitcoindEstimateMode = "CONSERVATIVE"
 	bitcoindEstimateModes       = [2]string{"ECONOMICAL", defaultBitcoindEstimateMode}
-
-	defaultPrunedNodeMaxPeers = 4
 )
 
 // Config defines the configuration options for lnd.
@@ -599,6 +600,7 @@ func DefaultConfig() Config {
 		NeutrinoMode: &lncfg.Neutrino{
 			UserAgentName:    neutrino.UserAgentName,
 			UserAgentVersion: neutrino.UserAgentVersion,
+			MaxPeers:         defaultNeutrinoMaxPeers,
 		},
 		BlockCacheSize:     defaultBlockCacheSize,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,

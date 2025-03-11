@@ -319,14 +319,20 @@ func TestReconnectSucceed(t *testing.T) {
 	// Close the old conn before reconnection.
 	require.NoError(t, proxy.serverConn.Close())
 
-	// Accept the connection inside a goroutine. We will also write some
-	// data so that the reconnection can succeed. We will mock three writes
-	// and two reads inside our proxy server,
-	//   - write protocol info
-	//   - read auth info
-	//   - write auth challenge
-	//   - read auth challenge
-	//   - write OK
+	// Accept the connection inside a goroutine. When the client makes a
+	// reconnection, the messages flow is,
+	// 1. the client sends the command PROTOCOLINFO to the server.
+	// 2. the server responds with its protocol version.
+	// 3. the client reads the response and sends the command AUTHENTICATE
+	//    to the server
+	// 4. the server responds with the authentication info.
+	//
+	// From the server's PoV, We need to mock two reads and two writes
+	// inside the connection,
+	// 1. read the command PROTOCOLINFO sent from the client.
+	// 2. write protocol info so the client can read it.
+	// 3. read the command AUTHENTICATE sent from the client.
+	// 4. write auth challenge so the client can read it.
 	go func() {
 		// Accept the new connection.
 		server, err := proxy.server.Accept()
@@ -334,6 +340,11 @@ func TestReconnectSucceed(t *testing.T) {
 
 		t.Logf("server listening on %v, client listening on %v",
 			server.LocalAddr(), server.RemoteAddr())
+
+		// Read the protocol command from the client.
+		buf := make([]byte, 65535)
+		_, err = server.Read(buf)
+		require.NoError(t, err)
 
 		// Write the protocol info.
 		resp := "250-PROTOCOLINFO 1\n" +
@@ -343,7 +354,6 @@ func TestReconnectSucceed(t *testing.T) {
 		require.NoErrorf(t, err, "failed to write protocol info")
 
 		// Read the auth info from the client.
-		buf := make([]byte, 65535)
 		_, err = server.Read(buf)
 		require.NoError(t, err)
 
@@ -351,15 +361,6 @@ func TestReconnectSucceed(t *testing.T) {
 		resp = "250 AUTHCHALLENGE SERVERHASH=fake\n"
 		_, err = server.Write([]byte(resp))
 		require.NoErrorf(t, err, "failed to write auth challenge")
-
-		// Read the auth challenge resp from the client.
-		_, err = server.Read(buf)
-		require.NoError(t, err)
-
-		// Write OK resp.
-		resp = "250 OK\n"
-		_, err = server.Write([]byte(resp))
-		require.NoErrorf(t, err, "failed to write response auth")
 	}()
 
 	// Reconnect should succeed.

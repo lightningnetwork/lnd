@@ -697,6 +697,12 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		// Don't bother adding a route if its success probability less
 		// minimum that can be assigned to any single pair.
 		if totalRouteProbability <= DefaultMinRouteProbability {
+			log.Debugf("Not using route (%v) as a blinded "+
+				"path since it resulted in an low "+
+				"probability path(%.3f)",
+				route.ChanIDString(routeWithProbability.route),
+				routeWithProbability.probability,
+			)
 			continue
 		}
 

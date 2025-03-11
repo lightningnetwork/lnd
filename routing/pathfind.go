@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -1192,14 +1193,11 @@ type blindedPathRestrictions struct {
 	// nodeOmissionSet holds a set of node IDs of nodes that we should
 	// ignore during blinded path selection.
 	nodeOmissionSet fn.Set[route.Vertex]
-}
 
-// blindedHop holds the information about a hop we have selected for a blinded
-// path.
-type blindedHop struct {
-	vertex       route.Vertex
-	channelID    uint64
-	edgeCapacity btcutil.Amount
+	// incomingChainedChannels holds the chained channels list (specified
+	// via channel id) starting from a channel which points to the receiver
+	// node.
+	incomingChainedChannels []uint64
 }
 
 // findBlindedPaths does a depth first search from the target node to find a set
@@ -1211,7 +1209,9 @@ type blindedHop struct {
 // Any filtering of paths based on payment value or success probabilities is
 // left to the caller.
 func findBlindedPaths(g Graph, target route.Vertex,
-	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
+	restrictions *blindedPathRestrictions,
+	partiallySpecifiedPath []blindedpath.BlindedHop) (
+	[][]blindedpath.BlindedHop, error) {
 
 	// Sanity check the restrictions.
 	if restrictions.minNumHops > restrictions.maxNumHops {
@@ -1219,6 +1219,15 @@ func findBlindedPaths(g Graph, target route.Vertex,
 			"(%d) must be greater than or equal to the minimum "+
 			"number of hops (%d)", restrictions.maxNumHops,
 			restrictions.minNumHops)
+	}
+
+	numChainedChannels :=
+		uint8(len(restrictions.incomingChainedChannels))
+	if restrictions.minNumHops < numChainedChannels {
+		return nil, fmt.Errorf("minimum number of blinded path hops "+
+			"(%d) must be greater than or equal to the number of "+
+			"hops on the chained channels specified (%d)",
+			restrictions.minNumHops, numChainedChannels)
 	}
 
 	// If the node is not the destination node, then it is required that the
@@ -1237,34 +1246,55 @@ func findBlindedPaths(g Graph, target route.Vertex,
 		return features.HasFeature(lnwire.RouteBlindingOptional), nil
 	}
 
+	// Initialize the map to track visited vertices.
+	alreadyVisited := map[route.Vertex]bool{}
+	node := target
+	for _, hope := range partiallySpecifiedPath {
+		// Add this node to the visited set.
+		alreadyVisited[node] = true
+		node = hope.Vertex
+	}
+
 	// This function will have some recursion. We will spin out from the
 	// target node & append edges to the paths until we reach various exit
 	// conditions such as: The maxHops number being reached or reaching
 	// a node that doesn't have any other edges - in that final case, the
 	// whole path should be ignored.
-	paths, _, err := processNodeForBlindedPath(
-		g, target, supportsRouteBlinding, nil, restrictions,
-	)
+	paths, _, err := processNodeForBlindedPath(g, node,
+		supportsRouteBlinding, alreadyVisited, restrictions)
 	if err != nil {
 		return nil, err
+	}
+
+	// Append the partially specified path to each returned path.
+	for i := range paths {
+		paths[i] = append(partiallySpecifiedPath, paths[i]...)
+	}
+
+	// Partially specified path is big enought to be a path.
+	if len(partiallySpecifiedPath) > 0 &&
+		len(partiallySpecifiedPath) >= int(restrictions.minNumHops) {
+
+		paths = append(paths, partiallySpecifiedPath)
 	}
 
 	// Reverse each path so that the order is correct (from introduction
 	// node to last hop node) and then append this node on as the
 	// destination of each path.
-	orderedPaths := make([][]blindedHop, len(paths))
+	orderedPaths := make([][]blindedpath.BlindedHop, len(paths))
 	for i, path := range paths {
 		sort.Slice(path, func(i, j int) bool {
 			return j < i
 		})
 
-		orderedPaths[i] = append(path, blindedHop{vertex: target})
+		orderedPaths[i] = append(path,
+			blindedpath.BlindedHop{Vertex: target})
 	}
 
 	// Handle the special case that allows a blinded path with the
 	// introduction node as the destination node.
 	if restrictions.minNumHops == 0 {
-		singleHopPath := [][]blindedHop{{{vertex: target}}}
+		singleHopPath := [][]blindedpath.BlindedHop{{{Vertex: target}}}
 
 		//nolint:makezero
 		orderedPaths = append(
@@ -1281,7 +1311,8 @@ func findBlindedPaths(g Graph, target route.Vertex,
 func processNodeForBlindedPath(g Graph, node route.Vertex,
 	supportsRouteBlinding func(vertex route.Vertex) (bool, error),
 	alreadyVisited map[route.Vertex]bool,
-	restrictions *blindedPathRestrictions) ([][]blindedHop, bool, error) {
+	restrictions *blindedPathRestrictions) ([][]blindedpath.BlindedHop,
+	bool, error) {
 
 	// If we have already visited the maximum number of hops, then this path
 	// is complete and we can exit now.
@@ -1319,7 +1350,7 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 	visited[node] = true
 
 	var (
-		hopSets   [][]blindedHop
+		hopSets   [][]blindedpath.BlindedHop
 		chanCount int
 	)
 
@@ -1342,10 +1373,10 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 				return err
 			}
 
-			hop := blindedHop{
-				vertex:       channel.OtherNode,
-				channelID:    channel.ChannelID,
-				edgeCapacity: channel.Capacity,
+			hop := blindedpath.BlindedHop{
+				Vertex:       channel.OtherNode,
+				ChannelID:    channel.ChannelID,
+				EdgeCapacity: channel.Capacity,
 			}
 
 			// For each of the paths returned, unwrap them and
@@ -1353,7 +1384,8 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 			for _, path := range nextPaths {
 				hopSets = append(
 					hopSets,
-					append([]blindedHop{hop}, path...),
+					append([]blindedpath.BlindedHop{hop},
+						path...),
 				)
 			}
 
@@ -1364,7 +1396,8 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 			if hasMoreChans &&
 				len(visited) >= int(restrictions.minNumHops) {
 
-				hopSets = append(hopSets, []blindedHop{hop})
+				hopSets = append(hopSets,
+					[]blindedpath.BlindedHop{hop})
 			}
 
 			return nil

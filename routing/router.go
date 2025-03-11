@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -610,23 +611,32 @@ type BlindedPathRestrictions struct {
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
+
+	// IncomingChainedChannels holds the chained channels list (specified
+	// via channel id) starting from a channel which points to the receiver
+	// node.
+	IncomingChainedChannels []uint64
 }
 
 // FindBlindedPaths finds a selection of paths to the destination node that can
 // be used in blinded payment paths.
 func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 	amt lnwire.MilliSatoshi, probabilitySrc probabilitySource,
-	restrictions *BlindedPathRestrictions) ([]*route.Route, error) {
+	restrictions *BlindedPathRestrictions,
+	partiallySpecifiedPath []blindedpath.BlindedHop) (
+	[]*route.Route, error) {
 
 	// First, find a set of candidate paths given the destination node and
 	// path length restrictions.
+	incomingChainedChannels := restrictions.IncomingChainedChannels
+	minDistanceFromIntroNode := restrictions.MinDistanceFromIntroNode
 	paths, err := findBlindedPaths(
 		r.cfg.RoutingGraph, destination, &blindedPathRestrictions{
-			minNumHops:      restrictions.MinDistanceFromIntroNode,
-			maxNumHops:      restrictions.NumHops,
-			nodeOmissionSet: restrictions.NodeOmissionSet,
-		},
-	)
+			minNumHops:              minDistanceFromIntroNode,
+			maxNumHops:              restrictions.NumHops,
+			nodeOmissionSet:         restrictions.NodeOmissionSet,
+			incomingChainedChannels: incomingChainedChannels,
+		}, partiallySpecifiedPath)
 	if err != nil {
 		return nil, err
 	}
@@ -649,7 +659,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		}
 
 		var (
-			introNode = path[0].vertex
+			introNode = path[0].Vertex
 			prevNode  = introNode
 			hops      = make(
 				[]*route.Hop, 0, len(path)-1,
@@ -662,18 +672,26 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 		// update the overall route probability.
 		for j := 1; j < len(path); j++ {
 			probability := probabilitySrc(
-				prevNode, path[j].vertex, amt,
-				path[j-1].edgeCapacity,
+				prevNode, path[j].Vertex, amt,
+				path[j-1].EdgeCapacity,
 			)
 
 			totalRouteProbability *= probability
 
 			hops = append(hops, &route.Hop{
-				PubKeyBytes: path[j].vertex,
-				ChannelID:   path[j-1].channelID,
+				PubKeyBytes: path[j].Vertex,
+				ChannelID:   path[j-1].ChannelID,
 			})
 
-			prevNode = path[j].vertex
+			prevNode = path[j].Vertex
+		}
+
+		routeWithProbability := &routeWithProbability{
+			route: &route.Route{
+				SourcePubKey: introNode,
+				Hops:         hops,
+			},
+			probability: totalRouteProbability,
 		}
 
 		// Don't bother adding a route if its success probability less
@@ -682,13 +700,7 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 			continue
 		}
 
-		routes = append(routes, &routeWithProbability{
-			route: &route.Route{
-				SourcePubKey: introNode,
-				Hops:         hops,
-			},
-			probability: totalRouteProbability,
-		})
+		routes = append(routes, routeWithProbability)
 	}
 
 	// Sort the routes based on probability.

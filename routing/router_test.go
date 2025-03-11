@@ -3157,7 +3157,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
 			MaxNumPaths:              3,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	require.Len(t, routes, 3)
@@ -3202,7 +3202,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
 			MaxNumPaths:              3,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{
@@ -3219,7 +3219,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
 			MaxNumPaths:              3,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{
@@ -3235,7 +3235,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
 			MaxNumPaths:              1,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{
@@ -3249,7 +3249,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 0,
 			NumHops:                  0,
 			MaxNumPaths:              1,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{
@@ -3264,7 +3264,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			MinDistanceFromIntroNode: 2,
 			NumHops:                  2,
 			MaxNumPaths:              3,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{
@@ -3280,7 +3280,7 @@ func TestFindBlindedPathsWithMC(t *testing.T) {
 			NumHops:                  2,
 			MaxNumPaths:              3,
 			NodeOmissionSet:          fn.NewSet(frank),
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 	assertPaths(routes, []string{

@@ -45,6 +45,9 @@ type BuildBlindedPathCfg struct {
 	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
+	// FetchNodeFeatures returns the features of the given node.
+	FetchNodeFeatures func(route.Vertex) (*lnwire.FeatureVector, error)
+
 	// FetchOurOpenChannels fetches this node's set of open channels.
 	FetchOurOpenChannels func() ([]*channeldb.OpenChannel, error)
 
@@ -107,6 +110,74 @@ type BuildBlindedPathCfg struct {
 	// introduction node. If these default policy values are used, then
 	// the MaxHTLCMsat value must be carefully chosen.
 	DefaultDummyHopPolicy *BlindedHopPolicy
+}
+
+// blindedHop holds the information about a hop we have selected for a blinded
+// path.
+type BlindedHop struct {
+	Vertex       route.Vertex
+	ChannelID    uint64
+	EdgeCapacity btcutil.Amount
+}
+
+// CheckChainedChannels checks the partially specified blinded path.
+//
+// It verifies that:
+// - The order makes sense (i.e., the chain is valid).
+// - All the specified channels exist.
+// - All the involved nodes advertise route blinding.
+func CheckChainedChannels(cfg *BuildBlindedPathCfg, target route.Vertex,
+	incomingChainedChannels []uint64) ([]BlindedHop, error) {
+
+	node := target
+	var otherNode, node1, node2 route.Vertex
+	partiallySpecifiedPath := make([]BlindedHop, 0)
+
+	for _, chanID := range incomingChainedChannels {
+		channEdge, _, _, err := cfg.FetchChannelEdgesByID(chanID)
+
+		// If the channel can't befound, then an error is returned.
+		if err != nil {
+			return nil, err
+		}
+
+		node1 = channEdge.NodeKey1Bytes
+		node2 = channEdge.NodeKey2Bytes
+
+		switch node {
+		case node1:
+			otherNode = node2
+		case node2:
+			otherNode = node1
+		// If the chain is not valid, then an error is returned.
+		default:
+			return nil, fmt.Errorf("specified path %v not found",
+				incomingChainedChannels)
+		}
+
+		// If route blinding is not supported returns an error.
+		features, err := cfg.FetchNodeFeatures(node)
+		if err != nil {
+			return nil, err
+		}
+
+		if !features.HasFeature(lnwire.RouteBlindingOptional) {
+			return nil, fmt.Errorf("specified channel %v points "+
+				"to node %v which do not advertise the route "+
+				"blinding feature bit", chanID, otherNode)
+		}
+
+		hop := BlindedHop{
+			Vertex:       otherNode,
+			ChannelID:    channEdge.ChannelID,
+			EdgeCapacity: channEdge.Capacity,
+		}
+		partiallySpecifiedPath = append(partiallySpecifiedPath, hop)
+
+		node = otherNode
+	}
+
+	return partiallySpecifiedPath, nil
 }
 
 // BuildBlindedPaymentPaths uses the passed config to construct a set of blinded

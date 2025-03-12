@@ -898,7 +898,7 @@ type CloseErr struct {
 // String returns the name of the state for CloseErr, including error and party
 // details.
 func (c *CloseErr) String() string {
-	return fmt.Sprintf("CloseErr(Party: %v, Error: %v)", c.Party, c.Err())
+	return fmt.Sprintf("CloseErr(party=%v, err=%v)", c.Party, c.ErrState)
 }
 
 // ShouldRouteTo returns true if the target state should process the target

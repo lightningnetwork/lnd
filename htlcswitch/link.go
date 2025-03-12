@@ -1582,6 +1582,11 @@ loop:
 		select {
 		case item := <-l.hodlQueue.ChanOut():
 			htlcResolution = item.(invoices.HtlcResolution)
+
+		// No need to process it if the link is broken.
+		case <-l.cg.Done():
+			return ErrLinkShuttingDown
+
 		default:
 			break loop
 		}
@@ -2051,6 +2056,9 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 //nolint:funlen
 func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 	msg lnwire.Message) {
+
+	l.log.Tracef("receive upstream msg %v, handling now... ", msg.MsgType())
+	defer l.log.Tracef("handled upstream msg %v", msg.MsgType())
 
 	// First check if the message is an update and we are capable of
 	// receiving updates right now.

@@ -1239,6 +1239,9 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *node.HarnessNode, num int) {
 	old := hn.State.HTLC
 
 	err := wait.NoError(func() error {
+		// pendingHTLCs is used to print unacked HTLCs, if found.
+		var pendingHTLCs []string
+
 		// We require the RPC call to be succeeded and won't wait for
 		// it as it's an unexpected behavior.
 		req := &lnrpc.ListChannelsRequest{}
@@ -1246,10 +1249,20 @@ func (h *HarnessTest) AssertNumActiveHtlcs(hn *node.HarnessNode, num int) {
 
 		total := 0
 		for _, channel := range nodeChans.Channels {
-			total += len(channel.PendingHtlcs)
+			for _, htlc := range channel.PendingHtlcs {
+				if htlc.LockedIn {
+					total++
+				}
+
+				rHash := fmt.Sprintf("%x", htlc.HashLock)
+				pendingHTLCs = append(pendingHTLCs, rHash)
+			}
 		}
 		if total-old != num {
-			return errNumNotMatched(hn.Name(), "active HTLCs",
+			desc := fmt.Sprintf("active HTLCs: unacked HTLCs: %v",
+				pendingHTLCs)
+
+			return errNumNotMatched(hn.Name(), desc,
 				num, total-old, total, old)
 		}
 
@@ -1291,17 +1304,22 @@ func (h *HarnessTest) assertHTLCActive(hn *node.HarnessNode,
 
 		// Check all payment hashes active for this channel.
 		for _, htlc := range ch.PendingHtlcs {
-			h := hex.EncodeToString(htlc.HashLock)
-			if h != target {
+			rHash := hex.EncodeToString(htlc.HashLock)
+			if rHash != target {
 				continue
 			}
 
 			// If the payment hash is found, check the incoming
 			// field.
 			if htlc.Incoming == incoming {
-				// Found it and return.
-				result = htlc
-				return nil
+				// Return the result if it's locked in.
+				if htlc.LockedIn {
+					result = htlc
+					return nil
+				}
+
+				return fmt.Errorf("htlc(%x) not locked in",
+					payHash)
 			}
 
 			// Otherwise we do have the HTLC but its direction is
@@ -1311,14 +1329,13 @@ func (h *HarnessTest) assertHTLCActive(hn *node.HarnessNode,
 				have, want = "incoming", "outgoing"
 			}
 
-			return fmt.Errorf("node[%s] have htlc(%v), want: %s, "+
-				"have: %s", hn.Name(), payHash, want, have)
+			return fmt.Errorf("htlc(%x) has wrong direction - "+
+				"want: %s, have: %s", payHash, want, have)
 		}
 
-		return fmt.Errorf("node [%s:%x] didn't have: the payHash %x",
-			hn.Name(), hn.PubKey[:], payHash)
+		return fmt.Errorf("htlc not found using payHash %x", payHash)
 	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking pending HTLC")
+	require.NoError(h, err, "%s: timeout checking pending HTLC", hn.Name())
 
 	return result
 }

@@ -947,9 +947,9 @@ func (c *ChannelArbitrator) stateStep(
 	// If we're in the default state, then we'll check our set of actions
 	// to see if while we were down, conditions have changed.
 	case StateDefault:
-		log.Debugf("ChannelArbitrator(%v): new block (height=%v) "+
-			"examining active HTLC's", c.cfg.ChanPoint,
-			triggerHeight)
+		log.Debugf("ChannelArbitrator(%v): examining active HTLCs in "+
+			"block %v, confCommitSet: %v", c.cfg.ChanPoint,
+			triggerHeight, lnutils.LogClosure(confCommitSet.String))
 
 		// As a new block has been connected to the end of the main
 		// chain, we'll check to see if we need to make any on-chain
@@ -2155,6 +2155,20 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
+		preimageAvailable, err := c.isPreimageAvailable(htlc.RHash)
+		if err != nil {
+			log.Errorf("ChannelArbitrator(%v): failed to query "+
+				"preimage for dangling htlc=%x from remote "+
+				"commitments diff", c.cfg.ChanPoint,
+				htlc.RHash[:])
+
+			continue
+		}
+
+		if preimageAvailable {
+			continue
+		}
+
 		// Dust htlcs can be canceled back even before the commitment
 		// transaction confirms. Dust htlcs are not enforceable onchain.
 		// If another version of the commit tx would confirm we either
@@ -2824,7 +2838,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32,
 		case beat := <-c.BlockbeatChan:
 			bestHeight = beat.Height()
 
-			log.Debugf("ChannelArbitrator(%v): new block height=%v",
+			log.Debugf("ChannelArbitrator(%v): received new "+
+				"block: height=%v, processing...",
 				c.cfg.ChanPoint, bestHeight)
 
 			err := c.handleBlockbeat(beat)

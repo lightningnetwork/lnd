@@ -1371,7 +1371,7 @@ func (t *TxPublisher) createAndPublishTx(
 		return fn.Some(*result)
 	}
 
-	log.Infof("Replaced tx=%v with new tx=%v", oldTx.TxHash(),
+	log.Debugf("Replaced tx=%v with new tx=%v", oldTx.TxHash(),
 		sweepCtx.tx.TxHash())
 
 	// Otherwise, it's a successful RBF, set the event and return.

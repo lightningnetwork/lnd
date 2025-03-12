@@ -68,8 +68,6 @@ type chanObserver struct {
 
 // newChanObserver creates a new instance of a chanObserver from an active
 // channelView.
-//
-//nolint:unused
 func newChanObserver(chanView channelView,
 	link linkController, linkNetwork linkNetworkController) *chanObserver {
 

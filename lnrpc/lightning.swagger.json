@@ -6739,6 +6739,13 @@
         "output_index": {
           "type": "integer",
           "format": "int64"
+        },
+        "fee_per_vbyte": {
+          "type": "string",
+          "format": "int64"
+        },
+        "local_close_tx": {
+          "type": "boolean"
         }
       }
     },

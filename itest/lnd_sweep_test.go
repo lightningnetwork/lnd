@@ -115,8 +115,6 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
-	flakeFundExtraUTXO(ht, bob)
-
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])
 
@@ -434,8 +432,6 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
-
-	flakeFundExtraUTXO(ht, bob)
 
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])

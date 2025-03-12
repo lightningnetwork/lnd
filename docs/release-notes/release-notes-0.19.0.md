@@ -85,6 +85,9 @@
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9595) where the
   initial graph sync query may be failed due to inconsistent state.
 
+* [Pass through](https://github.com/lightningnetwork/lnd/pull/9601) the unused
+  `MaxPeers` configuration variable for neutrino mode.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
@@ -402,6 +405,7 @@ The underlying functionality between those two options remain the same.
 * Abdullahi Yunus
 * Andras Banki-Horvath
 * Animesh Bilthare
+* bitromortac
 * Boris Nagaev
 * Carla Kirk-Cohen
 * CharlieZKSmith

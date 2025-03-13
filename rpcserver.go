@@ -4028,6 +4028,13 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
 			)
 
+			customChanBytes, err := encodeCustomChanData(historical)
+			if err != nil {
+				return nil, 0, fmt.Errorf("unable to encode "+
+					"open chan data: %w", err)
+			}
+			channel.CustomChannelData = customChanBytes
+
 			channel.Private = isPrivate(historical)
 			channel.Memo = string(historical.Memo)
 
@@ -4218,20 +4225,41 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			return nil, 0, err
 		}
 
+		customChanBytes, err := encodeCustomChanData(waitingClose)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to encode "+
+				"open chan data: %w", err)
+		}
+
+		localCommit := waitingClose.LocalCommitment
+		chanStatus := waitingClose.ChanStatus()
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub:         hex.EncodeToString(pub),
-			ChannelPoint:          chanPoint.String(),
-			Capacity:              int64(waitingClose.Capacity),
-			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
-			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
-			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:             rpcInitiator(waitingClose.IsInitiator),
-			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
+			RemoteNodePub: hex.EncodeToString(pub),
+			ChannelPoint:  chanPoint.String(),
+			Capacity:      int64(waitingClose.Capacity),
+			LocalBalance: int64(
+				localCommit.LocalBalance.ToSatoshis(),
+			),
+			RemoteBalance: int64(
+				localCommit.RemoteBalance.ToSatoshis(),
+			),
+			LocalChanReserveSat: int64(
+				waitingClose.LocalChanCfg.ChanReserve,
+			),
+			RemoteChanReserveSat: int64(
+				waitingClose.RemoteChanCfg.ChanReserve,
+			),
+			Initiator: rpcInitiator(
+				waitingClose.IsInitiator,
+			),
+			CommitmentType: rpcCommitmentType(
+				waitingClose.ChanType,
+			),
 			NumForwardingPackages: int64(len(fwdPkgs)),
-			ChanStatusFlags:       waitingClose.ChanStatus().String(),
+			ChanStatusFlags:       chanStatus.String(),
 			Private:               isPrivate(waitingClose),
 			Memo:                  string(waitingClose.Memo),
+			CustomChannelData:     customChanBytes,
 		}
 
 		var closingTxid, closingTxHex string

@@ -904,9 +904,7 @@ func (m *mockLink) AuxBandwidth(lnwire.MilliSatoshi, lnwire.ShortChannelID,
 	fn.Option[tlv.Blob],
 	htlcswitch.AuxTrafficShaper) fn.Result[htlcswitch.OptionalBandwidth] {
 
-	return fn.Ok[htlcswitch.OptionalBandwidth](
-		fn.None[lnwire.MilliSatoshi](),
-	)
+	return fn.Ok(htlcswitch.OptionalBandwidth{})
 }
 
 // EligibleToForward returns the mock's configured eligibility.

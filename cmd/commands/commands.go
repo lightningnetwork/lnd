@@ -2218,6 +2218,7 @@ var listChainTxnsCommand = cli.Command{
 			Name: "start_height",
 			Usage: "the block height from which to list " +
 				"transactions, inclusive",
+			Value: 0,
 		},
 		cli.Int64Flag{
 			Name: "end_height",
@@ -2233,10 +2234,11 @@ var listChainTxnsCommand = cli.Command{
 				"used in a query to determine which " +
 				"transaction should be returned in the " +
 				"response",
+			Value: 0,
 		},
 		cli.IntFlag{
 			Name: "max_transactions",
-			Usage: "(optional) the max number of transactions to " +
+			Usage: "the max number of transactions to " +
 				"return; leave at default of 0 to return " +
 				"all transactions",
 			Value: 0,
@@ -2246,15 +2248,10 @@ var listChainTxnsCommand = cli.Command{
 	List all transactions an address of the wallet was involved in.
 
 	This call will return a list of wallet related transactions that paid
-	to an address our wallet controls, or spent utxos that we held. The
-	start_height and end_height flags can be used to specify an inclusive
-	block range over which to query for transactions. If the end_height is
-	less than the start_height, an error will be returned.
-	To get all transactions until the chain tip, including unconfirmed
-	transactions (identifiable with BlockHeight=0), set end_height to -1.
-	By default, this call will get all transactions our wallet was involved
-	in, including unconfirmed transactions.
-`,
+	to an address our wallet controls, or spent utxos that we held.
+
+	By default, this call will get all transactions until the chain tip, 
+	including unconfirmed transactions (end_height=-1).`,
 	Action: actionDecorator(listChainTxns),
 }
 

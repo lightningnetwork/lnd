@@ -272,7 +272,7 @@ func (d *DefaultWalletImpl) ValidateMacaroon(ctx context.Context,
 	// Because the default implementation does not return any permissions,
 	// we shouldn't be registered as an external validator at all and this
 	// should never be invoked.
-	return fmt.Errorf("default implementation does not support external " +
+	return errors.New("default implementation does not support external " +
 		"macaroon validation")
 }
 
@@ -376,7 +376,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	if d.cfg.WalletUnlockPasswordFile != "" && !walletExists &&
 		!d.cfg.WalletUnlockAllowCreate {
 
-		return nil, nil, nil, fmt.Errorf("wallet unlock password file " +
+		return nil, nil, nil, errors.New("wallet unlock password file " +
 			"was specified but wallet does not exist; initialize " +
 			"the wallet before using auto unlocking")
 	}
@@ -1173,7 +1173,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			return nil, nil, err
 		}
 		if ripInvoices {
-			err = fmt.Errorf("invoices bucket tombstoned, please " +
+			err = errors.New("invoices bucket tombstoned, please " +
 				"switch back to native SQL")
 			d.logger.Error(err)
 

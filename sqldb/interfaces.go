@@ -247,6 +247,9 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
+			log.Tracef("Failed to makeTx: err=%v, dbErr=%v", err,
+				dbErr)
+
 			if IsSerializationError(dbErr) {
 				// Nothing to roll back here, since we haven't
 				// even get a transaction yet. We'll just wait
@@ -266,6 +269,8 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		}()
 
 		if bodyErr := txBody(tx); bodyErr != nil {
+			log.Tracef("Error in txBody: %v", bodyErr)
+
 			// Roll back the transaction, then attempt a random
 			// backoff and try again if the error was a
 			// serialization error.
@@ -285,6 +290,8 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 
 		// Commit transaction.
 		if commitErr := tx.Commit(); commitErr != nil {
+			log.Tracef("Failed to commit tx: %v", commitErr)
+
 			// Roll back the transaction, then attempt a random
 			// backoff and try again if the error was a
 			// serialization error.

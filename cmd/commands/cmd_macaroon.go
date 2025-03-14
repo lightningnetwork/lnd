@@ -30,6 +30,10 @@ var (
 		Name:  "ip_address",
 		Usage: "the IP address the macaroon will be bound to",
 	}
+	macIPRangeFlag = cli.StringFlag{
+		Name:  "ip_range",
+		Usage: "the IP range the macaroon will be bound to",
+	}
 	macCustomCaveatNameFlag = cli.StringFlag{
 		Name:  "custom_caveat_name",
 		Usage: "the name of the custom caveat to add",
@@ -554,6 +558,19 @@ func applyMacaroonConstraints(ctx *cli.Context,
 		macConstraints = append(
 			macConstraints,
 			macaroons.IPLockConstraint(ipAddress.String()),
+		)
+	}
+
+	if ctx.IsSet(macIPRangeFlag.Name) {
+		_, net, err := net.ParseCIDR(ctx.String(macIPRangeFlag.Name))
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse ip_range "+
+				"%s: %w", ctx.String("ip_range"), err)
+		}
+
+		macConstraints = append(
+			macConstraints,
+			macaroons.IPLockConstraint(net.String()),
 		)
 	}
 

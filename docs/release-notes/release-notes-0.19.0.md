@@ -88,6 +88,9 @@
 * [The aux bandwidth calculation was fixed for non-asset
   channels](https://github.com/lightningnetwork/lnd/pull/9502).
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 

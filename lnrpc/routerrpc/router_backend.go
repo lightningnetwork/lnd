@@ -1191,6 +1191,21 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.DestFeatures = features
 	}
 
+	// Validate that the MPP parameters are compatible with the
+	// payment amount. In other words, the parameters are invalid if
+	// they do not permit sending the full payment amount.
+	if rpcPayReq.MaxShardSizeMsat > 0 {
+		maxPossibleAmount := (*payIntent.MaxShardAmt) *
+			lnwire.MilliSatoshi(payIntent.MaxParts)
+		if payIntent.Amount > maxPossibleAmount {
+			return nil, fmt.Errorf("payment amount %v exceeds"+
+				" maximum possible amount %v with max_parts=%v"+
+				" and max_shard_size_msat=%v", payIntent.Amount,
+				maxPossibleAmount, payIntent.MaxParts,
+				*payIntent.MaxShardAmt)
+		}
+	}
+
 	// Do bounds checking with the block padding so the router isn't
 	// left with a zombie payment in case the user messes up.
 	err = routing.ValidateCLTVLimit(

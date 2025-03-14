@@ -13,9 +13,41 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
+
+// testValidateMPPParams validates that a payment with multipath parameters
+// exceeding the allowed maximum amount fails with the expected error.
+func testValidateMPPParams(
+	ht *lntest.HarnessTest, mts *mppTestScenario, paymentAmt btcutil.Amount,
+) {
+	// Create an invoice from Bob for the payment.
+	payReqs, _, _ := ht.CreatePayReqs(mts.bob, paymentAmt, 1)
+
+	// Configure the failing payment parameters.
+	shardAmtMsat := uint64(300_000)
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest:   payReqs[0],
+		MaxParts:         10,
+		MaxShardSizeMsat: shardAmtMsat,
+		FeeLimitMsat:     noFeeLimitMsat,
+	}
+
+	maxPossibleAmount := lnwire.MilliSatoshi(shardAmtMsat * 10)
+
+	// Attempt the payment and expect it to fail.
+	aliceStream := mts.alice.RPC.SendPayment(sendReq)
+	_, err := aliceStream.Recv()
+	expected := fmt.Sprintf(
+		"payment amount %v exceeds maximum possible amount %v with "+
+			"max_parts=%v and max_shard_size_msat=%v",
+		lnwire.MilliSatoshi(paymentAmt*1000), maxPossibleAmount, 10,
+		lnwire.MilliSatoshi(shardAmtMsat),
+	)
+	require.ErrorContains(ht, err, expected)
+}
 
 // testSendMultiPathPayment tests that we are able to successfully route a
 // payment using multiple shards across different paths.
@@ -53,6 +85,9 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 		mts.alice, mts.dave, expectedPolicy, chanPointAliceDave, false,
 	)
 
+	// Validate that multipath payment parameters are enforced correctly.
+	testValidateMPPParams(ht, mts, paymentAmt)
+
 	// Our first test will be Alice paying Bob using a SendPayment call.
 	// Let Bob create an invoice for Alice to pay.
 	payReqs, rHashes, invoices := ht.CreatePayReqs(mts.bob, paymentAmt, 1)
@@ -61,9 +96,10 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	payReq := payReqs[0]
 
 	sendReq := &routerrpc.SendPaymentRequest{
-		PaymentRequest: payReq,
-		MaxParts:       10,
-		FeeLimitMsat:   noFeeLimitMsat,
+		PaymentRequest:   payReq,
+		MaxParts:         10,
+		MaxShardSizeMsat: 30_000_000,
+		FeeLimitMsat:     noFeeLimitMsat,
 	}
 	payment := ht.SendPaymentAssertSettled(mts.alice, sendReq)
 

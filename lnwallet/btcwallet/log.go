@@ -2,6 +2,9 @@ package btcwallet
 
 import (
 	"github.com/btcsuite/btclog/v2"
+	"github.com/btcsuite/btcwallet/chain"
+	btcwallet "github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/build"
 )
 
@@ -29,4 +32,8 @@ func DisableLog() {
 // btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+
+	btcwallet.UseLogger(logger)
+	wtxmgr.UseLogger(logger)
+	chain.UseLogger(logger)
 }

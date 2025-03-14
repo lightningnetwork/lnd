@@ -340,6 +340,8 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// needed to clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
+	flakeRaceInBitcoinClientNotifications(ht)
+
 	// The above mined block should confirm Bob's force close tx, and his
 	// contractcourt will offer the HTLC to his sweeper. We are not testing
 	// the HTLC sweeping behaviors so we just perform a simple check and

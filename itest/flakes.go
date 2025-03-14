@@ -112,3 +112,28 @@ func flakePaymentStreamReturnEarly() {
 	// commitment.
 	time.Sleep(2 * time.Second)
 }
+
+// flakeRaceInBitcoinClientNotifications documents a bug found that the
+// `ListUnspent` gives inaccurate results. In specific,
+//   - an output is confirmed in block X, which is under the process of being
+//     credited to our wallet.
+//   - `ListUnspent` is called between the above process, returning an
+//     inaccurate result, causing the sweeper to think there's no wallet utxo.
+//   - the sweeping will fail at block X due to not enough inputs.
+//
+// Under the hood, the RPC client created for handling wallet txns and handling
+// block notifications are independent. For the block notification, which is
+// registered via `RegisterBlockEpochNtfn`, is managed by the `chainntnfs`,
+// which is hooked to a bitcoind client created at startup. For the wallet, it
+// uses another bitcoind client to receive online events. Although they share
+// the same bitcoind RPC conn, these two clients are acting independently.
+// With this setup, it means there's no coordination between the two system -
+// `lnwallet` and `chainntnfs` can disagree on the latest onchain state for a
+// short period, causing an inconsistent state which leads to the failed
+// sweeping attempt.
+//
+// TODO(yy): We need to adhere to the SSOT principle, and make the effort to
+// ensure the whole system only uses one bitcoind client.
+func flakeRaceInBitcoinClientNotifications(ht *lntest.HarnessTest) {
+	ht.MineEmptyBlocks(1)
+}

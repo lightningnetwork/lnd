@@ -551,6 +551,20 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		remoteOutputIndex = htlc.OutputIndex
 	}
 
+	customRecords := htlc.CustomRecords.Copy()
+
+	entryType := Add
+
+	noopTLV := uint64(noopHtlcType.TypeVal())
+	if _, ok := customRecords[noopTLV]; ok {
+		entryType = NoopAdd
+	}
+
+	// The NoopAdd HTLC is an internal construct, and isn't meant to show up
+	// on the wire. So we'll remove the special element from the set of
+	// custom records.
+	delete(customRecords, noopTLV)
+
 	// With the scripts reconstructed (depending on if this is our commit
 	// vs theirs or a pending commit for the remote party), we can now
 	// re-create the original payment descriptor.
@@ -559,7 +573,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		RHash:              htlc.RHash,
 		Timeout:            htlc.RefundTimeout,
 		Amount:             htlc.Amt,
-		EntryType:          Add,
+		EntryType:          entryType,
 		HtlcIndex:          htlc.HtlcIndex,
 		LogIndex:           htlc.LogIndex,
 		OnionBlob:          htlc.OnionBlob,
@@ -570,7 +584,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		theirPkScript:      theirP2WSH,
 		theirWitnessScript: theirWitnessScript,
 		BlindingPoint:      htlc.BlindingPoint,
-		CustomRecords:      htlc.CustomRecords.Copy(),
+		CustomRecords:      customRecords,
 	}, nil
 }
 
@@ -1100,6 +1114,11 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			},
 		}
 
+		noopTLV := uint64(noopHtlcType.TypeVal())
+		if _, ok := pd.CustomRecords[noopTLV]; ok {
+			pd.EntryType = NoopAdd
+		}
+
 		isDustRemote := HtlcIsDust(
 			lc.channelState.ChanType, false, lntypes.Remote,
 			feeRate, wireMsg.Amount.ToSatoshis(), remoteDustLimit,
@@ -1334,6 +1353,11 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			addCommitHeights: lntypes.Dual[uint64]{
 				Local: commitHeight,
 			},
+		}
+		noopTLV := uint64(noopHtlcType.TypeVal())
+
+		if _, ok := pd.CustomRecords[noopTLV]; ok {
+			pd.EntryType = NoopAdd
 		}
 
 		// We don't need to generate an htlc script yet. This will be
@@ -1736,7 +1760,7 @@ func (lc *LightningChannel) restorePendingRemoteUpdates(
 		// but this Add restoration was a no-op as every single one of
 		// these Adds was already restored since they're all incoming
 		// htlcs on the local commitment.
-		if payDesc.EntryType == Add {
+		if payDesc.isAdd() {
 			continue
 		}
 
@@ -1881,7 +1905,7 @@ func (lc *LightningChannel) restorePendingLocalUpdates(
 		}
 
 		switch payDesc.EntryType {
-		case Add:
+		case Add, NoopAdd:
 			// The HtlcIndex of the added HTLC _must_ be equal to
 			// the log's htlcCounter at this point. If it is not we
 			// panic to catch this.
@@ -2973,6 +2997,20 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 			)
 			if rmvHeight == 0 {
 				switch {
+				// If this a noop add, then when we settle the
+				// HTLC, we actually credit the sender with the
+				// amount again, thus making it a noop.
+				case entry.EntryType == Settle &&
+					addEntry.EntryType == NoopAdd:
+
+					delta := int64(entry.Amount)
+					balanceDeltas.ModifyForParty(
+						party.CounterParty(),
+						func(acc int64) int64 {
+							return acc + delta
+						},
+					)
+
 				// If an incoming HTLC is being settled, then
 				// this means that the preimage has been
 				// received by the settling party Therefore, we
@@ -3010,7 +3048,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 		liveAdds := fn.Filter(
 			view.Updates.GetForParty(party),
 			func(pd *paymentDescriptor) bool {
-				isAdd := pd.EntryType == Add
+				isAdd := pd.isAdd()
 				shouldSkip := skip.GetForParty(party).
 					Contains(pd.HtlcIndex)
 
@@ -3049,7 +3087,7 @@ func (lc *LightningChannel) evaluateHTLCView(view *HtlcView,
 	// corresponding to whoseCommitmentChain.
 	isUncommitted := func(update *paymentDescriptor) bool {
 		switch update.EntryType {
-		case Add:
+		case Add, NoopAdd:
 			return update.addCommitHeights.GetForParty(
 				whoseCommitChain,
 			) == 0
@@ -3813,7 +3851,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 		// Go through all updates, checking that they don't violate the
 		// channel constraints.
 		for _, entry := range updates {
-			if entry.EntryType == Add {
+			if entry.isAdd() {
 				// An HTLC is being added, this will add to the
 				// number and amount in flight.
 				amtInFlight += entry.Amount
@@ -4469,6 +4507,13 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 		// Next, we'll need to send over any updates we sent as part of
 		// this new proposed commitment state.
 		for _, logUpdate := range commitDiff.LogUpdates {
+			if htlc, ok := logUpdate.UpdateMsg.(*lnwire.UpdateAddHTLC); ok {
+				delete(htlc.CustomRecords, uint64(noopHtlcType.TypeVal()))
+
+				if len(htlc.CustomRecords) == 0 {
+					htlc.CustomRecords = nil
+				}
+			}
 			commitUpdates = append(
 				commitUpdates, logUpdate.UpdateMsg,
 			)
@@ -4500,8 +4545,8 @@ func (lc *LightningChannel) ProcessChanSyncMsg(ctx context.Context,
 			// updates comes after the LogUpdates+CommitSig.
 			//
 			// ---logupdates--->
-			// ---commitsig---->
 			// ---revocation--->
+			// ---commitsig---->
 			updates = append(commitUpdates, updates...)
 		} else {
 			// Otherwise, the revocation should come before LogUpdates
@@ -5692,7 +5737,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 		// don't re-forward any already processed HTLC's after a
 		// restart.
 		switch {
-		case pd.EntryType == Add && committedAdd && shouldFwdAdd:
+		case pd.isAdd() && committedAdd && shouldFwdAdd:
 			// Construct a reference specifying the location that
 			// this forwarded Add will be written in the forwarding
 			// package constructed at this remote height.
@@ -5711,7 +5756,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				addUpdatesToForward, pd.toLogUpdate(),
 			)
 
-		case pd.EntryType != Add && committedRmv && shouldFwdRmv:
+		case !pd.isAdd() && committedRmv && shouldFwdRmv:
 			// Construct a reference specifying the location that
 			// this forwarded Settle/Fail will be written in the
 			// forwarding package constructed at this remote height.
@@ -5950,7 +5995,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	// Grab all of our HTLCs and evaluate against the dust limit.
 	for e := lc.updateLogs.Local.Front(); e != nil; e = e.Next() {
 		pd := e.Value
-		if pd.EntryType != Add {
+		if !pd.isAdd() {
 			continue
 		}
 
@@ -5969,7 +6014,7 @@ func (lc *LightningChannel) GetDustSum(whoseCommit lntypes.ChannelParty,
 	// Grab all of their HTLCs and evaluate against the dust limit.
 	for e := lc.updateLogs.Remote.Front(); e != nil; e = e.Next() {
 		pd := e.Value
-		if pd.EntryType != Add {
+		if !pd.isAdd() {
 			continue
 		}
 
@@ -6042,9 +6087,25 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 	openKey *models.CircuitKey) *paymentDescriptor {
 
+	// TODO(roasbeef): can use push amt to simplify logic, not have to
+	// detect if remote party has enough funds for anchor
+	entryType := Add
+
+	customRecords := htlc.CustomRecords.Copy()
+	if lc.channelState.ChanType.HasTapscriptRoot() {
+		entryType = NoopAdd
+
+		// We'll add an internal custom record here to make sure that
+		// across restarts, we recognize this as a noop HTLC.
+		if customRecords == nil {
+			customRecords = make(lnwire.CustomRecords)
+		}
+		customRecords[uint64(noopHtlcType.TypeVal())] = nil
+	}
+
 	return &paymentDescriptor{
 		ChanID:         htlc.ChanID,
-		EntryType:      Add,
+		EntryType:      entryType,
 		RHash:          PaymentHash(htlc.PaymentHash),
 		Timeout:        htlc.Expiry,
 		Amount:         htlc.Amount,
@@ -6053,7 +6114,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		OnionBlob:      htlc.OnionBlob,
 		OpenCircuitKey: openKey,
 		BlindingPoint:  htlc.BlindingPoint,
-		CustomRecords:  htlc.CustomRecords.Copy(),
+		CustomRecords:  customRecords,
 	}
 }
 
@@ -6106,9 +6167,24 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 			lc.updateLogs.Remote.htlcCounter)
 	}
 
+	entryType := Add
+
+	customRecords := htlc.CustomRecords.Copy()
+	if lc.channelState.ChanType.HasTapscriptRoot() {
+		if customRecords == nil {
+			customRecords = make(lnwire.CustomRecords)
+		}
+
+		// We'll add an internal custom record here to make sure that
+		// across restarts, we recognize this as a noop HTLC.
+		customRecords[uint64(noopHtlcType.TypeVal())] = nil
+
+		entryType = NoopAdd
+	}
+
 	pd := &paymentDescriptor{
 		ChanID:        htlc.ChanID,
-		EntryType:     Add,
+		EntryType:     entryType,
 		RHash:         PaymentHash(htlc.PaymentHash),
 		Timeout:       htlc.Expiry,
 		Amount:        htlc.Amount,
@@ -6116,7 +6192,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64,
 		HtlcIndex:     lc.updateLogs.Remote.htlcCounter,
 		OnionBlob:     htlc.OnionBlob,
 		BlindingPoint: htlc.BlindingPoint,
-		CustomRecords: htlc.CustomRecords.Copy(),
+		CustomRecords: customRecords,
 	}
 
 	localACKedIndex := lc.commitChains.Remote.tail().messageIndices.Local
@@ -9760,7 +9836,7 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 
 		// We don't save add updates as they are restored from the
 		// remote commitment in restoreStateLogs.
-		if pd.EntryType == Add {
+		if pd.isAdd() {
 			continue
 		}
 

@@ -2218,13 +2218,15 @@ var listChainTxnsCommand = cli.Command{
 			Name: "start_height",
 			Usage: "the block height from which to list " +
 				"transactions, inclusive",
+			Value: 0,
 		},
 		cli.Int64Flag{
 			Name: "end_height",
 			Usage: "the block height until which to list " +
-				"transactions, inclusive, to get " +
+				"transactions, inclusive; to get " +
 				"transactions until the chain tip, including " +
 				"unconfirmed, set this value to -1",
+			Value: -1,
 		},
 		cli.UintFlag{
 			Name: "index_offset",
@@ -2232,10 +2234,11 @@ var listChainTxnsCommand = cli.Command{
 				"used in a query to determine which " +
 				"transaction should be returned in the " +
 				"response",
+			Value: 0,
 		},
 		cli.IntFlag{
 			Name: "max_transactions",
-			Usage: "(optional) the max number of transactions to " +
+			Usage: "the max number of transactions to " +
 				"return; leave at default of 0 to return " +
 				"all transactions",
 			Value: 0,
@@ -2245,16 +2248,34 @@ var listChainTxnsCommand = cli.Command{
 	List all transactions an address of the wallet was involved in.
 
 	This call will return a list of wallet related transactions that paid
-	to an address our wallet controls, or spent utxos that we held. The
-	start_height and end_height flags can be used to specify an inclusive
-	block range over which to query for transactions. If the end_height is
-	less than the start_height, transactions will be queried in reverse.
-	To get all transactions until the chain tip, including unconfirmed
-	transactions (identifiable with BlockHeight=0), set end_height to -1.
-	By default, this call will get all transactions our wallet was involved
-	in, including unconfirmed transactions.
-`,
+	to an address our wallet controls, or spent utxos that we held.
+
+	By default, this call will get all transactions until the chain tip, 
+	including unconfirmed transactions (end_height=-1).`,
 	Action: actionDecorator(listChainTxns),
+}
+
+func parseBlockHeightInputs(ctx *cli.Context) (int32, int32, error) {
+	startHeight := int32(ctx.Int64("start_height"))
+	endHeight := int32(ctx.Int64("end_height"))
+
+	if ctx.IsSet("start_height") && ctx.IsSet("end_height") {
+		if endHeight != -1 && startHeight > endHeight {
+			return startHeight, endHeight,
+				errors.New("start_height should " +
+					"be less than end_height if " +
+					"end_height is not equal to -1")
+		}
+	}
+
+	if startHeight < 0 {
+		return startHeight, endHeight,
+			errors.New("start_height should " +
+				"be greater than or " +
+				"equal to 0")
+	}
+
+	return startHeight, endHeight, nil
 }
 
 func listChainTxns(ctx *cli.Context) error {
@@ -2262,17 +2283,18 @@ func listChainTxns(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	startHeight, endHeight, err := parseBlockHeightInputs(ctx)
+
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.GetTransactionsRequest{
 		IndexOffset:     uint32(ctx.Uint64("index_offset")),
 		MaxTransactions: uint32(ctx.Uint64("max_transactions")),
 	}
-
-	if ctx.IsSet("start_height") {
-		req.StartHeight = int32(ctx.Int64("start_height"))
-	}
-	if ctx.IsSet("end_height") {
-		req.EndHeight = int32(ctx.Int64("end_height"))
-	}
+	req.StartHeight = startHeight
+	req.EndHeight = endHeight
 
 	resp, err := client.GetTransactions(ctxc, req)
 	if err != nil {

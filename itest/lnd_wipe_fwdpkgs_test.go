@@ -1,8 +1,6 @@
 package itest
 
 import (
-	"time"
-
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -49,13 +47,7 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 		ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 	}
 
-	// TODO(yy): remove the sleep once the following bug is fixed.
-	// When the invoice is reported settled, the commitment dance is not
-	// yet finished, which can cause an error when closing the channel,
-	// saying there's active HTLCs. We need to investigate this issue and
-	// reverse the order to, first finish the commitment dance, then report
-	// the invoice as settled.
-	time.Sleep(2 * time.Second)
+	flakePaymentStreamReturnEarly()
 
 	// Firstly, Bob force closes the channel.
 	ht.CloseChannelAssertPending(bob, chanPointAB, true)

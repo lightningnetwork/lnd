@@ -401,7 +401,7 @@ func (h *HarnessTest) assertChannelStatus(hn *node.HarnessNode,
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: timeout checking for channel point: %v",
-		hn.Name(), cp)
+		hn.Name(), h.OutPointFromChannelPoint(cp))
 
 	return channel
 }
@@ -2329,7 +2329,8 @@ func (h *HarnessTest) AssertHtlcEvents(client rpc.HtlcEventsClient,
 		event := h.ReceiveHtlcEvent(client)
 
 		require.Containsf(h, eventTypes, event.EventType,
-			"wrong event type, got %v", userType, event.EventType)
+			"wrong event type, want %v, got %v", userType,
+			event.EventType)
 
 		events = append(events, event)
 

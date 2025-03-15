@@ -196,11 +196,14 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 	ht.AssertChannelInactive(bob, chanPoint)
 	ht.AssertChannelInactive(alice, chanPoint)
 
-	// Now restart Alice and Bob.
-	ht.RestartNode(alice)
-	ht.RestartNode(bob)
+	// Shutdown both Alice and Bob.
+	restartAlice := ht.SuspendNode(alice)
+	restartBob := ht.SuspendNode(bob)
 
-	ht.AssertConnected(alice, bob)
+	// Once shutdown, restart and connect them.
+	require.NoError(ht, restartAlice())
+	require.NoError(ht, restartBob())
+	ht.EnsureConnected(alice, bob)
 
 	// Show that both nodes still see the channel as waiting for close after
 	// the restart.

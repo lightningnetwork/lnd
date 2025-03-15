@@ -837,6 +837,24 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	param := lntest.OpenChannelParams{Amt: 100000}
 	ht.OpenChannelAssertPending(alice, bob, param)
 
+	// assertExpiry is a helper closure to assert the FundingExpiryBlocks
+	// has been updated to the expected value.
+	assertExpiry := func(hn *node.HarnessNode, expected int32) {
+		err := wait.NoError(func() error {
+			pending := ht.AssertNumPendingOpenChannels(hn, 1)
+			expiry := pending[0].FundingExpiryBlocks
+
+			// Exit early if matched.
+			if expected == expiry {
+				return nil
+			}
+
+			return fmt.Errorf("want %v, got %v", expected, expiry)
+		}, wait.DefaultTimeout)
+		require.NoErrorf(ht, err, "%s: assert FundingExpiryBlocks "+
+			"timeout", hn.Name())
+	}
+
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
 	// this when queried via RPC. FundingExpiryBlock should decrease
@@ -846,15 +864,16 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	const numEmptyBlocks = 3
 	for i := int32(0); i < numEmptyBlocks; i++ {
 		expectedVal := lncfg.DefaultMaxWaitNumBlocksFundingConf - i
-		pending := ht.AssertNumPendingOpenChannels(alice, 1)
-		require.Equal(ht, expectedVal, pending[0].FundingExpiryBlocks)
-		pending = ht.AssertNumPendingOpenChannels(bob, 1)
-		require.Equal(ht, expectedVal, pending[0].FundingExpiryBlocks)
+
+		// Assert Alice and Bob have updated the FundingExpiryBlocks.
+		assertExpiry(alice, expectedVal)
+		assertExpiry(bob, expectedVal)
+
 		ht.MineEmptyBlocks(1)
 	}
 
-	// Mine 1 block to confirm the funding transaction, and then close the
-	// channel.
+	// Mine 1 block to confirm the funding transaction so clean up the
+	// mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 }
 

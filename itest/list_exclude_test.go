@@ -69,6 +69,13 @@ var excludedTestsWindows = []string{
 	"query blinded route",
 
 	"data loss protection",
+
+	// The following restart cases will fail in windows due to aggregation
+	// can sometimes miss grouping one or two inputs in the same sweeping
+	// tx, which is likely caused by how the blocks are notified in windows,
+	// more investigation is needed.
+	"channel force close-anchor restart",
+	"channel force close-simple taproot restart",
 }
 
 // filterWindowsFlakyTests filters out the flaky tests that are excluded from

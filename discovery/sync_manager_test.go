@@ -1,7 +1,9 @@
 package discovery
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 // randPeer creates a random peer.
@@ -684,4 +687,168 @@ func assertActiveSyncerTransition(t *testing.T, s *GossipSyncer, peer *mockPeer)
 		TimestampRange: 0,
 	})
 	assertSyncerStatus(t, s, chansSynced, PassiveSync)
+}
+
+// TestSizeableMessage is a test implementation of lnwire.SizeableMessage.
+type TestSizeableMessage struct {
+	size    uint32
+	sizeErr error
+}
+
+// Decode implements the lnwire.Message interface.
+func (m *TestSizeableMessage) Decode(r io.Reader, pver uint32) error {
+	return nil
+}
+
+// Encode implements the lnwire.Message interface.
+func (m *TestSizeableMessage) Encode(w *bytes.Buffer, pver uint32) error {
+	return nil
+}
+
+// MsgType implements the lnwire.Message interface.
+func (m *TestSizeableMessage) MsgType() lnwire.MessageType {
+	// Use a custom message type for testing purposes.
+	return lnwire.MessageType(9999)
+}
+
+// SerializedSize implements the lnwire.SizeableMessage interface.
+func (m *TestSizeableMessage) SerializedSize() (uint32, error) {
+	if m.sizeErr != nil {
+		return 0, m.sizeErr
+	}
+
+	return m.size, nil
+}
+
+// TestDeriveRateLimitReservation tests that the
+// SyncManager.deriveRateLimitReservation method correctly computes delays based
+// on message size.
+func TestDeriveRateLimitReservation(t *testing.T) {
+	// Define standard test parameters for rate limiting.
+	bytesPerSec := uint64(1000) // 1000 bytes/second
+	bytesBurst := uint64(100)   // 100 bytes burst capacity
+
+	// Helper to create a fresh SyncManager with a clean rate limiter.
+	newSyncManager := func(perSec, burst uint64) *SyncManager {
+		limiter := rate.NewLimiter(rate.Limit(perSec), int(burst))
+		return &SyncManager{
+			rateLimiter: limiter,
+		}
+	}
+
+	// Test sequential messages causing increasing delays - this is the core
+	// property of the rate limiting mechanism.
+	t.Run("sequential messages have increasing delays", func(t *testing.T) {
+		sm := newSyncManager(bytesPerSec, bytesBurst)
+
+		// Send a series of messages that exactly consume the burst
+		// limit to make the behavior predictable.
+		msg := &TestSizeableMessage{
+			size: uint32(bytesBurst),
+		}
+
+		// First message should have no delay as it fits within burst.
+		delay1, err := sm.deriveRateLimitReservation(msg)
+		require.NoError(t, err)
+		require.Equal(
+			t, time.Duration(0), delay1.Delay(), "first message "+
+				"should have no delay",
+		)
+
+		// Second message should have a non-zero delay as the token
+		// bucket is now depleted.
+		delay2, err := sm.deriveRateLimitReservation(msg)
+		require.NoError(t, err)
+		require.True(
+			t, delay2.Delay() > 0, "second message should have "+
+				"non-zero delay, got: %s", delay2,
+		)
+
+		// Third message should have an even longer delay since the
+		// token bucket is still refilling at a constant rate.
+		delay3, err := sm.deriveRateLimitReservation(msg)
+		require.NoError(t, err)
+		require.True(t, delay3.Delay() > delay2.Delay(), "third "+
+			"message should have longer delay than second: %s > %s",
+			delay3, delay2)
+
+		// The expected theoretical delay when sending messages at
+		// exactly the burst size should be approximately 100ms with our
+		// parameters.
+		expectedDelay := time.Duration(
+			float64(msg.size) / float64(bytesPerSec) * float64(time.Second), //nolint:ll
+		)
+
+		// Check that delays are increasing in a coherent manner.
+		t.Logf("Delay sequence: %s → %s → %s (expected "+
+			"theoretical: %s)", delay1.Delay(), delay2.Delay(),
+			delay3.Delay(), expectedDelay)
+	})
+
+	// Test handling of errors from SerializedSize.
+	t.Run("propagates serialization errors", func(t *testing.T) {
+		sm := newSyncManager(bytesPerSec, bytesBurst)
+
+		// Create a test message that returns an error from
+		// SerializedSize.
+		errMsg := fmt.Errorf("failed to serialize message")
+		msg := &TestSizeableMessage{
+			sizeErr: errMsg,
+		}
+
+		// The error should propagate through
+		// deriveRateLimitReservation.
+		_, err := sm.deriveRateLimitReservation(msg)
+		require.Error(t, err)
+		require.Equal(
+			t, errMsg, err, "Error should be propagated unchanged",
+		)
+	})
+
+	// Test that message size affects delay.
+	t.Run("larger messages have longer delays", func(t *testing.T) {
+		// Create a rate limiter with a known burst size.
+		sm := newSyncManager(bytesPerSec, bytesBurst)
+
+		// First, empty the token bucket with a message exactly at the
+		// burst size.
+		initialMsg := &TestSizeableMessage{
+			size: uint32(bytesBurst),
+		}
+		_, err := sm.deriveRateLimitReservation(initialMsg)
+		require.NoError(t, err)
+
+		// Now send two messages of different sizes and compare their
+		// delays.
+		smallMsg := &TestSizeableMessage{
+			size: 50,
+		}
+		largeMsg := &TestSizeableMessage{
+			size: 200,
+		}
+
+		// Send the small message first.
+		smallDelay, err := sm.deriveRateLimitReservation(smallMsg)
+		require.NoError(t, err)
+
+		// Reset the limiter to the same state, then empty the bucket.
+		sm.rateLimiter = rate.NewLimiter(
+			rate.Limit(bytesPerSec), int(bytesBurst),
+		)
+		_, err = sm.deriveRateLimitReservation(initialMsg)
+		require.NoError(t, err)
+
+		// Now send the large message.
+		largeDelay, err := sm.deriveRateLimitReservation(largeMsg)
+		require.NoError(t, err)
+
+		// The large message should have a longer delay than the small
+		// one.
+		require.True(
+			t, largeDelay.Delay() > smallDelay.Delay(),
+			"large message (size %d) should have longer delay "+
+				"(%s) than small message (size %d, delay %s)",
+			largeMsg.size, largeDelay.Delay(), smallMsg.size,
+			smallDelay.Delay())
+	})
 }

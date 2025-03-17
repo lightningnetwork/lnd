@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -25,6 +27,21 @@ const (
 
 	// filterSemaSize is the capacity of gossipFilterSema.
 	filterSemaSize = 5
+
+	// DefaultMsgBytesBurst is the allotted burst in bytes we'll permit.
+	// This is the most that can be sent in a given go. Requests beyond
+	// this, will block indefinitely. Once tokens (bytes are depleted),
+	// they'll be refilled at the DefaultMsgBytesPerSecond rate.
+	DefaultMsgBytesBurst = 2 * 100 * 1_024
+
+	// DefaultMsgBytesPerSecond is the max bytes/s we'll permit for outgoing
+	// messages. Once tokens (bytes) have been taken from the bucket,
+	// they'll be refilled at this rate.
+	DefaultMsgBytesPerSecond = 100 * 1_024
+
+	// assumedMsgSize is the assumed size of a message if we can't compute
+	// its serialized size. This comes out to 1 KB.
+	assumedMsgSize = 1_024
 )
 
 var (
@@ -110,6 +127,15 @@ type SyncManagerCfg struct {
 	// updates for a channel and returns true if the channel should be
 	// considered a zombie based on these timestamps.
 	IsStillZombieChannel func(time.Time, time.Time) bool
+
+	// AllotedMsgBytesPerSecond is the allotted bandwidth rate, expressed in
+	// bytes/second that the gossip manager can consume. Once we exceed this
+	// rate, message sending will block until we're below the rate.
+	AllotedMsgBytesPerSecond uint64
+
+	// AllotedMsgBytesBurst is the amount of burst bytes we'll permit, if
+	// we've exceeded the hard upper limit.
+	AllotedMsgBytesBurst uint64
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -168,6 +194,12 @@ type SyncManager struct {
 	// queries.
 	gossipFilterSema chan struct{}
 
+	// rateLimiter dictates the frequency with which we will reply to gossip
+	// queries from a peer. This is used to delay responses to peers to
+	// prevent DOS vulnerabilities if they are spamming with an unreasonable
+	// number of queries.
+	rateLimiter *rate.Limiter
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -180,8 +212,25 @@ func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
 		filterSema <- struct{}{}
 	}
 
+	bytesPerSecond := cfg.AllotedMsgBytesPerSecond
+	if bytesPerSecond == 0 {
+		bytesPerSecond = DefaultMsgBytesPerSecond
+	}
+
+	bytesBurst := cfg.AllotedMsgBytesBurst
+	if bytesBurst == 0 {
+		bytesBurst = DefaultMsgBytesBurst
+	}
+
+	// We'll use this rate limiter to limit our total outbound bandwidth for
+	// gossip queries peers.
+	rateLimiter := rate.NewLimiter(
+		rate.Limit(bytesPerSecond), int(bytesBurst),
+	)
+
 	return &SyncManager{
 		cfg:          *cfg,
+		rateLimiter:  rateLimiter,
 		newSyncers:   make(chan *newSyncer),
 		staleSyncers: make(chan *staleSyncer),
 		activeSyncers: make(
@@ -494,6 +543,95 @@ func (m *SyncManager) isPinnedSyncer(s *GossipSyncer) bool {
 	return isPinnedSyncer
 }
 
+// deriveRateLimitReservation will take the current message and derive a
+// reservation that can be used to wait on the rate limiter.
+func (m *SyncManager) deriveRateLimitReservation(msg lnwire.Message,
+) (*rate.Reservation, error) {
+
+	var (
+		msgSize uint32
+		err     error
+	)
+
+	// Figure out the serialized size of the message. If we can't easily
+	// compute it, then we'll used the assumed msg size.
+	if sMsg, ok := msg.(lnwire.SizeableMessage); ok {
+		msgSize, err = sMsg.SerializedSize()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		log.Warnf("Unable to compute serialized size of %T", msg)
+
+		msgSize = assumedMsgSize
+	}
+
+	return m.rateLimiter.ReserveN(time.Now(), int(msgSize)), nil
+}
+
+// waitMsgDelay takes a delay, and waits until it has finished.
+func (m *SyncManager) waitMsgDelay(ctx context.Context, peerPub [33]byte,
+	limitReservation *rate.Reservation) error {
+
+	// If we've already replied a handful of times, we will start to delay
+	// responses back to the remote peer. This can help prevent DOS attacks
+	// where the remote peer spams us endlessly.
+	//
+	// We skip checking for reservation.OK() here, as during config
+	// validation, we ensure that the burst is enough for a single message
+	// to be sent.
+	delay := limitReservation.Delay()
+	if delay > 0 {
+		log.Infof("GossipSyncer(%x): rate limiting gossip replies, "+
+			"responding in %s", peerPub, delay)
+
+		select {
+		case <-time.After(delay):
+
+		case <-ctx.Done():
+			limitReservation.Cancel()
+
+			return ErrGossipSyncerExiting
+
+		case <-m.quit:
+			limitReservation.Cancel()
+
+			return ErrGossipSyncerExiting
+		}
+	}
+
+	return nil
+}
+
+// maybeRateLimitMsg takes a message, and may wait a period of time to rate
+// limit the msg.
+func (m *SyncManager) maybeRateLimitMsg(ctx context.Context, peerPub [33]byte,
+	msg lnwire.Message) error {
+
+	delay, err := m.deriveRateLimitReservation(msg)
+	if err != nil {
+		return nil
+	}
+
+	return m.waitMsgDelay(ctx, peerPub, delay)
+}
+
+// sendMessages sends a set of messages to the remote peer.
+func (m *SyncManager) sendMessages(ctx context.Context, sync bool,
+	peer lnpeer.Peer, nodeID route.Vertex, msgs ...lnwire.Message) error {
+
+	for _, msg := range msgs {
+		if err := m.maybeRateLimitMsg(ctx, nodeID, msg); err != nil {
+			return err
+		}
+		if err := peer.SendMessageLazy(sync, msg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // createGossipSyncer creates the GossipSyncer for a newly connected peer.
 func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 	nodeID := route.Vertex(peer.PubKey())
@@ -507,20 +645,22 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		encodingType:  encoding,
 		chunkSize:     encodingTypeToChunkSize[encoding],
 		batchSize:     requestBatchSize,
-		sendToPeer: func(msgs ...lnwire.Message) error {
-			return peer.SendMessageLazy(false, msgs...)
+		sendToPeer: func(ctx context.Context,
+			msgs ...lnwire.Message) error {
+
+			return m.sendMessages(ctx, false, peer, nodeID, msgs...)
 		},
-		sendToPeerSync: func(msgs ...lnwire.Message) error {
-			return peer.SendMessageLazy(true, msgs...)
+		sendToPeerSync: func(ctx context.Context,
+			msgs ...lnwire.Message) error {
+
+			return m.sendMessages(ctx, true, peer, nodeID, msgs...)
 		},
-		ignoreHistoricalFilters:   m.cfg.IgnoreHistoricalFilters,
-		maxUndelayedQueryReplies:  DefaultMaxUndelayedQueryReplies,
-		delayedQueryReplyInterval: DefaultDelayedQueryReplyInterval,
-		bestHeight:                m.cfg.BestHeight,
-		markGraphSynced:           m.markGraphSynced,
-		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
-		noTimestampQueryOption:    m.cfg.NoTimestampQueries,
-		isStillZombieChannel:      m.cfg.IsStillZombieChannel,
+		ignoreHistoricalFilters:  m.cfg.IgnoreHistoricalFilters,
+		bestHeight:               m.cfg.BestHeight,
+		markGraphSynced:          m.markGraphSynced,
+		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
+		noTimestampQueryOption:   m.cfg.NoTimestampQueries,
+		isStillZombieChannel:     m.cfg.IsStillZombieChannel,
 	}, m.gossipFilterSema)
 
 	// Gossip syncers are initialized by default in a PassiveSync type

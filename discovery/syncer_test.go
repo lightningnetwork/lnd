@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -196,15 +197,18 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		noSyncChannels:         !syncChannels,
 		noReplyQueries:         !replyQueries,
 		noTimestampQueryOption: !timestamps,
-		sendToPeer: func(msgs ...lnwire.Message) error {
+		sendToPeer: func(_ context.Context,
+			msgs ...lnwire.Message) error {
+
 			msgChan <- msgs
 			return nil
 		},
-		sendToPeerSync: func(msgs ...lnwire.Message) error {
+		sendToPeerSync: func(_ context.Context,
+			msgs ...lnwire.Message) error {
+
 			msgChan <- msgs
 			return nil
 		},
-		delayedQueryReplyInterval: 2 * time.Second,
 		bestHeight: func() uint32 {
 			return latestKnownHeight
 		},
@@ -1554,161 +1558,6 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 				"instead have %v",
 				spew.Sdump(syncer.newChansToQuery))
 		}
-	}
-}
-
-// TestGossipSyncerDelayDOS tests that the gossip syncer will begin delaying
-// queries after its prescribed allotment of undelayed query responses. Once
-// this happens, all query replies should be delayed by the configurated
-// interval.
-func TestGossipSyncerDelayDOS(t *testing.T) {
-	t.Parallel()
-
-	// We'll modify the chunk size to be a smaller value, since we'll be
-	// sending a modest number of queries. After exhausting our undelayed
-	// gossip queries, we'll send two extra queries and ensure that they are
-	// delayed properly.
-	const chunkSize = 2
-	const numDelayedQueries = 2
-	const delayTolerance = time.Millisecond * 200
-
-	// First, we'll create two GossipSyncer instances with a canned
-	// sendToPeer message to allow us to intercept their potential sends.
-	highestID := lnwire.ShortChannelID{
-		BlockHeight: 1144,
-	}
-	msgChan1, syncer1, chanSeries1 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize, true, false,
-	)
-	syncer1.Start()
-	defer syncer1.Stop()
-
-	msgChan2, syncer2, chanSeries2 := newTestSyncer(
-		highestID, defaultEncoding, chunkSize, false, true,
-	)
-	syncer2.Start()
-	defer syncer2.Stop()
-
-	// Record the delayed query reply interval used by each syncer.
-	delayedQueryInterval := syncer1.cfg.delayedQueryReplyInterval
-
-	// Record the number of undelayed queries allowed by the syncers.
-	numUndelayedQueries := syncer1.cfg.maxUndelayedQueryReplies
-
-	// We will send enough queries to exhaust the undelayed responses, and
-	// then send two more queries which should be delayed. An additional one
-	// is subtracted from the total since undelayed message will be consumed
-	// by the initial QueryChannelRange.
-	numQueryResponses := numUndelayedQueries + numDelayedQueries - 1
-
-	// The total number of responses must include the initial reply each
-	// syncer will make to QueryChannelRange.
-	numTotalQueries := 1 + numQueryResponses
-
-	// The total number of channels each syncer needs to request must be
-	// scaled by the chunk size being used.
-	numTotalChans := numQueryResponses * chunkSize
-
-	// Construct enough channels so that all of the queries will have enough
-	// channels. Since syncer1 won't know of any channels, their sets are
-	// inherently disjoint.
-	var syncer2Chans []lnwire.ShortChannelID
-	for i := 0; i < numTotalChans; i++ {
-		syncer2Chans = append([]lnwire.ShortChannelID{
-			{
-				BlockHeight: highestID.BlockHeight - uint32(i) - 1,
-				TxIndex:     uint32(i),
-			},
-		}, syncer2Chans...)
-	}
-
-	// We'll kick off the test by asserting syncer1 sends over the
-	// QueryChannelRange message the other node.
-	select {
-	case <-time.After(time.Second * 2):
-		t.Fatalf("didn't get msg from syncer1")
-
-	case msgs := <-msgChan1:
-		for _, msg := range msgs {
-			// The message MUST be a QueryChannelRange message.
-			_, ok := msg.(*lnwire.QueryChannelRange)
-			if !ok {
-				t.Fatalf("wrong message: expected "+
-					"QueryChannelRange for %T", msg)
-			}
-
-			select {
-			case <-time.After(time.Second * 2):
-				t.Fatalf("node 2 didn't read msg")
-
-			case syncer2.queryMsgs <- msg:
-
-			}
-		}
-	}
-
-	// At this point, we'll need to a response from syncer2's channel
-	// series. This will cause syncer1 to simply request the entire set of
-	// channels from syncer2. This will count as the first undelayed
-	// response for sycner2.
-	select {
-	case <-time.After(time.Second * 2):
-		t.Fatalf("no query recvd")
-
-	case <-chanSeries2.filterRangeReqs:
-		// We'll send back all the channels that it should know of.
-		chanSeries2.filterRangeResp <- syncer2Chans
-	}
-
-	// At this point, we'll assert that the ReplyChannelRange message is
-	// sent by sycner2.
-	for i := 0; i < numQueryResponses; i++ {
-		select {
-		case <-time.After(time.Second * 2):
-			t.Fatalf("didn't get msg from syncer2")
-
-		case msgs := <-msgChan2:
-			for _, msg := range msgs {
-				// The message MUST be a ReplyChannelRange message.
-				_, ok := msg.(*lnwire.ReplyChannelRange)
-				if !ok {
-					t.Fatalf("wrong message: expected "+
-						"QueryChannelRange for %T", msg)
-				}
-
-				select {
-				case <-time.After(time.Second * 2):
-					t.Fatalf("node 2 didn't read msg")
-
-				case syncer1.gossipMsgs <- msg:
-				}
-			}
-		}
-	}
-
-	// We'll now have syncer1 process the received sids from syncer2.
-	select {
-	case <-time.After(time.Second * 2):
-		t.Fatalf("no query recvd")
-
-	case <-chanSeries1.filterReq:
-		chanSeries1.filterResp <- syncer2Chans
-	}
-
-	// At this point, syncer1 should start to send out initial requests to
-	// query the chan IDs of the remote party. We'll keep track of the
-	// number of queries made using the iterated value, which starts at one
-	// due the initial contribution of the QueryChannelRange msgs.
-	for i := 1; i < numTotalQueries; i++ {
-		expDelayResponse := i >= numUndelayedQueries
-		queryBatch(t,
-			msgChan1, msgChan2,
-			syncer1, syncer2,
-			chanSeries2,
-			expDelayResponse,
-			delayedQueryInterval,
-			delayTolerance,
-		)
 	}
 }
 

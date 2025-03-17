@@ -251,41 +251,47 @@ func printModifiedProtoJSON(resp proto.Message) {
 // to command actions.
 func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 	return func(c *cli.Context) error {
-		if err := f(c); err != nil {
-			s, ok := status.FromError(err)
+		err := f(c)
 
-			// If it's a command for the UnlockerService (like
-			// 'create' or 'unlock') but the wallet is already
-			// unlocked, then these methods aren't recognized any
-			// more because this service is shut down after
-			// successful unlock. That's why the code
-			// 'Unimplemented' means something different for these
-			// two commands.
-			if s.Code() == codes.Unimplemented &&
-				(c.Command.Name == "create" ||
-					c.Command.Name == "unlock" ||
-					c.Command.Name == "changepassword" ||
-					c.Command.Name == "createwatchonly") {
+		// Exit early if there's no error.
+		if err == nil {
+			return nil
+		}
 
-				return fmt.Errorf("Wallet is already unlocked")
-			}
+		// Try to parse the Status representatio from this error.
+		s, ok := status.FromError(err)
 
-			// lnd might be active, but not possible to contact
-			// using RPC if the wallet is encrypted. If we get
-			// error code Unimplemented, it means that lnd is
-			// running, but the RPC server is not active yet (only
-			// WalletUnlocker server active) and most likely this
-			// is because of an encrypted wallet.
-			if ok && s.Code() == codes.Unimplemented {
-				return fmt.Errorf("Wallet is encrypted. " +
-					"Please unlock using 'lncli unlock', " +
-					"or set password using 'lncli create'" +
-					" if this is the first time starting " +
-					"lnd.")
-			}
+		// If this cannot be represented by a Status, exit early.
+		if !ok {
 			return err
 		}
-		return nil
+
+		// If it's a command for the UnlockerService (like 'create' or
+		// 'unlock') but the wallet is already unlocked, then these
+		// methods aren't recognized any more because this service is
+		// shut down after successful unlock.
+		if s.Code() == codes.Unknown &&
+			(c.Command.Name == "create" ||
+				c.Command.Name == "unlock" ||
+				c.Command.Name == "changepassword" ||
+				c.Command.Name == "createwatchonly") {
+
+			return errors.New("wallet is already unlocked")
+		}
+
+		// lnd might be active, but not possible to contact using RPC if
+		// the wallet is encrypted. If we get error code Unknown, it
+		// means that lnd is running, but the RPC server is not active
+		// yet (only WalletUnlocker server active) and most likely this
+		// is because of an encrypted wallet.
+		if s.Code() == codes.Unknown {
+			return errors.New("wallet is encrypted - please " +
+				"unlock using 'lncli unlock', or set " +
+				"password using 'lncli create' if this is " +
+				"the first time starting lnd")
+		}
+
+		return s.Err()
 	}
 }
 

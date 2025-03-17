@@ -3,11 +3,11 @@ package fn
 import (
 	"math/rand"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/quick"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/slices"
 )
 
 func GenList(r *rand.Rand) *List[uint32] {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -604,110 +603,9 @@ type BlindedPathRestrictions struct {
 	// our node along with an introduction node hop.
 	NumHops uint8
 
-	// MaxNumPaths is the maximum number of blinded paths to select.
-	MaxNumPaths uint8
-
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
-}
-
-// FindBlindedPaths finds a selection of paths to the destination node that can
-// be used in blinded payment paths.
-func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
-	amt lnwire.MilliSatoshi, probabilitySrc probabilitySource,
-	restrictions *BlindedPathRestrictions) ([]*route.Route, error) {
-
-	// First, find a set of candidate paths given the destination node and
-	// path length restrictions.
-	paths, err := findBlindedPaths(
-		r.cfg.RoutingGraph, destination, &blindedPathRestrictions{
-			minNumHops:      restrictions.MinDistanceFromIntroNode,
-			maxNumHops:      restrictions.NumHops,
-			nodeOmissionSet: restrictions.NodeOmissionSet,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// routeWithProbability groups a route with the probability of a
-	// payment of the given amount succeeding on that path.
-	type routeWithProbability struct {
-		route       *route.Route
-		probability float64
-	}
-
-	// Iterate over all the candidate paths and determine the success
-	// probability of each path given the data we have about forwards
-	// between any two nodes on a path.
-	routes := make([]*routeWithProbability, 0, len(paths))
-	for _, path := range paths {
-		if len(path) < 1 {
-			return nil, fmt.Errorf("a blinded path must have at " +
-				"least one hop")
-		}
-
-		var (
-			introNode = path[0].vertex
-			prevNode  = introNode
-			hops      = make(
-				[]*route.Hop, 0, len(path)-1,
-			)
-			totalRouteProbability = float64(1)
-		)
-
-		// For each set of hops on the path, get the success probability
-		// of a forward between those two vertices and use that to
-		// update the overall route probability.
-		for j := 1; j < len(path); j++ {
-			probability := probabilitySrc(
-				prevNode, path[j].vertex, amt,
-				path[j-1].edgeCapacity,
-			)
-
-			totalRouteProbability *= probability
-
-			hops = append(hops, &route.Hop{
-				PubKeyBytes: path[j].vertex,
-				ChannelID:   path[j-1].channelID,
-			})
-
-			prevNode = path[j].vertex
-		}
-
-		// Don't bother adding a route if its success probability less
-		// minimum that can be assigned to any single pair.
-		if totalRouteProbability <= DefaultMinRouteProbability {
-			continue
-		}
-
-		routes = append(routes, &routeWithProbability{
-			route: &route.Route{
-				SourcePubKey: introNode,
-				Hops:         hops,
-			},
-			probability: totalRouteProbability,
-		})
-	}
-
-	// Sort the routes based on probability.
-	sort.Slice(routes, func(i, j int) bool {
-		return routes[i].probability > routes[j].probability
-	})
-
-	// Now just choose the best paths up until the maximum number of allowed
-	// paths.
-	bestRoutes := make([]*route.Route, 0, restrictions.MaxNumPaths)
-	for _, route := range routes {
-		if len(bestRoutes) >= int(restrictions.MaxNumPaths) {
-			break
-		}
-
-		bestRoutes = append(bestRoutes, route.route)
-	}
-
-	return bestRoutes, nil
 }
 
 // generateNewSessionKey generates a new ephemeral private key to be used for a

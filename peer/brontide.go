@@ -3981,6 +3981,57 @@ func newRPCShutdownInit(req *htlcswitch.ChanClose) shutdownInit {
 	)
 }
 
+// waitUntilRbfCoastClear waits until the RBF co-op close state machine has
+// advanced to a terminal state before attempting another fee bump.
+func waitUntilRbfCoastClear(ctx context.Context,
+	rbfCloser *chancloser.RbfChanCloser) error {
+
+	coopCloseStates := rbfCloser.RegisterStateEvents()
+	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
+	defer rbfCloser.RemoveStateSub(coopCloseStates)
+
+	isTerminalState := func(newState chancloser.RbfState) bool {
+		// If we're not in the negotiation sub-state, then we aren't at
+		// the terminal state yet.
+		state, ok := newState.(*chancloser.ClosingNegotiation)
+		if !ok {
+			return false
+		}
+
+		localState := state.PeerState.GetForParty(lntypes.Local)
+
+		// If this isn't the close pending state, we aren't at the
+		// terminal state yet.
+		_, ok = localState.(*chancloser.ClosePending)
+
+		return ok
+	}
+
+	// Before we enter the subscription loop below, check to see if we're
+	// already in the terminal state.
+	rbfState, err := rbfCloser.CurrentState()
+	if err != nil {
+		return err
+	}
+	if isTerminalState(rbfState) {
+		return nil
+	}
+
+	peerLog.Debugf("Waiting for RBF iteration to complete...")
+
+	for {
+		select {
+		case newState := <-newStateChan:
+			if isTerminalState(newState) {
+				return nil
+			}
+
+		case <-ctx.Done():
+			return fmt.Errorf("context canceled")
+		}
+	}
+}
+
 // startRbfChanCloser kicks off the co-op close process using the new RBF based
 // co-op close protocol. This is called when we're the one that's initiating
 // the cooperative channel close.
@@ -4070,6 +4121,17 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		// the prior fee rate), or we've sent an offer, then we'll
 		// trigger a new offer event.
 		case *chancloser.ClosingNegotiation:
+			// Before we send the event below, we'll wait until
+			// we're in a semi-terminal state.
+			err := waitUntilRbfCoastClear(ctx, rbfCloser)
+			if err != nil {
+				peerLog.Warnf("ChannelPoint(%v): unable to "+
+					"wait for coast to clear: %v",
+					chanPoint, err)
+
+				return
+			}
+
 			event := chancloser.ProtocolEvent(
 				&chancloser.SendOfferEvent{
 					TargetFeeRate: feeRate,

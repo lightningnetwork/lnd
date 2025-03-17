@@ -1333,6 +1333,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		notifyRate := pendingClose.ClosePending.FeePerVbyte
 		if closeOpts.localTxOnly &&
 			notifyRate != int64(closeReq.SatPerVbyte) {
+
 			continue
 		}
 

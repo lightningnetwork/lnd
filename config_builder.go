@@ -1099,7 +1099,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// run. If the database version is already above this custom
 		// migration's version (7), it will be skipped permanently,
 		// regardless of the flag.
-		if !d.cfg.DB.SkipSQLInvoiceMigration {
+		if !d.cfg.DB.SkipNativeSQLMigration {
 			migrationFn := func(tx *sqlc.Queries) error {
 				err := invoices.MigrateInvoicesToSQL(
 					ctx, dbs.ChanStateDB.Backend,

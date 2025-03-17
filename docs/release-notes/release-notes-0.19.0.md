@@ -368,6 +368,10 @@ The underlying functionality between those two options remain the same.
   ](https://github.com/lightningnetwork/lnd/pull/9438) tombstone after native 
   SQL migration.
 
+* [Rename of skip migration
+  flag](https://github.com/lightningnetwork/lnd/pull/9606/) for future
+  compatibility.
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 

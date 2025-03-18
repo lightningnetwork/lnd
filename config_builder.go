@@ -1528,7 +1528,11 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 		PersistToDisk:      cfg.NeutrinoMode.PersistFilters,
 	}
 
-	neutrino.MaxPeers = 8
+	if cfg.NeutrinoMode.MaxPeers <= 0 {
+		return nil, nil, fmt.Errorf("a non-zero number must be set " +
+			"for neutrino max peers")
+	}
+	neutrino.MaxPeers = cfg.NeutrinoMode.MaxPeers
 	neutrino.BanDuration = time.Hour * 48
 	neutrino.UserAgentName = cfg.NeutrinoMode.UserAgentName
 	neutrino.UserAgentVersion = cfg.NeutrinoMode.UserAgentVersion

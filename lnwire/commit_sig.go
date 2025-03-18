@@ -64,6 +64,9 @@ func NewCommitSig() *CommitSig {
 // interface.
 var _ Message = (*CommitSig)(nil)
 
+// A compile time check to ensure CommitSig implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*CommitSig)(nil)
+
 // Decode deserializes a serialized CommitSig message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -150,4 +153,11 @@ func (c *CommitSig) MsgType() MessageType {
 // NOTE: Part of peer.LinkUpdater interface.
 func (c *CommitSig) TargetChanID() ChannelID {
 	return c.ChanID
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *CommitSig) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

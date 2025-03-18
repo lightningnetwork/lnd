@@ -169,6 +169,16 @@ func (c *ClosingComplete) MsgType() MessageType {
 	return MsgClosingComplete
 }
 
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ClosingComplete) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
+}
+
 // A compile time check to ensure ClosingComplete implements the lnwire.Message
 // interface.
 var _ Message = (*ClosingComplete)(nil)
+
+// A compile time check to ensure ClosingComplete implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ClosingComplete)(nil)

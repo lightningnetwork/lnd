@@ -55,6 +55,9 @@ func NewRevokeAndAck() *RevokeAndAck {
 // interface.
 var _ Message = (*RevokeAndAck)(nil)
 
+// A compile time check to ensure RevokeAndAck implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*RevokeAndAck)(nil)
+
 // Decode deserializes a serialized RevokeAndAck message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -135,4 +138,11 @@ func (c *RevokeAndAck) MsgType() MessageType {
 // NOTE: Part of peer.LinkUpdater interface.
 func (c *RevokeAndAck) TargetChanID() ChannelID {
 	return c.ChanID
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *RevokeAndAck) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

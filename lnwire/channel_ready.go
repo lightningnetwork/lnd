@@ -63,6 +63,10 @@ func NewChannelReady(cid ChannelID, npcp *btcec.PublicKey) *ChannelReady {
 // interface.
 var _ Message = (*ChannelReady)(nil)
 
+// A compile time check to ensure ChannelReady implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ChannelReady)(nil)
+
 // Decode deserializes the serialized ChannelReady message stored in the
 // passed io.Reader into the target ChannelReady using the deserialization
 // rules defined by the passed protocol version.
@@ -169,4 +173,11 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ChannelReady) MsgType() MessageType {
 	return MsgChannelReady
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ChannelReady) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

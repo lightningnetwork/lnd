@@ -41,6 +41,10 @@ type AnnounceSignatures2 struct {
 // lnwire.Message interface.
 var _ Message = (*AnnounceSignatures2)(nil)
 
+// A compile time check to ensure AnnounceSignatures2 implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*AnnounceSignatures2)(nil)
+
 // Decode deserializes a serialized AnnounceSignatures2 stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -80,6 +84,13 @@ func (a *AnnounceSignatures2) Encode(w *bytes.Buffer, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures2) MsgType() MessageType {
 	return MsgAnnounceSignatures2
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *AnnounceSignatures2) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
 }
 
 // SCID returns the ShortChannelID of the channel.

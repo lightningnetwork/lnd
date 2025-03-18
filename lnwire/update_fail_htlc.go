@@ -38,6 +38,10 @@ type UpdateFailHTLC struct {
 // interface.
 var _ Message = (*UpdateFailHTLC)(nil)
 
+// A compile time check to ensure UpdateFailHTLC implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*UpdateFailHTLC)(nil)
+
 // Decode deserializes a serialized UpdateFailHTLC message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -77,6 +81,13 @@ func (c *UpdateFailHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFailHTLC) MsgType() MessageType {
 	return MsgUpdateFailHTLC
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *UpdateFailHTLC) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }
 
 // TargetChanID returns the channel id of the link for which this message is

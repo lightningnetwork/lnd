@@ -24,6 +24,9 @@ type Stfu struct {
 // A compile time check to ensure Stfu implements the lnwire.Message interface.
 var _ Message = (*Stfu)(nil)
 
+// A compile time check to ensure Stfu implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*Stfu)(nil)
+
 // Encode serializes the target Stfu into the passed io.Writer.
 // Serialization will observe the rules defined by the passed protocol version.
 //
@@ -66,6 +69,13 @@ func (s *Stfu) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (s *Stfu) MsgType() MessageType {
 	return MsgStfu
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (s *Stfu) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(s)
 }
 
 // A compile time check to ensure Stfu implements the

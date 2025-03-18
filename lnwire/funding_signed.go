@@ -36,6 +36,10 @@ type FundingSigned struct {
 // interface.
 var _ Message = (*FundingSigned)(nil)
 
+// A compile time check to ensure FundingSigned implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*FundingSigned)(nil)
+
 // Encode serializes the target FundingSigned into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
@@ -102,4 +106,11 @@ func (f *FundingSigned) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) MsgType() MessageType {
 	return MsgFundingSigned
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (f *FundingSigned) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(f)
 }

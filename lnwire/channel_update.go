@@ -124,6 +124,9 @@ type ChannelUpdate1 struct {
 // interface.
 var _ Message = (*ChannelUpdate1)(nil)
 
+// A compile time check to ensure ChannelUpdate1 implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ChannelUpdate1)(nil)
+
 // Decode deserializes a serialized ChannelUpdate stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -367,3 +370,10 @@ func (a *ChannelUpdate1) SetSCID(scid ShortChannelID) {
 // A compile time assertion to ensure ChannelUpdate1 implements the
 // ChannelUpdate interface.
 var _ ChannelUpdate = (*ChannelUpdate1)(nil)
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *ChannelUpdate1) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
+}

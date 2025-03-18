@@ -39,6 +39,9 @@ func NewReplyShortChanIDsEnd() *ReplyShortChanIDsEnd {
 // lnwire.Message interface.
 var _ Message = (*ReplyShortChanIDsEnd)(nil)
 
+// A compile time check to ensure ReplyShortChanIDsEnd implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ReplyShortChanIDsEnd)(nil)
+
 // Decode deserializes a serialized ReplyShortChanIDsEnd message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -73,4 +76,11 @@ func (c *ReplyShortChanIDsEnd) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *ReplyShortChanIDsEnd) MsgType() MessageType {
 	return MsgReplyShortChanIDsEnd
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ReplyShortChanIDsEnd) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

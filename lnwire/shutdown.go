@@ -61,6 +61,9 @@ func NewShutdown(cid ChannelID, addr DeliveryAddress) *Shutdown {
 // interface.
 var _ Message = (*Shutdown)(nil)
 
+// A compile-time check to ensure Shutdown implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*Shutdown)(nil)
+
 // Decode deserializes a serialized Shutdown from the passed io.Reader,
 // observing the specified protocol version.
 //
@@ -132,4 +135,11 @@ func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) MsgType() MessageType {
 	return MsgShutdown
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (s *Shutdown) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(s)
 }

@@ -41,6 +41,10 @@ type DynAck struct {
 // interface.
 var _ Message = (*DynAck)(nil)
 
+// A compile time check to ensure DynAck implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*DynAck)(nil)
+
 // Encode serializes the target DynAck into the passed io.Writer. Serialization
 // will observe the rules defined by the passed protocol version.
 //
@@ -135,4 +139,11 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (da *DynAck) MsgType() MessageType {
 	return MsgDynAck
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (da *DynAck) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(da)
 }

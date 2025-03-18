@@ -104,6 +104,9 @@ type NodeAnnouncement struct {
 // lnwire.Message interface.
 var _ Message = (*NodeAnnouncement)(nil)
 
+// A compile time check to ensure NodeAnnouncement implements the lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*NodeAnnouncement)(nil)
+
 // Decode deserializes a serialized NodeAnnouncement stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -201,4 +204,11 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *NodeAnnouncement) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
 }

@@ -36,6 +36,10 @@ func NewUpdateFee(chanID ChannelID, feePerKw uint32) *UpdateFee {
 // interface.
 var _ Message = (*UpdateFee)(nil)
 
+// A compile time check to ensure UpdateFee implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*UpdateFee)(nil)
+
 // Decode deserializes a serialized UpdateFee message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -70,6 +74,13 @@ func (c *UpdateFee) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFee) MsgType() MessageType {
 	return MsgUpdateFee
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *UpdateFee) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }
 
 // TargetChanID returns the channel id of the link for which this message is

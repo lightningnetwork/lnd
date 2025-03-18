@@ -110,6 +110,10 @@ func NewUpdateAddHTLC() *UpdateAddHTLC {
 // interface.
 var _ Message = (*UpdateAddHTLC)(nil)
 
+// A compile time check to ensure UpdateAddHTLC implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*UpdateAddHTLC)(nil)
+
 // Decode deserializes a serialized UpdateAddHTLC message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -211,4 +215,11 @@ func (c *UpdateAddHTLC) MsgType() MessageType {
 // NOTE: Part of peer.LinkUpdater interface.
 func (c *UpdateAddHTLC) TargetChanID() ChannelID {
 	return c.ChanID
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *UpdateAddHTLC) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

@@ -44,12 +44,16 @@ func NewUpdateFulfillHTLC(chanID ChannelID, id uint64,
 	}
 }
 
-// A compile time check to ensure UpdateFulfillHTLC implements the lnwire.Message
-// interface.
+// A compile time check to ensure UpdateFulfillHTLC implements the
+// lnwire.Message interface.
 var _ Message = (*UpdateFulfillHTLC)(nil)
 
-// Decode deserializes a serialized UpdateFulfillHTLC message stored in the passed
-// io.Reader observing the specified protocol version.
+// A compile time check to ensure UpdateFulfillHTLC implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*UpdateFulfillHTLC)(nil)
+
+// Decode deserializes a serialized UpdateFulfillHTLC message stored in the
+// passed io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) Decode(r io.Reader, pver uint32) error {
@@ -113,6 +117,13 @@ func (c *UpdateFulfillHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *UpdateFulfillHTLC) MsgType() MessageType {
 	return MsgUpdateFulfillHTLC
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *UpdateFulfillHTLC) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }
 
 // TargetChanID returns the channel id of the link for which this message is

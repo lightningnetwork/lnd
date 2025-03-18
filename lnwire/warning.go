@@ -29,6 +29,10 @@ type Warning struct {
 // interface.
 var _ Message = (*Warning)(nil)
 
+// A compile time check to ensure Warning implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*Warning)(nil)
+
 // NewWarning creates a new Warning message.
 func NewWarning() *Warning {
 	return &Warning{}
@@ -73,4 +77,11 @@ func (c *Warning) Encode(w *bytes.Buffer, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *Warning) MsgType() MessageType {
 	return MsgWarning
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *Warning) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

@@ -2,12 +2,14 @@ package commands
 
 import (
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"math"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli"
 )
 
 // TestParseChanPoint tests parseChanPoint with various
@@ -325,6 +327,110 @@ func TestAppendChanID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := appendChanID([]byte(tc.data))
 			require.Equal(t, tc.expected, string(result))
+		})
+	}
+}
+
+// TestParseBlockHeightInputs tests the input block heights and ensure that the
+// proper errors are returned when they could lead in invalid results.
+func TestParseBlockHeightInputs(t *testing.T) {
+	t.Parallel()
+
+	app := cli.NewApp()
+
+	startDefault, endDefault := int64(0), int64(-1)
+
+	testCases := []struct {
+		name          string
+		expectedStart int32
+		expectedEnd   int32
+		expectedErr   string
+	}{
+		{
+			name:          "start less than end",
+			expectedStart: 100,
+			expectedEnd:   200,
+			expectedErr:   "",
+		},
+		{
+			name:          "start greater than end",
+			expectedStart: 200,
+			expectedEnd:   100,
+			expectedErr: "start_height should be " +
+				"less than end_height if end_height is " +
+				"not equal to -1",
+		},
+		{
+			name:          "only start height set",
+			expectedStart: 100,
+			expectedEnd:   -1,
+			expectedErr:   "",
+		},
+		{
+			name:          "start set and end height set as -1",
+			expectedStart: 100,
+			expectedEnd:   -1,
+			expectedErr:   "",
+		},
+		{
+			name:          "neither start nor end heights defined",
+			expectedStart: 0,
+			expectedEnd:   -1,
+			expectedErr:   "",
+		},
+		{
+			name:          "only end height defined",
+			expectedStart: 0,
+			expectedEnd:   100,
+			expectedErr:   "",
+		},
+		{
+			name:          "start height is a negative",
+			expectedStart: -1,
+			expectedEnd:   100,
+			expectedErr: "start_height should be greater " +
+				"than or equal to 0",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			flagSet := flag.NewFlagSet(
+				"listchaintxns", flag.ContinueOnError,
+			)
+
+			var startHeight, endHeight int64
+			flagSet.Int64Var(
+				&startHeight, "start_height", startDefault, "",
+			)
+			flagSet.Int64Var(
+				&endHeight, "end_height", endDefault, "",
+			)
+
+			err := flagSet.Set(
+				"start_height",
+				strconv.Itoa(int(tc.expectedStart)),
+			)
+			require.NoError(
+				t, err, "failed to set start_height flag",
+			)
+
+			err = flagSet.Set(
+				"end_height", strconv.Itoa(int(tc.expectedEnd)),
+			)
+			require.NoError(
+				t, err, "failed to set end_height flag",
+			)
+
+			ctx := cli.NewContext(app, flagSet, nil)
+			start, end, err := parseBlockHeightInputs(ctx)
+			if tc.expectedErr != "" {
+				require.EqualError(t, err, tc.expectedErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tc.expectedStart, start)
+			require.Equal(t, tc.expectedEnd, end)
 		})
 	}
 }

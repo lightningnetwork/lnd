@@ -242,6 +242,10 @@
   access the RPC server would give an error saying the wallet is encrypted. This
   is now fixed to show specifically which RPC server is missing.
 
+* [Enhanced](https://github.com/lightningnetwork/lnd/pull/9558)  
+  `listchaintxns` command with improved input validation, robust error handling,
+  tests, and updated documentation.
+
 ## Code Health
 
 * [Add retry logic](https://github.com/lightningnetwork/lnd/pull/8381) for
@@ -429,6 +433,7 @@ The underlying functionality between those two options remain the same.
 * Nishant Bansal
 * Oliver Gugger
 * Pins
+* kornpow
 * Viktor Tigerström
 * Yong Yu
 * Ziggie

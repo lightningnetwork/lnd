@@ -98,7 +98,7 @@
 ## Protocol Updates
 
 * `lnd` now [supports the new RBF cooperative close
-flow](https://github.com/lightningnetwork/lnd/pull/8453). Unlike the old flow,
+flow](https://github.com/lightningnetwork/lnd/pull/9610). Unlike the old flow,
 this version now uses RBF to enable either side to increase their fee rate using
 their _own_ channel funds. This removes the old "negotiation" logic that could
 fail, with a version where either side can increase the fee on their coop close
@@ -106,6 +106,10 @@ transaction using their channel balance.
 
 This new feature can be activated with a new config flag:
 `--protocol.rbf-coop-close`.
+
+With this new co-op close type, users can issue multiple `lncli closechannnel`
+commands with increasing fee rates to use RBF to bump an existing signed co-op
+close transaction.
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
   [experimental endorsement](https://github.com/lightning/blips/pull/27) 

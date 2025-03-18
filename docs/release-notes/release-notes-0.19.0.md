@@ -91,6 +91,9 @@
 * [Pass through](https://github.com/lightningnetwork/lnd/pull/9601) the unused
   `MaxPeers` configuration variable for neutrino mode.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9609) a bug that may
+  cause `listunspent` to give inaccurate wallet UTXOs.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

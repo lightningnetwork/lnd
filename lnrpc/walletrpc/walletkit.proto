@@ -841,6 +841,7 @@ message SendOutputsResponse {
 message EstimateFeeRequest {
     /*
     The number of confirmations to shoot for when estimating the fee.
+    Must be greater than 1.
     */
     int32 conf_target = 1;
 }
@@ -1402,6 +1403,7 @@ message FundPsbtRequest {
     oneof fees {
         /*
         The target number of blocks that the transaction should be confirmed in.
+        Must be greater than 1.
         */
         uint32 target_conf = 3;
 

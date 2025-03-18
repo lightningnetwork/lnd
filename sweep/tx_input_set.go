@@ -244,6 +244,28 @@ func (b *BudgetInputSet) addInput(input SweeperInput) {
 	b.inputs = append(b.inputs, &input)
 }
 
+// addWalletInput takes a wallet UTXO and adds it as an input to be used as
+// budget for the input set.
+func (b *BudgetInputSet) addWalletInput(utxo *lnwallet.Utxo) error {
+	input, err := createWalletTxInput(utxo)
+	if err != nil {
+		return err
+	}
+
+	pi := SweeperInput{
+		Input: input,
+		params: Params{
+			DeadlineHeight: fn.Some(b.deadlineHeight),
+		},
+	}
+	b.addInput(pi)
+
+	log.Debugf("Added wallet input to input set: op=%v, amt=%v",
+		pi.OutPoint(), utxo.Value)
+
+	return nil
+}
+
 // NeedWalletInput returns true if the input set needs more wallet inputs.
 //
 // A set may need wallet inputs when it has a required output or its total
@@ -326,6 +348,11 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return fmt.Errorf("list unspent witness: %w", err)
 	}
 
+	// Exit early if there are no wallet UTXOs.
+	if len(utxos) == 0 {
+		return ErrNotEnoughInputs
+	}
+
 	// Sort the UTXOs by putting smaller values at the start of the slice
 	// to avoid locking large UTXO for sweeping.
 	//
@@ -342,21 +369,10 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 
 	// Add wallet inputs to the set until the specified budget is covered.
 	for _, utxo := range utxos {
-		input, err := createWalletTxInput(utxo)
+		err := b.addWalletInput(utxo)
 		if err != nil {
 			return err
 		}
-
-		pi := SweeperInput{
-			Input: input,
-			params: Params{
-				DeadlineHeight: fn.Some(b.deadlineHeight),
-			},
-		}
-		b.addInput(pi)
-
-		log.Debugf("Added wallet input to input set: op=%v, amt=%v",
-			pi.OutPoint(), utxo.Value)
 
 		// Return if we've reached the minimum output amount.
 		if !b.NeedWalletInput() {

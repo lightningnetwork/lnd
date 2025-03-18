@@ -133,6 +133,47 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	require.Equal(t, btcutil.Amount(200), set.Budget())
 }
 
+// TestAddWalletInput asserts `addWalletInput` successfully converts a wallet
+// UTXO into a `SweeperInput` with the correct deadline.
+func TestAddWalletInput(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing deadline.
+	deadline := int32(1000)
+
+	// Initialize an empty input set.
+	set := &BudgetInputSet{
+		deadlineHeight: deadline,
+	}
+
+	// Create an utxo with unknown address type to trigger an error.
+	utxo := &lnwallet.Utxo{
+		AddressType: lnwallet.UnknownAddressType,
+	}
+
+	// Check that the error is returned from addWalletInput.
+	err := set.addWalletInput(utxo)
+	require.Error(t, err)
+
+	// Create a wallet utxo.
+	utxo = &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       1000,
+	}
+
+	// Check that no error is returned from addWalletInput.
+	err = set.addWalletInput(utxo)
+	require.NoError(t, err)
+
+	// Check the input has been added to the set.
+	require.Len(t, set.inputs, 1)
+
+	// Assert the wallet input is added using the set's deadline.
+	inp := set.inputs[0]
+	require.True(t, inp.params.DeadlineHeight.IsSome())
+	require.Equal(t, deadline, inp.params.DeadlineHeight.UnsafeFromSome())
+}
+
 // TestNeedWalletInput checks that NeedWalletInput correctly determines if a
 // wallet input is needed.
 func TestNeedWalletInput(t *testing.T) {

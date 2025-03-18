@@ -1076,7 +1076,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 
 			// Silence ErrEdgeAlreadyExist so that the batch can
 			// succeed, but propagate the error via local state.
-			if err == ErrEdgeAlreadyExist {
+			if errors.Is(err, ErrEdgeAlreadyExist) {
 				alreadyExists = true
 				return nil
 			}
@@ -3493,7 +3493,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
 		policy1 = nil
 		policy2 = nil
 	})
-	if err == ErrZombieEdge {
+	if errors.Is(err, ErrZombieEdge) {
 		return edgeInfo, nil, nil, err
 	}
 	if err != nil {

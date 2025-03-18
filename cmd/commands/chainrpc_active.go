@@ -5,7 +5,6 @@ package commands
 
 import (
 	"bytes"
-	"fmt"
 	"strconv"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -80,7 +79,7 @@ func getBlock(ctx *cli.Context) error {
 		blockHashString = args.First()
 
 	default:
-		return fmt.Errorf("hash argument missing")
+		return errors.New("hash argument missing")
 	}
 
 	blockHash, err := chainhash.NewHashFromStr(blockHashString)
@@ -233,7 +232,7 @@ func getBlockHash(ctx *cli.Context) error {
 		}
 
 	default:
-		return fmt.Errorf("block height argument missing")
+		return errors.New("block height argument missing")
 	}
 
 	client, cleanUp := getChainClient(ctx)

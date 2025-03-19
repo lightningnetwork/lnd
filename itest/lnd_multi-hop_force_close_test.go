@@ -2570,7 +2570,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// We'll now mine enough blocks so Carol decides that she needs to go
 	// on-chain to claim the HTLC as Bob has been inactive.
 	numBlocks := padCLTV(
-		invoiceExpiry - ht.CurrentHeight() - incomingBroadcastDelta - 1,
+		invoiceExpiry - ht.CurrentHeight() - incomingBroadcastDelta,
 	)
 	ht.MineBlocks(int(numBlocks))
 

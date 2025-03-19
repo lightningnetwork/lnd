@@ -1957,7 +1957,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// initial broadcast always succeeds.
 	assertFeeRateGreater(testFeeRate)
 
-	// Clean up the mempol.
+	// Clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
 
@@ -2373,6 +2373,6 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 		uint64(feeRate), 0.02, "want %d, got %d in tx=%v",
 		currentFeeRate, feeRate, outgoingSweep2.TxHash())
 
-	// Finally, clean the mempol.
+	// Finally, clean the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 }

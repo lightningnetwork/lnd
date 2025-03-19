@@ -247,7 +247,15 @@ func (h *HarnessTest) GetBestBlock() (*chainhash.Hash, int32) {
 
 // MineBlockWithTx mines a single block to include the specifies tx only.
 func (h *HarnessTest) MineBlockWithTx(tx *wire.MsgTx) *wire.MsgBlock {
-	return h.miner.MineBlockWithTx(tx)
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
+
+	block := h.miner.MineBlockWithTx(tx)
+
+	// Finally, make sure all the active nodes are synced.
+	h.AssertActiveNodesSyncedTo(block.BlockHash())
+
+	return block
 }
 
 // ConnectToMiner connects the miner to a temp miner.

@@ -124,7 +124,8 @@ type ChannelUpdate1 struct {
 // interface.
 var _ Message = (*ChannelUpdate1)(nil)
 
-// A compile time check to ensure ChannelUpdate1 implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure ChannelUpdate1 implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*ChannelUpdate1)(nil)
 
 // Decode deserializes a serialized ChannelUpdate stored in the passed

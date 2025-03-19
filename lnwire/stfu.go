@@ -24,7 +24,8 @@ type Stfu struct {
 // A compile time check to ensure Stfu implements the lnwire.Message interface.
 var _ Message = (*Stfu)(nil)
 
-// A compile time check to ensure Stfu implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure Stfu implements the lnwire.SizeableMessage
+// interface.
 var _ SizeableMessage = (*Stfu)(nil)
 
 // Encode serializes the target Stfu into the passed io.Writer.

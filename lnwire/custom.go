@@ -69,7 +69,7 @@ type Custom struct {
 	Data []byte
 }
 
-// A compile time check to ensure FundingCreated implements the lnwire.Message
+// A compile time check to ensure Custom implements the lnwire.Message
 // interface.
 var _ Message = (*Custom)(nil)
 

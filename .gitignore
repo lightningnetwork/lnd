@@ -80,3 +80,5 @@ coverage.txt
 # Release build directory (to avoid build.vcs.modified Golang build tag to be
 # set to true by having untracked files in the working directory).
 /lnd-*/
+
+.aider*

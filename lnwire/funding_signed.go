@@ -36,8 +36,8 @@ type FundingSigned struct {
 // interface.
 var _ Message = (*FundingSigned)(nil)
 
-// A compile time check to ensure FundingSigned implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure FundingSigned implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*FundingSigned)(nil)
 
 // Encode serializes the target FundingSigned into the passed io.Writer

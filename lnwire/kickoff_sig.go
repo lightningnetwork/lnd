@@ -27,6 +27,10 @@ type KickoffSig struct {
 // interface.
 var _ Message = (*KickoffSig)(nil)
 
+// A compile time check to ensure KickoffSig implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*KickoffSig)(nil)
+
 // Encode serializes the target KickoffSig into the passed bytes.Buffer
 // observing the specified protocol version.
 //
@@ -54,3 +58,10 @@ func (ks *KickoffSig) Decode(r io.Reader, _ uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (ks *KickoffSig) MsgType() MessageType { return MsgKickoffSig }
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (ks *KickoffSig) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(ks)
+}

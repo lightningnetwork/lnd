@@ -55,7 +55,8 @@ func NewRevokeAndAck() *RevokeAndAck {
 // interface.
 var _ Message = (*RevokeAndAck)(nil)
 
-// A compile time check to ensure RevokeAndAck implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure RevokeAndAck implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*RevokeAndAck)(nil)
 
 // Decode deserializes a serialized RevokeAndAck message stored in the

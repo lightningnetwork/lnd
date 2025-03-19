@@ -164,8 +164,8 @@ type OpenChannel struct {
 // interface.
 var _ Message = (*OpenChannel)(nil)
 
-// A compile time check to ensure OpenChannel implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure OpenChannel implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*OpenChannel)(nil)
 
 // Encode serializes the target OpenChannel into the passed io.Writer

@@ -118,6 +118,6 @@ func (c *ClosingSig) SerializedSize() (uint32, error) {
 // interface.
 var _ Message = (*ClosingSig)(nil)
 
-// A compile time check to ensure ClosingSig implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure ClosingSig implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*ClosingSig)(nil)

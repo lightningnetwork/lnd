@@ -64,7 +64,8 @@ func NewCommitSig() *CommitSig {
 // interface.
 var _ Message = (*CommitSig)(nil)
 
-// A compile time check to ensure CommitSig implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure CommitSig implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*CommitSig)(nil)
 
 // Decode deserializes a serialized CommitSig message stored in the

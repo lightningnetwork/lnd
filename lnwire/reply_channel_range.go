@@ -70,7 +70,8 @@ func NewReplyChannelRange() *ReplyChannelRange {
 // lnwire.Message interface.
 var _ Message = (*ReplyChannelRange)(nil)
 
-// A compile time check to ensure ReplyChannelRange implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure ReplyChannelRange implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*ReplyChannelRange)(nil)
 
 // Decode deserializes a serialized ReplyChannelRange message stored in the

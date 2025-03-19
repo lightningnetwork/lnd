@@ -49,8 +49,8 @@ func NewQueryChannelRange() *QueryChannelRange {
 // lnwire.Message interface.
 var _ Message = (*QueryChannelRange)(nil)
 
-// A compile time check to ensure QueryChannelRange implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure QueryChannelRange implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*QueryChannelRange)(nil)
 
 // Decode deserializes a serialized QueryChannelRange message stored in the

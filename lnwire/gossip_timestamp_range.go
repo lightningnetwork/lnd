@@ -58,7 +58,8 @@ func NewGossipTimestampRange() *GossipTimestampRange {
 // lnwire.Message interface.
 var _ Message = (*GossipTimestampRange)(nil)
 
-// A compile time check to ensure GossipTimestampRange implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure GossipTimestampRange implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*GossipTimestampRange)(nil)
 
 // Decode deserializes a serialized GossipTimestampRange message stored in the

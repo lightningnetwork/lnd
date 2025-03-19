@@ -39,7 +39,8 @@ func NewReplyShortChanIDsEnd() *ReplyShortChanIDsEnd {
 // lnwire.Message interface.
 var _ Message = (*ReplyShortChanIDsEnd)(nil)
 
-// A compile time check to ensure ReplyShortChanIDsEnd implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure ReplyShortChanIDsEnd implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*ReplyShortChanIDsEnd)(nil)
 
 // Decode deserializes a serialized ReplyShortChanIDsEnd message stored in the

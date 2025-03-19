@@ -91,8 +91,8 @@ func NewQueryShortChanIDs(h chainhash.Hash, e QueryEncoding,
 // lnwire.Message interface.
 var _ Message = (*QueryShortChanIDs)(nil)
 
-// A compile time check to ensure QueryShortChanIDs implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure QueryShortChanIDs implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*QueryShortChanIDs)(nil)
 
 // Decode deserializes a serialized QueryShortChanIDs message stored in the

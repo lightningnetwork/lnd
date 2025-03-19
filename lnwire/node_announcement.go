@@ -104,7 +104,8 @@ type NodeAnnouncement struct {
 // lnwire.Message interface.
 var _ Message = (*NodeAnnouncement)(nil)
 
-// A compile time check to ensure NodeAnnouncement implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure NodeAnnouncement implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*NodeAnnouncement)(nil)
 
 // Decode deserializes a serialized NodeAnnouncement stored in the passed

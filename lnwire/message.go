@@ -65,6 +65,11 @@ const (
 	MsgChannelAnnouncement2                = 267
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
+
+	// MsgEnd defines the end of the official message range of the protocol.
+	// If a new message is added beyond this message, then this should be
+	// modified.
+	MsgEnd = 778
 )
 
 // IsChannelUpdate is a filter function that discerns channel update messages

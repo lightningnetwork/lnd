@@ -128,8 +128,8 @@ type AcceptChannel struct {
 // interface.
 var _ Message = (*AcceptChannel)(nil)
 
-// A compile time check to ensure AcceptChannel implements the lnwire.SizeableMessage
-// interface.
+// A compile time check to ensure AcceptChannel implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*AcceptChannel)(nil)
 
 // Encode serializes the target AcceptChannel into the passed io.Writer

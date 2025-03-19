@@ -59,7 +59,8 @@ func NewClosingSigned(cid ChannelID, fs btcutil.Amount,
 // interface.
 var _ Message = (*ClosingSigned)(nil)
 
-// A compile time check to ensure ClosingSigned implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure ClosingSigned implements the
+// lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*ClosingSigned)(nil)
 
 // Decode deserializes a serialized ClosingSigned message stored in the passed

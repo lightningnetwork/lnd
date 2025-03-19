@@ -1114,6 +1114,14 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
 
+	// When the error is due to not enough inputs to cover the budget, we'll
+	// send a TxFailed event so these inputs can be retried when the wallet
+	// has more UTXOs.
+	case errors.Is(err, ErrNotEnoughInputs),
+		errors.Is(err, ErrNotEnoughBudget):
+
+		result.Event = TxFailed
+
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
 	case errors.Is(err, ErrInputMissing):
@@ -1757,9 +1765,11 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 
 	// Make sure total output amount is less than total input amount.
 	if requiredOutput+txFee > totalInput {
-		return 0, noChange, noLocktime, fmt.Errorf("insufficient "+
-			"input to create sweep tx: input_sum=%v, "+
-			"output_sum=%v", totalInput, requiredOutput+txFee)
+		log.Errorf("Insufficient input to create sweep tx: "+
+			"input_sum=%v, output_sum=%v", totalInput,
+			requiredOutput+txFee)
+
+		return 0, noChange, noLocktime, ErrNotEnoughInputs
 	}
 
 	// The value remaining after the required output and fees is the

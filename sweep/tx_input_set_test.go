@@ -386,12 +386,12 @@ func TestNeedWalletInput(t *testing.T) {
 	}
 }
 
-// TestAddWalletInputReturnErr tests the three possible errors returned from
+// TestAddWalletInputsReturnErr tests the three possible errors returned from
 // AddWalletInputs:
 // - error from ListUnspentWitnessFromDefaultAccount.
 // - error from createWalletTxInput.
 // - error when wallet doesn't have utxos.
-func TestAddWalletInputReturnErr(t *testing.T) {
+func TestAddWalletInputsReturnErr(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}
@@ -436,10 +436,9 @@ func TestAddWalletInputReturnErr(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotEnoughInputs)
 }
 
-// TestAddWalletInputNotEnoughInputs checks that when there are not enough
-// wallet utxos, an error is returned and the budget set is reset to its
-// initial state.
-func TestAddWalletInputNotEnoughInputs(t *testing.T) {
+// TestAddWalletInputsNotEnoughInputs checks that when there are not enough
+// wallet utxos, no error is returned as long as the wallet is not empty.
+func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}
@@ -476,19 +475,18 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 	// Initialize an input set with the pending input.
 	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
 
-	// Add wallet inputs to the input set, which should give us an error as
-	// the wallet cannot cover the budget.
+	// Add wallet inputs to the input set, which should return no error
+	// although the wallet cannot cover the budget.
 	err := set.AddWalletInputs(wallet)
-	require.ErrorIs(t, err, ErrNotEnoughInputs)
+	require.NoError(t, err)
 
-	// Check that the budget set is reverted to its initial state.
-	require.Len(t, set.inputs, 1)
-	require.Equal(t, pi, set.inputs[0])
+	// Check that the budget set is updated.
+	require.Len(t, set.inputs, 2)
 }
 
-// TestAddWalletInputSuccess checks that when there are enough wallet utxos,
+// TestAddWalletInputsSuccess checks that when there are enough wallet utxos,
 // they are added to the input set.
-func TestAddWalletInputSuccess(t *testing.T) {
+func TestAddWalletInputsSuccess(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}

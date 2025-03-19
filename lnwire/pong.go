@@ -39,7 +39,8 @@ func NewPong(pongBytes []byte) *Pong {
 // A compile time check to ensure Pong implements the lnwire.Message interface.
 var _ Message = (*Pong)(nil)
 
-// A compile time check to ensure Pong implements the lnwire.SizeableMessage interface.
+// A compile time check to ensure Pong implements the lnwire.SizeableMessage
+// interface.
 var _ SizeableMessage = (*Pong)(nil)
 
 // Decode deserializes a serialized Pong message stored in the passed io.Reader

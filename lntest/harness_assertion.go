@@ -534,8 +534,8 @@ func (h HarnessTest) WaitForChannelCloseEvent(
 	require.NoError(h, err)
 
 	resp, ok := event.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
-	require.Truef(h, ok, "expected channel open update, instead got %v",
-		resp)
+	require.Truef(h, ok, "expected channel close update, instead got %v",
+		event.Update)
 
 	txid, err := chainhash.NewHash(resp.ChanClose.ClosingTxid)
 	require.NoErrorf(h, err, "wrong format found in closing txid: %v",

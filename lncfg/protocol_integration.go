@@ -41,6 +41,10 @@ type ProtocolOptions struct {
 	// TODO(halseth): transition itests to anchors instead!
 	Anchors bool `long:"anchors" description:"enable support for anchor commitments"`
 
+	// RbfCoopClose should be set if we want to signal that we support for
+	// the new experimental RBF coop close feature.
+	RbfCoopClose bool `long:"rbf-coop-close" description:"if set, then lnd will signal that it supports the new RBF based coop close protocol"`
+
 	// ScriptEnforcedLease enables script enforced commitments for channel
 	// leases.
 	//

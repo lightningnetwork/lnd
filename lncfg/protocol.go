@@ -35,6 +35,10 @@ type ProtocolOptions struct {
 	// the experimental taproot overlay chan type.
 	TaprootOverlayChans bool `long:"simple-taproot-overlay-chans" description:"if set, then lnd will create and accept requests for channels using the taproot overlay commitment type"`
 
+	// RbfCoopClose should be set if we want to signal that we support for
+	// the new experimental RBF coop close feature.
+	RbfCoopClose bool `long:"rbf-coop-close" description:"if set, then lnd will signal that it supports the new RBF based coop close protocol"`
+
 	// NoAnchors should be set if we don't want to support opening or accepting
 	// channels having the anchor commitment type.
 	NoAnchors bool `long:"no-anchors" description:"disable support for anchor commitments"`

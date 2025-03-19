@@ -1,8 +1,10 @@
 package chancloser
 
 import (
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 // RbfMsgMapper is a struct that implements the MsgMapper interface for the
@@ -16,16 +18,21 @@ type RbfMsgMapper struct {
 
 	// chanID is the channel ID of the channel being closed.
 	chanID lnwire.ChannelID
+
+	// peerPub is the public key of the peer that the channel is being
+	// closed.
+	peerPub btcec.PublicKey
 }
 
 // NewRbfMsgMapper creates a new RbfMsgMapper instance given the current block
 // height when the co-op close request was initiated.
 func NewRbfMsgMapper(blockHeight uint32,
-	chanID lnwire.ChannelID) *RbfMsgMapper {
+	chanID lnwire.ChannelID, peerPub btcec.PublicKey) *RbfMsgMapper {
 
 	return &RbfMsgMapper{
 		blockHeight: blockHeight,
 		chanID:      chanID,
+		peerPub:     peerPub,
 	}
 }
 
@@ -34,18 +41,20 @@ func someEvent[T ProtocolEvent](m T) fn.Option[ProtocolEvent] {
 	return fn.Some(ProtocolEvent(m))
 }
 
-// isExpectedChanID returns true if the channel ID of the message matches the
+// isForUs returns true if the channel ID + pubkey of the message matches the
 // bound instance.
-func (r *RbfMsgMapper) isExpectedChanID(chanID lnwire.ChannelID) bool {
-	return r.chanID == chanID
+func (r *RbfMsgMapper) isForUs(chanID lnwire.ChannelID,
+	fromPub btcec.PublicKey) bool {
+
+	return r.chanID == chanID && r.peerPub.IsEqual(&fromPub)
 }
 
 // MapMsg maps a wire message into a FSM event. If the message is not mappable,
 // then an error is returned.
-func (r *RbfMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[ProtocolEvent] {
-	switch msg := wireMsg.(type) {
+func (r *RbfMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[ProtocolEvent] {
+	switch msg := wireMsg.Message.(type) {
 	case *lnwire.Shutdown:
-		if !r.isExpectedChanID(msg.ChannelID) {
+		if !r.isForUs(msg.ChannelID, wireMsg.PeerPub) {
 			return fn.None[ProtocolEvent]()
 		}
 
@@ -55,7 +64,7 @@ func (r *RbfMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[ProtocolEvent] {
 		})
 
 	case *lnwire.ClosingComplete:
-		if !r.isExpectedChanID(msg.ChannelID) {
+		if !r.isForUs(msg.ChannelID, wireMsg.PeerPub) {
 			return fn.None[ProtocolEvent]()
 		}
 
@@ -64,7 +73,7 @@ func (r *RbfMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[ProtocolEvent] {
 		})
 
 	case *lnwire.ClosingSig:
-		if !r.isExpectedChanID(msg.ChannelID) {
+		if !r.isForUs(msg.ChannelID, wireMsg.PeerPub) {
 			return fn.None[ProtocolEvent]()
 		}
 

@@ -9269,13 +9269,19 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		closeTx.LockTime = lockTime
 	})
 
-	// TODO(roasbeef): needs support for dropping inputs
-
-	// Create both cooperative closure outputs, properly respecting the
-	// dust limits of both parties.
+	// Create both cooperative closure outputs, properly respecting the dust
+	// limits of both parties.
 	var localOutputIdx fn.Option[int]
 	haveLocalOutput := ourBalance >= localDust
 	if haveLocalOutput {
+		// If our script is an OP_RETURN, then we set our balance to
+		// zero.
+		if opts.customSequence.IsSome() &&
+			input.ScriptIsOpReturn(ourDeliveryScript) {
+
+			ourBalance = 0
+		}
+
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: ourDeliveryScript,
 			Value:    int64(ourBalance),
@@ -9287,6 +9293,14 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	var remoteOutputIdx fn.Option[int]
 	haveRemoteOutput := theirBalance >= remoteDust
 	if haveRemoteOutput {
+		// If a party's script is an OP_RETURN, then we set their
+		// balance to zero.
+		if opts.customSequence.IsSome() &&
+			input.ScriptIsOpReturn(theirDeliveryScript) {
+
+			theirBalance = 0
+		}
+
 		closeTx.AddTxOut(&wire.TxOut{
 			PkScript: theirDeliveryScript,
 			Value:    int64(theirBalance),
@@ -9874,6 +9888,14 @@ func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
 	return &lc.fundingOutput
 }
 
+// DeriveHeightHint derives the block height for the channel opening.
+func (lc *LightningChannel) DeriveHeightHint() uint32 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.DeriveHeightHint()
+}
+
 // MultiSigKeys returns the set of multi-sig keys for an channel.
 func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
 	keychain.KeyDescriptor) {
@@ -9912,4 +9934,17 @@ func (lc *LightningChannel) FundingBlob() fn.Option[tlv.Blob] {
 
 		return newBlob
 	})(lc.channelState.CustomBlob)
+}
+
+// ZeroConfRealScid returns an optional real scid for the channel. If this
+// returns None, then this isn't a zero conf channel. Otherwise, the real scid
+// value will be returned.
+//
+//nolint:ll
+func (lc *LightningChannel) ZeroConfRealScid() fn.Option[lnwire.ShortChannelID] {
+	if lc.channelState.IsZeroConf() {
+		return fn.Some(lc.channelState.ZeroConfRealScid())
+	}
+
+	return fn.None[lnwire.ShortChannelID]()
 }

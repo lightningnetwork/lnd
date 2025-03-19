@@ -1208,14 +1208,79 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 		"error returned, want %v, got %v", expectedErr, err)
 }
 
+// closeChannelOpts holds the options for closing a channel.
+type closeChannelOpts struct {
+	feeRate fn.Option[chainfee.SatPerVByte]
+
+	// localTxOnly is a boolean indicating if we should only attempt to
+	// consume close pending notifications for the local transaction.
+	localTxOnly bool
+
+	// skipMempoolCheck is a boolean indicating if we should skip the normal
+	// mempool check after a coop close.
+	skipMempoolCheck bool
+
+	// errString is an expected error. If this is non-blank, then we'll
+	// assert that the coop close wasn't possible, and returns an error that
+	// contains this err string.
+	errString string
+}
+
+// CloseChanOpt is a functional option to modify the way we close a channel.
+type CloseChanOpt func(*closeChannelOpts)
+
+// WithCoopCloseFeeRate is a functional option to set the fee rate for a coop
+// close attempt.
+func WithCoopCloseFeeRate(rate chainfee.SatPerVByte) CloseChanOpt {
+	return func(o *closeChannelOpts) {
+		o.feeRate = fn.Some(rate)
+	}
+}
+
+// WithLocalTxNotify is a functional option to indicate that we should only
+// notify for the local txn. This is useful for the RBF coop close type, as
+// it'll notify for both local and remote txns.
+func WithLocalTxNotify() CloseChanOpt {
+	return func(o *closeChannelOpts) {
+		o.localTxOnly = true
+	}
+}
+
+// WithSkipMempoolCheck is a functional option to indicate that we should skip
+// the mempool check. This can be used when a coop close iteration may not
+// result in a newly broadcast transaction.
+func WithSkipMempoolCheck() CloseChanOpt {
+	return func(o *closeChannelOpts) {
+		o.skipMempoolCheck = true
+	}
+}
+
+// WithExpectedErrString is a functional option that can be used to assert that
+// an error occurs during the coop close process.
+func WithExpectedErrString(errString string) CloseChanOpt {
+	return func(o *closeChannelOpts) {
+		o.errString = errString
+	}
+}
+
+// defaultCloseOpts returns the set of default close options.
+func defaultCloseOpts() *closeChannelOpts {
+	return &closeChannelOpts{}
+}
+
 // CloseChannelAssertPending attempts to close the channel indicated by the
 // passed channel point, initiated by the passed node. Once the CloseChannel
 // rpc is called, it will consume one event and assert it's a close pending
 // event. In addition, it will check that the closing tx can be found in the
 // mempool.
 func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint,
-	force bool) (rpc.CloseChanClient, chainhash.Hash) {
+	cp *lnrpc.ChannelPoint, force bool,
+	opts ...CloseChanOpt) (rpc.CloseChanClient, *lnrpc.CloseStatusUpdate) {
+
+	closeOpts := defaultCloseOpts()
+	for _, optFunc := range opts {
+		optFunc(closeOpts)
+	}
 
 	// Calls the rpc to close the channel.
 	closeReq := &lnrpc.CloseChannelRequest{
@@ -1224,10 +1289,9 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		NoWait:       true,
 	}
 
-	// For coop close, we use a default confg target of 6.
-	if !force {
-		closeReq.TargetConf = 6
-	}
+	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerVByte) {
+		closeReq.SatPerVbyte = uint64(feeRate)
+	})
 
 	var (
 		stream rpc.CloseChanClient
@@ -1242,25 +1306,52 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 	_, err = h.ReceiveCloseChannelUpdate(stream)
 	require.NoError(h, err, "close channel update got error: %v", err)
 
-	event, err = h.ReceiveCloseChannelUpdate(stream)
-	if err != nil {
-		h.Logf("Test: %s, close channel got error: %v",
-			h.manager.currentTestCase, err)
+	var closeTxid *chainhash.Hash
+	for {
+		event, err = h.ReceiveCloseChannelUpdate(stream)
+		if err != nil {
+			h.Logf("Test: %s, close channel got error: %v",
+				h.manager.currentTestCase, err)
+		}
+		if err != nil && closeOpts.errString == "" {
+			require.NoError(h, err, "retry closing channel failed")
+		} else if err != nil && closeOpts.errString != "" {
+			require.ErrorContains(h, err, closeOpts.errString)
+			return nil, nil
+		}
+
+		pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending) //nolint:ll
+		require.Truef(h, ok, "expected channel close "+
+			"update, instead got %v", pendingClose)
+
+		if !pendingClose.ClosePending.LocalCloseTx &&
+			closeOpts.localTxOnly {
+
+			continue
+		}
+
+		notifyRate := pendingClose.ClosePending.FeePerVbyte
+		if closeOpts.localTxOnly &&
+			notifyRate != int64(closeReq.SatPerVbyte) {
+
+			continue
+		}
+
+		closeTxid, err = chainhash.NewHash(
+			pendingClose.ClosePending.Txid,
+		)
+		require.NoErrorf(h, err, "unable to decode closeTxid: %v",
+			pendingClose.ClosePending.Txid)
+
+		break
 	}
-	require.NoError(h, err, "retry closing channel failed")
 
-	pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
-	require.Truef(h, ok, "expected channel close update, instead got %v",
-		pendingClose)
+	if !closeOpts.skipMempoolCheck {
+		// Assert the closing tx is in the mempool.
+		h.miner.AssertTxInMempool(*closeTxid)
+	}
 
-	closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
-	require.NoErrorf(h, err, "unable to decode closeTxid: %v",
-		pendingClose.ClosePending.Txid)
-
-	// Assert the closing tx is in the mempool.
-	h.miner.AssertTxInMempool(*closeTxid)
-
-	return stream, *closeTxid
+	return stream, event
 }
 
 // CloseChannel attempts to coop close a non-anchored channel identified by the

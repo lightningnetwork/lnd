@@ -30,6 +30,14 @@ type ClosingComplete struct {
 	// ChannelID serves to identify which channel is to be closed.
 	ChannelID ChannelID
 
+	// CloserScript is the script to which the channel funds will be paid
+	// for the closer (the person sending the ClosingComplete) message.
+	CloserScript DeliveryAddress
+
+	// CloseeScript is the script to which the channel funds will be paid
+	// (the person receiving the ClosingComplete message).
+	CloseeScript DeliveryAddress
+
 	// FeeSatoshis is the total fee in satoshis that the party to the
 	// channel would like to propose for the close transaction.
 	FeeSatoshis btcutil.Amount
@@ -79,7 +87,10 @@ func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
 // passed io.Reader.
 func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 	// First, read out all the fields that are hard coded into the message.
-	err := ReadElements(r, &c.ChannelID, &c.FeeSatoshis, &c.LockTime)
+	err := ReadElements(
+		r, &c.ChannelID, &c.CloserScript, &c.CloseeScript,
+		&c.FeeSatoshis, &c.LockTime,
+	)
 	if err != nil {
 		return err
 	}
@@ -122,6 +133,13 @@ func closingSigRecords(c *ClosingSigs) []tlv.RecordProducer {
 // Encode serializes the target ClosingComplete into the passed io.Writer.
 func (c *ClosingComplete) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, c.ChannelID); err != nil {
+		return err
+	}
+
+	if err := WriteDeliveryAddress(w, c.CloserScript); err != nil {
+		return err
+	}
+	if err := WriteDeliveryAddress(w, c.CloseeScript); err != nil {
 		return err
 	}
 

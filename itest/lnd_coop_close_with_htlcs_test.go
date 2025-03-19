@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -10,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -23,23 +25,47 @@ import (
 // will have the receiver settle the invoice and observe that the channel gets
 // torn down after settlement.
 func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
-	ht.Run("no restart", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		coopCloseWithHTLCs(tt)
-	})
+	rbfCoopFlags := []string{"--protocol.rbf-coop-close"}
 
-	ht.Run("with restart", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		coopCloseWithHTLCsWithRestart(tt)
-	})
+	for _, isRbf := range []bool{true, false} {
+		testName := fmt.Sprintf("no restart is_rbf=%v", isRbf)
+		ht.Run(testName, func(t *testing.T) {
+			tt := ht.Subtest(t)
+
+			var flags []string
+			if isRbf {
+				flags = rbfCoopFlags
+			}
+
+			alice := ht.NewNodeWithCoins("Alice", flags)
+			bob := ht.NewNodeWithCoins("bob", flags)
+
+			coopCloseWithHTLCs(tt, alice, bob)
+		})
+	}
+
+	for _, isRbf := range []bool{true, false} {
+		testName := fmt.Sprintf("with restart is_rbf=%v", isRbf)
+		ht.Run(testName, func(t *testing.T) {
+			tt := ht.Subtest(t)
+
+			var flags []string
+			if isRbf {
+				flags = rbfCoopFlags
+			}
+
+			alice := ht.NewNodeWithCoins("Alice", flags)
+			bob := ht.NewNodeWithCoins("bob", flags)
+
+			coopCloseWithHTLCsWithRestart(tt, alice, bob)
+		})
+	}
 }
 
 // coopCloseWithHTLCs tests the basic coop close scenario which occurs when one
 // channel party initiates a channel shutdown while an HTLC is still pending on
 // the channel.
-func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("bob", nil)
+func coopCloseWithHTLCs(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	ht.ConnectNodes(alice, bob)
 
 	// Here we set up a channel between Alice and Bob, beginning with a
@@ -131,9 +157,9 @@ func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
 // is still pending on the channel but this time it ensures that the shutdown
 // process continues as expected even if a channel re-establish happens after
 // one party has already initiated the shutdown.
-func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNodeWithCoins("bob", nil)
+func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest, alice,
+	bob *node.HarnessNode) {
+
 	ht.ConnectNodes(alice, bob)
 
 	// Open a channel between Alice and Bob with the balance split equally.
@@ -219,8 +245,8 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 	}, defaultTimeout)
 	require.NoError(ht, err)
 
-	// Wait for the close tx to be in the Mempool and then mine 6 blocks
-	// to confirm the close.
+	// Wait for the close tx to be in the Mempool and then mine 6 blocks to
+	// confirm the close.
 	closingTx := ht.AssertClosingTxInMempool(
 		chanPoint, lnrpc.CommitmentType_LEGACY,
 	)

@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -2448,6 +2449,72 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 		t.Fatalf("bob's balance is incorrect: expected %v, got %v",
 			aliceBal.ToSatoshis(), closeTx.TxOut[0].Value)
 	}
+}
+
+// TestCooperativeCloseOpReturn tests that if either party's script is an
+// OP_RETURN script, then we'll set their output value as zero on the closing
+// transaction.
+func TestCooperativeCloseOpReturn(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	// Alice will have a "normal" looking script, while Bob will have a
+	// script that's just an OP_RETURN.
+	aliceDeliveryScript := bobsPrivKey
+	bobDeliveryScript := []byte{txscript.OP_RETURN}
+
+	aliceFeeRate := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+	aliceFee := aliceChannel.CalcFee(aliceFeeRate) + 1000
+
+	assertBobOpReturn := func(tx *wire.MsgTx) {
+		// We should still have two outputs on the commitment
+		// transaction, as Alice's is non-dust.
+		require.Len(t, tx.TxOut, 2)
+
+		// We should find that Bob's output has a zero value.
+		bobTxOut := fn.Filter(tx.TxOut, func(txOut *wire.TxOut) bool {
+			return bytes.Equal(txOut.PkScript, bobDeliveryScript)
+		})
+		require.Len(t, bobTxOut, 1)
+
+		require.True(t, bobTxOut[0].Value == 0)
+	}
+
+	// Next, we'll make a new co-op close proposal, initiated by Alice.
+	aliceSig, closeTxAlice, _, err := aliceChannel.CreateCloseProposal(
+		aliceFee, aliceDeliveryScript, bobDeliveryScript,
+		// We use a custom sequence as this rule only applies to the RBF
+		// coop channel type.
+		WithCustomSequence(mempool.MaxRBFSequence),
+	)
+	require.NoError(t, err, "unable to close channel")
+
+	assertBobOpReturn(closeTxAlice)
+
+	bobSig, _, _, err := bobChannel.CreateCloseProposal(
+		aliceFee, bobDeliveryScript, aliceDeliveryScript,
+		WithCustomSequence(mempool.MaxRBFSequence),
+	)
+	require.NoError(t, err, "unable to close channel")
+
+	// We should now be able to complete the cooperative channel closure,
+	// finding that the close tx still only has a single output.
+	closeTx, _, err := bobChannel.CompleteCooperativeClose(
+		bobSig, aliceSig, bobDeliveryScript, aliceDeliveryScript,
+		aliceFee, WithCustomSequence(mempool.MaxRBFSequence),
+	)
+	require.NoError(t, err, "unable to accept channel close")
+
+	assertBobOpReturn(closeTx)
 }
 
 // TestUpdateFeeAdjustments tests that the state machine is able to properly

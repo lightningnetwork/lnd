@@ -2215,13 +2215,6 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		mock.Anything, rt,
 	).Return(nil)
 
-	// Mock the control tower to return the mocked payment.
-	payment := &mockMPPayment{}
-	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
-
-	// Mock the payment to return nil failure reason.
-	payment.On("TerminalInfo").Return(nil, nil)
-
 	// Expect a successful send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
 	require.NoError(t, err)
@@ -2231,7 +2224,6 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
 }
 
 // TestSendToRouteSkipTempErrNonMPP checks that an error is return when
@@ -2352,18 +2344,11 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(tempErr)
 
-	// Mock the control tower to return the mocked payment.
-	payment := &mockMPPayment{}
-	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
-
 	// Mock the mission control to return a nil reason from reporting the
 	// attempt failure.
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(nil, nil)
-
-	// Mock the payment to return nil failure reason.
-	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
@@ -2374,7 +2359,6 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
 }
 
 // TestSendToRouteSkipTempErrPermanentFailure validates a permanent failure
@@ -2436,7 +2420,9 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
+	controlTower.On(
+		"FailPayment", payHash, mock.Anything,
+	).Return(nil).Once()
 
 	// Mock an error to be returned from sending the htlc.
 	payer.On("SendHTLC",
@@ -2448,13 +2434,6 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(&failureReason, nil)
 
-	// Mock the control tower to return the mocked payment.
-	payment := &mockMPPayment{}
-	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
-
-	// Mock the payment to return a failure reason.
-	payment.On("TerminalInfo").Return(nil, &failureReason)
-
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
 	require.Equal(t, permErr, err)
@@ -2464,7 +2443,6 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
 }
 
 // TestSendToRouteTempFailure validates a temporary failure will cause the
@@ -2525,7 +2503,9 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
+	controlTower.On(
+		"FailPayment", payHash, mock.Anything,
+	).Return(nil).Once()
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
@@ -2536,7 +2516,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
 	// Mock the payment to return nil failure reason.
-	payment.On("TerminalInfo").Return(nil, nil)
+	payment.On("TerminalInfo").Return(nil, nil).Once()
 
 	// Return a nil reason to mock a temporary failure.
 	missionControl.On("ReportPaymentFail",

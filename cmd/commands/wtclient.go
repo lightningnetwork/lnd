@@ -377,6 +377,7 @@ func policy(ctx *cli.Context) error {
 
 var sessionCommands = cli.Command{
 	Name: "session",
+	Usage: "Manage watchtower sessions",
 	Subcommands: []cli.Command{
 		terminateSessionCommand,
 	},
@@ -384,6 +385,7 @@ var sessionCommands = cli.Command{
 
 var terminateSessionCommand = cli.Command{
 	Name:      "terminate",
+	Usage:     "Terminates a specific session identified by its ID.",
 	ArgsUsage: "id",
 	Action:    actionDecorator(terminateSession),
 }

@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -14,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"golang.org/x/exp/maps"
 )
 
 var (
@@ -222,7 +223,7 @@ func UnmarshallCoinSelectionStrategy(strategy CoinSelectionStrategy,
 // used in various RPCs that handle scid alias mappings.
 func MarshalAliasMap(scidMap aliasmgr.ScidAliasMap) []*AliasMap {
 	return fn.Map(
-		maps.Keys(scidMap),
+		slices.Collect(maps.Keys(scidMap)),
 		func(base lnwire.ShortChannelID) *AliasMap {
 			return &AliasMap{
 				BaseScid: base.ToUint64(),

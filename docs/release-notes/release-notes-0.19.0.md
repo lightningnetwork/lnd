@@ -237,6 +237,8 @@ close transaction.
 * [The bitcoin `testnet4` test network is now also
   supported](https://github.com/lightningnetwork/lnd/pull/9620).
 
+* [remove x/exp/maps dependency](https://github.com/lightningnetwork/lnd/pull/9621)
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

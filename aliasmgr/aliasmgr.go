@@ -3,13 +3,14 @@ package aliasmgr
 import (
 	"encoding/binary"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"golang.org/x/exp/maps"
 )
 
 // UpdateLinkAliases is a function type for a function that locates the active
@@ -515,7 +516,7 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 	// channel in the baseToSet map.
 	haveAlias := func(maybeNextAlias lnwire.ShortChannelID) bool {
 		return fn.Any(
-			maps.Values(m.baseToSet),
+			slices.Collect(maps.Values(m.baseToSet)),
 			func(aliasList []lnwire.ShortChannelID) bool {
 				return fn.Any(
 					aliasList,

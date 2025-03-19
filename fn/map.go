@@ -2,13 +2,13 @@ package fn
 
 import (
 	"fmt"
-
-	"golang.org/x/exp/maps"
+	"maps"
+	"slices"
 )
 
 // KeySet converts a map into a Set containing the keys of the map.
 func KeySet[K comparable, V any](m map[K]V) Set[K] {
-	return NewSet(maps.Keys(m)...)
+	return NewSet(slices.Collect(maps.Keys(m))...)
 }
 
 // NewSubMapIntersect returns a sub-map of `m` containing only the keys found in

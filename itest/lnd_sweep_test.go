@@ -2376,3 +2376,178 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// Finally, clean the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 }
+
+// testBumpFeeLowBudget checks that when the requested ideal budget cannot be
+// met, the sweeper still sweeps the input with the actual budget.
+func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
+	// Create a new node with a large `maxfeerate` so it's easier to run the
+	// test.
+	alice := ht.NewNode("Alice", []string{
+		"--sweeper.maxfeerate=10000",
+	})
+
+	// Fund Alice 2 UTXOs, each has 100k sats. One of the UTXOs will be used
+	// to create a tx which she sends some coins to herself. The other will
+	// be used as the budget when CPFPing the above tx.
+	coin := btcutil.Amount(100_000)
+	ht.FundCoins(coin, alice)
+	ht.FundCoins(coin, alice)
+
+	// Alice sends 50k sats to herself.
+	tx := ht.SendCoins(alice, alice, coin/2)
+	txid := tx.TxHash()
+
+	// Get Alice's wallet balance to calculate the fees used in the above
+	// tx.
+	resp := alice.RPC.WalletBalance()
+
+	// balance is the expected final balance. Alice's initial balance is
+	// 200k sats, with 100k sats as the budget for the sweeping tx, which
+	// means her final balance should be 100k sats minus the mining fees
+	// used in the above `SendCoins`.
+	balance := btcutil.Amount(
+		resp.UnconfirmedBalance + resp.ConfirmedBalance,
+	)
+	fee := coin*2 - balance
+	ht.Logf("Alice's expected final balance=%v, fee=%v", balance, fee)
+
+	// Alice now tries to bump the first output on this tx.
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(0),
+	}
+	value := btcutil.Amount(tx.TxOut[0].Value)
+
+	// assertPendingSweepResp is a helper closure that asserts the response
+	// from `PendingSweep` RPC is returned with expected values. It also
+	// returns the sweeping tx for further checks.
+	assertPendingSweepResp := func(budget uint64,
+		deadline uint32) *wire.MsgTx {
+
+		// Alice should still have one pending sweep.
+		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
+
+		// Validate all fields returned from `PendingSweeps` are as
+		// expected.
+		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
+		require.Equal(ht, op.OutputIndex,
+			pendingSweep.Outpoint.OutputIndex)
+		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+			pendingSweep.WitnessType)
+		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
+			"amount not matched: want=%d, got=%d", value,
+			pendingSweep.AmountSat)
+		require.True(ht, pendingSweep.Immediate)
+
+		require.EqualValuesf(ht, budget, pendingSweep.Budget,
+			"budget not matched: want=%d, got=%d", budget,
+			pendingSweep.Budget)
+
+		// Since the request doesn't specify a deadline, we expect the
+		// existing deadline to be used.
+		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
+			"deadline height not matched: want=%d, got=%d",
+			deadline, pendingSweep.DeadlineHeight)
+
+		// We expect to see Alice's original tx and her CPFP tx in the
+		// mempool.
+		txns := ht.GetNumTxsFromMempool(2)
+
+		// Find the sweeping tx - assume it's the first item, if it has
+		// the same txid as the parent tx, use the second item.
+		sweepTx := txns[0]
+		if sweepTx.TxHash() == tx.TxHash() {
+			sweepTx = txns[1]
+		}
+
+		return sweepTx
+	}
+
+	// Use a budget that Alice cannot cover using her wallet UTXOs.
+	budget := coin * 2
+
+	// Use a deadlineDelta of 3 such that the fee func is initialized as,
+	// - starting fee rate: 1 sat/vbyte
+	// - deadline: 3
+	// - budget: 200% of Alice's available funds.
+	deadlineDelta := 3
+
+	// First bump request - we expect it to succeed as Alice's current funds
+	// can cover the fees used here given the position of the fee func is at
+	// 0.
+	bumpFeeReq := &walletrpc.BumpFeeRequest{
+		Outpoint:      op,
+		Budget:        uint64(budget),
+		Immediate:     true,
+		DeadlineDelta: uint32(deadlineDelta),
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Calculate the deadline height.
+	deadline := ht.CurrentHeight() + uint32(deadlineDelta)
+
+	// Assert the pending sweep is created with the expected values:
+	// - deadline: 3+current height.
+	// - budget: 2x the wallet balance.
+	sweepTx1 := assertPendingSweepResp(uint64(budget), deadline)
+
+	// Mine a block to trigger Alice's sweeper to fee bump the tx.
+	//
+	// Second bump request - we expect it to succeed as Alice's current
+	// funds can cover the fees used here, which is 66.7% of her available
+	// funds given the position of the fee func is at 1.
+	ht.MineEmptyBlocks(1)
+
+	// Assert the old sweeping tx has been replaced.
+	ht.AssertTxNotInMempool(sweepTx1.TxHash())
+
+	// Assert a new sweeping tx is made.
+	sweepTx2 := assertPendingSweepResp(uint64(budget), deadline)
+
+	// Mine a block to trigger Alice's sweeper to fee bump the tx.
+	//
+	// Third bump request - we expect it to fail as Alice's current funds
+	// cannot cover the fees now, which is 133.3% of her available funds
+	// given the position of the fee func is at 2.
+	ht.MineEmptyBlocks(1)
+
+	// Assert the above sweeping tx is still in the mempool.
+	ht.AssertTxInMempool(sweepTx2.TxHash())
+
+	// Fund Alice 200k sats, which will be used to cover the budget.
+	//
+	// TODO(yy): We are funding Alice more than enough - at this stage Alice
+	// has a confirmed UTXO of `coin` amount in her wallet, so ideally we
+	// should only fund another UTXO of `coin` amount. However, since the
+	// confirmed wallet UTXO has already been used in sweepTx2, there's no
+	// easy way to tell her wallet to reuse that UTXO in the upcoming
+	// sweeping tx.
+	// To properly fix it, we should provide more granular UTXO management
+	// here by leveraing `LeaseOutput` - whenever we use a wallet UTXO, we
+	// should lock it first. And when the sweeping attempt fails, we should
+	// release it so the UTXO can be used again in another batch.
+	walletTx := ht.FundCoinsUnconfirmed(coin*2, alice)
+
+	// Mine a block to confirm the above funding coin.
+	//
+	// Fourth bump request - we expect it to succeed as Alice's current
+	// funds can cover the full budget.
+	ht.MineBlockWithTx(walletTx)
+
+	flakeRaceInBitcoinClientNotifications(ht)
+
+	// Assert Alice's previous sweeping tx has been replaced.
+	ht.AssertTxNotInMempool(sweepTx2.TxHash())
+
+	// Assert the pending sweep is created with the expected values:
+	// - deadline: 3+current height.
+	// - budget: 2x the wallet balance.
+	sweepTx3 := assertPendingSweepResp(uint64(budget), deadline)
+	require.NotEqual(ht, sweepTx2.TxHash(), sweepTx3.TxHash())
+
+	// Mine the sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Assert Alice's wallet balance.       a
+	ht.WaitForBalanceConfirmed(alice, balance)
+}

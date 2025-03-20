@@ -2022,6 +2022,11 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 				return nil
 			}
 
+			// If disk space is critically low (less than 5%), use critical logging
+			if free < 0.05 {
+				srvrLog.Criticalf("CRITICAL: Disk space critically low: %.1f%% free space remaining", free*100)
+			}
+
 			return fmt.Errorf("require: %v free space, got: %v",
 				cfg.HealthChecks.DiskCheck.RequiredRemaining,
 				free)

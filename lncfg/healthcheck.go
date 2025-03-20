@@ -29,6 +29,8 @@ type HealthCheckConfig struct {
 
 	DiskCheck *DiskCheckConfig `group:"diskspace" namespace:"diskspace"`
 
+	FileDescriptorCheck *DiskCheckConfig `group:"file_descriptor" namespace:"file_descriptor"`
+
 	TLSCheck *CheckConfig `group:"tls" namespace:"tls"`
 
 	TorConnection *CheckConfig `group:"torconnection" namespace:"torconnection"`
@@ -45,6 +47,10 @@ func (h *HealthCheckConfig) Validate() error {
 	}
 
 	if err := h.DiskCheck.validate("disk space"); err != nil {
+		return err
+	}
+
+	if err := h.FileDescriptorCheck.validate("file descriptor"); err != nil {
 		return err
 	}
 

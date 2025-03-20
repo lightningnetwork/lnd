@@ -231,53 +231,54 @@ func (s *Server) SendOnion(_ context.Context,
 			len(req.OnionBlob), lnwire.OnionPacketSize)
 	}
 
-	if len(req.FirstHopPubkey) == 0 {
-		return nil, status.Error(codes.InvalidArgument,
-			"first hop pubkey is required")
-	}
-
 	if len(req.PaymentHash) == 0 {
 		return nil, status.Error(codes.InvalidArgument,
 			"payment hash is required")
 	}
 
-	if req.Amount <= 0 {
+	amount := lnwire.MilliSatoshi(req.Amount)
+	if amount <= 0 {
 		return nil, status.Error(codes.InvalidArgument,
 			"amount must be greater than zero")
 	}
 
-	amount := lnwire.MilliSatoshi(req.Amount)
+	pubkeySet := len(req.FirstHopPubkey) != 0
+	channelIDSet := req.FirstHopChanId != 0
+
+	if pubkeySet == channelIDSet {
+		return nil, status.Error(codes.InvalidArgument,
+			"must specify exactly one of first_hop_pubkey or "+
+				"first_hop_chan_id")
+	}
+
+	var chanID lnwire.ShortChannelID
+
+	// Case 1: The caller provided the first hop channel ID directly.
+	if channelIDSet {
+		chanID = lnwire.NewShortChanIDFromInt(req.FirstHopChanId)
+	} else {
+		// Case 2: Convert the first hop pubkey into a format usable by
+		// the forwarding subsystem.
+		firstHop, err := btcec.ParsePubKey(req.FirstHopPubkey)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid first hop pubkey=%x: %v",
+				req.FirstHopPubkey, err)
+		}
+
+		// Find an eligible channel ID for the given first-hop pubkey.
+		chanID, err = s.findEligibleChannelID(firstHop, amount)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal,
+				"unable to find eligible channel ID for pubkey=%x: %v",
+				firstHop.SerializeCompressed(), err)
+		}
+	}
 
 	hash, err := lntypes.MakeHash(req.PaymentHash)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument,
 			"invalid payment_hash=%x: %v", req.PaymentHash, err)
-	}
-
-	// Convert the first hop pubkey into a format usable by the forwarding
-	// subsystem (eg: HTLCSwitch).
-	//
-	// NOTE(calvin): We'll either need to require clients provide the short
-	// channel ID to use as a first hop OR lookup an acceptable channel ID
-	// for the given first hop public key.
-	firstHop, err := btcec.ParsePubKey(req.FirstHopPubkey)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument,
-			"invalid first hop pubkey=%x: %v", req.FirstHopPubkey,
-			err)
-	}
-
-	// Convert public key to channel ID.
-	//
-	// NOTE(calvin): This allows us to preserve non-strict forwarding and
-	// provide a slightly more user friendly API to callers. An alternative
-	// would be to require the caller to provide the channel ID directly.
-	chanID, err := s.findEligibleChannelID(firstHop, amount)
-	if err != nil {
-		// NOTE(calvin): Should this error be communicated via RPC proto?
-		return nil, status.Errorf(codes.Internal,
-			"unable to find eligible channel ID for pubkey=%x: %v",
-			firstHop.SerializeCompressed(), err)
 	}
 
 	// Craft an HTLC packet to send to the htlcswitch. The metadata within

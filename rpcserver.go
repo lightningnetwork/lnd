@@ -9057,6 +9057,9 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Exit early if the wallet is not synced.
 	if !isSynced {
+		rpcsLog.Debugf("Wallet is not synced to height %v yet",
+			bestHeight)
+
 		return info, nil
 	}
 
@@ -9075,6 +9078,9 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Exit early if the channel graph is not synced.
 	if !isSynced {
+		rpcsLog.Debugf("Graph is not synced to height %v yet",
+			bestHeight)
+
 		return info, nil
 	}
 
@@ -9084,6 +9090,11 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Overwrite isSynced and return.
 	info.isSynced = height == bestHeight
+
+	if !info.isSynced {
+		rpcsLog.Debugf("Blockbeat is not synced to height %v yet",
+			bestHeight)
+	}
 
 	return info, nil
 }

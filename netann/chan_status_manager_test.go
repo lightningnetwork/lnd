@@ -130,8 +130,8 @@ type mockGraph struct {
 	updates chan *lnwire.ChannelUpdate1
 }
 
-func newMockGraph(t *testing.T, numChannels int,
-	startActive, startEnabled bool, pubKey *btcec.PublicKey) *mockGraph {
+func newMockGraph(t *testing.T, numChannels int, startEnabled bool,
+	pubKey *btcec.PublicKey) *mockGraph {
 
 	g := &mockGraph{
 		channels:  make([]*channeldb.OpenChannel, 0, numChannels),
@@ -320,9 +320,7 @@ func newManagerCfg(t *testing.T, numChannels int,
 	require.NoError(t, err, "unable to generate key pair")
 	privKeySigner := keychain.NewPrivKeyMessageSigner(privKey, testKeyLoc)
 
-	graph := newMockGraph(
-		t, numChannels, startEnabled, startEnabled, privKey.PubKey(),
-	)
+	graph := newMockGraph(t, numChannels, startEnabled, privKey.PubKey())
 	htlcSwitch := newMockSwitch()
 
 	cfg := &netann.ChanStatusConfig{

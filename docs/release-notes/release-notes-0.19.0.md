@@ -246,6 +246,7 @@ close transaction.
     * `lncli abandonchannel` (`Lightning.AbandonChannel` RPC)
     * `lncli restorechanbackup` (`Lightning.RestoreChannelBackups` RPC)
     * `lncli verifychanbackup` (`Lightning.VerifyChanBackup` RPC)
+
 * The `ForwardInterceptor`'s `MODIFY` option will
   [merge](https://github.com/lightningnetwork/lnd/pull/9240) any custom
   range TLVs provided with the existing set of records on the HTLC,
@@ -254,6 +255,11 @@ close transaction.
 * [Make](https://github.com/lightningnetwork/lnd/pull/9405) the param
 `ProofMatureDelta` used in gossip to be configurable via
 `--gossip.announcement-conf`, with a default value of 6.
+
+* [Added a boolean field
+  `LockedIn`](https://github.com/lightningnetwork/lnd/pull/9602) in
+  `lnrpc.HTLC`. This field is used to indicate whether a given HTLC has been
+  locked in by the remote peer.
 
 ## lncli Updates
 

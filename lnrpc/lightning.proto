@@ -2008,8 +2008,8 @@ message GetInfoResponse {
     bool synced_to_graph = 18;
 
     /*
-    Whether the current node is connected to testnet. This field is
-    deprecated and the network field should be used instead
+    Whether the current node is connected to testnet or testnet4. This field is
+    deprecated and the network field should be used instead.
     */
     bool testnet = 10 [deprecated = true];
 

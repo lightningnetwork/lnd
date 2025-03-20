@@ -232,39 +232,51 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 		inputPublishFailed, inputSwept, inputExcluded, inputFatal,
 	})
 
+	feeRate := chainfee.SatPerKWeight(1000)
+
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed(set)
+	s.markInputsPublishFailed(set, feeRate)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.inputs, 7)
 
 	// We expect the init input's state to stay unchanged.
-	require.Equal(Init,
-		s.inputs[inputInit.OutPoint()].state)
+	pi := s.inputs[inputInit.OutPoint()]
+	require.Equal(Init, pi.state)
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the pending-publish input's is now marked as publish
 	// failed.
-	require.Equal(PublishFailed,
-		s.inputs[inputPendingPublish.OutPoint()].state)
+	pi = s.inputs[inputPendingPublish.OutPoint()]
+	require.Equal(PublishFailed, pi.state)
+	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
 
 	// We expect the published input's is now marked as publish failed.
-	require.Equal(PublishFailed,
-		s.inputs[inputPublished.OutPoint()].state)
+	pi = s.inputs[inputPublished.OutPoint()]
+	require.Equal(PublishFailed, pi.state)
+	require.Equal(feeRate, pi.params.StartingFeeRate.UnsafeFromSome())
 
 	// We expect the publish failed input to stay unchanged.
-	require.Equal(PublishFailed,
-		s.inputs[inputPublishFailed.OutPoint()].state)
+	pi = s.inputs[inputPublishFailed.OutPoint()]
+	require.Equal(PublishFailed, pi.state)
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the swept input to stay unchanged.
-	require.Equal(Swept, s.inputs[inputSwept.OutPoint()].state)
+	pi = s.inputs[inputSwept.OutPoint()]
+	require.Equal(Swept, pi.state)
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// We expect the excluded input to stay unchanged.
-	require.Equal(Excluded, s.inputs[inputExcluded.OutPoint()].state)
+	pi = s.inputs[inputExcluded.OutPoint()]
+	require.Equal(Excluded, pi.state)
+	require.True(pi.params.StartingFeeRate.IsNone())
 
-	// We expect the failed input to stay unchanged.
-	require.Equal(Fatal, s.inputs[inputFatal.OutPoint()].state)
+	// We expect the fatal input to stay unchanged.
+	pi = s.inputs[inputFatal.OutPoint()]
+	require.Equal(Fatal, pi.state)
+	require.True(pi.params.StartingFeeRate.IsNone())
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)

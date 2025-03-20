@@ -500,6 +500,7 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	carol.RPC.SettleInvoice(preimage[:])
 
 	// Bob should have settled his outgoing HTLC with Carol.
+	flakeInconsistentHTLCView()
 	ht.AssertHTLCNotActive(bob, bcChanPoint, payHash[:])
 
 	// We'll now mine enough blocks to trigger Bob to force close channel
@@ -851,6 +852,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	carol.RPC.SettleInvoice(preimageSettled[:])
 
 	// Bob should have settled his outgoing HTLC with Carol.
+	flakeInconsistentHTLCView()
 	ht.AssertHTLCNotActive(bob, bcChanPoint, payHashSettled[:])
 
 	// Let Carol go offline so we can focus on testing Bob's sweeping

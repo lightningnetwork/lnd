@@ -667,6 +667,10 @@ func testRelayingBlindedError(ht *lntest.HarnessTest) {
 	// so that she can't forward the payment to Dave.
 	testCase.drainCarolLiquidity(false)
 
+	// NOTE: The above draining requires Carol to send a payment, which may
+	// create extra events, causing the `AssertHtlcEvents` to fail below.
+	flakePaymentStreamReturnEarly()
+
 	// Subscribe to Carol's HTLC events so that we can observe the payment
 	// coming in.
 	carolEvents := testCase.carol.RPC.SubscribeHtlcEvents()
@@ -815,6 +819,7 @@ func testErrorHandlingOnChainFailure(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Assert that the HTLC has cleared.
+	flakeInconsistentHTLCView()
 	ht.AssertHTLCNotActive(bob, testCase.channels[0], hash[:])
 	ht.AssertHTLCNotActive(alice, testCase.channels[0], hash[:])
 

@@ -6265,8 +6265,8 @@ type GetInfoResponse struct {
 	SyncedToChain bool `protobuf:"varint,9,opt,name=synced_to_chain,json=syncedToChain,proto3" json:"synced_to_chain,omitempty"`
 	// Whether we consider ourselves synced with the public channel graph.
 	SyncedToGraph bool `protobuf:"varint,18,opt,name=synced_to_graph,json=syncedToGraph,proto3" json:"synced_to_graph,omitempty"`
-	// Whether the current node is connected to testnet. This field is
-	// deprecated and the network field should be used instead
+	// Whether the current node is connected to testnet or testnet4. This field is
+	// deprecated and the network field should be used instead.
 	//
 	// Deprecated: Marked as deprecated in lightning.proto.
 	Testnet bool `protobuf:"varint,10,opt,name=testnet,proto3" json:"testnet,omitempty"`

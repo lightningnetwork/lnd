@@ -286,7 +286,7 @@ func contextWithMetadata(ctx context.Context,
 func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	network := strings.ToLower(ctx.GlobalString("network"))
 	switch network {
-	case "mainnet", "testnet", "regtest", "simnet", "signet":
+	case "mainnet", "testnet", "testnet4", "regtest", "simnet", "signet":
 	default:
 		return "", "", fmt.Errorf("unknown network: %v", network)
 	}
@@ -386,8 +386,9 @@ func Main() {
 		},
 		cli.StringFlag{
 			Name: "network, n",
-			Usage: "The network lnd is running on, e.g. mainnet, " +
-				"testnet, etc.",
+			Usage: "The network lnd is running on; valid values " +
+				"are: mainnet, testnet, testnet4, regtest, " +
+				"signet and simnet.",
 			Value:  "mainnet",
 			EnvVar: envVarNetwork,
 		},
@@ -555,8 +556,11 @@ func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
 	case "mainnet":
 		return &chaincfg.MainNetParams, nil
 
-	case "testnet":
+	case "testnet", "testnet3":
 		return &chaincfg.TestNet3Params, nil
+
+	case "testnet4":
+		return &chaincfg.TestNet4Params, nil
 
 	case "regtest":
 		return &chaincfg.RegressionNetParams, nil

@@ -194,6 +194,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	case cfg.Bitcoin.TestNet3:
 		network = "testnet"
 
+	case cfg.Bitcoin.TestNet4:
+		network = "testnet4"
+
 	case cfg.Bitcoin.MainNet:
 		network = "mainnet"
 

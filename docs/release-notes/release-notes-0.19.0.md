@@ -91,6 +91,12 @@
 * [Pass through](https://github.com/lightningnetwork/lnd/pull/9601) the unused
   `MaxPeers` configuration variable for neutrino mode.
 
+* [Bimodal pathfinding probability
+  improvements](https://github.com/lightningnetwork/lnd/pull/8329). A fallback
+  probability is used if the bimodal model is not applicable. Fixes are added
+  such that the probability is evaluated quicker and to be more accurate in
+  outdated scenarios.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

@@ -3,9 +3,7 @@ package itest
 import (
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lntest"
-	"github.com/lightningnetwork/lnd/lntest/node"
 )
 
 // flakePreimageSettlement documents a flake found when testing the preimage
@@ -32,19 +30,6 @@ func flakePreimageSettlement(ht *lntest.HarnessTest) {
 	// means Bob would have created the sweeping tx - mining another block
 	// would cause the sweeper to RBF it.
 	time.Sleep(2 * time.Second)
-}
-
-// flakeFundExtraUTXO documents a flake found when testing the sweeping behavior
-// of the given node, which would fail due to no wallet UTXO available, while
-// there should be enough.
-//
-// TODO(yy): remove it once the issue is resolved.
-func flakeFundExtraUTXO(ht *lntest.HarnessTest, node *node.HarnessNode) {
-	// The node should have enough wallet UTXOs here to sweep the HTLC in
-	// the end of this test. However, due to a known issue, the node's
-	// wallet may report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, node)
 }
 
 // flakeTxNotifierNeutrino documents a flake found when running force close
@@ -126,4 +111,29 @@ func flakePaymentStreamReturnEarly() {
 	// Sleep 2 seconds so the pending HTLCs will be removed from the
 	// commitment.
 	time.Sleep(2 * time.Second)
+}
+
+// flakeRaceInBitcoinClientNotifications documents a bug found that the
+// `ListUnspent` gives inaccurate results. In specific,
+//   - an output is confirmed in block X, which is under the process of being
+//     credited to our wallet.
+//   - `ListUnspent` is called between the above process, returning an
+//     inaccurate result, causing the sweeper to think there's no wallet utxo.
+//   - the sweeping will fail at block X due to not enough inputs.
+//
+// Under the hood, the RPC client created for handling wallet txns and handling
+// block notifications are independent. For the block notification, which is
+// registered via `RegisterBlockEpochNtfn`, is managed by the `chainntnfs`,
+// which is hooked to a bitcoind client created at startup. For the wallet, it
+// uses another bitcoind client to receive online events. Although they share
+// the same bitcoind RPC conn, these two clients are acting independently.
+// With this setup, it means there's no coordination between the two system -
+// `lnwallet` and `chainntnfs` can disagree on the latest onchain state for a
+// short period, causing an inconsistent state which leads to the failed
+// sweeping attempt.
+//
+// TODO(yy): We need to adhere to the SSOT principle, and make the effort to
+// ensure the whole system only uses one bitcoind client.
+func flakeRaceInBitcoinClientNotifications(ht *lntest.HarnessTest) {
+	ht.MineEmptyBlocks(1)
 }

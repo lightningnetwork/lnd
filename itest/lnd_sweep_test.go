@@ -115,8 +115,6 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
-	flakeFundExtraUTXO(ht, bob)
-
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])
 
@@ -342,6 +340,8 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// needed to clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
+	flakeRaceInBitcoinClientNotifications(ht)
+
 	// The above mined block should confirm Bob's force close tx, and his
 	// contractcourt will offer the HTLC to his sweeper. We are not testing
 	// the HTLC sweeping behaviors so we just perform a simple check and
@@ -434,8 +434,6 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	if ht.IsNeutrinoBackend() {
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
-
-	flakeFundExtraUTXO(ht, bob)
 
 	// Subscribe the invoice.
 	streamCarol := carol.RPC.SubscribeSingleInvoice(payHash[:])

@@ -341,8 +341,6 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
-	flakeFundExtraUTXO(ht, bob)
-
 	// Now that our channels are set up, we'll send two HTLC's from Alice
 	// to Carol. The first HTLC will be universally considered "dust",
 	// while the second will be a proper fully valued HTLC.
@@ -685,7 +683,6 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	flakeFundExtraUTXO(ht, carol)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -1601,8 +1598,6 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	flakeFundExtraUTXO(ht, carol)
-	flakeFundExtraUTXO(ht, bob)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -1897,7 +1892,6 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	flakeFundExtraUTXO(ht, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -2230,7 +2224,6 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	flakeFundExtraUTXO(ht, carol)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
@@ -2490,7 +2483,6 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 
 	// Fund Carol one UTXO so she can sweep outputs.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
-	flakeFundExtraUTXO(ht, carol)
 
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
@@ -2842,7 +2834,6 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// We need one additional UTXO to create the sweeping tx for the
 	// second-level success txes.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
-	flakeFundExtraUTXO(ht, bob)
 
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice+Carol can actually find a route.

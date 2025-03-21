@@ -824,6 +824,9 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 			return fmt.Errorf("gen sweep script: %w", err)
 		}
 		s.currentOutputScript = fn.Some(addr)
+
+		log.Debugf("Created sweep DeliveryAddress %x",
+			addr.DeliveryAddress)
 	}
 
 	sweepAddr, err := s.currentOutputScript.UnwrapOrErr(
@@ -1725,8 +1728,8 @@ func (s *UtxoSweeper) handleBumpEventTxReplaced(resp *bumpResp) error {
 	s.cfg.Wallet.CancelRebroadcast(oldTxid)
 
 	log.Infof("RBFed tx=%v(fee=%v sats, feerate=%v sats/kw) with new "+
-		"tx=%v(fee=%v, "+"feerate=%v)", record.Txid, record.Fee,
-		record.FeeRate, tr.Txid, tr.Fee, tr.FeeRate)
+		"tx=%v(fee=%v sats, feerate=%v sats/kw)", record.Txid,
+		record.Fee, record.FeeRate, tr.Txid, tr.Fee, tr.FeeRate)
 
 	// The old sweeping tx has been replaced by a new one, we will update
 	// the tx record in the sweeper db.

@@ -12,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -84,16 +86,20 @@ type SignCoordinator struct {
 	// signer has errored, and we can no longer process responses.
 	receiveErrChan chan error
 
-	// doneReceiving is closed when either party terminates and signals to
+	// disconnected is closed when either party terminates and signals to
 	// any pending requests that we'll no longer process the response for
 	// that request.
-	doneReceiving chan struct{}
+	disconnected chan struct{}
 
 	// quit is closed when lnd is shutting down.
 	quit chan struct{}
 
-	// clientConnected is sent over when the remote signer connects.
-	clientConnected chan struct{}
+	// clientReady is closed and sent over when the remote signer is
+	// connected and ready to accept requests (after the initial handshake).
+	clientReady chan struct{}
+
+	// clientConnected is true if a remote signer is currently connected.
+	clientConnected bool
 
 	// requestTimeout is the maximum time we will wait for a response from
 	// the remote signer.
@@ -127,11 +133,14 @@ func NewSignCoordinator(requestTimeout time.Duration,
 	s := &SignCoordinator{
 		responses:         respsMap,
 		receiveErrChan:    make(chan error, 1),
-		doneReceiving:     make(chan struct{}),
-		clientConnected:   make(chan struct{}),
+		clientReady:       make(chan struct{}),
+		clientConnected:   false,
 		quit:              make(chan struct{}),
 		requestTimeout:    requestTimeout,
 		connectionTimeout: connectionTimeout,
+		// Note that the disconnected channel is not initialized here,
+		// as no code listens to it until the Run method has been called
+		// and set the field.
 	}
 
 	// We initialize the atomic nextRequestID to the handshakeRequestID, as
@@ -152,24 +161,32 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 		s.mu.Unlock()
 		return ErrShuttingDown
 
-	case <-s.doneReceiving:
-		s.mu.Unlock()
-		return ErrNotConnected
-
 	default:
+	}
+
+	if s.clientConnected {
+		// If we already have a stream, we error out as we can only have
+		// one connection at a time.
+		return ErrMultipleConnections
 	}
 
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	// If we already have a stream, we error out as we can only have one
-	// connection throughout the lifetime of the SignCoordinator.
-	if s.stream != nil {
-		s.mu.Unlock()
-		return ErrMultipleConnections
-	}
+	s.clientConnected = true
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// When `Run` returns, we set the clientConnected field to false
+		// to allow a new remote signer connection to be set up.
+		s.clientConnected = false
+	}()
 
 	s.stream = stream
+
+	s.disconnected = make(chan struct{})
+	defer close(s.disconnected)
 
 	s.mu.Unlock()
 
@@ -180,8 +197,18 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 		return err
 	}
 
-	log.Infof("Remote signer connected")
-	close(s.clientConnected)
+	log.Infof("Remote signer connected and ready")
+
+	close(s.clientReady)
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// We create a new clientReady channel, once this function
+		// has exited, to ensure that a new remote signer connection can
+		// be set up.
+		s.clientReady = make(chan struct{})
+	}()
 
 	// Now let's start the main receiving loop, which will receive all
 	// responses to our requests from the remote signer!
@@ -199,9 +226,6 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 
 	case <-s.quit:
 		return ErrShuttingDown
-
-	case <-s.doneReceiving:
-		return ErrNotConnected
 	}
 }
 
@@ -384,10 +408,6 @@ func (s *SignCoordinator) handshake(stream StreamServer) error {
 func (s *SignCoordinator) StartReceiving() {
 	defer s.wg.Done()
 
-	// Signals to any ongoing requests that the remote signer is no longer
-	// connected.
-	defer close(s.doneReceiving)
-
 	for {
 		resp, err := s.stream.Recv()
 		if err != nil {
@@ -451,8 +471,16 @@ func (s *SignCoordinator) StartReceiving() {
 // signer does not connect within the configured connection timeout, or if the
 // passed context is canceled, an error is returned.
 func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
+	// As the Run method will redefine the clientReady channel once it
+	// returns, we need copy the pointer to the current clientReady channel
+	// to ensure that we're waiting for the correct channel, and to avoid
+	// a data race.
+	s.mu.Lock()
+	currentClientReady := s.clientReady
+	s.mu.Unlock()
+
 	select {
-	case <-s.clientConnected:
+	case <-currentClientReady:
 		return nil
 
 	case <-s.quit:
@@ -463,9 +491,6 @@ func (s *SignCoordinator) WaitUntilConnected(ctx context.Context) error {
 
 	case <-time.After(s.connectionTimeout):
 		return ErrConnectTimeout
-
-	case <-s.doneReceiving:
-		return ErrNotConnected
 	}
 }
 
@@ -555,7 +580,7 @@ func (s *SignCoordinator) getResponse(ctx context.Context,
 
 		return resp, nil
 
-	case <-s.doneReceiving:
+	case <-s.disconnected:
 		log.Debugf("Stopped waiting for remote signer response for "+
 			"request ID %d as the stream has been closed",
 			requestID)
@@ -936,6 +961,20 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 
 	log.Tracef("Request content: %v", formatSignCoordinatorMsg(&req))
 
+	// reprocessOnDisconnect is a helper function that will be used to
+	// resend the request if the remote signer disconnects, through which
+	// we will wait for it to reconnect within the configured timeout, and
+	// then resend the request.
+	reprocessOnDisconnect := func() (R, error) {
+		log.Debugf("Remote signer disconnected while waiting for "+
+			"response for request ID %d. Retrying request...",
+			reqID)
+
+		return processRequest[R](
+			ctx, s, generateRequest, extractResponse,
+		)
+	}
+
 	// Send the request to the remote signer. Note that stream.Send is not
 	// safe for concurrent use and that we specifically lock the sendMu
 	// below and not general struct mutex, to keep the locking scope
@@ -945,6 +984,14 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 	s.sendMu.Unlock()
 
 	if err != nil {
+		st, isStatusError := status.FromError(err)
+		if isStatusError && st.Code() == codes.Unavailable {
+			// If the stream was closed due to the remote signer
+			// disconnecting, we will retry to process the request
+			// if the remote signer reconnects.
+			return reprocessOnDisconnect()
+		}
+
 		return zero, err
 	}
 
@@ -955,7 +1002,12 @@ func processRequest[R comparable](ctx context.Context, s *SignCoordinator,
 	// cancelled/timed out.
 	resp, err = s.getResponse(reqCtx, reqID)
 
-	if err != nil {
+	if errors.Is(err, ErrNotConnected) {
+		// If the remote signer disconnected while we were waiting for
+		// the response, we will retry to process the request if the
+		// remote signer reconnects.
+		return reprocessOnDisconnect()
+	} else if err != nil {
 		return zero, err
 	}
 

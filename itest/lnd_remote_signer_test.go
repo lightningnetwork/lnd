@@ -21,7 +21,7 @@ import (
 var remoteSignerTestCases = []*lntest.TestCase{
 	{
 		Name:     "random seed",
-		TestFunc: testRemoteSignerRadomSeed,
+		TestFunc: testRemoteSignerRandomSeed,
 	},
 	{
 		Name:     "account import",
@@ -202,9 +202,9 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 	return signer, watchOnly, carol
 }
 
-// testRemoteSignerRadomSeed tests that a watch-only wallet can use a remote
+// testRemoteSignerRandomSeed tests that a watch-only wallet can use a remote
 // signing wallet to perform any signing or ECDH operations.
-func testRemoteSignerRadomSeed(ht *lntest.HarnessTest) {
+func testRemoteSignerRandomSeed(ht *lntest.HarnessTest) {
 	tc := remoteSignerTestCase{
 		name:       "random seed",
 		randomSeed: true,

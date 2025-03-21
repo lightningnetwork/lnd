@@ -32,6 +32,10 @@ type Gossip struct {
 	SubBatchDelay time.Duration `long:"sub-batch-delay" description:"The duration to wait before sending the next announcement batch if there are multiple. Use a small value if there are a lot announcements and they need to be broadcast quickly."`
 
 	AnnouncementConf uint32 `long:"announcement-conf" description:"The number of confirmations required before processing channel announcements."`
+
+	MsgRateBytes uint64 `long:"msg-rate-bytes" description:"The maximum number of bytes of gossip messages that will be sent per second. This is a global limit that applies to all peers."`
+
+	MsgBurstBytes uint64 `long:"msg-burst-bytes" description:"The maximum number of bytes of gossip messages that will be sent in a burst. This is a global limit that applies to all peers. This value should be sent to something greater than 130 KB"`
 }
 
 // Parse the pubkeys for the pinned syncers.

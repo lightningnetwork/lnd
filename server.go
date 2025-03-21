@@ -1188,6 +1188,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsStillZombieChannel:    s.graphBuilder.IsZombieChannel,
 		ScidCloser:              scidCloserMan,
 		AssumeChannelValid:      cfg.Routing.AssumeChannelValid,
+		MsgRateBytes:            cfg.Gossip.MsgRateBytes,
+		MsgBurstBytes:           cfg.Gossip.MsgBurstBytes,
 	}, nodeKeyDesc)
 
 	accessCfg := &accessManConfig{

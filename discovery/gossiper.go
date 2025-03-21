@@ -390,6 +390,14 @@ type Config struct {
 	// spent-ness of channel outpoints. For neutrino, this saves long
 	// rescans from blocking initial usage of the daemon.
 	AssumeChannelValid bool
+
+	// MsgRateBytes is the rate limit for the number of bytes per second
+	// that we'll allocate to outbound gossip messages.
+	MsgRateBytes uint64
+
+	// MsgBurstBytes is the allotted burst amount in bytes. This is the
+	// number of starting tokens in our token bucket algorithm.
+	MsgBurstBytes uint64
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -574,16 +582,18 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
-		ChainHash:               cfg.ChainHash,
-		ChanSeries:              cfg.ChanSeries,
-		RotateTicker:            cfg.RotateTicker,
-		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
-		NumActiveSyncers:        cfg.NumActiveSyncers,
-		NoTimestampQueries:      cfg.NoTimestampQueries,
-		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
-		BestHeight:              gossiper.latestHeight,
-		PinnedSyncers:           cfg.PinnedSyncers,
-		IsStillZombieChannel:    cfg.IsStillZombieChannel,
+		ChainHash:                cfg.ChainHash,
+		ChanSeries:               cfg.ChanSeries,
+		RotateTicker:             cfg.RotateTicker,
+		HistoricalSyncTicker:     cfg.HistoricalSyncTicker,
+		NumActiveSyncers:         cfg.NumActiveSyncers,
+		NoTimestampQueries:       cfg.NoTimestampQueries,
+		IgnoreHistoricalFilters:  cfg.IgnoreHistoricalFilters,
+		BestHeight:               gossiper.latestHeight,
+		PinnedSyncers:            cfg.PinnedSyncers,
+		IsStillZombieChannel:     cfg.IsStillZombieChannel,
+		AllotedMsgBytesPerSecond: cfg.MsgRateBytes,
+		AllotedMsgBytesBurst:     cfg.MsgBurstBytes,
 	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

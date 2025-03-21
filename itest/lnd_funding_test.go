@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/labels"
@@ -466,20 +467,29 @@ func runChannelFundingInputTypes(ht *lntest.HarnessTest, alice,
 		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
 	)
 
-	fundMixed := func(amt btcutil.Amount, target *node.HarnessNode) {
+	fundMixed := func(amt btcutil.Amount,
+		target *node.HarnessNode) *wire.MsgTx {
+
 		ht.FundCoins(amt/5, target)
 		ht.FundCoins(amt/5, target)
 		ht.FundCoinsP2TR(amt/5, target)
 		ht.FundCoinsP2TR(amt/5, target)
 		ht.FundCoinsP2TR(amt/5, target)
+
+		return nil
 	}
-	fundMultipleP2TR := func(amt btcutil.Amount, target *node.HarnessNode) {
+	fundMultipleP2TR := func(amt btcutil.Amount,
+		target *node.HarnessNode) *wire.MsgTx {
+
 		ht.FundCoinsP2TR(amt/4, target)
 		ht.FundCoinsP2TR(amt/4, target)
 		ht.FundCoinsP2TR(amt/4, target)
 		ht.FundCoinsP2TR(amt/4, target)
+
+		return nil
 	}
-	fundWithTypes := []func(amt btcutil.Amount, target *node.HarnessNode){
+	fundWithTypes := []func(amt btcutil.Amount,
+		target *node.HarnessNode) *wire.MsgTx{
 		ht.FundCoins, ht.FundCoinsNP2WKH, ht.FundCoinsP2TR, fundMixed,
 		fundMultipleP2TR,
 	}

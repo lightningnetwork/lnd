@@ -1134,6 +1134,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
+	m.feeFunc.On("Increment").Return(true, nil).Once()
 
 	// Create a testing monitor record.
 	req := createTestBumpRequest()

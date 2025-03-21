@@ -1606,40 +1606,57 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	assertPendingSweepResp := func(broadcastAttempts uint32, budget uint64,
 		deadline uint32, startingFeeRate uint64) *wire.MsgTx {
 
-		// Alice should still have one pending sweep.
-		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
+		err := wait.NoError(func() error {
+			// Alice should still have one pending sweep.
+			ps := ht.AssertNumPendingSweeps(alice, 1)[0]
 
-		// Validate all fields returned from `PendingSweeps` are as
-		// expected.
-		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
-		require.Equal(ht, op.OutputIndex,
-			pendingSweep.Outpoint.OutputIndex)
-		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
-			pendingSweep.WitnessType)
-		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
-			"amount not matched: want=%d, got=%d", value,
-			pendingSweep.AmountSat)
-		require.True(ht, pendingSweep.Immediate)
+			// Validate all fields returned from `PendingSweeps` are
+			// as expected.
+			//
+			// These fields should stay the same during the test so
+			// we assert the values without wait.
+			require.Equal(ht, op.TxidBytes, ps.Outpoint.TxidBytes)
+			require.Equal(ht, op.OutputIndex,
+				ps.Outpoint.OutputIndex)
+			require.Equal(ht,
+				walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+				ps.WitnessType)
+			require.EqualValuesf(ht, value, ps.AmountSat,
+				"amount not matched: want=%d, got=%d", value,
+				ps.AmountSat)
 
-		require.Equal(ht, broadcastAttempts,
-			pendingSweep.BroadcastAttempts)
-		require.EqualValuesf(ht, budget, pendingSweep.Budget,
-			"budget not matched: want=%d, got=%d", budget,
-			pendingSweep.Budget)
+			// The following fields can change during the test so we
+			// return an error if they don't match, which will be
+			// checked again in this wait call.
+			if ps.Immediate != true {
+				return fmt.Errorf("Immediate should be true")
+			}
 
-		// Since the request doesn't specify a deadline, we expect the
-		// existing deadline to be used.
-		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
-			"deadline height not matched: want=%d, got=%d",
-			deadline, pendingSweep.DeadlineHeight)
+			if broadcastAttempts != ps.BroadcastAttempts {
+				return fmt.Errorf("budget not matched: "+
+					"want=%d, got=%d", budget, ps.Budget)
+			}
 
-		// Since the request specifies a starting fee rate, we expect
-		// that to be used as the starting fee rate.
-		require.Equalf(ht, startingFeeRate,
-			pendingSweep.RequestedSatPerVbyte, "requested "+
-				"starting fee rate not matched: want=%d, "+
-				"got=%d", startingFeeRate,
-			pendingSweep.RequestedSatPerVbyte)
+			// Since the request doesn't specify a deadline, we
+			// expect the existing deadline to be used.
+			if deadline != ps.DeadlineHeight {
+				return fmt.Errorf("deadline height not "+
+					"matched: want=%d, got=%d", deadline,
+					ps.DeadlineHeight)
+			}
+
+			// Since the request specifies a starting fee rate, we
+			// expect that to be used as the starting fee rate.
+			if startingFeeRate != ps.RequestedSatPerVbyte {
+				return fmt.Errorf("requested starting fee "+
+					"rate not matched: want=%d, got=%d",
+					startingFeeRate,
+					ps.RequestedSatPerVbyte)
+			}
+
+			return nil
+		}, wait.DefaultTimeout)
+		require.NoError(ht, err, "timeout checking pending sweep")
 
 		// We expect to see Alice's original tx and her CPFP tx in the
 		// mempool.
@@ -1879,7 +1896,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// Finally, we test the behavior of lowering the fee rate. The fee func
 	// that has,
 	// - starting fee rate: 1 sat/vbyte.
-	// - deadline: 1008.
+	// - deadline: 1.
 	// - budget: 1000 sats.
 	bumpFeeReq = &walletrpc.BumpFeeRequest{
 		Outpoint: op,
@@ -1888,22 +1905,26 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 		SatPerVbyte: startFeeRate,
 		// The budget and the deadline delta must be set together.
 		Budget:        smallBudget,
-		DeadlineDelta: uint32(sweep.DefaultDeadlineDelta),
+		DeadlineDelta: 1,
 	}
 	alice.RPC.BumpFee(bumpFeeReq)
 
 	// Assert the pending sweep is created with the expected values:
 	// - broadcast attempts: 7.
-	// - starting fee rate: 1 sat/vbyte.
-	// - deadline: 1008.
+	// - starting fee rate: 0 sat/vbyte.
+	// - deadline: 1.
 	// - budget: 1000 sats.
+	//
+	// NOTE: The starting fee rate is 0 instead of 1 because the budget has
+	// been used up at this point, and the sweeper will update the input to
+	// use the last attempted fee rate as its starting fee rate, which is 0
+	// as we currently don't set the value for `ErrMaxPosition`.
 	sweepTx7 := assertPendingSweepResp(
-		7, smallBudget, deadline, startFeeRate,
+		7, smallBudget, uint32(currentHeight+1), 0,
 	)
 
 	// Since this budget is too small to cover the RBF, we expect the
 	// sweeping attempt to fail.
-	//
 	require.Equal(ht, sweepTx6.TxHash(), sweepTx7.TxHash(), "tx6 should "+
 		"not be replaced: tx6=%v, tx7=%v", sweepTx6.TxHash(),
 		sweepTx7.TxHash())
@@ -1912,7 +1933,7 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// initial broadcast always succeeds.
 	assertFeeRateGreater(testFeeRate)
 
-	// Clean up the mempol.
+	// Clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
 
@@ -2328,6 +2349,180 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 		uint64(feeRate), 0.02, "want %d, got %d in tx=%v",
 		currentFeeRate, feeRate, outgoingSweep2.TxHash())
 
-	// Finally, clean the mempol.
+	// Finally, clean the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
+}
+
+// testBumpFeeLowBudget checks that when the requested ideal budget cannot be
+// met, the sweeper still sweeps the input with the actual budget.
+func testBumpFeeLowBudget(ht *lntest.HarnessTest) {
+	// Create a new node with a large `maxfeerate` so it's easier to run the
+	// test.
+	alice := ht.NewNode("Alice", []string{
+		"--sweeper.maxfeerate=10000",
+	})
+
+	// Fund Alice 2 UTXOs, each has 100k sats. One of the UTXOs will be used
+	// to create a tx which she sends some coins to herself. The other will
+	// be used as the budget when CPFPing the above tx.
+	walletBalance := btcutil.Amount(100_000)
+	ht.FundCoins(walletBalance, alice)
+	ht.FundCoins(walletBalance, alice)
+
+	// Alice sends 50k sats to herself.
+	tx := ht.SendCoins(alice, alice, walletBalance/2)
+	txid := tx.TxHash()
+
+	// Get Alice's wallet balance to calculate the fees used in the above
+	// tx.
+	resp := alice.RPC.WalletBalance()
+
+	// The unconfirmed balance plus the confirmed balance will be Alice's
+	// final wallet balance once the sweeping tx is confirmed.
+	balance := btcutil.Amount(
+		resp.UnconfirmedBalance + resp.ConfirmedBalance,
+	)
+
+	fee := walletBalance*2 - balance
+	ht.Logf("Alice's expected final balance=%v, fee=%v", balance, fee)
+
+	// Alice now tries to bump the first output on this tx.
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(0),
+	}
+	value := btcutil.Amount(tx.TxOut[0].Value)
+
+	// assertPendingSweepResp is a helper closure that asserts the response
+	// from `PendingSweep` RPC is returned with expected values. It also
+	// returns the sweeping tx for further checks.
+	assertPendingSweepResp := func(budget uint64,
+		deadline uint32) *wire.MsgTx {
+
+		// Alice should still have one pending sweep.
+		pendingSweep := ht.AssertNumPendingSweeps(alice, 1)[0]
+
+		// Validate all fields returned from `PendingSweeps` are as
+		// expected.
+		require.Equal(ht, op.TxidBytes, pendingSweep.Outpoint.TxidBytes)
+		require.Equal(ht, op.OutputIndex,
+			pendingSweep.Outpoint.OutputIndex)
+		require.Equal(ht, walletrpc.WitnessType_TAPROOT_PUB_KEY_SPEND,
+			pendingSweep.WitnessType)
+		require.EqualValuesf(ht, value, pendingSweep.AmountSat,
+			"amount not matched: want=%d, got=%d", value,
+			pendingSweep.AmountSat)
+		require.True(ht, pendingSweep.Immediate)
+
+		require.EqualValuesf(ht, budget, pendingSweep.Budget,
+			"budget not matched: want=%d, got=%d", budget,
+			pendingSweep.Budget)
+
+		// Since the request doesn't specify a deadline, we expect the
+		// existing deadline to be used.
+		require.Equalf(ht, deadline, pendingSweep.DeadlineHeight,
+			"deadline height not matched: want=%d, got=%d",
+			deadline, pendingSweep.DeadlineHeight)
+
+		// We expect to see Alice's original tx and her CPFP tx in the
+		// mempool.
+		txns := ht.GetNumTxsFromMempool(2)
+
+		// Find the sweeping tx - assume it's the first item, if it has
+		// the same txid as the parent tx, use the second item.
+		sweepTx := txns[0]
+		if sweepTx.TxHash() == tx.TxHash() {
+			sweepTx = txns[1]
+		}
+
+		return sweepTx
+	}
+
+	// Use a budget that Alice cannot cover using her wallet UTXOs.
+	budget := walletBalance * 2
+
+	// Use a deadlineDelta of 3 such that the fee func is initialized as,
+	// - starting fee rate: 1 sat/vbyte
+	// - deadline: 3
+	// - budget: 200% of Alice's available funds.
+	deadlineDelta := 3
+
+	// First bump request - we expect it to succeed as Alice's current funds
+	// can cover the fees used here given the position of the fee func is at
+	// 0.
+	bumpFeeReq := &walletrpc.BumpFeeRequest{
+		Outpoint:      op,
+		Budget:        uint64(budget),
+		Immediate:     true,
+		DeadlineDelta: uint32(deadlineDelta),
+	}
+	alice.RPC.BumpFee(bumpFeeReq)
+
+	// Calculate the deadline height.
+	deadline := ht.CurrentHeight() + uint32(deadlineDelta)
+
+	// Assert the pending sweep is created with the expected values:
+	// - deadline: 3+current height.
+	// - budget: 2x the wallet balance.
+	sweepTx1 := assertPendingSweepResp(uint64(budget), deadline)
+
+	// Mine a block to trigger Alice's sweeper to fee bump the tx.
+	//
+	// Second bump request - we expect it to succeed as Alice's current
+	// funds can cover the fees used here, which is 66.7% of her available
+	// funds given the position of the fee func is at 1.
+	ht.MineEmptyBlocks(1)
+
+	// Assert the old sweeping tx has been replaced.
+	ht.AssertTxNotInMempool(sweepTx1.TxHash())
+
+	// Assert a new sweeping tx is made.
+	sweepTx2 := assertPendingSweepResp(uint64(budget), deadline)
+
+	// Mine a block to trigger Alice's sweeper to fee bump the tx.
+	//
+	// Third bump request - we expect it to fail as Alice's current funds
+	// cannot cover the fees now, which is 133.3% of her available funds
+	// given the position of the fee func is at 2.
+	ht.MineEmptyBlocks(1)
+
+	// Assert the above sweeping tx is still in the mempool.
+	ht.AssertTxInMempool(sweepTx2.TxHash())
+
+	// Fund Alice 200k sats, which will be used to cover the budget.
+	//
+	// TODO(yy): We are funding Alice more than enough - at this stage Alice
+	// has a confirmed UTXO of `walletBalance`` amount in her wallet, so
+	// ideally we should only fund another UTXO of `walletBalance`. However,
+	// since the confirmed wallet UTXO has already been used in sweepTx2,
+	// there's no easy way to tell her wallet to reuse that UTXO in the
+	// upcoming sweeping tx.
+	// To properly fix it, we should provide more granular UTXO management
+	// here by leveraing `LeaseOutput` - whenever we use a wallet UTXO, we
+	// should lock it first. And when the sweeping attempt fails, we should
+	// release it so the UTXO can be used again in another batch.
+	walletTx := ht.FundCoinsUnconfirmed(walletBalance*2, alice)
+
+	// Mine a block to confirm the above funding coin.
+	//
+	// Fourth bump request - we expect it to succeed as Alice's current
+	// funds can cover the full budget.
+	ht.MineBlockWithTx(walletTx)
+
+	flakeRaceInBitcoinClientNotifications(ht)
+
+	// Assert Alice's previous sweeping tx has been replaced.
+	ht.AssertTxNotInMempool(sweepTx2.TxHash())
+
+	// Assert the pending sweep is created with the expected values:
+	// - deadline: 3+current height.
+	// - budget: 2x the wallet balance.
+	sweepTx3 := assertPendingSweepResp(uint64(budget), deadline)
+	require.NotEqual(ht, sweepTx2.TxHash(), sweepTx3.TxHash())
+
+	// Mine the sweeping tx.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Assert Alice's wallet balance.       a
+	ht.WaitForBalanceConfirmed(alice, balance)
 }

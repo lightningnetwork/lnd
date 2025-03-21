@@ -133,6 +133,47 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	require.Equal(t, btcutil.Amount(200), set.Budget())
 }
 
+// TestAddWalletInput asserts `addWalletInput` successfully converts a wallet
+// UTXO into a `SweeperInput` with the correct deadline.
+func TestAddWalletInput(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing deadline.
+	deadline := int32(1000)
+
+	// Initialize an empty input set.
+	set := &BudgetInputSet{
+		deadlineHeight: deadline,
+	}
+
+	// Create an utxo with unknown address type to trigger an error.
+	utxo := &lnwallet.Utxo{
+		AddressType: lnwallet.UnknownAddressType,
+	}
+
+	// Check that the error is returned from addWalletInput.
+	err := set.addWalletInput(utxo)
+	require.Error(t, err)
+
+	// Create a wallet utxo.
+	utxo = &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       1000,
+	}
+
+	// Check that no error is returned from addWalletInput.
+	err = set.addWalletInput(utxo)
+	require.NoError(t, err)
+
+	// Check the input has been added to the set.
+	require.Len(t, set.inputs, 1)
+
+	// Assert the wallet input is added using the set's deadline.
+	inp := set.inputs[0]
+	require.True(t, inp.params.DeadlineHeight.IsSome())
+	require.Equal(t, deadline, inp.params.DeadlineHeight.UnsafeFromSome())
+}
+
 // TestNeedWalletInput checks that NeedWalletInput correctly determines if a
 // wallet input is needed.
 func TestNeedWalletInput(t *testing.T) {
@@ -435,14 +476,13 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 	// Initialize an input set with the pending input.
 	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
 
-	// Add wallet inputs to the input set, which should give us an error as
-	// the wallet cannot cover the budget.
+	// Add wallet inputs to the input set, which should return no error
+	// although the wallet cannot cover the budget.
 	err := set.AddWalletInputs(wallet)
-	require.ErrorIs(t, err, ErrNotEnoughInputs)
+	require.NoError(t, err)
 
-	// Check that the budget set is reverted to its initial state.
-	require.Len(t, set.inputs, 1)
-	require.Equal(t, pi, set.inputs[0])
+	// Check that the budget set is updated.
+	require.Len(t, set.inputs, 2)
 }
 
 // TestAddWalletInputSuccess checks that when there are enough wallet utxos,

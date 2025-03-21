@@ -2,7 +2,6 @@ package lntest
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -1425,7 +1424,7 @@ func (h *HarnessTest) IsNeutrinoBackend() bool {
 // transaction that pays to the target should confirm. For neutrino backend,
 // the `confirmed` param is ignored.
 func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
-	addrType lnrpc.AddressType, confirmed bool) {
+	addrType lnrpc.AddressType, confirmed bool) *wire.MsgTx {
 
 	initialBalance := target.RPC.WalletBalance()
 
@@ -1443,25 +1442,14 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 		PkScript: addrScript,
 		Value:    int64(amt),
 	}
-	h.miner.SendOutput(output, defaultMinerFeeRate)
+	txid := h.miner.SendOutput(output, defaultMinerFeeRate)
 
-	// Encode the pkScript in hex as this the format that it will be
-	// returned via rpc.
-	expPkScriptStr := hex.EncodeToString(addrScript)
+	// Get the funding tx.
+	tx := h.GetRawTransaction(*txid)
+	msgTx := tx.MsgTx()
 
-	// Now, wait for ListUnspent to show the unconfirmed transaction
-	// containing the correct pkscript.
-	//
 	// Since neutrino doesn't support unconfirmed outputs, skip this check.
 	if !h.IsNeutrinoBackend() {
-		utxos := h.AssertNumUTXOsUnconfirmed(target, 1)
-
-		// Assert that the lone unconfirmed utxo contains the same
-		// pkscript as the output generated above.
-		pkScriptStr := utxos[0].PkScript
-		require.Equal(h, pkScriptStr, expPkScriptStr,
-			"pkscript mismatch")
-
 		expectedBalance := btcutil.Amount(
 			initialBalance.UnconfirmedBalance,
 		) + amt
@@ -1472,48 +1460,56 @@ func (h *HarnessTest) fundCoins(amt btcutil.Amount, target *node.HarnessNode,
 	// the target node's unconfirmed balance reflects the expected balance
 	// and exit.
 	if !confirmed {
-		return
+		return msgTx
 	}
 
 	// Otherwise, we'll generate 1 new blocks to ensure the output gains a
 	// sufficient number of confirmations and wait for the balance to
 	// reflect what's expected.
-	h.MineBlocksAndAssertNumTxes(1, 1)
+	h.MineBlockWithTx(msgTx)
 
 	expectedBalance := btcutil.Amount(initialBalance.ConfirmedBalance) + amt
 	h.WaitForBalanceConfirmed(target, expectedBalance)
+
+	return msgTx
 }
 
 // FundCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node using a P2WKH address. 1 blocks are mined after in
 // order to confirm the transaction.
-func (h *HarnessTest) FundCoins(amt btcutil.Amount, hn *node.HarnessNode) {
-	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
+func (h *HarnessTest) FundCoins(amt btcutil.Amount,
+	hn *node.HarnessNode) *wire.MsgTx {
+
+	return h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, true)
 }
 
 // FundCoinsUnconfirmed attempts to send amt satoshis from the internal mining
 // node to the targeted lightning node using a P2WKH address. No blocks are
 // mined after and the UTXOs are unconfirmed.
 func (h *HarnessTest) FundCoinsUnconfirmed(amt btcutil.Amount,
-	hn *node.HarnessNode) {
+	hn *node.HarnessNode) *wire.MsgTx {
 
-	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false)
+	return h.fundCoins(
+		amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false,
+	)
 }
 
 // FundCoinsNP2WKH attempts to send amt satoshis from the internal mining node
 // to the targeted lightning node using a NP2WKH address.
 func (h *HarnessTest) FundCoinsNP2WKH(amt btcutil.Amount,
-	target *node.HarnessNode) {
+	target *node.HarnessNode) *wire.MsgTx {
 
-	h.fundCoins(amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true)
+	return h.fundCoins(
+		amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true,
+	)
 }
 
 // FundCoinsP2TR attempts to send amt satoshis from the internal mining node to
 // the targeted lightning node using a P2TR address.
 func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
-	target *node.HarnessNode) {
+	target *node.HarnessNode) *wire.MsgTx {
 
-	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
+	return h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
 }
 
 // FundNumCoins attempts to send the given number of UTXOs from the internal

@@ -244,6 +244,28 @@ func (b *BudgetInputSet) addInput(input SweeperInput) {
 	b.inputs = append(b.inputs, &input)
 }
 
+// addWalletInput takes a wallet UTXO and adds it as an input to be used as
+// budget for the input set.
+func (b *BudgetInputSet) addWalletInput(utxo *lnwallet.Utxo) error {
+	input, err := createWalletTxInput(utxo)
+	if err != nil {
+		return err
+	}
+
+	pi := SweeperInput{
+		Input: input,
+		params: Params{
+			DeadlineHeight: fn.Some(b.deadlineHeight),
+		},
+	}
+	b.addInput(pi)
+
+	log.Debugf("Added wallet input to input set: op=%v, amt=%v",
+		pi.OutPoint(), utxo.Value)
+
+	return nil
+}
+
 // NeedWalletInput returns true if the input set needs more wallet inputs.
 //
 // A set may need wallet inputs when it has a required output or its total
@@ -274,7 +296,9 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 		}
 
 		// Get the amount left after covering the input's own budget.
-		// This amount can then be lent to the above input.
+		// This amount can then be lent to the above input. For a wallet
+		// input, its `Budget`` is set to zero, which means the whole
+		// input can be borrowed to cover the budget.
 		budget := inp.params.Budget
 		output := btcutil.Amount(inp.SignDesc().Output.Value)
 		budgetBorrowable += output - budget
@@ -326,6 +350,11 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return fmt.Errorf("list unspent witness: %w", err)
 	}
 
+	// Exit early if there are no wallet UTXOs.
+	if len(utxos) == 0 {
+		return fmt.Errorf("%w: empty wallet", ErrNotEnoughInputs)
+	}
+
 	// Sort the UTXOs by putting smaller values at the start of the slice
 	// to avoid locking large UTXO for sweeping.
 	//
@@ -335,28 +364,12 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		return utxos[i].Value < utxos[j].Value
 	})
 
-	// Make a copy of the current inputs. If the wallet doesn't have enough
-	// utxos to cover the budget, we will revert the current set to its
-	// original state by removing the added wallet inputs.
-	originalInputs := b.copyInputs()
-
 	// Add wallet inputs to the set until the specified budget is covered.
 	for _, utxo := range utxos {
-		input, err := createWalletTxInput(utxo)
+		err := b.addWalletInput(utxo)
 		if err != nil {
 			return err
 		}
-
-		pi := SweeperInput{
-			Input: input,
-			params: Params{
-				DeadlineHeight: fn.Some(b.deadlineHeight),
-			},
-		}
-		b.addInput(pi)
-
-		log.Debugf("Added wallet input to input set: op=%v, amt=%v",
-			pi.OutPoint(), utxo.Value)
 
 		// Return if we've reached the minimum output amount.
 		if !b.NeedWalletInput() {
@@ -364,11 +377,10 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		}
 	}
 
-	// The wallet doesn't have enough utxos to cover the budget. Revert the
-	// input set to its original state.
-	b.inputs = originalInputs
+	log.Warn("Not enough wallet UTXOs to cover the budget, sweeping " +
+		"anyway...")
 
-	return ErrNotEnoughInputs
+	return nil
 }
 
 // Budget returns the total budget of the set.

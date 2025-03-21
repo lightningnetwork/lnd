@@ -752,7 +752,7 @@ func TestRemoteSignerDisconnects(t *testing.T) {
 	// Verify that the coordinator signals that it's done receiving
 	// responses after the stream is canceled, i.e. the StartReceiving
 	// function is no longer running.
-	<-coordinator.doneReceiving
+	<-coordinator.disconnected
 
 	// Ensure that the Ping request goroutine returned before the timeout
 	// was reached, which indicates that the request was canceled because

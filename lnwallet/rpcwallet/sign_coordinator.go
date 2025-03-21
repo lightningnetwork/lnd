@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,15 +79,19 @@ type SignCoordinator struct {
 	// signer has errored, and we can no longer process responses.
 	receiveErrChan chan error
 
-	// doneReceiving is closed when either party terminates and signals to
+	// disconnected is closed when either party terminates and signals to
 	// any pending requests that we'll no longer process the response for
 	// that request.
-	doneReceiving chan struct{}
+	disconnected chan struct{}
 
 	// quit is closed when lnd is shutting down.
 	quit chan struct{}
 
-	// clientConnected is sent over when the remote signer connects.
+	// clientReady is sent over when the remote signer is connected and
+	// ready to accept requests (after the initial handshake).
+	clientReady chan struct{}
+
+	// clientConnected is sent over once a remote signer connects.
 	clientConnected chan struct{}
 
 	// requestTimeout is the maximum time we will wait for a response from
@@ -114,11 +120,14 @@ func NewSignCoordinator(requestTimeout time.Duration,
 	s := &SignCoordinator{
 		responses:         respsMap,
 		receiveErrChan:    make(chan error, 1),
-		doneReceiving:     make(chan struct{}),
+		clientReady:       make(chan struct{}),
 		clientConnected:   make(chan struct{}),
 		quit:              make(chan struct{}),
 		requestTimeout:    requestTimeout,
 		connectionTimeout: connectionTimeout,
+		// Note that the disconnected channel is not initialized here,
+		// as no code listens to it until the Run method has been called
+		// and set the field.
 	}
 
 	// We initialize the atomic nextRequestID to the handshakeRequestID, as
@@ -139,9 +148,12 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 		s.mu.Unlock()
 		return ErrShuttingDown
 
-	case <-s.doneReceiving:
+	case <-s.clientConnected:
 		s.mu.Unlock()
-		return ErrNotConnected
+
+		// If we already have a stream, we error out as we can only have
+		// one connection at a time.
+		return ErrMultipleConnections
 
 	default:
 	}
@@ -149,14 +161,21 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	// If we already have a stream, we error out as we can only have one
-	// connection throughout the lifetime of the SignCoordinator.
-	if s.stream != nil {
-		s.mu.Unlock()
-		return ErrMultipleConnections
-	}
+	close(s.clientConnected)
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// We create a new clientConnected channel, once this function
+		// has exited, to ensure that a new remote signer connection can
+		// be set up.
+		s.clientConnected = make(chan struct{})
+	}()
 
 	s.stream = stream
+
+	s.disconnected = make(chan struct{})
+	defer close(s.disconnected)
 
 	s.mu.Unlock()
 
@@ -167,8 +186,18 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 		return err
 	}
 
-	log.Infof("Remote signer connected")
-	close(s.clientConnected)
+	log.Infof("Remote signer connected and ready")
+
+	close(s.clientReady)
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// We create a new clientReady channel, once this function
+		// has exited, to ensure that a new remote signer connection can
+		// be set up.
+		s.clientReady = make(chan struct{})
+	}()
 
 	// Now let's start the main receiving loop, which will receive all
 	// responses to our requests from the remote signer!
@@ -186,9 +215,6 @@ func (s *SignCoordinator) Run(stream StreamServer) error {
 
 	case <-s.quit:
 		return ErrShuttingDown
-
-	case <-s.doneReceiving:
-		return ErrNotConnected
 	}
 }
 
@@ -371,10 +397,6 @@ func (s *SignCoordinator) handshake(stream StreamServer) error {
 func (s *SignCoordinator) StartReceiving() {
 	defer s.wg.Done()
 
-	// Signals to any ongoing requests that the remote signer is no longer
-	// connected.
-	defer close(s.doneReceiving)
-
 	for {
 		resp, err := s.stream.Recv()
 		if err != nil {
@@ -443,7 +465,7 @@ func (s *SignCoordinator) waitUntilConnectedWithTimeout(
 	timeout time.Duration) error {
 
 	select {
-	case <-s.clientConnected:
+	case <-s.clientReady:
 		return nil
 
 	case <-s.quit:
@@ -451,9 +473,6 @@ func (s *SignCoordinator) waitUntilConnectedWithTimeout(
 
 	case <-time.After(timeout):
 		return ErrConnectTimeout
-
-	case <-s.doneReceiving:
-		return ErrNotConnected
 	}
 }
 
@@ -537,7 +556,7 @@ func (s *SignCoordinator) getResponse(requestID uint64,
 
 		return resp, nil
 
-	case <-s.doneReceiving:
+	case <-s.disconnected:
 		log.Debugf("Stopped waiting for remote signer response for "+
 			"request ID %d as the stream has been closed",
 			requestID)
@@ -854,8 +873,36 @@ func processRequest[R comparable](s *SignCoordinator, timeout time.Duration,
 
 	log.Tracef("Request content: %v", formatSignCoordinatorMsg(&req))
 
+	// reprocessOnDisconnect is a helper function that will be used to
+	// resend the request if the remote signer disconnects, through which
+	// we will wait for it to reconnect within the configured timeout, and
+	// then resend the request.
+	reprocessOnDisconnect := func() (R, error) {
+		var newTimeout time.Duration = noTimeout
+
+		if timeout != 0 {
+			newTimeout = timeout - time.Since(startTime)
+
+			if time.Since(startTime) > timeout {
+				return zero, ErrRequestTimeout
+			}
+		}
+
+		return processRequest[R](
+			s, newTimeout, generateRequest, extractResponse,
+		)
+	}
+
 	err = s.stream.Send(&req)
 	if err != nil {
+		st, isStatusError := status.FromError(err)
+		if isStatusError && st.Code() == codes.Unavailable {
+			// If the stream was closed due to the remote signer
+			// disconnecting, we will retry to process the request
+			// if the remote signer reconnects.
+			return reprocessOnDisconnect()
+		}
+
 		return zero, err
 	}
 
@@ -878,7 +925,12 @@ func processRequest[R comparable](s *SignCoordinator, timeout time.Duration,
 		resp, err = s.getResponse(reqID, s.requestTimeout)
 	}
 
-	if err != nil {
+	if errors.Is(err, ErrNotConnected) {
+		// If the remote signer disconnected while we were waiting for
+		// the response, we will retry to process the request if the
+		// remote signer reconnects.
+		return reprocessOnDisconnect()
+	} else if err != nil {
 		return zero, err
 	}
 

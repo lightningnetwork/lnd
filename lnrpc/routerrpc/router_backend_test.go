@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
@@ -473,5 +474,350 @@ func testUnmarshalAMP(t *testing.T, test unmarshalAMPTest) {
 
 	default:
 		t.Fatalf("test case has non-standard outcome")
+	}
+}
+
+type ExtractIntentTestCase struct {
+	name             string
+	backend          *RouterBackend
+	sendReq          *SendPaymentRequest
+	valid            bool
+	expectedErrorMsg string
+}
+
+// TestExtractIntentFromSendRequest verifies that extractIntentFromSendRequest
+// correctly translates a SendPaymentRequest from an RPC client into a
+// LightningPayment intent.
+func TestExtractIntentFromSendRequest(t *testing.T) {
+	const paymentAmount = btcutil.Amount(300_000)
+
+	const paymentReq = "lnbcrt500u1pnh0xflpp56w08q26t896vg2e9mtdkrem320tp" +
+		"wws9z9sfr7dw86dx97d90u4sdqqcqzzsxqyz5vqsp5z9945kvfy5g9afmakz" +
+		"yrur2t4hhn2tr87un8j0r0e6l5m5zm0fus9qxpqysgqk98c6j7qefdpdmzt4" +
+		"g6aykds4ydvf2x9lpngqcfux3hv8qlraan9v3s9296r5w5eh959yzadgh5ck" +
+		"gjydgyfxdpumxtuk3p3caugmlqpz5necs"
+
+	destNodeBytes, err := hex.DecodeString(destKey)
+	require.NoError(t, err)
+
+	target, err := route.NewVertexFromBytes(destNodeBytes)
+	require.NoError(t, err)
+
+	testCases := []ExtractIntentTestCase{
+		{
+			name:    "Time preference out of range",
+			backend: &RouterBackend{},
+			sendReq: &SendPaymentRequest{
+				TimePref: 2,
+			},
+			valid:            false,
+			expectedErrorMsg: "time preference out of range",
+		},
+		{
+			name:    "Outgoing channel exclusivity violation",
+			backend: &RouterBackend{},
+			sendReq: &SendPaymentRequest{
+				OutgoingChanId:  38484,
+				OutgoingChanIds: []uint64{383322},
+			},
+			valid: false,
+			expectedErrorMsg: "outgoing_chan_id and " +
+				"outgoing_chan_ids are mutually exclusive",
+		},
+		{
+			name:    "Invalid last hop pubkey",
+			backend: &RouterBackend{},
+			sendReq: &SendPaymentRequest{
+				OutgoingChanId: 38484,
+				LastHopPubkey:  []byte{1},
+			},
+			valid:            false,
+			expectedErrorMsg: "invalid vertex length",
+		},
+		{
+			name: "Max parts exceed allowed limit",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+			},
+			sendReq: &SendPaymentRequest{
+				MaxParts:         1001,
+				MaxShardSizeMsat: 300_000,
+			},
+			valid: false,
+			expectedErrorMsg: "requested max_parts (1001) exceeds" +
+				" the allowed upper limit",
+		},
+		{
+			name: "Fee limit conflict, both sat and msat specified",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+			},
+			sendReq: &SendPaymentRequest{
+				FeeLimitSat:  1000000,
+				FeeLimitMsat: 1000000000,
+			},
+			valid: false,
+			expectedErrorMsg: "sat and msat arguments are " +
+				"mutually exclusive",
+		},
+		{
+			name: "Dest custom records with type below minimum",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+			},
+			sendReq: &SendPaymentRequest{
+				DestCustomRecords: map[uint64][]byte{
+					65530: {1, 2},
+				},
+			},
+			valid:            false,
+			expectedErrorMsg: "no custom records with types below",
+		},
+		{
+			name: "Custom record entry with TLV type below minimum",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+			},
+			sendReq: &SendPaymentRequest{
+				FirstHopCustomRecords: map[uint64][]byte{
+					65530: {1, 2},
+				},
+			},
+			valid:            false,
+			expectedErrorMsg: "custom records entry with TLV type",
+		},
+		{
+			name: "Amount conflict, both sat and msat specified",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return true
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:     int64(paymentAmount),
+				AmtMsat: int64(paymentAmount) * 1000,
+			},
+			valid: false,
+			expectedErrorMsg: "sat and msat arguments are " +
+				"mutually exclusive",
+		},
+		{
+			name: "Both dest and payment_request provided",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:            int64(paymentAmount),
+				PaymentRequest: "test",
+				Dest:           destNodeBytes,
+			},
+			valid: false,
+			expectedErrorMsg: "dest and payment_request " +
+				"cannot appear together",
+		},
+		{
+			name: "Both payment_hash and payment_request provided",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:            int64(paymentAmount),
+				PaymentRequest: "test",
+				PaymentHash:    make([]byte, 32),
+			},
+			valid: false,
+			expectedErrorMsg: "payment_hash and payment_request " +
+				"cannot appear together",
+		},
+		{
+			name: "Both final_cltv_delta and payment_request " +
+				"provided",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:            int64(paymentAmount),
+				PaymentRequest: "test",
+				FinalCltvDelta: 100,
+			},
+			valid: false,
+			expectedErrorMsg: "final_cltv_delta and " +
+				"payment_request cannot appear together",
+		},
+		{
+			name: "Invalid payment request",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+				ActiveNetParams: &chaincfg.RegressionNetParams,
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:            int64(paymentAmount),
+				PaymentRequest: "test",
+			},
+			valid:            false,
+			expectedErrorMsg: "invalid bech32 string length",
+		},
+		{
+			name: "Expired invoice payment request",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+				ActiveNetParams: &chaincfg.RegressionNetParams,
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:            int64(paymentAmount),
+				PaymentRequest: paymentReq,
+			},
+			valid:            false,
+			expectedErrorMsg: "invoice expired.",
+		},
+		{
+			name: "Invalid dest vertex length",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Amt:  int64(paymentAmount),
+				Dest: []byte{1},
+			},
+			valid:            false,
+			expectedErrorMsg: "invalid vertex length",
+		},
+		{
+			name: "Payment request with missing amount",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:           destNodeBytes,
+				FinalCltvDelta: 100,
+			},
+			valid:            false,
+			expectedErrorMsg: "amount must be specified",
+		},
+		{
+			name: "Destination lacks AMP support",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:         destNodeBytes,
+				Amt:          int64(paymentAmount),
+				Amp:          true,
+				DestFeatures: []lnrpc.FeatureBit{},
+			},
+			valid: false,
+			expectedErrorMsg: "destination doesn't " +
+				"support AMP payments",
+		},
+		{
+			name: "Invalid payment hash",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:        destNodeBytes,
+				Amt:         int64(paymentAmount),
+				PaymentHash: make([]byte, 1),
+			},
+			valid:            false,
+			expectedErrorMsg: "invalid hash length",
+		},
+		{
+			name: "Payment amount exceeds maximum possible amount",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:             destNodeBytes,
+				Amt:              int64(paymentAmount),
+				PaymentHash:      make([]byte, 32),
+				MaxParts:         10,
+				MaxShardSizeMsat: 300_000,
+			},
+			valid: false,
+			expectedErrorMsg: "payment amount 300000000 mSAT " +
+				"exceeds maximum possible amount",
+		},
+		{
+			name: "Reject self-payments if not permitted",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+				SelfNode: target,
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:        destNodeBytes,
+				Amt:         int64(paymentAmount),
+				PaymentHash: make([]byte, 32),
+			},
+			valid:            false,
+			expectedErrorMsg: "self-payments not allowed",
+		},
+		{
+			name: "Valid send req parameters, payment settled",
+			backend: &RouterBackend{
+				MaxTotalTimelock: 1000,
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+			},
+			sendReq: &SendPaymentRequest{
+				Dest:             destNodeBytes,
+				Amt:              int64(paymentAmount),
+				PaymentHash:      make([]byte, 32),
+				MaxParts:         10,
+				MaxShardSizeMsat: 30_000_000,
+			},
+			valid: true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := test.backend.
+				extractIntentFromSendRequest(test.sendReq)
+
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err,
+					test.expectedErrorMsg)
+			}
+		})
 	}
 }

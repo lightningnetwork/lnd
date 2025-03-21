@@ -2,8 +2,10 @@ package itest
 
 import (
 	"encoding/hex"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -147,4 +149,97 @@ func testTrackPaymentsCompatible(ht *lntest.HarnessTest) {
 	payment3, err := paymentClient.Recv()
 	require.NoError(ht, err, "unable to get payment update")
 	require.Equal(ht, lnrpc.Payment_SUCCEEDED, payment3.Status)
+}
+
+// testSendToRouteFailPaymentNotification tests that when we are failing a
+// payment via SendToRouteV2 we only receive one failure notification making
+// also sure the failure reason is not overwritten in our backend.
+func testSendToRouteFailPaymentNotification(ht *lntest.HarnessTest) {
+	// Create a simple network with Alice->Bob.
+	_, nodes := ht.CreateSimpleNetwork(
+		[][]string{nil, nil},
+		lntest.OpenChannelParams{Amt: 100_000},
+	)
+	alice, bob := nodes[0], nodes[1]
+
+	// Make Bob create an invoice for Alice to pay.
+	_, rHashes, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
+
+	rHash := rHashes[0]
+
+	// We create a dummy payment address so that the payment fails at
+	// the first hop.
+	payAddr := make([]byte, 32)
+
+	// Subscribe to all the payments because otherwise we would not be able
+	// to verify if two failure notifications are received. The single
+	// subscriber is deleted after receiving the first failure notification.
+	tracker := alice.RPC.TrackPayments(&routerrpc.TrackPaymentsRequest{
+		NoInflightUpdates: true,
+	})
+
+	bobPubKey, err := hex.DecodeString(bob.PubKeyStr)
+	require.NoError(ht, err, "unable to decode bob's pubkey")
+
+	// Build a route for the specified hops.
+	r := alice.RPC.BuildRoute(&routerrpc.BuildRouteRequest{
+		AmtMsat:        int64(paymentAmt * 1000),
+		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
+		HopPubkeys:     [][]byte{bobPubKey},
+	}).Route
+
+	// Set the MPP records to indicate this is a payment shard.
+	hop := r.Hops[len(r.Hops)-1]
+	hop.MppRecord = &lnrpc.MPPRecord{
+		PaymentAddr:  payAddr,
+		TotalAmtMsat: int64(paymentAmt * 1000),
+	}
+
+	// Send the only shard.
+	sendReq := &routerrpc.SendToRouteRequest{
+		PaymentHash: rHash,
+		Route:       r,
+	}
+
+	// We launch the payment and check the payment stream to verify that
+	// we are receiving exactly one failure notification.
+	respChan := make(chan *lnrpc.HTLCAttempt, 1)
+	go func() {
+		attempt := alice.RPC.SendToRouteV2(sendReq)
+		respChan <- attempt
+	}()
+
+	// We excpect the attempt and the payment to fail.
+	select {
+	case attempt := <-respChan:
+		require.Equal(ht, attempt.Status, lnrpc.HTLCAttempt_FAILED)
+
+	case <-time.After(defaultTimeout):
+		ht.Fatal("timeout waiting for SendToRouteV2 response")
+	}
+
+	// Assert the first track payment update should be a failed update.
+	update, err := tracker.Recv()
+	require.NoError(ht, err, "unable to receive payment update")
+	require.Equal(ht, lnrpc.Payment_FAILED, update.Status)
+
+	// Now check no other notifications come in
+	notifChan := make(chan *lnrpc.Payment, 1)
+	go func() {
+		notif, err := tracker.Recv()
+		if err != nil {
+			return
+		}
+
+		notifChan <- notif
+	}()
+
+	// We do not expect any other notifications.
+	select {
+	case unexpectedNotif := <-notifChan:
+		ht.Fatalf("received unexpected notification: %v",
+			unexpectedNotif)
+
+	case <-time.After(100 * time.Millisecond):
+	}
 }

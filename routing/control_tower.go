@@ -282,6 +282,9 @@ func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
 // reason the payment failed. After invoking this method, InitPayment should
 // return nil on its next call for this payment hash, allowing the switch to
 // make a subsequent payment.
+//
+// NOTE: This method will overwrite the failure reason if the payment is already
+// failed.
 func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 

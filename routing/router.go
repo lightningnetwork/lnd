@@ -1048,6 +1048,29 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
 	error) {
 
+	// Helper function to fail a payment. It makes sure the payment is only
+	// failed once so that the failure reason is not overwritten.
+	failPayment := func(paymentIdentifier lntypes.Hash,
+		reason channeldb.FailureReason) error {
+
+		payment, fetchErr := r.cfg.Control.FetchPayment(
+			paymentIdentifier,
+		)
+		if fetchErr != nil {
+			return fetchErr
+		}
+
+		// NOTE: We cannot rely on the payment status to be failed here
+		// because it can still be in-flight although the payment is
+		// already failed.
+		_, failedReason := payment.TerminalInfo()
+		if failedReason != nil {
+			return nil
+		}
+
+		return r.cfg.Control.FailPayment(paymentIdentifier, reason)
+	}
+
 	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
 		htlcHash, skipTempErr)
 
@@ -1148,20 +1171,6 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		return nil, err
 	}
 
-	// We now look up the payment to see if it's already failed.
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
-	if err != nil {
-		return result.attempt, err
-	}
-
-	// Exit if the above error has caused the payment to be failed, we also
-	// return the error from sending attempt to mimic the old behavior of
-	// this method.
-	_, failedReason := payment.TerminalInfo()
-	if failedReason != nil {
-		return result.attempt, result.err
-	}
-
 	// Since for SendToRoute we won't retry in case the shard fails, we'll
 	// mark the payment failed with the control tower immediately if the
 	// skipTempErr is false.
@@ -1175,10 +1184,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 			return result.attempt, result.err
 		}
 
-		// Otherwise we need to fail the payment.
-		err := r.cfg.Control.FailPayment(paymentIdentifier, reason)
+		err := failPayment(paymentIdentifier, reason)
 		if err != nil {
-			return nil, err
+			return result.attempt, err
 		}
 
 		return result.attempt, result.err
@@ -1199,9 +1207,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// An error returned from collecting the result, we'll mark the payment
 	// as failed if we don't skip temp error.
 	if !skipTempErr {
-		err := r.cfg.Control.FailPayment(paymentIdentifier, reason)
+		err := failPayment(paymentIdentifier, reason)
 		if err != nil {
-			return nil, err
+			return result.attempt, err
 		}
 	}
 

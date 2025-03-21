@@ -94,6 +94,9 @@
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9609) a bug that may
   cause `listunspent` to give inaccurate wallet UTXOs.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9626) a bug where a
+payment was not failed properly.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

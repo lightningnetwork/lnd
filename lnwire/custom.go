@@ -69,9 +69,13 @@ type Custom struct {
 	Data []byte
 }
 
-// A compile time check to ensure FundingCreated implements the lnwire.Message
+// A compile time check to ensure Custom implements the lnwire.Message
 // interface.
 var _ Message = (*Custom)(nil)
+
+// A compile time check to ensure Custom implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*Custom)(nil)
 
 // NewCustom instantiates a new custom message.
 func NewCustom(msgType MessageType, data []byte) (*Custom, error) {
@@ -116,4 +120,11 @@ func (c *Custom) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *Custom) MsgType() MessageType {
 	return c.Type
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *Custom) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

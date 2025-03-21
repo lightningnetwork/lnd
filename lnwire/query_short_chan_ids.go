@@ -91,6 +91,10 @@ func NewQueryShortChanIDs(h chainhash.Hash, e QueryEncoding,
 // lnwire.Message interface.
 var _ Message = (*QueryShortChanIDs)(nil)
 
+// A compile time check to ensure QueryShortChanIDs implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*QueryShortChanIDs)(nil)
+
 // Decode deserializes a serialized QueryShortChanIDs message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -426,4 +430,11 @@ func encodeShortChanIDs(w *bytes.Buffer, encodingType QueryEncoding,
 // This is part of the lnwire.Message interface.
 func (q *QueryShortChanIDs) MsgType() MessageType {
 	return MsgQueryShortChanIDs
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (q *QueryShortChanIDs) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(q)
 }

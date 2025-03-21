@@ -241,6 +241,13 @@ func (c *ChannelUpdate2) MsgType() MessageType {
 	return MsgChannelUpdate2
 }
 
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ChannelUpdate2) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
+}
+
 func (c *ChannelUpdate2) ExtraData() ExtraOpaqueData {
 	return c.ExtraOpaqueData
 }

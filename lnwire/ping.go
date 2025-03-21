@@ -33,6 +33,10 @@ func NewPing(numBytes uint16) *Ping {
 // A compile time check to ensure Ping implements the lnwire.Message interface.
 var _ Message = (*Ping)(nil)
 
+// A compile time check to ensure Ping implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*Ping)(nil)
+
 // Decode deserializes a serialized Ping message stored in the passed io.Reader
 // observing the specified protocol version.
 //
@@ -68,4 +72,11 @@ func (p *Ping) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (p *Ping) MsgType() MessageType {
 	return MsgPing
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (p *Ping) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(p)
 }

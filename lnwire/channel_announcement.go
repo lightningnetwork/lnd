@@ -62,6 +62,10 @@ type ChannelAnnouncement1 struct {
 // lnwire.Message interface.
 var _ Message = (*ChannelAnnouncement1)(nil)
 
+// A compile time check to ensure ChannelAnnouncement1 implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ChannelAnnouncement1)(nil)
+
 // Decode deserializes a serialized ChannelAnnouncement stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -141,6 +145,13 @@ func (a *ChannelAnnouncement1) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelAnnouncement1) MsgType() MessageType {
 	return MsgChannelAnnouncement
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *ChannelAnnouncement1) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
 }
 
 // DataToSign is used to retrieve part of the announcement message which should

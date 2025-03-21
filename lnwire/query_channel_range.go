@@ -49,6 +49,10 @@ func NewQueryChannelRange() *QueryChannelRange {
 // lnwire.Message interface.
 var _ Message = (*QueryChannelRange)(nil)
 
+// A compile time check to ensure QueryChannelRange implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*QueryChannelRange)(nil)
+
 // Decode deserializes a serialized QueryChannelRange message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -119,6 +123,14 @@ func (q *QueryChannelRange) Encode(w *bytes.Buffer, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (q *QueryChannelRange) MsgType() MessageType {
 	return MsgQueryChannelRange
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (q *QueryChannelRange) SerializedSize() (uint32, error) {
+	msgCpy := *q
+	return MessageSerializedSize(&msgCpy)
 }
 
 // LastBlockHeight returns the last block height covered by the range of a

@@ -43,6 +43,10 @@ func NewInitMessage(gf *RawFeatureVector, f *RawFeatureVector) *Init {
 // interface.
 var _ Message = (*Init)(nil)
 
+// A compile time check to ensure Init implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*Init)(nil)
+
 // Decode deserializes a serialized Init message stored in the passed
 // io.Reader observing the specified protocol version.
 //
@@ -77,4 +81,11 @@ func (msg *Init) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (msg *Init) MsgType() MessageType {
 	return MsgInit
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (msg *Init) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(msg)
 }

@@ -212,3 +212,14 @@ func (c *UpdateAddHTLC) MsgType() MessageType {
 func (c *UpdateAddHTLC) TargetChanID() ChannelID {
 	return c.ChanID
 }
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *UpdateAddHTLC) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
+}
+
+// A compile time check to ensure UpdateAddHTLC implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*UpdateAddHTLC)(nil)

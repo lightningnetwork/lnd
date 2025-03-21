@@ -99,6 +99,10 @@ type ChannelReestablish struct {
 // lnwire.Message interface.
 var _ Message = (*ChannelReestablish)(nil)
 
+// A compile time check to ensure ChannelReestablish implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ChannelReestablish)(nil)
+
 // Encode serializes the target ChannelReestablish into the passed io.Writer
 // observing the protocol version specified.
 //
@@ -233,4 +237,11 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *ChannelReestablish) MsgType() MessageType {
 	return MsgChannelReestablish
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *ChannelReestablish) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
 }

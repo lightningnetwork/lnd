@@ -128,6 +128,10 @@ type AcceptChannel struct {
 // interface.
 var _ Message = (*AcceptChannel)(nil)
 
+// A compile time check to ensure AcceptChannel implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*AcceptChannel)(nil)
+
 // Encode serializes the target AcceptChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
@@ -280,4 +284,11 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) MsgType() MessageType {
 	return MsgAcceptChannel
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (a *AcceptChannel) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(a)
 }

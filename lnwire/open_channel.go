@@ -164,6 +164,10 @@ type OpenChannel struct {
 // interface.
 var _ Message = (*OpenChannel)(nil)
 
+// A compile time check to ensure OpenChannel implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*OpenChannel)(nil)
+
 // Encode serializes the target OpenChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
@@ -334,4 +338,11 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (o *OpenChannel) MsgType() MessageType {
 	return MsgOpenChannel
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (o *OpenChannel) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(o)
 }

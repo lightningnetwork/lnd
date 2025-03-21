@@ -194,9 +194,20 @@ func (c *ChannelAnnouncement2) MsgType() MessageType {
 	return MsgChannelAnnouncement2
 }
 
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ChannelAnnouncement2) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
+}
+
 // A compile time check to ensure ChannelAnnouncement2 implements the
 // lnwire.Message interface.
 var _ Message = (*ChannelAnnouncement2)(nil)
+
+// A compile time check to ensure ChannelAnnouncement2 implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ChannelAnnouncement2)(nil)
 
 // Node1KeyBytes returns the bytes representing the public key of node 1 in the
 // channel.

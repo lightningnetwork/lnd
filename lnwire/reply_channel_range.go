@@ -70,6 +70,10 @@ func NewReplyChannelRange() *ReplyChannelRange {
 // lnwire.Message interface.
 var _ Message = (*ReplyChannelRange)(nil)
 
+// A compile time check to ensure ReplyChannelRange implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*ReplyChannelRange)(nil)
+
 // Decode deserializes a serialized ReplyChannelRange message stored in the
 // passed io.Reader observing the specified protocol version.
 //
@@ -222,4 +226,11 @@ func (c *ReplyChannelRange) LastBlockHeight() uint32 {
 		return math.MaxUint32
 	}
 	return uint32(lastBlockHeight)
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *ReplyChannelRange) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }

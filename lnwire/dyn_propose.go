@@ -105,6 +105,10 @@ type DynPropose struct {
 // interface.
 var _ Message = (*DynPropose)(nil)
 
+// A compile time check to ensure DynPropose implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*DynPropose)(nil)
+
 // Encode serializes the target DynPropose into the passed io.Writer.
 // Serialization will observe the rules defined by the passed protocol version.
 //
@@ -316,4 +320,11 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (dp *DynPropose) MsgType() MessageType {
 	return MsgDynPropose
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (dp *DynPropose) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(dp)
 }

@@ -70,6 +70,10 @@ func NewError() *Error {
 // interface.
 var _ Message = (*Error)(nil)
 
+// A compile time check to ensure Error implements the lnwire.SizeableMessage
+// interface.
+var _ SizeableMessage = (*Error)(nil)
+
 // Error returns the string representation to Error.
 //
 // NOTE: Satisfies the error interface.
@@ -111,6 +115,13 @@ func (c *Error) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *Error) MsgType() MessageType {
 	return MsgError
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (c *Error) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(c)
 }
 
 // isASCII is a helper method that checks whether all bytes in `data` would be

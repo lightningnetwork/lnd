@@ -30,6 +30,10 @@ type DynReject struct {
 // interface.
 var _ Message = (*DynReject)(nil)
 
+// A compile time check to ensure DynReject implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*DynReject)(nil)
+
 // Encode serializes the target DynReject into the passed io.Writer.
 // Serialization will observe the rules defined by the passed protocol version.
 //
@@ -73,4 +77,11 @@ func (dr *DynReject) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (dr *DynReject) MsgType() MessageType {
 	return MsgDynReject
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (dr *DynReject) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(dr)
 }

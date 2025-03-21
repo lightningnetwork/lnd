@@ -90,6 +90,11 @@
 
 * [Pass through](https://github.com/lightningnetwork/lnd/pull/9601) the unused
   `MaxPeers` configuration variable for neutrino mode.
+  
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9543) where
+  the payment might have been failed more than once and therefore overwriting
+  the failure reason and notifying the `SubscribeAllPayments` subscribers more
+  than once.
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9609) a bug that may
   cause `listunspent` to give inaccurate wallet UTXOs.

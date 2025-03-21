@@ -20,8 +20,49 @@ const (
 	DefaultPreAllocCacheNumNodes = 15000
 )
 
-// Options holds parameters for tuning and customizing a graph.DB.
-type Options struct {
+// chanGraphOptions holds parameters for tuning and customizing the
+// ChannelGraph.
+type chanGraphOptions struct {
+	// useGraphCache denotes whether the in-memory graph cache should be
+	// used or a fallback version that uses the underlying database for
+	// path finding.
+	useGraphCache bool
+
+	// preAllocCacheNumNodes is the number of nodes we expect to be in the
+	// graph cache, so we can pre-allocate the map accordingly.
+	preAllocCacheNumNodes int
+}
+
+// defaultChanGraphOptions returns a new chanGraphOptions instance populated
+// with default values.
+func defaultChanGraphOptions() *chanGraphOptions {
+	return &chanGraphOptions{
+		useGraphCache:         true,
+		preAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
+	}
+}
+
+// ChanGraphOption describes the signature of a functional option that can be
+// used to customize a ChannelGraph instance.
+type ChanGraphOption func(*chanGraphOptions)
+
+// WithUseGraphCache sets whether the in-memory graph cache should be used.
+func WithUseGraphCache(use bool) ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.useGraphCache = use
+	}
+}
+
+// WithPreAllocCacheNumNodes sets the number of nodes we expect to be in the
+// graph cache, so we can pre-allocate the map accordingly.
+func WithPreAllocCacheNumNodes(n int) ChanGraphOption {
+	return func(o *chanGraphOptions) {
+		o.preAllocCacheNumNodes = n
+	}
+}
+
+// KVStoreOptions holds parameters for tuning and customizing a graph.DB.
+type KVStoreOptions struct {
 	// RejectCacheSize is the maximum number of rejectCacheEntries to hold
 	// in the rejection cache.
 	RejectCacheSize int
@@ -34,67 +75,43 @@ type Options struct {
 	// wait before attempting to commit a pending set of updates.
 	BatchCommitInterval time.Duration
 
-	// PreAllocCacheNumNodes is the number of nodes we expect to be in the
-	// graph cache, so we can pre-allocate the map accordingly.
-	PreAllocCacheNumNodes int
-
-	// UseGraphCache denotes whether the in-memory graph cache should be
-	// used or a fallback version that uses the underlying database for
-	// path finding.
-	UseGraphCache bool
-
 	// NoMigration specifies that underlying backend was opened in read-only
 	// mode and migrations shouldn't be performed. This can be useful for
 	// applications that use the channeldb package as a library.
 	NoMigration bool
 }
 
-// DefaultOptions returns an Options populated with default values.
-func DefaultOptions() *Options {
-	return &Options{
-		RejectCacheSize:       DefaultRejectCacheSize,
-		ChannelCacheSize:      DefaultChannelCacheSize,
-		PreAllocCacheNumNodes: DefaultPreAllocCacheNumNodes,
-		UseGraphCache:         true,
-		NoMigration:           false,
+// DefaultOptions returns a KVStoreOptions populated with default values.
+func DefaultOptions() *KVStoreOptions {
+	return &KVStoreOptions{
+		RejectCacheSize:  DefaultRejectCacheSize,
+		ChannelCacheSize: DefaultChannelCacheSize,
+		NoMigration:      false,
 	}
 }
 
-// OptionModifier is a function signature for modifying the default Options.
-type OptionModifier func(*Options)
+// KVStoreOptionModifier is a function signature for modifying the default
+// KVStoreOptions.
+type KVStoreOptionModifier func(*KVStoreOptions)
 
 // WithRejectCacheSize sets the RejectCacheSize to n.
-func WithRejectCacheSize(n int) OptionModifier {
-	return func(o *Options) {
+func WithRejectCacheSize(n int) KVStoreOptionModifier {
+	return func(o *KVStoreOptions) {
 		o.RejectCacheSize = n
 	}
 }
 
 // WithChannelCacheSize sets the ChannelCacheSize to n.
-func WithChannelCacheSize(n int) OptionModifier {
-	return func(o *Options) {
+func WithChannelCacheSize(n int) KVStoreOptionModifier {
+	return func(o *KVStoreOptions) {
 		o.ChannelCacheSize = n
-	}
-}
-
-// WithPreAllocCacheNumNodes sets the PreAllocCacheNumNodes to n.
-func WithPreAllocCacheNumNodes(n int) OptionModifier {
-	return func(o *Options) {
-		o.PreAllocCacheNumNodes = n
 	}
 }
 
 // WithBatchCommitInterval sets the batch commit interval for the interval batch
 // schedulers.
-func WithBatchCommitInterval(interval time.Duration) OptionModifier {
-	return func(o *Options) {
+func WithBatchCommitInterval(interval time.Duration) KVStoreOptionModifier {
+	return func(o *KVStoreOptions) {
 		o.BatchCommitInterval = interval
-	}
-}
-
-// WithUseGraphCache sets the UseGraphCache option to the given value.
-func WithUseGraphCache(use bool) OptionModifier {
-	return func(o *Options) {
-		o.UseGraphCache = use
 	}
 }

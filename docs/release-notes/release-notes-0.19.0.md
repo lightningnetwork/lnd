@@ -145,6 +145,11 @@ close transaction.
   tests to set a lower value for faster funding confirmation timeout while
   keeping the default of 2016 blocks for production stability.
 
+* [Add](https://github.com/lightningnetwork/lnd/pull/9603) validation to ensure
+  that MPP parameters are compatible with the payment amount before attempting
+  the payment. This prevents payments from entering a path finding loop that
+  would eventually timeout.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

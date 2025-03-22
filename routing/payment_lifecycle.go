@@ -203,20 +203,41 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 		return [32]byte{}, nil, err
 	}
 
-	// Get the payment status.
-	status := payment.GetStatus()
-
 	// exitWithErr is a helper closure that logs and returns an error.
-	exitWithErr := func(err error) ([32]byte, *route.Route, error) {
-		// Log an error with the latest payment status.
-		//
-		// NOTE: this `status` variable is reassigned in the loop
-		// below. We could also call `payment.GetStatus` here, but in a
-		// rare case when the critical log is triggered when using
-		// postgres as db backend, the `payment` could be nil, causing
-		// the payment fetching to return an error.
-		log.Errorf("Payment %v with status=%v failed: %v", p.identifier,
-			status, err)
+	exitWithErr := func(exitErr error) ([32]byte, *route.Route, error) {
+		// We fetch the latest payment status here to get the latest
+		// state of the payment.
+		payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+		if err != nil {
+			return [32]byte{}, nil, err
+		}
+
+		// Only fail the payment if there are no inflight HTLCs on it
+		// because otherwise the payment might be resolved when
+		// resuming.
+		_, failure := payment.TerminalInfo()
+		if failure == nil &&
+			payment.GetStatus() == channeldb.StatusInFlight {
+
+			reason := channeldb.FailureReasonError
+			err = p.router.cfg.Control.FailPayment(
+				p.identifier, reason,
+			)
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+
+			// Update the payment to get the latest state.
+			payment, err = p.router.cfg.Control.FetchPayment(
+				p.identifier,
+			)
+			if err != nil {
+				return [32]byte{}, nil, err
+			}
+		}
+
+		log.Errorf("Payment with status=%v id=%v failed: %v",
+			payment.GetStatus(), p.identifier, exitErr)
 
 		return [32]byte{}, nil, err
 	}
@@ -230,9 +251,6 @@ lifecycle:
 		if err != nil {
 			return exitWithErr(err)
 		}
-
-		// Reassign status so it can be read in `exitWithErr`.
-		status = currentPayment.GetStatus()
 
 		// Reassign payment such that when the lifecycle exits, the
 		// latest payment can be read when we access its terminal info.
@@ -330,6 +348,13 @@ lifecycle:
 	htlc, failure := payment.TerminalInfo()
 	if htlc != nil {
 		return htlc.Settle.Preimage, &htlc.Route, nil
+	}
+
+	// At this point the payment should have a failure reason and therefore
+	// this should never happen.
+	if failure == nil {
+		return [32]byte{}, nil, fmt.Errorf("payment %v has no "+
+			"failure reason", p.identifier)
 	}
 
 	// Otherwise return the payment failure reason.

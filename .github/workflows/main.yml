@@ -21,7 +21,7 @@ defaults:
     shell: bash
 
 env:
-  BITCOIN_VERSION: "28"
+  BITCOIN_VERSION: "29"
   
   # TRANCHES defines the number of tranches used in the itests.
   TRANCHES: 16

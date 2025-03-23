@@ -26,7 +26,21 @@
 
 ## RPC Additions
 
+* [The `lncli addinvoice --blind` command now has the option to include a
+  chained channels incoming list `--blinded_path_incoming_channel_list` which
+  gives users the control of specifying the channels they prefer to receive the 
+  payment on. With the option to specify multiple channels this control can be 
+  extended to multiple hops leading to the
+  node.](https://github.com/lightningnetwork/lnd/pull/9127)
+
 ## lncli Additions
+
+* [The `lncli addinvoice --blind` command now has the option to include a
+  chained channels incoming list `--blinded_path_incoming_channel_list` which
+  gives users the control of specifying the channels they prefer to receive the 
+  payment on. With the option to specify multiple channels this control can be 
+  extended to multiple hops leading to the
+  node.](https://github.com/lightningnetwork/lnd/pull/9127)
 
 # Improvements
 ## Functional Updates
@@ -72,3 +86,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+Pins

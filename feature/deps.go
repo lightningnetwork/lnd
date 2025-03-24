@@ -64,9 +64,9 @@ var deps = depDesc{
 	lnwire.AMPOptional: {
 		lnwire.PaymentAddrOptional: {},
 	},
-	lnwire.ExplicitChannelTypeOptional: {},
+	lnwire.ExplicitChannelTypeRequired: {},
 	lnwire.ScriptEnforcedLeaseOptional: {
-		lnwire.ExplicitChannelTypeOptional:  {},
+		lnwire.ExplicitChannelTypeRequired:  {},
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 	},
 	lnwire.KeysendOptional: {
@@ -77,7 +77,7 @@ var deps = depDesc{
 	},
 	lnwire.SimpleTaprootChannelsOptionalStaging: {
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
-		lnwire.ExplicitChannelTypeOptional:  {},
+		lnwire.ExplicitChannelTypeRequired:  {},
 	},
 	lnwire.SimpleTaprootOverlayChansOptional: {
 		lnwire.SimpleTaprootChannelsOptionalStaging: {},

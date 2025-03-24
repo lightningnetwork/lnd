@@ -4,14 +4,14 @@ require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
-	github.com/btcsuite/btcd v0.24.3-0.20241210095828-e646d437e95b
+	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.11
+	github.com/btcsuite/btcwallet v0.16.12
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2
 	github.com/btcsuite/btcwallet/walletdb v1.4.4
@@ -31,7 +31,7 @@ require (
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/jrick/logrotate v1.1.2
 	github.com/kkdai/bstream v1.0.0
-	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd
+	github.com/lightninglabs/neutrino v0.16.1
 	github.com/lightninglabs/neutrino/cache v1.1.2
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb
 	github.com/lightningnetwork/lnd/cert v1.2.2
@@ -64,7 +64,7 @@ require (
 	google.golang.org/protobuf v1.33.0
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
-	pgregory.net/rapid v1.1.0
+	pgregory.net/rapid v1.2.0
 )
 
 require (

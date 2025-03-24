@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"net"
 	"sync"
@@ -1252,9 +1253,7 @@ func (c *client) handleNewTower(tower *Tower) error {
 		return fmt.Errorf("unable to determine sessions for tower %x: "+
 			"%v", tower.IdentityKey.SerializeCompressed(), err)
 	}
-	for id, session := range sessions {
-		c.candidateSessions[id] = session
-	}
+	maps.Copy(c.candidateSessions, sessions)
 
 	return nil
 }

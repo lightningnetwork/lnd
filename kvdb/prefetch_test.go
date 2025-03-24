@@ -2,6 +2,7 @@ package kvdb
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -77,9 +78,7 @@ func prefetchTest(t *testing.T, db walletdb.DB,
 	}, func() {})
 	require.NoError(t, err)
 
-	for k, v := range put {
-		items[k] = v
-	}
+	maps.Copy(items, put)
 
 	for _, k := range remove {
 		delete(items, k)

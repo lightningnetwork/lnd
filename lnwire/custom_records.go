@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"sort"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -94,13 +95,8 @@ func (c CustomRecords) Copy() CustomRecords {
 // records will be used.
 func (c CustomRecords) MergedCopy(other CustomRecords) CustomRecords {
 	copiedRecords := make(CustomRecords, len(c))
-	for k, v := range c {
-		copiedRecords[k] = v
-	}
-
-	for k, v := range other {
-		copiedRecords[k] = v
-	}
+	maps.Copy(copiedRecords, c)
+	maps.Copy(copiedRecords, other)
 
 	return copiedRecords
 }

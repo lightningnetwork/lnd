@@ -2,6 +2,7 @@ package lnd
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -66,9 +67,7 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	// We'll populate the server's peerCounts map with the counts fetched
 	// via initAccessPerms. Also note that we haven't yet connected to the
 	// peers.
-	for peerPub, count := range counts {
-		a.peerCounts[peerPub] = count
-	}
+	maps.Copy(a.peerCounts, counts)
 
 	return a, nil
 }

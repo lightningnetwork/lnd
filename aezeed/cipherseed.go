@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"time"
@@ -534,6 +535,12 @@ func decipherCipherSeed(cipherSeedBytes [EncipheredCipherSeedSize]byte,
 	)
 	if !ok {
 		return plainSeed, salt, ErrInvalidPass
+	}
+	if len(plainSeedBytes) != DecipheredCipherSeedSize {
+		return plainSeed, salt,
+			fmt.Errorf("unexpected plaintext "+
+				"size: got %d, want %d", len(plainSeedBytes),
+				DecipheredCipherSeedSize)
 	}
 	copy(plainSeed[:], plainSeedBytes)
 

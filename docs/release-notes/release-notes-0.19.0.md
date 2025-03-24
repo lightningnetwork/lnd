@@ -68,6 +68,10 @@
   `estimateroutefee` to assume probing an LSP when given an invoice with a route 
   hint containing a public channel to the destination.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9634) that caused
+  lnd to crash due to a nil pointer dereference when `estimateroutefee` is
+  called for a payment request that contains a zero amount.
+
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9474) where LND would
   fail to persist (and hence, propagate) node announcements containing address 
   types (such as a DNS hostname) unknown to LND.

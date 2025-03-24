@@ -519,7 +519,7 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		return nil, err
 	}
 
-	if *payReq.MilliSat <= 0 {
+	if payReq.MilliSat == nil || *payReq.MilliSat <= 0 {
 		return nil, errors.New("payment request amount must be " +
 			"greater than 0")
 	}

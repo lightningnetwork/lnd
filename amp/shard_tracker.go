@@ -52,7 +52,8 @@ type ShardTracker struct {
 
 	sharer Sharer
 
-	shards map[uint64]*Child
+	nextindex uint32 //next index to use for a new shard
+	shards    map[uint64]*Child
 	sync.Mutex
 }
 
@@ -76,6 +77,7 @@ func NewShardTracker(root, setID, payAddr [32]byte,
 		paymentAddr: payAddr,
 		totalAmt:    totalAmt,
 		sharer:      rootSharer,
+		nextindex:   0, //intialization of nextindex
 		shards:      make(map[uint64]*Child),
 	}
 }
@@ -90,16 +92,12 @@ func (s *ShardTracker) NewShard(pid uint64, last bool) (shards.PaymentShard,
 	s.Lock()
 	defer s.Unlock()
 
-	// Use a random child index.
-	var childIndex [4]byte
-	if _, err := rand.Read(childIndex[:]); err != nil {
-		return nil, err
-	}
-	idx := binary.BigEndian.Uint32(childIndex[:])
-
 	// Depending on whether we are requesting the last shard or not, either
 	// split the current share into two, or get a Child directly from the
 	// current sharer.
+	//using the next available index and increment the counter
+	idx := s.nextindex
+	s.nextindex++
 	var child *Child
 	if last {
 		child = s.sharer.Child(idx)

@@ -223,7 +223,7 @@ func test3of3MuSig2ChanAnnouncement(t *testing.T) {
 	// We'll pass in a mock tx fetcher that will return the funding output
 	// containing this key. This is needed since the output key can not be
 	// determined from the channel announcement itself.
-	fetchTx := func(chanID *lnwire.ShortChannelID) ([]byte, error) {
+	fetchTx := func(_ lnwire.ShortChannelID) ([]byte, error) {
 		return pkScript, nil
 	}
 

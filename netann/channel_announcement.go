@@ -104,7 +104,7 @@ func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 
 // FetchPkScript defines a function that can be used to fetch the output script
 // for the transaction with the given SCID.
-type FetchPkScript func(*lnwire.ShortChannelID) ([]byte, error)
+type FetchPkScript func(lnwire.ShortChannelID) ([]byte, error)
 
 // ValidateChannelAnn validates the channel announcement.
 func ValidateChannelAnn(a lnwire.ChannelAnnouncement,
@@ -249,7 +249,7 @@ func validateChannelAnn2(a *lnwire.ChannelAnnouncement2,
 		// If bitcoin keys are not provided, then we need to get the
 		// on-chain output key since this will be the 3rd key in the
 		// 3-of-3 MuSig2 signature.
-		pkScript, err := fetchPkScript(&a.ShortChannelID.Val)
+		pkScript, err := fetchPkScript(a.ShortChannelID.Val)
 		if err != nil {
 			return err
 		}

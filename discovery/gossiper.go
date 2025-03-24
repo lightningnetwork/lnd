@@ -2033,7 +2033,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(_ context.Context,
 }
 
 // fetchPKScript fetches the output script for the given SCID.
-func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
+func (d *AuthenticatedGossiper) fetchPKScript(chanID lnwire.ShortChannelID) (
 	[]byte, error) {
 
 	return lnwallet.FetchPKScriptWithQuit(d.cfg.ChainIO, chanID, d.quit)
@@ -3737,7 +3737,7 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 	// Before we can add the channel to the channel graph, we need to obtain
 	// the full funding outpoint that's encoded within the channel ID.
 	fundingTx, err := lnwallet.FetchFundingTxWrapper(
-		d.cfg.ChainIO, &scid, d.quit,
+		d.cfg.ChainIO, scid, d.quit,
 	)
 	if err != nil {
 		//nolint:ll

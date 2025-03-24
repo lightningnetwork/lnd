@@ -760,7 +760,7 @@ func SupportedWallets() []string {
 
 // FetchFundingTxWrapper is a wrapper around FetchFundingTx, except that it will
 // exit when the supplied quit channel is closed.
-func FetchFundingTxWrapper(chain BlockChainIO, chanID *lnwire.ShortChannelID,
+func FetchFundingTxWrapper(chain BlockChainIO, chanID lnwire.ShortChannelID,
 	quit chan struct{}) (*wire.MsgTx, error) {
 
 	txChan := make(chan *wire.MsgTx, 1)
@@ -795,7 +795,7 @@ func FetchFundingTxWrapper(chain BlockChainIO, chanID *lnwire.ShortChannelID,
 // TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
 // later use getblocktxn).
 func FetchFundingTx(chain BlockChainIO,
-	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
+	chanID lnwire.ShortChannelID) (*wire.MsgTx, error) {
 
 	// First fetch the block hash by the block number encoded, then use
 	// that hash to fetch the block itself.
@@ -826,7 +826,7 @@ func FetchFundingTx(chain BlockChainIO,
 // FetchPKScriptWithQuit fetches the output script for the given SCID and exits
 // early with an error if the provided quit channel is closed before
 // completion.
-func FetchPKScriptWithQuit(chain BlockChainIO, chanID *lnwire.ShortChannelID,
+func FetchPKScriptWithQuit(chain BlockChainIO, chanID lnwire.ShortChannelID,
 	quit chan struct{}) ([]byte, error) {
 
 	tx, err := FetchFundingTxWrapper(chain, chanID, quit)
@@ -835,7 +835,7 @@ func FetchPKScriptWithQuit(chain BlockChainIO, chanID *lnwire.ShortChannelID,
 	}
 
 	outputLocator := chanvalidate.ShortChanIDChanLocator{
-		ID: *chanID,
+		ID: chanID,
 	}
 
 	output, _, err := outputLocator.Locate(tx)

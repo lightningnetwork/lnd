@@ -433,6 +433,8 @@ The underlying functionality between those two options remain the same.
   inputs spending logic in the sweeper so it can properly handle missing inputs
   and recover from restart.
 
+* A code refactor that [use the built-in max/min to simplify the 
+  code](https://github.com/lightningnetwork/lnd/pull/9632).
 
 ## Tooling and Documentation
 

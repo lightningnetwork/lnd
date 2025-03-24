@@ -8803,11 +8803,7 @@ func (lc *LightningChannel) availableBalance(
 	)
 
 	// Return which ever balance is lowest.
-	if ourRemoteCommitBalance < ourLocalCommitBalance {
-		return ourRemoteCommitBalance, commitWeight
-	}
-
-	return ourLocalCommitBalance, commitWeight
+	return min(ourRemoteCommitBalance, ourLocalCommitBalance), commitWeight
 }
 
 // availableCommitmentBalance attempts to calculate the balance we have

@@ -276,11 +276,7 @@ func (l *LinearFeeFunction) feeRateAtPosition(p uint32) chainfee.SatPerKWeight {
 	feeRateDelta := btcutil.Amount(l.deltaFeeRate).MulF64(float64(p) / 1000)
 
 	feeRate := l.startingFeeRate + chainfee.SatPerKWeight(feeRateDelta)
-	if feeRate > l.endingFeeRate {
-		return l.endingFeeRate
-	}
-
-	return feeRate
+	return min(feeRate, l.endingFeeRate)
 }
 
 // estimateFeeRate asks the fee estimator to estimate the fee rate based on its

@@ -1285,11 +1285,7 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 	subBatchSize := (batchSize*int(subBatchDelay) +
 		int(totalDelay) - 1) / int(totalDelay)
 
-	if subBatchSize < minimumBatchSize {
-		return minimumBatchSize
-	}
-
-	return subBatchSize
+	return max(subBatchSize, minimumBatchSize)
 }
 
 // batchSizeCalculator maps to the function `calculateSubBatchSize`. We create

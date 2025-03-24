@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"net"
 
@@ -10,11 +11,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
-// RandChannelUpdate generates a random ChannelUpdate message using rapid's
+// RandPartialSig generates a random PartialSig message using rapid's
 // generators.
 func RandPartialSig(t *rapid.T) *PartialSig {
 	// Generate random private key bytes
@@ -194,23 +196,37 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 }
 
 // RandCustomRecords generates random custom TLV records.
-func RandCustomRecords(t *rapid.T,
-	ignoreRecords fn.Set[uint64],
-	custom bool) (CustomRecords, fn.Set[uint64]) {
+func RandCustomRecords(t *rapid.T, ignoreRecords fn.Set[uint64]) (CustomRecords,
+	fn.Set[uint64]) {
 
-	numRecords := rapid.IntRange(0, 5).Draw(t, "numCustomRecords")
+	customRecords, set := RandTLVRecords(
+		t, ignoreRecords, MinCustomRecordsTlvType,
+	)
+
+	// Validate the custom records as a sanity check.
+	require.NoError(t, customRecords.Validate())
+
+	return customRecords, set
+}
+
+// RandSignedRangeRecords generates a random set of signed records in the
+// second "signed" tlv range for pure TLV messages.
+func RandSignedRangeRecords(t *rapid.T) (CustomRecords, fn.Set[uint64]) {
+	return RandTLVRecords(t, nil, pureTLVSignedSecondRangeStart)
+}
+
+// RandTLVRecords generates custom TLV records.
+func RandTLVRecords(t *rapid.T, ignoreRecords fn.Set[uint64],
+	rangeStart int) (CustomRecords, fn.Set[uint64]) {
+
+	numRecords := rapid.IntRange(0, 5).Draw(t, "numRecords")
 	customRecords := make(CustomRecords)
 
 	if numRecords == 0 {
 		return nil, nil
 	}
 
-	rangeStart := 0
-	rangeStop := int(CustomTypeStart)
-	if custom {
-		rangeStart = 70_000
-		rangeStop = 100_000
-	}
+	rangeStop := rangeStart + 30_000
 
 	ignoreSet := fn.NewSet[uint64]()
 	for i := 0; i < numRecords; i++ {
@@ -254,7 +270,7 @@ func RandExtraOpaqueData(t *rapid.T,
 	ignoreRecords fn.Set[uint64]) ExtraOpaqueData {
 
 	// Make some random records.
-	cRecords, _ := RandCustomRecords(t, ignoreRecords, false)
+	cRecords, _ := RandTLVRecords(t, ignoreRecords, 0)
 	if cRecords == nil {
 		return ExtraOpaqueData{}
 	}
@@ -357,4 +373,55 @@ func RandOutPoint(t *rapid.T) wire.OutPoint {
 		Hash:  txid,
 		Index: vout,
 	}
+}
+
+// RandTCP4Addr generates a random TCP4 address.
+func RandTCP4Addr(t *rapid.T) *net.TCPAddr {
+	var ip [4]byte
+	ipBytes := rapid.SliceOfN(rapid.Byte(), 4, 4).Draw(t, "ip")
+	copy(ip[:], ipBytes)
+
+	var port [2]byte
+	portBytes := rapid.SliceOfN(rapid.Byte(), 2, 2).Draw(t, "ip")
+	copy(port[:], portBytes)
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}
+}
+
+// RandTCP6Addr generates a random TCP6 address.
+func RandTCP6Addr(t *rapid.T) *net.TCPAddr {
+	var ip [16]byte
+	ipBytes := rapid.SliceOfN(rapid.Byte(), 16, 16).Draw(t, "ip")
+	copy(ip[:], ipBytes)
+
+	var port [2]byte
+	portBytes := rapid.SliceOfN(rapid.Byte(), 2, 2).Draw(t, "ip")
+	copy(port[:], portBytes)
+
+	addrIP := net.IP(ip[:])
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &net.TCPAddr{IP: addrIP, Port: addrPort}
+}
+
+// RandV3OnionAddr generates a random V3 onion address.
+func RandV3OnionAddr(t *rapid.T) *tor.OnionAddr {
+	var serviceID [tor.V3DecodedLen]byte
+	serviceIDBytes := rapid.SliceOfN(
+		rapid.Byte(), tor.V3DecodedLen, tor.V3DecodedLen,
+	).Draw(t, "ip")
+	copy(serviceID[:], serviceIDBytes)
+
+	var port [2]byte
+	portBytes := rapid.SliceOfN(rapid.Byte(), 2, 2).Draw(t, "ip")
+	copy(port[:], portBytes)
+
+	onionService := tor.Base32Encoding.EncodeToString(serviceID[:])
+	onionService += tor.OnionSuffix
+	addrPort := int(binary.BigEndian.Uint16(port[:]))
+
+	return &tor.OnionAddr{OnionService: onionService, Port: addrPort}
 }

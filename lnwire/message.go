@@ -63,6 +63,7 @@ const (
 	MsgReplyChannelRange                   = 264
 	MsgGossipTimestampRange                = 265
 	MsgChannelAnnouncement2                = 267
+	MsgNodeAnnouncement2                   = 269
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
 
@@ -190,6 +191,8 @@ func (t MessageType) String() string {
 		return "MsgAnnounceSignatures2"
 	case MsgChannelAnnouncement2:
 		return "ChannelAnnouncement2"
+	case MsgNodeAnnouncement2:
+		return "NodeAnnouncement2"
 	case MsgChannelUpdate2:
 		return "ChannelUpdate2"
 	default:
@@ -350,6 +353,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &AnnounceSignatures2{}
 	case MsgChannelAnnouncement2:
 		msg = &ChannelAnnouncement2{}
+	case MsgNodeAnnouncement2:
+		msg = &NodeAnnouncement2{}
 	case MsgChannelUpdate2:
 		msg = &ChannelUpdate2{}
 	default:

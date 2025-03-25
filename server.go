@@ -3547,8 +3547,9 @@ func (s *server) establishPersistentConnections() error {
 	// the reconnection port to the default peer port.
 	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
 	if err != nil && err != channeldb.ErrLinkNodesNotFound {
-		return err
+		return fmt.Errorf("failed to fetch all link nodes: %w", err)
 	}
+
 	for _, node := range linkNodes {
 		pubStr := string(node.IdentityPub.SerializeCompressed())
 		nodeAddrs := &nodeAddresses{
@@ -3563,7 +3564,7 @@ func (s *server) establishPersistentConnections() error {
 	// that have been added via NodeAnnouncement messages.
 	sourceNode, err := s.graphDB.SourceNode()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fetch source node: %w", err)
 	}
 
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
@@ -3649,8 +3650,15 @@ func (s *server) establishPersistentConnections() error {
 		nodeAddrsMap[pubStr] = n
 		return nil
 	})
-	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
-		return err
+	if err != nil {
+		srvrLog.Errorf("Failed to iterate channels for node %x",
+			sourceNode.PubKeyBytes)
+
+		if !errors.Is(err, graphdb.ErrGraphNoEdgesFound) &&
+			!errors.Is(err, graphdb.ErrEdgeNotFound) {
+
+			return err
+		}
 	}
 
 	srvrLog.Debugf("Establishing %v persistent connections on start",

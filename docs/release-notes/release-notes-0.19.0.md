@@ -481,21 +481,53 @@ the on going rate we'll permit.
 # Contributors (Alphabetical Order)
 
 * Abdullahi Yunus
-* Andras Banki-Horvath
+* Alex Akselrod
+* alingse
+* András Bánki-Horváth
 * Animesh Bilthare
 * bitromortac
 * Boris Nagaev
+* Calvin Zachman
 * Carla Kirk-Cohen
 * CharlieZKSmith
+* chloefeal
+* chuangjinglu
 * Elle Mouton
+* Eng Zer Jun
+* Eugene Siegel
+* feelancer21
+* ffranr
+* fuyangpengqi
 * George Tsagkarelis
+* Gijs van Dam
+* Gustavo Stingelin
 * hieblmi
+* Jesse de Wit
+* jike
+* JoeGruff
+* Jonathan Harvey-Buschel
 * Keagan McClelland
-* Nishant Bansal
-* Oliver Gugger
-* Olaoluwa Osuntokun
-* Pins
 * kornpow
+* Leonhard Weese
+* longhutianjie
+* Matt Morehouse
+* Mohamed Awnallah
+* myxmaster
+* Nishant Bansal
+* Olaoluwa Osuntokun
+* Oliver Gugger
+* Oren
+* peicuiping
+* Pins
+* planetBoy
+* sputn1ck
+* Suheb
+* thirdkeyword
+* tlindi
 * Viktor Tigerström
+* w3irdrobot
+* wizard
+* xixishidibei
 * Yong Yu
+* z017
 * Ziggie

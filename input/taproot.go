@@ -169,10 +169,10 @@ func TapscriptFullKeyOnly(taprootKey *btcec.PublicKey) *waddrmgr.Tapscript {
 // witness program. The passed public key will be serialized as an x-only key
 // to create the witness program.
 func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
-	builder := txscript.NewScriptBuilder()
-
-	builder.AddOp(txscript.OP_1)
-	builder.AddData(schnorr.SerializePubKey(taprootKey))
-
-	return builder.Script()
+	return txscript.ScriptTemplate(
+		`OP_1 {{ hex .TaprootKey }}`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"TaprootKey": schnorr.SerializePubKey(taprootKey),
+		}),
+	)
 }

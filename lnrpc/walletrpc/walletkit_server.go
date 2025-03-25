@@ -10,9 +10,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -43,7 +45,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
-	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -1269,7 +1270,7 @@ func (w *WalletKit) BumpForceCloseFee(_ context.Context,
 			err)
 	}
 
-	pendingSweeps := maps.Values(inputsMap)
+	pendingSweeps := slices.Collect(maps.Values(inputsMap))
 
 	// Discard everything except for the anchor sweeps.
 	anchors := fn.Filter(

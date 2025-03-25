@@ -3,7 +3,9 @@ package sweep
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -15,7 +17,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
-	"golang.org/x/exp/maps"
 )
 
 var (
@@ -425,7 +426,7 @@ func fetchUtxosFromOutpoints(utxos []*lnwallet.Utxo,
 		return nil, fmt.Errorf("%w: %v", ErrUnknownUTXO, err.Error())
 	}
 
-	fetchedUtxos := maps.Values(subMap)
+	fetchedUtxos := slices.Collect(maps.Values(subMap))
 
 	return fetchedUtxos, nil
 }

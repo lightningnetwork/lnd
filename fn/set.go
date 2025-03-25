@@ -1,6 +1,9 @@
 package fn
 
-import "golang.org/x/exp/maps"
+import (
+	"maps"
+	"slices"
+)
 
 // Set is a generic set using type params that supports the following
 // operations: diff, union, intersection, and subset.
@@ -92,7 +95,7 @@ func (s Set[T]) Equal(other Set[T]) bool {
 
 // ToSlice returns the set as a slice.
 func (s Set[T]) ToSlice() []T {
-	return maps.Keys(s)
+	return slices.Collect(maps.Keys(s))
 }
 
 // Copy copies s and returns the result.

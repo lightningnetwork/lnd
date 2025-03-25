@@ -1294,7 +1294,7 @@ func maybeUseDefaultConf(satPerByte int64, satPerVByte uint64,
 
 	// If the fee rate is not set, yet the conf target is zero, the default
 	// 6 will be returned.
-	rpcsLog.Errorf("Expected either 'sat_per_vbyte' or 'conf_target' to " +
+	rpcsLog.Warnf("Expected either 'sat_per_vbyte' or 'conf_target' to " +
 		"be set, using default conf of 6 instead")
 
 	return defaultNumBlocksEstimate

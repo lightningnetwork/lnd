@@ -320,13 +320,6 @@ func (b *BudgetInputSet) NeedWalletInput() bool {
 	return budgetBorrowable < budgetNeeded
 }
 
-// copyInputs returns a copy of the slice of the inputs in the set.
-func (b *BudgetInputSet) copyInputs() []*SweeperInput {
-	inputs := make([]*SweeperInput, len(b.inputs))
-	copy(inputs, b.inputs)
-	return inputs
-}
-
 // hasNormalInput return a bool to indicate whether there exists an input that
 // doesn't require a TxOut. When an input has no required outputs, it's either a
 // wallet input, or an input we want to sweep.

@@ -5410,6 +5410,15 @@ func (s *server) getStartingBeat() (*chainio.Beat, error) {
 	// beat is the current blockbeat.
 	var beat *chainio.Beat
 
+	// If the node is configured with nochainbackend mode (remote signer),
+	// we will skip fetching the best block.
+	if s.cfg.Bitcoin.Node == "nochainbackend" {
+		srvrLog.Info("Skipping block notification for nochainbackend " +
+			"mode")
+
+		return &chainio.Beat{}, nil
+	}
+
 	// We should get a notification with the current best block immediately
 	// by passing a nil block.
 	blockEpochs, err := s.cc.ChainNotifier.RegisterBlockEpochNtfn(nil)

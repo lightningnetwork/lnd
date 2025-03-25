@@ -162,7 +162,7 @@ func (b *BlockbeatDispatcher) dispatchBlocks(
 			// new block arrives for subsystems.
 			clog.Debugf("%v", lnutils.NewSeparatorClosure())
 
-			clog.Infof("Received new block %v at height %d, "+
+			clog.Debugf("Received new block %v at height %d, "+
 				"notifying consumers...", blockEpoch.Hash,
 				blockEpoch.Height)
 
@@ -179,7 +179,7 @@ func (b *BlockbeatDispatcher) dispatchBlocks(
 				b.log().Errorf("Notify block failed: %v", err)
 			}
 
-			b.log().Infof("Notified all consumers on new block "+
+			b.log().Debugf("Notified all consumers on new block "+
 				"in %v", time.Since(start))
 
 		// A query has been made to fetch the current height, we now

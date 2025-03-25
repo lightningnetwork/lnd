@@ -2563,12 +2563,10 @@ func (s *server) Start() error {
 			startErr = err
 			return
 		}
+
 		if err := s.establishPersistentConnections(); err != nil {
 			srvrLog.Errorf("Failed to establish persistent "+
 				"connections: %v", err)
-
-			startErr = err
-			return
 		}
 
 		// setSeedList is a helper function that turns multiple DNS seed

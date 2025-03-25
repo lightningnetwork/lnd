@@ -1255,6 +1255,8 @@ func (r *ChannelRouter) sendPayment(ctx context.Context,
 	}
 
 	// Validate the custom records before we attempt to send the payment.
+	// TODO(ziggie): Move this check before registering the payment in the
+	// db (InitPayment).
 	if err := firstHopCustomRecords.Validate(); err != nil {
 		return [32]byte{}, nil, err
 	}

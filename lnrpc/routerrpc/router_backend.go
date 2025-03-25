@@ -884,6 +884,18 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	}
 	payIntent.DestCustomRecords = customRecords
 
+	// Keysend payments do not support MPP payments.
+	//
+	// NOTE: There is no need to validate the `MaxParts` value here because
+	// it is set to 1 somewhere else in case it's a keysend payment.
+	if customRecords.IsKeysend() {
+		if payIntent.MaxShardAmt != nil {
+			return nil, errors.New("keysend payments cannot " +
+				"specify a max shard amount - MPP not " +
+				"supported with keysend payments")
+		}
+	}
+
 	firstHopRecords := lnwire.CustomRecords(rpcPayReq.FirstHopCustomRecords)
 	if err := firstHopRecords.Validate(); err != nil {
 		return nil, err

@@ -403,6 +403,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendToRouteAMP,
 	},
 	{
+		Name:     "send payment keysend mpp fail",
+		TestFunc: testSendPaymentKeysendMPPFail,
+	},
+	{
 		Name:     "forward interceptor dedup htlcs",
 		TestFunc: testForwardInterceptorDedupHtlc,
 	},

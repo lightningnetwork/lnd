@@ -1,6 +1,8 @@
 package record
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	// CustomTypeStart is the start of the custom tlv type range as defined
@@ -21,4 +23,9 @@ func (c CustomSet) Validate() error {
 	}
 
 	return nil
+}
+
+// IsKeysend checks if the custom records contain the key send type.
+func (c CustomSet) IsKeysend() bool {
+	return c[KeySendType] != nil
 }

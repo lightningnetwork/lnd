@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1350,4 +1352,47 @@ func runSendToRouteFailHTLCTimeout(ht *lntest.HarnessTest, restartAlice bool) {
 	// database and also from her stream.
 	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_FAILED)
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
+}
+
+// testSendPaymentKeysendMPPFail tests sending a keysend payment and trying to
+// split it will fail because keysend payment in combination with MPP is not
+// supported.
+func testSendPaymentKeysendMPPFail(ht *lntest.HarnessTest) {
+	const chanAmt = btcutil.Amount(100_000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+
+	// Initialize the test context with 2 connected nodes.
+	cfgs := [][]string{nil, nil}
+
+	// Open and wait for channels.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, p)
+	alice, bob := nodes[0], nodes[1]
+
+	// Send a keysend payment which has a total amount which is smaller
+	// than the maxShardAmt. The payment will still be recorded in the db
+	// but it will fail immediately because keysend and MPP cannot be
+	// combined.
+	dest, err := hex.DecodeString(bob.PubKeyStr)
+	require.NoError(ht, err)
+
+	// Create a preimage and corresponding payment hash for the keysend
+	// payment.
+	preimage := bytes.Repeat([]byte{0x10}, 32)
+	hash := sha256.Sum256(preimage)
+
+	client := alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+		DestCustomRecords: map[uint64][]byte{
+			record.KeySendType: preimage,
+		},
+		MaxShardSizeMsat: 10_000,
+		Amt:              100_000,
+		MaxParts:         10,
+		Dest:             dest,
+		PaymentHash:      hash[:],
+	})
+
+	// We expect the payment to fail immediately because keysend and MPP
+	// cannot be combined.
+	_, err = ht.ReceivePaymentUpdate(client)
+	require.Error(ht, err)
 }

@@ -344,6 +344,13 @@ The underlying functionality between those two options remain the same.
 ## Breaking Changes
 ## Performance Improvements
 
+* Users can now [limit the total amount of
+bandwidth](https://github.com/lightningnetwork/lnd/pull/9607) that will be allocated to
+outbound gossip traffic via two new args: `--gossip.msg-rate-bytes` and
+`--gossip.msg-rate-burst`. The burst value should be set to the largest amount
+of bytes that can be transmitted in a go without rate limiting, and the rate to
+the on going rate we'll permit.
+
 * Log rotation can now use ZSTD
 
 * [Remove redundant 

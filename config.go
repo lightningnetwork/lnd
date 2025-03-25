@@ -707,6 +707,8 @@ func DefaultConfig() Config {
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
 			SubBatchDelay:         discovery.DefaultSubBatchDelay,
 			AnnouncementConf:      discovery.DefaultProofMatureDelta,
+			MsgRateBytes:          discovery.DefaultMsgBytesPerSecond,
+			MsgBurstBytes:         discovery.DefaultMsgBytesBurst,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,

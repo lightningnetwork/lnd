@@ -6128,6 +6128,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		NumHops:                  globalBlindCfg.NumHops,
 		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
+		IncomingChainedChannels:  make([]uint64, 0),
 	}
 
 	if blindCfg != nil && !blind {
@@ -6147,6 +6148,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			blindingRestrictions.MaxNumPaths =
 				uint8(*blindCfg.MaxNumPaths)
 		}
+		if blindingRestrictions.MaxNumPaths == 0 {
+			return nil, fmt.Errorf("blinded max num paths cannot " +
+				"be 0")
+		}
 
 		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
 			vertex, err := route.NewVertexFromBytes(nodeIDBytes)
@@ -6156,6 +6161,38 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			blindingRestrictions.NodeOmissionSet.Add(vertex)
 		}
+
+		blindingRestrictions.IncomingChainedChannels = append(
+			blindingRestrictions.IncomingChainedChannels,
+			blindCfg.IncomingChannelList...,
+		)
+
+		numChainedChannels :=
+			uint8(len(blindingRestrictions.IncomingChainedChannels))
+
+		// When selecting the blinded incoming channel list parameter
+		// the maximum number of hops is implictitly set.
+		if numChainedChannels > blindingRestrictions.NumHops {
+			rpcsLog.Warnf("Changing the num_blinded_hops "+
+				"from (%d) to (%d)",
+				blindingRestrictions.NumHops,
+				numChainedChannels)
+
+			blindingRestrictions.NumHops =
+				numChainedChannels
+		}
+
+		// The MinDistanceFromIntroNode must be greater than or equal to
+		// the number of hops specified on the chained channels.
+		minNumHops := blindingRestrictions.MinDistanceFromIntroNode
+		if minNumHops < numChainedChannels {
+			return nil, fmt.Errorf("minimum number of blinded "+
+				"path hops (%d) must be greater than or equal "+
+				"to the number of hops specified on the "+
+				"chained channels (%d)", minNumHops,
+				numChainedChannels)
+		}
+
 	}
 
 	if blindingRestrictions.MinDistanceFromIntroNode >
@@ -6165,6 +6202,20 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			"hops in a blinded path must be smaller than " +
 			"or equal to the number of hops expected to " +
 			"be included in each path")
+	}
+
+	fetchChanEdgeInfo := r.server.graphDB.FetchChannelEdgesByID
+	fetchNodeFeatures := r.server.graphDB.FetchNodeFeatures
+
+	// ValidateChainedChannels checks a partially specified blinded path and
+	// returns a slice of BlindedHop or an error.
+	partiallySpecifiedPath, err := blindedpath.ValidateChainedChannels(
+		(&blindedpath.BuildBlindedPathCfg{
+			FetchChannelEdgesByID: fetchChanEdgeInfo,
+			FetchNodeFeatures:     fetchNodeFeatures,
+		}), r.selfNode, blindingRestrictions.IncomingChainedChannels)
+	if err != nil {
+		return nil, err
 	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
@@ -6209,6 +6260,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				r.selfNode, amt,
 				r.server.defaultMC.GetProbability,
 				blindingRestrictions,
+				partiallySpecifiedPath,
 			)
 		},
 	}

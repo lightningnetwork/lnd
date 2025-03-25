@@ -500,7 +500,8 @@ func SenderHtlcSpendTimeout(receiverSig Signature,
 //	<local_key> OP_CHECKSIGVERIFY
 //	<remote_key> OP_CHECKSIG
 func SenderHTLCTapLeafTimeout(senderHtlcKey,
-	receiverHtlcKey *btcec.PublicKey) (txscript.TapLeaf, error) {
+	receiverHtlcKey *btcec.PublicKey,
+	_ ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
 	timeoutLeafScript, err := txscript.ScriptTemplate(
 		`
@@ -527,14 +528,31 @@ func SenderHTLCTapLeafTimeout(senderHtlcKey,
 //	<remote_htlcpubkey> OP_CHECKSIG
 //	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
-	paymentHash []byte) (txscript.TapLeaf, error) {
+	paymentHash []byte, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
+
+	var scriptTemplate string
+	switch {
+	case !opt.prodScript:
+		scriptTemplate = `
+			OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
+			{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			{{ hex .ReceiverKey }} OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
+	default:
+		scriptTemplate = `
+			OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
+			{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			{{ hex .ReceiverKey }} OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY`
+	}
 
 	successLeafScript, err := txscript.ScriptTemplate(
-		`
-		OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
-		{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
-		{{ hex .ReceiverKey }} OP_CHECKSIG 
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`,
+		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"PaymentHashRipemd": Ripemd160H(paymentHash),
 			"ReceiverKey": schnorr.SerializePubKey(
@@ -669,18 +687,19 @@ var _ TapscriptDescriptor = (*HtlcScriptTree)(nil)
 // the HTLC key for HTLCs on the sender's commitment.
 func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte, hType htlcType,
-	auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
+	auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
 	successTapLeaf, err := SenderHTLCTapLeafSuccess(
-		receiverHtlcKey, payHash,
+		receiverHtlcKey, payHash, opts...,
 	)
 	if err != nil {
 		return nil, err
 	}
 	timeoutTapLeaf, err := SenderHTLCTapLeafTimeout(
-		senderHtlcKey, receiverHtlcKey,
+		senderHtlcKey, receiverHtlcKey, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -1106,16 +1125,33 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 //	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //	<cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
-	cltvExpiry uint32) (txscript.TapLeaf, error) {
+	cltvExpiry uint32, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
+
+	var scriptTemplate string
+	switch {
+	case !opt.prodScript:
+		scriptTemplate = `
+		{{ hex .SenderKey }} OP_CHECKSIG 
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
+		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP`
+
+	default:
+		scriptTemplate = `
+		{{ hex .SenderKey }} OP_CHECKSIGVERIFY
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_VERIFY
+		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY`
+	}
 
 	// The first part of the script will verify a signature from the sender
 	// authorizing the spend (the timeout). The second portion will ensure
 	// that the CLTV expiry on the spending transaction is correct.
 	timeoutLeafScript, err := txscript.ScriptTemplate(
-		`
-		{{ hex .SenderKey }} OP_CHECKSIG 
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
-		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP`,
+		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"SenderKey":  schnorr.SerializePubKey(senderHtlcKey),
 			"CltvExpiry": int64(cltvExpiry),
@@ -1138,7 +1174,8 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 //	<sender_htlcpubkey> OP_CHECKSIG
 func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	senderHtlcKey *btcec.PublicKey,
-	paymentHash []byte) (txscript.TapLeaf, error) {
+	paymentHash []byte,
+	opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
 	// Check that the pre-image is 32 bytes as required. We also check that
 	// the specified pre-image matches what we hard code into the script.
@@ -1169,18 +1206,19 @@ func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 // the HTLC key for HTLCs on the receiver's commitment.
 func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte, cltvExpiry uint32,
-	hType htlcType, auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
+	hType htlcType, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
 	successTapLeaf, err := ReceiverHtlcTapLeafSuccess(
-		receiverHtlcKey, senderHtlcKey, payHash,
+		receiverHtlcKey, senderHtlcKey, payHash, opts...,
 	)
 	if err != nil {
 		return nil, err
 	}
 	timeoutTapLeaf, err := ReceiverHtlcTapLeafTimeout(
-		senderHtlcKey, cltvExpiry,
+		senderHtlcKey, cltvExpiry, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -1458,16 +1496,32 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 //	<local_delay_key> OP_CHECKSIG
 //	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
 func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
-	csvDelay uint32) (txscript.TapLeaf, error) {
+	csvDelay uint32, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
+
+	var scriptTemplate string
+	switch {
+	case !opt.prodScript:
+		scriptTemplate = `
+		{{ hex .DelayKey }} OP_CHECKSIG 
+		{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP`
+
+	default:
+		scriptTemplate = `
+		{{ hex .DelayKey }} OP_CHECKSIGVERIFY
+		{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY`
+	}
 
 	// Ensure the proper party can sign for this output.
 	// Assuming the above passes, then we'll now ensure that the CSV delay
 	// has been upheld, dropping the int we pushed on. If the sig above is
 	// valid, then a 1 will be left on the stack.
 	secondLevelLeafScript, err := txscript.ScriptTemplate(
-		`
-		{{ hex .DelayKey }} OP_CHECKSIG 
-		{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP`,
+		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"DelayKey": schnorr.SerializePubKey(delayKey),
 			"CsvDelay": int64(csvDelay),
@@ -1998,22 +2052,52 @@ func (c *CommitScriptTree) Tree() ScriptTree {
 	return c.ScriptTree
 }
 
+// taprootScriptOpts is a set of options that modify the behavior of the way we
+// create taproot scripts.
+type taprootScriptOpts struct {
+	prodScript bool
+}
+
+// TaprootScriptOpt is a functional option that allows us to modify the behavior
+// of the taproot script creation.
+type TaprootScriptOpt func(*taprootScriptOpts)
+
+// defaultTaprootScriptOpt is the default set of options that we use when
+// creating taproot scripts.
+func defaultTaprootScriptOpt() *taprootScriptOpts {
+	return &taprootScriptOpts{
+		prodScript: false,
+	}
+}
+
+// WithProdScripts is a functional option that allows us to create scripts to
+// match the final version of the taproot channels.
+func WithProdScripts() func(*taprootScriptOpts) {
+	return func(o *taprootScriptOpts) {
+		o.prodScript = true
+	}
+}
+
 // NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
 // create and spend the commitment output for the local party.
 func NewLocalCommitScriptTree(csvTimeout uint32, selfKey,
-	revokeKey *btcec.PublicKey, auxLeaf AuxTapLeaf) (*CommitScriptTree,
-	error) {
+	revokeKey *btcec.PublicKey, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*CommitScriptTree, error) {
 
 	// First, we'll need to construct the tapLeaf that'll be our delay CSV
 	// clause.
-	delayScript, err := TaprootLocalCommitDelayScript(csvTimeout, selfKey)
+	delayScript, err := TaprootLocalCommitDelayScript(
+		csvTimeout, selfKey, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, we'll need to construct the revocation path, which is just a
 	// simple checksig script.
-	revokeScript, err := TaprootLocalCommitRevokeScript(selfKey, revokeKey)
+	revokeScript, err := TaprootLocalCommitRevokeScript(
+		selfKey, revokeKey, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2053,12 +2137,28 @@ func NewLocalCommitScriptTree(csvTimeout uint32, selfKey,
 // TaprootLocalCommitDelayScript builds the tap leaf with the CSV delay script
 // for the to-local output.
 func TaprootLocalCommitDelayScript(csvTimeout uint32,
-	selfKey *btcec.PublicKey) ([]byte, error) {
+	selfKey *btcec.PublicKey, opts ...TaprootScriptOpt) ([]byte, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
+
+	var scriptTemplate string
+	switch {
+	case !opt.prodScript:
+		scriptTemplate = `
+		{{ hex .SelfKey }} OP_CHECKSIG 
+		{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP`
+
+	default:
+		scriptTemplate = `
+		{{ hex .SelfKey }} OP_CHECKSIGVERIFY
+		{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY`
+	}
 
 	return txscript.ScriptTemplate(
-		`
-		{{ hex .SelfKey }} OP_CHECKSIG 
-		{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP`,
+		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"SelfKey":    schnorr.SerializePubKey(selfKey),
 			"CsvTimeout": int64(csvTimeout),
@@ -2068,11 +2168,13 @@ func TaprootLocalCommitDelayScript(csvTimeout uint32,
 
 // TaprootLocalCommitRevokeScript builds the tap leaf with the revocation path
 // for the to-local output.
-func TaprootLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey) (
-	[]byte, error) {
+func TaprootLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey,
+	opts ...TaprootScriptOpt) ([]byte, error) {
 
 	return txscript.ScriptTemplate(
-		`{{ hex .SelfKey }} OP_DROP {{ hex .RevokeKey }} OP_CHECKSIG`,
+		`
+		{{ hex .SelfKey }} OP_DROP 
+		{{ hex .RevokeKey }} OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"SelfKey":   schnorr.SerializePubKey(selfKey),
 			"RevokeKey": schnorr.SerializePubKey(revokeKey),
@@ -2423,14 +2525,30 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 // NewRemoteCommitScriptTree constructs a new script tree for the remote party
 // to sweep their funds after a hard coded 1 block delay.
 func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
-	auxLeaf AuxTapLeaf) (*CommitScriptTree, error) {
+	auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*CommitScriptTree, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
+
+	var scriptTemplate string
+	switch {
+	case !opt.prodScript:
+		scriptTemplate = `
+		{{ hex .RemoteKey }} OP_CHECKSIG 
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
+	default:
+		scriptTemplate = `
+		{{ hex .RemoteKey }} OP_CHECKSIGVERIFY
+		OP_1 OP_CHECKSEQUENCEVERIFY`
+	}
 
 	// First, construct the remote party's tapscript they'll use to sweep
 	// their outputs.
 	remoteScript, err := txscript.ScriptTemplate(
-		`
-		{{ hex .RemoteKey }} OP_CHECKSIG 
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`,
+		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"RemoteKey": schnorr.SerializePubKey(remoteKey),
 		}),

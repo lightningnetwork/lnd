@@ -2195,7 +2195,7 @@ func (c cleaner) add(cleanup func() error) cleaner {
 func (c cleaner) run() {
 	for i := len(c) - 1; i >= 0; i-- {
 		if err := c[i](); err != nil {
-			srvrLog.Infof("Cleanup failed: %v", err)
+			srvrLog.Errorf("Cleanup failed: %v", err)
 		}
 	}
 }
@@ -2498,7 +2498,11 @@ func (s *server) Start() error {
 		// brontide.NewListener() is called in newServer. This means
 		// that we are actually listening and partially accepting
 		// inbound connections even before the connMgr starts.
+		//
+		// TODO(yy): move the log into the connMgr's `Start` method.
+		srvrLog.Info("connMgr starting...")
 		s.connMgr.Start()
+		srvrLog.Debug("connMgr started")
 
 		// If peers are specified as a config option, we'll add those
 		// peers first.
@@ -2540,6 +2544,9 @@ func (s *server) Start() error {
 		// Subscribe to NodeAnnouncements that advertise new addresses
 		// our persistent peers.
 		if err := s.updatePersistentPeerAddrs(); err != nil {
+			srvrLog.Errorf("Failed to update persistent peer "+
+				"addr: %v", err)
+
 			startErr = err
 			return
 		}
@@ -2551,10 +2558,15 @@ func (s *server) Start() error {
 		// to ensure we don't reconnect to any nodes we no longer have
 		// open channels with.
 		if err := s.chanStateDB.PruneLinkNodes(); err != nil {
+			srvrLog.Errorf("Failed to prune link nodes: %v", err)
+
 			startErr = err
 			return
 		}
 		if err := s.establishPersistentConnections(); err != nil {
+			srvrLog.Errorf("Failed to establish persistent "+
+				"connections: %v", err)
+
 			startErr = err
 			return
 		}

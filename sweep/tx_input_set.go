@@ -327,6 +327,21 @@ func (b *BudgetInputSet) copyInputs() []*SweeperInput {
 	return inputs
 }
 
+// hasNormalInput return a bool to indicate whether there exists an input that
+// doesn't require a TxOut. When an input has no required outputs, it's either a
+// wallet input, or an input we want to sweep.
+func (b *BudgetInputSet) hasNormalInput() bool {
+	for _, inp := range b.inputs {
+		if inp.RequiredTxOut() != nil {
+			continue
+		}
+
+		return true
+	}
+
+	return false
+}
+
 // AddWalletInputs adds wallet inputs to the set until the specified budget is
 // met. When sweeping inputs with required outputs, although there's budget
 // specified, it cannot be directly spent from these required outputs. Instead,
@@ -348,11 +363,6 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 	)
 	if err != nil {
 		return fmt.Errorf("list unspent witness: %w", err)
-	}
-
-	// Exit early if there are no wallet UTXOs.
-	if len(utxos) == 0 {
-		return fmt.Errorf("%w: empty wallet", ErrNotEnoughInputs)
 	}
 
 	// Sort the UTXOs by putting smaller values at the start of the slice
@@ -377,8 +387,20 @@ func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
 		}
 	}
 
-	log.Warn("Not enough wallet UTXOs to cover the budget, sweeping " +
-		"anyway...")
+	// Exit if there are no inputs can contribute to the fees.
+	if !b.hasNormalInput() {
+		return ErrNotEnoughInputs
+	}
+
+	// If there's at least one input that can contribute to fees, we allow
+	// the sweep to continue, even though the full budget can't be met.
+	// Maybe later more wallet inputs will become available and we can add
+	// them if needed.
+	budget := b.Budget()
+	total, spendable := b.inputAmts()
+	log.Warnf("Not enough wallet UTXOs: need budget=%v, has spendable=%v, "+
+		"total=%v, missing at least %v, sweeping anyway...", budget,
+		spendable, total, budget-spendable)
 
 	return nil
 }
@@ -414,6 +436,28 @@ func (b *BudgetInputSet) Inputs() []input.Input {
 	}
 
 	return inputs
+}
+
+// inputAmts returns two values for the set - the total input amount, and the
+// spendable amount. Only the spendable amount can be used to pay the fees.
+func (b *BudgetInputSet) inputAmts() (btcutil.Amount, btcutil.Amount) {
+	var (
+		totalAmt     btcutil.Amount
+		spendableAmt btcutil.Amount
+	)
+
+	for _, inp := range b.inputs {
+		output := btcutil.Amount(inp.SignDesc().Output.Value)
+		totalAmt += output
+
+		if inp.RequiredTxOut() != nil {
+			continue
+		}
+
+		spendableAmt += output
+	}
+
+	return totalAmt, spendableAmt
 }
 
 // StartingFeeRate returns the max starting fee rate found in the inputs.

@@ -6742,12 +6742,23 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	return edge
 }
 
+// marshalPolicyExtraOpaqueData marshals the given tlv data and filters out
+// inbound fee record.
+func marshalPolicyExtraOpaqueData(data []byte) map[uint64][]byte {
+	records := marshalExtraOpaqueData(data)
+
+	// Remove the inbound fee record as we have dedicated fields for it.
+	delete(records, uint64(lnwire.FeeRecordType))
+
+	return records
+}
+
 func marshalDBRoutingPolicy(
 	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
 
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
-	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
+	customRecords := marshalPolicyExtraOpaqueData(policy.ExtraOpaqueData)
 	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
 
 	return &lnrpc.RoutingPolicy{
@@ -7252,7 +7263,7 @@ func marshallTopologyChange(
 	channelUpdates := make([]*lnrpc.ChannelEdgeUpdate, len(topChange.ChannelEdgeUpdates))
 	for i, channelUpdate := range topChange.ChannelEdgeUpdates {
 
-		customRecords := marshalExtraOpaqueData(
+		customRecords := marshalPolicyExtraOpaqueData(
 			channelUpdate.ExtraOpaqueData,
 		)
 		inboundFee := extractInboundFeeSafe(
@@ -7852,12 +7863,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		MinHTLC:       minHtlc,
 	}
 
-	rpcsLog.Debugf("[updatechanpolicy] updating channel policy "+
-		"base_fee=%v, rate_fixed=%v, time_lock_delta: %v, "+
-		"min_htlc=%v, max_htlc=%v, targets=%v",
-		req.BaseFeeMsat, feeRateFixed, req.TimeLockDelta,
-		minHtlc, maxHtlc,
-		spew.Sdump(targetChans))
+	rpcsLog.Debugf("[updatechanpolicy] updating channel policy, "+
+		"targets=%v, req=%v", lnutils.SpewLogClosure(targetChans),
+		lnutils.SpewLogClosure(req))
 
 	// With the scope resolved, we'll now send this to the local channel
 	// manager so it can propagate the new policy for our target channel(s).

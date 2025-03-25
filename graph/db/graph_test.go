@@ -155,62 +155,70 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where
-// where only the pubkey is known to the database.
+// only the pubkey is known to the database.
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
-	// We want to be able to insert nodes into the graph that only has the
-	// PubKey set.
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: false,
-		PubKeyBytes:          testPub,
-	}
+	// To insert a partial node, we need to add a channel edge that has
+	// node keys for nodes we are not yet aware
+	var node1, node2 models.LightningNode
+	copy(node1.PubKeyBytes[:], pubKey1Bytes)
+	copy(node2.PubKeyBytes[:], pubKey2Bytes)
 
-	if err := graph.AddLightningNode(node); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
-	assertNodeInCache(t, graph, node, nil)
+	// Create an edge attached to these nodes and add it to the graph.
+	edgeInfo, _ := createEdge(140, 0, 0, 0, &node1, &node2)
+	require.NoError(t, graph.AddChannelEdge(&edgeInfo))
 
-	// Next, fetch the node from the database to ensure everything was
+	// Both of the nodes should now be in both the graph (as partial/shell)
+	// nodes _and_ the cache should also have an awareness of both nodes.
+	assertNodeInCache(t, graph, &node1, nil)
+	assertNodeInCache(t, graph, &node2, nil)
+
+	// Next, fetch the node2 from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(testPub)
-	require.NoError(t, err, "unable to locate node")
+	dbNode1, err := graph.FetchLightningNode(pubKey1)
+	require.NoError(t, err)
+	dbNode2, err := graph.FetchLightningNode(pubKey2)
+	require.NoError(t, err)
 
-	_, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to query for node: %v", err)
-	} else if !exists {
-		t.Fatalf("node should be found but wasn't")
-	}
+	_, exists, err := graph.HasLightningNode(dbNode1.PubKeyBytes)
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	node = &models.LightningNode{
+	expectedNode1 := &models.LightningNode{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          testPub,
+		PubKeyBytes:          pubKey1,
 	}
+	require.NoError(t, compareNodes(dbNode1, expectedNode1))
 
-	if err := compareNodes(node, dbNode); err != nil {
-		t.Fatalf("nodes don't match: %v", err)
+	_, exists, err = graph.HasLightningNode(dbNode2.PubKeyBytes)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	// The two nodes should match exactly! (with default values for
+	// LastUpdate and db set to satisfy compareNodes())
+	expectedNode2 := &models.LightningNode{
+		HaveNodeAnnouncement: false,
+		LastUpdate:           time.Unix(0, 0),
+		PubKeyBytes:          pubKey2,
 	}
+	require.NoError(t, compareNodes(dbNode2, expectedNode2))
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	if err := graph.DeleteLightningNode(testPub); err != nil {
-		t.Fatalf("unable to delete node: %v", err)
-	}
+	require.NoError(t, graph.DeleteLightningNode(pubKey1))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
-	if err != ErrGraphNodeNotFound {
-		t.Fatalf("fetch after delete should fail!")
-	}
+	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
 func TestAliasLookup(t *testing.T) {
@@ -962,6 +970,23 @@ func randEdgePolicy(chanID uint64, db kvdb.Backend) *models.ChannelEdgePolicy {
 	update := prand.Int63()
 
 	return newEdgePolicy(chanID, db, update)
+}
+
+func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
+	return &models.ChannelEdgePolicy{
+		SigBytes:                  p.SigBytes,
+		ChannelID:                 p.ChannelID,
+		LastUpdate:                p.LastUpdate,
+		MessageFlags:              p.MessageFlags,
+		ChannelFlags:              p.ChannelFlags,
+		TimeLockDelta:             p.TimeLockDelta,
+		MinHTLC:                   p.MinHTLC,
+		MaxHTLC:                   p.MaxHTLC,
+		FeeBaseMSat:               p.FeeBaseMSat,
+		FeeProportionalMillionths: p.FeeProportionalMillionths,
+		ToNode:                    p.ToNode,
+		ExtraOpaqueData:           p.ExtraOpaqueData,
+	}
 }
 
 func newEdgePolicy(chanID uint64, db kvdb.Backend,
@@ -1919,6 +1944,76 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	}
 }
 
+// TestFilterKnownChanIDsZombieRevival tests that if a ChannelUpdateInfo is
+// passed to FilterKnownChanIDs that contains a channel that we have marked as
+// a zombie, then we will mark it as live again if the new ChannelUpdate has
+// timestamps that would make the channel be considered live again.
+//
+// NOTE: this tests focuses on zombie revival. The main logic of
+// FilterKnownChanIDs is tested in TestFilterKnownChanIDs.
+func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err)
+
+	var (
+		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
+		scid2 = lnwire.ShortChannelID{BlockHeight: 2}
+		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
+	)
+
+	isZombie := func(scid lnwire.ShortChannelID) bool {
+		zombie, _, _ := graph.IsZombieEdge(scid.ToUint64())
+		return zombie
+	}
+
+	// Mark channel 1 and 2 as zombies.
+	err = graph.MarkEdgeZombie(scid1.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+	err = graph.MarkEdgeZombie(scid2.ToUint64(), [33]byte{}, [33]byte{})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Call FilterKnownChanIDs with an isStillZombie call-back that would
+	// result in the current zombies still be considered as zombies.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{ShortChannelID: scid2},
+		{ShortChannelID: scid3},
+	}, func(_ time.Time, _ time.Time) bool {
+		return true
+	})
+	require.NoError(t, err)
+
+	require.True(t, isZombie(scid1))
+	require.True(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+
+	// Now call it again but this time with a isStillZombie call-back that
+	// would result in channel with SCID 2 no longer being considered a
+	// zombie.
+	_, err = graph.FilterKnownChanIDs([]ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{
+			ShortChannelID:       scid2,
+			Node1UpdateTimestamp: time.Unix(1000, 0),
+		},
+		{ShortChannelID: scid3},
+	}, func(t1 time.Time, _ time.Time) bool {
+		return !t1.Equal(time.Unix(1000, 0))
+	})
+	require.NoError(t, err)
+
+	// Show that SCID 2 has been marked as live.
+	require.True(t, isZombie(scid1))
+	require.False(t, isZombie(scid2))
+	require.False(t, isZombie(scid3))
+}
+
 // TestFilterKnownChanIDs tests that we're able to properly perform the set
 // differences of an incoming set of channel ID's, and those that we already
 // know of on disk.
@@ -2859,6 +2954,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	edge2 := randEdgePolicy(chanID.ToUint64(), graph.db)
 	edge2.ChannelFlags = 1
@@ -2867,6 +2963,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	if err := graph.UpdateEdgePolicy(edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
+	edge2 = copyEdgePolicy(edge2) // Avoid read/write race conditions.
 
 	// checkIndexTimestamps is a helper function that checks the edge update
 	// index only includes the given timestamps.
@@ -3952,7 +4049,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 
 	getSingleChannel := func() *DirectedChannel {
 		var ch *DirectedChannel
-		err = graph.forEachNodeDirectedChannel(nil, node1.PubKeyBytes,
+		err = graph.ForEachNodeDirectedChannel(node1.PubKeyBytes,
 			func(c *DirectedChannel) error {
 				require.Nil(t, ch)
 				ch = c
@@ -3974,6 +4071,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
 	}
 	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	directedChan := getSingleChannel()
 	require.NotNil(t, directedChan)
@@ -4005,8 +4103,12 @@ func TestGraphLoading(t *testing.T) {
 	defer backend.Close()
 	defer backendCleanup()
 
-	graph, err := NewChannelGraph(backend)
+	graph, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
 
 	// Populate the graph with test data.
 	const numNodes = 100
@@ -4015,8 +4117,12 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(backend)
+	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
 	require.NoError(t, err)
+	require.NoError(t, graphReloaded.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graphReloaded.Stop())
+	})
 
 	// Assert that the cache content is identical.
 	require.Equal(

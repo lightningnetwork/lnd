@@ -109,8 +109,7 @@ type Builder struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
-	ntfnClientCounter atomic.Uint64
-	bestHeight        atomic.Uint32
+	bestHeight atomic.Uint32
 
 	cfg *Config
 
@@ -122,22 +121,6 @@ type Builder struct {
 	// staleBlocks is a channel in which blocks disconnected from the end
 	// of our currently known best chain are sent over.
 	staleBlocks <-chan *chainview.FilteredBlock
-
-	// topologyUpdates is a channel that carries new topology updates
-	// messages from outside the Builder to be processed by the
-	// networkHandler.
-	topologyUpdates chan any
-
-	// topologyClients maps a client's unique notification ID to a
-	// topologyClient client that contains its notification dispatch
-	// channel.
-	topologyClients *lnutils.SyncMap[uint64, *topologyClient]
-
-	// ntfnClientUpdates is a channel that's used to send new updates to
-	// topology notification clients to the Builder. Updates either
-	// add a new notification client, or cancel notifications for an
-	// existing client.
-	ntfnClientUpdates chan *topologyClientUpdate
 
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
@@ -163,14 +146,11 @@ var _ ChannelGraphSource = (*Builder)(nil)
 // NewBuilder constructs a new Builder.
 func NewBuilder(cfg *Config) (*Builder, error) {
 	return &Builder{
-		cfg:               cfg,
-		topologyUpdates:   make(chan any),
-		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
-		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		channelEdgeMtx:    multimutex.NewMutex[uint64](),
-		statTicker:        ticker.New(defaultStatInterval),
-		stats:             new(builderStats),
-		quit:              make(chan struct{}),
+		cfg:            cfg,
+		channelEdgeMtx: multimutex.NewMutex[uint64](),
+		statTicker:     ticker.New(defaultStatInterval),
+		stats:          new(builderStats),
+		quit:           make(chan struct{}),
 	}, nil
 }
 
@@ -656,28 +636,6 @@ func (b *Builder) pruneZombieChans() error {
 	return nil
 }
 
-// handleTopologyUpdate is responsible for sending any topology changes
-// notifications to registered clients.
-//
-// NOTE: must be run inside goroutine.
-func (b *Builder) handleTopologyUpdate(update any) {
-	defer b.wg.Done()
-
-	topChange := &TopologyChange{}
-	err := addToTopologyChange(b.cfg.Graph, topChange, update)
-	if err != nil {
-		log.Errorf("unable to update topology change notification: %v",
-			err)
-		return
-	}
-
-	if topChange.isEmpty() {
-		return
-	}
-
-	b.notifyTopologyChange(topChange)
-}
-
 // networkHandler is the primary goroutine for the Builder. The roles of
 // this goroutine include answering queries related to the state of the
 // network, pruning the graph on new block notification, applying network
@@ -701,16 +659,6 @@ func (b *Builder) networkHandler() {
 		}
 
 		select {
-		// A new fully validated topology update has just arrived.
-		// We'll notify any registered clients.
-		case update := <-b.topologyUpdates:
-			b.wg.Add(1)
-			go b.handleTopologyUpdate(update)
-
-			// TODO(roasbeef): remove all unconnected vertexes
-			// after N blocks pass with no corresponding
-			// announcements.
-
 		case chainUpdate, ok := <-b.staleBlocks:
 			// If the channel has been closed, then this indicates
 			// the daemon is shutting down, so we exit ourselves.
@@ -782,31 +730,6 @@ func (b *Builder) networkHandler() {
 					"received block height %v was already"+
 					" processed.", chainUpdate.Height)
 			}
-
-		// A new notification client update has arrived. We're either
-		// gaining a new client, or cancelling notifications for an
-		// existing client.
-		case ntfnUpdate := <-b.ntfnClientUpdates:
-			clientID := ntfnUpdate.clientID
-
-			if ntfnUpdate.cancel {
-				client, ok := b.topologyClients.LoadAndDelete(
-					clientID,
-				)
-				if ok {
-					close(client.exit)
-					client.wg.Wait()
-
-					close(client.ntfnChan)
-				}
-
-				continue
-			}
-
-			b.topologyClients.Store(clientID, &topologyClient{
-				ntfnChan: ntfnUpdate.ntfnChan,
-				exit:     make(chan struct{}),
-			})
 
 		// The graph prune ticker has ticked, so we'll examine the
 		// state of the known graph to filter out any zombie channels
@@ -934,16 +857,6 @@ func (b *Builder) updateGraphWithClosedChannels(
 	log.Infof("Block %v (height=%v) closed %v channels", chainUpdate.Hash,
 		blockHeight, len(chansClosed))
 
-	if len(chansClosed) == 0 {
-		return err
-	}
-
-	// Notify all currently registered clients of the newly closed channels.
-	closeSummaries := createCloseSummaries(blockHeight, chansClosed...)
-	b.notifyTopologyChange(&TopologyChange{
-		ClosedChannels: closeSummaries,
-	})
-
 	return nil
 }
 
@@ -1067,12 +980,6 @@ func (b *Builder) AddNode(node *models.LightningNode,
 		return err
 	}
 
-	select {
-	case b.topologyUpdates <- node:
-	case <-b.quit:
-		return ErrGraphBuilderShuttingDown
-	}
-
 	return nil
 }
 
@@ -1115,12 +1022,6 @@ func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
 		logNetworkMsgProcessError(err)
 
 		return err
-	}
-
-	select {
-	case b.topologyUpdates <- edge:
-	case <-b.quit:
-		return ErrGraphBuilderShuttingDown
 	}
 
 	return nil
@@ -1222,12 +1123,6 @@ func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy,
 		logNetworkMsgProcessError(err)
 
 		return err
-	}
-
-	select {
-	case b.topologyUpdates <- update:
-	case <-b.quit:
-		return ErrGraphBuilderShuttingDown
 	}
 
 	return nil

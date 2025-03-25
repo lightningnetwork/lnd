@@ -167,11 +167,16 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	t.Cleanup(backendCleanup)
 
 	graph, err := graphdb.NewChannelGraph(
-		backend, graphdb.WithUseGraphCache(useCache),
+		&graphdb.Config{KVDB: backend},
+		graphdb.WithUseGraphCache(useCache),
 	)
 	if err != nil {
 		return nil, nil, err
 	}
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
 
 	return graph, backend, nil
 }

@@ -417,7 +417,7 @@ type server struct {
 // updatePersistentPeerAddrs subscribes to topology changes and stores
 // advertised addresses for any NodeAnnouncements from our persisted peers.
 func (s *server) updatePersistentPeerAddrs() error {
-	graphSub, err := s.graphBuilder.SubscribeTopology()
+	graphSub, err := s.graphDB.SubscribeTopology()
 	if err != nil {
 		return err
 	}
@@ -2379,6 +2379,12 @@ func (s *server) Start() error {
 			return
 		}
 
+		cleanup = cleanup.add(s.graphDB.Stop)
+		if err := s.graphDB.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		cleanup = cleanup.add(s.graphBuilder.Stop)
 		if err := s.graphBuilder.Start(); err != nil {
 			startErr = err
@@ -2690,6 +2696,9 @@ func (s *server) Stop() error {
 		}
 		if err := s.graphBuilder.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop graphBuilder %v", err)
+		}
+		if err := s.graphDB.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop graphDB %v", err)
 		}
 		if err := s.chainArb.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chainArb: %v", err)

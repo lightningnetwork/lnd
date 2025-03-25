@@ -379,6 +379,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendToRouteMultiPath,
 	},
 	{
+		Name:     "send to route fail payment notification",
+		TestFunc: testSendToRouteFailPaymentNotification,
+	},
+	{
 		Name:     "send multi path payment",
 		TestFunc: testSendMultiPathPayment,
 	},

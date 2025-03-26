@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 	"golang.org/x/term"
@@ -258,7 +259,7 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 			return nil
 		}
 
-		// Try to parse the Status representatio from this error.
+		// Try to parse the Status representation from this error.
 		s, ok := status.FromError(err)
 
 		// If this cannot be represented by a Status, exit early.
@@ -270,21 +271,22 @@ func actionDecorator(f func(*cli.Context) error) func(*cli.Context) error {
 		// 'unlock') but the wallet is already unlocked, then these
 		// methods aren't recognized any more because this service is
 		// shut down after successful unlock.
-		if s.Code() == codes.Unknown &&
-			(c.Command.Name == "create" ||
-				c.Command.Name == "unlock" ||
-				c.Command.Name == "changepassword" ||
-				c.Command.Name == "createwatchonly") {
+		if s.Code() == codes.Unknown && strings.Contains(
+			s.Message(), rpcperms.ErrWalletUnlocked.Error(),
+		) && (c.Command.Name == "create" ||
+			c.Command.Name == "unlock" ||
+			c.Command.Name == "changepassword" ||
+			c.Command.Name == "createwatchonly") {
 
 			return errors.New("wallet is already unlocked")
 		}
 
 		// lnd might be active, but not possible to contact using RPC if
-		// the wallet is encrypted. If we get error code Unknown, it
-		// means that lnd is running, but the RPC server is not active
-		// yet (only WalletUnlocker server active) and most likely this
-		// is because of an encrypted wallet.
-		if s.Code() == codes.Unknown {
+		// the wallet is encrypted.
+		if s.Code() == codes.Unknown && strings.Contains(
+			s.Message(), rpcperms.ErrWalletLocked.Error(),
+		) {
+
 			return errors.New("wallet is encrypted - please " +
 				"unlock using 'lncli unlock', or set " +
 				"password using 'lncli create' if this is " +

@@ -237,8 +237,7 @@ func (s *StateMachine[Event, Env]) Stop() {
 //
 // TODO(roasbeef): bool if processed?
 func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
-	s.log.DebugS(ctx, "Sending event",
-		"event", lnutils.SpewLogClosure(event))
+	s.log.Debugf("Sending event %T", event)
 
 	select {
 	case s.events <- event:
@@ -543,9 +542,6 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 	currentState State[Event, Env], newEvent Event) (State[Event, Env],
 	error) {
-
-	s.log.DebugS(ctx, "Applying new event",
-		"event", lnutils.SpewLogClosure(newEvent))
 
 	eventQueue := fn.NewQueue(newEvent)
 

@@ -1,12 +1,14 @@
 -- sequences contains all sequences used for invoices.
-CREATE TABLE invoice_sequences (
+CREATE TABLE IF NOT EXISTS invoice_sequences (
     name TEXT PRIMARY KEY,
     current_value BIGINT NOT NULL
 );
 
 -- Initialize a sequence for the settled index used to track invoice settlement
 -- to remain compatible with the legacy channeldb implementation.
-INSERT INTO invoice_sequences(name, current_value) VALUES ('settle_index', 0);
+INSERT INTO invoice_sequences (name, current_value) 
+VALUES ('settle_index', 0) 
+    ON CONFLICT (name) DO NOTHING;
 
 -- invoices table contains all the information shared by all the invoice types. 
 CREATE TABLE IF NOT EXISTS invoices (

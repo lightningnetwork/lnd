@@ -1,5 +1,8 @@
 module github.com/lightningnetwork/lnd
 
+// Use fork of `btcd` with `btcdtest` until github.com/btcsuite/btcd/pull/2360 is merged.
+replace github.com/btcsuite/btcd => github.com/linden/btcd v0.24.1-0.20250418190406-111047b74369
+
 require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344

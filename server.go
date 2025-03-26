@@ -51,7 +51,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -1212,7 +1211,7 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 			*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(selfVertex,
-				func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
+				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
 

@@ -198,3 +198,15 @@ func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
 
 	return version, dirty, nil
 }
+
+// SetSchemaVersion sets the schema version of the Postgres database.
+//
+// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
+func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return errPostgresMigration(err)
+	}
+
+	return driver.SetVersion(version, dirty)
+}

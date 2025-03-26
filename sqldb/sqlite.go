@@ -197,6 +197,20 @@ func (s *SqliteStore) GetSchemaVersion() (int, bool, error) {
 	return version, dirty, nil
 }
 
+// SetSchemaVersion sets the schema version of the SQLite database.
+//
+// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
+func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return errSqliteMigration(err)
+	}
+
+	return driver.SetVersion(version, dirty)
+}
+
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
 func NewTestSqliteDB(t *testing.T) *SqliteStore {

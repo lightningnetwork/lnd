@@ -112,6 +112,9 @@ type MigrationExecutor interface {
 	// order. Migration details are stored in the global variable
 	// migrationConfig.
 	ExecuteMigrations(target MigrationTarget) error
+
+	// GetSchemaVersion returns the current schema version of the database.
+	GetSchemaVersion() (int, bool, error)
 }
 
 var (
@@ -360,6 +363,22 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 		}
 
 		currentVersion = int(version)
+	} else {
+		// Since we don't have a version tracked by our own table yet,
+		// we'll use the schema version reported by sqlc to determine
+		// the current version.
+		//
+		// NOTE: This is safe because the first in-code migration was
+		// introduced in version 7. This is only possible if the user
+		// has a schema version <= 4.
+		var dirty bool
+		currentVersion, dirty, err = migrator.GetSchemaVersion()
+		if err != nil {
+			return err
+		}
+
+		log.Infof("No database version found, using schema version %d "+
+			"(dirty=%v) as base version", currentVersion, dirty)
 	}
 
 	for _, migration := range migrations {

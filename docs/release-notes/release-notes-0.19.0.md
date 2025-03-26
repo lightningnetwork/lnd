@@ -107,6 +107,10 @@
 keysend payment would not fail properly and only resolve after restart. Now
 keysend payment validation is stricter.
 
+* [Make sure](https://github.com/lightningnetwork/lnd/pull/9643) the startup
+  process of the node won't be interrupted if a non-fatal error is returned from
+  the subsystems.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

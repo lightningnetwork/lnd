@@ -3109,6 +3109,44 @@ func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
 	return nodeTraversal(nil, nodePub[:], c.db, cb)
 }
 
+// ForEachSourceNodeChannel iterates through all channels of the source node,
+// executing the passed callback on each. The callback is provided with the
+// channel's outpoint, whether we have a policy for the channel and the channel
+// peer's node information.
+func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
+	havePolicy bool, otherNode *models.LightningNode) error) error {
+
+	return kvdb.View(c.db, func(tx kvdb.RTx) error {
+		nodes := tx.ReadBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := c.sourceNode(nodes)
+		if err != nil {
+			return err
+		}
+
+		return nodeTraversal(
+			tx, node.PubKeyBytes[:], c.db, func(tx kvdb.RTx,
+				info *models.ChannelEdgeInfo,
+				policy, _ *models.ChannelEdgePolicy) error {
+
+				peer, err := c.FetchOtherNode(
+					tx, info, node.PubKeyBytes[:],
+				)
+				if err != nil {
+					return err
+				}
+
+				return cb(
+					info.ChannelPoint, policy != nil, peer,
+				)
+			},
+		)
+	}, func() {})
+}
+
 // ForEachNodeChannelTx iterates through all channels of the given node,
 // executing the passed callback with an edge info structure and the policies
 // of each end of the channel. The first edge policy is the outgoing edge *to*

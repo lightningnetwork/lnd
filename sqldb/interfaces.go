@@ -187,11 +187,7 @@ func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
 	actualDelay := initialDelay * factor
 
 	// Cap the delay at the maximum configured value.
-	if actualDelay > maxRetryDelay {
-		return maxRetryDelay
-	}
-
-	return actualDelay
+	return min(actualDelay, maxRetryDelay)
 }
 
 // MakeTx is a function that creates a new transaction. It returns a Tx and an

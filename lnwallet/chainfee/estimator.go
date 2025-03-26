@@ -612,11 +612,7 @@ func chooseMinFee(minRelayFeeFunc func() SatPerKWeight,
 		// to prevent an adversary from taking up the majority of our
 		// outbound peer slots and forcing us to use a high median
 		// filter value.
-		if medianFilter > feeCap {
-			return feeCap
-		}
-
-		return medianFilter
+		return min(medianFilter, feeCap)
 	}
 
 	return minRelayFee

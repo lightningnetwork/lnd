@@ -1353,8 +1353,8 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		// offer and send our sig).
 		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
 		closeHarness.assertSingleRemoteRbfIteration(
-			remoteOffer, absoluteFee, absoluteFee, sequence, false,
-			true,
+			remoteOffer, absoluteFee, absoluteFee, sequence, true,
+			false,
 		)
 	})
 

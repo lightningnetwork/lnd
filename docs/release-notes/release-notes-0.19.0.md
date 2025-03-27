@@ -162,6 +162,12 @@ close transaction.
   tests to set a lower value for faster funding confirmation timeout while
   keeping the default of 2016 blocks for production stability.
 
+* Previously when sweeping inputs, the sweeper will wait until the specified
+  budget can be covered by the inputs, which could cause the sweep to be
+  delayed, and the sweeping tx ends up using large fees. This is now
+  [changed](https://github.com/lightningnetwork/lnd/pull/9627) so the sweeper
+  will always attempt the sweep as long as the budget can be partially covered.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

@@ -4841,12 +4841,17 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		)
 	}
 
-	// Create a set of the HTLCs found in the remote commitment, which is
+	// Create two sets of the HTLCs found in the remote commitment, which is
 	// used to decide whether the HTLCs from the local commitment has been
 	// locked in or not.
-	remoteHTLCs := fn.NewSet[[32]byte]()
+	remoteIncomingHTLCs := fn.NewSet[uint64]()
+	remoteOutgoingHTLCs := fn.NewSet[uint64]()
 	for _, htlc := range dbChannel.RemoteCommitment.Htlcs {
-		remoteHTLCs.Add(htlc.RHash)
+		if htlc.Incoming {
+			remoteIncomingHTLCs.Add(htlc.HtlcIndex)
+		} else {
+			remoteOutgoingHTLCs.Add(htlc.HtlcIndex)
+		}
 	}
 
 	for i, htlc := range localCommit.Htlcs {
@@ -4855,7 +4860,10 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 		circuitMap := r.server.htlcSwitch.CircuitLookup()
 
-		var forwardingChannel, forwardingHtlcIndex uint64
+		var (
+			forwardingChannel, forwardingHtlcIndex uint64
+			lockedIn                               bool
+		)
 		switch {
 		case htlc.Incoming:
 			circuit := circuitMap.LookupCircuit(
@@ -4870,6 +4878,8 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 				forwardingHtlcIndex = circuit.Outgoing.HtlcID
 			}
+
+			lockedIn = remoteIncomingHTLCs.Contains(htlc.HtlcIndex)
 
 		case !htlc.Incoming:
 			circuit := circuitMap.LookupOpenCircuit(
@@ -4890,6 +4900,8 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 				forwardingHtlcIndex = circuit.Incoming.HtlcID
 			}
+
+			lockedIn = remoteOutgoingHTLCs.Contains(htlc.HtlcIndex)
 		}
 
 		channel.PendingHtlcs[i] = &lnrpc.HTLC{
@@ -4900,7 +4912,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 			HtlcIndex:           htlc.HtlcIndex,
 			ForwardingChannel:   forwardingChannel,
 			ForwardingHtlcIndex: forwardingHtlcIndex,
-			LockedIn:            remoteHTLCs.Contains(rHash),
+			LockedIn:            lockedIn,
 		}
 
 		// Add the Pending Htlc Amount to UnsettledBalance field.
@@ -9056,6 +9068,9 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Exit early if the wallet is not synced.
 	if !isSynced {
+		rpcsLog.Debugf("Wallet is not synced to height %v yet",
+			bestHeight)
+
 		return info, nil
 	}
 
@@ -9074,6 +9089,9 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Exit early if the channel graph is not synced.
 	if !isSynced {
+		rpcsLog.Debugf("Graph is not synced to height %v yet",
+			bestHeight)
+
 		return info, nil
 	}
 
@@ -9083,6 +9101,11 @@ func (r *rpcServer) getChainSyncInfo() (*chainSyncInfo, error) {
 
 	// Overwrite isSynced and return.
 	info.isSynced = height == bestHeight
+
+	if !info.isSynced {
+		rpcsLog.Debugf("Blockbeat is not synced to height %v yet",
+			bestHeight)
+	}
 
 	return info, nil
 }

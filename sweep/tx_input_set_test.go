@@ -133,6 +133,47 @@ func TestBudgetInputSetAddInput(t *testing.T) {
 	require.Equal(t, btcutil.Amount(200), set.Budget())
 }
 
+// TestAddWalletInput asserts `addWalletInput` successfully converts a wallet
+// UTXO into a `SweeperInput` with the correct deadline.
+func TestAddWalletInput(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing deadline.
+	deadline := int32(1000)
+
+	// Initialize an empty input set.
+	set := &BudgetInputSet{
+		deadlineHeight: deadline,
+	}
+
+	// Create an utxo with unknown address type to trigger an error.
+	utxo := &lnwallet.Utxo{
+		AddressType: lnwallet.UnknownAddressType,
+	}
+
+	// Check that the error is returned from addWalletInput.
+	err := set.addWalletInput(utxo)
+	require.Error(t, err)
+
+	// Create a wallet utxo.
+	utxo = &lnwallet.Utxo{
+		AddressType: lnwallet.WitnessPubKey,
+		Value:       1000,
+	}
+
+	// Check that no error is returned from addWalletInput.
+	err = set.addWalletInput(utxo)
+	require.NoError(t, err)
+
+	// Check the input has been added to the set.
+	require.Len(t, set.inputs, 1)
+
+	// Assert the wallet input is added using the set's deadline.
+	inp := set.inputs[0]
+	require.True(t, inp.params.DeadlineHeight.IsSome())
+	require.Equal(t, deadline, inp.params.DeadlineHeight.UnsafeFromSome())
+}
+
 // TestNeedWalletInput checks that NeedWalletInput correctly determines if a
 // wallet input is needed.
 func TestNeedWalletInput(t *testing.T) {
@@ -345,12 +386,12 @@ func TestNeedWalletInput(t *testing.T) {
 	}
 }
 
-// TestAddWalletInputReturnErr tests the three possible errors returned from
+// TestAddWalletInputsReturnErr tests the three possible errors returned from
 // AddWalletInputs:
 // - error from ListUnspentWitnessFromDefaultAccount.
 // - error from createWalletTxInput.
 // - error when wallet doesn't have utxos.
-func TestAddWalletInputReturnErr(t *testing.T) {
+func TestAddWalletInputsReturnErr(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}
@@ -395,10 +436,9 @@ func TestAddWalletInputReturnErr(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotEnoughInputs)
 }
 
-// TestAddWalletInputNotEnoughInputs checks that when there are not enough
-// wallet utxos, an error is returned and the budget set is reset to its
-// initial state.
-func TestAddWalletInputNotEnoughInputs(t *testing.T) {
+// TestAddWalletInputsNotEnoughInputs checks that when there are not enough
+// wallet utxos, no error is returned as long as the wallet is not empty.
+func TestAddWalletInputsNotEnoughInputs(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}
@@ -415,6 +455,13 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 	mockInput := &input.MockInput{}
 	mockInput.On("RequiredTxOut").Return(&wire.TxOut{})
 	defer mockInput.AssertExpectations(t)
+
+	sd := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value: budget,
+		},
+	}
+	mockInput.On("SignDesc").Return(sd).Once()
 
 	// Create a pending input that requires 10k satoshis.
 	pi := &SweeperInput{
@@ -435,19 +482,83 @@ func TestAddWalletInputNotEnoughInputs(t *testing.T) {
 	// Initialize an input set with the pending input.
 	set := BudgetInputSet{inputs: []*SweeperInput{pi}}
 
-	// Add wallet inputs to the input set, which should give us an error as
-	// the wallet cannot cover the budget.
+	// Add wallet inputs to the input set, which should return no error
+	// although the wallet cannot cover the budget.
 	err := set.AddWalletInputs(wallet)
-	require.ErrorIs(t, err, ErrNotEnoughInputs)
+	require.NoError(t, err)
 
-	// Check that the budget set is reverted to its initial state.
-	require.Len(t, set.inputs, 1)
-	require.Equal(t, pi, set.inputs[0])
+	// Check that the budget set is updated.
+	require.Len(t, set.inputs, 2)
 }
 
-// TestAddWalletInputSuccess checks that when there are enough wallet utxos,
+// TestAddWalletInputsEmptyWalletSuccess checks that when the wallet is empty,
+// if there is a normal input, no error is returned.
+func TestAddWalletInputsEmptyWalletSuccess(t *testing.T) {
+	t.Parallel()
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
+	// Specify the min and max confs used in
+	// ListUnspentWitnessFromDefaultAccount.
+	minConf, maxConf := int32(1), int32(math.MaxInt32)
+
+	// Assume the desired budget is 10k satoshis.
+	const budget = 10_000
+
+	// Create a mock input that has required outputs.
+	mockInput1 := &input.MockInput{}
+	defer mockInput1.AssertExpectations(t)
+
+	mockInput1.On("RequiredTxOut").Return(&wire.TxOut{})
+
+	sd := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value: budget,
+		},
+	}
+	mockInput1.On("SignDesc").Return(sd).Once()
+
+	// Create a pending input that requires 10k satoshis.
+	pi1 := &SweeperInput{
+		Input:  mockInput1,
+		params: Params{Budget: budget},
+	}
+
+	// Create a mock input that doesn't require outputs.
+	mockInput2 := &input.MockInput{}
+	defer mockInput2.AssertExpectations(t)
+
+	mockInput2.On("RequiredTxOut").Return(nil)
+	sd2 := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value: budget,
+		},
+	}
+	mockInput2.On("SignDesc").Return(sd2).Once()
+
+	// Create a pending input that requires 10k satoshis.
+	pi2 := &SweeperInput{
+		Input:  mockInput2,
+		params: Params{Budget: budget},
+	}
+
+	// Mock the wallet to return empty utxos.
+	wallet.On("ListUnspentWitnessFromDefaultAccount",
+		minConf, maxConf).Return([]*lnwallet.Utxo{}, nil).Once()
+
+	// Initialize an input set with the pending inputs.
+	set := BudgetInputSet{inputs: []*SweeperInput{pi1, pi2}}
+
+	// Add wallet inputs to the input set, which should return no error
+	// although the wallet is empty.
+	err := set.AddWalletInputs(wallet)
+	require.NoError(t, err)
+}
+
+// TestAddWalletInputsSuccess checks that when there are enough wallet utxos,
 // they are added to the input set.
-func TestAddWalletInputSuccess(t *testing.T) {
+func TestAddWalletInputsSuccess(t *testing.T) {
 	t.Parallel()
 
 	wallet := &MockWallet{}

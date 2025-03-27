@@ -1103,16 +1103,35 @@ func (t *TxPublisher) handleInitialTxError(r *monitorRecord, err error) {
 	case errors.Is(err, ErrTxNoOutput):
 		result.Event = TxFailed
 
-	// When the error is due to budget being used up, we'll send a TxFailed
-	// so these inputs can be retried with a different group in the next
-	// block.
-	case errors.Is(err, ErrMaxPosition):
-		result.Event = TxFailed
-
 	// When the error is due to zero fee rate delta, we'll send a TxFailed
 	// so these inputs can be retried in the next block.
 	case errors.Is(err, ErrZeroFeeRateDelta):
 		result.Event = TxFailed
+
+	// When the error is due to budget being used up, we'll send a TxFailed
+	// so these inputs can be retried with a different group in the next
+	// block.
+	case errors.Is(err, ErrMaxPosition):
+		fallthrough
+
+	// If the tx doesn't not have enough budget, or if the inputs amounts
+	// are not sufficient to cover the budget, we will return a TxFailed
+	// event so the sweeper can handle it by re-clustering the utxos.
+	case errors.Is(err, ErrNotEnoughInputs),
+		errors.Is(err, ErrNotEnoughBudget):
+
+		result.Event = TxFailed
+
+		// Calculate the starting fee rate to be used when retry
+		// sweeping these inputs.
+		feeRate, err := t.calculateRetryFeeRate(r)
+		if err != nil {
+			result.Event = TxFatal
+			result.Err = err
+		}
+
+		// Attach the new fee rate.
+		result.FeeRate = feeRate
 
 	// When there are missing inputs, we'll create a TxUnknownSpend bump
 	// result here so the rest of the inputs can be retried.
@@ -1259,56 +1278,17 @@ func (t *TxPublisher) createUnknownSpentBumpResult(
 		SpentInputs: r.spentInputs,
 	}
 
-	// Get the fee function, which will be used to decided the next fee rate
-	// to use if the sweeper decides to retry sweeping this input.
-	feeFunc := r.feeFunction
-
-	// When the record is failed before the initial broadcast is attempted,
-	// it will have a nil fee func. In this case, we'll create the fee func
-	// here.
-	//
-	// NOTE: Since the current record is failed and will be deleted, we
-	// don't need to update the record on this fee function. We only need
-	// the fee rate data so the sweeper can pick up where we left off.
-	if feeFunc == nil {
-		f, err := t.initializeFeeFunction(r.req)
-		// TODO(yy): The only error we would receive here is when the
-		// pkScript is not recognized by the weightEstimator. What we
-		// should do instead is to check the pkScript immediately after
-		// receiving a sweep request so we don't need to check it again,
-		// which will also save us from error checking from several
-		// callsites.
-		if err != nil {
-			log.Errorf("Failed to create fee func for record %v: "+
-				"%v", r.requestID, err)
-
-			// Overwrite the event and error so the sweeper will
-			// remove this input.
-			result.Event = TxFatal
-			result.Err = err
-
-			return result
-		}
-
-		feeFunc = f
-	}
-
-	// Since the sweeping tx has been replaced by another party's tx, we
-	// missed this block window to increase its fee rate. To make sure the
-	// fee rate stays in the initial line, we now ask the fee function to
-	// give us the next fee rate as if the sweeping tx were RBFed. This new
-	// fee rate will be used as the starting fee rate if the upper system
-	// decides to continue sweeping the rest of the inputs.
-	_, err := feeFunc.Increment()
+	// Calculate the next fee rate for the retry.
+	feeRate, err := t.calculateRetryFeeRate(r)
 	if err != nil {
-		// The fee function has reached its max position - nothing we
-		// can do here other than letting the user increase the budget.
-		log.Errorf("Failed to calculate the next fee rate for "+
-			"Record(%v): %v", r.requestID, err)
+		// Overwrite the event and error so the sweeper will
+		// remove this input.
+		result.Event = TxFatal
+		result.Err = err
 	}
 
 	// Attach the new fee rate to be used for the next sweeping attempt.
-	result.FeeRate = feeFunc.FeeRate()
+	result.FeeRate = feeRate
 
 	return result
 }
@@ -1757,9 +1737,11 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 
 	// Make sure total output amount is less than total input amount.
 	if requiredOutput+txFee > totalInput {
-		return 0, noChange, noLocktime, fmt.Errorf("insufficient "+
-			"input to create sweep tx: input_sum=%v, "+
-			"output_sum=%v", totalInput, requiredOutput+txFee)
+		log.Errorf("Insufficient input to create sweep tx: "+
+			"input_sum=%v, output_sum=%v", totalInput,
+			requiredOutput+txFee)
+
+		return 0, noChange, noLocktime, ErrNotEnoughInputs
 	}
 
 	// The value remaining after the required output and fees is the
@@ -1861,18 +1843,33 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 		return fn.Some(*bumpResult)
 	}
 
-	// If the error is not fee related, we will return a `TxFailed` event
-	// so this input can be retried.
+	// Return a failed event to retry the sweep.
+	event := TxFailed
+
+	// Calculate the next fee rate for the retry.
+	feeRate, ferr := t.calculateRetryFeeRate(r)
+	if ferr != nil {
+		// If there's an error with the fee calculation, we need to
+		// abort the sweep.
+		event = TxFatal
+	}
+
+	// If the error is not fee related, we will return a `TxFailed` event so
+	// this input can be retried.
 	result := fn.Some(BumpResult{
-		Event:     TxFailed,
+		Event:     event,
 		Tx:        oldTx,
 		Err:       err,
 		requestID: r.requestID,
+		FeeRate:   feeRate,
 	})
 
-	// If the tx doesn't not have enought budget, we will return a result so
+	// If the tx doesn't not have enough budget, or if the inputs amounts
+	// are not sufficient to cover the budget, we will return a result so
 	// the sweeper can handle it by re-clustering the utxos.
-	if errors.Is(err, ErrNotEnoughBudget) {
+	if errors.Is(err, ErrNotEnoughBudget) ||
+		errors.Is(err, ErrNotEnoughInputs) {
+
 		log.Warnf("Fail to fee bump tx %v: %v", oldTx.TxHash(), err)
 		return result
 	}
@@ -1882,4 +1879,60 @@ func (t *TxPublisher) handleReplacementTxError(r *monitorRecord,
 	log.Errorf("Failed to bump tx %v: %v", oldTx.TxHash(), err)
 
 	return result
+}
+
+// calculateRetryFeeRate calculates a new fee rate to be used as the starting
+// fee rate for the next sweep attempt if the inputs are to be retried. When the
+// fee function is nil it will be created here, and an error is returned if the
+// fee func cannot be initialized.
+func (t *TxPublisher) calculateRetryFeeRate(
+	r *monitorRecord) (chainfee.SatPerKWeight, error) {
+
+	// Get the fee function, which will be used to decided the next fee rate
+	// to use if the sweeper decides to retry sweeping this input.
+	feeFunc := r.feeFunction
+
+	// When the record is failed before the initial broadcast is attempted,
+	// it will have a nil fee func. In this case, we'll create the fee func
+	// here.
+	//
+	// NOTE: Since the current record is failed and will be deleted, we
+	// don't need to update the record on this fee function. We only need
+	// the fee rate data so the sweeper can pick up where we left off.
+	if feeFunc == nil {
+		f, err := t.initializeFeeFunction(r.req)
+
+		// TODO(yy): The only error we would receive here is when the
+		// pkScript is not recognized by the weightEstimator. What we
+		// should do instead is to check the pkScript immediately after
+		// receiving a sweep request so we don't need to check it again,
+		// which will also save us from error checking from several
+		// callsites.
+		if err != nil {
+			log.Errorf("Failed to create fee func for record %v: "+
+				"%v", r.requestID, err)
+
+			return 0, err
+		}
+
+		feeFunc = f
+	}
+
+	// Since we failed to sweep the inputs, either the sweeping tx has been
+	// replaced by another party's tx, or the current output values cannot
+	// cover the budget, we missed this block window to increase its fee
+	// rate. To make sure the fee rate stays in the initial line, we now ask
+	// the fee function to give us the next fee rate as if the sweeping tx
+	// were RBFed. This new fee rate will be used as the starting fee rate
+	// if the upper system decides to continue sweeping the rest of the
+	// inputs.
+	_, err := feeFunc.Increment()
+	if err != nil {
+		// The fee function has reached its max position - nothing we
+		// can do here other than letting the user increase the budget.
+		log.Errorf("Failed to calculate the next fee rate for "+
+			"Record(%v): %v", r.requestID, err)
+	}
+
+	return feeFunc.FeeRate(), nil
 }

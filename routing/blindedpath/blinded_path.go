@@ -32,13 +32,12 @@ var errInvalidBlindedPath = errors.New("the chosen path results in an " +
 // BuildBlindedPathCfg defines the various resources and configuration values
 // required to build a blinded payment path to this node.
 type BuildBlindedPathCfg struct {
-	// FindRoutes returns a set of routes to us that can be used for the
-	// construction of blinded paths. These routes will consist of real
-	// nodes advertising the route blinding feature bit. They may be of
-	// various lengths and may even contain only a single hop. Any route
-	// shorter than MinNumHops will be padded with dummy hops during route
-	// construction.
-	FindRoutes func(value lnwire.MilliSatoshi) ([]*route.Route, error)
+	// Routes to be used for the construction of blinded paths. These routes
+	// will consist of real nodes advertising the route blinding feature
+	// bit. They may be of various lengths and may even contain only a
+	// single hop. Any route shorter than MinNumHops will be padded with
+	// dummy hops during route construction.
+	Routes []*route.Route
 
 	// FetchChannelEdgesByID attempts to look up the two directed edges for
 	// the channel identified by the channel ID.
@@ -100,6 +99,9 @@ type BuildBlindedPathCfg struct {
 	// route.
 	MinNumHops uint8
 
+	// MaxNumPaths is the maximum number of blinded paths to select.
+	MaxNumPaths uint8
+
 	// DefaultDummyHopPolicy holds the policy values that should be used for
 	// dummy hops in the cases where it cannot be derived via other means
 	// such as averaging the policy values of other hops on the path. This
@@ -109,19 +111,20 @@ type BuildBlindedPathCfg struct {
 	DefaultDummyHopPolicy *BlindedHopPolicy
 }
 
+// BlindedHop holds the information about a hop we have selected for a blinded
+// path.
+type BlindedHop struct {
+	Vertex       route.Vertex
+	ChannelID    uint64
+	EdgeCapacity btcutil.Amount
+}
+
 // BuildBlindedPaymentPaths uses the passed config to construct a set of blinded
 // payment paths that can be added to the invoice.
 func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	[]*zpay32.BlindedPaymentPath, error) {
 
-	// Find some appropriate routes for the value to be routed. This will
-	// return a set of routes made up of real nodes.
-	routes, err := cfg.FindRoutes(cfg.ValueMsat)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(routes) == 0 {
+	if len(cfg.Routes) == 0 {
 		return nil, fmt.Errorf("could not find any routes to self to " +
 			"use for blinded route construction")
 	}
@@ -129,11 +132,15 @@ func BuildBlindedPaymentPaths(cfg *BuildBlindedPathCfg) (
 	// Not every route returned will necessarily result in a usable blinded
 	// path and so the number of paths returned might be less than the
 	// number of real routes returned by FindRoutes above.
-	paths := make([]*zpay32.BlindedPaymentPath, 0, len(routes))
+	paths := make([]*zpay32.BlindedPaymentPath, 0, min(len(cfg.Routes),
+		int(cfg.MaxNumPaths)))
 
 	// For each route returned, we will construct the associated blinded
-	// payment path.
-	for _, route := range routes {
+	// payment path, until the maximum number of allowed paths is reached.
+	for _, route := range cfg.Routes {
+		if len(paths) >= int(cfg.MaxNumPaths) {
+			break
+		}
 		// Extract the information we need from the route.
 		candidatePath := extractCandidatePath(route)
 

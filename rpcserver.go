@@ -6123,10 +6123,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	)
 
 	globalBlindCfg := r.server.cfg.Routing.BlindedPaths
+	maxNumPaths := globalBlindCfg.MaxNumPaths
 	blindingRestrictions := &routing.BlindedPathRestrictions{
 		MinDistanceFromIntroNode: globalBlindCfg.MinNumRealHops,
 		NumHops:                  globalBlindCfg.NumHops,
-		MaxNumPaths:              globalBlindCfg.MaxNumPaths,
 		NodeOmissionSet:          fn.NewSet[route.Vertex](),
 	}
 
@@ -6144,8 +6144,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
 		}
 		if blindCfg.MaxNumPaths != nil {
-			blindingRestrictions.MaxNumPaths =
-				uint8(*blindCfg.MaxNumPaths)
+			maxNumPaths = uint8(*blindCfg.MaxNumPaths)
 		}
 
 		for _, nodeIDBytes := range blindCfg.NodeOmissionList {
@@ -6202,15 +6201,14 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		},
 		GetAlias:   r.server.aliasMgr.GetPeerAlias,
 		BestHeight: r.server.cc.BestBlockTracker.BestHeight,
-		QueryBlindedRoutes: func(amt lnwire.MilliSatoshi) (
-			[]*route.Route, error) {
-
-			return r.server.chanRouter.FindBlindedPaths(
-				r.selfNode, amt,
-				r.server.defaultMC.GetProbability,
+		QueryBlindedPaths: func() ([][]blindedpath.BlindedHop, error) {
+			return routing.FindBlindedPaths(
+				r.server.graphDB,
+				r.selfNode,
 				blindingRestrictions,
 			)
 		},
+		ProbabilitySource: r.server.defaultMC.GetProbability,
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -6247,6 +6245,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				MaxHTLCMsat: 0,
 			},
 			MinNumPathHops: blindingRestrictions.NumHops,
+			MaxNumPaths:    maxNumPaths,
 		}
 	}
 

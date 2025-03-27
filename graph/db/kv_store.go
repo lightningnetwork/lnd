@@ -561,7 +561,7 @@ func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
 
 		channels := make(map[uint64]*DirectedChannel)
 
-		err := c.ForEachNodeChannelTx(tx, node.PubKeyBytes,
+		err := c.forEachNodeChannelTx(tx, node.PubKeyBytes,
 			func(tx kvdb.RTx, e *models.ChannelEdgeInfo,
 				p1 *models.ChannelEdgePolicy,
 				p2 *models.ChannelEdgePolicy) error {
@@ -2850,7 +2850,7 @@ func (c *KVStore) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 	// used to terminate the check early.
 	nodeIsPublic := false
 	errDone := errors.New("done")
-	err := c.ForEachNodeChannelTx(tx, nodePub, func(tx kvdb.RTx,
+	err := c.forEachNodeChannelTx(tx, nodePub, func(tx kvdb.RTx,
 		info *models.ChannelEdgeInfo, _ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
@@ -3132,7 +3132,7 @@ func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 				info *models.ChannelEdgeInfo,
 				policy, _ *models.ChannelEdgePolicy) error {
 
-				peer, err := c.FetchOtherNode(
+				peer, err := c.fetchOtherNode(
 					tx, info, node.PubKeyBytes[:],
 				)
 				if err != nil {
@@ -3147,7 +3147,7 @@ func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 	}, func() {})
 }
 
-// ForEachNodeChannelTx iterates through all channels of the given node,
+// forEachNodeChannelTx iterates through all channels of the given node,
 // executing the passed callback with an edge info structure and the policies
 // of each end of the channel. The first edge policy is the outgoing edge *to*
 // the connecting node, while the second is the incoming edge *from* the
@@ -3160,7 +3160,7 @@ func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 // should be passed as the first argument.  Otherwise, the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
-func (c *KVStore) ForEachNodeChannelTx(tx kvdb.RTx,
+func (c *KVStore) forEachNodeChannelTx(tx kvdb.RTx,
 	nodePub route.Vertex, cb func(kvdb.RTx, *models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
@@ -3168,11 +3168,11 @@ func (c *KVStore) ForEachNodeChannelTx(tx kvdb.RTx,
 	return nodeTraversal(tx, nodePub[:], c.db, cb)
 }
 
-// FetchOtherNode attempts to fetch the full LightningNode that's opposite of
+// fetchOtherNode attempts to fetch the full LightningNode that's opposite of
 // the target node in the channel. This is useful when one knows the pubkey of
 // one of the nodes, and wishes to obtain the full LightningNode for the other
 // end of the channel.
-func (c *KVStore) FetchOtherNode(tx kvdb.RTx,
+func (c *KVStore) fetchOtherNode(tx kvdb.RTx,
 	channel *models.ChannelEdgeInfo, thisNodeKey []byte) (
 	*models.LightningNode, error) {
 
@@ -4702,7 +4702,7 @@ func (c *chanGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
 func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
-	return c.db.ForEachNodeChannelTx(c.tx, c.node.PubKeyBytes,
+	return c.db.forEachNodeChannelTx(c.tx, c.node.PubKeyBytes,
 		func(_ kvdb.RTx, info *models.ChannelEdgeInfo, policy1,
 			policy2 *models.ChannelEdgePolicy) error {
 

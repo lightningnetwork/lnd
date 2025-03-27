@@ -479,17 +479,17 @@ func initChannelDB(db kvdb.Backend) error {
 			return err
 		}
 
+		for _, tlb := range dbTopLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
+		}
+
 		meta := &Meta{}
 		// Check if DB is already initialized.
 		err := FetchMeta(meta, tx)
 		if err == nil {
 			return nil
-		}
-
-		for _, tlb := range dbTopLevelBuckets {
-			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
-				return err
-			}
 		}
 
 		meta.DbVersionNumber = getLatestDBVersion(dbVersions)

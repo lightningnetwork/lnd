@@ -189,6 +189,9 @@ close transaction.
   RPC method now applies a default timeout of 60 seconds when the
   `timeout_seconds` field is not set or is explicitly set to 0.
 
+* [`lnrpc.ClosedChannels` now also includes the `custom_channel_data` used by
+  custom channels](https://github.com/lightningnetwork/lnd/pull/9504).
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and

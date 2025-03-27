@@ -4028,6 +4028,13 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 				historical.LocalCommitment.RemoteBalance.ToSatoshis(),
 			)
 
+			customChanBytes, err := encodeCustomChanData(historical)
+			if err != nil {
+				return nil, 0, fmt.Errorf("unable to encode "+
+					"open chan data: %w", err)
+			}
+			channel.CustomChannelData = customChanBytes
+
 			channel.Private = isPrivate(historical)
 			channel.Memo = string(historical.Memo)
 
@@ -4218,20 +4225,41 @@ func (r *rpcServer) fetchWaitingCloseChannels(
 			return nil, 0, err
 		}
 
+		customChanBytes, err := encodeCustomChanData(waitingClose)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to encode "+
+				"open chan data: %w", err)
+		}
+
+		localCommit := waitingClose.LocalCommitment
+		chanStatus := waitingClose.ChanStatus()
 		channel := &lnrpc.PendingChannelsResponse_PendingChannel{
-			RemoteNodePub:         hex.EncodeToString(pub),
-			ChannelPoint:          chanPoint.String(),
-			Capacity:              int64(waitingClose.Capacity),
-			LocalBalance:          int64(waitingClose.LocalCommitment.LocalBalance.ToSatoshis()),
-			RemoteBalance:         int64(waitingClose.LocalCommitment.RemoteBalance.ToSatoshis()),
-			LocalChanReserveSat:   int64(waitingClose.LocalChanCfg.ChanReserve),
-			RemoteChanReserveSat:  int64(waitingClose.RemoteChanCfg.ChanReserve),
-			Initiator:             rpcInitiator(waitingClose.IsInitiator),
-			CommitmentType:        rpcCommitmentType(waitingClose.ChanType),
+			RemoteNodePub: hex.EncodeToString(pub),
+			ChannelPoint:  chanPoint.String(),
+			Capacity:      int64(waitingClose.Capacity),
+			LocalBalance: int64(
+				localCommit.LocalBalance.ToSatoshis(),
+			),
+			RemoteBalance: int64(
+				localCommit.RemoteBalance.ToSatoshis(),
+			),
+			LocalChanReserveSat: int64(
+				waitingClose.LocalChanCfg.ChanReserve,
+			),
+			RemoteChanReserveSat: int64(
+				waitingClose.RemoteChanCfg.ChanReserve,
+			),
+			Initiator: rpcInitiator(
+				waitingClose.IsInitiator,
+			),
+			CommitmentType: rpcCommitmentType(
+				waitingClose.ChanType,
+			),
 			NumForwardingPackages: int64(len(fwdPkgs)),
-			ChanStatusFlags:       waitingClose.ChanStatus().String(),
+			ChanStatusFlags:       chanStatus.String(),
 			Private:               isPrivate(waitingClose),
 			Memo:                  string(waitingClose.Memo),
+			CustomChannelData:     customChanBytes,
 		}
 
 		var closingTxid, closingTxHex string
@@ -4515,6 +4543,16 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 		}
 
 		resp.Channels = append(resp.Channels, channel)
+	}
+
+	err = fn.MapOptionZ(
+		r.server.implCfg.AuxDataParser,
+		func(parser AuxDataParser) error {
+			return parser.InlineParseCustomData(resp)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom data: %w", err)
 	}
 
 	return resp, nil
@@ -4990,7 +5028,8 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a
 // *channeldb.ChannelCloseSummary.
 func (r *rpcServer) createRPCClosedChannel(
-	dbChannel *channeldb.ChannelCloseSummary) (*lnrpc.ChannelCloseSummary, error) {
+	dbChannel *channeldb.ChannelCloseSummary) (*lnrpc.ChannelCloseSummary,
+	error) {
 
 	nodePub := dbChannel.RemotePub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
@@ -5004,9 +5043,7 @@ func (r *rpcServer) createRPCClosedChannel(
 
 	// Lookup local and remote cooperative initiators. If these values
 	// are not known they will just return unknown.
-	openInit, closeInitiator, err = r.getInitiators(
-		&dbChannel.ChanPoint,
-	)
+	openInit, closeInitiator, err = r.getInitiators(&dbChannel.ChanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -5071,6 +5108,14 @@ func (r *rpcServer) createRPCClosedChannel(
 			// Populate the confirmed SCID if so.
 			confirmedScid := histChan.ZeroConfRealScid().ToUint64()
 			channel.ZeroConfConfirmedScid = confirmedScid
+		}
+
+		// Finally we'll attempt to encode the custom channel data if
+		// any exists.
+		channel.CustomChannelData, err = encodeCustomChanData(histChan)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode open chan "+
+				"data: %w", err)
 		}
 
 	// Non-nil error not due to older versions of lnd.

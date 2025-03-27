@@ -1219,7 +1219,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 
 	err = graph.db.View(func(tx kvdb.RTx) error {
 		for _, node := range nodes {
-			err := graph.ForEachNodeChannelTx(tx, node,
+			err := graph.forEachNodeChannelTx(tx, node,
 				func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
 					policy *models.ChannelEdgePolicy,
 					policy2 *models.ChannelEdgePolicy) error { //nolint:ll

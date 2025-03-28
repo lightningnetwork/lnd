@@ -3,6 +3,7 @@ services:
     build:
       context: ../../
       dockerfile: dev.Dockerfile
+    image: lnd-dev:backward-compat-test-build
     container_name: bob-pr
     restart: unless-stopped
     ports:
@@ -41,3 +42,46 @@ services:
       --protocol.zero-conf
       --protocol.simple-taproot-chans
       --trickledelay=50
+
+  dave-pr:
+    image: lnd-dev:backward-compat-test-build
+    container_name: dave-pr
+    restart: unless-stopped
+    ports:
+      - 10014:10009
+      - 9744:9735
+      - 8094:8080
+    networks:
+      regtest:
+        aliases:
+          - dave
+    volumes:
+      - "dave:/root/.lnd"
+    depends_on:
+      - bitcoind
+    command: >
+      lnd
+      --logdir=/root/.lnd
+      --alias=dave
+      --rpclisten=0.0.0.0:10009
+      --restlisten=0.0.0.0:8080
+      --color=#cccccc
+      --noseedbackup
+      --bitcoin.active
+      --bitcoin.regtest
+      --bitcoin.node=bitcoind
+      --bitcoind.rpchost=bitcoind
+      --bitcoind.rpcuser=lightning
+      --bitcoind.rpcpass=lightning
+      --bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+      --bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+      --debuglevel=debug
+      --externalip=dave
+      --tlsextradomain=dave
+      --accept-keysend
+      --protocol.option-scid-alias
+      --protocol.zero-conf
+      --protocol.simple-taproot-chans
+      --trickledelay=50
+      --db.backend=sqlite
+      --db.use-native-sql

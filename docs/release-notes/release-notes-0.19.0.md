@@ -480,6 +480,9 @@ the on going rate we'll permit.
   inputs spending logic in the sweeper so it can properly handle missing inputs
   and recover from restart.
 
+* A code refactor to [use maps.Copy instead of manually copying map
+   elements](https://github.com/lightningnetwork/lnd/pull/9630).
+
 
 ## Tooling and Documentation
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"time"
 
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -815,9 +816,7 @@ func (k *kvInvoiceUpdater) UpdateAmpState(setID [32]byte,
 			cancelledHtlcs := k.invoice.HTLCSet(
 				&setID, invpkg.HtlcStateCanceled,
 			)
-			for htlcKey, htlc := range cancelledHtlcs {
-				k.updatedAmpHtlcs[setID][htlcKey] = htlc
-			}
+			maps.Copy(k.updatedAmpHtlcs[setID], cancelledHtlcs)
 
 		case invpkg.HtlcStateSettled:
 			k.updatedAmpHtlcs[setID] = make(
@@ -1438,9 +1437,7 @@ func fetchFilteredAmpInvoices(invoiceBucket kvdb.RBucket, invoiceNum []byte,
 			return nil, err
 		}
 
-		for key, htlc := range htlcsBySetID {
-			htlcs[key] = htlc
-		}
+		maps.Copy(htlcs, htlcsBySetID)
 	}
 
 	return htlcs, nil
@@ -1508,9 +1505,7 @@ func fetchAmpSubInvoices(invoiceBucket kvdb.RBucket, invoiceNum []byte,
 				return err
 			}
 
-			for key, htlc := range htlcsBySetID {
-				htlcs[key] = htlc
-			}
+			maps.Copy(htlcs, htlcsBySetID)
 
 			return nil
 		},

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net"
 	"net/http"
@@ -3338,9 +3339,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		// Add the features to our map of features, allowing over writing of
 		// existing values because features in different sets with the same bit
 		// are duplicated across sets.
-		for bit, feature := range rpcFeatures {
-			features[bit] = feature
-		}
+		maps.Copy(features, rpcFeatures)
 	}
 
 	// TODO(roasbeef): add synced height n stuff

@@ -1754,13 +1754,13 @@
     },
     "/v1/invoices": {
       "get": {
-        "summary": "lncli: `listinvoices`\nListInvoices returns a list of all the invoices currently stored within the\ndatabase. Any active debug invoices are ignored. It has full support for\npaginated responses, allowing users to query for specific invoices through\ntheir add_index. This can be done by using either the first_index_offset or\nlast_index_offset fields included in the response as the index_offset of the\nnext request. By default, the first 100 invoices created will be returned.\nBackwards pagination is also supported through the Reversed flag.",
-        "operationId": "Lightning_ListInvoices",
+        "summary": "lncli: `deleteinvoices --all`\nDeleteAllInvoices deletes all cancelled invoices from DB. Note that it will\nnot attempt to delete non-cancelled invoices, since that would be unsafe.",
+        "operationId": "Lightning_DeleteAllInvoices",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/lnrpcListInvoiceResponse"
+              "$ref": "#/definitions/lnrpcDeleteAllInvoicesResponse"
             }
           },
           "default": {
@@ -1772,50 +1772,11 @@
         },
         "parameters": [
           {
-            "name": "pending_only",
-            "description": "If set, only invoices that are not settled and not canceled will be returned\nin the response.",
+            "name": "all_invoices",
+            "description": "Delete all cancelled invoices.",
             "in": "query",
             "required": false,
             "type": "boolean"
-          },
-          {
-            "name": "index_offset",
-            "description": "The index of an invoice that will be used as either the start or end of a\nquery to determine which invoices should be returned in the response.",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "uint64"
-          },
-          {
-            "name": "num_max_invoices",
-            "description": "The max number of invoices to return in the response to this query.",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "uint64"
-          },
-          {
-            "name": "reversed",
-            "description": "If set, the invoices returned will result from seeking backwards from the\nspecified index offset. This can be used to paginate backwards.",
-            "in": "query",
-            "required": false,
-            "type": "boolean"
-          },
-          {
-            "name": "creation_date_start",
-            "description": "If set, returns all invoices with a creation date greater than or equal\nto it. Measured in seconds since the unix epoch.",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "uint64"
-          },
-          {
-            "name": "creation_date_end",
-            "description": "If set, returns all invoices with a creation date less than or equal to\nit. Measured in seconds since the unix epoch.",
-            "in": "query",
-            "required": false,
-            "type": "string",
-            "format": "uint64"
           }
         ],
         "tags": [
@@ -4683,7 +4644,25 @@
         }
       }
     },
+    "lnrpcDeleteAllInvoicesResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
+    },
     "lnrpcDeleteAllPaymentsResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
+    },
+    "lnrpcDeleteInvoicesResponse": {
       "type": "object",
       "properties": {
         "status": {

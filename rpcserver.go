@@ -468,6 +468,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/DeleteInvoices": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/DeleteAllInvoices": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/ListPayments": {{
 			Entity: "offchain",
 			Action: "read",
@@ -7428,6 +7436,76 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	return paymentsResp, nil
+}
+
+// ContractState describes the state the invoice is in.
+type contractState uint8
+
+const (
+	// ContractCanceled means the invoice has been canceled.
+	contractCanceled contractState = 2
+)
+
+// DeleteInvoices delete invoices from the DB given its payment hash, only
+// cancelled invoices will be deleted.
+func (r *rpcServer) DeleteInvoices(ctx context.Context,
+	req *lnrpc.DeleteInvoicesRequest) (
+	*lnrpc.DeleteInvoicesResponse, error) {
+
+	var invoicesDeleteRef []invoices.InvoiceDeleteRef
+	var deleteRef invoices.InvoiceDeleteRef
+	var message string
+
+	for _, invoiceHash := range req.HashArray {
+		hash, err := lntypes.MakeHash(invoiceHash)
+		if err != nil {
+			return nil, err
+		}
+
+		invoice, err := r.server.invoices.LookupInvoice(ctx, hash)
+		if err != nil {
+			return nil, err
+		}
+
+		if contractState(invoice.State) != contractCanceled {
+			return nil, fmt.Errorf("invoice %v not cancelled", hash)
+		}
+
+		deleteRef.PayHash = hash
+		deleteRef.AddIndex = invoice.AddIndex
+
+		invoicesDeleteRef = append(invoicesDeleteRef, deleteRef)
+	}
+
+	err := r.server.miscDB.DeleteInvoice(ctx, invoicesDeleteRef)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(invoicesDeleteRef) > 1 {
+		message = "invoices deleted"
+	} else {
+		message = "invoice deleted"
+	}
+
+	return &lnrpc.DeleteInvoicesResponse{
+		Status: message,
+	}, nil
+}
+
+// DeleteAllInvoices deletes all cancelled invoices from DB.
+func (r *rpcServer) DeleteAllInvoices(ctx context.Context,
+	req *lnrpc.DeleteAllInvoicesRequest) (
+	*lnrpc.DeleteAllInvoicesResponse, error) {
+
+	err := r.server.miscDB.DeleteCanceledInvoices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.DeleteAllInvoicesResponse{
+		Status: "all cancelled invoices deleted",
+	}, nil
 }
 
 // DeletePayment deletes a payment from the DB given its payment hash. If

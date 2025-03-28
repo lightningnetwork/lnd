@@ -2,7 +2,8 @@
 1. [Overview](#overview)
 2. [Minimum Recommended Skillset](#minimum-recommended-skillset)
 3. [Required Reading](#required-reading)
-4. [Development Practices](#development-practices)
+4. [Substantial contributions only](#substantial-contributions-only)
+5. [Development Practices](#development-practices)
    1. [Share Early, Share Often](#share-early-share-often)
    1. [Testing](#testing)
    1. [Code Documentation and Commenting](#code-documentation-and-commenting)
@@ -13,12 +14,12 @@
    1. [Pointing to Remote Dependent Branches in Go Modules](#pointing-to-remote-dependent-branches-in-go-modules)
    1. [Use of Log Levels](#use-of-log-levels)
    1. [Use of Golang submodules](#use-of-golang-submodules)
-5. [Code Approval Process](#code-approval-process)
+6. [Code Approval Process](#code-approval-process)
    1. [Code Review](#code-review)
    1. [Rework Code (if needed)](#rework-code-if-needed)
    1. [Acceptance](#acceptance)
    1. [Review Bot](#review-bot)
-6. [Contribution Standards](#contribution-standards)
+7. [Contribution Standards](#contribution-standards)
    1. [Contribution Checklist](#contribution-checklist)
    1. [Licensing of Contributions](#licensing-of-contributions)
 
@@ -109,8 +110,16 @@ If you are an honest user that wants to contribute to this project, please
 consider that every pull request takes precious time from the maintainers to
 review and consider the impact of changes. Time that could be spent writing
 features or fixing bugs.
-If you really want to contribute, consider reviewing and testing other users'
-pull requests instead. Or add value to the project by writing unit tests.
+If you really want to contribute, [consider reviewing and testing other users'
+pull requests instead](review.md).
+First-time reviewer friendly [pull requests can be found
+here](https://github.com/lightningnetwork/lnd/pulls?q=is%3Aopen+is%3Apr+label%3A%22good+first+review%22).
+Once you are familiar with the project's code style, testing and review
+procedure, your own pull requests will likely require less guidance and fewer
+maintainer review cycles, resulting in potentially faster merges.
+Also, consider increasing the test coverage of the code by writing more unit
+tests first, which is also a very valuable way to contribute and learn more
+about the code base.
 
 # Development Practices
 

@@ -63,6 +63,9 @@ Finally, we also have an active
 [Slack](https://lightning.engineering/slack.html) where protocol developers, application developers, testers and users gather to
 discuss various aspects of `lnd` and also Lightning in general.
 
+First-time contributors are [highly encouraged to start with code review
+first](docs/review.md), before creating their own Pull Requests.
+
 ## Installation
   In order to build from source, please see [the installation
   instructions](docs/INSTALL.md).

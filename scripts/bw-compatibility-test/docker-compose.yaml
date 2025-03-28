@@ -185,6 +185,8 @@ services:
       - "--tlsextradomain=dave"
       - "--accept-keysend"
       - "--trickledelay=50"
+      - "--db.backend=sqlite"
+      - "--db.use-native-sql"
 
 networks:
   regtest:

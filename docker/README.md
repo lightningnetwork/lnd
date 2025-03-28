@@ -10,7 +10,7 @@ Name  | Version
 docker-compose | 1.9.0
 docker | 1.13.0
   
-### Table of content
+### Table of contents
  * [Create lightning network cluster](#create-lightning-network-cluster)
  * [Connect to faucet lightning node](#connect-to-faucet-lightning-node)
  * [Building standalone docker images](#building-standalone-docker-images)

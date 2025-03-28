@@ -452,3 +452,294 @@ func TestCustomMigration(t *testing.T) {
 		})
 	}
 }
+
+// TestSchemaMigrationIdempotency tests that the our schema migrations are
+// idempotent. This means that we can apply the migrations multiple times and
+// the schema version will always be the same.
+func TestSchemaMigrationIdempotency(t *testing.T) {
+	dropMigrationTrackerEntries := func(t *testing.T, db *BaseDB) {
+		_, err := db.Exec("DELETE FROM migration_tracker;")
+		require.NoError(t, err)
+	}
+
+	lastMigration := migrationConfig[len(migrationConfig)-1]
+
+	t.Run("SQLite", func(t *testing.T) {
+		// First instantiate the database and run the migrations
+		// including the custom migrations.
+		t.Logf("Creating new SQLite DB for testing migrations")
+
+		dbFileName := filepath.Join(t.TempDir(), "tmp.db")
+		var (
+			db  *SqliteStore
+			err error
+		)
+
+		// Run the migration 3 times to test that the migrations
+		// are idempotent.
+		for i := 0; i < 3; i++ {
+			db, err = NewSqliteStore(&SqliteConfig{
+				SkipMigrations: false,
+			}, dbFileName)
+			require.NoError(t, err)
+
+			dbToCleanup := db.DB
+			t.Cleanup(func() {
+				require.NoError(
+					t, dbToCleanup.Close(),
+				)
+			})
+
+			ctxb := context.Background()
+			require.NoError(
+				t, db.ApplyAllMigrations(ctxb, GetMigrations()),
+			)
+
+			version, dirty, err := db.GetSchemaVersion()
+			require.NoError(t, err)
+
+			// Now reset the schema version to 0 and make sure that
+			// we can apply the migrations again.
+			require.Equal(t, lastMigration.SchemaVersion, version)
+			require.False(t, dirty)
+
+			require.NoError(
+				t, db.SetSchemaVersion(
+					database.NilVersion, false,
+				),
+			)
+			dropMigrationTrackerEntries(t, db.BaseDB)
+
+			// Make sure that we reset the schema version.
+			version, dirty, err = db.GetSchemaVersion()
+			require.NoError(t, err)
+			require.Equal(t, -1, version)
+			require.False(t, dirty)
+		}
+	})
+
+	t.Run("Postgres", func(t *testing.T) {
+		// First create a temporary Postgres database to run
+		// the migrations on.
+		fixture := NewTestPgFixture(
+			t, DefaultPostgresFixtureLifetime,
+		)
+		t.Cleanup(func() {
+			fixture.TearDown(t)
+		})
+
+		dbName := randomDBName(t)
+
+		// Next instantiate the database and run the migrations
+		// including the custom migrations.
+		t.Logf("Creating new Postgres DB '%s' for testing "+
+			"migrations", dbName)
+
+		_, err := fixture.db.ExecContext(
+			context.Background(), "CREATE DATABASE "+dbName,
+		)
+		require.NoError(t, err)
+
+		cfg := fixture.GetConfig(dbName)
+		var db *PostgresStore
+
+		// Run the migration 3 times to test that the migrations
+		// are idempotent.
+		for i := 0; i < 3; i++ {
+			cfg.SkipMigrations = false
+			db, err = NewPostgresStore(cfg)
+			require.NoError(t, err)
+
+			ctxb := context.Background()
+			require.NoError(
+				t, db.ApplyAllMigrations(ctxb, GetMigrations()),
+			)
+
+			version, dirty, err := db.GetSchemaVersion()
+			require.NoError(t, err)
+
+			// Now reset the schema version to 0 and make sure that
+			// we can apply the migrations again.
+			require.Equal(t, lastMigration.SchemaVersion, version)
+			require.False(t, dirty)
+
+			require.NoError(
+				t, db.SetSchemaVersion(
+					database.NilVersion, false,
+				),
+			)
+			dropMigrationTrackerEntries(t, db.BaseDB)
+
+			// Make sure that we reset the schema version.
+			version, dirty, err = db.GetSchemaVersion()
+			require.NoError(t, err)
+			require.Equal(t, -1, version)
+			require.False(t, dirty)
+		}
+	})
+}
+
+// TestMigrationBug19RC1 tests a bug that was present in the migration code
+// at the v0.19.0-rc1 release.
+// The bug was fixed in: https://github.com/lightningnetwork/lnd/pull/9647
+// NOTE: This test may be removed once the final version of 0.19.0 is released.
+func TestMigrationSucceedsAfterDirtyStateMigrationFailure19RC1(t *testing.T) {
+	// setMigrationTrackerVersion is a helper function that
+	// updates the migration tracker table to a specific version that
+	// simulates the conditions of the bug.
+	setMigrationTrackerVersion := func(t *testing.T, db *BaseDB) {
+		_, err := db.Exec(`
+	        DELETE FROM migration_tracker;
+		INSERT INTO migration_tracker (version, migration_time)
+			VALUES (2, CURRENT_TIMESTAMP);
+	        `)
+		require.NoError(t, err)
+	}
+
+	const (
+		maxSchemaVersionBefore19RC1 = 4
+		failingSchemaVersion        = 3
+	)
+
+	ctxb := context.Background()
+	migrations := GetMigrations()
+	migrations = migrations[:maxSchemaVersionBefore19RC1]
+	lastMigration := migrations[len(migrations)-1]
+
+	// Make sure that the last migration is the one we expect.
+	require.Equal(
+		t, maxSchemaVersionBefore19RC1, lastMigration.SchemaVersion,
+	)
+
+	t.Run("SQLite", func(t *testing.T) {
+		// First instantiate the database and run the migrations
+		// including the custom migrations.
+		t.Logf("Creating new SQLite DB for testing migrations")
+
+		dbFileName := filepath.Join(t.TempDir(), "tmp.db")
+		var (
+			db  *SqliteStore
+			err error
+		)
+
+		db, err = NewSqliteStore(&SqliteConfig{
+			SkipMigrations: false,
+		}, dbFileName)
+		require.NoError(t, err)
+
+		dbToCleanup := db.DB
+		t.Cleanup(func() {
+			require.NoError(t, dbToCleanup.Close())
+		})
+
+		require.NoError(t, db.ApplyAllMigrations(ctxb, migrations))
+
+		version, dirty, err := db.GetSchemaVersion()
+		require.NoError(t, err)
+
+		// Now reset the schema version to 0 and make sure that
+		// we can apply the migrations again.
+		require.Equal(t, lastMigration.SchemaVersion, version)
+		require.False(t, dirty)
+
+		// Set the schema version to the failing version and
+		// make make the version dirty which essentially tells
+		// golang-migrate that the migration failed.
+		require.NoError(
+			t, db.SetSchemaVersion(failingSchemaVersion, true),
+		)
+
+		// Set the migration tracker to the failing version.
+		setMigrationTrackerVersion(t, db.BaseDB)
+
+		// Close the DB so we can reopen it and apply the
+		// migrations again.
+		db.DB.Close()
+
+		db, err = NewSqliteStore(&SqliteConfig{
+			SkipMigrations: false,
+		}, dbFileName)
+		require.NoError(t, err)
+
+		dbToCleanup2 := db.DB
+		t.Cleanup(func() {
+			require.NoError(t, dbToCleanup2.Close())
+		})
+
+		require.NoError(t, db.ApplyAllMigrations(ctxb, migrations))
+
+		version, dirty, err = db.GetSchemaVersion()
+		require.NoError(t, err)
+		require.Equal(t, lastMigration.SchemaVersion, version)
+		require.False(t, dirty)
+	})
+
+	t.Run("Postgres", func(t *testing.T) {
+		// First create a temporary Postgres database to run
+		// the migrations on.
+		fixture := NewTestPgFixture(
+			t, DefaultPostgresFixtureLifetime,
+		)
+		t.Cleanup(func() {
+			fixture.TearDown(t)
+		})
+
+		dbName := randomDBName(t)
+
+		// Next instantiate the database and run the migrations
+		// including the custom migrations.
+		t.Logf("Creating new Postgres DB '%s' for testing "+
+			"migrations", dbName)
+
+		_, err := fixture.db.ExecContext(
+			context.Background(), "CREATE DATABASE "+dbName,
+		)
+		require.NoError(t, err)
+
+		cfg := fixture.GetConfig(dbName)
+		var db *PostgresStore
+
+		cfg.SkipMigrations = false
+		db, err = NewPostgresStore(cfg)
+		require.NoError(t, err)
+
+		require.NoError(t, db.ApplyAllMigrations(ctxb, migrations))
+
+		version, dirty, err := db.GetSchemaVersion()
+		require.NoError(t, err)
+
+		// Now reset the schema version to 0 and make sure that
+		// we can apply the migrations again.
+		require.Equal(t, lastMigration.SchemaVersion, version)
+		require.False(t, dirty)
+
+		// Set the schema version to the failing version and
+		// make make the version dirty which essentially tells
+		// golang-migrate that the migration failed.
+		require.NoError(
+			t, db.SetSchemaVersion(failingSchemaVersion, true),
+		)
+
+		// Set the migration tracker to the failing version.
+		setMigrationTrackerVersion(t, db.BaseDB)
+
+		// Close the DB so we can reopen it and apply the
+		// migrations again.
+		db.DB.Close()
+
+		db, err = NewPostgresStore(cfg)
+		require.NoError(t, err)
+
+		dbToCleanup2 := db.DB
+		t.Cleanup(func() {
+			require.NoError(t, dbToCleanup2.Close())
+		})
+
+		require.NoError(t, db.ApplyAllMigrations(ctxb, migrations))
+
+		version, dirty, err = db.GetSchemaVersion()
+		require.NoError(t, err)
+		require.Equal(t, lastMigration.SchemaVersion, version)
+		require.False(t, dirty)
+	})
+}

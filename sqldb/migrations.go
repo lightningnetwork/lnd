@@ -112,6 +112,15 @@ type MigrationExecutor interface {
 	// order. Migration details are stored in the global variable
 	// migrationConfig.
 	ExecuteMigrations(target MigrationTarget) error
+
+	// GetSchemaVersion returns the current schema version of the database.
+	GetSchemaVersion() (int, bool, error)
+
+	// SetSchemaVersion sets the schema version of the database.
+	//
+	// NOTE: This alters the internal database schema tracker. USE WITH
+	// CAUTION!!!
+	SetSchemaVersion(version int, dirty bool) error
 }
 
 var (
@@ -360,6 +369,46 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 		}
 
 		currentVersion = int(version)
+	} else {
+		// Since we don't have a version tracked by our own table yet,
+		// we'll use the schema version reported by sqlc to determine
+		// the current version.
+		//
+		// NOTE: This is safe because the first in-code migration was
+		// introduced in version 7. This is only possible if the user
+		// has a schema version <= 4.
+		var dirty bool
+		currentVersion, dirty, err = migrator.GetSchemaVersion()
+		if err != nil {
+			return err
+		}
+
+		log.Infof("No database version found, using schema version %d "+
+			"(dirty=%v) as base version", currentVersion, dirty)
+	}
+
+	// Due to an a migration issue in v0.19.0-rc1 we may be at version 2 and
+	// have a dirty schema due to failing migration 3. If this is indeed the
+	// case, we need to reset the dirty flag to be able to apply the fixed
+	// migration.
+	// NOTE: this could be removed as soon as we drop v0.19.0-beta.
+	if version == 2 {
+		schemaVersion, dirty, err := migrator.GetSchemaVersion()
+		if err != nil {
+			return err
+		}
+
+		if schemaVersion == 3 && dirty {
+			log.Warnf("Schema version %d is dirty. This is "+
+				"likely a consequence of a failed migration "+
+				"in v0.19.0-rc1. Attempting to recover by "+
+				"resetting the dirty flag", schemaVersion)
+
+			err = migrator.SetSchemaVersion(4, false)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	for _, migration := range migrations {

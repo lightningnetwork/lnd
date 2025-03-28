@@ -5,26 +5,31 @@ CREATE TABLE IF NOT EXISTS invoice_event_types(
     description TEXT NOT NULL
 );
 
+
 -- invoice_event_types defines the different types of invoice events.
-INSERT INTO invoice_event_types (id, description) 
-VALUES 
+-- Insert events explicitly, checking their existence first.
+INSERT INTO invoice_event_types (id, description)
+SELECT id, description FROM (
     -- invoice_created is the event type used when an invoice is created.
-    (0, 'invoice_created'), 
+    SELECT 0 AS id, 'invoice_created' AS description UNION ALL
     -- invoice_canceled is the event type used when an invoice is canceled.
-    (1, 'invoice_canceled'), 
+    SELECT 1, 'invoice_canceled' UNION ALL
     -- invoice_settled is the event type used when an invoice is settled.
-    (2, 'invoice_settled'),
+    SELECT 2, 'invoice_settled' UNION ALL
     -- setid_created is the event type used when an AMP sub invoice
     -- corresponding to the set_id is created.
-    (3, 'setid_created'),
+    SELECT 3, 'setid_created' UNION ALL
     -- setid_canceled is the event type used when an AMP sub invoice
     -- corresponding to the set_id is canceled.
-    (4, 'setid_canceled'),
-    -- setid_settled is the event type used when an AMP sub invoice 
+    SELECT 4, 'setid_canceled' UNION ALL
+    -- setid_settled is the event type used when an AMP sub invoice
     -- corresponding to the set_id is settled.
-    (5, 'setid_settled');
-
-
+    SELECT 5, 'setid_settled'
+) AS new_values
+WHERE NOT EXISTS (
+    SELECT 1 FROM invoice_event_types
+        WHERE invoice_event_types.id = new_values.id
+);
 -- invoice_events stores all major events related to the node's invoices and
 -- AMP sub invoices. This table can be used to create a historical view of what
 -- happened to the node's invoices.

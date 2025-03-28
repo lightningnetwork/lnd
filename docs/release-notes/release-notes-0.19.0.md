@@ -455,6 +455,9 @@ the on going rate we'll permit.
   flag](https://github.com/lightningnetwork/lnd/pull/9606/) for future
   compatibility.
 
+* [Establish a base DB version even if it is not yet
+  tracked](https://github.com/lightningnetwork/lnd/pull/9647).
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 

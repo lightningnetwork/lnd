@@ -158,6 +158,10 @@ func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
 	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
 }
 
+func errPostgresMigration(err error) error {
+	return fmt.Errorf("error creating postgres migration: %w", err)
+}
+
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
 func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
@@ -168,7 +172,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 
 	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
 	if err != nil {
-		return fmt.Errorf("error creating postgres migration: %w", err)
+		return errPostgresMigration(err)
 	}
 
 	// Populate the database with our set of schemas based on our embedded
@@ -177,4 +181,32 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	return applyMigrations(
 		postgresFS, driver, "sqlc/migrations", dbName, target,
 	)
+}
+
+// GetSchemaVersion returns the current schema version of the Postgres database.
+func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return 0, false, errPostgresMigration(err)
+
+	}
+
+	version, dirty, err := driver.Version()
+	if err != nil {
+		return 0, false, err
+	}
+
+	return version, dirty, nil
+}
+
+// SetSchemaVersion sets the schema version of the Postgres database.
+//
+// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
+func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return errPostgresMigration(err)
+	}
+
+	return driver.SetVersion(version, dirty)
 }

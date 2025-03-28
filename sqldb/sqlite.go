@@ -158,6 +158,10 @@ func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
 	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
 }
 
+func errSqliteMigration(err error) error {
+	return fmt.Errorf("error creating sqlite migration: %w", err)
+}
+
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
 func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
@@ -165,7 +169,7 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 		s.DB, &sqlite_migrate.Config{},
 	)
 	if err != nil {
-		return fmt.Errorf("error creating sqlite migration: %w", err)
+		return errSqliteMigration(err)
 	}
 
 	// Populate the database with our set of schemas based on our embedded
@@ -174,6 +178,37 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 	return applyMigrations(
 		sqliteFS, driver, "sqlc/migrations", "sqlite", target,
 	)
+}
+
+// GetSchemaVersion returns the current schema version of the SQLite database.
+func (s *SqliteStore) GetSchemaVersion() (int, bool, error) {
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return 0, false, errSqliteMigration(err)
+	}
+
+	version, dirty, err := driver.Version()
+	if err != nil {
+		return 0, dirty, err
+	}
+
+	return version, dirty, nil
+}
+
+// SetSchemaVersion sets the schema version of the SQLite database.
+//
+// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
+func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return errSqliteMigration(err)
+	}
+
+	return driver.SetVersion(version, dirty)
 }
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for

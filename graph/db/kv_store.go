@@ -299,29 +299,6 @@ var graphTopLevelBuckets = [][]byte{
 	closedScidBucket,
 }
 
-// Wipe completely deletes all saved state within all used buckets within the
-// database. The deletion is done in a single transaction, therefore this
-// operation is fully atomic.
-func (c *KVStore) Wipe() error {
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
-		for _, tlb := range graphTopLevelBuckets {
-			err := tx.DeleteTopLevelBucket(tlb)
-			if err != nil &&
-				!errors.Is(err, kvdb.ErrBucketNotFound) {
-
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-	if err != nil {
-		return err
-	}
-
-	return initKVStore(c.db)
-}
-
 // createChannelDB creates and initializes a fresh version of  In
 // the case that the target path has not yet been created or doesn't yet exist,
 // then the path is created. Additionally, all required top-level buckets used

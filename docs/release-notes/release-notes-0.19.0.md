@@ -111,6 +111,9 @@ keysend payment validation is stricter.
   process of the node won't be interrupted if a non-fatal error is returned from
   the subsystems.
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

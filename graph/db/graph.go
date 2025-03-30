@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -19,18 +18,6 @@ import (
 // ErrChanGraphShuttingDown indicates that the ChannelGraph has shutdown or is
 // busy shutting down.
 var ErrChanGraphShuttingDown = fmt.Errorf("ChannelGraph shutting down")
-
-// Config is a struct that holds all the necessary dependencies for a
-// ChannelGraph.
-type Config struct {
-	// KVDB is the kvdb.Backend that will be used for initializing the
-	// KVStore CRUD layer.
-	KVDB kvdb.Backend
-
-	// KVStoreOpts is a list of functional options that will be used when
-	// initializing the KVStore.
-	KVStoreOpts []KVStoreOptionModifier
-}
 
 // ChannelGraph is a layer above the graph's CRUD layer.
 //
@@ -56,21 +43,16 @@ type ChannelGraph struct {
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
-func NewChannelGraph(cfg *Config, options ...ChanGraphOption) (*ChannelGraph,
-	error) {
+func NewChannelGraph(v1Store V1Store,
+	options ...ChanGraphOption) (*ChannelGraph, error) {
 
 	opts := defaultChanGraphOptions()
 	for _, o := range options {
 		o(opts)
 	}
 
-	store, err := NewKVStore(cfg.KVDB, cfg.KVStoreOpts...)
-	if err != nil {
-		return nil, err
-	}
-
 	g := &ChannelGraph{
-		V1Store:         store,
+		V1Store:         v1Store,
 		topologyManager: newTopologyManager(),
 		quit:            make(chan struct{}),
 	}

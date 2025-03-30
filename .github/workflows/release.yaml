@@ -119,8 +119,10 @@ jobs:
             that `vendor.tar.gz` and `lnd-source-${{ env.RELEASE_VERSION }}.tar.gz` are in the current directory, follow these steps:
 
             ```
-            tar -xvzf vendor.tar.gz
             tar -xvzf lnd-source-${{ env.RELEASE_VERSION }}.tar.gz
+            mv vendor.tar.gz lnd-source/
+            cd lnd-source
+            tar -xvzf vendor.tar.gz
             go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lnd
             go install -v -mod=vendor -ldflags "-X github.com/lightningnetwork/lnd/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/lncli
             ```

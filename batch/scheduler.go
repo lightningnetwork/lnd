@@ -43,6 +43,10 @@ func NewTimeScheduler(db kvdb.Backend, locker sync.Locker,
 //
 // NOTE: Part of the Scheduler interface.
 func (s *TimeScheduler) Execute(r *Request) error {
+	if r.Opts == nil {
+		r.Opts = NewDefaultSchedulerOpts()
+	}
+
 	req := request{
 		Request: r,
 		errChan: make(chan error, 1),
@@ -62,7 +66,7 @@ func (s *TimeScheduler) Execute(r *Request) error {
 	s.b.reqs = append(s.b.reqs, &req)
 
 	// If this is a non-lazy request, we'll execute the batch immediately.
-	if !r.lazy {
+	if !r.Opts.lazy {
 		go s.b.trigger()
 	}
 

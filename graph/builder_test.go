@@ -1352,10 +1352,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, err := makeTestGraph(t, useCache)
-	if err != nil {
-		return nil, err
-	}
+	graph := makeTestGraph(t, useCache)
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
@@ -1562,12 +1559,11 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		channelIDs:   channelIDs,
-		links:        links,
+		graph:      graph,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
+		links:      links,
 	}, nil
 }
 
@@ -1730,10 +1726,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, err := makeTestGraph(t, useCache)
-	if err != nil {
-		return nil, err
-	}
+	graph := makeTestGraph(t, useCache)
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
@@ -1947,11 +1940,10 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		links:        links,
+		graph:      graph,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		links:      links,
 	}, nil
 }
 

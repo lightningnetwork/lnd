@@ -4725,10 +4725,10 @@ func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
 		return nil, err
 	}
 
-	graph, err := NewChannelGraph(&Config{
-		KVDB:        backend,
-		KVStoreOpts: modifiers,
-	})
+	graphStore, err := NewKVStore(backend, modifiers...)
+	require.NoError(t, err)
+
+	graph, err := NewChannelGraph(graphStore)
 	if err != nil {
 		backendCleanup()
 

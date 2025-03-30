@@ -1034,8 +1034,7 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph, graphBackend, err := makeTestGraph(t, true)
-	require.NoError(t, err, "failed to make test graph")
+	graph := makeTestGraph(t, true)
 
 	sourceNode := createTestNode(t)
 
@@ -1044,8 +1043,7 @@ func createTestCtxSingleNode(t *testing.T,
 	)
 
 	graphInstance := &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
+		graph: graph,
 	}
 
 	return createTestCtxFromGraphInstance(
@@ -1086,14 +1084,12 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 
 // makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
 // purposes.
-func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
-	kvdb.Backend, error) {
+func makeTestGraph(t *testing.T, useCache bool) *graphdb.ChannelGraph {
+	t.Helper()
 
 	// Create channelgraph for the first time.
 	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		return nil, nil, err
-	}
+	require.NoError(t, err)
 
 	t.Cleanup(backendCleanup)
 
@@ -1101,20 +1097,17 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 		&graphdb.Config{KVDB: backend},
 		graphdb.WithUseGraphCache(useCache),
 	)
-	if err != nil {
-		return nil, nil, err
-	}
+	require.NoError(t, err)
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graph.Stop())
 	})
 
-	return graph, backend, nil
+	return graph
 }
 
 type testGraphInstance struct {
-	graph        *graphdb.ChannelGraph
-	graphBackend kvdb.Backend
+	graph *graphdb.ChannelGraph
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable

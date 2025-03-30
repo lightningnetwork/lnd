@@ -848,16 +848,13 @@ func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
 //
 // TODO(roasbeef): also need sig of announcement.
 func (c *KVStore) AddLightningNode(node *models.LightningNode,
-	op ...batch.SchedulerOption) error {
+	opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request{
+		Opts: batch.NewSchedulerOptions(opts...),
 		Update: func(tx kvdb.RwTx) error {
 			return addLightningNode(tx, node)
 		},
-	}
-
-	for _, f := range op {
-		f(r)
 	}
 
 	return c.nodeScheduler.Execute(r)
@@ -986,10 +983,11 @@ func (c *KVStore) deleteLightningNode(nodes kvdb.RwBucket,
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
 func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	op ...batch.SchedulerOption) error {
+	opts ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
 	r := &batch.Request{
+		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			alreadyExists = false
 		},
@@ -1017,14 +1015,6 @@ func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 				return nil
 			}
 		},
-	}
-
-	for _, f := range op {
-		if f == nil {
-			return fmt.Errorf("nil scheduler option was used")
-		}
-
-		f(r)
 	}
 
 	return c.chanScheduler.Execute(r)
@@ -2696,7 +2686,7 @@ func makeZombiePubkeys(info *models.ChannelEdgeInfo,
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
 func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
-	op ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
+	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
 		isUpdate1    bool
@@ -2705,6 +2695,7 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	)
 
 	r := &batch.Request{
+		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			isUpdate1 = false
 			edgeNotFound = false
@@ -2736,10 +2727,6 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 				return nil
 			}
 		},
-	}
-
-	for _, f := range op {
-		f(r)
 	}
 
 	err := c.chanScheduler.Execute(r)

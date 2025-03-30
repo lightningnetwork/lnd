@@ -4084,7 +4084,10 @@ func TestGraphLoading(t *testing.T) {
 	defer backend.Close()
 	defer backendCleanup()
 
-	graph, err := NewChannelGraph(&Config{KVDB: backend})
+	graphStore, err := NewKVStore(backend)
+	require.NoError(t, err)
+
+	graph, err := NewChannelGraph(graphStore)
 	require.NoError(t, err)
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
@@ -4098,7 +4101,7 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(&Config{KVDB: backend})
+	graphReloaded, err := NewChannelGraph(graphStore)
 	require.NoError(t, err)
 	require.NoError(t, graphReloaded.Start())
 	t.Cleanup(func() {

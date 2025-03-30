@@ -615,9 +615,10 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	})
 	require.NoError(t, err)
 
-	dbAliceGraph, err := graphdb.NewChannelGraph(&graphdb.Config{
-		KVDB: graphBackend,
-	})
+	graphStore, err := graphdb.NewKVStore(graphBackend)
+	require.NoError(t, err)
+
+	dbAliceGraph, err := graphdb.NewChannelGraph(graphStore)
 	require.NoError(t, err)
 	require.NoError(t, dbAliceGraph.Start())
 	t.Cleanup(func() {

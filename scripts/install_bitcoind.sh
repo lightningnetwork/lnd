@@ -5,11 +5,11 @@ set -ev
 BITCOIND_VERSION=$1
 
 # Useful for testing RCs: e.g. TAG_SUFFIX=.0rc1, DIR_SUFFIX=.0rc1
-TAG_SUFFIX=
-DIR_SUFFIX=.0
+TAG_SUFFIX=rc2
+DIR_SUFFIX=.0rc2
 
 # Useful for testing against an image pushed to a different Docker repo.
-REPO=lightninglabs/bitcoin-core
+REPO=guggero/bitcoin-core
 
 if [ -z "$BITCOIND_VERSION" ]; then
   echo "Must specify a version of bitcoind to install."

@@ -394,14 +394,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -416,6 +413,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -445,6 +443,7 @@
         "input_scripts": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/signrpcInputScript"
           },
           "description": "The set of fully valid input scripts requested."
@@ -507,6 +506,7 @@
         "tweaks": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/signrpcTweakDesc"
           },
           "description": "A series of optional generic tweaks to be applied to the aggregated\npublic key."
@@ -625,6 +625,7 @@
         "tweaks": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/signrpcTweakDesc"
           },
           "description": "A series of optional generic tweaks to be applied to the aggregated\npublic key."
@@ -860,6 +861,7 @@
         "sign_descs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/signrpcSignDescriptor"
           },
           "description": "A set of sign descriptors, for each input to be signed."
@@ -867,6 +869,7 @@
         "prev_outputs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/signrpcTxOut"
           },
           "description": "The full list of UTXO information for each of the inputs being spent. This\nis required when spending one or more taproot (SegWit v1) outputs."

@@ -104,6 +104,7 @@
         "feature_updates": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/peersrpcUpdateFeatureAction"
           },
           "description": "Set of changes for the features that the node supports."
@@ -119,6 +120,7 @@
         "address_updates": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/peersrpcUpdateAddressAction"
           },
           "description": "Set of changes for the node's known addresses."
@@ -131,6 +133,7 @@
         "ops": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcOp"
           }
         }
@@ -174,14 +177,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -196,6 +196,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

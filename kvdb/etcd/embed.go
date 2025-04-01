@@ -89,8 +89,8 @@ func NewEmbeddedEtcdInstance(path string, clientPort, peerPort uint16,
 
 	clientURL := fmt.Sprintf("127.0.0.1:%d", clientPort)
 	peerURL := fmt.Sprintf("127.0.0.1:%d", peerPort)
-	cfg.LCUrls = []url.URL{{Host: clientURL}}
-	cfg.LPUrls = []url.URL{{Host: peerURL}}
+	cfg.ListenClientUrls = []url.URL{{Host: clientURL}}
+	cfg.ListenPeerUrls = []url.URL{{Host: peerURL}}
 
 	etcd, err := embed.StartEtcd(cfg)
 	if err != nil {

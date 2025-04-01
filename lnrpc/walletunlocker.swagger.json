@@ -226,6 +226,7 @@
         "chan_backups": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcChannelBackup"
           },
           "description": "A set of single-chan static channel backups."
@@ -337,6 +338,7 @@
         "chan_points": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcChannelPoint"
           },
           "description": "Is the set of all channels that are included in this multi-channel backup."
@@ -390,6 +392,7 @@
         "accounts": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcWatchOnlyAccount"
           },
           "description": "The list of accounts to import. There _must_ be an account for all of lnd's\nmain key scopes: BIP49/BIP84 (m/49'/0'/0', m/84'/0'/0', note that the\ncoin type is always 0, even for testnet/regtest) and lnd's internal key\nscope (m/1017'/\u003ccoin_type\u003e'/\u003caccount\u003e'), where account is the key family as\ndefined in `keychain/derivation.go` (currently indices 0 to 9)."
@@ -423,14 +426,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -445,6 +445,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

@@ -1231,14 +1231,17 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			return nil, err
 		}
 
+		isTaprootChan := lnChan.ChanType().IsTaproot()
+
 		var (
 			shutdownMsg     fn.Option[lnwire.Shutdown]
 			shutdownInfoErr error
 		)
 		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
 			// If we can use the new RBF close feature, we don't
-			// need to create the legacy closer.
-			if p.rbfCoopCloseAllowed() {
+			// need to create the legacy closer. However for taproot
+			// channels, we'll continue to use the legacy closer.
+			if p.rbfCoopCloseAllowed() && !isTaprootChan {
 				return
 			}
 
@@ -1315,8 +1318,10 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		p.activeChannels.Store(chanID, lnChan)
 
 		// We're using the old co-op close, so we don't need to init
-		// the new RBF chan closer.
-		if !p.rbfCoopCloseAllowed() {
+		// the new RBF chan closer. If we have a taproot chan, then
+		// we'll also use the legacy type, so we don't need to make the
+		// new closer.
+		if !p.rbfCoopCloseAllowed() || isTaprootChan {
 			continue
 		}
 
@@ -3268,6 +3273,8 @@ func chooseDeliveryScript(upfront, requested lnwire.DeliveryAddress,
 func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	*lnwire.Shutdown, error) {
 
+	isTaprootChan := lnChan.ChanType().IsTaproot()
+
 	// If this channel has status ChanStatusCoopBroadcasted and does not
 	// have a closing transaction, then the cooperative close process was
 	// started but never finished. We'll re-create the chanCloser state
@@ -3320,8 +3327,8 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 
 	// If the new RBF co-op close is negotiated, then we'll init and start
 	// that state machine, skipping the steps for the negotiate machine
-	// below.
-	if p.rbfCoopCloseAllowed() {
+	// below. We don't support this close type for taproot channels though.
+	if p.rbfCoopCloseAllowed() && !isTaprootChan {
 		_, err := p.initRbfChanCloser(lnChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to init rbf chan "+
@@ -4045,7 +4052,7 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	chanCloser, found := p.activeChanCloses.Load(chanID)
 	if !found {
-		return fmt.Errorf("rbf can closer not found for channel %v",
+		return fmt.Errorf("rbf chan closer not found for channel %v",
 			chanPoint)
 	}
 
@@ -4165,6 +4172,8 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		return
 	}
 
+	isTaprootChan := channel.ChanType().IsTaproot()
+
 	switch req.CloseType {
 	// A type of CloseRegular indicates that the user has opted to close
 	// out this channel on-chain, so we execute the cooperative channel
@@ -4176,7 +4185,10 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// it to send the shutdown message. This also might be an RBF
 		// iteration, in which case we'll be obtaining a new
 		// transaction w/ a higher fee rate.
-		case p.rbfCoopCloseAllowed():
+		//
+		// We don't support this close type for taproot channels yet
+		// however.
+		case !isTaprootChan && p.rbfCoopCloseAllowed():
 			err = p.startRbfChanCloser(
 				newRPCShutdownInit(req), channel.ChannelPoint(),
 			)
@@ -5135,9 +5147,12 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 			"peer", chanPoint)
 	}
 
-	// We're using the old co-op close, so we don't need to init the new
-	// RBF chan closer.
-	if !p.rbfCoopCloseAllowed() {
+	isTaprootChan := c.ChanType.IsTaproot()
+
+	// We're using the old co-op close, so we don't need to init the new RBF
+	// chan closer. If this is a taproot channel, then we'll also fall
+	// through, as we don't support this type yet w/ rbf close.
+	if !p.rbfCoopCloseAllowed() || isTaprootChan {
 		return nil
 	}
 

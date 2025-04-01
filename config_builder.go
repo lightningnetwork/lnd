@@ -1166,9 +1166,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// need to return and ask the user switch back to using the
 		// native SQL store.
 		ripInvoices, err := dbs.ChanStateDB.GetInvoiceBucketTombstone()
-		d.logger.Debugf("Invoice bucket tombstone set to: %v",
-			ripInvoices)
-
 		if err != nil {
 			err = fmt.Errorf("unable to check invoice bucket "+
 				"tombstone: %w", err)

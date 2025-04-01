@@ -748,20 +748,12 @@ func (h *HarnessTest) WaitForGraphSync(hn *node.HarnessNode) {
 // AssertNumUTXOsWithConf waits for the given number of UTXOs with the
 // specified confirmations range to be available or fails if that isn't the
 // case before the default timeout.
-//
-// NOTE: for standby nodes(Alice and Bob), this method takes account of the
-// previous state of the node's UTXOs. The previous state is snapshotted when
-// finishing a previous test case via the cleanup function in `Subtest`. In
-// other words, this assertion only checks the new changes made in the current
-// test.
 func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
 	expectedUtxos int, max, min int32) []*lnrpc.Utxo {
 
 	var unconfirmed bool
 
-	old := hn.State.UTXO.Confirmed
 	if max == 0 {
-		old = hn.State.UTXO.Unconfirmed
 		unconfirmed = true
 	}
 
@@ -776,8 +768,8 @@ func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
 		resp := hn.RPC.ListUnspent(req)
 		total := len(resp.Utxos)
 
-		if total-old == expectedUtxos {
-			utxos = resp.Utxos[old:]
+		if total == expectedUtxos {
+			utxos = resp.Utxos
 
 			return nil
 		}
@@ -787,8 +779,8 @@ func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
 			desc += fmt.Sprintf("%v\n", utxo)
 		}
 
-		return errNumNotMatched(hn.Name(), "num of UTXOs",
-			expectedUtxos, total-old, total, old, desc)
+		return fmt.Errorf("%s: assert num of UTXOs failed: want %d, "+
+			"got: %d, %s", hn.Name(), expectedUtxos, total, desc)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout waiting for UTXOs")
 
@@ -797,10 +789,6 @@ func (h *HarnessTest) AssertNumUTXOsWithConf(hn *node.HarnessNode,
 
 // AssertNumUTXOsUnconfirmed asserts the expected num of unconfirmed utxos are
 // seen.
-//
-// NOTE: for standby nodes(Alice and Bob), this method takes account of the
-// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
-// details.
 func (h *HarnessTest) AssertNumUTXOsUnconfirmed(hn *node.HarnessNode,
 	num int) []*lnrpc.Utxo {
 
@@ -809,10 +797,6 @@ func (h *HarnessTest) AssertNumUTXOsUnconfirmed(hn *node.HarnessNode,
 
 // AssertNumUTXOsConfirmed asserts the expected num of confirmed utxos are
 // seen, which means the returned utxos have at least one confirmation.
-//
-// NOTE: for standby nodes(Alice and Bob), this method takes account of the
-// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
-// details.
 func (h *HarnessTest) AssertNumUTXOsConfirmed(hn *node.HarnessNode,
 	num int) []*lnrpc.Utxo {
 
@@ -821,10 +805,6 @@ func (h *HarnessTest) AssertNumUTXOsConfirmed(hn *node.HarnessNode,
 
 // AssertNumUTXOs asserts the expected num of utxos are seen, including
 // confirmed and unconfirmed outputs.
-//
-// NOTE: for standby nodes(Alice and Bob), this method takes account of the
-// previous state of the node's UTXOs. Check `AssertNumUTXOsWithConf` for
-// details.
 func (h *HarnessTest) AssertNumUTXOs(hn *node.HarnessNode,
 	num int) []*lnrpc.Utxo {
 

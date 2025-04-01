@@ -5,28 +5,35 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "$DIR/.env"
 
-# Global variable to keep track of which Bob container to use.
-# Once Bob is upgraded to the PR version, this variable must
-# be updated to 'bob-pr'.
+# Global variables to keep track of which Bob and Dave container
+# to use. Once Bob and Dave is upgraded to the PR version, this
+# variable must be updated to 'bob-pr' and 'dave-pr` respectively.
 BOB=bob
+DAVE=dave
 
-# upgrade_bob shuts down the stable Bob container, upgrades the
-# compose variables to use the PR version of Bob, rebuilds the
-# Bob container, and starts the PR version of Bob.
-function upgrade_bob() {
-  # Shutdown Bob.
-  compose_stop bob
+# upgrade_node shuts down the stable container for a node (currently
+# Bob or Dave), upgrades the compose variables, rebuilds the PR version,
+# and starts it.
+function upgrade_node() {
+  local node="$1"
+  local pr="${node}-pr"
+  local var_name="$(echo "$node" | tr '[:lower:]' '[:upper:]')"
 
-  # Upgrade the compose variables so that the Bob configuration
+  # Shutdown the stable node.
+  compose_stop "$node"
+
+  # Upgrade the compose variables so that the node configuration
   # is swapped out for the PR version.
   compose_upgrade
-  export BOB=bob-pr
 
-  # Force the rebuild of the Bob container.
-  compose_rebuild bob-pr
+  # Export the PR version of the node.
+  export "$var_name"="$pr"
 
-  # This should now start with the new version of Bob.
-  compose_start bob-pr
+  # Force the rebuild of the PR version of the container.
+  compose_rebuild "$pr"
+
+  # This should now start the PR version of the node.
+  compose_start "$pr"
 }
 
 # wait_for_nodes waits for all the nodes in the argument list to
@@ -333,5 +340,10 @@ function charlie() {
 }
 
 function dave() {
-  docker exec -i dave lncli --network regtest "$@"
+  docker exec -i "$DAVE" lncli --network regtest "$@"
 }
+
+function dave-pr() {
+  docker exec -i dave-pr lncli --network regtest "$@"
+}
+

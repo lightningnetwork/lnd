@@ -36,7 +36,7 @@ send_payment alice dave
 
 # Upgrade the compose variables so that the Bob configuration
 # is swapped out for the PR version.
-upgrade_bob
+upgrade_node bob
 
 # Wait for Bob to start.
 wait_for_node bob
@@ -46,6 +46,21 @@ wait_for_active_chans bob 2
 do_for print_version bob
 
 # Repeat the basic tests.
+send_payment bob dave
+send_payment dave bob
+send_payment alice dave
+
+# Upgrade the compose variables so that the Dave configuration
+# is swapped out for the PR version.
+upgrade_node dave
+
+wait_for_node dave
+wait_for_active_chans dave 1
+
+# Show that Dave is now running the current branch.
+do_for print_version dave
+
+# Repeat the basic tests (after potential migraton).
 send_payment bob dave
 send_payment dave bob
 send_payment alice dave

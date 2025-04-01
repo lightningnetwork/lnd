@@ -37,6 +37,7 @@
         "parameters": [
           {
             "name": "body",
+            "description": "Returns a new instance of the directed channel graph.",
             "in": "body",
             "required": true,
             "schema": {
@@ -153,6 +154,7 @@
         "nodes": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcLightningNode"
           },
           "title": "The list of `LightningNode`s in this channel graph"
@@ -160,6 +162,7 @@
         "edges": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcChannelEdge"
           },
           "title": "The list of `ChannelEdge`s in this channel graph"
@@ -216,6 +219,7 @@
         "addresses": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcNodeAddress"
           }
         },
@@ -301,14 +305,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -323,6 +324,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

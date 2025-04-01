@@ -305,14 +305,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -327,6 +324,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -364,6 +362,7 @@
         "towers": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/wtclientrpcTower"
           },
           "description": "The list of watchtowers available for new backups."
@@ -469,6 +468,7 @@
         "sessions": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/wtclientrpcTowerSession"
           },
           "description": "Deprecated, use the sessions field under the correct identifier in the\nclient_type map.\nThe list of sessions that have been negotiated with the watchtower."
@@ -476,6 +476,7 @@
         "session_info": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/wtclientrpcTowerSessionInfo"
           },
           "description": "A list sessions held with the tower."
@@ -532,6 +533,7 @@
         "sessions": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/wtclientrpcTowerSession"
           },
           "description": "The list of sessions that have been negotiated with the watchtower."

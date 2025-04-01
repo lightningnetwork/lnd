@@ -250,7 +250,8 @@
       }
     },
     "chainrpcReorg": {
-      "type": "object"
+      "type": "object",
+      "description": "TODO(wilmer): need to know how the client will use this first."
     },
     "chainrpcSpendDetails": {
       "type": "object",
@@ -316,14 +317,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -338,6 +336,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

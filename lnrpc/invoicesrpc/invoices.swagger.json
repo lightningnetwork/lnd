@@ -318,6 +318,7 @@
         "route_hints": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcRouteHint"
           },
           "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
@@ -648,6 +649,7 @@
         "route_hints": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcRouteHint"
           },
           "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
@@ -688,6 +690,7 @@
         "htlcs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcInvoiceHTLC"
           },
           "description": "List of HTLCs paying to this invoice [EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
@@ -812,6 +815,7 @@
         "hop_hints": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/lnrpcHopHint"
           },
           "description": "A list of hop hints that when chained together can assist in reaching a\nspecific destination."
@@ -821,14 +825,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -843,6 +844,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

@@ -168,6 +168,11 @@ close transaction.
   [changed](https://github.com/lightningnetwork/lnd/pull/9627) so the sweeper
   will always attempt the sweep as long as the budget can be partially covered.
 
+* [Add](https://github.com/lightningnetwork/lnd/pull/9603) validation to ensure
+  that MPP parameters are compatible with the payment amount before attempting
+  the payment. This prevents payments from entering a path finding loop that
+  would eventually timeout.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

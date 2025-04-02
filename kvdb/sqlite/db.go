@@ -24,6 +24,12 @@ const (
 	sqliteTxLockImmediate = "_txlock=immediate"
 )
 
+// pragmaOption holds a key-value pair for a SQLite pragma setting.
+type pragmaOption struct {
+	name  string
+	value string
+}
+
 // NewSqliteBackend returns a db object initialized with the passed backend
 // config. If a sqlite connection cannot be established, then an error is
 // returned.
@@ -31,10 +37,7 @@ func NewSqliteBackend(ctx context.Context, cfg *Config, dbPath, fileName,
 	prefix string) (walletdb.DB, error) {
 
 	// First, we add a set of mandatory pragma options to the query.
-	pragmaOptions := []struct {
-		name  string
-		value string
-	}{
+	pragmaOptions := []pragmaOption{
 		{
 			name: "busy_timeout",
 			value: fmt.Sprintf(
@@ -49,7 +52,12 @@ func NewSqliteBackend(ctx context.Context, cfg *Config, dbPath, fileName,
 			name:  "journal_mode",
 			value: "WAL",
 		},
+		{
+			name:  "auto_vacuum",
+			value: "incremental",
+		},
 	}
+
 	sqliteOptions := make(url.Values)
 	for _, option := range pragmaOptions {
 		sqliteOptions.Add(

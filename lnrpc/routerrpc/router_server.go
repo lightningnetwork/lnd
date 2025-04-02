@@ -204,6 +204,50 @@ type Server struct {
 // gRPC service.
 var _ RouterServer = (*Server)(nil)
 
+// validateFeeLimit checks that the fee limit fields are properly set and not conflicting
+func validateFeeLimit(feeLimit *lnrpc.FeeLimit) error {
+	// Check that fixed and fixed_msat are not both set
+	if feeLimit.GetFixed() != 0 && feeLimit.GetFixedMsat() != 0 {
+	    return fmt.Errorf("cannot specify both fixed and fixed_msat fee limits")
+	}
+	return nil
+}
+    
+    // calculateFeeLimit calculates the actual fee limit based on the payment amount and fee limit settings
+func calculateFeeLimit(amountMsat int64, feeLimit *lnrpc.FeeLimit) (int64, error) {
+	// Start with no fee limit
+	var limitSat int64
+	var limitMsat int64
+	
+	// Take the lower of fixed or fixed_msat converted to satoshis
+	if feeLimit.GetFixed() != 0 {
+	    limitSat = feeLimit.GetFixed()
+	}
+	if feeLimit.GetFixedMsat() != 0 {
+	    limitMsat = feeLimit.GetFixedMsat()
+	    limitFromMsat := limitMsat / 1000
+	    if limitSat == 0 || limitFromMsat < limitSat {
+		limitSat = limitFromMsat
+	    }
+	}
+	
+	// Calculate percentage-based limit if specified
+	var percentLimitMsat int64
+	if feeLimit.GetPercent() != 0 {
+	    percentLimitMsat = amountMsat * feeLimit.GetPercent() / 100
+	    percentLimitSat := percentLimitMsat / 1000
+	    
+	    // Take the lower of fixed and percentage limits by default
+	    if limitSat == 0 || percentLimitSat < limitSat {
+		limitSat = percentLimitSat
+		limitMsat = percentLimitMsat
+	    }
+	}
+	
+	// Return both sat and msat values
+	return limitSat, limitMsat
+}
+
 // New creates a new instance of the RouterServer given a configuration struct
 // that contains all external dependencies. If the target macaroon exists, and
 // we're unable to create it, then an error will be returned. We also return
@@ -354,8 +398,19 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	stream Router_SendPaymentV2Server) error {
 
 	// Set payment request attempt timeout.
-	if req.TimeoutSeconds == 0 {
-		req.TimeoutSeconds = DefaultPaymentTimeout
+	if req.FeeLimitSat != 0 && req.FeeLimitMsat != 0 {
+		return status.Error(codes.InvalidArgument, 
+		    "cannot specify both fee_limit_sat and fee_limit_msat")
+	}
+	
+	// Calculate fee limit based on amount and fee limit settings
+	var feeLimitMsat int64
+	if req.FeeLimitSat != 0 {
+		feeLimitMsat = req.FeeLimitSat * 1000
+	} else if req.FeeLimitMsat != 0 {
+		feeLimitMsat = req.FeeLimitMsat
+	} else if req.FeeLimitPercent != 0 {
+		feeLimitMsat = req.AmtMsat * req.FeeLimitPercent / 100
 	}
 
 	payment, err := s.cfg.RouterBackend.extractIntentFromSendRequest(req)
@@ -522,6 +577,20 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	if payReq.MilliSat == nil || *payReq.MilliSat <= 0 {
 		return nil, errors.New("payment request amount must be " +
 			"greater than 0")
+	}
+
+	// Calculate fee limit for probe
+	var feeLimitMsat int64
+	if payReq.MilliSat != nil {
+	    feeLimitMsat = int64(*payReq.MilliSat) * routeFeeLimitPercent / 100
+	    if feeLimitMsat > routeFeeLimitSat*1000 {
+		feeLimitMsat = routeFeeLimitSat * 1000
+	    }
+	}
+    
+	probeRequest := &SendPaymentRequest{
+	    // ... existing fields ...
+	    FeeLimitMsat: feeLimitMsat,
 	}
 
 	// Generate random payment hash, so we can be sure that the target of
@@ -1475,6 +1544,12 @@ func (s *Server) trackPaymentStream(context context.Context,
 // BuildRoute builds a route from a list of hop addresses.
 func (s *Server) BuildRoute(_ context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
+
+	// Validate amount and fee limits
+	if req.AmtMsat < 0 {
+		return nil, status.Error(codes.InvalidArgument,
+		    "amount must be positive")
+	}	
 
 	if len(req.HopPubkeys) == 0 {
 		return nil, errors.New("no hops specified")

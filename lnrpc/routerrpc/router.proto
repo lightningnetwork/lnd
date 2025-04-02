@@ -368,6 +368,20 @@ message SendPaymentRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 25;
+
+    oneof fee_limit {
+        // The fee limit expressed as a fixed amount of satoshis.
+        int64 fee_limit_sat = 10;
+        
+        // The fee limit expressed as a fixed amount of millisatoshis.
+        int64 fee_limit_msat = 11;
+        
+        // The fee limit expressed as a percentage of the payment amount.
+        int64 fee_limit_percent = 12;
+    }
+
+    // Behavior when multiple fee limits could apply (same as FeeLimit.behavior)
+    int32 fee_limit_behavior = 13;
 }
 
 message TrackPaymentRequest {

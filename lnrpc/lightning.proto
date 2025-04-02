@@ -811,6 +811,13 @@ message FeeLimit {
 
         // The fee limit expressed as a percentage of the payment amount.
         int64 percent = 2;
+
+        // The behavior when both fixed and percent values are specified.
+        // 0: Use minimum of fixed and percent (default)
+        // 1: Use maximum of fixed and percent
+        // 2: Use fixed only
+        // 3: Use percent only
+        int32 behavior = 4;
     }
 }
 

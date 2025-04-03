@@ -379,9 +379,40 @@ func (b *readWriteBucket) Tx() walletdb.ReadWriteTx {
 // Note that this is not a thread safe function and as such it must not be used
 // for synchronization.
 func (b *readWriteBucket) NextSequence() (uint64, error) {
-	seq := b.Sequence() + 1
+	if b.id == nil {
+		// Sequence numbers are only supported for nested buckets, as
+		// top-level buckets don't have a unique row ID in the same way.
+		panic("sequence not supported on top level bucket")
+	}
 
-	return seq, b.SetSequence(seq)
+	var nextSeq uint64
+	row, cancel := b.tx.QueryRow(
+		// Atomically increment the sequence number for the bucket ID.
+		// We use COALESCE to handle the case where the sequence is NULL
+		// (never set before), treating it as 0 before incrementing. The
+		// RETURNING clause gives us the new value.
+		"UPDATE "+b.table+" SET sequence = COALESCE(sequence, 0) + 1 "+
+			"WHERE id=$1 RETURNING sequence",
+		b.id,
+	)
+	defer cancel()
+
+	err := row.Scan(&nextSeq)
+	if err != nil {
+		// If we get sql.ErrNoRows, it means the bucket ID didn't exist,
+		// which shouldn't happen if the bucket was created correctly.
+		// We wrap the error for clarity.
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("bucket with id %d not found "+
+				"for sequence update", *b.id)
+		}
+
+		// Return other potential scan or query errors directly.
+		return 0, fmt.Errorf("failed to update and retrieve "+
+			"sequence for bucket id %d: %w", *b.id, err)
+	}
+
+	return nextSeq, nil
 }
 
 // SetSequence updates the sequence number for the bucket.

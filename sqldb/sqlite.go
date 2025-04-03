@@ -40,6 +40,12 @@ var (
 	_ DB = (*SqliteStore)(nil)
 )
 
+// pragmaOption holds a key-value pair for a SQLite pragma setting.
+type pragmaOption struct {
+	name  string
+	value string
+}
+
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
 	cfg *SqliteConfig
@@ -53,10 +59,7 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
-	pragmaOptions := []struct {
-		name  string
-		value string
-	}{
+	pragmaOptions := []pragmaOption{
 		{
 			name:  "foreign_keys",
 			value: "on",
@@ -83,6 +86,10 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 			// call to ensure items are fully flushed to disk.
 			name:  "fullfsync",
 			value: "true",
+		},
+		{
+			name:  "auto_vacuum",
+			value: "incremental",
 		},
 	}
 	sqliteOptions := make(url.Values)

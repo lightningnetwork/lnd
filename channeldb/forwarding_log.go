@@ -281,6 +281,7 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 			if recordsToSkip > 0 &&
 				q.IncomingChanIDs.IsEmpty() &&
 				q.OutgoingChanIDs.IsEmpty() {
+
 				recordsToSkip--
 				continue
 			}

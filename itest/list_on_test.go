@@ -611,6 +611,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testCoopCloseWithHtlcs,
 	},
 	{
+		Name:     "coop close with htlcs restart",
+		TestFunc: testCoopCloseWithHtlcsWithRestart,
+	},
+	{
 		Name:     "coop close exceeds max fee",
 		TestFunc: testCoopCloseExceedsMaxFee,
 	},

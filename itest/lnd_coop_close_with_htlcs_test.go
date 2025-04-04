@@ -18,60 +18,110 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type flagCombo struct {
+	isRbf      bool
+	isTaproot  bool
+	testName   string
+	flags      []string
+	commitType lnrpc.CommitmentType
+	private    bool
+}
+
+// createFlagCombos generates a slice of flagCombo structs representing
+// different test configurations for RBF and Taproot channels.
+func createFlagCombos() []flagCombo {
+	var testCases []flagCombo
+	for _, isRbf := range []bool{true, false} {
+		for _, isTaproot := range []bool{true, false} {
+			flagCombo := flagCombo{
+				isRbf:     isRbf,
+				isTaproot: isTaproot,
+			}
+
+			var flags []string
+
+			if isRbf {
+				flags = append(flags, node.CfgRbfClose...)
+			}
+
+			if isTaproot {
+				flags = append(flags, node.CfgSimpleTaproot...)
+				flagCombo.commitType = lnrpc.CommitmentType_SIMPLE_TAPROOT //nolint:ll
+				flagCombo.private = true
+			}
+
+			flagCombo.flags = flags
+			flagCombo.testName = fmt.Sprintf(
+				"is_rbf=%v is_taproot=%v", isRbf, isTaproot,
+			)
+
+			testCases = append(testCases, flagCombo)
+		}
+	}
+
+	return testCases
+}
+
 // testCoopCloseWithHtlcs tests whether we can successfully issue a coop close
-// request while there are still active htlcs on the link. In all the tests, we
+// request while there are still active htlcs on the link. In this test, we
 // will set up an HODL invoice to suspend settlement. Then we will attempt to
 // close the channel which should appear as a noop for the time being. Then we
 // will have the receiver settle the invoice and observe that the channel gets
-// torn down after settlement.
+// torn down after settlement. This test covers scenarios without node restarts.
 func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
-	rbfCoopFlags := []string{"--protocol.rbf-coop-close"}
+	testCases := createFlagCombos()
 
-	for _, isRbf := range []bool{true, false} {
-		testName := fmt.Sprintf("no restart is_rbf=%v", isRbf)
-		ht.Run(testName, func(t *testing.T) {
+	for _, testCase := range testCases {
+		testCase := testCase // Capture range variable.
+		ht.Run(testCase.testName, func(t *testing.T) {
 			tt := ht.Subtest(t)
 
-			var flags []string
-			if isRbf {
-				flags = rbfCoopFlags
-			}
+			alice := ht.NewNodeWithCoins("Alice", testCase.flags)
+			bob := ht.NewNodeWithCoins("bob", testCase.flags)
 
-			alice := ht.NewNodeWithCoins("Alice", flags)
-			bob := ht.NewNodeWithCoins("bob", flags)
-
-			coopCloseWithHTLCs(tt, alice, bob)
-		})
-	}
-
-	for _, isRbf := range []bool{true, false} {
-		testName := fmt.Sprintf("with restart is_rbf=%v", isRbf)
-		ht.Run(testName, func(t *testing.T) {
-			tt := ht.Subtest(t)
-
-			var flags []string
-			if isRbf {
-				flags = rbfCoopFlags
-			}
-
-			alice := ht.NewNodeWithCoins("Alice", flags)
-			bob := ht.NewNodeWithCoins("bob", flags)
-
-			coopCloseWithHTLCsWithRestart(tt, alice, bob)
+			runCoopCloseWithHTLCsScenario(tt, alice, bob, testCase)
 		})
 	}
 }
 
-// coopCloseWithHTLCs tests the basic coop close scenario which occurs when one
-// channel party initiates a channel shutdown while an HTLC is still pending on
-// the channel.
-func coopCloseWithHTLCs(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
+// testCoopCloseWithHtlcsWithRestart tests whether we can successfully issue a
+// coop close request while there are still active htlcs on the link, even
+// after a node restart. In this test, we will set up an HODL invoice to
+// suspend settlement. Then we will attempt to close the channel, restart the
+// nodes, and then have the receiver settle the invoice, observing that the
+// channel gets torn down after settlement and restart.
+func testCoopCloseWithHtlcsWithRestart(ht *lntest.HarnessTest) {
+	testCases := createFlagCombos()
+
+	for _, testCase := range testCases {
+		testCase := testCase // Capture range variable.
+		ht.Run(testCase.testName, func(t *testing.T) {
+			tt := ht.Subtest(t)
+
+			alice := ht.NewNodeWithCoins("Alice", testCase.flags)
+			bob := ht.NewNodeWithCoins("bob", testCase.flags)
+
+			runCoopCloseWithHTLCsWithRestartScenario(
+				tt, alice, bob, testCase,
+			)
+		})
+	}
+}
+
+// runCoopCloseWithHTLCsScenario tests the basic coop close scenario which
+// occurs when one channel party initiates a channel shutdown while an HTLC is
+// still pending on the channel.
+func runCoopCloseWithHTLCsScenario(ht *lntest.HarnessTest, alice,
+	bob *node.HarnessNode, testCase flagCombo) {
+
 	ht.ConnectNodes(alice, bob)
 
 	// Here we set up a channel between Alice and Bob, beginning with a
 	// balance on Bob's side.
 	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
-		Amt: btcutil.Amount(1000000),
+		Amt:            btcutil.Amount(1000000),
+		CommitmentType: testCase.commitType,
+		Private:        testCase.private,
 	})
 
 	// Wait for Bob to understand that the channel is ready to use.
@@ -153,12 +203,12 @@ func coopCloseWithHTLCs(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	ht.AssertStreamChannelCoopClosed(alice, chanPoint, false, closeClient)
 }
 
-// coopCloseWithHTLCsWithRestart also tests the coop close flow when an HTLC
-// is still pending on the channel but this time it ensures that the shutdown
-// process continues as expected even if a channel re-establish happens after
-// one party has already initiated the shutdown.
-func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest, alice,
-	bob *node.HarnessNode) {
+// runCoopCloseWithHTLCsWithRestartScenario also tests the coop close flow when
+// an HTLC is still pending on the channel but this time it ensures that the
+// shutdown process continues as expected even if a channel re-establish
+// happens after one party has already initiated the shutdown.
+func runCoopCloseWithHTLCsWithRestartScenario(ht *lntest.HarnessTest, alice,
+	bob *node.HarnessNode, testCase flagCombo) {
 
 	ht.ConnectNodes(alice, bob)
 
@@ -167,8 +217,10 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest, alice,
 	// so that we can assert that the correct delivery address gets used by
 	// the channel close initiator.
 	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
-		Amt:     btcutil.Amount(1000000),
-		PushAmt: btcutil.Amount(1000000 / 2),
+		Amt:            btcutil.Amount(1000000),
+		PushAmt:        btcutil.Amount(1000000 / 2),
+		CommitmentType: testCase.commitType,
+		Private:        testCase.private,
 	})
 
 	// Wait for Bob to understand that the channel is ready to use.

@@ -2847,6 +2847,11 @@ message PendingChannelsResponse {
         // very likely canceled the funding and the channel will never become
         // fully operational.
         int32 funding_expiry_blocks = 3;
+
+        // The number of blocks remaining before the pending channel open
+        // transaction is fully confirmed. A value of 0 indicates that the
+        // transaction has reached the required number of confirmations.
+        int32 confirmation_until_confirmed = 7;
     }
 
     message WaitingCloseChannel {

@@ -978,6 +978,81 @@ func TestChannelStateTransition(t *testing.T) {
 	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
+// TestPendingChannelConfirmation verifies that the confirmed state is updated
+// upon calling MarkConfirmedScid and that Refresh updates the in-memory state
+// of another OpenChannel to reflect a preceding call to MarkConfirmedScid on
+// a different OpenChannel.
+func TestPendingChannelConfirmation(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Create a pending channel that was broadcast at height 99.
+	const broadcastHeight = uint32(99)
+	channelState := createTestChannel(t, cdb,
+		pendingHeightOption(broadcastHeight))
+
+	// Fetch pending channels from the database.
+	pendingChannels, err := cdb.FetchPendingChannels()
+	require.NoError(t, err, "unable to list pending channels")
+	require.Len(t, pendingChannels, 1, "expected one pending channel")
+
+	// Verify the broadcast height of the pending channel.
+	require.Equal(t, broadcastHeight, pendingChannels[0].
+		FundingBroadcastHeight, "broadcast height mismatch")
+
+	confirmedScid := lnwire.ShortChannelID{
+		BlockHeight: 5,
+		TxIndex:     10,
+		TxPosition:  15,
+	}
+
+	// Mark the channel as confirmed.
+	err = pendingChannels[0].MarkConfirmedScid(confirmedScid)
+	require.NoError(t, err, "unable to mark channel as confirmed")
+
+	// Ensure the channel remains pending after confirmation.
+	require.True(t, pendingChannels[0].IsPending, "channel should remain "+
+		"pending after confirmation")
+
+	// Verify the ShortChannelID is updated correctly.
+	require.Equal(t, confirmedScid, pendingChannels[0].ShortChanID(),
+		"channel ShortChannelID not updated correctly")
+
+	// Re-fetch the pending channels to confirm persistence.
+	pendingChannels, err = cdb.FetchPendingChannels()
+	require.NoError(t, err, "unable to list pending channels")
+	require.Len(t, pendingChannels, 1, "expected one pending channel")
+
+	// Validate the ShortChannelID and broadcast height.
+	require.Equal(t, confirmedScid, pendingChannels[0].ShortChanID(),
+		"channel ShortChannelID mismatch after re-fetching")
+	require.Equal(t, broadcastHeight, pendingChannels[0].
+		FundingBroadcastHeight, "broadcast height mismatch after "+
+		"re-fetching")
+
+	// Ensure the original channel state's ShortChannelID is not updated
+	// before refresh.
+	require.NotEqual(t, channelState.ShortChanID(), pendingChannels[0].
+		ShortChanID(), "original channel state's ShortChannelID "+
+		"should not match before refresh")
+
+	// Refresh the original channel state.
+	err = channelState.Refresh()
+	require.NoError(t, err, "unable to refresh channel state")
+
+	// Verify that both channel states now have the same ShortChannelID.
+	require.Equal(t, channelState.ShortChanID(), pendingChannels[0].
+		ShortChanID(), "channel ShortChannelID mismatch after refresh")
+
+	// Confirm the channel remains pending after refresh.
+	require.True(t, channelState.IsPending, "channel should remain "+
+		"pending after refresh")
+}
+
 func TestFetchPendingChannels(t *testing.T) {
 	t.Parallel()
 

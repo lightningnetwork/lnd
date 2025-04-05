@@ -243,6 +243,14 @@ type LightningClient interface {
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error)
+	// lncli: `deleteinvoices`
+	// DeleteInvoices deletes cancelled invoices from DB. Note that it will not
+	// attempt to delete an non-cancelled invoice, since that would be unsafe.
+	DeleteInvoices(ctx context.Context, in *DeleteInvoicesRequest, opts ...grpc.CallOption) (*DeleteInvoicesResponse, error)
+	// lncli: `deleteinvoices --all`
+	// DeleteAllInvoices deletes all cancelled invoices from DB. Note that it will
+	// not attempt to delete non-cancelled invoices, since that would be unsafe.
+	DeleteAllInvoices(ctx context.Context, in *DeleteAllInvoicesRequest, opts ...grpc.CallOption) (*DeleteAllInvoicesResponse, error)
 	// lncli: `decodepayreq`
 	// DecodePayReq takes an encoded payment request string and attempts to decode
 	// it, returning a full description of the conditions encoded within the
@@ -972,6 +980,24 @@ func (x *lightningSubscribeInvoicesClient) Recv() (*Invoice, error) {
 	return m, nil
 }
 
+func (c *lightningClient) DeleteInvoices(ctx context.Context, in *DeleteInvoicesRequest, opts ...grpc.CallOption) (*DeleteInvoicesResponse, error) {
+	out := new(DeleteInvoicesResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeleteInvoices", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) DeleteAllInvoices(ctx context.Context, in *DeleteAllInvoicesRequest, opts ...grpc.CallOption) (*DeleteAllInvoicesResponse, error) {
+	out := new(DeleteAllInvoicesResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeleteAllInvoices", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lightningClient) DecodePayReq(ctx context.Context, in *PayReqString, opts ...grpc.CallOption) (*PayReq, error) {
 	out := new(PayReq)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DecodePayReq", in, out, opts...)
@@ -1571,6 +1597,14 @@ type LightningServer interface {
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.
 	SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error
+	// lncli: `deleteinvoices`
+	// DeleteInvoices deletes cancelled invoices from DB. Note that it will not
+	// attempt to delete an non-cancelled invoice, since that would be unsafe.
+	DeleteInvoices(context.Context, *DeleteInvoicesRequest) (*DeleteInvoicesResponse, error)
+	// lncli: `deleteinvoices --all`
+	// DeleteAllInvoices deletes all cancelled invoices from DB. Note that it will
+	// not attempt to delete non-cancelled invoices, since that would be unsafe.
+	DeleteAllInvoices(context.Context, *DeleteAllInvoicesRequest) (*DeleteAllInvoicesResponse, error)
 	// lncli: `decodepayreq`
 	// DecodePayReq takes an encoded payment request string and attempts to decode
 	// it, returning a full description of the conditions encoded within the
@@ -1866,6 +1900,12 @@ func (UnimplementedLightningServer) LookupInvoice(context.Context, *PaymentHash)
 }
 func (UnimplementedLightningServer) SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeInvoices not implemented")
+}
+func (UnimplementedLightningServer) DeleteInvoices(context.Context, *DeleteInvoicesRequest) (*DeleteInvoicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteInvoices not implemented")
+}
+func (UnimplementedLightningServer) DeleteAllInvoices(context.Context, *DeleteAllInvoicesRequest) (*DeleteAllInvoicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteAllInvoices not implemented")
 }
 func (UnimplementedLightningServer) DecodePayReq(context.Context, *PayReqString) (*PayReq, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecodePayReq not implemented")
@@ -2681,6 +2721,42 @@ func (x *lightningSubscribeInvoicesServer) Send(m *Invoice) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Lightning_DeleteInvoices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteInvoicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).DeleteInvoices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/DeleteInvoices",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).DeleteInvoices(ctx, req.(*DeleteInvoicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_DeleteAllInvoices_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteAllInvoicesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).DeleteAllInvoices(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/DeleteAllInvoices",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).DeleteAllInvoices(ctx, req.(*DeleteAllInvoicesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Lightning_DecodePayReq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PayReqString)
 	if err := dec(in); err != nil {
@@ -3374,6 +3450,14 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LookupInvoice",
 			Handler:    _Lightning_LookupInvoice_Handler,
+		},
+		{
+			MethodName: "DeleteInvoices",
+			Handler:    _Lightning_DeleteInvoices_Handler,
+		},
+		{
+			MethodName: "DeleteAllInvoices",
+			Handler:    _Lightning_DeleteAllInvoices_Handler,
 		},
 		{
 			MethodName: "DecodePayReq",

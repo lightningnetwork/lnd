@@ -39,7 +39,7 @@ type TestPgFixture struct {
 // NewTestPgFixture constructs a new TestPgFixture starting up a docker
 // container running Postgres 11. The started container will expire in after
 // the passed duration.
-func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
+func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 	// Use a sensible default on Windows (tcp/http) and linux/osx (socket)
 	// by specifying an empty endpoint.
 	pool, err := dockertest.NewPool("")
@@ -119,13 +119,13 @@ func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 }
 
 // TearDown stops the underlying docker container.
-func (f *TestPgFixture) TearDown(t *testing.T) {
+func (f *TestPgFixture) TearDown(t testing.TB) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
 }
 
 // randomDBName generates a random database name.
-func randomDBName(t *testing.T) string {
+func randomDBName(t testing.TB) string {
 	randBytes := make([]byte, 8)
 	_, err := rand.Read(randBytes)
 	require.NoError(t, err)
@@ -135,7 +135,7 @@ func randomDBName(t *testing.T) string {
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
 // testing using the given fixture.
-func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
+func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture) *PostgresStore {
 	t.Helper()
 
 	dbName := randomDBName(t)

@@ -75,7 +75,7 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
 		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub[:]),
+		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
 		Addresses:            testAddrs,
 	}

@@ -31,6 +31,11 @@
 # Improvements
 ## Functional Updates
 
+* Graph Store SQL implementation and migration project:
+  * Introduce an [abstract graph 
+    store](https://github.com/lightningnetwork/lnd/pull/9791) interface. 
+ 
+
 ## RPC Updates
 
 ## lncli Updates

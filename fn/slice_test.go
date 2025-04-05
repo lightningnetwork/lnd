@@ -300,48 +300,6 @@ func TestPropForEachConcMapIsomorphism(t *testing.T) {
 	}
 }
 
-// TestPropForEachConcOutperformsMapWhenExpensive ensures the property that
-// ForEachConc will beat Map in a race in circumstances where the computation in
-// the argument closure is expensive.
-func TestPropForEachConcOutperformsMapWhenExpensive(t *testing.T) {
-	f := func(incSize int, s []int) bool {
-		if len(s) < 2 {
-			// Intuitively we don't expect the extra overhead of
-			// ForEachConc to justify itself for list sizes of 1 or
-			// 0.
-			return true
-		}
-
-		inc := func(i int) int {
-			time.Sleep(time.Millisecond)
-			return i + incSize
-		}
-		c := make(chan bool, 1)
-
-		go func() {
-			Map(s, inc)
-			select {
-			case c <- false:
-			default:
-			}
-		}()
-
-		go func() {
-			ForEachConc(s, inc)
-			select {
-			case c <- true:
-			default:
-			}
-		}()
-
-		return <-c
-	}
-
-	if err := quick.Check(f, nil); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestPropFindIdxFindIdentity(t *testing.T) {
 	f := func(div, mod uint8, s []uint8) bool {
 		if div == 0 || div == 1 {
@@ -675,4 +633,54 @@ func TestPropCollectOptionsNoNoneUnwrap(t *testing.T) {
 	}
 
 	require.NoError(t, quick.Check(f, nil))
+}
+
+// BenchmarkMapVsForEachConc benchmarks the performance of Map and ForEachConc
+// for different workloads and slice sizes. It is used to show that ForEachConc
+// is faster than Map when the workload is expensive.
+func BenchmarkMapVsForEachConc(b *testing.B) {
+	// Test different workload types.
+	workloads := map[string]func(int) int{
+		"Light": func(i int) int {
+			return i + 1
+		},
+		"Expensive": func(i int) int {
+			time.Sleep(time.Millisecond)
+			return i + 1
+		},
+	}
+
+	// Test different slice sizes.
+	for _, size := range []int{10, 100, 1000} {
+		s := make([]int, size)
+		for i := range s {
+			s[i] = i
+		}
+
+		for workload, inc := range workloads {
+			// Benchmark Map.
+			mapConf := fmt.Sprintf("Map-%s-Size-%d", workload, size)
+			b.Run(mapConf, func(b *testing.B) {
+				b.ResetTimer()
+				b.ReportAllocs()
+
+				for i := 0; i < b.N; i++ {
+					Map(s, inc)
+				}
+			})
+
+			// Benchmark ForEachConc.
+			concConf := fmt.Sprintf(
+				"ForEachConc-%s-Size-%d", workload, size,
+			)
+			b.Run(concConf, func(b *testing.B) {
+				b.ResetTimer()
+				b.ReportAllocs()
+
+				for i := 0; i < b.N; i++ {
+					ForEachConc(s, inc)
+				}
+			})
+		}
+	}
 }

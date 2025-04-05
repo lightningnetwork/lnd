@@ -954,10 +954,10 @@ func assertEdgeWithPolicyInCache(t *testing.T, g *ChannelGraph,
 	}
 }
 
-func randEdgePolicy(chanID uint64, db kvdb.Backend) *models.ChannelEdgePolicy {
+func randEdgePolicy(chanID uint64) *models.ChannelEdgePolicy {
 	update := prand.Int63()
 
-	return newEdgePolicy(chanID, db, update)
+	return newEdgePolicy(chanID, update)
 }
 
 func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
@@ -977,9 +977,7 @@ func copyEdgePolicy(p *models.ChannelEdgePolicy) *models.ChannelEdgePolicy {
 	}
 }
 
-func newEdgePolicy(chanID uint64, db kvdb.Backend,
-	updateTime int64) *models.ChannelEdgePolicy {
-
+func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 	return &models.ChannelEdgePolicy{
 		ChannelID:                 chanID,
 		LastUpdate:                time.Unix(updateTime, 0),
@@ -1277,7 +1275,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 			// Create and add an edge with random data that points
 			// from node1 -> node2.
-			edge := randEdgePolicy(chanID, graph.db)
+			edge := randEdgePolicy(chanID)
 			edge.ChannelFlags = 0
 			edge.ToNode = node2.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
@@ -1285,7 +1283,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 			// Create another random edge that points from
 			// node2 -> node1 this time.
-			edge = randEdgePolicy(chanID, graph.db)
+			edge = randEdgePolicy(chanID)
 			edge.ChannelFlags = 1
 			edge.ToNode = node1.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
@@ -1476,7 +1474,7 @@ func TestGraphPruning(t *testing.T) {
 
 		// Create and add an edge with random data that points from
 		// node_i -> node_i+1
-		edge := randEdgePolicy(chanID, graph.db)
+		edge := randEdgePolicy(chanID)
 		edge.ChannelFlags = 0
 		edge.ToNode = graphNodes[i].PubKeyBytes
 		edge.SigBytes = testSig.Serialize()
@@ -1486,7 +1484,7 @@ func TestGraphPruning(t *testing.T) {
 
 		// Create another random edge that points from node_i+1 ->
 		// node_i this time.
-		edge = randEdgePolicy(chanID, graph.db)
+		edge = randEdgePolicy(chanID)
 		edge.ChannelFlags = 1
 		edge.ToNode = graphNodes[i].PubKeyBytes
 		edge.SigBytes = testSig.Serialize()
@@ -1696,7 +1694,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		endTime = endTime.Add(time.Second * 10)
 
 		edge1 := newEdgePolicy(
-			chanID.ToUint64(), graph.db, edge1UpdateTime.Unix(),
+			chanID.ToUint64(), edge1UpdateTime.Unix(),
 		)
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
@@ -1706,7 +1704,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		}
 
 		edge2 := newEdgePolicy(
-			chanID.ToUint64(), graph.db, edge2UpdateTime.Unix(),
+			chanID.ToUint64(), edge2UpdateTime.Unix(),
 		)
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
@@ -2712,9 +2710,7 @@ func TestFetchChanInfos(t *testing.T) {
 		updateTime := endTime
 		endTime = updateTime.Add(time.Second * 10)
 
-		edge1 := newEdgePolicy(
-			chanID.ToUint64(), graph.db, updateTime.Unix(),
-		)
+		edge1 := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
 		edge1.SigBytes = testSig.Serialize()
@@ -2722,9 +2718,7 @@ func TestFetchChanInfos(t *testing.T) {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
-		edge2 := newEdgePolicy(
-			chanID.ToUint64(), graph.db, updateTime.Unix(),
-		)
+		edge2 := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
 		edge2.SigBytes = testSig.Serialize()
@@ -2851,9 +2845,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	// unknown.
 	updateTime := time.Unix(1234, 0)
 
-	edgePolicy := newEdgePolicy(
-		chanID.ToUint64(), graph.db, updateTime.Unix(),
-	)
+	edgePolicy := newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
 	edgePolicy.ChannelFlags = 0
 	edgePolicy.ToNode = node2.PubKeyBytes
 	edgePolicy.SigBytes = testSig.Serialize()
@@ -2866,9 +2858,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	// Create second policy and assert that both policies are reported
 	// as present.
-	edgePolicy = newEdgePolicy(
-		chanID.ToUint64(), graph.db, updateTime.Unix(),
-	)
+	edgePolicy = newEdgePolicy(chanID.ToUint64(), updateTime.Unix())
 	edgePolicy.ChannelFlags = 1
 	edgePolicy.ToNode = node1.PubKeyBytes
 	edgePolicy.SigBytes = testSig.Serialize()
@@ -2912,7 +2902,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	edge1 := randEdgePolicy(chanID.ToUint64(), graph.db)
+	edge1 := randEdgePolicy(chanID.ToUint64())
 	edge1.ChannelFlags = 0
 	edge1.ToNode = node1.PubKeyBytes
 	edge1.SigBytes = testSig.Serialize()
@@ -2921,7 +2911,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}
 	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
-	edge2 := randEdgePolicy(chanID.ToUint64(), graph.db)
+	edge2 := randEdgePolicy(chanID.ToUint64())
 	edge2.ChannelFlags = 1
 	edge2.ToNode = node2.PubKeyBytes
 	edge2.SigBytes = testSig.Serialize()
@@ -3063,7 +3053,7 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// We'll now insert an advertised edge, but it'll only be the edge that
 	// points from the first to the second node.
-	edge1 := randEdgePolicy(chanID.ToUint64(), graph.db)
+	edge1 := randEdgePolicy(chanID.ToUint64())
 	edge1.ChannelFlags = 0
 	edge1.ToNode = node1.PubKeyBytes
 	edge1.SigBytes = testSig.Serialize()

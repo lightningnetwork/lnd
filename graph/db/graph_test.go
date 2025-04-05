@@ -597,7 +597,7 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 }
 
-func createChannelEdge(db kvdb.Backend, node1, node2 *models.LightningNode) (
+func createChannelEdge(node1, node2 *models.LightningNode) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy) {
 
@@ -693,7 +693,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertNodeInCache(t, graph, node2, testFeatures)
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
@@ -3337,7 +3337,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 	}
 
 	// Adding a new channel edge to the graph.
-	edgeInfo, edge1, edge2 := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -3416,7 +3416,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	}
 	node2 := createTestVertex(t)
 
-	edgeInfo, edge1, edge2 := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -3580,7 +3580,7 @@ func TestGraphZombieIndex(t *testing.T) {
 		node1, node2 = node2, node1
 	}
 
-	edge, _, _ := createChannelEdge(graph.db, node1, node2)
+	edge, _, _ := createChannelEdge(node1, node2)
 	require.NoError(t, graph.AddChannelEdge(edge))
 
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
@@ -3868,7 +3868,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	require.Nil(t, err)
 
 	// Create an edge and add it to the db.
-	edgeInfo, edge1, edge2 := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
@@ -3979,7 +3979,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	require.Nil(t, err)
 
 	// Create an edge and add it to the db.
-	edgeInfo, e1, e2 := createChannelEdge(graph.db, node1, node2)
+	edgeInfo, e1, e2 := createChannelEdge(node1, node2)
 
 	// Because of lexigraphical sorting and the usage of random node keys in
 	// this test, we need to determine which edge belongs to node 1 at

@@ -110,7 +110,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		Alias:                "kek",
 		Features:             testFeatures,
 		Addresses:            testAddrs,
-		ExtraOpaqueData:      []byte("extra new data"),
+		ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
 		PubKeyBytes:          testPub,
 	}
 
@@ -631,9 +631,13 @@ func createChannelEdge(node1, node2 *models.LightningNode) (
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
-		ChannelPoint:    outpoint,
-		Capacity:        1000,
-		ExtraOpaqueData: []byte("new unknown feature"),
+		ChannelPoint: outpoint,
+		Capacity:     1000,
+		ExtraOpaqueData: []byte{
+			1, 1, 1,
+			2, 2, 2, 2,
+			3, 3, 3, 3, 3,
+		},
 	}
 	copy(edgeInfo.NodeKey1Bytes[:], firstNode[:])
 	copy(edgeInfo.NodeKey2Bytes[:], secondNode[:])

@@ -2950,6 +2950,12 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
+	// The update index only applies to the bbolt graph.
+	boltStore, ok := graph.V1Store.(*KVStore)
+	if !ok {
+		t.Skipf("skipping test that is aimed at a bbolt graph DB")
+	}
+
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -2999,7 +3005,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 			timestampSet[t] = struct{}{}
 		}
 
-		err := kvdb.View(graph.db, func(tx kvdb.RTx) error {
+		err := kvdb.View(boltStore.db, func(tx kvdb.RTx) error {
 			edges := tx.ReadBucket(edgeBucket)
 			if edges == nil {
 				return ErrGraphNoEdgesFound
@@ -3467,6 +3473,12 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
+	// This test currently directly edits the bytes stored in the bbolt DB.
+	boltStore, ok := graph.V1Store.(*KVStore)
+	if !ok {
+		t.Skipf("skipping test that is aimed at a bbolt graph DB")
+	}
+
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
@@ -3515,25 +3527,11 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 	// Attempting to deserialize these bytes should return an error.
 	r := bytes.NewReader(stripped)
-	err = kvdb.View(graph.db, func(tx kvdb.RTx) error {
-		nodes := tx.ReadBucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNotFound
-		}
-
-		_, err = deserializeChanEdgePolicy(r)
-		if err != ErrEdgePolicyOptionalFieldNotFound {
-			t.Fatalf("expected "+
-				"ErrEdgePolicyOptionalFieldNotFound, got %v",
-				err)
-		}
-
-		return nil
-	}, func() {})
-	require.NoError(t, err, "error reading db")
+	_, err = deserializeChanEdgePolicy(r)
+	require.ErrorIs(t, err, ErrEdgePolicyOptionalFieldNotFound)
 
 	// Put the stripped bytes in the DB.
-	err = kvdb.Update(graph.db, func(tx kvdb.RwTx) error {
+	err = kvdb.Update(boltStore.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {
 			return ErrEdgeNotFound

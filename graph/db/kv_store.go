@@ -196,6 +196,10 @@ type KVStore struct {
 	nodeScheduler batch.Scheduler
 }
 
+// A compile-time assertion to ensure that the KVStore struct implements the
+// V1Store interface.
+var _ V1Store = (*KVStore)(nil)
+
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
 func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,

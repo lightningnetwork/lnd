@@ -1471,8 +1471,40 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 			lncfg.SqliteNeutrinoDBName, lncfg.NSNeutrinoDB,
 		)
 
+	case cfg.DB.Backend == kvdb.PostgresBackendName:
+		// This code needs to be in place because we did not start
+		// the postgres backend for neutrino at the beginning. Now we
+		// are also moving it into the postgres backend so we can phase
+		// out the bolt backend.
+		dbName := filepath.Join(dbPath, lncfg.NeutrinoDBName)
+		// Check if the file exists, because we cannot start a new
+		// neutrino db before remove the old data associated with it.
+		exists := fileExists(dbName)
+		if exists {
+			ltndLog.Infof("Neutrino Bolt DB found, removing it and " +
+				"starting fresh with postgres")
+
+			// Remove the block_headers.bin file
+			blockHeadersPath := filepath.Join(
+				dbPath, "block_headers.bin")
+			regFilterHeadersPath := filepath.Join(
+				dbPath, "reg_filter_headers.bin")
+
+			os.Remove(blockHeadersPath)
+			os.Remove(regFilterHeadersPath)
+
+			// Remove the neutrino db.
+			os.Remove(dbName)
+		}
+
+		postgresConfig := lncfg.GetPostgresConfigKVDB(cfg.DB.Postgres)
+		db, err = kvdb.Open(
+			kvdb.PostgresBackendName, ctx, postgresConfig,
+			lncfg.NSNeutrinoDB,
+		)
+
 	default:
-		dbName := filepath.Join(dbPath, "neutrino.db")
+		dbName := filepath.Join(dbPath, lncfg.NeutrinoDBName)
 		db, err = walletdb.Create(
 			"bdb", dbName, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
 		)
@@ -1632,4 +1664,15 @@ func broadcastErrorMapper(err error) error {
 	}
 
 	return returnErr
+}
+
+// fileExists returns true if the file exists, and false otherwise.
+func fileExists(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return false
+		}
+	}
+
+	return true
 }

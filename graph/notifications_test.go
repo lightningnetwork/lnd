@@ -89,7 +89,7 @@ func createTestNode(t *testing.T) *models.LightningNode {
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
 		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub[:]),
+		Alias:                "kek" + hex.EncodeToString(pub),
 		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}

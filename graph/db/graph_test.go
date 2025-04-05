@@ -1217,26 +1217,15 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
 
-	err = graph.db.View(func(tx kvdb.RTx) error {
-		for _, node := range nodes {
-			err := graph.forEachNodeChannelTx(tx, node,
-				func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
-					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
-
-					delete(chanIndex, info.ChannelID)
-					return nil
-				},
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-
-	require.NoError(t, err)
+	for _, node := range nodes {
+		err = graph.ForEachNodeDirectedChannel(
+			node, func(d *DirectedChannel) error {
+				delete(chanIndex, d.ChannelID)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}
 	require.Len(t, chanIndex, 0)
 }
 

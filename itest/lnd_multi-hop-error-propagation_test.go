@@ -145,10 +145,10 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 		alice, lnrpc.Failure_INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS,
 	)
 
-	// assertAliceAndBob is a helper closure that asserts Alice and Bob
+	// updateAndAssertAliceAndBob is a helper closure that asserts Alice and Bob
 	// each has one forward and one forward fail event, and Bob has the
 	// final htlc fail event.
-	assertAliceAndBob := func() {
+	updateAndAssertAliceAndBob := func() {
 		ht.AssertHtlcEventTypes(
 			aliceEvents, routerrpc.HtlcEvent_SEND,
 			lntest.HtlcEventForward,
@@ -174,7 +174,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 
 	// We expect alice and bob to each have one forward and one forward
 	// fail event at this stage.
-	assertAliceAndBob()
+	updateAndAssertAliceAndBob()
 
 	// Carol should have a link failure because the htlc failed on her
 	// incoming link.
@@ -215,7 +215,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 
 	// We expect alice and bob to each have one forward and one forward
 	// fail event at this stage.
-	assertAliceAndBob()
+	updateAndAssertAliceAndBob()
 
 	// Carol should have a link failure because the htlc failed on her
 	// incoming link.

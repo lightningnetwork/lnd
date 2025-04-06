@@ -580,7 +580,7 @@ func TestDecideRBFInfo(t *testing.T) {
 }
 
 // TestMarkInputFatal checks that the input is marked as expected.
-func TestMarkInputFailed(t *testing.T) {
+func TestMarkInputFatal(t *testing.T) {
 	t.Parallel()
 
 	// Create a mock input.

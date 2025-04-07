@@ -270,7 +270,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			return nil, empty, err
 		}
 		backend, err := Open(
-			EtcdBackendName, context.TODO(), etcdConfig,
+			EtcdBackendName, context.Background(), etcdConfig,
 		)
 		return backend, cancel, err
 

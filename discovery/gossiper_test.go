@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	prand "math/rand"
@@ -993,7 +994,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		ScidCloser:            newMockScidCloser(isChanPeer),
 	}, selfKeyDesc)
 
-	if err := gossiper.Start(); err != nil {
+	if err := gossiper.Start(context.Background()); err != nil {
 		return nil, fmt.Errorf("unable to start router: %w", err)
 	}
 
@@ -1680,7 +1681,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		KeyLocator: ctx.gossiper.selfKeyLoc,
 	})
 	require.NoError(t, err, "unable to recreate gossiper")
-	if err := gossiper.Start(); err != nil {
+	if err := gossiper.Start(context.Background()); err != nil {
 		t.Fatalf("unable to start recreated gossiper: %v", err)
 	}
 	defer gossiper.Stop()
@@ -4756,7 +4757,9 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 		err:      errChan,
 	}
 
-	_, added := ctx.gossiper.handleChanAnnouncement(nMsg, edge)
+	_, added := ctx.gossiper.handleChanAnnouncement(
+		context.Background(), nMsg, edge,
+	)
 	require.False(t, added)
 
 	select {

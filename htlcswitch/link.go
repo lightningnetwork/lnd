@@ -3309,8 +3309,8 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
 
 	// Check whether the outgoing htlc satisfies the channel policy.
 	err := l.canSendHtlc(
-		policy, payHash, amtToForward, outgoingTimeout, heightNow,
-		originalScid, customRecords,
+		policy, payHash, amtToForward, incomingHtlcAmt, outgoingTimeout,
+		heightNow, originalScid, customRecords,
 	)
 	if err != nil {
 		return err
@@ -3357,7 +3357,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 	// trying to send over a local link. This causes the fallback mechanism
 	// to occur.
 	return l.canSendHtlc(
-		policy, payHash, amt, timeout, heightNow, hop.Source,
+		policy, payHash, amt, 0, timeout, heightNow, hop.Source,
 		customRecords,
 	)
 }
@@ -3365,7 +3365,7 @@ func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
 // canSendHtlc checks whether the given htlc parameters satisfy
 // the channel's amount and time lock constraints.
 func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
-	payHash [32]byte, amt lnwire.MilliSatoshi, timeout uint32,
+	payHash [32]byte, amt, incomingAmt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32, originalScid lnwire.ShortChannelID,
 	customRecords lnwire.CustomRecords) *LinkError {
 
@@ -3455,6 +3455,13 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 		auxBandwidth.Bandwidth.WhenSome(
 			func(bandwidth lnwire.MilliSatoshi) {
 				availableBandwidth = bandwidth
+
+				// If an aux bandwidth is reported for this link
+				// then we know that the satoshi amount of the
+				// HTLC may have been overwritten with an anchor
+				// amount. We use the incoming amount as
+				// reference for the check.
+				amt = incomingAmt
 			},
 		)
 	}

@@ -405,20 +405,22 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 
 // Start starts the GossipSyncer and any goroutines that it needs to carry out
 // its duties.
-func (g *GossipSyncer) Start() {
+func (g *GossipSyncer) Start(ctx context.Context) {
 	g.started.Do(func() {
 		log.Debugf("Starting GossipSyncer(%x)", g.cfg.peerPub[:])
+
+		ctx, _ := g.cg.Create(ctx)
 
 		// TODO(conner): only spawn channelGraphSyncer if remote
 		// supports gossip queries, and only spawn replyHandler if we
 		// advertise support
 		if !g.cfg.noSyncChannels {
 			g.cg.WgAdd(1)
-			go g.channelGraphSyncer()
+			go g.channelGraphSyncer(ctx)
 		}
 		if !g.cfg.noReplyQueries {
 			g.cg.WgAdd(1)
-			go g.replyHandler()
+			go g.replyHandler(ctx)
 		}
 	})
 }
@@ -437,9 +439,11 @@ func (g *GossipSyncer) Stop() {
 // handleSyncingChans handles the state syncingChans for the GossipSyncer. When
 // in this state, we will send a QueryChannelRange msg to our peer and advance
 // the syncer's state to waitingQueryRangeReply.
-func (g *GossipSyncer) handleSyncingChans() {
+func (g *GossipSyncer) handleSyncingChans(ctx context.Context) {
 	// Prepare the query msg.
-	queryRangeMsg, err := g.genChanRangeQuery(g.genHistoricalChanRangeQuery)
+	queryRangeMsg, err := g.genChanRangeQuery(
+		ctx, g.genHistoricalChanRangeQuery,
+	)
 	if err != nil {
 		log.Errorf("Unable to gen chan range query: %v", err)
 		return
@@ -456,7 +460,6 @@ func (g *GossipSyncer) handleSyncingChans() {
 
 	// Send the msg to the remote peer, which is non-blocking as
 	// `sendToPeer` only queues the msg in Brontide.
-	ctx, _ := g.cg.Create(context.Background())
 	err = g.cfg.sendToPeer(ctx, queryRangeMsg)
 	if err != nil {
 		log.Errorf("Unable to send chan range query: %v", err)
@@ -471,7 +474,7 @@ func (g *GossipSyncer) handleSyncingChans() {
 // channelGraphSyncer is the main goroutine responsible for ensuring that we
 // properly channel graph state with the remote peer, and also that we only
 // send them messages which actually pass their defined update horizon.
-func (g *GossipSyncer) channelGraphSyncer() {
+func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 	defer g.cg.WgDone()
 
 	for {
@@ -488,7 +491,7 @@ func (g *GossipSyncer) channelGraphSyncer() {
 		// understand, as we'll as responding to any other queries by
 		// them.
 		case syncingChans:
-			g.handleSyncingChans()
+			g.handleSyncingChans(ctx)
 
 		// In this state, we've sent out our initial channel range
 		// query and are waiting for the final response from the remote
@@ -507,7 +510,9 @@ func (g *GossipSyncer) channelGraphSyncer() {
 				// for the new channels.
 				queryReply, ok := msg.(*lnwire.ReplyChannelRange)
 				if ok {
-					err := g.processChanRangeReply(queryReply)
+					err := g.processChanRangeReply(
+						ctx, queryReply,
+					)
 					if err != nil {
 						log.Errorf("Unable to "+
 							"process chan range "+
@@ -630,13 +635,13 @@ func (g *GossipSyncer) channelGraphSyncer() {
 // from the state machine maintained on the same node.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (g *GossipSyncer) replyHandler() {
+func (g *GossipSyncer) replyHandler(ctx context.Context) {
 	defer g.cg.WgDone()
 
 	for {
 		select {
 		case msg := <-g.queryMsgs:
-			err := g.replyPeerQueries(msg)
+			err := g.replyPeerQueries(ctx, msg)
 			switch {
 			case err == ErrGossipSyncerExiting:
 				return
@@ -759,7 +764,9 @@ func isLegacyReplyChannelRange(query *lnwire.QueryChannelRange,
 // processChanRangeReply is called each time the GossipSyncer receives a new
 // reply to the initial range query to discover new channels that it didn't
 // previously know of.
-func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) error {
+func (g *GossipSyncer) processChanRangeReply(_ context.Context,
+	msg *lnwire.ReplyChannelRange) error {
+
 	// isStale returns whether the timestamp is too far into the past.
 	isStale := func(timestamp time.Time) bool {
 		return time.Since(timestamp) > graph.DefaultChannelPruneExpiry
@@ -948,7 +955,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 // party when we're kicking off the channel graph synchronization upon
 // connection. The historicalQuery boolean can be used to generate a query from
 // the genesis block of the chain.
-func (g *GossipSyncer) genChanRangeQuery(
+func (g *GossipSyncer) genChanRangeQuery(_ context.Context,
 	historicalQuery bool) (*lnwire.QueryChannelRange, error) {
 
 	// First, we'll query our channel graph time series for its highest
@@ -1005,18 +1012,20 @@ func (g *GossipSyncer) genChanRangeQuery(
 
 // replyPeerQueries is called in response to any query by the remote peer.
 // We'll examine our state and send back our best response.
-func (g *GossipSyncer) replyPeerQueries(msg lnwire.Message) error {
+func (g *GossipSyncer) replyPeerQueries(ctx context.Context,
+	msg lnwire.Message) error {
+
 	switch msg := msg.(type) {
 
 	// In this state, we'll also handle any incoming channel range queries
 	// from the remote peer as they're trying to sync their state as well.
 	case *lnwire.QueryChannelRange:
-		return g.replyChanRangeQuery(msg)
+		return g.replyChanRangeQuery(ctx, msg)
 
 	// If the remote peer skips straight to requesting new channels that
 	// they don't know of, then we'll ensure that we also handle this case.
 	case *lnwire.QueryShortChanIDs:
-		return g.replyShortChanIDs(msg)
+		return g.replyShortChanIDs(ctx, msg)
 
 	default:
 		return fmt.Errorf("unknown message: %T", msg)
@@ -1028,7 +1037,9 @@ func (g *GossipSyncer) replyPeerQueries(msg lnwire.Message) error {
 // meet the channel range, then chunk our responses to the remote node. We also
 // ensure that our final fragment carries the "complete" bit to indicate the
 // end of our streaming response.
-func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) error {
+func (g *GossipSyncer) replyChanRangeQuery(_ context.Context,
+	query *lnwire.QueryChannelRange) error {
+
 	// Before responding, we'll check to ensure that the remote peer is
 	// querying for the same chain that we're on. If not, we'll send back a
 	// response with a complete value of zero to indicate we're on a
@@ -1209,7 +1220,9 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 // node for information concerning a set of short channel ID's. Our response
 // will be sent in a streaming chunked manner to ensure that we remain below
 // the current transport level message size.
-func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error {
+func (g *GossipSyncer) replyShortChanIDs(ctx context.Context,
+	query *lnwire.QueryShortChanIDs) error {
+
 	// Before responding, we'll check to ensure that the remote peer is
 	// querying for the same chain that we're on. If not, we'll send back a
 	// response with a complete value of zero to indicate we're on a
@@ -1218,8 +1231,6 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 		log.Warnf("Remote peer requested QueryShortChanIDs for "+
 			"chain=%v, we're on chain=%v", query.ChainHash,
 			g.cfg.chainHash)
-
-		ctx, _ := g.cg.Create(context.Background())
 
 		return g.cfg.sendToPeerSync(ctx, &lnwire.ReplyShortChanIDsEnd{
 			ChainHash: query.ChainHash,
@@ -1261,8 +1272,6 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 
 	// Regardless of whether we had any messages to reply with, send over
 	// the sentinel message to signal that the stream has terminated.
-	ctx, _ := g.cg.Create(context.Background())
-
 	return g.cfg.sendToPeerSync(ctx, &lnwire.ReplyShortChanIDsEnd{
 		ChainHash: query.ChainHash,
 		Complete:  1,
@@ -1272,7 +1281,9 @@ func (g *GossipSyncer) replyShortChanIDs(query *lnwire.QueryShortChanIDs) error 
 // ApplyGossipFilter applies a gossiper filter sent by the remote node to the
 // state machine. Once applied, we'll ensure that we don't forward any messages
 // to the peer that aren't within the time range of the filter.
-func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) error {
+func (g *GossipSyncer) ApplyGossipFilter(_ context.Context,
+	filter *lnwire.GossipTimestampRange) error {
+
 	g.Lock()
 
 	g.remoteUpdateHorizon = filter
@@ -1351,7 +1362,9 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 // FilterGossipMsgs takes a set of gossip messages, and only send it to a peer
 // iff the message is within the bounds of their set gossip filter. If the peer
 // doesn't have a gossip filter set, then no messages will be forwarded.
-func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
+func (g *GossipSyncer) FilterGossipMsgs(_ context.Context,
+	msgs ...msgWithSenders) {
+
 	// If the peer doesn't have an update horizon set, then we won't send
 	// it any new update messages.
 	if g.remoteUpdateHorizon == nil {

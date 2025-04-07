@@ -55,6 +55,7 @@ func setupTestRootKeyStorage(t *testing.T) kvdb.Backend {
 // TestNewService tests the creation of the macaroon service.
 func TestNewService(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
@@ -74,13 +75,13 @@ func TestNewService(t *testing.T) {
 	require.NoError(t, err, "Error unlocking root key storage")
 
 	// Third, check if the created service can bake macaroons.
-	_, err = service.NewMacaroon(context.TODO(), nil, testOperation)
+	_, err = service.NewMacaroon(ctx, nil, testOperation)
 	if err != macaroons.ErrMissingRootKeyID {
 		t.Fatalf("Received %v instead of ErrMissingRootKeyID", err)
 	}
 
 	macaroon, err := service.NewMacaroon(
-		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
+		ctx, macaroons.DefaultRootKeyID, testOperation,
 	)
 	require.NoError(t, err, "Error creating macaroon from service")
 	if macaroon.Namespace().String() != "std:" {
@@ -108,6 +109,7 @@ func TestNewService(t *testing.T) {
 // incoming context.
 func TestValidateMacaroon(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, initialize the service and unlock it.
 	db := setupTestRootKeyStorage(t)
@@ -124,7 +126,7 @@ func TestValidateMacaroon(t *testing.T) {
 
 	// Then, create a new macaroon that we can serialize.
 	macaroon, err := service.NewMacaroon(
-		context.TODO(), macaroons.DefaultRootKeyID, testOperation,
+		ctx, macaroons.DefaultRootKeyID, testOperation,
 		testOperationURI,
 	)
 	require.NoError(t, err, "Error creating macaroon from service")
@@ -136,7 +138,7 @@ func TestValidateMacaroon(t *testing.T) {
 	md := metadata.New(map[string]string{
 		"macaroon": hex.EncodeToString(macaroonBinary),
 	})
-	mockContext := metadata.NewIncomingContext(context.Background(), md)
+	mockContext := metadata.NewIncomingContext(ctx, md)
 
 	// Finally, validate the macaroon against the required permissions.
 	err = service.ValidateMacaroon(
@@ -155,6 +157,7 @@ func TestValidateMacaroon(t *testing.T) {
 // TestListMacaroonIDs checks that ListMacaroonIDs returns the expected result.
 func TestListMacaroonIDs(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
@@ -176,12 +179,12 @@ func TestListMacaroonIDs(t *testing.T) {
 	// Third, make 3 new macaroons with different root key IDs.
 	expectedIDs := [][]byte{{1}, {2}, {3}}
 	for _, v := range expectedIDs {
-		_, err := service.NewMacaroon(context.TODO(), v, testOperation)
+		_, err := service.NewMacaroon(ctx, v, testOperation)
 		require.NoError(t, err, "Error creating macaroon from service")
 	}
 
 	// Finally, check that calling List return the expected values.
-	ids, _ := service.ListMacaroonIDs(context.TODO())
+	ids, _ := service.ListMacaroonIDs(ctx)
 	require.Equal(t, expectedIDs, ids, "root key IDs mismatch")
 }
 

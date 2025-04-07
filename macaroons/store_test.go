@@ -58,12 +58,15 @@ func openTestStore(t *testing.T, tempDir string) *macaroons.RootKeyStorage {
 // TestStore tests the normal use cases of the store like creating, unlocking,
 // reading keys and closing it.
 func TestStore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
 	tempDir, store := newTestStore(t)
 
-	_, _, err := store.RootKey(context.TODO())
+	_, _, err := store.RootKey(ctx)
 	require.Equal(t, macaroons.ErrStoreLocked, err)
 
-	_, err = store.Get(context.TODO(), nil)
+	_, err = store.Get(ctx, nil)
 	require.Equal(t, macaroons.ErrStoreLocked, err)
 
 	pw := []byte("weks")
@@ -72,18 +75,18 @@ func TestStore(t *testing.T) {
 
 	// Check ErrContextRootKeyID is returned when no root key ID found in
 	// context.
-	_, _, err = store.RootKey(context.TODO())
+	_, _, err = store.RootKey(ctx)
 	require.Equal(t, macaroons.ErrContextRootKeyID, err)
 
 	// Check ErrMissingRootKeyID is returned when empty root key ID is used.
 	emptyKeyID := make([]byte, 0)
-	badCtx := macaroons.ContextWithRootKeyID(context.TODO(), emptyKeyID)
+	badCtx := macaroons.ContextWithRootKeyID(ctx, emptyKeyID)
 	_, _, err = store.RootKey(badCtx)
 	require.Equal(t, macaroons.ErrMissingRootKeyID, err)
 
 	// Create a context with illegal root key ID value.
 	encryptedKeyID := []byte("enckey")
-	badCtx = macaroons.ContextWithRootKeyID(context.TODO(), encryptedKeyID)
+	badCtx = macaroons.ContextWithRootKeyID(ctx, encryptedKeyID)
 	_, _, err = store.RootKey(badCtx)
 	require.Equal(t, macaroons.ErrKeyValueForbidden, err)
 

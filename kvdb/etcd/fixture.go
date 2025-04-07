@@ -76,7 +76,7 @@ func (f *EtcdTestFixture) NewBackend(singleWriter bool) walletdb.DB {
 		cfg.SingleWriter = true
 	}
 
-	db, err := newEtcdBackend(context.TODO(), cfg)
+	db, err := newEtcdBackend(context.Background(), cfg)
 	require.NoError(f.t, err)
 
 	return db
@@ -84,7 +84,9 @@ func (f *EtcdTestFixture) NewBackend(singleWriter bool) walletdb.DB {
 
 // Put puts a string key/value into the test etcd database.
 func (f *EtcdTestFixture) Put(key, value string) {
-	ctx, cancel := context.WithTimeout(context.TODO(), testEtcdTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.Background(), testEtcdTimeout,
+	)
 	defer cancel()
 
 	_, err := f.cli.Put(ctx, key, value)
@@ -95,7 +97,9 @@ func (f *EtcdTestFixture) Put(key, value string) {
 
 // Get queries a key and returns the stored value from the test etcd database.
 func (f *EtcdTestFixture) Get(key string) string {
-	ctx, cancel := context.WithTimeout(context.TODO(), testEtcdTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.Background(), testEtcdTimeout,
+	)
 	defer cancel()
 
 	resp, err := f.cli.Get(ctx, key)
@@ -112,7 +116,9 @@ func (f *EtcdTestFixture) Get(key string) string {
 
 // Dump scans and returns all key/values from the test etcd database.
 func (f *EtcdTestFixture) Dump() map[string]string {
-	ctx, cancel := context.WithTimeout(context.TODO(), testEtcdTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.Background(), testEtcdTimeout,
+	)
 	defer cancel()
 
 	resp, err := f.cli.Get(ctx, "\x00", clientv3.WithFromKey())

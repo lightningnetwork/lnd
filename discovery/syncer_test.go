@@ -454,7 +454,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	}()
 
 	// We'll now attempt to apply the gossip filter for the remote peer.
-	syncer.ApplyGossipFilter(ctx, remoteHorizon)
+	require.NoError(t, syncer.ApplyGossipFilter(ctx, remoteHorizon))
 
 	// Ensure that the syncer's remote horizon was properly updated.
 	if !reflect.DeepEqual(syncer.remoteUpdateHorizon, remoteHorizon) {

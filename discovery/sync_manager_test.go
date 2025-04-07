@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"reflect"
@@ -82,7 +83,7 @@ func TestSyncManagerNumActiveSyncers(t *testing.T) {
 	}
 
 	syncMgr := newPinnedTestSyncManager(numActiveSyncers, pinnedSyncers)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// First we'll start by adding the pinned syncers. These should
@@ -134,7 +135,7 @@ func TestSyncManagerNewActiveSyncerAfterDisconnect(t *testing.T) {
 
 	// We'll create our test sync manager to have two active syncers.
 	syncMgr := newTestSyncManager(2)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// The first will be an active syncer that performs a historical sync
@@ -187,7 +188,7 @@ func TestSyncManagerRotateActiveSyncerCandidate(t *testing.T) {
 
 	// We'll create our sync manager with three active syncers.
 	syncMgr := newTestSyncManager(1)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// The first syncer registered always performs a historical sync.
@@ -235,7 +236,7 @@ func TestSyncManagerNoInitialHistoricalSync(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(0)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We should not expect any messages from the peer.
@@ -269,7 +270,7 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 		t.Fatal("expected graph to not be considered as synced")
 	}
 
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We should expect to see a QueryChannelRange message with a
@@ -338,7 +339,7 @@ func TestSyncManagerHistoricalSyncOnReconnect(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(2)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We should expect to see a QueryChannelRange message with a
@@ -372,7 +373,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(1)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We should expect to see a QueryChannelRange message with a
@@ -410,7 +411,7 @@ func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	t.Parallel()
 
 	syncMgr := newTestSyncManager(1)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We should expect to see a QueryChannelRange message with a
@@ -468,7 +469,7 @@ func TestSyncManagerWaitUntilInitialHistoricalSync(t *testing.T) {
 	// We'll start by creating our test sync manager which will hold up to
 	// 2 active syncers.
 	syncMgr := newTestSyncManager(numActiveSyncers)
-	syncMgr.Start()
+	syncMgr.Start(context.Background())
 	defer syncMgr.Stop()
 
 	// We'll go ahead and create our syncers.

@@ -602,11 +602,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		NotifyWhenOnline:  cfg.NotifyWhenOnline,
 		NotifyWhenOffline: cfg.NotifyWhenOffline,
 		MessageStore:      cfg.MessageStore,
-		IsMsgStale: func(message lnwire.Message) bool {
-			ctx := context.TODO()
-
-			return gossiper.isMsgStale(ctx, message)
-		},
+		IsMsgStale:        gossiper.isMsgStale,
 	})
 
 	return gossiper
@@ -678,7 +674,7 @@ func (d *AuthenticatedGossiper) start(ctx context.Context) error {
 	// Start the reliable sender. In case we had any pending messages ready
 	// to be sent when the gossiper was last shut down, we must continue on
 	// our quest to deliver them to their respective peers.
-	if err := d.reliableSender.Start(); err != nil {
+	if err := d.reliableSender.Start(ctx); err != nil {
 		return err
 	}
 
@@ -1889,7 +1885,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(ctx context.Context,
 				edgeInfo.Info, chanUpdate.ChannelFlags,
 			)
 			err := d.reliableSender.sendMessage(
-				chanUpdate, remotePubKey,
+				ctx, chanUpdate, remotePubKey,
 			)
 			if err != nil {
 				log.Errorf("Unable to reliably send %v for "+
@@ -3333,7 +3329,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		// Now we'll attempt to send the channel update message
 		// reliably to the remote peer in the background, so that we
 		// don't block if the peer happens to be offline at the moment.
-		err := d.reliableSender.sendMessage(upd, remotePubKey)
+		err := d.reliableSender.sendMessage(ctx, upd, remotePubKey)
 		if err != nil {
 			err := fmt.Errorf("unable to reliably send %v for "+
 				"channel=%v to peer=%x: %v", upd.MsgType(),
@@ -3470,7 +3466,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		// Since the remote peer might not be online we'll call a
 		// method that will attempt to deliver the proof when it comes
 		// online.
-		err := d.reliableSender.sendMessage(ann, remotePubKey)
+		err := d.reliableSender.sendMessage(ctx, ann, remotePubKey)
 		if err != nil {
 			err := fmt.Errorf("unable to reliably send %v for "+
 				"channel=%v to peer=%x: %v", ann.MsgType(),

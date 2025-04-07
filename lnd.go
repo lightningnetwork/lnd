@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/rpcperms"
@@ -346,7 +347,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Create a new RPC interceptor that we'll add to the GRPC server. This
 	// will be used to log the API calls invoked on the GRPC server.
 	interceptorChain := rpcperms.NewInterceptorChain(
-		rpcsLog, cfg.NoMacaroons, cfg.RPCMiddleware.Mandatory,
+		rpcsLog, cfg.NoMacaroons, cfg.WatchOnlyNode.Enable,
+		cfg.RPCMiddleware.Mandatory,
 	)
 	if err := interceptorChain.Start(); err != nil {
 		return mkErr("error starting interceptor chain", err)
@@ -502,6 +504,56 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	defer cleanUp()
 
+	// Prepare the sub-servers, and insert the permissions required to
+	// access them into the interceptor chain. Note that we do not yet have
+	// all dependencies required to use all sub-servers, but we need be able
+	// to allow a remote signer to connect to lnd before we can derive the
+	// keys create the required dependencies.
+	err = rpcServer.prepareSubServers(
+		interceptorChain.MacaroonService(), cfg.SubRPCServers,
+		activeChainControl,
+	)
+	if err != nil {
+		return mkErr("error adding sub server permissions", err)
+	}
+
+	defer func() {
+		err := rpcServer.Stop()
+		if err != nil {
+			ltndLog.Errorf("Error stopping the RPC server", err)
+		}
+	}()
+
+	// To ensure that a potential remote signer can connect to lnd before we
+	// can handle other requests, we set the interceptor chain to be ready
+	// accept remote signer connections, if enabled by the cfg.
+	if cfg.RemoteSigner.AllowInboundConnection {
+		interceptorChain.SetAllowRemoteSigner()
+	}
+
+	// We'll wait until the wallet is fully ready to be used before we
+	// proceed to derive keys from it.
+	select {
+	case err = <-activeChainControl.Wallet.WalletController.ReadySignal(
+		ctx,
+	):
+
+		if err != nil {
+			return mkErr("error when waiting for wallet to be "+
+				"ready", err)
+		}
+
+	case <-interceptor.ShutdownChannel():
+		// If we receive a shutdown signal while waiting for the wallet
+		// to be ready, we must stop blocking so that all the deferred
+		// clean up functions can be executed. That will also shut down
+		// the wallet.
+		// We can't continue to execute the code below as we can't
+		// do any operations which requires private keys.
+		return mkErr("Shutting down", errors.New("shutdown signal "+
+			"received while waiting for wallet to be ready"))
+	}
+
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(
 		keychain.KeyLocator{
@@ -623,13 +675,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		multiAcceptor = chanacceptor.NewChainedAcceptor()
 	}
 
+	// Set up the remote signer client. If cfg.WatchOnlyNode.Enable isn't
+	// set to true, this remote signer client won't run when the server
+	// starts.
+	rscBuilder := rpcwallet.NewRemoteSignerClientBuilder(cfg.WatchOnlyNode)
+
+	rsClient, err := rscBuilder.Build(rpcServer.subServers)
+	if err != nil {
+		return mkErr("unable to create remote signer client", err)
+	}
+
 	// Set up the core server which will listen for incoming peer
 	// connections.
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
 		multiAcceptor, torController, tlsManager, leaderElector,
-		implCfg,
+		implCfg, rsClient,
 	)
 	if err != nil {
 		return mkErr("unable to create server", err)
@@ -660,8 +722,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to load permanent TLS certificate", err)
 	}
 
-	// Now we have created all dependencies necessary to populate and
-	// start the RPC server.
+	// Now we have created all dependencies necessary to be able to use all
+	// sub-servers, so we add the dependencies to the sub-servers.
 	err = rpcServer.addDeps(
 		server, interceptorChain.MacaroonService(), cfg.SubRPCServers,
 		atplManager, server.invoices, tower, multiAcceptor,
@@ -670,12 +732,9 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	if err != nil {
 		return mkErr("unable to add deps to RPC server", err)
 	}
-	if err := rpcServer.Start(); err != nil {
-		return mkErr("unable to start RPC server", err)
-	}
-	defer rpcServer.Stop()
 
-	// We transition the RPC state to Active, as the RPC server is up.
+	// We transition the RPC state to Active, as the sub-servers are now
+	// ready to be used.
 	interceptorChain.SetRPCActive()
 
 	if err := interceptor.Notifier.NotifyReady(true); err != nil {

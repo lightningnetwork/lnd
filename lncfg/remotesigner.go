@@ -6,39 +6,187 @@ import (
 )
 
 const (
-	// DefaultRemoteSignerRPCTimeout is the default timeout that is used
-	// when forwarding a request to the remote signer through RPC.
+	// DefaultRemoteSignerRPCTimeout is the default connection timeout
+	// that is used when connecting to the remote signer or watch-only node
+	// through RPC.
 	DefaultRemoteSignerRPCTimeout = 5 * time.Second
+
+	// DefaultRequestTimeout is the default timeout used for requests to and
+	// from the remote signer.
+	DefaultRequestTimeout = 5 * time.Second
+
+	// DefaultStartupTimeout is the default startup timeout used when a
+	// watch-only node with 'remotesigner.allowinboundconnection' set to
+	// true waits for the remote signer to connect.
+	DefaultStartupTimeout = 5 * time.Minute
 )
 
-// RemoteSigner holds the configuration options for a remote RPC signer.
+// RemoteSigner holds the configuration options for how to connect to a remote
+// signer. Only a watch-only node specifies this config.
 //
 //nolint:ll
 type RemoteSigner struct {
-	Enable           bool          `long:"enable" description:"Use a remote signer for signing any on-chain related transactions or messages. Only recommended if local wallet is initialized as watch-only. Remote signer must use the same seed/root key as the local watch-only wallet but must have private keys."`
-	RPCHost          string        `long:"rpchost" description:"The remote signer's RPC host:port"`
-	MacaroonPath     string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer"`
-	TLSCertPath      string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's identity"`
-	Timeout          time.Duration `long:"timeout" description:"The timeout for connecting to and signing requests with the remote signer. Valid time units are {s, m, h}."`
-	MigrateWatchOnly bool          `long:"migrate-wallet-to-watch-only" description:"If a wallet with private key material already exists, migrate it into a watch-only wallet on first startup. WARNING: This cannot be undone! Make sure you have backed up your seed before you use this flag! All private keys will be purged from the wallet after first unlock with this flag!"`
+	// Enable signals if this node is a watch-only node in a remote signer
+	// setup.
+	Enable bool `long:"enable" description:"Use a remote signer for signing any on-chain related transactions or messages. Only recommended if local wallet is initialized as watch-only. Remote signer must use the same seed/root key as the local watch-only wallet but must have private keys."`
+
+	// AllowInboundConnection is true if the remote signer node will connect
+	// to this node.
+	AllowInboundConnection bool `long:"allowinboundconnection" description:"Signals that we allow an inbound connection from a remote signer to this node."`
+
+	// MigrateWatchOnly migrates the wallet to a watch-only wallet by
+	// purging all private keys from the wallet after first unlock with this
+	// flag.
+	MigrateWatchOnly bool `long:"migrate-wallet-to-watch-only" description:"If a wallet with private key material already exists, migrate it into a watch-only wallet on first startup. WARNING: This cannot be undone! Make sure you have backed up your seed before you use this flag! All private keys will be purged from the wallet after first unlock with this flag!"`
+
+	// ConnectionCfg holds the connection configuration options that the
+	// watch-only node will use when setting up the connection to the remote
+	// signer.
+	ConnectionCfg
+
+	// inboundWatchOnlyCfg holds the configuration options specifically
+	// used when the watch-only node expects an inbound connection from
+	// the remote signer.
+	inboundWatchOnlyCfg
+}
+
+// DefaultRemoteSignerCfg returns the default RemoteSigner config.
+func DefaultRemoteSignerCfg() *RemoteSigner {
+	return &RemoteSigner{
+		Enable:                 false,
+		AllowInboundConnection: false,
+		ConnectionCfg:          defaultConnectionCfg(),
+		inboundWatchOnlyCfg: inboundWatchOnlyCfg{
+			StartupTimeout: DefaultStartupTimeout,
+		},
+	}
 }
 
 // Validate checks the values configured for our remote RPC signer.
 func (r *RemoteSigner) Validate() error {
-	if !r.Enable {
-		return nil
-	}
-
-	if r.Timeout < time.Millisecond {
-		return fmt.Errorf("remote signer: timeout of %v is invalid, "+
-			"cannot be smaller than %v", r.Timeout,
-			time.Millisecond)
-	}
-
 	if r.MigrateWatchOnly && !r.Enable {
 		return fmt.Errorf("remote signer: cannot turn on wallet " +
 			"migration to watch-only if remote signing is not " +
 			"enabled")
+	}
+
+	if !r.Enable {
+		return nil
+	}
+
+	if r.AllowInboundConnection {
+		if r.StartupTimeout < time.Second {
+			return fmt.Errorf("remotesigner.startuptimeout of "+
+				"%v is invalid, cannot be smaller than %v",
+				r.Timeout, time.Second)
+		}
+
+		return nil
+	}
+
+	// Else, we are in outbound mode, so we verify the connection config.
+	err := r.ConnectionCfg.Validate()
+	if err != nil {
+		return fmt.Errorf("remotesigner.%w", err)
+	}
+
+	return nil
+}
+
+// inboundWatchOnlyCfg holds the configuration options specific for watch-only
+// nodes with the allowinboundconnection` option set.
+//
+//nolint:ll
+type inboundWatchOnlyCfg struct {
+	StartupTimeout time.Duration `long:"startuptimeout" description:"The time the watch-only node will wait for the remote signer to connect during startup. If the timeout expires before the remote signer connects, the watch-only node will shut down. Valid time units are {s, m, h}."`
+}
+
+// WatchOnlyNode holds the configuration options for how to connect to a watch
+// only node. Only a signer node specifies this config.
+//
+//nolint:ll
+type WatchOnlyNode struct {
+	// Enable signals if this node a signer node and is expected to connect
+	// to a watch-only node.
+	Enable bool `long:"enable" description:"Signals that this node functions as a remote signer that will to connect with a watch-only node."`
+
+	// AllowInboundConnection is true if the watch-only node will connect
+	// to this node.
+	AllowInboundConnection bool `long:"allowinboundconnection" description:"Signals that we allow an inbound connection from a watch-only node to this node."`
+
+	// ConnectionCfg holds the connection configuration options that the
+	// remote signer node will use when setting up the connection to the
+	// watch-only node, when the `AllowInboundConnection` option is set to
+	// false.
+	ConnectionCfg
+}
+
+// DefaultWatchOnlyNodeCfg returns the default WatchOnlyNode config.
+func DefaultWatchOnlyNodeCfg() *WatchOnlyNode {
+	return &WatchOnlyNode{
+		Enable:                 false,
+		AllowInboundConnection: false,
+		ConnectionCfg:          defaultConnectionCfg(),
+	}
+}
+
+// Validate checks the values set in the WatchOnlyNode config are valid.
+func (w *WatchOnlyNode) Validate() error {
+	if !w.Enable {
+		return nil
+	}
+
+	err := w.ConnectionCfg.Validate()
+	if err != nil {
+		return fmt.Errorf("watchonlynode.%w", err)
+	}
+
+	return nil
+}
+
+// ConnectionCfg holds the configuration options required when setting up a
+// connection to either a remote signer or watch-only node, depending on which
+// side makes the outbound connection.
+//
+//nolint:ll
+type ConnectionCfg struct {
+	RPCHost        string        `long:"rpchost" description:"The RPC host:port of the remote signer or watch-only node. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's RPC host:port. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's RPC host:port."`
+	MacaroonPath   string        `long:"macaroonpath" description:"The macaroon to use for authenticating with the remote signer or the watch-only node. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's macaroon. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's macaroon."`
+	TLSCertPath    string        `long:"tlscertpath" description:"The TLS certificate to use for establishing the remote signer's or watch-only node's identity. For watch-only nodes with 'remotesigner.allowinboundconnection' set to false (the default value if not specifically set), this should be set to the remote signer's TLS certificate. For remote signer nodes connecting to a watch-only node with 'remotesigner.allowinboundconnection' set to true, this should be set to the watch-only node's TLS certificate."`
+	Timeout        time.Duration `long:"timeout" description:"The timeout for making the connection to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
+	RequestTimeout time.Duration `long:"requesttimeout" description:"The time we will wait when making requests to the remote signer or watch-only node, depending on whether the node acts as a watch-only node or a signer. Valid time units are {s, m, h}."`
+}
+
+// defaultConnectionCfg returns the default ConnectionCfg config.
+func defaultConnectionCfg() ConnectionCfg {
+	return ConnectionCfg{
+		Timeout:        DefaultRemoteSignerRPCTimeout,
+		RequestTimeout: DefaultRequestTimeout,
+	}
+}
+
+// Validate checks the values set in the ConnectionCfg config are valid.
+func (c *ConnectionCfg) Validate() error {
+	if c.Timeout < time.Millisecond {
+		return fmt.Errorf("timeout of %v is invalid, cannot be "+
+			"smaller than %v", c.Timeout, time.Millisecond)
+	}
+
+	if c.RequestTimeout < time.Second {
+		return fmt.Errorf("requesttimeout of %v is invalid, cannot "+
+			"be smaller than %v", c.RequestTimeout, time.Second)
+	}
+
+	if c.RPCHost == "" {
+		return fmt.Errorf("rpchost must be set")
+	}
+
+	if c.MacaroonPath == "" {
+		return fmt.Errorf("macaroonpath must be set")
+	}
+
+	if c.TLSCertPath == "" {
+		return fmt.Errorf("tlscertpath must be set")
 	}
 
 	return nil

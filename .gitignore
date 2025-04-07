@@ -26,6 +26,8 @@ _testmain.go
 
 /lnd
 /lnd-debug
+/lndsigner
+/lndsigner-debug
 /lncli
 /lncli-debug
 /lnd-itest

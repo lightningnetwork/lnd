@@ -638,12 +638,14 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 			RootKey: privKey,
 			Utxos:   tc.utxos,
 		}
-		rpcServer, _, err := New(&Config{
+		rpcServer, _, err := New()
+		require.NoError(t, err)
+
+		rpcServer.cfg = &Config{
 			Wallet:                walletMock,
 			CoinSelectionLocker:   &mockCoinSelectionLocker{},
 			CoinSelectionStrategy: wallet.CoinSelectionLargest,
-		})
-		require.NoError(t, err)
+		}
 
 		t.Run(tc.name, func(tt *testing.T) {
 			// To avoid our packet being mutated, we'll make a deep

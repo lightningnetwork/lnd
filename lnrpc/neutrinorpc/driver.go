@@ -9,12 +9,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-// createNewSubServer is a helper method that will create the new sub server
-// given the main config dispatcher method. If we're unable to find the config
+// getConfig is a helper method that will fetch the config for sub-server given
+// the main config dispatcher method. If we're unable to find the config
 // that is meant for us in the config dispatcher, then we'll exit with an
-// error.
-func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
-	*Server, lnrpc.MacaroonPerms, error) {
+// error. If enforceDependencies is set to true, the function also verifies that
+// the dependencies in the config are properly set.
+func getConfig(configRegistry lnrpc.SubServerConfigDispatcher,
+	enforceDependencies bool) (*Config, error) {
 
 	// We'll attempt to look up the config that we expect, according to our
 	// subServerName name. If we can't find this, then we'll exit with an
@@ -22,20 +23,32 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	// config.
 	subServerConf, ok := configRegistry.FetchConfig(subServerName)
 	if !ok {
-		return nil, nil, fmt.Errorf("unable to find config for "+
-			"subserver type %s", subServerName)
+		return nil, fmt.Errorf("unable to find config for subserver "+
+			"type %s", subServerName)
 	}
 
 	// Now that we've found an object mapping to our service name, we'll
 	// ensure that it's the type we need.
 	config, ok := subServerConf.(*Config)
 	if !ok {
-		return nil, nil, fmt.Errorf("wrong type of config for "+
-			"subserver %s, expected %T got %T", subServerName,
-			&Config{}, subServerConf)
+		return nil, fmt.Errorf("wrong type of config for subserver "+
+			"%s, expected %T got %T", subServerName, &Config{},
+			subServerConf)
 	}
 
-	return New(config)
+	if enforceDependencies {
+		if err := verifyDependencies(config); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+// verifyDependencies ensures that the dependencies in the config are properly
+// set.
+func verifyDependencies(_ *Config) error {
+	return nil
 }
 
 func init() {

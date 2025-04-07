@@ -43,6 +43,11 @@ const (
 	// RPC server is not yet ready.
 	walletUnlocked
 
+	// allowRemoteSigner means that the wallet is unlocked, and that we're
+	// waiting for the remote signer to connect before proceeding. Only
+	// rpc calls to connect the remote signer are allowed during this state.
+	allowRemoteSigner
+
 	// rpcActive means that the RPC server is ready to accept calls.
 	rpcActive
 
@@ -70,10 +75,22 @@ var (
 	ErrWalletUnlocked = fmt.Errorf("wallet already unlocked, " +
 		"WalletUnlocker service is no longer available")
 
+	// ErrAwaitingRemoteSigner is returned if an RPC call is made, other
+	// than an RPC call to connect a remote signer, while LND is waiting for
+	// a remote signer to connect.
+	ErrAwaitingRemoteSigner = fmt.Errorf("waiting for remote signer to " +
+		"connect before other RPC calls can be accepted")
+
 	// ErrRPCStarting is returned if the wallet has been unlocked but the
 	// RPC server is not yet ready to accept calls.
 	ErrRPCStarting = fmt.Errorf("the RPC server is in the process of " +
 		"starting up, but not yet ready to accept calls")
+
+	// ErrRemoteSignerMode is returned if an RPC method is called that isn't
+	// whitelisted in the remoteSignerWhitelist, i.e. not allowed while the
+	// node acts as a remote signer.
+	ErrRemoteSignerMode = fmt.Errorf("the RPC method cannot be called " +
+		"when the node acts a remote signer")
 
 	// macaroonWhitelist defines methods that we don't require macaroons to
 	// access. We also allow these methods to be called even if not all
@@ -93,6 +110,57 @@ var (
 		// before we can check macaroons, so we whitelist it.
 		"/lnrpc.State/SubscribeState": {},
 		"/lnrpc.State/GetState":       {},
+	}
+
+	// remoteSignerWhitelist specifies the methods allowed when the node
+	// functions as a remote signer.
+	remoteSignerWhitelist = map[string]struct{}{
+		// Required setup method to export the wallet's accounts to a
+		// watch-only node if not migrating an existing wallet to a
+		// watch-only version.
+		"/walletrpc.WalletKit/ListAccounts": {},
+
+		// Required methods called by watch-only node for an inbound
+		// remote signer.
+		"/walletrpc.WalletKit/SignPsbt":        {},
+		"/signrpc.Signer/DeriveSharedKey":      {},
+		"/signrpc.Signer/MuSig2Cleanup":        {},
+		"/signrpc.Signer/MuSig2CombineSig":     {},
+		"/signrpc.Signer/MuSig2CreateSession":  {},
+		"/signrpc.Signer/MuSig2RegisterNonces": {},
+		"/signrpc.Signer/MuSig2Sign":           {},
+		"/signrpc.Signer/SignMessage":          {},
+
+		// Macaroon methods. An inbound remote signer needs to create a
+		// macaroon for the watch-only node.
+		"/lnrpc.Lightning/BakeMacaroon":             {},
+		"/lnrpc.Lightning/ListMacaroonIDs":          {},
+		"/lnrpc.Lightning/DeleteMacaroonID":         {},
+		"/lnrpc.Lightning/ListPermissions":          {},
+		"/lnrpc.Lightning/CheckMacaroonPermissions": {},
+
+		// Standard daemon methods
+		"/lnrpc.Lightning/StopDaemon":     {},
+		"/lnrpc.Lightning/DebugLevel":     {},
+		"/verrpc.Versioner/GetVersion":    {},
+		"/lnrpc.Lightning/GetInfo":        {},
+		"/lnrpc.Lightning/GetDebugInfo":   {},
+		"/lnrpc.Lightning/GetNetworkInfo": {},
+
+		"/lnrpc.Lightning/VerifyMessage": {},
+
+		// Add the ability to add RPCMiddleware interception for the
+		// remote signer.
+		lnrpc.RegisterRPCMiddlewareURI: {},
+	}
+
+	// allowRemoteSignerWhitelist defines methods that we allow to be called
+	// when we are waiting for the remote signer to connect, i.e. in the
+	// allowRemoteSigner state.
+	allowRemoteSignerWhitelist = map[string]struct{}{
+		"/walletrpc.WalletKit/SignCoordinatorStreams": {},
+
+		"/lnrpc.Lightning/StopDaemon": {},
 	}
 )
 
@@ -157,6 +225,9 @@ type InterceptorChain struct {
 	// noMacaroons should be set true if we don't want to check macaroons.
 	noMacaroons bool
 
+	// remoteSignerMode should be set true if lnd acts as a remote signer.
+	remoteSignerMode bool
+
 	// svc is the macaroon service used to enforce permissions in case
 	// macaroons are used.
 	svc *macaroons.Service
@@ -198,13 +269,14 @@ type InterceptorChain struct {
 var _ lnrpc.StateServer = (*InterceptorChain)(nil)
 
 // NewInterceptorChain creates a new InterceptorChain.
-func NewInterceptorChain(log btclog.Logger, noMacaroons bool,
+func NewInterceptorChain(log btclog.Logger, noMacaroons bool, remoteSigner bool,
 	mandatoryMiddleware []string) *InterceptorChain {
 
 	return &InterceptorChain{
 		state:                     waitingToStart,
 		ntfnServer:                subscribe.NewServer(),
 		noMacaroons:               noMacaroons,
+		remoteSignerMode:          remoteSigner,
 		permissionMap:             make(map[string][]bakery.Op),
 		rpcsLog:                   log,
 		registeredMiddlewareNames: make(map[string]int),
@@ -265,7 +337,18 @@ func (r *InterceptorChain) SetWalletUnlocked() {
 	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
-// SetRPCActive moves the RPC state from walletUnlocked to rpcActive.
+// SetAllowRemoteSigner moves the RPC state from walletUnlocked to
+// waitRemoteSigner.
+func (r *InterceptorChain) SetAllowRemoteSigner() {
+	r.Lock()
+	defer r.Unlock()
+
+	r.state = allowRemoteSigner
+	_ = r.ntfnServer.SendUpdate(r.state)
+}
+
+// SetRPCActive moves the RPC state from either walletUnlocked or
+// waitRemoteSigner to rpcActive.
 func (r *InterceptorChain) SetRPCActive() {
 	r.Lock()
 	defer r.Unlock()
@@ -274,7 +357,7 @@ func (r *InterceptorChain) SetRPCActive() {
 	_ = r.ntfnServer.SendUpdate(r.state)
 }
 
-// SetServerActive moves the RPC state from walletUnlocked to rpcActive.
+// SetServerActive moves the RPC state from rpcActive to serverActive.
 func (r *InterceptorChain) SetServerActive() {
 	r.Lock()
 	defer r.Unlock()
@@ -298,6 +381,8 @@ func rpcStateToWalletState(state rpcState) (lnrpc.WalletState, error) {
 		walletState = lnrpc.WalletState_LOCKED
 	case walletUnlocked:
 		walletState = lnrpc.WalletState_UNLOCKED
+	case allowRemoteSigner:
+		walletState = lnrpc.WalletState_ALLOW_REMOTE_SIGNER
 	case rpcActive:
 		walletState = lnrpc.WalletState_RPC_ACTIVE
 	case serverActive:
@@ -708,7 +793,9 @@ func (r *InterceptorChain) MacaroonStreamServerInterceptor() grpc.StreamServerIn
 
 // checkRPCState checks whether a call to the given server is allowed in the
 // current RPC state.
-func (r *InterceptorChain) checkRPCState(srv interface{}) error {
+func (r *InterceptorChain) checkRPCState(srv interface{},
+	fullMethod string) error {
+
 	// The StateService is being accessed, we allow the call regardless of
 	// the current state.
 	_, ok := srv.(lnrpc.StateServer)
@@ -751,12 +838,37 @@ func (r *InterceptorChain) checkRPCState(srv interface{}) error {
 
 		return ErrRPCStarting
 
+	// If lnd is waiting for the remote signer to connect, we only allow
+	// calls to the remote signer.
+	case allowRemoteSigner:
+		_, ok := srv.(lnrpc.WalletUnlockerServer)
+		if ok {
+			return ErrWalletUnlocked
+		}
+
+		// As we only allow calls to connect the remote signer until the
+		// full rpc server is active, we check whether the method is
+		// whitelisted or not.
+		_, ok = allowRemoteSignerWhitelist[fullMethod]
+		if !ok {
+			return ErrAwaitingRemoteSigner
+		}
+
 	// If the RPC server or lnd server is active, we allow calls to any
 	// service except the WalletUnlocker.
 	case rpcActive, serverActive:
 		_, ok := srv.(lnrpc.WalletUnlockerServer)
 		if ok {
 			return ErrWalletUnlocked
+		}
+
+		if r.remoteSignerMode {
+			// As we only allow certain calls to the remote signer,
+			// as only limited functionality is required.
+			_, ok = remoteSignerWhitelist[fullMethod]
+			if !ok {
+				return ErrRemoteSignerMode
+			}
 		}
 
 	default:
@@ -772,9 +884,10 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
-		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
+		method := info.FullMethod
+		r.rpcsLog.Debugf("[%v] requested", method)
 
-		if err := r.checkRPCState(info.Server); err != nil {
+		if err := r.checkRPCState(info.Server, method); err != nil {
 			return nil, err
 		}
 
@@ -790,7 +903,7 @@ func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerIn
 
 		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
 
-		if err := r.checkRPCState(srv); err != nil {
+		if err := r.checkRPCState(srv, info.FullMethod); err != nil {
 			return err
 		}
 

@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -185,6 +187,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/SignCoordinatorStreams": {{
+			Entity: "remotesigner",
+			Action: "generate",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -240,6 +246,17 @@ var (
 	}
 )
 
+// InboundRemoteSignerConnection is an interface that mimics a subset of the
+// rpcwallet InboundRemoteSignerConnection interface to avoid circular
+// dependencies.
+type InboundRemoteSignerConnection interface {
+	// AddConnection feeds the inbound connection handler with the incoming
+	// stream set up by an outbound remote signer and then blocks until the
+	// stream is closed. Lnd can then send any requests to the remote signer
+	// through the stream.
+	AddConnection(stream WalletKit_SignCoordinatorStreamsServer) error
+}
+
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
@@ -251,10 +268,18 @@ type ServerShell struct {
 // to execute common wallet operations. This includes requesting new addresses,
 // keys (for contracts!), and publishing transactions.
 type WalletKit struct {
+	injected int32 // To be used atomically.
+
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedWalletKitServer
 
 	cfg *Config
+
+	// As we allow rpc requests into the server before dependencies have
+	// been finalized, the read lock should be held in functions that
+	// accesses values from the cfg before dependencies are finalized.
+	// The write lock should be held when setting the cfg.
+	sync.RWMutex
 }
 
 // A compile time check to ensure that WalletKit fully implements the
@@ -262,7 +287,44 @@ type WalletKit struct {
 var _ WalletKitServer = (*WalletKit)(nil)
 
 // New creates a new instance of the WalletKit sub-RPC server.
-func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
+func New() (*WalletKit, lnrpc.MacaroonPerms, error) {
+	return &WalletKit{cfg: &Config{}}, macPermissions, nil
+}
+
+// Stop signals any active goroutines for a graceful closure.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (w *WalletKit) Stop() error {
+	return nil
+}
+
+// InjectDependencies populates the sub-server's dependencies. If the
+// finalizeDependencies boolean is true, then the sub-server will finalize its
+// dependencies and return an error if any required dependencies are missing.
+//
+// NOTE: This is part of the lnrpc.SubServer interface.
+func (w *WalletKit) InjectDependencies(
+	configRegistry lnrpc.SubServerConfigDispatcher,
+	finalizeDependencies bool) error {
+
+	if finalizeDependencies && atomic.AddInt32(&w.injected, 1) != 1 {
+		return lnrpc.ErrDependenciesFinalized
+	}
+
+	w.Lock()
+	defer w.Unlock()
+
+	cfg, err := getConfig(configRegistry, finalizeDependencies)
+	if err != nil {
+		return err
+	}
+
+	if finalizeDependencies {
+		w.cfg = cfg
+
+		return nil
+	}
+
 	// If the path of the wallet kit macaroon wasn't specified, then we'll
 	// assume that it's found at the default network directory.
 	if cfg.WalletKitMacPath == "" {
@@ -289,37 +351,21 @@ func New(cfg *Config) (*WalletKit, lnrpc.MacaroonPerms, error) {
 			macaroonOps...,
 		)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		walletKitMacBytes, err := walletKitMac.M().MarshalBinary()
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 		err = os.WriteFile(macFilePath, walletKitMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
-			return nil, nil, err
+			return err
 		}
 	}
 
-	walletKit := &WalletKit{
-		cfg: cfg,
-	}
+	w.cfg = cfg
 
-	return walletKit, macPermissions, nil
-}
-
-// Start launches any helper goroutines required for the sub-server to function.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (w *WalletKit) Start() error {
-	return nil
-}
-
-// Stop signals any active goroutines for a graceful closure.
-//
-// NOTE: This is part of the lnrpc.SubServer interface.
-func (w *WalletKit) Stop() error {
 	return nil
 }
 
@@ -369,17 +415,15 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	return nil
 }
 
-// CreateSubServer populates the subserver's dependencies using the passed
-// SubServerConfigDispatcher. This method should fully initialize the
-// sub-server instance, making it ready for action. It returns the macaroon
-// permissions that the sub-server wishes to pass on to the root server for all
-// methods routed towards it.
+// CreateSubServer creates an instance of the sub-server, and returns the
+// macaroon permissions that the sub-server wishes to pass on to the root server
+// for all methods routed towards it.
 //
 // NOTE: This is part of the lnrpc.GrpcHandler interface.
-func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
+func (r *ServerShell) CreateSubServer() (
 	lnrpc.SubServer, lnrpc.MacaroonPerms, error) {
 
-	subServer, macPermissions, err := createNewSubServer(configRegistry)
+	subServer, macPermissions, err := New()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -432,6 +476,7 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// any other concurrent processes attempting to lock any UTXOs which may
 	// be shown available to us.
 	var utxos []*lnwallet.Utxo
+
 	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		utxos, err = w.cfg.Wallet.ListUnspentWitness(
 			minConfs, maxConfs, req.Account,
@@ -451,6 +496,31 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	return &ListUnspentResponse{
 		Utxos: rpcUtxos,
 	}, nil
+}
+
+// SignCoordinatorStreams opens a bi-directional streaming RPC, which is used
+// to allow a remote signer to process sign requests on behalf of the wallet.
+func (w *WalletKit) SignCoordinatorStreams(
+	stream WalletKit_SignCoordinatorStreamsServer) error {
+
+	w.RLock()
+
+	// Check that the user actually has configured that the reverse remote
+	// signer functionality should be enabled.
+	if w.cfg.RemoteSignerConnection == nil {
+		w.RUnlock()
+
+		return fmt.Errorf("inbound connections from remote signers " +
+			"not enabled in config")
+	}
+
+	connectionCoordinator := w.cfg.RemoteSignerConnection
+
+	// Release the read lock as we will acquire the write in the
+	// InjectDependencies function while the stream is still open.
+	w.RUnlock()
+
+	return connectionCoordinator.AddConnection(stream)
 }
 
 // LeaseOutput locks an output to the given ID, preventing it from being

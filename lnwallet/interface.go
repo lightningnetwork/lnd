@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -538,6 +539,10 @@ type WalletController interface {
 	// Start initializes the wallet, making any necessary connections,
 	// starting up required goroutines etc.
 	Start() error
+
+	// RequireSignal returns a channel which is sent over with no error,
+	// once the wallet is ready to be used.
+	ReadySignal(ctx context.Context) chan error
 
 	// Stop signals the wallet for shutdown. Shutdown may entail closing
 	// any active sockets, database handles, stopping goroutines, etc.

@@ -860,6 +860,8 @@ func (d *AuthenticatedGossiper) stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 	peer lnpeer.Peer) chan error {
 
+	ctx := context.TODO()
+
 	log.Debugf("Processing remote msg %T from peer=%x", msg, peer.PubKey())
 
 	errChan := make(chan error, 1)
@@ -907,7 +909,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		// If we've found the message target, then we'll dispatch the
 		// message directly to it.
-		if err := syncer.ApplyGossipFilter(m); err != nil {
+		if err := syncer.ApplyGossipFilter(ctx, m); err != nil {
 			log.Warnf("Unable to apply gossip filter for peer=%x: "+
 				"%v", peer.PubKey(), err)
 
@@ -1404,7 +1406,7 @@ func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
 
 // sendRemoteBatch broadcasts a list of remotely generated announcements to our
 // peers.
-func (d *AuthenticatedGossiper) sendRemoteBatch(_ context.Context,
+func (d *AuthenticatedGossiper) sendRemoteBatch(ctx context.Context,
 	annBatch []msgWithSenders) {
 
 	syncerPeers := d.syncMgr.GossipSyncers()
@@ -1413,7 +1415,7 @@ func (d *AuthenticatedGossiper) sendRemoteBatch(_ context.Context,
 	// that have active gossip syncers active.
 	for pub, syncer := range syncerPeers {
 		log.Tracef("Sending messages batch to GossipSyncer(%s)", pub)
-		syncer.FilterGossipMsgs(annBatch...)
+		syncer.FilterGossipMsgs(ctx, annBatch...)
 	}
 
 	for _, msgChunk := range annBatch {

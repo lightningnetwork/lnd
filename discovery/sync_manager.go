@@ -380,7 +380,7 @@ func (m *SyncManager) syncerHandler() {
 			}
 			m.syncersMu.Unlock()
 
-			s.Start()
+			s.Start(context.TODO())
 
 			// Once we create the GossipSyncer, we'll signal to the
 			// caller that they can proceed since the SyncManager's

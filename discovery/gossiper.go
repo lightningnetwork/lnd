@@ -678,7 +678,7 @@ func (d *AuthenticatedGossiper) start(ctx context.Context) error {
 		return err
 	}
 
-	d.syncMgr.Start()
+	d.syncMgr.Start(ctx)
 
 	d.banman.start()
 

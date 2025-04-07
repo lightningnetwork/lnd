@@ -1,8 +1,10 @@
 package discovery
 
 import (
+	"context"
 	"sync"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -28,7 +30,7 @@ type reliableSenderCfg struct {
 
 	// IsMsgStale determines whether a message retrieved from the backing
 	// MessageStore is seen as stale by the current graph.
-	IsMsgStale func(lnwire.Message) bool
+	IsMsgStale func(context.Context, lnwire.Message) bool
 }
 
 // peerManager contains the set of channels required for the peerHandler to
@@ -59,8 +61,9 @@ type reliableSender struct {
 	activePeers    map[[33]byte]peerManager
 	activePeersMtx sync.Mutex
 
-	wg   sync.WaitGroup
-	quit chan struct{}
+	wg     sync.WaitGroup
+	quit   chan struct{}
+	cancel fn.Option[context.CancelFunc]
 }
 
 // newReliableSender returns a new reliableSender backed by the given config.
@@ -73,10 +76,13 @@ func newReliableSender(cfg *reliableSenderCfg) *reliableSender {
 }
 
 // Start spawns message handlers for any peers with pending messages.
-func (s *reliableSender) Start() error {
+func (s *reliableSender) Start(ctx context.Context) error {
 	var err error
 	s.start.Do(func() {
-		err = s.resendPendingMsgs()
+		ctx, cancel := context.WithCancel(ctx)
+		s.cancel = fn.Some(cancel)
+
+		err = s.resendPendingMsgs(ctx)
 	})
 	return err
 }
@@ -87,6 +93,7 @@ func (s *reliableSender) Stop() {
 		log.Debugf("reliableSender is stopping")
 		defer log.Debugf("reliableSender stopped")
 
+		s.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 		close(s.quit)
 		s.wg.Wait()
 	})
@@ -96,7 +103,9 @@ func (s *reliableSender) Stop() {
 // event that the peer is currently offline, this will only write the message to
 // disk. Once the peer reconnects, this message, along with any others pending,
 // will be sent to the peer.
-func (s *reliableSender) sendMessage(msg lnwire.Message, peerPubKey [33]byte) error {
+func (s *reliableSender) sendMessage(ctx context.Context, msg lnwire.Message,
+	peerPubKey [33]byte) error {
+
 	// We'll start by persisting the message to disk. This allows us to
 	// resend the message upon restarts and peer reconnections.
 	if err := s.cfg.MessageStore.AddMessage(msg, peerPubKey); err != nil {
@@ -106,7 +115,7 @@ func (s *reliableSender) sendMessage(msg lnwire.Message, peerPubKey [33]byte) er
 	// Then, we'll spawn a peerHandler for this peer to handle resending its
 	// pending messages while taking into account its connection lifecycle.
 spawnHandler:
-	msgHandler, ok := s.spawnPeerHandler(peerPubKey)
+	msgHandler, ok := s.spawnPeerHandler(ctx, peerPubKey)
 
 	// If the handler wasn't previously active, we can exit now as we know
 	// that the message will be sent once the peer online notification is
@@ -134,7 +143,7 @@ spawnHandler:
 // spawnPeerMsgHandler spawns a peerHandler for the given peer if there isn't
 // one already active. The boolean returned signals whether there was already
 // one active or not.
-func (s *reliableSender) spawnPeerHandler(
+func (s *reliableSender) spawnPeerHandler(ctx context.Context,
 	peerPubKey [33]byte) (peerManager, bool) {
 
 	s.activePeersMtx.Lock()
@@ -152,7 +161,7 @@ func (s *reliableSender) spawnPeerHandler(
 	// peerHandler.
 	if !ok {
 		s.wg.Add(1)
-		go s.peerHandler(msgHandler, peerPubKey)
+		go s.peerHandler(ctx, msgHandler, peerPubKey)
 	}
 
 	return msgHandler, ok
@@ -164,7 +173,9 @@ func (s *reliableSender) spawnPeerHandler(
 // offline will be queued and sent once the peer reconnects.
 //
 // NOTE: This must be run as a goroutine.
-func (s *reliableSender) peerHandler(peerMgr peerManager, peerPubKey [33]byte) {
+func (s *reliableSender) peerHandler(ctx context.Context, peerMgr peerManager,
+	peerPubKey [33]byte) {
+
 	defer s.wg.Done()
 
 	// We'll start by requesting a notification for when the peer
@@ -252,7 +263,7 @@ out:
 		// check whether it's stale. This guarantees that
 		// AnnounceSignatures are sent at least once if we happen to
 		// already have signatures for both parties.
-		if s.cfg.IsMsgStale(msg) {
+		if s.cfg.IsMsgStale(ctx, msg) {
 			err := s.cfg.MessageStore.DeleteMessage(msg, peerPubKey)
 			if err != nil {
 				log.Errorf("Unable to remove stale %v message "+
@@ -321,7 +332,7 @@ out:
 
 // resendPendingMsgs retrieves and sends all of the messages within the message
 // store that should be reliably sent to their respective peers.
-func (s *reliableSender) resendPendingMsgs() error {
+func (s *reliableSender) resendPendingMsgs(ctx context.Context) error {
 	// Fetch all of the peers for which we have pending messages for and
 	// spawn a peerMsgHandler for each. Once the peer is seen as online, all
 	// of the pending messages will be sent.
@@ -331,7 +342,7 @@ func (s *reliableSender) resendPendingMsgs() error {
 	}
 
 	for peer := range peers {
-		s.spawnPeerHandler(peer)
+		s.spawnPeerHandler(ctx, peer)
 	}
 
 	return nil

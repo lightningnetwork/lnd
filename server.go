@@ -2219,7 +2219,7 @@ func (s *server) startLowLevelServices() error {
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
-func (s *server) Start(_ context.Context) error {
+func (s *server) Start(ctx context.Context) error {
 	// Get the current blockbeat.
 	beat, err := s.getStartingBeat()
 	if err != nil {
@@ -2390,7 +2390,7 @@ func (s *server) Start(_ context.Context) error {
 		// The authGossiper depends on the chanRouter and therefore
 		// should be started after it.
 		cleanup = cleanup.add(s.authGossiper.Stop)
-		if err := s.authGossiper.Start(); err != nil {
+		if err := s.authGossiper.Start(ctx); err != nil {
 			startErr = err
 			return
 		}

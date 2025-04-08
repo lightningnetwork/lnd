@@ -2704,6 +2704,20 @@ func (v *HtlcView) AuxTheirUpdates() []AuxHtlcDescriptor {
 	return fn.Map(v.Updates.Remote, newAuxHtlcDescriptor)
 }
 
+// FetchLatestAuxHTLCView returns the latest HTLC view of the lightning channel
+// as a safe copy that can be used outside the wallet code in concurrent access.
+func (lc *LightningChannel) FetchLatestAuxHTLCView() AuxHtlcView {
+	// This read lock is important, because we access both the local and
+	// remote log indexes as well as the underlying payment descriptors of
+	// the HTLCs when creating the view.
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return newAuxHtlcView(lc.fetchHTLCView(
+		lc.updateLogs.Remote.logIndex, lc.updateLogs.Local.logIndex,
+	))
+}
+
 // fetchHTLCView returns all the candidate HTLC updates which should be
 // considered for inclusion within a commitment based on the passed HTLC log
 // indexes.

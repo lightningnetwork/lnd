@@ -554,7 +554,9 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(cfg *Config, listenAddrs []net.Addr,
+//
+//nolint:funlen
+func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
@@ -2217,7 +2219,7 @@ func (s *server) startLowLevelServices() error {
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
-func (s *server) Start() error {
+func (s *server) Start(ctx context.Context) error {
 	// Get the current blockbeat.
 	beat, err := s.getStartingBeat()
 	if err != nil {
@@ -2388,7 +2390,7 @@ func (s *server) Start() error {
 		// The authGossiper depends on the chanRouter and therefore
 		// should be started after it.
 		cleanup = cleanup.add(s.authGossiper.Stop)
-		if err := s.authGossiper.Start(); err != nil {
+		if err := s.authGossiper.Start(ctx); err != nil {
 			startErr = err
 			return
 		}

@@ -755,6 +755,9 @@ func init() {
 	allTestCases = appendPrefixed(
 		"channel force close", allTestCases, channelForceCloseTestCases,
 	)
+	allTestCases = appendPrefixed(
+		"wallet", allTestCases, walletTestCases,
+	)
 
 	// Prepare the test cases for windows to exclude some of the flaky
 	// ones.

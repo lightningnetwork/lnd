@@ -360,7 +360,7 @@ func (s *Server) GetBlockHash(_ context.Context,
 // particular transaction by its hash or for an output script by specifying a
 // zero hash.
 //
-// NOTE: This is part of the chainrpc.ChainNotifierService interface.
+// NOTE: This is part of the chainrpc.ChainNotifierServer interface.
 func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 	confStream ChainNotifier_RegisterConfirmationsNtfnServer) error {
 
@@ -483,7 +483,7 @@ func (s *Server) RegisterConfirmationsNtfn(in *ConfRequest,
 // A client can specify whether the spend request should be for a particular
 // outpoint  or for an output script by specifying a zero outpoint.
 //
-// NOTE: This is part of the chainrpc.ChainNotifierService interface.
+// NOTE: This is part of the chainrpc.ChainNotifierServer interface.
 func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 	spendStream ChainNotifier_RegisterSpendNtfnServer) error {
 
@@ -597,7 +597,7 @@ func (s *Server) RegisterSpendNtfn(in *SpendRequest,
 // point. This allows clients to be idempotent by ensuring that they do not
 // missing processing a single block within the chain.
 //
-// NOTE: This is part of the chainrpc.ChainNotifierService interface.
+// NOTE: This is part of the chainrpc.ChainNotifierServer interface.
 func (s *Server) RegisterBlockEpochNtfn(in *BlockEpoch,
 	epochStream ChainNotifier_RegisterBlockEpochNtfnServer) error {
 

@@ -3716,8 +3716,8 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 	)
 
 	rpcsLog.Debugf("[walletbalance] Total balance=%v (confirmed=%v, "+
-		"unconfirmed=%v)", totalBalance, confirmedBalance,
-		unconfirmedBalance)
+		"unconfirmed=%v, locked=%v)", totalBalance, confirmedBalance,
+		unconfirmedBalance, lockedBalance)
 
 	return &lnrpc.WalletBalanceResponse{
 		TotalBalance:              int64(totalBalance),

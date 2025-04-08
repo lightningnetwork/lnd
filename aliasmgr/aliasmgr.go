@@ -509,8 +509,8 @@ func (m *Manager) GetPeerAlias(chanID lnwire.ChannelID) (lnwire.ShortChannelID,
 func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 	var nextAlias lnwire.ShortChannelID
 
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	// haveAlias returns true if the passed alias is already assigned to a
 	// channel in the baseToSet map.

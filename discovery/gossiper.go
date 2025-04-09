@@ -678,7 +678,7 @@ func (d *AuthenticatedGossiper) start(ctx context.Context) error {
 		return err
 	}
 
-	d.syncMgr.Start()
+	d.syncMgr.Start(ctx)
 
 	d.banman.start()
 
@@ -857,8 +857,8 @@ func (d *AuthenticatedGossiper) stop() {
 // then added to a queue for batched trickled announcement to all connected
 // peers.  Remote channel announcements should contain the announcement proof
 // and be fully validated.
-func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
-	peer lnpeer.Peer) chan error {
+func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
+	msg lnwire.Message, peer lnpeer.Peer) chan error {
 
 	log.Debugf("Processing remote msg %T from peer=%x", msg, peer.PubKey())
 
@@ -907,7 +907,7 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 		// If we've found the message target, then we'll dispatch the
 		// message directly to it.
-		if err := syncer.ApplyGossipFilter(m); err != nil {
+		if err := syncer.ApplyGossipFilter(ctx, m); err != nil {
 			log.Warnf("Unable to apply gossip filter for peer=%x: "+
 				"%v", peer.PubKey(), err)
 
@@ -948,7 +948,11 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 
 	// If the peer that sent us this error is quitting, then we don't need
 	// to send back an error and can return immediately.
+	// TODO(elle): the peer should now just rely on canceling the passed
+	//  context.
 	case <-peer.QuitSignal():
+		return nil
+	case <-ctx.Done():
 		return nil
 	case <-d.quit:
 		nMsg.err <- ErrGossiperShuttingDown
@@ -1404,7 +1408,7 @@ func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
 
 // sendRemoteBatch broadcasts a list of remotely generated announcements to our
 // peers.
-func (d *AuthenticatedGossiper) sendRemoteBatch(_ context.Context,
+func (d *AuthenticatedGossiper) sendRemoteBatch(ctx context.Context,
 	annBatch []msgWithSenders) {
 
 	syncerPeers := d.syncMgr.GossipSyncers()
@@ -1413,7 +1417,7 @@ func (d *AuthenticatedGossiper) sendRemoteBatch(_ context.Context,
 	// that have active gossip syncers active.
 	for pub, syncer := range syncerPeers {
 		log.Tracef("Sending messages batch to GossipSyncer(%s)", pub)
-		syncer.FilterGossipMsgs(annBatch...)
+		syncer.FilterGossipMsgs(ctx, annBatch...)
 	}
 
 	for _, msgChunk := range annBatch {

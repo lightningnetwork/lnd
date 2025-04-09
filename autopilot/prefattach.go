@@ -79,11 +79,9 @@ func (p *PrefAttachment) Name() string {
 // given to nodes already having high connectivity in the graph.
 //
 // NOTE: This is a part of the AttachmentHeuristic interface.
-func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
-	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
-	map[NodeID]*NodeScore, error) {
-
-	ctx := context.TODO()
+func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
+	chans []LocalChannel, chanSize btcutil.Amount,
+	nodes map[NodeID]struct{}) (map[NodeID]*NodeScore, error) {
 
 	// We first run though the graph once in order to find the median
 	// channel size.

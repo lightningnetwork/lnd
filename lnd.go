@@ -788,7 +788,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// active, then we'll start the autopilot agent immediately. It will be
 	// stopped together with the autopilot service.
 	if cfg.Autopilot.Active {
-		if err := atplManager.StartAgent(); err != nil {
+		if err := atplManager.StartAgent(ctx); err != nil {
 			return mkErr("unable to start autopilot agent", err)
 		}
 	}

@@ -35,6 +35,10 @@ type BoltBackendConfig struct {
 	// DBTimeout specifies the timeout value to use when opening the wallet
 	// database.
 	DBTimeout time.Duration
+
+	// ReadOnly specifies if the database should be opened in read-only
+	// mode.
+	ReadOnly bool
 }
 
 // GetBoltBackend opens (or creates if doesn't exits) a bbolt backed database

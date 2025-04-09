@@ -324,7 +324,8 @@ func NewNeutrinoBackend(t *testing.T, netParams *chaincfg.Params,
 
 	dbName := filepath.Join(spvDir, "neutrino.db")
 	spvDatabase, err := walletdb.Create(
-		"bdb", dbName, true, kvdb.DefaultDBTimeout,
+		kvdb.BoltBackendName, dbName, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create walletdb: %v", err)

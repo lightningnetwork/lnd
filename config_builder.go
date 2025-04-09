@@ -1474,7 +1474,8 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	default:
 		dbName := filepath.Join(dbPath, "neutrino.db")
 		db, err = walletdb.Create(
-			"bdb", dbName, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+			kvdb.BoltBackendName, dbName, !cfg.SyncFreelist,
+			cfg.DB.Bolt.DBTimeout, false,
 		)
 	}
 	if err != nil {

@@ -57,7 +57,7 @@ func Open(dbPath string, modifiers ...OptionModifier) (*DB, error) {
 	// freelist grows to be very large.
 	bdb, err := kvdb.Open(
 		kvdb.BoltBackendName, path,
-		opts.NoFreelistSync, opts.DBTimeout,
+		opts.NoFreelistSync, opts.DBTimeout, false,
 	)
 	if err != nil {
 		return nil, err
@@ -89,6 +89,7 @@ func createChannelDB(dbPath string) error {
 	path := filepath.Join(dbPath, dbName)
 	bdb, err := kvdb.Create(
 		kvdb.BoltBackendName, path, false, kvdb.DefaultDBTimeout,
+		false,
 	)
 	if err != nil {
 		return err

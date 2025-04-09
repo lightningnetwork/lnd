@@ -757,7 +757,8 @@ var interfaceImpls = []struct {
 
 			dbName := filepath.Join(spvDir, "neutrino.db")
 			spvDatabase, err := walletdb.Create(
-				"bdb", dbName, true, kvdb.DefaultDBTimeout,
+				kvdb.BoltBackendName, dbName, true,
+				kvdb.DefaultDBTimeout, false,
 			)
 			if err != nil {
 				return nil, err

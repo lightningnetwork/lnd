@@ -169,8 +169,8 @@ func betweennessCentrality(g *SimpleGraph, s int, centrality []float64) {
 }
 
 // Refresh recalculates and stores centrality values.
-func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
-	ctx := context.TODO()
+func (bc *BetweennessCentrality) Refresh(ctx context.Context,
+	graph ChannelGraph) error {
 
 	cache, err := NewSimpleGraph(ctx, graph)
 	if err != nil {

@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -54,8 +55,10 @@ func (g *TopCentrality) NodeScores(graph ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
+	ctx := context.TODO()
+
 	// Calculate betweenness centrality for the whole graph.
-	if err := g.centralityMetric.Refresh(graph); err != nil {
+	if err := g.centralityMetric.Refresh(ctx, graph); err != nil {
 		return nil, err
 	}
 

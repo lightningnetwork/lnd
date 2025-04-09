@@ -205,7 +205,7 @@ func (s *Server) ModifyStatus(ctx context.Context,
 
 	var err error
 	if in.Enable {
-		err = s.manager.StartAgent()
+		err = s.manager.StartAgent(ctx)
 	} else {
 		err = s.manager.StopAgent()
 	}
@@ -236,7 +236,7 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 
 	// Query the heuristics.
 	heuristicScores, err := s.manager.QueryHeuristics(
-		nodes, !in.IgnoreLocalState,
+		ctx, nodes, !in.IgnoreLocalState,
 	)
 	if err != nil {
 		return nil, err

@@ -6857,7 +6857,7 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if err := centralityMetric.Refresh(channelGraph); err != nil {
+	if err := centralityMetric.Refresh(ctx, channelGraph); err != nil {
 		return nil, err
 	}
 
@@ -7140,7 +7140,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 	// Graph diameter.
 	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
-	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
+	simpleGraph, err := autopilot.NewSimpleGraph(ctx, channelGraph)
 	if err != nil {
 		return nil, err
 	}

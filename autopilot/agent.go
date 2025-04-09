@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math/rand"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -166,8 +168,9 @@ type Agent struct {
 	pendingOpens map[NodeID]LocalChannel
 	pendingMtx   sync.Mutex
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	quit   chan struct{}
+	wg     sync.WaitGroup
+	cancel fn.Option[context.CancelFunc]
 }
 
 // New creates a new instance of the Agent instantiated using the passed
@@ -199,20 +202,23 @@ func New(cfg Config, initialState []LocalChannel) (*Agent, error) {
 
 // Start starts the agent along with any goroutines it needs to perform its
 // normal duties.
-func (a *Agent) Start() error {
+func (a *Agent) Start(ctx context.Context) error {
 	var err error
 	a.started.Do(func() {
-		err = a.start()
+		ctx, cancel := context.WithCancel(ctx)
+		a.cancel = fn.Some(cancel)
+
+		err = a.start(ctx)
 	})
 	return err
 }
 
-func (a *Agent) start() error {
+func (a *Agent) start(ctx context.Context) error {
 	rand.Seed(time.Now().Unix())
 	log.Infof("Autopilot Agent starting")
 
 	a.wg.Add(1)
-	go a.controller()
+	go a.controller(ctx)
 
 	return nil
 }
@@ -230,6 +236,7 @@ func (a *Agent) Stop() error {
 func (a *Agent) stop() error {
 	log.Infof("Autopilot Agent stopping")
 
+	a.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 	close(a.quit)
 	a.wg.Wait()
 
@@ -401,7 +408,7 @@ func mergeChanState(pendingChans map[NodeID]LocalChannel,
 // and external state changes as a result of decisions it makes w.r.t channel
 // allocation, or attributes affecting its control loop being updated by the
 // backing Lightning Node.
-func (a *Agent) controller() {
+func (a *Agent) controller(ctx context.Context) {
 	defer a.wg.Done()
 
 	// We'll start off by assigning our starting balance, and injecting
@@ -502,6 +509,9 @@ func (a *Agent) controller() {
 		// immediately.
 		case <-a.quit:
 			return
+
+		case <-ctx.Done():
+			return
 		}
 
 		a.pendingMtx.Lock()
@@ -539,7 +549,7 @@ func (a *Agent) controller() {
 		log.Infof("Triggering attachment directive dispatch, "+
 			"total_funds=%v", a.totalBalance)
 
-		err := a.openChans(availableFunds, numChans, totalChans)
+		err := a.openChans(ctx, availableFunds, numChans, totalChans)
 		if err != nil {
 			log.Errorf("Unable to open channels: %v", err)
 		}
@@ -548,8 +558,8 @@ func (a *Agent) controller() {
 
 // openChans queries the agent's heuristic for a set of channel candidates, and
 // attempts to open channels to them.
-func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
-	totalChans []LocalChannel) error {
+func (a *Agent) openChans(ctx context.Context, availableFunds btcutil.Amount,
+	numChans uint32, totalChans []LocalChannel) error {
 
 	// As channel size we'll use the maximum channel size available.
 	chanSize := a.cfg.Constraints.MaxChanSize()
@@ -598,7 +608,9 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	selfPubBytes := a.cfg.Self.SerializeCompressed()
 	nodes := make(map[NodeID]struct{})
 	addresses := make(map[NodeID][]net.Addr)
-	if err := a.cfg.Graph.ForEachNode(func(node Node) error {
+	if err := a.cfg.Graph.ForEachNode(ctx, func(_ context.Context,
+		node Node) error {
+
 		nID := NodeID(node.PubKey())
 
 		// If we come across ourselves, them we'll continue in
@@ -636,7 +648,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// graph.
 	log.Debugf("Scoring %d nodes for chan_size=%v", len(nodes), chanSize)
 	scores, err := a.cfg.Heuristic.NodeScores(
-		a.cfg.Graph, totalChans, chanSize, nodes,
+		ctx, a.cfg.Graph, totalChans, chanSize, nodes,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to calculate node scores : %w", err)

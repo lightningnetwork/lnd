@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	prand "math/rand"
 	"net"
@@ -87,6 +88,8 @@ var chanGraphs = []struct {
 // TestPrefAttachmentSelectEmptyGraph ensures that when passed an
 // empty graph, the NodeSores function always returns a score of 0.
 func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
 	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
@@ -107,7 +110,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 			// attempt to get the score for this one node.
 			const walletFunds = btcutil.SatoshiPerBitcoin
 			scores, err := prefAttach.NodeScores(
-				graph, nil, walletFunds, nodes,
+				ctx, graph, nil, walletFunds, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -126,6 +129,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 // and the funds are appropriately allocated across each peer.
 func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	prand.Seed(time.Now().Unix())
 
@@ -156,10 +160,12 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// Get the score for all nodes found in the graph at
 			// this point.
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(func(n Node) error {
-				nodes[n.PubKey()] = struct{}{}
-				return nil
-			})
+			err = graph.ForEachNode(ctx,
+				func(_ context.Context, n Node) error {
+					nodes[n.PubKey()] = struct{}{}
+					return nil
+				},
+			)
 			require.NoError(t1, err)
 
 			require.Len(t1, nodes, 3)
@@ -168,7 +174,7 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// attempt to get our candidates channel score given
 			// the current state of the graph.
 			candidates, err := prefAttach.NodeScores(
-				graph, nil, maxChanSize, nodes,
+				ctx, graph, nil, maxChanSize, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -207,6 +213,7 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 // allocate all funds to each vertex (up to the max channel size).
 func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	prand.Seed(time.Now().Unix())
 
@@ -245,22 +252,25 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			numNodes := 0
 			twoChans := false
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(func(n Node) error {
-				numNodes++
-				nodes[n.PubKey()] = struct{}{}
-				numChans := 0
-				err := n.ForEachChannel(func(c ChannelEdge) error {
-					numChans++
+			err = graph.ForEachNode(
+				ctx, func(ctx context.Context, n Node) error {
+					numNodes++
+					nodes[n.PubKey()] = struct{}{}
+					numChans := 0
+					err := n.ForEachChannel(ctx,
+						func(_ context.Context, c ChannelEdge) error { //nolint:ll
+							numChans++
+							return nil
+						},
+					)
+					if err != nil {
+						return err
+					}
+
+					twoChans = twoChans || (numChans == 2)
+
 					return nil
 				})
-				if err != nil {
-					return err
-				}
-
-				twoChans = twoChans || (numChans == 2)
-
-				return nil
-			})
 			require.NoError(t1, err)
 
 			require.EqualValues(t1, 3, numNodes)
@@ -272,7 +282,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// result, the heuristic should try to greedily
 			// allocate funds to channels.
 			scores, err := prefAttach.NodeScores(
-				graph, nil, maxChanSize, nodes,
+				ctx, graph, nil, maxChanSize, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -290,7 +300,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			// candidates of that size.
 			const remBalance = btcutil.SatoshiPerBitcoin * 0.5
 			scores, err = prefAttach.NodeScores(
-				graph, nil, remBalance, nodes,
+				ctx, graph, nil, remBalance, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -313,6 +323,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 // of zero during scoring.
 func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	prand.Seed(time.Now().Unix())
 
@@ -335,10 +346,13 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 			require.NoError(t1, err)
 
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(func(n Node) error {
-				nodes[n.PubKey()] = struct{}{}
-				return nil
-			})
+			err = graph.ForEachNode(
+				ctx, func(_ context.Context, n Node) error {
+					nodes[n.PubKey()] = struct{}{}
+
+					return nil
+				},
+			)
 			require.NoError(t1, err)
 
 			require.Len(t1, nodes, 2)
@@ -346,7 +360,7 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// With our graph created, we'll now get the scores for
 			// all nodes in the graph.
 			scores, err := prefAttach.NodeScores(
-				graph, nil, maxChanSize, nodes,
+				ctx, graph, nil, maxChanSize, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -374,7 +388,7 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 			// then all nodes should have a score of zero, since we
 			// already got channels to them.
 			scores, err = prefAttach.NodeScores(
-				graph, chans, maxChanSize, nodes,
+				ctx, graph, chans, maxChanSize, nodes,
 			)
 			require.NoError(t1, err)
 
@@ -583,9 +597,11 @@ func newMemChannelGraph() *memChannelGraph {
 // error, then execution should be terminated.
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
-func (m *memChannelGraph) ForEachNode(cb func(Node) error) error {
+func (m *memChannelGraph) ForEachNode(ctx context.Context,
+	cb func(context.Context, Node) error) error {
+
 	for _, node := range m.graph {
-		if err := cb(node); err != nil {
+		if err := cb(ctx, node); err != nil {
 			return err
 		}
 	}

@@ -381,6 +381,13 @@ func validateInvoice(invoice *Invoice) error {
 		return fmt.Errorf("no payment hash found")
 	}
 
+	// The invoice must contain a payment address (payment secret)
+	// if it does not contain blinded paths.
+	if len(invoice.BlindedPaymentPaths) == 0 &&
+		invoice.PaymentAddr.IsNone() {
+		return fmt.Errorf("no payment address found")
+	}
+
 	if len(invoice.RouteHints) != 0 &&
 		len(invoice.BlindedPaymentPaths) != 0 {
 

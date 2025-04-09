@@ -73,6 +73,10 @@ type BoltBackendConfig struct {
 	// DBTimeout specifies the timeout value to use when opening the wallet
 	// database.
 	DBTimeout time.Duration
+
+	// ReadOnly specifies if the database should be opened in read-only
+	// mode.
+	ReadOnly bool
 }
 
 // GetBoltBackend opens (or creates if doesn't exits) a bbolt backed database
@@ -90,7 +94,7 @@ func GetBoltBackend(cfg *BoltBackendConfig) (Backend, error) {
 
 		return Create(
 			BoltBackendName, dbFilePath,
-			cfg.NoFreelistSync, cfg.DBTimeout,
+			cfg.NoFreelistSync, cfg.DBTimeout, cfg.ReadOnly,
 		)
 	}
 
@@ -104,7 +108,7 @@ func GetBoltBackend(cfg *BoltBackendConfig) (Backend, error) {
 
 	return Open(
 		BoltBackendName, dbFilePath,
-		cfg.NoFreelistSync, cfg.DBTimeout,
+		cfg.NoFreelistSync, cfg.DBTimeout, cfg.ReadOnly,
 	)
 }
 
@@ -294,6 +298,7 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			DBFileName:     name,
 			NoFreelistSync: true,
 			DBTimeout:      DefaultDBTimeout,
+			ReadOnly:       false,
 		})
 		if err != nil {
 			return nil, nil, err

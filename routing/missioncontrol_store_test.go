@@ -54,6 +54,7 @@ func newMCStoreTestHarness(t testing.TB, maxRecords int,
 
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {

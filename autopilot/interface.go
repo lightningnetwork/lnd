@@ -144,7 +144,7 @@ type AttachmentHeuristic interface {
 	//
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
-	NodeScores(g ChannelGraph, chans []LocalChannel,
+	NodeScores(ctx context.Context, g ChannelGraph, chans []LocalChannel,
 		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 		map[NodeID]*NodeScore, error)
 }

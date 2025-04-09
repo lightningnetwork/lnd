@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -35,7 +36,8 @@ type Node interface {
 	// iterate through all edges emanating from/to the target node. For
 	// each active channel, this function should be called with the
 	// populated ChannelEdge that describes the active channel.
-	ForEachChannel(func(ChannelEdge) error) error
+	ForEachChannel(context.Context, func(context.Context,
+		ChannelEdge) error) error
 }
 
 // LocalChannel is a simple struct which contains relevant details of a
@@ -83,7 +85,7 @@ type ChannelGraph interface {
 	// ForEachNode is a higher-order function that should be called once
 	// for each connected node within the channel graph. If the passed
 	// callback returns an error, then execution should be terminated.
-	ForEachNode(func(Node) error) error
+	ForEachNode(context.Context, func(context.Context, Node) error) error
 }
 
 // NodeScore is a tuple mapping a NodeID to a score indicating the preference

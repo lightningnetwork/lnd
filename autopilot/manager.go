@@ -1,11 +1,13 @@
 package autopilot
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -53,8 +55,9 @@ type Manager struct {
 	// disabled.
 	pilot *Agent
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	quit   chan struct{}
+	wg     sync.WaitGroup
+	cancel fn.Option[context.CancelFunc]
 	sync.Mutex
 }
 
@@ -80,6 +83,7 @@ func (m *Manager) Stop() error {
 			log.Errorf("Unable to stop pilot: %v", err)
 		}
 
+		m.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 		close(m.quit)
 		m.wg.Wait()
 	})
@@ -96,7 +100,7 @@ func (m *Manager) IsActive() bool {
 
 // StartAgent creates and starts an autopilot agent from the Manager's
 // config.
-func (m *Manager) StartAgent() error {
+func (m *Manager) StartAgent(ctx context.Context) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -104,6 +108,8 @@ func (m *Manager) StartAgent() error {
 	if m.pilot != nil {
 		return nil
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	m.cancel = fn.Some(cancel)
 
 	// Next, we'll fetch the current state of open channels from the
 	// database to use as initial state for the auto-pilot agent.
@@ -119,7 +125,7 @@ func (m *Manager) StartAgent() error {
 		return err
 	}
 
-	if err := pilot.Start(); err != nil {
+	if err := pilot.Start(ctx); err != nil {
 		return err
 	}
 
@@ -162,6 +168,8 @@ func (m *Manager) StartAgent() error {
 			case <-pilot.quit:
 				return
 			case <-m.quit:
+				return
+			case <-ctx.Done():
 				return
 			}
 		}
@@ -232,6 +240,8 @@ func (m *Manager) StartAgent() error {
 			case <-pilot.quit:
 				return
 			case <-m.quit:
+				return
+			case <-ctx.Done():
 				return
 			}
 		}

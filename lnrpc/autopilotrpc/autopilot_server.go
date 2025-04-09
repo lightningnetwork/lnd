@@ -205,7 +205,7 @@ func (s *Server) ModifyStatus(ctx context.Context,
 
 	var err error
 	if in.Enable {
-		err = s.manager.StartAgent()
+		err = s.manager.StartAgent(ctx)
 	} else {
 		err = s.manager.StopAgent()
 	}

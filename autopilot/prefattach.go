@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	prand "math/rand"
 	"time"
 
@@ -82,14 +83,18 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 	map[NodeID]*NodeScore, error) {
 
+	ctx := context.TODO()
+
 	// We first run though the graph once in order to find the median
 	// channel size.
 	var (
 		allChans  []btcutil.Amount
 		seenChans = make(map[uint64]struct{})
 	)
-	if err := g.ForEachNode(func(n Node) error {
-		err := n.ForEachChannel(func(e ChannelEdge) error {
+	if err := g.ForEachNode(ctx, func(ctx context.Context, n Node) error {
+		err := n.ForEachChannel(ctx, func(_ context.Context,
+			e ChannelEdge) error {
+
 			if _, ok := seenChans[e.ChanID.ToUint64()]; ok {
 				return nil
 			}
@@ -114,15 +119,19 @@ func (p *PrefAttachment) NodeScores(g ChannelGraph, chans []LocalChannel,
 	// the graph.
 	var maxChans int
 	nodeChanNum := make(map[NodeID]int)
-	if err := g.ForEachNode(func(n Node) error {
+	if err := g.ForEachNode(ctx, func(ctx context.Context, n Node) error {
 		var nodeChans int
-		err := n.ForEachChannel(func(e ChannelEdge) error {
+		err := n.ForEachChannel(ctx, func(_ context.Context,
+			e ChannelEdge) error {
+
 			// Since connecting to nodes with a lot of small
 			// channels actually worsens our connectivity in the
 			// graph (we will potentially waste time trying to use
 			// these useless channels in path finding), we decrease
 			// the counter for such channels.
-			if e.Capacity < medianChanSize/minMedianChanSizeFraction {
+			if e.Capacity <
+				medianChanSize/minMedianChanSizeFraction {
+
 				nodeChans--
 				return nil
 			}

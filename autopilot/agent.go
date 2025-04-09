@@ -648,7 +648,7 @@ func (a *Agent) openChans(ctx context.Context, availableFunds btcutil.Amount,
 	// graph.
 	log.Debugf("Scoring %d nodes for chan_size=%v", len(nodes), chanSize)
 	scores, err := a.cfg.Heuristic.NodeScores(
-		a.cfg.Graph, totalChans, chanSize, nodes,
+		ctx, a.cfg.Graph, totalChans, chanSize, nodes,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to calculate node scores : %w", err)

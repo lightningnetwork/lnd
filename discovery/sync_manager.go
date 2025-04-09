@@ -538,6 +538,9 @@ func (m *SyncManager) syncerHandler(ctx context.Context) {
 
 		case <-m.quit:
 			return
+
+		case <-ctx.Done():
+			return
 		}
 	}
 }

@@ -6857,7 +6857,7 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if err := centralityMetric.Refresh(channelGraph); err != nil {
+	if err := centralityMetric.Refresh(ctx, channelGraph); err != nil {
 		return nil, err
 	}
 

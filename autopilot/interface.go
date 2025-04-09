@@ -157,7 +157,7 @@ type NodeMetric interface {
 	Name() string
 
 	// Refresh refreshes the metric values based on the current graph.
-	Refresh(graph ChannelGraph) error
+	Refresh(ctx context.Context, graph ChannelGraph) error
 
 	// GetMetric returns the latest value of this metric. Values in the
 	// map are per node and can be in arbitrary domain. If normalize is

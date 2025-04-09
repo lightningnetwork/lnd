@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -30,6 +31,9 @@ func TestBetweennessCentralityMetricConstruction(t *testing.T) {
 
 // Tests that empty graph results in empty centrality result.
 func TestBetweennessCentralityEmptyGraph(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
 	centralityMetric, err := NewBetweennessCentralityMetric(1)
 	require.NoError(
 		t, err,
@@ -42,7 +46,7 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 		require.NoError(t, err, "unable to create graph")
 
 		success := t.Run(chanGraph.name, func(t1 *testing.T) {
-			err = centralityMetric.Refresh(graph)
+			err = centralityMetric.Refresh(ctx, graph)
 			require.NoError(t1, err)
 
 			centrality := centralityMetric.GetMetric(false)
@@ -59,6 +63,9 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 
 // Test betweenness centrality calculating using an example graph.
 func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
 	workers := []int{1, 3, 9, 100}
 
 	tests := []struct {
@@ -100,7 +107,7 @@ func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 					t1, graph, centralityTestGraph,
 				)
 
-				err = metric.Refresh(graph)
+				err = metric.Refresh(ctx, graph)
 				require.NoError(t1, err)
 
 				for _, expected := range tests {

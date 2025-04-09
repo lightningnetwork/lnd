@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -155,6 +156,8 @@ func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper, e
 func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 	ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error) {
 
+	ctx := context.TODO()
+
 	// We'll merge the ignore map with our currently selected map in order
 	// to ensure we don't return any duplicate nodes.
 	for n := range ignore {
@@ -177,7 +180,9 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 			errFound = fmt.Errorf("found node")
 		)
 
-		err := c.chanGraph.ForEachNode(func(node autopilot.Node) error {
+		err := c.chanGraph.ForEachNode(ctx, func(_ context.Context,
+			node autopilot.Node) error {
+
 			nID := autopilot.NodeID(node.PubKey())
 			if _, ok := c.tried[nID]; ok {
 				return nil

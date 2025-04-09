@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -169,7 +170,9 @@ func betweennessCentrality(g *SimpleGraph, s int, centrality []float64) {
 
 // Refresh recalculates and stores centrality values.
 func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
-	cache, err := NewSimpleGraph(graph)
+	ctx := context.TODO()
+
+	cache, err := NewSimpleGraph(ctx, graph)
 	if err != nil {
 		return err
 	}

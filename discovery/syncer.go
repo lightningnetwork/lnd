@@ -527,6 +527,9 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 
 			case <-g.cg.Done():
 				return
+
+			case <-ctx.Done():
+				return
 			}
 
 		// We'll enter this state once we've discovered which channels
@@ -577,6 +580,9 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 
 			case <-g.cg.Done():
 				return
+
+			case <-ctx.Done():
+				return
 			}
 
 		// This is our final terminal state where we'll only reply to
@@ -623,6 +629,9 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 
 			case <-g.cg.Done():
 				return
+
+			case <-ctx.Done():
+				return
 			}
 		}
 	}
@@ -655,6 +664,9 @@ func (g *GossipSyncer) replyHandler(ctx context.Context) {
 			}
 
 		case <-g.cg.Done():
+			return
+
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -1298,6 +1310,8 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 	case <-g.syncerSema:
 	case <-g.cg.Done():
 		return ErrGossipSyncerExiting
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	// We don't put this in a defer because if the goroutine is launched,
@@ -1369,6 +1383,8 @@ func (g *GossipSyncer) FilterGossipMsgs(ctx context.Context,
 	// short.
 	select {
 	case <-g.cg.Done():
+		return
+	case <-ctx.Done():
 		return
 	default:
 	}

@@ -1495,7 +1495,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 
 	for i := 0; i < chunkSize*2; i += 2 {
 		// With our set up complete, we'll request a sync of chan ID's.
-		done := syncer.synchronizeChanIDs()
+		done := syncer.synchronizeChanIDs(context.Background())
 
 		// At this point, we shouldn't yet be done as only 2 items
 		// should have been queried for.
@@ -1542,7 +1542,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 
 	// If we issue another query, the syncer should tell us that it's done.
-	done := syncer.synchronizeChanIDs()
+	done := syncer.synchronizeChanIDs(context.Background())
 	if done {
 		t.Fatalf("syncer should be finished!")
 	}

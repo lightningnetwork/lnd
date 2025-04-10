@@ -24,12 +24,12 @@ const (
 
 //nolint:ll
 type Sweeper struct {
-	BatchWindowDuration time.Duration `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input." hidden:"true"`
-	MaxFeeRate chainfee.SatPerVByte `long:"maxfeerate" description:"Maximum fee rate in sat/vb that the sweeper is allowed to use when sweeping funds, the fee rate derived from budgets are capped at this value. Setting this value too low can result in transactions not being confirmed in time, causing HTLCs to expire hence potentially losing funds."`
-	NoDeadlineConfTarget uint32 `long:"nodeadlineconftarget" description:"The conf target to use when sweeping non-time-sensitive outputs. This is useful for sweeping outputs that are not time-sensitive, and can be swept at a lower fee rate."`
-	Budget *contractcourt.BudgetConfig `group:"sweeper.budget" namespace:"budget" long:"budget" description:"An optional config group that's used for the automatic sweep fee estimation. The Budget config gives options to limits ones fee exposure when sweeping unilateral close outputs and the fee rate calculated from budgets is capped at sweeper.maxfeerate. Check the budget config options for more details."`
-	FeeFunctionType string `long:"feefunctiontype" description:"The type of fee function to use for sweeping: 'linear' (default), 'cubic_delay', or 'cubic_eager'."`
-	BaseFeeRate chainfee.SatPerVByte `long:"basefeerate" description:"The base fee rate in sat/vb to start the fee function from. Must be at least 1 sat/vb."`
+    BatchWindowDuration  time.Duration               `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input." hidden:"true"`
+    MaxFeeRate           chainfee.SatPerVByte        `long:"maxfeerate" description:"Maximum fee rate in sat/vb that the sweeper is allowed to use when sweeping funds, the fee rate derived from budgets are capped at this value. Setting this value too low can result in transactions not being confirmed in time, causing HTLCs to expire hence potentially losing funds."`
+    NoDeadlineConfTarget uint32                      `long:"nodeadlineconftarget" description:"The conf target to use when sweeping non-time-sensitive outputs. This is useful for sweeping outputs that are not time-sensitive, and can be swept at a lower fee rate."`
+    Budget               *contractcourt.BudgetConfig `group:"sweeper.budget" namespace:"budget" long:"budget" description:"An optional config group that's used for the automatic sweep fee estimation. The Budget config gives options to limits ones fee exposure when sweeping unilateral close outputs and the fee rate calculated from budgets is capped at sweeper.maxfeerate. Check the budget config options for more details."`
+    FeeFunctionType      string                      `long:"feefunctiontype" description:"The type of fee function to use for sweeping: 'linear' (default), 'cubic_delay', or 'cubic_eager'."`
+    BaseFeeRate          chainfee.SatPerVByte        `long:"basefeerate" description:"The base fee rate in sat/vb to start the fee function from. Must be at least 1 sat/vb."`
 }
 
 // Validate checks the values configured for the sweeper.

@@ -96,7 +96,7 @@ const (
 	Init SweepState = iota
 
 	// PendingPublish specifies an input's state where it's already been
-	// included in a sweeping tx but the tx is not published yet.  Inputs
+	// included in a sweeping tx but the tx is not published yet.  Inputs.
 	// in this state should not be used for grouping again.
 	PendingPublish
 

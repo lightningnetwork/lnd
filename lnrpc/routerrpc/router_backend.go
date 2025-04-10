@@ -36,6 +36,10 @@ const (
 	// TODO(roasbeef): make this value dynamic based on expected number of
 	// attempts for given amount.
 	DefaultMaxParts = 16
+
+	// MaxPartsUpperLimit defines the maximum allowable number of splits
+	// for MPP/AMP when the user is attempting to send a payment.
+	MaxPartsUpperLimit = 1000
 )
 
 // RouterBackend contains the backend implementation of the router rpc sub
@@ -868,6 +872,16 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	if rpcPayReq.MaxShardSizeMsat > 0 {
 		shardAmtMsat := lnwire.MilliSatoshi(rpcPayReq.MaxShardSizeMsat)
 		payIntent.MaxShardAmt = &shardAmtMsat
+
+		// If the requested max_parts exceeds the allowed limit, then we
+		// cannot send the payment amount.
+		if payIntent.MaxParts > MaxPartsUpperLimit {
+			return nil, fmt.Errorf("requested max_parts (%v) "+
+				"exceeds the allowed upper limit of %v; cannot"+
+				" send payment amount with max_shard_size_msat"+
+				"=%v", payIntent.MaxParts, MaxPartsUpperLimit,
+				*payIntent.MaxShardAmt)
+		}
 	}
 
 	// Take fee limit from request.
@@ -1201,6 +1215,23 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		payIntent.DestFeatures = features
+	}
+
+	// Validate that the MPP parameters are compatible with the
+	// payment amount. In other words, the parameters are invalid if
+	// they do not permit sending the full payment amount.
+	if payIntent.MaxShardAmt != nil {
+		maxPossibleAmount := (*payIntent.MaxShardAmt) *
+			lnwire.MilliSatoshi(payIntent.MaxParts)
+
+		if payIntent.Amount > maxPossibleAmount {
+			return nil, fmt.Errorf("payment amount %v exceeds "+
+				"maximum possible amount %v with max_parts=%v "+
+				"and max_shard_size_msat=%v", payIntent.Amount,
+				maxPossibleAmount, payIntent.MaxParts,
+				*payIntent.MaxShardAmt,
+			)
+		}
 	}
 
 	// Do bounds checking with the block padding so the router isn't

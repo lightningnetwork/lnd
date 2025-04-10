@@ -416,6 +416,11 @@ type UtxoSweeperConfig struct {
 	// NoDeadlineConfTarget is the conf target to use when sweeping
 	// non-time-sensitive outputs.
 	NoDeadlineConfTarget uint32
+	// New: "linear", "cubic_delay", "cubic_eager"
+	FeeFunctionType string
+
+	// New: Base fee rate in sat/vb
+	BaseFeeRate chainfee.SatPerVByte 
 }
 
 // Result is the struct that is pushed through the result channel. Callers can

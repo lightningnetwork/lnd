@@ -671,14 +671,18 @@ func (hn *HarnessNode) WaitForProcessExit() error {
 		hn.printErrf("timeout waiting for process to exit")
 	}
 
-	// Make sure log file is closed and renamed if necessary.
-	filename := finalizeLogfile(hn)
+	// If the node has an open log file handle, inspect the log file
+	// to verify that the node shut down correctly.
+	if hn.logFile != nil {
+		// Make sure log file is closed and renamed if necessary.
+		filename := finalizeLogfile(hn)
 
-	// Assert the node has shut down from the log file.
-	err1 := assertNodeShutdown(filename)
-	if err1 != nil {
-		return fmt.Errorf("[%s]: assert shutdown failed in log[%s]: %w",
-			hn.Name(), filename, err1)
+		// Assert the node has shut down from the log file.
+		err1 := assertNodeShutdown(filename)
+		if err1 != nil {
+			return fmt.Errorf("[%s]: assert shutdown failed in "+
+				"log[%s]: %w", hn.Name(), filename, err1)
+		}
 	}
 
 	// Rename the etcd.log file if the node was running on embedded etcd.

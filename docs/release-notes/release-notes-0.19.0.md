@@ -111,6 +111,9 @@ keysend payment validation is stricter.
   process of the node won't be interrupted if a non-fatal error is returned from
   the subsystems.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9703) a possible panic
+  when reloading legacy inflight payments which don't have the MPP feature.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

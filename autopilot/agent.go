@@ -202,10 +202,10 @@ func New(cfg Config, initialState []LocalChannel) (*Agent, error) {
 
 // Start starts the agent along with any goroutines it needs to perform its
 // normal duties.
-func (a *Agent) Start(ctx context.Context) error {
+func (a *Agent) Start() error {
 	var err error
 	a.started.Do(func() {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(context.Background())
 		a.cancel = fn.Some(cancel)
 
 		err = a.start(ctx)

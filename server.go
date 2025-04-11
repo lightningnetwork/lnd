@@ -2390,7 +2390,7 @@ func (s *server) Start(ctx context.Context) error {
 		// The authGossiper depends on the chanRouter and therefore
 		// should be started after it.
 		cleanup = cleanup.add(s.authGossiper.Stop)
-		if err := s.authGossiper.Start(ctx); err != nil {
+		if err := s.authGossiper.Start(); err != nil {
 			startErr = err
 			return
 		}

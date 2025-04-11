@@ -405,11 +405,11 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 
 // Start starts the GossipSyncer and any goroutines that it needs to carry out
 // its duties.
-func (g *GossipSyncer) Start(ctx context.Context) {
+func (g *GossipSyncer) Start() {
 	g.started.Do(func() {
 		log.Debugf("Starting GossipSyncer(%x)", g.cfg.peerPub[:])
 
-		ctx, _ := g.cg.Create(ctx)
+		ctx, _ := g.cg.Create(context.Background())
 
 		// TODO(conner): only spawn channelGraphSyncer if remote
 		// supports gossip queries, and only spawn replyHandler if we

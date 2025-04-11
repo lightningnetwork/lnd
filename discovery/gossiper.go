@@ -643,10 +643,10 @@ func (d *AuthenticatedGossiper) PropagateChanPolicyUpdate(
 
 // Start spawns network messages handler goroutine and registers on new block
 // notifications in order to properly handle the premature announcements.
-func (d *AuthenticatedGossiper) Start(ctx context.Context) error {
+func (d *AuthenticatedGossiper) Start() error {
 	var err error
 	d.started.Do(func() {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(context.Background())
 		d.cancel = fn.Some(cancel)
 
 		log.Info("Authenticated Gossiper starting")
@@ -674,11 +674,11 @@ func (d *AuthenticatedGossiper) start(ctx context.Context) error {
 	// Start the reliable sender. In case we had any pending messages ready
 	// to be sent when the gossiper was last shut down, we must continue on
 	// our quest to deliver them to their respective peers.
-	if err := d.reliableSender.Start(ctx); err != nil {
+	if err := d.reliableSender.Start(); err != nil {
 		return err
 	}
 
-	d.syncMgr.Start(ctx)
+	d.syncMgr.Start()
 
 	d.banman.start()
 

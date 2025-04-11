@@ -994,7 +994,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		ScidCloser:            newMockScidCloser(isChanPeer),
 	}, selfKeyDesc)
 
-	if err := gossiper.Start(context.Background()); err != nil {
+	if err := gossiper.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start router: %w", err)
 	}
 
@@ -1692,7 +1692,7 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		KeyLocator: tCtx.gossiper.selfKeyLoc,
 	})
 	require.NoError(t, err, "unable to recreate gossiper")
-	if err := gossiper.Start(context.Background()); err != nil {
+	if err := gossiper.Start(); err != nil {
 		t.Fatalf("unable to start recreated gossiper: %v", err)
 	}
 	defer gossiper.Stop()

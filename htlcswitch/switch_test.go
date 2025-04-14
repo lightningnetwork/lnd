@@ -5545,11 +5545,13 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	require.NoError(t, err)
 
 	inCircuit := forwardInterceptor.getIntercepted().IncomingCircuit
-	require.NoError(t, interceptSwitch.resolve(&FwdResolution{
-		Action:      FwdActionFail,
-		Key:         inCircuit,
-		FailureCode: lnwire.CodeTemporaryChannelFailure,
-	}))
+	require.NoError(t, interceptSwitch.resolve(
+		context.Background(), &FwdResolution{
+			Action:      FwdActionFail,
+			Key:         inCircuit,
+			FailureCode: lnwire.CodeTemporaryChannelFailure,
+		},
+	))
 
 	select {
 	case failPacket := <-aliceLink.packets:

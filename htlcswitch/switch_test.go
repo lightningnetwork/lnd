@@ -731,7 +731,7 @@ func testSwitchSendHtlcMapping(t *testing.T, zeroConf, useAlias bool, alias,
 		Amount:      1,
 	}
 
-	err = s.SendHTLC(outgoingSCID, 0, htlc)
+	err = s.SendHTLC(context.Background(), outgoingSCID, 0, htlc)
 	require.NoError(t, err)
 }
 
@@ -2377,7 +2377,9 @@ func testSkipLinkLocalForward(t *testing.T, eligible bool,
 	// We'll attempt to send out a new HTLC that has Alice as the first
 	// outgoing link. This should fail as Alice isn't yet able to forward
 	// any active HTLC's.
-	err = s.SendHTLC(aliceChannelLink.ShortChanID(), 0, addMsg)
+	err = s.SendHTLC(
+		context.Background(), aliceChannelLink.ShortChanID(), 0, addMsg,
+	)
 	if err == nil {
 		t.Fatalf("local forward should fail due to inactive link")
 	}
@@ -2709,7 +2711,8 @@ func TestSwitchSendPayment(t *testing.T) {
 	errChan := make(chan error)
 	go func() {
 		err := s.SendHTLC(
-			aliceChannelLink.ShortChanID(), paymentID, update,
+			context.Background(), aliceChannelLink.ShortChanID(),
+			paymentID, update,
 		)
 		if err != nil {
 			errChan <- err
@@ -3217,7 +3220,8 @@ func TestInvalidFailure(t *testing.T) {
 
 	// Send the request.
 	err = s.SendHTLC(
-		aliceChannelLink.ShortChanID(), paymentID, update,
+		context.Background(), aliceChannelLink.ShortChanID(), paymentID,
+		update,
 	)
 	require.NoError(t, err, "unable to send payment")
 
@@ -3569,7 +3573,8 @@ func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHT
 	require.NoError(t, err, "unable to add invoice in carol registry")
 
 	if err := n.aliceServer.htlcSwitch.SendHTLC(
-		n.firstBobChannelLink.ShortChanID(), pid, htlc,
+		context.Background(), n.firstBobChannelLink.ShortChanID(), pid,
+		htlc,
 	); err != nil {
 		t.Fatalf("could not send htlc")
 	}
@@ -4258,6 +4263,7 @@ func TestInterceptableSwitchWatchDog(t *testing.T) {
 // have incoming or outgoing links that breach their fee thresholds.
 func TestSwitchDustForwarding(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// We'll create a three-hop network:
 	// - Alice has a dust limit of 200sats with Bob
@@ -4361,7 +4367,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	// anchor channel) we are overexposed in fees (maxFeeExposure) that's
 	// why the HTLC is failed back.
 	err = n.bobServer.htlcSwitch.SendHTLC(
-		aliceBobFirstHop, uint64(bobAttemptID), failingHtlc,
+		ctx, aliceBobFirstHop, uint64(bobAttemptID), failingHtlc,
 	)
 	require.Nil(t, err)
 
@@ -4402,7 +4408,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	}
 
 	err = n.bobServer.htlcSwitch.SendHTLC(
-		aliceBobFirstHop, uint64(bobAttemptID), nondustHtlc,
+		ctx, aliceBobFirstHop, uint64(bobAttemptID), nondustHtlc,
 	)
 	require.NoError(t, err)
 	assertAlmostDust(n.firstBobChannelLink, bobMbox, lntypes.Local)
@@ -4443,7 +4449,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	carolAttemptID := 0
 
 	err = n.carolServer.htlcSwitch.SendHTLC(
-		n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
+		ctx, n.carolChannelLink.ShortChanID(), uint64(carolAttemptID),
 		carolHtlc,
 	)
 	require.NoError(t, err)
@@ -4486,7 +4492,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	assertAlmostDust(n.aliceChannelLink, aliceMbox, lntypes.Remote)
 
 	err = n.aliceServer.htlcSwitch.SendHTLC(
-		n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),
+		ctx, n.aliceChannelLink.ShortChanID(), uint64(aliceAttemptID),
 		aliceMultihopHtlc,
 	)
 	require.Nil(t, err)
@@ -4572,7 +4578,9 @@ func sendDustHtlcs(t *testing.T, n *threeHopNetwork, alice bool,
 			// before all numHTLCs*2 HTLC's are sent due to double
 			// counting. Get around this by continuing to send
 			// until successful.
-			err = sendingSwitch.SendHTLC(sid, attemptID, htlc)
+			err = sendingSwitch.SendHTLC(
+				context.Background(), sid, attemptID, htlc,
+			)
 			if err == nil {
 				break
 			}
@@ -4678,7 +4686,7 @@ func TestSwitchMailboxDust(t *testing.T) {
 
 	// Sending one more HTLC to Alice should result in the fee threshold
 	// being breached.
-	err = s.SendHTLC(aliceChanID, 0, addMsg)
+	err = s.SendHTLC(ctx, aliceChanID, 0, addMsg)
 	require.ErrorIs(t, err, errFeeExposureExceeded)
 
 	// We'll now call ForwardPackets from Bob to ensure that the mailbox

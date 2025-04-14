@@ -108,7 +108,7 @@ type PaymentAttemptDispatcher interface {
 	// forward a fully encoded payment to the first hop in the route
 	// denoted by its public key. A non-nil error is to be returned if the
 	// payment was unsuccessful.
-	SendHTLC(firstHop lnwire.ShortChannelID,
+	SendHTLC(ctx context.Context, firstHop lnwire.ShortChannelID,
 		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
@@ -1024,7 +1024,9 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
 	error) {
 
-	return r.sendToRoute(htlcHash, rt, false, firstHopCustomRecords)
+	ctx := context.TODO()
+
+	return r.sendToRoute(ctx, htlcHash, rt, false, firstHopCustomRecords)
 }
 
 // SendToRouteSkipTempErr sends a payment using the provided route and fails
@@ -1034,7 +1036,9 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
 	error) {
 
-	return r.sendToRoute(htlcHash, rt, true, firstHopCustomRecords)
+	ctx := context.TODO()
+
+	return r.sendToRoute(ctx, htlcHash, rt, true, firstHopCustomRecords)
 }
 
 // sendToRoute attempts to send a payment with the given hash through the
@@ -1043,8 +1047,8 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // information will contain the preimage. If an error occurs after the attempt
 // was initiated, both return values will be non-nil. If skipTempErr is true,
 // the payment won't be failed unless a terminal error has occurred.
-func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	skipTempErr bool,
+func (r *ChannelRouter) sendToRoute(ctx context.Context, htlcHash lntypes.Hash,
+	rt *route.Route, skipTempErr bool,
 	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
 	error) {
 
@@ -1166,7 +1170,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// the `err` returned here has already been processed by
 	// `handleSwitchErr`, which means if there's a terminal failure, the
 	// payment has been failed.
-	result, err := p.sendAttempt(attempt)
+	result, err := p.sendAttempt(ctx, attempt)
 	if err != nil {
 		return nil, err
 	}

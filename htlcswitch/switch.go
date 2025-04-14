@@ -546,10 +546,8 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 // package in order to send the htlc update. The attemptID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject
 // it.
-func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
-	htlc *lnwire.UpdateAddHTLC) error {
-
-	ctx := context.TODO()
+func (s *Switch) SendHTLC(ctx context.Context, firstHop lnwire.ShortChannelID,
+	attemptID uint64, htlc *lnwire.UpdateAddHTLC) error {
 
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our

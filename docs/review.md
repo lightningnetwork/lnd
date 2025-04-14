@@ -85,7 +85,7 @@ entry point for anyone not yet familiar with the process:
 - Bonus: Write a unit test (or test case) that you can propose to add to the PR.
 - Go through the PR commit by commit and line by line
     - Is the flow of the commits easy to understand? Does the order make sense?
-      See the [code contribution guidelines](code_contribution_guidelines.md)
+      See the [code contribution guidelines](development_guidelines.md#ideal-git-commit-structure)
       for more information on this.
     - Is the granularity of the commit structure easy to understand? Should
       commits be split up or be combined?

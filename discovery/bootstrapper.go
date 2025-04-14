@@ -157,11 +157,9 @@ func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper, e
 // many valid peer addresses to return.
 //
 // NOTE: Part of the NetworkPeerBootstrapper interface.
-func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
+func (c *ChannelGraphBootstrapper) SampleNodeAddrs(ctx context.Context,
 	numAddrs uint32,
 	ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error) {
-
-	ctx := context.TODO()
 
 	// We'll merge the ignore map with our currently selected map in order
 	// to ensure we don't return any duplicate nodes.

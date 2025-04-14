@@ -2644,10 +2644,8 @@ func (s *Switch) dustExceedsFeeThreshold(link ChannelLink,
 // used in the onion. The mailboxScid is the SCID that the mailbox and link
 // use. The mailboxScid is only used in the non-alias case, so it is always
 // the confirmed SCID.
-func (s *Switch) failMailboxUpdate(outgoingScid,
+func (s *Switch) failMailboxUpdate(ctx context.Context, outgoingScid,
 	mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
-
-	ctx := context.TODO()
 
 	// Try to use the failAliasUpdate function in case this is a channel
 	// that uses aliases. If it returns nil, we'll fallback to the original

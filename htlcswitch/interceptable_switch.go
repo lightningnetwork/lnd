@@ -435,7 +435,7 @@ func (s *InterceptableSwitch) resolve(ctx context.Context,
 
 	case FwdActionResumeModified:
 		return intercepted.ResumeModified(
-			res.InAmountMsat, res.OutAmountMsat,
+			ctx, res.InAmountMsat, res.OutAmountMsat,
 			res.OutWireCustomRecords,
 		)
 
@@ -687,12 +687,10 @@ func (f *interceptedForward) Resume(ctx context.Context) error {
 // should be interpreted differently from the on-chain amount during further
 // validation. The presence of an output amount and/or custom records indicates
 // that those values should be modified on the outgoing HTLC.
-func (f *interceptedForward) ResumeModified(
+func (f *interceptedForward) ResumeModified(ctx context.Context,
 	inAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outWireCustomRecords fn.Option[lnwire.CustomRecords]) error {
-
-	ctx := context.TODO()
 
 	// Convert the optional custom records to the correct type and validate
 	// them.

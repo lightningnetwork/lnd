@@ -439,7 +439,7 @@ type InterceptedForward interface {
 
 	// ResumeModified notifies the intention to resume an existing hold
 	// forward with modified fields.
-	ResumeModified(inAmountMsat,
+	ResumeModified(ctx context.Context, inAmountMsat,
 		outAmountMsat fn.Option[lnwire.MilliSatoshi],
 		outWireCustomRecords fn.Option[lnwire.CustomRecords]) error
 

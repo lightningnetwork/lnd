@@ -853,7 +853,7 @@ func (f *mockChannelLink) CheckHtlcForward(context.Context, [32]byte,
 	return f.checkHtlcForwardResult
 }
 
-func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
+func (f *mockChannelLink) CheckHtlcTransit(_ context.Context, payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32, _ lnwire.CustomRecords) *LinkError {
 

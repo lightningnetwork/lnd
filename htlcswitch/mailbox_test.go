@@ -334,6 +334,8 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 // TestMailBoxFailAdd asserts that FailAdd returns a response to the switch
 // under various interleavings with other operations on the mailbox.
 func TestMailBoxFailAdd(t *testing.T) {
+	t.Parallel()
+
 	var (
 		batchDelay       = time.Second
 		expiry           = time.Minute
@@ -346,7 +348,7 @@ func TestMailBoxFailAdd(t *testing.T) {
 
 	failAdds := func(adds []*htlcPacket) {
 		for _, add := range adds {
-			ctx.mailbox.FailAdd(add)
+			ctx.mailbox.FailAdd(context.Background(), add)
 		}
 	}
 

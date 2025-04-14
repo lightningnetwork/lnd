@@ -2223,7 +2223,9 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	).Return(nil)
 
 	// Expect a successful send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		context.Background(), payHash, rt, nil,
+	)
 	require.NoError(t, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2278,7 +2280,9 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 	}}
 
 	// Expect an error to be returned.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		context.Background(), payHash, rt, nil,
+	)
 	require.ErrorIs(t, ErrSkipTempErr, err)
 	require.Nil(t, attempt)
 
@@ -2358,7 +2362,9 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		context.Background(), payHash, rt, nil,
+	)
 	require.Equal(t, tempErr, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2442,7 +2448,9 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(&failureReason, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		context.Background(), payHash, rt, nil,
+	)
 	require.Equal(t, permErr, err)
 	require.Equal(t, testAttempt, attempt)
 

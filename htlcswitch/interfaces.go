@@ -85,7 +85,7 @@ type dustHandler interface {
 type scidAliasHandler interface {
 	// attachFailAliasUpdate allows the link to properly fail incoming
 	// HTLCs on option_scid_alias channels.
-	attachFailAliasUpdate(failClosure func(
+	attachFailAliasUpdate(failClosure func(ctx context.Context,
 		sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1)
 

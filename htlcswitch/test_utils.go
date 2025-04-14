@@ -1134,7 +1134,9 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
+		return server.htlcSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	//nolint:ll

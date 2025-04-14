@@ -263,7 +263,7 @@ type ChannelLinkConfig struct {
 
 	// FailAliasUpdate is a function used to fail an HTLC for an
 	// option_scid_alias channel.
-	FailAliasUpdate func(sid lnwire.ShortChannelID,
+	FailAliasUpdate func(ctx context.Context, sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1
 
 	// GetAliases is used by the link and switch to fetch the set of
@@ -872,7 +872,7 @@ func (l *channelLink) createFailureWithUpdate(ctx context.Context,
 
 	// Try using the FailAliasUpdate function. If it returns nil, fallback
 	// to the non-alias behavior.
-	update := l.cfg.FailAliasUpdate(scid, incoming)
+	update := l.cfg.FailAliasUpdate(ctx, scid, incoming)
 	if update == nil {
 		// Fallback to the non-alias behavior.
 		var err error
@@ -3210,7 +3210,7 @@ func (l *channelLink) getAliases() []lnwire.ShortChannelID {
 // attachFailAliasUpdate sets the link's FailAliasUpdate function.
 //
 // Part of the scidAliasHandler interface.
-func (l *channelLink) attachFailAliasUpdate(closure func(
+func (l *channelLink) attachFailAliasUpdate(closure func(ctx context.Context,
 	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate1) {
 
 	l.Lock()

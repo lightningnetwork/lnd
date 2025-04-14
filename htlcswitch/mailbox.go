@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -53,7 +54,7 @@ type MailBox interface {
 	// packet from being delivered after the link restarts if the switch has
 	// remained online. The generated LinkError will show an
 	// OutgoingFailureDownstreamHtlcAdd FailureDetail.
-	FailAdd(pkt *htlcPacket)
+	FailAdd(ctx context.Context, pkt *htlcPacket)
 
 	// MessageOutBox returns a channel that any new messages ready for
 	// delivery will be sent on.
@@ -149,6 +150,7 @@ type memoryMailBox struct {
 	wireShutdown chan struct{}
 	pktShutdown  chan struct{}
 	quit         chan struct{}
+	cancel       fn.Option[context.CancelFunc]
 
 	// feeRate is set when the link receives or sends out fee updates. It
 	// is refreshed when AttachMailBox is called in case a fee update did
@@ -207,8 +209,11 @@ const (
 // NOTE: This method is part of the MailBox interface.
 func (m *memoryMailBox) Start() {
 	m.started.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cancel = fn.Some(cancel)
+
 		go m.wireMailCourier()
-		go m.pktMailCourier()
+		go m.pktMailCourier(ctx)
 	})
 }
 
@@ -324,6 +329,7 @@ func (m *memoryMailBox) HasPacket(inKey CircuitKey) bool {
 // NOTE: This method is part of the MailBox interface.
 func (m *memoryMailBox) Stop() {
 	m.stopped.Do(func() {
+		m.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 		close(m.quit)
 
 		m.signalUntilShutdown(wireCourier)
@@ -424,7 +430,7 @@ func (m *memoryMailBox) wireMailCourier() {
 
 // pktMailCourier is a dedicated goroutine whose job is to reliably deliver
 // packet messages.
-func (m *memoryMailBox) pktMailCourier() {
+func (m *memoryMailBox) pktMailCourier(ctx context.Context) {
 	defer close(m.pktShutdown)
 
 	for {
@@ -541,7 +547,7 @@ func (m *memoryMailBox) pktMailCourier() {
 		case <-deadline:
 			log.Debugf("Expiring add htlc with "+
 				"keystone=%v", add.keystone())
-			m.FailAdd(add)
+			m.FailAdd(ctx, add)
 
 		case pktDone := <-m.pktReset:
 			m.pktCond.L.Lock()
@@ -688,9 +694,7 @@ func (m *memoryMailBox) DustPackets() (lnwire.MilliSatoshi,
 // delivered after the link restarts if the switch has remained online. The
 // generated LinkError will show an OutgoingFailureDownstreamHtlcAdd
 // FailureDetail.
-func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
-	ctx := context.TODO()
-
+func (m *memoryMailBox) FailAdd(ctx context.Context, pkt *htlcPacket) {
 	// First, remove the packet from mailbox. If we didn't find the packet
 	// because it has already been acked, we'll exit early to avoid sending
 	// a duplicate fail message through the switch.

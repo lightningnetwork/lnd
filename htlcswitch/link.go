@@ -1695,7 +1695,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(ctx context.Context,
 	// already sent Stfu, then we can't add new htlcs to the link and we
 	// need to bounce it.
 	if l.IsFlushing(Outgoing) || !l.quiescer.CanSendUpdates() {
-		l.mailBox.FailAdd(pkt)
+		l.mailBox.FailAdd(ctx, pkt)
 
 		return NewDetailedLinkError(
 			&lnwire.FailTemporaryChannelFailure{},
@@ -1718,7 +1718,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(ctx context.Context,
 		l.log.Debugf("Unable to handle downstream HTLC - max fee " +
 			"exposure exceeded")
 
-		l.mailBox.FailAdd(pkt)
+		l.mailBox.FailAdd(ctx, pkt)
 
 		return NewDetailedLinkError(
 			lnwire.NewTemporaryChannelFailure(nil),
@@ -1752,7 +1752,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(ctx context.Context,
 		// the switch, since the circuit was never fully opened,
 		// and the forwarding package shows it as
 		// unacknowledged.
-		l.mailBox.FailAdd(pkt)
+		l.mailBox.FailAdd(ctx, pkt)
 
 		return NewDetailedLinkError(
 			lnwire.NewTemporaryChannelFailure(nil),

@@ -927,7 +927,7 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		)
 	} else {
 		attempt, err = s.cfg.Router.SendToRoute(
-			hash, route, firstHopRecords,
+			ctx, hash, route, firstHopRecords,
 		)
 	}
 	if attempt != nil {

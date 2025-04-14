@@ -1020,11 +1020,10 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
+func (r *ChannelRouter) SendToRoute(ctx context.Context, htlcHash lntypes.Hash,
+	rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
 	error) {
-
-	ctx := context.TODO()
 
 	return r.sendToRoute(ctx, htlcHash, rt, false, firstHopCustomRecords)
 }

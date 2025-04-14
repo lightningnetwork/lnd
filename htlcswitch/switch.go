@@ -177,8 +177,8 @@ type Config struct {
 	// specified when we receive an incoming HTLC.  This will be used to
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
-	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate1, error)
+	FetchLastChannelUpdate func(context.Context,
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error)
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
@@ -679,6 +679,8 @@ func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
 func (s *Switch) ForwardPackets(linkQuit <-chan struct{},
 	packets ...*htlcPacket) error {
 
+	ctx := context.TODO()
+
 	var (
 		// fwdChan is a buffered channel used to receive err msgs from
 		// the htlcPlex when forwarding this batch.
@@ -795,7 +797,7 @@ func (s *Switch) ForwardPackets(linkQuit <-chan struct{},
 		if update == nil {
 			// Fallback to the original non-option behavior.
 			update, err := s.cfg.FetchLastChannelUpdate(
-				incomingID,
+				ctx, incomingID,
 			)
 			if err != nil {
 				failure = &lnwire.FailTemporaryNodeFailure{}
@@ -2631,6 +2633,8 @@ func (s *Switch) dustExceedsFeeThreshold(link ChannelLink,
 func (s *Switch) failMailboxUpdate(outgoingScid,
 	mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
+	ctx := context.TODO()
+
 	// Try to use the failAliasUpdate function in case this is a channel
 	// that uses aliases. If it returns nil, we'll fallback to the original
 	// pre-alias behavior.
@@ -2638,7 +2642,7 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 	if update == nil {
 		// Execute the fallback behavior.
 		var err error
-		update, err = s.cfg.FetchLastChannelUpdate(mailboxScid)
+		update, err = s.cfg.FetchLastChannelUpdate(ctx, mailboxScid)
 		if err != nil {
 			return &lnwire.FailTemporaryNodeFailure{}
 		}
@@ -2654,6 +2658,8 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 // to the original non-alias behavior is expected.
 func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 	incoming bool) *lnwire.ChannelUpdate1 {
+
+	ctx := context.TODO()
 
 	// This function does not defer the unlocking because of the database
 	// lookups for ChannelUpdate.
@@ -2676,7 +2682,9 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 				return nil
 			}
 
-			update, err := s.cfg.FetchLastChannelUpdate(baseScid)
+			update, err := s.cfg.FetchLastChannelUpdate(
+				ctx, baseScid,
+			)
 			if err != nil {
 				return nil
 			}
@@ -2700,7 +2708,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 
 		// Fetch the SCID via the confirmed SCID and replace it with
 		// the alias.
-		update, err := s.cfg.FetchLastChannelUpdate(realScid)
+		update, err := s.cfg.FetchLastChannelUpdate(ctx, realScid)
 		if err != nil {
 			return nil
 		}
@@ -2747,7 +2755,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 	}
 
 	// Fetch the ChannelUpdate via the real, confirmed SCID.
-	update, err := s.cfg.FetchLastChannelUpdate(scid)
+	update, err := s.cfg.FetchLastChannelUpdate(ctx, scid)
 	if err != nil {
 		return nil
 	}

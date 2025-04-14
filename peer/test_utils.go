@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"context"
 	crand "crypto/rand"
 	"encoding/binary"
 	"io"
@@ -748,8 +749,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 			return nil
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
-		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
-		) (*lnwire.ChannelUpdate1, error) {
+		FetchLastChanUpdate: func(_ context.Context,
+			_ lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
+			error) {
 
 			return &lnwire.ChannelUpdate1{}, nil
 		},

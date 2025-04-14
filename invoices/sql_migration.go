@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/pmezard/go-difflib/difflib"
+	"golang.org/x/time/rate"
 )
 
 var (
@@ -433,11 +434,17 @@ func MigrateInvoicesToSQL(ctx context.Context, db kvdb.Backend,
 	}
 	log.Debugf("Created SQL invoice hash index in %v", time.Since(t0))
 
+	s := rate.Sometimes{
+		Interval: 30 * time.Second,
+	}
+
+	t0 = time.Now()
+	chunk := 0
 	total := 0
+
 	// Now we can start migrating the invoices. We'll do this in
 	// batches to reduce memory usage.
 	for {
-		t0 = time.Now()
 		query := InvoiceQuery{
 			IndexOffset:    offset,
 			NumMaxInvoices: uint64(batchSize),
@@ -445,13 +452,11 @@ func MigrateInvoicesToSQL(ctx context.Context, db kvdb.Backend,
 
 		queryResult, err := kvStore.QueryInvoices(ctx, query)
 		if err != nil && !errors.Is(err, ErrNoInvoicesCreated) {
-			return fmt.Errorf("unable to query invoices: "+
-				"%w", err)
+			return fmt.Errorf("unable to query invoices: %w", err)
 		}
 
 		if len(queryResult.Invoices) == 0 {
-			log.Infof("All invoices migrated")
-
+			log.Infof("All invoices migrated. Total: %d", total)
 			break
 		}
 
@@ -461,9 +466,19 @@ func MigrateInvoicesToSQL(ctx context.Context, db kvdb.Backend,
 		}
 
 		offset = queryResult.LastIndexOffset
-		total += len(queryResult.Invoices)
-		log.Debugf("Migrated %d KV invoices to SQL in %v\n", total,
-			time.Since(t0))
+		resultCnt := len(queryResult.Invoices)
+		total += resultCnt
+		chunk += resultCnt
+
+		s.Do(func() {
+			elapsed := time.Since(t0).Seconds()
+			ratePerSec := float64(chunk) / elapsed
+			log.Debugf("Migrated %d invoices (%.2f invoices/sec)",
+				total, ratePerSec)
+
+			t0 = time.Now()
+			chunk = 0
+		})
 	}
 
 	// Clean up the hash index as it's no longer needed.

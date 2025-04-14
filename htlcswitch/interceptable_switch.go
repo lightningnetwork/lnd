@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"sync"
@@ -748,6 +749,8 @@ func (f *interceptedForward) Fail(reason []byte) error {
 // FailWithCode notifies the intention to fail an existing hold forward with the
 // specified failure code.
 func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
+	ctx := context.TODO()
+
 	shaOnionBlob := func() [32]byte {
 		return sha256.Sum256(f.htlc.OnionBlob[:])
 	}
@@ -779,7 +782,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 			// Fallback to the original, non-alias behavior.
 			var err error
 			update, err = f.htlcSwitch.cfg.FetchLastChannelUpdate(
-				f.packet.incomingChanID,
+				ctx, f.packet.incomingChanID,
 			)
 			if err != nil {
 				return err
@@ -790,7 +793,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 	case lnwire.CodeExpiryTooSoon:
 		update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
-			f.packet.incomingChanID,
+			ctx, f.packet.incomingChanID,
 		)
 		if err != nil {
 			return err

@@ -1121,13 +1121,15 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 // handlePacketForward is used in cases when we need forward the htlc update
 // from one channel link to another and be able to propagate the settle/fail
 // updates back. This behaviour is achieved by creation of payment circuits.
-func (s *Switch) handlePacketForward(packet *htlcPacket) error {
+func (s *Switch) handlePacketForward(ctx context.Context,
+	packet *htlcPacket) error {
+
 	switch htlc := packet.htlc.(type) {
 	// Channel link forwarded us a new htlc, therefore we initiate the
 	// payment circuit within our internal state so we can properly forward
 	// the ultimate settle message back latter.
 	case *lnwire.UpdateAddHTLC:
-		return s.handlePacketAdd(packet, htlc)
+		return s.handlePacketAdd(ctx, packet, htlc)
 
 	case *lnwire.UpdateFulfillHTLC:
 		return s.handlePacketSettle(packet)
@@ -1461,7 +1463,9 @@ func (s *Switch) CloseLink(ctx context.Context, chanPoint *wire.OutPoint,
 // total link capacity.
 //
 // NOTE: This MUST be run as a goroutine.
-func (s *Switch) htlcForwarder() {
+//
+//nolint:funlen
+func (s *Switch) htlcForwarder(ctx context.Context) {
 	defer s.wg.Done()
 
 	defer func() {
@@ -1621,7 +1625,7 @@ out:
 			// encounter is due to the circuit already being
 			// closed. This is fine, as processing this message is
 			// meant to be idempotent.
-			err = s.handlePacketForward(pkt)
+			err = s.handlePacketForward(ctx, pkt)
 			if err != nil {
 				log.Errorf("Unable to forward resolution msg: %v", err)
 			}
@@ -1630,7 +1634,7 @@ out:
 		// packet concretely, then either forward it along, or
 		// interpret a return packet to a locally initialized one.
 		case cmd := <-s.htlcPlex:
-			cmd.err <- s.handlePacketForward(cmd.pkt)
+			cmd.err <- s.handlePacketForward(ctx, cmd.pkt)
 
 		// When this time ticks, then it indicates that we should
 		// collect all the forwarding events since the last internal,
@@ -1772,7 +1776,7 @@ func (s *Switch) Start() error {
 	s.blockEpochStream = blockEpochStream
 
 	s.wg.Add(1)
-	go s.htlcForwarder()
+	go s.htlcForwarder(ctx)
 
 	if err := s.reforwardResponses(ctx); err != nil {
 		s.Stop()
@@ -2838,7 +2842,7 @@ func (s *Switch) AddAliasForLink(chanID lnwire.ChannelID,
 }
 
 // handlePacketAdd handles forwarding an Add packet.
-func (s *Switch) handlePacketAdd(packet *htlcPacket,
+func (s *Switch) handlePacketAdd(ctx context.Context, packet *htlcPacket,
 	htlc *lnwire.UpdateAddHTLC) error {
 
 	// Check if the node is set to reject all onward HTLCs and also make
@@ -2911,7 +2915,7 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 			// forwarding conditions of this target link.
 			currentHeight := atomic.LoadUint32(&s.bestHeight)
 			failure = link.CheckHtlcForward(
-				htlc.PaymentHash, packet.incomingAmount,
+				ctx, htlc.PaymentHash, packet.incomingAmount,
 				packet.amount, packet.incomingTimeout,
 				packet.outgoingTimeout, packet.inboundFee,
 				currentHeight, packet.originalOutgoingChanID,

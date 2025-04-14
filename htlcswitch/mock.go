@@ -845,9 +845,10 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
 }
-func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
-	lnwire.ShortChannelID, lnwire.CustomRecords) *LinkError {
+func (f *mockChannelLink) CheckHtlcForward(context.Context, [32]byte,
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi, uint32, uint32,
+	models.InboundFee, uint32, lnwire.ShortChannelID,
+	lnwire.CustomRecords) *LinkError {
 
 	return f.checkHtlcForwardResult
 }

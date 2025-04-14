@@ -3260,13 +3260,11 @@ func (l *channelLink) UpdateForwardingPolicy(
 // issue.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) CheckHtlcForward(payHash [32]byte, incomingHtlcAmt,
-	amtToForward lnwire.MilliSatoshi, incomingTimeout,
+func (l *channelLink) CheckHtlcForward(ctx context.Context, payHash [32]byte,
+	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi, incomingTimeout,
 	outgoingTimeout uint32, inboundFee models.InboundFee,
 	heightNow uint32, originalScid lnwire.ShortChannelID,
 	customRecords lnwire.CustomRecords) *LinkError {
-
-	ctx := context.TODO()
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy

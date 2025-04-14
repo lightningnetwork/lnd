@@ -435,7 +435,7 @@ type InterceptedForward interface {
 	// Resume notifies the intention to resume an existing hold forward. This
 	// basically means the caller wants to resume with the default behavior for
 	// this htlc which usually means forward it.
-	Resume() error
+	Resume(ctx context.Context) error
 
 	// ResumeModified notifies the intention to resume an existing hold
 	// forward with modified fields.

@@ -49,7 +49,7 @@ func (f *interceptedForward) Packet() htlcswitch.InterceptedPacket {
 // Resume notifies the intention to resume an existing hold forward. This
 // basically means the caller wants to resume with the default behavior for this
 // htlc which usually means forward it.
-func (f *interceptedForward) Resume() error {
+func (f *interceptedForward) Resume(_ context.Context) error {
 	return ErrCannotResume
 }
 

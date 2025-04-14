@@ -301,7 +301,7 @@ func (s *InterceptableSwitch) run(ctx context.Context) error {
 		select {
 		// An interceptor registration or de-registration came in.
 		case interceptor := <-s.interceptorRegistration:
-			s.setInterceptor(interceptor)
+			s.setInterceptor(ctx, interceptor)
 
 		case packets := <-s.intercepted:
 			var notIntercepted []*htlcPacket
@@ -384,7 +384,9 @@ func (s *InterceptableSwitch) sendForward(fwd InterceptedForward) {
 	}
 }
 
-func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
+func (s *InterceptableSwitch) setInterceptor(ctx context.Context,
+	interceptor ForwardInterceptor) {
+
 	s.interceptor = interceptor
 
 	// Replay all currently held htlcs. When an interceptor is not required,
@@ -410,7 +412,7 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	log.Infof("Interceptor disconnected, resolving held packets")
 
 	s.heldHtlcSet.popAll(func(fwd InterceptedForward) {
-		err := fwd.Resume()
+		err := fwd.Resume(ctx)
 		if err != nil {
 			log.Errorf("Failed to resume hold forward %v", err)
 		}
@@ -429,7 +431,7 @@ func (s *InterceptableSwitch) resolve(ctx context.Context,
 
 	switch res.Action {
 	case FwdActionResume:
-		return intercepted.Resume()
+		return intercepted.Resume(ctx)
 
 	case FwdActionResumeModified:
 		return intercepted.ResumeModified(
@@ -674,8 +676,7 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 }
 
 // Resume resumes the default behavior as if the packet was not intercepted.
-func (f *interceptedForward) Resume() error {
-	ctx := context.TODO()
+func (f *interceptedForward) Resume(ctx context.Context) error {
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
 	return f.htlcSwitch.ForwardPackets(ctx, nil, f.packet)

@@ -114,7 +114,7 @@ func openOrCreateTestMacStore(tempDir string, pw *[]byte,
 	}
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, path.Join(netDir, "macaroons.db"),
-		true, kvdb.DefaultDBTimeout,
+		true, kvdb.DefaultDBTimeout, false,
 	)
 	if err != nil {
 		return nil, err

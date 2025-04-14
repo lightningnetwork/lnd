@@ -25,6 +25,7 @@ func MakeDB(t testing.TB) (kvdb.Backend, error) {
 
 	db, err := kvdb.Open(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	if err != nil {
 		return nil, err

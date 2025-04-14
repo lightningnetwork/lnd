@@ -19,6 +19,7 @@ func TestAliasStorePeerAlias(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	require.NoError(t, err)
 	defer db.Close()
@@ -52,6 +53,7 @@ func TestAliasStoreRequest(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	require.NoError(t, err)
 	defer db.Close()
@@ -84,6 +86,7 @@ func TestAliasLifecycle(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "testdb")
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	require.NoError(t, err)
 	defer db.Close()

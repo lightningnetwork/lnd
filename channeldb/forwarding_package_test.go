@@ -859,7 +859,7 @@ func makeFwdPkgDB(t *testing.T, path string) kvdb.Backend { // nolint:unparam
 	}
 
 	bdb, err := kvdb.Create(
-		kvdb.BoltBackendName, path, true, kvdb.DefaultDBTimeout,
+		kvdb.BoltBackendName, path, true, kvdb.DefaultDBTimeout, false,
 	)
 	require.NoError(t, err, "unable to open boltdb")
 

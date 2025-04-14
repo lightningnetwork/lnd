@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -12,6 +13,37 @@ import (
 // htlcCustomSigType is the TLV type that is used to encode the custom HTLC
 // signatures within the custom data for an existing HTLC.
 var htlcCustomSigType tlv.TlvType65543
+
+// AuxHtlcView is a struct that contains a safe copy of an HTLC view that can
+// be used by aux components.
+type AuxHtlcView struct {
+	// NextHeight is the height of the commitment transaction that will be
+	// created using this view.
+	NextHeight uint64
+
+	// Updates is a Dual of the Local and Remote HTLCs.
+	Updates lntypes.Dual[[]AuxHtlcDescriptor]
+
+	// FeePerKw is the fee rate in sat/kw of the commitment transaction.
+	FeePerKw chainfee.SatPerKWeight
+}
+
+// newAuxHtlcView creates a new safe copy of the HTLC view that can be used by
+// aux components.
+//
+// NOTE: This function should only be called while holding the channel's read
+// lock, since the underlying local/remote payment descriptors are accessed
+// directly.
+func newAuxHtlcView(v *HtlcView) AuxHtlcView {
+	return AuxHtlcView{
+		NextHeight: v.NextHeight,
+		Updates: lntypes.Dual[[]AuxHtlcDescriptor]{
+			Local:  fn.Map(v.Updates.Local, newAuxHtlcDescriptor),
+			Remote: fn.Map(v.Updates.Remote, newAuxHtlcDescriptor),
+		},
+		FeePerKw: v.FeePerKw,
+	}
+}
 
 // AuxHtlcDescriptor is a struct that contains the information needed to sign or
 // verify an HTLC for custom channels.
@@ -99,6 +131,9 @@ func (a *AuxHtlcDescriptor) RemoveHeight(
 
 // newAuxHtlcDescriptor creates a new AuxHtlcDescriptor from a payment
 // descriptor.
+//
+// NOTE: This function should only be called while holding the channel's read
+// lock, since the underlying payment descriptors are accessed directly.
 func newAuxHtlcDescriptor(p *paymentDescriptor) AuxHtlcDescriptor {
 	return AuxHtlcDescriptor{
 		ChanID:                   p.ChanID,

@@ -75,9 +75,10 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
 		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub[:]),
+		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
 		Addresses:            testAddrs,
+		ExtraOpaqueData:      make([]byte, 0),
 	}
 	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
 
@@ -133,9 +134,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	}
 
 	// The two nodes should match exactly!
-	if err := compareNodes(node, dbNode); err != nil {
-		t.Fatalf("nodes don't match: %v", err)
-	}
+	compareNodes(t, node, dbNode)
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
@@ -192,8 +191,9 @@ func TestPartialNode(t *testing.T) {
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey1,
+		Features:             lnwire.EmptyFeatureVector(),
 	}
-	require.NoError(t, compareNodes(dbNode1, expectedNode1))
+	compareNodes(t, expectedNode1, dbNode1)
 
 	_, exists, err = graph.HasLightningNode(dbNode2.PubKeyBytes)
 	require.NoError(t, err)
@@ -205,8 +205,9 @@ func TestPartialNode(t *testing.T) {
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey2,
+		Features:             lnwire.EmptyFeatureVector(),
 	}
-	require.NoError(t, compareNodes(dbNode2, expectedNode2))
+	compareNodes(t, expectedNode2, dbNode2)
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
@@ -282,9 +283,7 @@ func TestSourceNode(t *testing.T) {
 	// the one we set above.
 	sourceNode, err := graph.SourceNode()
 	require.NoError(t, err, "unable to fetch source node")
-	if err := compareNodes(testNode, sourceNode); err != nil {
-		t.Fatalf("nodes don't match: %v", err)
-	}
+	compareNodes(t, testNode, sourceNode)
 }
 
 func TestEdgeInsertionDeletion(t *testing.T) {
@@ -1985,10 +1984,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		}
 
 		for i := 0; i < len(resp); i++ {
-			err := compareNodes(&queryCase.resp[i], &resp[i])
-			if err != nil {
-				t.Fatal(err)
-			}
+			compareNodes(t, &queryCase.resp[i], &resp[i])
 		}
 	}
 }
@@ -3222,9 +3218,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 		t.Fatalf("should have 1 nodes instead have: %v",
 			len(nodesInHorizon))
 	}
-	if err := compareNodes(node1, &nodesInHorizon[0]); err != nil {
-		t.Fatalf("nodes don't match: %v", err)
-	}
+	compareNodes(t, node1, &nodesInHorizon[0])
 
 	// We'll now delete the node from the graph, this should result in it
 	// being removed from the update index as well.
@@ -3691,41 +3685,19 @@ func TestGraphZombieIndex(t *testing.T) {
 	assertNumZombies(t, graph, 1)
 }
 
-// compareNodes is used to compare two LightningNodes while excluding the
-// Features struct, which cannot be compared as the semantics for reserializing
-// the featuresMap have not been defined.
-func compareNodes(a, b *models.LightningNode) error {
-	if a.LastUpdate != b.LastUpdate {
-		return fmt.Errorf("node LastUpdate doesn't match: expected "+
-			"%v, got %v", a.LastUpdate, b.LastUpdate)
-	}
-	if !reflect.DeepEqual(a.Addresses, b.Addresses) {
-		return fmt.Errorf("Addresses doesn't match: expected %#v, \n "+
-			"got %#v", a.Addresses, b.Addresses)
-	}
-	if !reflect.DeepEqual(a.PubKeyBytes, b.PubKeyBytes) {
-		return fmt.Errorf("PubKey doesn't match: expected %#v, \n "+
-			"got %#v", a.PubKeyBytes, b.PubKeyBytes)
-	}
-	if !reflect.DeepEqual(a.Color, b.Color) {
-		return fmt.Errorf("Color doesn't match: expected %#v, \n "+
-			"got %#v", a.Color, b.Color)
-	}
-	if !reflect.DeepEqual(a.Alias, b.Alias) {
-		return fmt.Errorf("Alias doesn't match: expected %#v, \n "+
-			"got %#v", a.Alias, b.Alias)
-	}
-	if !reflect.DeepEqual(a.HaveNodeAnnouncement, b.HaveNodeAnnouncement) {
-		return fmt.Errorf("HaveNodeAnnouncement doesn't match: "+
-			"expected %#v, got %#v", a.HaveNodeAnnouncement,
-			b.HaveNodeAnnouncement)
-	}
-	if !bytes.Equal(a.ExtraOpaqueData, b.ExtraOpaqueData) {
-		return fmt.Errorf("extra data doesn't match: %v vs %v",
-			a.ExtraOpaqueData, b.ExtraOpaqueData)
-	}
+// compareNodes is used to compare two LightningNodes.
+func compareNodes(t *testing.T, a, b *models.LightningNode) {
+	t.Helper()
 
-	return nil
+	// Call the PubKey method for each node to ensure that the internal
+	// `pubKey` field is set for both objects and so require.Equals can
+	// then be used to compare the structs.
+	_, err := a.PubKey()
+	require.NoError(t, err)
+	_, err = b.PubKey()
+	require.NoError(t, err)
+
+	require.Equal(t, a, b)
 }
 
 // compareEdgePolicies is used to compare two ChannelEdgePolices using

@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
@@ -21,13 +20,6 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 		t.Fatal(err)
 	}
 	cdb.dryRun = dryRun
-
-	// Create a test node that will be our source node.
-	testNode := createTestVertex(t)
-
-	graph, err := graphdb.MakeTestGraph(t)
-	require.NoError(t, err)
-	require.NoError(t, graph.SetSourceNode(testNode))
 
 	// beforeMigration usually used for populating the database
 	// with test data.

@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -72,7 +73,9 @@ func (f *interceptedForward) Fail(_ []byte) error {
 
 // FailWithCode notifies the intention to fail an existing hold forward with the
 // specified failure code.
-func (f *interceptedForward) FailWithCode(_ lnwire.FailCode) error {
+func (f *interceptedForward) FailWithCode(_ context.Context,
+	_ lnwire.FailCode) error {
+
 	return ErrCannotFail
 }
 

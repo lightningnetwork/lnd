@@ -2200,7 +2200,9 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return aliceSwitch.ForwardPackets(linkQuit, packets...)
+		return aliceSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	// Instantiate with a long interval, so that we can precisely control
@@ -4882,7 +4884,9 @@ func (h *persistentLinkHarness) restartLink(
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return h.hSwitch.ForwardPackets(linkQuit, packets...)
+		return h.hSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	// Instantiate with a long interval, so that we can precisely control
@@ -6212,7 +6216,7 @@ func TestCheckHtlcForward(t *testing.T) {
 		return &lnwire.ChannelUpdate1{}, nil
 	}
 
-	failAliasUpdate := func(sid lnwire.ShortChannelID,
+	failAliasUpdate := func(_ context.Context, sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1 {
 
 		return nil

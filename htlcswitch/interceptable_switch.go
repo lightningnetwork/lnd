@@ -90,8 +90,9 @@ type InterceptableSwitch struct {
 	// currentHeight is the currently best known height.
 	currentHeight int32
 
-	wg   sync.WaitGroup
-	quit chan struct{}
+	wg     sync.WaitGroup
+	quit   chan struct{}
+	cancel fn.Option[context.CancelFunc]
 }
 
 type interceptedPackets struct {
@@ -230,6 +231,9 @@ func (s *InterceptableSwitch) Start() error {
 		return fmt.Errorf("InterceptableSwitch started more than once")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = fn.Some(cancel)
+
 	blockEpochStream, err := s.notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -240,7 +244,7 @@ func (s *InterceptableSwitch) Start() error {
 	go func() {
 		defer s.wg.Done()
 
-		err := s.run()
+		err := s.run(ctx)
 		if err != nil {
 			log.Errorf("InterceptableSwitch stopped: %v", err)
 		}
@@ -258,6 +262,7 @@ func (s *InterceptableSwitch) Stop() error {
 		return fmt.Errorf("InterceptableSwitch stopped more than once")
 	}
 
+	s.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 	close(s.quit)
 	s.wg.Wait()
 
@@ -272,7 +277,7 @@ func (s *InterceptableSwitch) Stop() error {
 	return nil
 }
 
-func (s *InterceptableSwitch) run() error {
+func (s *InterceptableSwitch) run(ctx context.Context) error {
 	// The block epoch stream will immediately stream the current height.
 	// Read it out here.
 	select {
@@ -283,6 +288,9 @@ func (s *InterceptableSwitch) run() error {
 		s.currentHeight = currentBlock.Height
 
 	case <-s.quit:
+		return nil
+
+	case <-ctx.Done():
 		return nil
 	}
 
@@ -312,7 +320,7 @@ func (s *InterceptableSwitch) run() error {
 				}
 			}
 			err := s.htlcSwitch.ForwardPackets(
-				packets.linkQuit, notIntercepted...,
+				ctx, packets.linkQuit, notIntercepted...,
 			)
 			if err != nil {
 				log.Errorf("Cannot forward packets: %v", err)
@@ -345,6 +353,9 @@ func (s *InterceptableSwitch) run() error {
 			s.failExpiredHtlcs()
 
 		case <-s.quit:
+			return nil
+
+		case <-ctx.Done():
 			return nil
 		}
 	}
@@ -662,9 +673,10 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 
 // Resume resumes the default behavior as if the packet was not intercepted.
 func (f *interceptedForward) Resume() error {
+	ctx := context.TODO()
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
-	return f.htlcSwitch.ForwardPackets(nil, f.packet)
+	return f.htlcSwitch.ForwardPackets(ctx, nil, f.packet)
 }
 
 // ResumeModified resumes the default behavior with field modifications. The
@@ -676,6 +688,8 @@ func (f *interceptedForward) ResumeModified(
 	inAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outWireCustomRecords fn.Option[lnwire.CustomRecords]) error {
+
+	ctx := context.TODO()
 
 	// Convert the optional custom records to the correct type and validate
 	// them.
@@ -733,7 +747,7 @@ func (f *interceptedForward) ResumeModified(
 
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
-	return f.htlcSwitch.ForwardPackets(nil, f.packet)
+	return f.htlcSwitch.ForwardPackets(ctx, nil, f.packet)
 }
 
 // Fail notifies the intention to Fail an existing hold forward with an
@@ -776,7 +790,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 	case lnwire.CodeTemporaryChannelFailure:
 		update := f.htlcSwitch.failAliasUpdate(
-			f.packet.incomingChanID, true,
+			ctx, f.packet.incomingChanID, true,
 		)
 		if update == nil {
 			// Fallback to the original, non-alias behavior.

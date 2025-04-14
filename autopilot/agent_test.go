@@ -221,7 +221,7 @@ func setup(t *testing.T, initialChans []LocalChannel) *testContext {
 
 	// With the autopilot agent and all its dependencies we'll start the
 	// primary controller goroutine.
-	if err := agent.Start(context.Background()); err != nil {
+	if err := agent.Start(); err != nil {
 		t.Fatalf("unable to start agent: %v", err)
 	}
 

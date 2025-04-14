@@ -76,10 +76,10 @@ func newReliableSender(cfg *reliableSenderCfg) *reliableSender {
 }
 
 // Start spawns message handlers for any peers with pending messages.
-func (s *reliableSender) Start(ctx context.Context) error {
+func (s *reliableSender) Start() error {
 	var err error
 	s.start.Do(func() {
-		ctx, cancel := context.WithCancel(ctx)
+		ctx, cancel := context.WithCancel(context.Background())
 		s.cancel = fn.Some(cancel)
 
 		err = s.resendPendingMsgs(ctx)

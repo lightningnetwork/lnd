@@ -3354,11 +3354,9 @@ func (l *channelLink) CheckHtlcForward(ctx context.Context, payHash [32]byte,
 // valid protocol failure message should be returned in order to signal
 // the violation. This call is intended to be used for locally initiated
 // payments for which there is no corresponding incoming htlc.
-func (l *channelLink) CheckHtlcTransit(payHash [32]byte,
+func (l *channelLink) CheckHtlcTransit(ctx context.Context, payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32, heightNow uint32,
 	customRecords lnwire.CustomRecords) *LinkError {
-
-	ctx := context.TODO()
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy

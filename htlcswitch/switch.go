@@ -549,6 +549,8 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
 
+	ctx := context.TODO()
+
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our
 	// system and something wrong happened.
@@ -563,7 +565,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	// Attempt to fetch the target link before creating a circuit so that
 	// we don't leave dangling circuits. The getLocalLink method does not
 	// require the circuit variable to be set on the *htlcPacket.
-	link, linkErr := s.getLocalLink(packet, htlc)
+	link, linkErr := s.getLocalLink(ctx, packet, htlc)
 	if linkErr != nil {
 		// Notify the htlc notifier of a link failure on our outgoing
 		// link. Incoming timelock/amount values are not set because
@@ -875,8 +877,8 @@ func (s *Switch) routeAsync(packet *htlcPacket, errChan chan error,
 // getLocalLink handles the addition of a htlc for a send that originates from
 // our node. It returns the link that the htlc should be forwarded outwards on,
 // and a link error if the htlc cannot be forwarded.
-func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
-	ChannelLink, *LinkError) {
+func (s *Switch) getLocalLink(ctx context.Context, pkt *htlcPacket,
+	htlc *lnwire.UpdateAddHTLC) (ChannelLink, *LinkError) {
 
 	// Try to find links by node destination.
 	s.indexMtx.RLock()
@@ -921,7 +923,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 	// Ensure that the htlc satisfies the outgoing channel policy.
 	currentHeight := atomic.LoadUint32(&s.bestHeight)
 	htlcErr := link.CheckHtlcTransit(
-		htlc.PaymentHash, htlc.Amount, htlc.Expiry, currentHeight,
+		ctx, htlc.PaymentHash, htlc.Amount, htlc.Expiry, currentHeight,
 		htlc.CustomRecords,
 	)
 	if htlcErr != nil {

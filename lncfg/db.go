@@ -25,6 +25,7 @@ const (
 	TowerClientDBName = "wtclient.db"
 	TowerServerDBName = "watchtower.db"
 	WalletDBName      = "wallet.db"
+	NeutrinoDBName    = "neutrino.db"
 
 	SqliteChannelDBName  = "channel.sqlite"
 	SqliteChainDBName    = "chain.sqlite"

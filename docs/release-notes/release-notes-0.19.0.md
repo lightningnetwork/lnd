@@ -150,8 +150,6 @@ close transaction.
   initial historical sync may be blocked due to a race condition in handling the
   syncer's internal state.
 
-
-
 * [The max fee rate](https://github.com/lightningnetwork/lnd/pull/9491) is now
   respected when a coop close is initiated. Before the max fee rate would only
   be effective for the remote party in the negotiation.
@@ -465,6 +463,9 @@ the on going rate we'll permit.
 
 * [Establish a base DB version even if it is not yet
   tracked](https://github.com/lightningnetwork/lnd/pull/9647).
+
+* [When running with neutrino as a backend with the kv-db backend `postgres`
+selected use postgres for the neutrino.db store](https://github.com/lightningnetwork/lnd/pull/9674).
 
 ## Code Health
 

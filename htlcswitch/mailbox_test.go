@@ -207,7 +207,7 @@ func newMailboxContextWithClock(t *testing.T,
 		forwards: make(chan *htlcPacket, 1),
 	}
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}
@@ -233,7 +233,7 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 		forwards: make(chan *htlcPacket, 1),
 	}
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}
@@ -698,7 +698,7 @@ func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
 func TestMailOrchestrator(t *testing.T) {
 	t.Parallel()
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}

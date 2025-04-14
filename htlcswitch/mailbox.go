@@ -109,7 +109,7 @@ type mailBoxConfig struct {
 
 	// failMailboxUpdate is used to fail an expired HTLC and use the
 	// correct SCID if the underlying channel uses aliases.
-	failMailboxUpdate func(outScid,
+	failMailboxUpdate func(ctx context.Context, outScid,
 		mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage
 }
 
@@ -707,7 +707,7 @@ func (m *memoryMailBox) FailAdd(pkt *htlcPacket) {
 	// peer if this is a forward, or report to the user if the failed
 	// payment was locally initiated.
 	failure := m.cfg.failMailboxUpdate(
-		pkt.originalOutgoingChanID, m.cfg.shortChanID,
+		ctx, pkt.originalOutgoingChanID, m.cfg.shortChanID,
 	)
 
 	// If the payment was locally initiated (which is indicated by a nil
@@ -821,7 +821,7 @@ type mailOrchConfig struct {
 
 	// failMailboxUpdate is used to fail an expired HTLC and use the
 	// correct SCID if the underlying channel uses aliases.
-	failMailboxUpdate func(outScid,
+	failMailboxUpdate func(ctx context.Context, outScid,
 		mailboxScid lnwire.ShortChannelID) lnwire.FailureMessage
 }
 

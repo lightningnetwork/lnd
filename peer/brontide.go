@@ -336,8 +336,8 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
-		error)
+	FetchLastChanUpdate func(context.Context,
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error)
 
 	// FundingManager is an implementation of the funding.Controller interface.
 	FundingManager funding.Controller
@@ -1498,6 +1498,8 @@ func (p *Brontide) maybeSendChannelUpdates() {
 	maybeSendUpd := func(cid lnwire.ChannelID,
 		lnChan *lnwallet.LightningChannel) error {
 
+		ctx := context.TODO()
+
 		// Nil channels are pending, so we'll skip them.
 		if lnChan == nil {
 			return nil
@@ -1521,7 +1523,7 @@ func (p *Brontide) maybeSendChannelUpdates() {
 		// to fetch the update to send to the remote peer. If the
 		// channel is pending, and not a zero conf channel, we'll get
 		// an error here which we'll ignore.
-		chanUpd, err := p.cfg.FetchLastChanUpdate(scid)
+		chanUpd, err := p.cfg.FetchLastChanUpdate(ctx, scid)
 		if err != nil {
 			p.log.Debugf("Unable to fetch channel update for "+
 				"ChannelPoint(%v), scid=%v: %v",

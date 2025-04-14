@@ -1624,7 +1624,8 @@ func TestChannelLinkMultiHopUnknownPaymentHash(t *testing.T) {
 
 	// Send payment and expose err channel.
 	err = n.aliceServer.htlcSwitch.SendHTLC(
-		n.firstBobChannelLink.ShortChanID(), pid, htlc,
+		context.Background(), n.firstBobChannelLink.ShortChanID(), pid,
+		htlc,
 	)
 	require.NoError(t, err, "unable to get send payment")
 
@@ -2200,7 +2201,9 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt,
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return aliceSwitch.ForwardPackets(linkQuit, packets...)
+		return aliceSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	// Instantiate with a long interval, so that we can precisely control
@@ -4518,6 +4521,7 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 // failures, reducing ambiguity when a batch is only partially processed.
 func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// First, we'll create our traditional three hop network. We'll only be
 	// interacting with and asserting the state of two of the end points
@@ -4551,15 +4555,13 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = n.carolServer.registry.AddInvoice(
-		context.Background(), *invoice, htlc.PaymentHash,
-	)
+	err = n.carolServer.registry.AddInvoice(ctx, *invoice, htlc.PaymentHash)
 	require.NoError(t, err, "unable to add invoice in carol registry")
 
 	// With the invoice now added to Carol's registry, we'll send the
 	// payment.
 	err = n.aliceServer.htlcSwitch.SendHTLC(
-		n.firstBobChannelLink.ShortChanID(), pid, htlc,
+		ctx, n.firstBobChannelLink.ShortChanID(), pid, htlc,
 	)
 	require.NoError(t, err, "unable to send payment to carol")
 
@@ -4571,7 +4573,7 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 	// Now, if we attempt to send the payment *again* it should be rejected
 	// as it's a duplicate request.
 	err = n.aliceServer.htlcSwitch.SendHTLC(
-		n.firstBobChannelLink.ShortChanID(), pid, htlc,
+		ctx, n.firstBobChannelLink.ShortChanID(), pid, htlc,
 	)
 	if err != ErrDuplicateAdd {
 		t.Fatalf("ErrDuplicateAdd should have been "+
@@ -4882,7 +4884,9 @@ func (h *persistentLinkHarness) restartLink(
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return h.hSwitch.ForwardPackets(linkQuit, packets...)
+		return h.hSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	// Instantiate with a long interval, so that we can precisely control
@@ -6206,13 +6210,16 @@ func TestForwardingAsymmetricTimeLockPolicies(t *testing.T) {
 // TestCheckHtlcForward tests that a link is properly enforcing the HTLC
 // forwarding policy.
 func TestCheckHtlcForward(t *testing.T) {
-	fetchLastChannelUpdate := func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate1, error) {
+	t.Parallel()
+	ctx := context.Background()
+
+	fetchLastChannelUpdate := func(context.Context,
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 
 		return &lnwire.ChannelUpdate1{}, nil
 	}
 
-	failAliasUpdate := func(sid lnwire.ShortChannelID,
+	failAliasUpdate := func(_ context.Context, sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1 {
 
 		return nil
@@ -6248,7 +6255,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("satisfied", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 1500, 1000, 200, 150, models.InboundFee{}, 0,
+			ctx, hash, 1500, 1000, 200, 150, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
 		if result != nil {
@@ -6258,7 +6265,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("below minhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 100, 50, 200, 150, models.InboundFee{}, 0,
+			ctx, hash, 100, 50, 200, 150, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailAmountBelowMinimum); !ok {
@@ -6268,7 +6275,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("above maxhtlc", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 1500, 1200, 200, 150, models.InboundFee{}, 0,
+			ctx, hash, 1500, 1200, 200, 150, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailTemporaryChannelFailure); !ok {
@@ -6278,7 +6285,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("insufficient fee", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 1005, 1000, 200, 150, models.InboundFee{}, 0,
+			ctx, hash, 1005, 1000, 200, 150, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailFeeInsufficient); !ok {
@@ -6292,8 +6299,8 @@ func TestCheckHtlcForward(t *testing.T) {
 		t.Parallel()
 
 		result := link.CheckHtlcForward(
-			hash, 100005, 100000, 200, 150, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{}, nil,
+			ctx, hash, 100005, 100000, 200, 150,
+			models.InboundFee{}, 0, lnwire.ShortChannelID{}, nil,
 		)
 		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
 		require.True(t, ok, "expected FailFeeInsufficient failure code")
@@ -6301,8 +6308,8 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("expiry too soon", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 1500, 1000, 200, 150, models.InboundFee{}, 190,
-			lnwire.ShortChannelID{}, nil,
+			ctx, hash, 1500, 1000, 200, 150, models.InboundFee{},
+			190, lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooSoon); !ok {
 			t.Fatalf("expected FailExpiryTooSoon failure code")
@@ -6311,7 +6318,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	t.Run("incorrect cltv expiry", func(t *testing.T) {
 		result := link.CheckHtlcForward(
-			hash, 1500, 1000, 200, 190, models.InboundFee{}, 0,
+			ctx, hash, 1500, 1000, 200, 190, models.InboundFee{}, 0,
 			lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailIncorrectCltvExpiry); !ok {
@@ -6323,8 +6330,8 @@ func TestCheckHtlcForward(t *testing.T) {
 	t.Run("cltv expiry too far in the future", func(t *testing.T) {
 		// Check that expiry isn't too far in the future.
 		result := link.CheckHtlcForward(
-			hash, 1500, 1000, 10200, 10100, models.InboundFee{}, 0,
-			lnwire.ShortChannelID{}, nil,
+			ctx, hash, 1500, 1000, 10200, 10100,
+			models.InboundFee{}, 0, lnwire.ShortChannelID{}, nil,
 		)
 		if _, ok := result.WireMessage().(*lnwire.FailExpiryTooFar); !ok {
 			t.Fatalf("expected FailExpiryTooFar failure code")
@@ -6335,7 +6342,7 @@ func TestCheckHtlcForward(t *testing.T) {
 		t.Parallel()
 
 		result := link.CheckHtlcForward(
-			hash, 1000+10-2-1, 1000, 200, 150,
+			ctx, hash, 1000+10-2-1, 1000, 200, 150,
 			models.InboundFee{Base: -2, Rate: -1_000},
 			0, lnwire.ShortChannelID{}, nil,
 		)
@@ -6348,7 +6355,7 @@ func TestCheckHtlcForward(t *testing.T) {
 		t.Parallel()
 
 		result := link.CheckHtlcForward(
-			hash, 1000+10-10-101-1, 1000,
+			ctx, hash, 1000+10-10-101-1, 1000,
 			200, 150, models.InboundFee{Base: -10, Rate: -100_000},
 			0, lnwire.ShortChannelID{}, nil,
 		)

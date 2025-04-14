@@ -304,7 +304,7 @@ lifecycle:
 		}
 
 		// Once the attempt is created, send it to the htlcswitch.
-		result, err := p.sendAttempt(attempt)
+		result, err := p.sendAttempt(ctx, attempt)
 		if err != nil {
 			return exitWithErr(err)
 		}
@@ -649,7 +649,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 // sendAttempt attempts to send the current attempt to the switch to complete
 // the payment. If this attempt fails, then we'll continue on to the next
 // available route.
-func (p *paymentLifecycle) sendAttempt(
+func (p *paymentLifecycle) sendAttempt(ctx context.Context,
 	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
 
 	log.Debugf("Sending HTLC attempt(id=%v, total_amt=%v, first_hop_amt=%d"+
@@ -690,7 +690,9 @@ func (p *paymentLifecycle) sendAttempt(
 	// the Switch successfully has persisted the payment attempt,
 	// such that we can resume waiting for the result after a
 	// restart.
-	err = p.router.cfg.Payer.SendHTLC(firstHop, attempt.AttemptID, htlcAdd)
+	err = p.router.cfg.Payer.SendHTLC(
+		ctx, firstHop, attempt.AttemptID, htlcAdd,
+	)
 	if err != nil {
 		log.Errorf("Failed sending attempt %d for payment %v to "+
 			"switch: %v", attempt.AttemptID, p.identifier, err)

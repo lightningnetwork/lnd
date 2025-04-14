@@ -5427,24 +5427,26 @@ type rpcPaymentRequest struct {
 func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error {
 	var lock sync.Mutex
 
-	return r.sendPayment(&paymentStream{
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
+	return r.sendPayment(
+		stream.Context(), &paymentStream{
+			recv: func() (*rpcPaymentRequest, error) {
+				req, err := stream.Recv()
+				if err != nil {
+					return nil, err
+				}
 
-			return &rpcPaymentRequest{
-				SendRequest: req,
-			}, nil
+				return &rpcPaymentRequest{
+					SendRequest: req,
+				}, nil
+			},
+			send: func(r *lnrpc.SendResponse) error {
+				// Calling stream.Send concurrently is not safe.
+				lock.Lock()
+				defer lock.Unlock()
+				return stream.Send(r)
+			},
 		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
+	)
 }
 
 // SendToRoute dispatches a bi-directional streaming RPC for sending payments
@@ -5455,22 +5457,24 @@ func (r *rpcServer) SendPayment(stream lnrpc.Lightning_SendPaymentServer) error 
 func (r *rpcServer) SendToRoute(stream lnrpc.Lightning_SendToRouteServer) error {
 	var lock sync.Mutex
 
-	return r.sendPayment(&paymentStream{
-		recv: func() (*rpcPaymentRequest, error) {
-			req, err := stream.Recv()
-			if err != nil {
-				return nil, err
-			}
+	return r.sendPayment(
+		stream.Context(), &paymentStream{
+			recv: func() (*rpcPaymentRequest, error) {
+				req, err := stream.Recv()
+				if err != nil {
+					return nil, err
+				}
 
-			return r.unmarshallSendToRouteRequest(req)
+				return r.unmarshallSendToRouteRequest(req)
+			},
+			send: func(r *lnrpc.SendResponse) error {
+				// Calling stream.Send concurrently is not safe.
+				lock.Lock()
+				defer lock.Unlock()
+				return stream.Send(r)
+			},
 		},
-		send: func(r *lnrpc.SendResponse) error {
-			// Calling stream.Send concurrently is not safe.
-			lock.Lock()
-			defer lock.Unlock()
-			return stream.Send(r)
-		},
-	})
+	)
 }
 
 // unmarshallSendToRouteRequest unmarshalls an rpc sendtoroute request
@@ -5798,7 +5802,7 @@ type paymentIntentResponse struct {
 // pre-built route. The first error this method returns denotes if we were
 // unable to save the payment. The second error returned denotes if the payment
 // didn't succeed.
-func (r *rpcServer) dispatchPaymentIntent(
+func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
 	payIntent *rpcPaymentIntent) (*paymentIntentResponse, error) {
 
 	// Construct a payment request to send to the channel router. If the
@@ -5845,7 +5849,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	} else {
 		var attempt *channeldb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.rHash, payIntent.route, nil,
+			ctx, payIntent.rHash, payIntent.route, nil,
 		)
 
 		if routerErr == nil {
@@ -5876,7 +5880,9 @@ func (r *rpcServer) dispatchPaymentIntent(
 // the write end of the stream. Responses will also be streamed back to the
 // client via the write end of the stream. This method is by both SendToRoute
 // and SendPayment as the logic is virtually identical.
-func (r *rpcServer) sendPayment(stream *paymentStream) error {
+func (r *rpcServer) sendPayment(ctx context.Context,
+	stream *paymentStream) error {
+
 	payChan := make(chan *rpcPaymentIntent)
 	errChan := make(chan error, 1)
 
@@ -6018,7 +6024,7 @@ sendLoop:
 				}()
 
 				resp, saveErr := r.dispatchPaymentIntent(
-					payIntent,
+					ctx, payIntent,
 				)
 
 				switch {
@@ -6096,9 +6102,11 @@ sendLoop:
 func (r *rpcServer) SendPaymentSync(ctx context.Context,
 	nextPayment *lnrpc.SendRequest) (*lnrpc.SendResponse, error) {
 
-	return r.sendPaymentSync(&rpcPaymentRequest{
-		SendRequest: nextPayment,
-	})
+	return r.sendPaymentSync(
+		ctx, &rpcPaymentRequest{
+			SendRequest: nextPayment,
+		},
+	)
 }
 
 // SendToRouteSync is the synchronous non-streaming version of SendToRoute.
@@ -6117,12 +6125,12 @@ func (r *rpcServer) SendToRouteSync(ctx context.Context,
 		return nil, err
 	}
 
-	return r.sendPaymentSync(paymentRequest)
+	return r.sendPaymentSync(ctx, paymentRequest)
 }
 
 // sendPaymentSync is the synchronous variant of sendPayment. It will block and
 // wait until the payment has been fully completed.
-func (r *rpcServer) sendPaymentSync(
+func (r *rpcServer) sendPaymentSync(ctx context.Context,
 	nextPayment *rpcPaymentRequest) (*lnrpc.SendResponse, error) {
 
 	// We don't allow payments to be sent while the daemon itself is still
@@ -6141,7 +6149,7 @@ func (r *rpcServer) sendPaymentSync(
 
 	// With the payment validated, we'll now attempt to dispatch the
 	// payment.
-	resp, saveErr := r.dispatchPaymentIntent(&payIntent)
+	resp, saveErr := r.dispatchPaymentIntent(ctx, &payIntent)
 	switch {
 	case saveErr != nil:
 		return nil, saveErr

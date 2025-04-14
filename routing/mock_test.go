@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -29,7 +30,7 @@ type mockPaymentAttemptDispatcherOld struct {
 
 var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcherOld)(nil)
 
-func (m *mockPaymentAttemptDispatcherOld) SendHTLC(
+func (m *mockPaymentAttemptDispatcherOld) SendHTLC(_ context.Context,
 	firstHop lnwire.ShortChannelID, pid uint64,
 	_ *lnwire.UpdateAddHTLC) error {
 
@@ -206,7 +207,7 @@ type mockPayerOld struct {
 
 var _ PaymentAttemptDispatcher = (*mockPayerOld)(nil)
 
-func (m *mockPayerOld) SendHTLC(_ lnwire.ShortChannelID,
+func (m *mockPayerOld) SendHTLC(_ context.Context, _ lnwire.ShortChannelID,
 	paymentID uint64,
 	_ *lnwire.UpdateAddHTLC) error {
 
@@ -592,7 +593,8 @@ type mockPaymentAttemptDispatcher struct {
 
 var _ PaymentAttemptDispatcher = (*mockPaymentAttemptDispatcher)(nil)
 
-func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
+func (m *mockPaymentAttemptDispatcher) SendHTLC(_ context.Context,
+	firstHop lnwire.ShortChannelID,
 	pid uint64, htlcAdd *lnwire.UpdateAddHTLC) error {
 
 	args := m.Called(firstHop, pid, htlcAdd)

@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"context"
 	prand "math/rand"
 	"reflect"
 	"testing"
@@ -206,7 +207,7 @@ func newMailboxContextWithClock(t *testing.T,
 		forwards: make(chan *htlcPacket, 1),
 	}
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}
@@ -232,7 +233,7 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 		forwards: make(chan *htlcPacket, 1),
 	}
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}
@@ -250,7 +251,7 @@ func newMailboxContext(t *testing.T, startTime time.Time,
 	return ctx
 }
 
-func (c *mailboxContext) forward(_ <-chan struct{},
+func (c *mailboxContext) forward(_ context.Context, _ <-chan struct{},
 	pkts ...*htlcPacket) error {
 
 	for _, pkt := range pkts {
@@ -333,6 +334,8 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 // TestMailBoxFailAdd asserts that FailAdd returns a response to the switch
 // under various interleavings with other operations on the mailbox.
 func TestMailBoxFailAdd(t *testing.T) {
+	t.Parallel()
+
 	var (
 		batchDelay       = time.Second
 		expiry           = time.Minute
@@ -345,7 +348,7 @@ func TestMailBoxFailAdd(t *testing.T) {
 
 	failAdds := func(adds []*htlcPacket) {
 		for _, add := range adds {
-			ctx.mailbox.FailAdd(add)
+			ctx.mailbox.FailAdd(context.Background(), add)
 		}
 	}
 
@@ -697,7 +700,7 @@ func testMailBoxDust(t *testing.T, chantype channeldb.ChannelType) {
 func TestMailOrchestrator(t *testing.T) {
 	t.Parallel()
 
-	failMailboxUpdate := func(outScid,
+	failMailboxUpdate := func(_ context.Context, outScid,
 		mboxScid lnwire.ShortChannelID) lnwire.FailureMessage {
 
 		return &lnwire.FailTemporaryNodeFailure{}
@@ -706,7 +709,7 @@ func TestMailOrchestrator(t *testing.T) {
 	// First, we'll create a new instance of our orchestrator.
 	mo := newMailOrchestrator(&mailOrchConfig{
 		failMailboxUpdate: failMailboxUpdate,
-		forwardPackets: func(_ <-chan struct{},
+		forwardPackets: func(_ context.Context, _ <-chan struct{},
 			pkts ...*htlcPacket) error {
 
 			return nil

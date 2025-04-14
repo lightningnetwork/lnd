@@ -3,8 +3,10 @@ package itest
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -47,6 +49,10 @@ var walletTestCases = []*lntest.TestCase{
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runTestListUnspentRestart(ht, ht.FundCoinsP2TR)
 		},
+	},
+	{
+		Name:     "listunspent bug",
+		TestFunc: testListUnspentBug,
 	},
 }
 
@@ -117,4 +123,55 @@ func runTestListUnspentRestart(ht *lntest.HarnessTest, fundCoins fundMethod) {
 
 	// Alice should have no UTXO.
 	ht.AssertNumUTXOs(alice, 0)
+}
+
+func testListUnspentBug(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	sendAll := func() {
+		// Create an address for Bob receive the coins.
+		req := &lnrpc.NewAddressRequest{
+			Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+		}
+		resp := bob.RPC.NewAddress(req)
+
+		// Send the coins from Alice to Bob. We should expect a tx to be
+		// broadcast and seen in the mempool.
+		sendReq := &lnrpc.SendCoinsRequest{
+			Addr:             resp.Address,
+			SatPerVbyte:      1,
+			SendAll:          true,
+			SpendUnconfirmed: true,
+		}
+		alice.RPC.SendCoins(sendReq)
+	}
+
+	n := 200
+
+	for i := range n {
+		ht.Log(lnutils.NewSeparatorClosure())
+
+		alice.AddToLogf("%s", lnutils.NewSeparatorClosure())
+
+		coin := btcutil.Amount(100_000 + i)
+		tx := ht.FundCoinsP2TR(coin, alice)
+		alice.AddToLogf("Miner funded coins in tx: %v", tx.TxHash())
+
+		balance := alice.RPC.WalletBalance()
+		ht.Logf("Alice has balance: %v", balance)
+
+		sendAll()
+
+		restart := ht.SuspendNode(alice)
+
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+
+		require.NoError(ht, restart())
+
+		balance = alice.RPC.WalletBalance()
+		ht.Logf("Alice has sent all coins, has balance: %v", balance)
+
+		ht.AssertNumUTXOs(alice, 0)
+	}
 }

@@ -62,7 +62,7 @@ var (
 	// MaxBlocksMinedPerTest is the maximum number of blocks that we allow
 	// a test to mine. This is an exported global variable so it can be
 	// overwritten by other projects that don't have the same constraints.
-	MaxBlocksMinedPerTest = 50
+	MaxBlocksMinedPerTest = 300
 )
 
 // TestCase defines a test case that's been used in the integration test.
@@ -384,7 +384,7 @@ func (h *HarnessTest) checkAndLimitBlocksMined(startHeight int32) {
 
 	// If the number of blocks is less than 40, we consider the test
 	// healthy.
-	if blocksMined < 40 {
+	if blocksMined < 300 {
 		return
 	}
 

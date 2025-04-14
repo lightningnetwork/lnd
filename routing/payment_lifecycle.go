@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
@@ -500,7 +501,8 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 func (p *paymentLifecycle) collectResult(
 	attempt *channeldb.HTLCAttempt) (*htlcswitch.PaymentResult, error) {
 
-	log.Tracef("Collecting result for attempt %v", spew.Sdump(attempt))
+	log.Tracef("Collecting result for attempt %v",
+		lnutils.SpewLogClosure(attempt))
 
 	result := &htlcswitch.PaymentResult{}
 
@@ -1060,6 +1062,38 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 	return response
 }
 
+// patchLegacyPaymentHash will make a copy of the passed attempt and sets its
+// Hash field to be the payment hash if it's nil.
+//
+// NOTE: For legacy payments, which were created before the AMP feature was
+// enabled, the `Hash` field in their HTLC attempts is nil. In that case, we use
+// the payment hash as the `attempt.Hash` as they are identical.
+func (p *paymentLifecycle) patchLegacyPaymentHash(
+	a channeldb.HTLCAttempt) channeldb.HTLCAttempt {
+
+	// Exit early if this is not a legacy attempt.
+	if a.Hash != nil {
+		return a
+	}
+
+	// Log a warning if the user is still using legacy payments, which has
+	// weaker support.
+	log.Warnf("Found legacy htlc attempt %v in payment %v", a.AttemptID,
+		p.identifier)
+
+	// Set the attempt's hash to be the payment hash, which is the payment's
+	// `PaymentHash`` in the `PaymentCreationInfo`. For legacy payments
+	// before AMP feature, the `Hash` field was not set so we use the
+	// payment hash instead.
+	//
+	// NOTE: During the router's startup, we have a similar logic in
+	// `resumePayments`, in which we will use the payment hash instead if
+	// the attempt's hash is nil.
+	a.Hash = &p.identifier
+
+	return a
+}
+
 // reloadInflightAttempts is called when the payment lifecycle is resumed after
 // a restart. It reloads all inflight attempts from the control tower and
 // collects the results of the attempts that have been sent before.
@@ -1074,6 +1108,10 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 
 		log.Infof("Resuming HTLC attempt %v for payment %v",
 			a.AttemptID, p.identifier)
+
+		// Potentially attach the payment hash to the `Hash` field if
+		// it's a legacy payment.
+		a = p.patchLegacyPaymentHash(a)
 
 		p.resultCollector(&a)
 	}

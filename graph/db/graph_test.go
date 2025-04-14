@@ -618,7 +618,7 @@ func createChannelEdge(node1, node2 *models.LightningNode) (
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
 		Hash:  rev,
-		Index: 9,
+		Index: prand.Uint32(),
 	}
 
 	// Add the new edge to the database, this should proceed without any
@@ -991,6 +991,97 @@ func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 	}
 }
 
+// TestForEachSourceNodeChannel tests that the ForEachSourceNodeChannel
+// correctly iterates through the channels of the set source node.
+func TestForEachSourceNodeChannel(t *testing.T) {
+	t.Parallel()
+
+	graph, err := MakeTestGraph(t)
+	require.NoError(t, err, "unable to make test database")
+
+	// Create a source node (A) and set it as such in the DB.
+	nodeA := createTestVertex(t)
+	require.NoError(t, graph.SetSourceNode(nodeA))
+
+	// Now, create a few more nodes (B, C, D) along with some channels
+	// between them. We'll create the following graph:
+	//
+	// 	A -- B -- D
+	//  	|
+	// 	C
+	//
+	// The graph includes a channel (B-D) that does not belong to the source
+	// node along with 2 channels (A-B and A-C) that do belong to the source
+	// node. For the A-B channel, we will let the source node set an
+	// outgoing policy but for the A-C channel, we will set only an incoming
+	// policy.
+
+	nodeB := createTestVertex(t)
+	nodeC := createTestVertex(t)
+	nodeD := createTestVertex(t)
+
+	abEdge, abPolicy1, abPolicy2 := createChannelEdge(nodeA, nodeB)
+	require.NoError(t, graph.AddChannelEdge(abEdge))
+	acEdge, acPolicy1, acPolicy2 := createChannelEdge(nodeA, nodeC)
+	require.NoError(t, graph.AddChannelEdge(acEdge))
+	bdEdge, _, _ := createChannelEdge(nodeB, nodeD)
+	require.NoError(t, graph.AddChannelEdge(bdEdge))
+
+	// Figure out which of the policies returned above are node A's so that
+	// we know which to persist.
+	//
+	// First, set the outgoing policy for the A-B channel.
+	abPolicyAOutgoing := abPolicy1
+	if !bytes.Equal(abPolicy1.ToNode[:], nodeB.PubKeyBytes[:]) {
+		abPolicyAOutgoing = abPolicy2
+	}
+	require.NoError(t, graph.UpdateEdgePolicy(abPolicyAOutgoing))
+
+	// Now, set the incoming policy for the A-C channel.
+	acPolicyAIncoming := acPolicy1
+	if !bytes.Equal(acPolicy1.ToNode[:], nodeA.PubKeyBytes[:]) {
+		acPolicyAIncoming = acPolicy2
+	}
+	require.NoError(t, graph.UpdateEdgePolicy(acPolicyAIncoming))
+
+	type sourceNodeChan struct {
+		otherNode  route.Vertex
+		havePolicy bool
+	}
+
+	// Put together our expected source node channels.
+	expectedSrcChans := map[wire.OutPoint]*sourceNodeChan{
+		abEdge.ChannelPoint: {
+			otherNode:  nodeB.PubKeyBytes,
+			havePolicy: true,
+		},
+		acEdge.ChannelPoint: {
+			otherNode:  nodeC.PubKeyBytes,
+			havePolicy: false,
+		},
+	}
+
+	// Now, we'll use the ForEachSourceNodeChannel and assert that it
+	// returns the expected data in the call-back.
+	err = graph.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+		havePolicy bool, otherNode *models.LightningNode) error {
+
+		require.Contains(t, expectedSrcChans, chanPoint)
+		expected := expectedSrcChans[chanPoint]
+
+		require.Equal(
+			t, expected.otherNode[:], otherNode.PubKeyBytes[:],
+		)
+		require.Equal(t, expected.havePolicy, havePolicy)
+
+		delete(expectedSrcChans, chanPoint)
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Empty(t, expectedSrcChans)
+}
+
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 
@@ -1050,7 +1141,7 @@ func TestGraphTraversal(t *testing.T) {
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
 	err = graph.ForEachNodeChannel(firstNode.PubKeyBytes,
-		func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
+		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
 			// All channels between first and second node should
@@ -1126,26 +1217,15 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
 
-	err = graph.db.View(func(tx kvdb.RTx) error {
-		for _, node := range nodes {
-			err := graph.ForEachNodeChannelTx(tx, node,
-				func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
-					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error { //nolint:ll
-
-					delete(chanIndex, info.ChannelID)
-					return nil
-				},
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-
-	require.NoError(t, err)
+	for _, node := range nodes {
+		err = graph.ForEachNodeDirectedChannel(
+			node, func(d *DirectedChannel) error {
+				delete(chanIndex, d.ChannelID)
+				return nil
+			},
+		)
+		require.NoError(t, err)
+	}
 	require.Len(t, chanIndex, 0)
 }
 
@@ -2802,7 +2882,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 		calls := 0
 		err := graph.ForEachNodeChannel(node.PubKeyBytes,
-			func(_ kvdb.RTx, _ *models.ChannelEdgeInfo, outEdge,
+			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
 				if !expectedOut && outEdge != nil {
@@ -3921,8 +4001,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 		require.NoError(b, err)
 
 		for _, n := range nodes {
-			cb := func(tx kvdb.RTx,
-				info *models.ChannelEdgeInfo,
+			cb := func(info *models.ChannelEdgeInfo,
 				policy *models.ChannelEdgePolicy,
 				policy2 *models.ChannelEdgePolicy) error { //nolint:ll
 

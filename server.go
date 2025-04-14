@@ -51,7 +51,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -1212,7 +1211,7 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 			*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(selfVertex,
-				func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
+				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
 
@@ -3553,36 +3552,17 @@ func (s *server) establishPersistentConnections() error {
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
 	// that have been added via NodeAnnouncement messages.
-	sourceNode, err := s.graphDB.SourceNode()
-	if err != nil {
-		return fmt.Errorf("failed to fetch source node: %w", err)
-	}
-
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	selfPub := s.identityECDH.PubKey().SerializeCompressed()
-	err = s.graphDB.ForEachNodeChannel(sourceNode.PubKeyBytes, func(
-		tx kvdb.RTx,
-		chanInfo *models.ChannelEdgeInfo,
-		policy, _ *models.ChannelEdgePolicy) error {
+	err = s.graphDB.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+		havePolicy bool, channelPeer *models.LightningNode) error {
 
 		// If the remote party has announced the channel to us, but we
 		// haven't yet, then we won't have a policy. However, we don't
 		// need this to connect to the peer, so we'll log it and move on.
-		if policy == nil {
+		if !havePolicy {
 			srvrLog.Warnf("No channel policy found for "+
-				"ChannelPoint(%v): ", chanInfo.ChannelPoint)
-		}
-
-		// We'll now fetch the peer opposite from us within this
-		// channel so we can queue up a direct connection to them.
-		channelPeer, err := s.graphDB.FetchOtherNode(
-			tx, chanInfo, selfPub,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch channel peer for "+
-				"ChannelPoint(%v): %v", chanInfo.ChannelPoint,
-				err)
+				"ChannelPoint(%v): ", chanPoint)
 		}
 
 		pubStr := string(channelPeer.PubKeyBytes[:])
@@ -3642,8 +3622,8 @@ func (s *server) establishPersistentConnections() error {
 		return nil
 	})
 	if err != nil {
-		srvrLog.Errorf("Failed to iterate channels for node %x",
-			sourceNode.PubKeyBytes)
+		srvrLog.Errorf("Failed to iterate over source node channels: "+
+			"%v", err)
 
 		if !errors.Is(err, graphdb.ErrGraphNoEdgesFound) &&
 			!errors.Is(err, graphdb.ErrEdgeNotFound) {

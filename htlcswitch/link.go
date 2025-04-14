@@ -537,6 +537,8 @@ func (l *channelLink) Start() error {
 		return err
 	}
 
+	ctx, _ := l.cg.Create(context.Background())
+
 	l.log.Info("starting")
 
 	// If the config supplied watchtower client, ensure the channel is
@@ -598,7 +600,7 @@ func (l *channelLink) Start() error {
 	l.updateFeeTimer = time.NewTimer(l.randomFeeUpdateTimeout())
 
 	l.cg.WgAdd(1)
-	go l.htlcManager(context.TODO())
+	go l.htlcManager(ctx)
 
 	return nil
 }

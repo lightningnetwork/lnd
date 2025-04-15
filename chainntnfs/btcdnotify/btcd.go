@@ -204,7 +204,11 @@ func (b *BtcdNotifier) Stop() error {
 	return nil
 }
 
+// startNotifier is the main starting point for the BtcdNotifier. It connects
+// to btcd and start the main dispatcher goroutine.
 func (b *BtcdNotifier) startNotifier() error {
+	chainntnfs.Log.Infof("btcd notifier starting...")
+
 	// Start our concurrent queues before starting the chain connection, to
 	// ensure onBlockConnected and onRedeemingTx callbacks won't be
 	// blocked.
@@ -256,6 +260,8 @@ func (b *BtcdNotifier) startNotifier() error {
 	// Set the active flag now that we've completed the full
 	// startup.
 	atomic.StoreInt32(&b.active, 1)
+
+	chainntnfs.Log.Debugf("btcd notifier started")
 
 	return nil
 }

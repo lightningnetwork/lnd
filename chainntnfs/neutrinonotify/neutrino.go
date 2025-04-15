@@ -168,6 +168,8 @@ func (n *NeutrinoNotifier) Started() bool {
 }
 
 func (n *NeutrinoNotifier) startNotifier() error {
+	chainntnfs.Log.Infof("neutrino notifier starting...")
+
 	// Start our concurrent queues before starting the rescan, to ensure
 	// onFilteredBlockConnected and onRelavantTx callbacks won't be
 	// blocked.
@@ -233,6 +235,8 @@ func (n *NeutrinoNotifier) startNotifier() error {
 	// Set the active flag now that we've completed the full
 	// startup.
 	atomic.StoreInt32(&n.active, 1)
+
+	chainntnfs.Log.Debugf("neutrino notifier started")
 
 	return nil
 }

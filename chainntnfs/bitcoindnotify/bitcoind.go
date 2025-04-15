@@ -171,6 +171,8 @@ func (b *BitcoindNotifier) Started() bool {
 }
 
 func (b *BitcoindNotifier) startNotifier() error {
+	chainntnfs.Log.Infof("bitcoind notifier starting...")
+
 	// Connect to bitcoind, and register for notifications on connected,
 	// and disconnected blocks.
 	if err := b.chainConn.Start(); err != nil {
@@ -206,6 +208,8 @@ func (b *BitcoindNotifier) startNotifier() error {
 	// Set the active flag now that we've completed the full
 	// startup.
 	atomic.StoreInt32(&b.active, 1)
+
+	chainntnfs.Log.Debugf("bitcoind notifier started")
 
 	return nil
 }

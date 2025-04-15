@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -254,6 +255,15 @@ var SendPaymentCommand = cli.Command{
 			Name:  "keysend",
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
+		cli.StringFlag{
+			Name: "route_hints",
+			Usage: "route hints for reaching the destination of a" +
+				" manual --keysend or --amp payment. eg: " +
+				`[{"hop_hints":[{"node_id":"A","chan_id":1,` +
+				`"fee_base_msat":2,` +
+				`"fee_proportional_millionths":3,` +
+				`"cltv_expiry_delta":4}]}]`,
+		},
 	),
 	Action: SendPayment,
 }
@@ -472,6 +482,31 @@ func SendPayment(ctx *cli.Context) error {
 	}
 
 	req.PaymentAddr = payAddr
+
+	if ctx.IsSet("route_hints") {
+		// Route hints can only be used with a manual keysend or amp
+		// payment. It should probably not be allowed with a payment
+		// request.
+		if ctx.IsSet("pay_req") ||
+			(!ctx.Bool("keysend") && !ctx.Bool(ampFlag.Name)) {
+
+			return fmt.Errorf("--route_hints can only be used " +
+				"with --keysend or --amp and should not be" +
+				" used with --pay_req")
+		}
+
+		// Parse the route hints JSON.
+		routeHintsJSON := ctx.String("route_hints")
+		var routeHints []*lnrpc.RouteHint
+
+		err := json.Unmarshal([]byte(routeHintsJSON), &routeHints)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling route_hints "+
+				"json: %w", err)
+		}
+
+		req.RouteHints = routeHints
+	}
 
 	return SendPaymentRequest(ctx, req, conn, conn, routerRPCSendPayment)
 }
@@ -1154,6 +1189,15 @@ var queryRoutesCommand = cli.Command{
 		blindedBaseFlag,
 		blindedPPMFlag,
 		blindedCLTVFlag,
+		cli.StringFlag{
+			Name: "route_hints",
+			Usage: "route hints for searching through private " +
+				"channels. eg: " +
+				`[{"hop_hints":[{"node_id":"A","chan_id":1,` +
+				`"fee_base_msat":2,` +
+				`"fee_proportional_millionths":3,` +
+				`"cltv_expiry_delta":4}]}]`,
+		},
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -1246,6 +1290,19 @@ func queryRoutes(ctx *cli.Context) error {
 		TimePref:            ctx.Float64(timePrefFlag.Name),
 		IgnoredPairs:        ignoredPairs,
 		BlindedPaymentPaths: blindedRoutes,
+	}
+
+	if ctx.IsSet("route_hints") {
+		routeHintsJSON := ctx.String("route_hints")
+		var routeHints []*lnrpc.RouteHint
+
+		err := json.Unmarshal([]byte(routeHintsJSON), &routeHints)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling route_hints "+
+				"json: %w", err)
+		}
+
+		req.RouteHints = routeHints
 	}
 
 	route, err := client.QueryRoutes(ctxc, req)

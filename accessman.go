@@ -1,12 +1,15 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 // accessMan is responsible for managing the server's access permissions.
@@ -69,6 +72,8 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	// peers.
 	maps.Copy(a.peerCounts, counts)
 
+	acsmLog.Info("Access Manager initialized")
+
 	return a, nil
 }
 
@@ -77,21 +82,32 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 	peerAccessStatus, error) {
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	peerMapKey := string(remotePub.SerializeCompressed())
+
+	acsmLog.DebugS(ctx, "Assigning permissions")
+
 	// Default is restricted unless the below filters say otherwise.
 	access := peerStatusRestricted
 
 	shouldDisconnect, err := a.cfg.shouldDisconnect(remotePub)
 	if err != nil {
+		acsmLog.ErrorS(ctx, "Error checking disconnect status", err)
+
 		// Access is restricted here.
 		return access, err
 	}
 
 	if shouldDisconnect {
+		acsmLog.WarnS(ctx, "Peer is banned, assigning restricted access",
+			ErrGossiperBan)
+
 		// Access is restricted here.
 		return access, ErrGossiperBan
 	}
-
-	peerMapKey := string(remotePub.SerializeCompressed())
 
 	// Lock banScoreMtx for reading so that we can update the banning maps
 	// below.
@@ -100,8 +116,14 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 
 	if count, found := a.peerCounts[peerMapKey]; found {
 		if count.HasOpenOrClosedChan {
+			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
+				"assigning protected access")
+
 			access = peerStatusProtected
 		} else if count.PendingOpenCount != 0 {
+			acsmLog.DebugS(ctx, "Peer has pending channel(s), "+
+				"assigning temporary access")
+
 			access = peerStatusTemporary
 		}
 	}
@@ -109,10 +131,19 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 	// If we've reached this point and access hasn't changed from
 	// restricted, then we need to check if we even have a slot for this
 	// peer.
-	if a.numRestricted >= a.cfg.maxRestrictedSlots &&
-		access == peerStatusRestricted {
+	if access == peerStatusRestricted {
+		acsmLog.DebugS(ctx, "Peer has no channels, assigning "+
+			"restricted access")
 
-		return access, ErrNoMoreRestrictedAccessSlots
+		if a.numRestricted >= a.cfg.maxRestrictedSlots {
+			acsmLog.WarnS(ctx, "No more restricted slots "+
+				"available, denying peer",
+				ErrNoMoreRestrictedAccessSlots,
+				"num_restricted", a.numRestricted,
+				"max_restricted", a.cfg.maxRestrictedSlots)
+
+			return access, ErrNoMoreRestrictedAccessSlots
+		}
 	}
 
 	return access, nil
@@ -125,34 +156,51 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 	a.banScoreMtx.Lock()
 	defer a.banScoreMtx.Unlock()
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	acsmLog.DebugS(ctx, "Processing new pending open channel")
+
 	peerMapKey := string(remotePub.SerializeCompressed())
 
 	// Fetch the peer's access status from peerScores.
 	status, found := a.peerScores[peerMapKey]
 	if !found {
+		acsmLog.ErrorS(ctx, "Peer score not found", ErrNoPeerScore)
+
 		// If we didn't find the peer, we'll return an error.
 		return ErrNoPeerScore
 	}
 
 	switch status.state {
 	case peerStatusProtected:
+		acsmLog.DebugS(ctx, "Peer already protected, no change")
+
 		// If this peer's access status is protected, we don't need to
 		// do anything.
 		return nil
 
 	case peerStatusTemporary:
 		// If this peer's access status is temporary, we'll need to
-		// update the peerCounts map. The peer's access status will
-		// stay temporary.
+		// update the peerCounts map. The peer's access status will stay
+		// temporary.
 		peerCount, found := a.peerCounts[peerMapKey]
 		if !found {
 			// Error if we did not find any info in peerCounts.
+			acsmLog.ErrorS(ctx, "Pending peer info not found",
+				ErrNoPendingPeerInfo)
+
 			return ErrNoPendingPeerInfo
 		}
 
 		// Increment the pending channel amount.
 		peerCount.PendingOpenCount += 1
 		a.peerCounts[peerMapKey] = peerCount
+
+		acsmLog.DebugS(ctx, "Peer is temporary, incremented "+
+			"pending count",
+			"pending_count", peerCount.PendingOpenCount)
 
 	case peerStatusRestricted:
 		// If the peer's access status is restricted, then we can
@@ -167,15 +215,25 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 		a.peerCounts[peerMapKey] = peerCount
 
 		// A restricted-access slot has opened up.
+		oldRestricted := a.numRestricted
 		a.numRestricted -= 1
 
 		a.peerScores[peerMapKey] = peerSlotStatus{
 			state: peerStatusTemporary,
 		}
 
+		acsmLog.InfoS(ctx, "Peer transitioned restricted -> "+
+			"temporary (pending open)",
+			"old_restricted", oldRestricted,
+			"new_restricted", a.numRestricted)
+
 	default:
 		// This should not be possible.
-		return fmt.Errorf("invalid peer access status")
+		err := fmt.Errorf("invalid peer access status %v for %x",
+			status.state, peerMapKey)
+		acsmLog.ErrorS(ctx, "Invalid peer access status", err)
+
+		return err
 	}
 
 	return nil
@@ -189,17 +247,27 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 	a.banScoreMtx.Lock()
 	defer a.banScoreMtx.Unlock()
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	acsmLog.DebugS(ctx, "Processing pending channel close")
+
 	peerMapKey := string(remotePub.SerializeCompressed())
 
 	// Fetch the peer's access status from peerScores.
 	status, found := a.peerScores[peerMapKey]
 	if !found {
+		acsmLog.ErrorS(ctx, "Peer score not found", ErrNoPeerScore)
+
 		return ErrNoPeerScore
 	}
 
 	switch status.state {
 	case peerStatusProtected:
 		// If this peer is protected, we don't do anything.
+		acsmLog.DebugS(ctx, "Peer is protected, no change")
+
 		return nil
 
 	case peerStatusTemporary:
@@ -207,11 +275,19 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 		// revert to a restricted-access peer.
 		peerCount, found := a.peerCounts[peerMapKey]
 		if !found {
+			acsmLog.ErrorS(ctx, "Pending peer info not found",
+				ErrNoPendingPeerInfo)
+
 			// Error if we did not find any info in peerCounts.
 			return ErrNoPendingPeerInfo
 		}
 
 		currentNumPending := peerCount.PendingOpenCount - 1
+
+		acsmLog.DebugS(ctx, "Peer is temporary, decrementing "+
+			"pending count",
+			"pending_count", currentNumPending)
+
 		if currentNumPending == 0 {
 			// Remove the entry from peerCounts.
 			delete(a.peerCounts, peerMapKey)
@@ -223,6 +299,12 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 				// There are no available restricted slots, so
 				// we need to disconnect this peer. We leave
 				// this up to the caller.
+				acsmLog.WarnS(ctx, "Peer last pending "+
+					"channel closed: ",
+					ErrNoMoreRestrictedAccessSlots,
+					"num_restricted", a.numRestricted,
+					"max_restricted", a.cfg.maxRestrictedSlots)
+
 				return ErrNoMoreRestrictedAccessSlots
 			}
 
@@ -233,7 +315,14 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 			}
 
 			// Update numRestricted.
+			oldRestricted := a.numRestricted
 			a.numRestricted++
+
+			acsmLog.InfoS(ctx, "Peer transitioned "+
+				"temporary -> restricted "+
+				"(last pending closed)",
+				"old_restricted", oldRestricted,
+				"new_restricted", a.numRestricted)
 
 			return nil
 		}
@@ -243,15 +332,26 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 		peerCount.PendingOpenCount = currentNumPending
 		a.peerCounts[peerMapKey] = peerCount
 
+		acsmLog.DebugS(ctx, "Peer still has other pending channels",
+			"pending_count", currentNumPending)
+
 		return nil
 
 	case peerStatusRestricted:
 		// This should not be possible. This indicates an error.
-		return fmt.Errorf("invalid peer access state transition")
+		err := fmt.Errorf("invalid peer access state transition: "+
+			"pending close for restricted peer %x", peerMapKey)
+		acsmLog.ErrorS(ctx, "Invalid peer access state transition", err)
+
+		return err
 
 	default:
 		// This should not be possible.
-		return fmt.Errorf("invalid peer access status")
+		err := fmt.Errorf("invalid peer access status %v for %x",
+			status.state, peerMapKey)
+		acsmLog.ErrorS(ctx, "Invalid peer access status", err)
+
+		return err
 	}
 }
 
@@ -262,19 +362,29 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 	a.banScoreMtx.Lock()
 	defer a.banScoreMtx.Unlock()
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	acsmLog.DebugS(ctx, "Processing new open channel")
+
 	peerMapKey := string(remotePub.SerializeCompressed())
 
 	// Fetch the peer's access status from peerScores.
 	status, found := a.peerScores[peerMapKey]
 	if !found {
 		// If we didn't find the peer, we'll return an error.
+		acsmLog.ErrorS(ctx, "Peer score not found", ErrNoPeerScore)
+
 		return ErrNoPeerScore
 	}
 
 	switch status.state {
 	case peerStatusProtected:
-		// If the peer's state is already protected, we don't need to
-		// do anything more.
+		acsmLog.DebugS(ctx, "Peer already protected, no change")
+
+		// If the peer's state is already protected, we don't need to do
+		// anything more.
 		return nil
 
 	case peerStatusTemporary:
@@ -283,6 +393,9 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 		peerCount, found := a.peerCounts[peerMapKey]
 		if !found {
 			// Error if we did not find any info in peerCounts.
+			acsmLog.ErrorS(ctx, "Pending peer info not found",
+				ErrNoPendingPeerInfo)
+
 			return ErrNoPendingPeerInfo
 		}
 
@@ -293,6 +406,9 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 			state: peerStatusProtected,
 		}
 		a.peerScores[peerMapKey] = newStatus
+
+		acsmLog.InfoS(ctx, "Peer transitioned temporary -> "+
+			"protected (channel opened)")
 
 		return nil
 
@@ -305,11 +421,21 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 		// argument set to true. This means that an open-channel state
 		// transition would be impossible. Therefore, we can return an
 		// error.
-		return fmt.Errorf("invalid peer access status")
+		err := fmt.Errorf("invalid peer access status: new open "+
+			"channel for restricted peer %x", peerMapKey)
+
+		acsmLog.ErrorS(ctx, "Invalid peer access status", err)
+
+		return err
 
 	default:
 		// This should not be possible.
-		return fmt.Errorf("invalid peer access status")
+		err := fmt.Errorf("invalid peer access status %v for %x",
+			status.state, peerMapKey)
+
+		acsmLog.ErrorS(ctx, "Invalid peer access status", err)
+
+		return err
 	}
 }
 
@@ -320,24 +446,46 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
 	bool, error) {
 
-	a.banScoreMtx.RLock()
-	defer a.banScoreMtx.RUnlock()
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
 
 	peerMapKey := string(remotePub.SerializeCompressed())
 
+	acsmLog.TraceS(ctx, "Checking incoming connection ban score")
+
+	a.banScoreMtx.RLock()
+	defer a.banScoreMtx.RUnlock()
+
 	if _, found := a.peerCounts[peerMapKey]; !found {
+		acsmLog.DebugS(ctx, "Peer not found in counts, "+
+			"checking restricted slots")
+
 		// Check numRestricted to see if there is an available slot. In
 		// the future, it's possible to add better heuristics.
 		if a.numRestricted < a.cfg.maxRestrictedSlots {
 			// There is an available slot.
+			acsmLog.DebugS(ctx, "Restricted slot available, "+
+				"accepting",
+				"num_restricted", a.numRestricted,
+				"max_restricted", a.cfg.maxRestrictedSlots)
+
 			return true, nil
 		}
 
 		// If there are no slots left, then we reject this connection.
+		acsmLog.WarnS(ctx, "No restricted slots available, "+
+			"rejecting",
+			ErrNoMoreRestrictedAccessSlots,
+			"num_restricted", a.numRestricted,
+			"max_restricted", a.cfg.maxRestrictedSlots)
+
 		return false, ErrNoMoreRestrictedAccessSlots
 	}
 
 	// Else, the peer is either protected or temporary.
+	acsmLog.DebugS(ctx, "Peer found (protected/temporary), accepting")
+
 	return true, nil
 }
 
@@ -345,6 +493,12 @@ func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
 // the peer has fully connected.
 func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 	access peerAccessStatus) {
+
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	acsmLog.DebugS(ctx, "Adding peer access", "access", access)
 
 	// Add the remote public key to peerScores.
 	a.banScoreMtx.Lock()
@@ -356,7 +510,12 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 
 	// Increment numRestricted.
 	if access == peerStatusRestricted {
+		oldRestricted := a.numRestricted
 		a.numRestricted++
+
+		acsmLog.DebugS(ctx, "Incremented restricted slots",
+			"old_restricted", oldRestricted,
+			"new_restricted", a.numRestricted)
 	}
 }
 
@@ -366,18 +525,32 @@ func (a *accessMan) removePeerAccess(remotePub *btcec.PublicKey) {
 	a.banScoreMtx.Lock()
 	defer a.banScoreMtx.Unlock()
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", remotePub),
+	)
+
+	acsmLog.DebugS(ctx, "Removing peer access")
+
 	peerMapKey := string(remotePub.SerializeCompressed())
 
 	status, found := a.peerScores[peerMapKey]
 	if !found {
+		acsmLog.InfoS(ctx, "Peer score not found during removal")
 		return
 	}
 
 	if status.state == peerStatusRestricted {
 		// If the status is restricted, then we decrement from
 		// numRestrictedSlots.
+		oldRestricted := a.numRestricted
 		a.numRestricted--
+
+		acsmLog.DebugS(ctx, "Decremented restricted slots",
+			"old_restricted", oldRestricted,
+			"new_restricted", a.numRestricted)
 	}
+
+	acsmLog.TraceS(ctx, "Deleting peer from peerScores")
 
 	delete(a.peerScores, peerMapKey)
 }

@@ -198,7 +198,7 @@ func (s *Server) Status(ctx context.Context,
 // ModifyStatus activates the current autopilot agent, if active.
 //
 // NOTE: Part of the AutopilotServer interface.
-func (s *Server) ModifyStatus(ctx context.Context,
+func (s *Server) ModifyStatus(_ context.Context,
 	in *ModifyStatusRequest) (*ModifyStatusResponse, error) {
 
 	log.Debugf("Setting agent enabled=%v", in.Enable)
@@ -236,7 +236,7 @@ func (s *Server) QueryScores(ctx context.Context, in *QueryScoresRequest) (
 
 	// Query the heuristics.
 	heuristicScores, err := s.manager.QueryHeuristics(
-		nodes, !in.IgnoreLocalState,
+		ctx, nodes, !in.IgnoreLocalState,
 	)
 	if err != nil {
 		return nil, err

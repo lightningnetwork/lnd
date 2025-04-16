@@ -1993,6 +1993,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The deadline height used for this output when perform fee bumping."
+        },
+        "maturity_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height which the input's locktime will expire at. Zero if the\ninput has no locktime."
         }
       }
     },

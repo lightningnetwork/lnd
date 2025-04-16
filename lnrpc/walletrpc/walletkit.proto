@@ -1172,6 +1172,12 @@ message PendingSweep {
     The deadline height used for this output when perform fee bumping.
     */
     uint32 deadline_height = 14;
+
+    /*
+    The block height which the input's locktime will expire at. Zero if the
+    input has no locktime.
+    */
+    uint32 maturity_height = 15;
 }
 
 message PendingSweepsRequest {

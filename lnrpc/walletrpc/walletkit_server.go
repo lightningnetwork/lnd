@@ -912,6 +912,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			Budget:               uint64(inp.Params.Budget),
 			DeadlineHeight:       inp.DeadlineHeight,
 			RequestedSatPerVbyte: startingFeeRate,
+			MaturityHeight:       inp.MaturityHeight,
 		}
 		rpcPendingSweeps = append(rpcPendingSweeps, ps)
 	}

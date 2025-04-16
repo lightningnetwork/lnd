@@ -325,7 +325,7 @@
         "parameters": [
           {
             "name": "conf_target",
-            "description": "The number of confirmations to shoot for when estimating the fee.",
+            "description": "The number of confirmations to shoot for when estimating the fee.\nMust be greater than 1.",
             "in": "path",
             "required": true,
             "type": "integer",
@@ -1579,7 +1579,7 @@
         "target_conf": {
           "type": "integer",
           "format": "int64",
-          "description": "The target number of blocks that the transaction should be confirmed in."
+          "description": "The target number of blocks that the transaction should be confirmed in.\nMust be greater than 1."
         },
         "sat_per_vbyte": {
           "type": "string",

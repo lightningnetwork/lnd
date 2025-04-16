@@ -443,12 +443,21 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSTowerServerDB] = postgresTowerServerBackend.Close
 
+		// The wallet subsystem is still not robust enough to run it
+		// without a single writer in postgres therefore we create a
+		// new config with the global lock enabled.
+		//
+		// NOTE: This is a temporary measure and should be removed as
+		// soon as the wallet code is more robust.
+		postgresConfigWalletDB := GetPostgresConfigKVDB(db.Postgres)
+		postgresConfigWalletDB.WithGlobalLock = true
+
 		postgresWalletBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			postgresConfig, NSWalletDB,
+			postgresConfigWalletDB, NSWalletDB,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error opening postgres macaroon "+
+			return nil, fmt.Errorf("error opening postgres wallet "+
 				"DB: %v", err)
 		}
 		closeFuncs[NSWalletDB] = postgresWalletBackend.Close

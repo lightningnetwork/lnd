@@ -55,6 +55,13 @@ type Config struct {
 	// commands. Note that the sqlite keywords to be replaced are
 	// case-sensitive.
 	SQLiteCmdReplacements SQLiteCmdReplacements
+
+	// WithTxLevelLock when set will ensure that there is a transaction
+	// level lock.
+	//
+	// NOTE: Temporary, should be removed when all parts of the LND code
+	// are more resilient against concurrent db access..
+	WithTxLevelLock bool
 }
 
 // db holds a reference to the sql db connection.
@@ -79,6 +86,10 @@ type db struct {
 	// top-level buckets that have keys that cannot be mapped to a distinct
 	// sql table.
 	table string
+
+	// lock is the global write lock that ensures single writer. This is
+	// only used if cfg.WithTxLevelLock is set.
+	lock sync.RWMutex
 }
 
 // Enforce db implements the walletdb.DB interface.

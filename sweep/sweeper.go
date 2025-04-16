@@ -305,6 +305,10 @@ type PendingInputResponse struct {
 
 	// DeadlineHeight records the deadline height of this input.
 	DeadlineHeight uint32
+
+	// MaturityHeight is the block height that this input's locktime will
+	// be expired at. For inputs with no locktime this value is zero.
+	MaturityHeight uint32
 }
 
 // updateReq is an internal message we'll use to represent an external caller's
@@ -1068,11 +1072,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 
 	resps := make(map[wire.OutPoint]*PendingInputResponse, len(s.inputs))
 	for _, inp := range s.inputs {
-		// Skip immature inputs for compatibility.
-		mature, _ := inp.isMature(uint32(s.currentHeight))
-		if !mature {
-			continue
-		}
+		_, maturityHeight := inp.isMature(uint32(s.currentHeight))
 
 		// Only the exported fields are set, as we expect the response
 		// to only be consumed externally.
@@ -1087,6 +1087,7 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			BroadcastAttempts: inp.publishAttempts,
 			Params:            inp.params,
 			DeadlineHeight:    uint32(inp.DeadlineHeight),
+			MaturityHeight:    maturityHeight,
 		}
 	}
 

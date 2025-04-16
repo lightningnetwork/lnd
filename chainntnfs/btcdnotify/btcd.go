@@ -223,6 +223,17 @@ func (b *BtcdNotifier) startNotifier() error {
 		return err
 	}
 
+	// Before we fetch the best block/block height we need to register the
+	// notifications for connected blocks, otherwise we might think we are
+	// at an earlier block height because during block notification
+	// registration we might have already mined some new blocks. Hence we
+	// will not get notified accordingly.
+	if err := b.chainConn.NotifyBlocks(); err != nil {
+		b.txUpdates.Stop()
+		b.chainUpdates.Stop()
+		return err
+	}
+
 	currentHash, currentHeight, err := b.chainConn.GetBestBlock()
 	if err != nil {
 		b.txUpdates.Stop()
@@ -246,12 +257,6 @@ func (b *BtcdNotifier) startNotifier() error {
 		Height:      currentHeight,
 		Hash:        currentHash,
 		BlockHeader: &bestBlock.Header,
-	}
-
-	if err := b.chainConn.NotifyBlocks(); err != nil {
-		b.txUpdates.Stop()
-		b.chainUpdates.Stop()
-		return err
 	}
 
 	b.wg.Add(1)

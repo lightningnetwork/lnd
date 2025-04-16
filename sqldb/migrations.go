@@ -30,7 +30,7 @@ var (
 	//
 	// NOTE: The migration function may have runtime dependencies, which
 	// must be injected during runtime.
-	migrationConfig = []MigrationConfig{
+	migrationConfig = append([]MigrationConfig{
 		{
 			Name:          "000001_invoices",
 			Version:       1,
@@ -70,7 +70,7 @@ var (
 			// schema. This is optional and can be disabled by the
 			// user if necessary.
 		},
-	}
+	}, migrationAdditions...)
 )
 
 // MigrationConfig is a configuration struct that describes SQL migrations. Each

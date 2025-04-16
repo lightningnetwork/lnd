@@ -1616,6 +1616,16 @@
           "type": "number",
           "format": "double",
           "description": "The max fee to total output amount ratio that this psbt should adhere to."
+        },
+        "custom_lock_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The custom lock ID to use for the inputs in the funded PSBT. The value\nif set must be exactly 32 bytes long. If empty, the default lock ID will\nbe used."
+        },
+        "lock_expiration_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, then the inputs in the funded PSBT will be locked for the\nspecified duration. The lock duration is specified in seconds. If not\nset, the default lock duration will be used."
         }
       }
     },

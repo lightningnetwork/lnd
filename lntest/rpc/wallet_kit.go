@@ -379,3 +379,16 @@ func (h *HarnessRPC) RequiredReserve(
 
 	return resp
 }
+
+// ListLeases makes a ListLeases RPC call to the node's WalletKit client.
+func (h *HarnessRPC) ListLeases() *walletrpc.ListLeasesResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.ListLeases(
+		ctxt, &walletrpc.ListLeasesRequest{},
+	)
+	h.NoError(err, "ListLeases")
+
+	return resp
+}

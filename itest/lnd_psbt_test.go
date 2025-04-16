@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -1918,4 +1919,114 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	txHash = finalTx.TxHash()
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	ht.AssertTxInBlock(block, txHash)
+}
+
+// testFundPsbtCustomLock verifies that FundPsbt correctly locks inputs
+// using a custom lock ID and expiration time.
+func testFundPsbtCustomLock(ht *lntest.HarnessTest) {
+	alice := ht.NewNodeWithCoins("Alice", nil)
+
+	// Define a custom lock ID and a short expiration for testing.
+	customLockID := ht.Random32Bytes()
+	lockDurationSeconds := uint64(30)
+
+	ht.Logf("Using custom lock ID: %x with expiration: %d seconds",
+		customLockID, lockDurationSeconds)
+
+	// Generate an address for the output.
+	aliceAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+	outputs := map[string]uint64{
+		aliceAddr.Address: 100_000,
+	}
+
+	// Build the FundPsbt request using custom lock parameters.
+	req := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Raw{
+			Raw: &walletrpc.TxTemplate{Outputs: outputs},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+		MinConfs:              1,
+		CustomLockId:          customLockID,
+		LockExpirationSeconds: lockDurationSeconds,
+	}
+
+	// Capture the current time for later expiration validation.
+	callTime := time.Now()
+
+	// Execute the FundPsbt call and validate the response.
+	fundResp := alice.RPC.FundPsbt(req)
+	require.NotEmpty(ht, fundResp.FundedPsbt)
+
+	// Ensure the response includes at least one locked UTXO.
+	require.GreaterOrEqual(ht, len(fundResp.LockedUtxos), 1)
+
+	// Parse the PSBT and map locked outpoints for quick lookup.
+	fundedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(fundResp.FundedPsbt), false,
+	)
+	require.NoError(ht, err)
+
+	lockedOutpointsMap := make(map[string]struct{})
+	for _, utxo := range fundResp.LockedUtxos {
+		lockedOutpointsMap[lntest.LnrpcOutpointToStr(utxo.Outpoint)] =
+			struct{}{}
+	}
+
+	// Check that all PSBT inputs are among the locked UTXOs.
+	require.Len(ht, fundedPacket.UnsignedTx.TxIn, len(lockedOutpointsMap))
+	for _, txIn := range fundedPacket.UnsignedTx.TxIn {
+		_, ok := lockedOutpointsMap[txIn.PreviousOutPoint.String()]
+		require.True(
+			ht, ok, "Missing locked input: %v",
+			txIn.PreviousOutPoint,
+		)
+	}
+
+	// Verify leases via ListLeases call.
+	ht.Logf("Verifying leases via ListLeases...")
+	leasesResp := alice.RPC.ListLeases()
+	require.NoError(ht, err)
+	require.Len(ht, leasesResp.LockedUtxos, len(lockedOutpointsMap))
+
+	for _, lease := range leasesResp.LockedUtxos {
+		// Validate that the lease matches our locked UTXOs.
+		require.Contains(
+			ht, lockedOutpointsMap,
+			lntest.LnrpcOutpointToStr(lease.Outpoint),
+		)
+
+		// Confirm lock ID and expiration.
+		require.EqualValues(ht, customLockID, lease.Id)
+
+		expectedExpiration := callTime.Unix() +
+			int64(lockDurationSeconds)
+
+		// Validate that the expiration time is within a small delta (5
+		// seconds) of the expected value. This accounts for any latency
+		// in the RPC call or processing time (to avoid flakes in CI).
+		const leaseExpirationDelta = 5.0
+		require.InDelta(
+			ht, expectedExpiration, lease.Expiration,
+			leaseExpirationDelta,
+		)
+	}
+
+	// We use this extra wait time to ensure the lock is released after the
+	// expiration time.
+	const extraWaitSeconds = 2
+
+	// Wait for the lock to expire, then confirm it's released.
+	waitDuration := time.Duration(
+		lockDurationSeconds+extraWaitSeconds,
+	) * time.Second
+	ht.Logf("Waiting %v for lock to expire...", waitDuration)
+	time.Sleep(waitDuration)
+
+	ht.Logf("Verifying lease expiration...")
+	leasesRespAfter := alice.RPC.ListLeases()
+	require.Empty(ht, leasesRespAfter.LockedUtxos)
 }

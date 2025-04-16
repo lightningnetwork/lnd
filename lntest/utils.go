@@ -294,3 +294,8 @@ func CustomRecordsWithUnendorsed(
 		}},
 	)
 }
+
+// LnrpcOutpointToStr returns a string representation of an lnrpc.OutPoint.
+func LnrpcOutpointToStr(outpoint *lnrpc.OutPoint) string {
+	return fmt.Sprintf("%s:%d", outpoint.TxidStr, outpoint.OutputIndex)
+}

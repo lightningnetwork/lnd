@@ -467,6 +467,8 @@ the on going rate we'll permit.
 * [When running with neutrino as a backend with the kv-db backend `postgres`
 selected use postgres for the neutrino.db store](https://github.com/lightningnetwork/lnd/pull/9674).
 
+* [Add the global lock back to the wallet db for the postgres backend](https://github.com/lightningnetwork/lnd/pull/9723).
+
 ## Code Health
 
 * A code refactor that [moves all the graph related DB code out of the 

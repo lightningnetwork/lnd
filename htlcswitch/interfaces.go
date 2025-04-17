@@ -509,7 +509,7 @@ type AuxTrafficShaper interface {
 	// identified by the provided channel ID may have external mechanisms
 	// that would allow it to carry out the payment.
 	ShouldHandleTraffic(cid lnwire.ShortChannelID,
-		fundingBlob fn.Option[tlv.Blob]) (bool, error)
+		fundingBlob, htlcBlob fn.Option[tlv.Blob]) (bool, error)
 
 	// PaymentBandwidth returns the available bandwidth for a custom channel
 	// decided by the given channel aux blob and HTLC blob. A return value

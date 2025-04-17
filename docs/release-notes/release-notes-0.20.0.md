@@ -20,6 +20,12 @@
 
 # Bug Fixes
 
+* [Bimodal pathfinding probability
+  improvements](https://github.com/lightningnetwork/lnd/pull/8330). A fallback
+  probability is used if the bimodal model is not applicable. Fixes are added
+  such that the probability is evaluated quicker and to be more accurate in
+  outdated scenarios.
+
 # New Features
 
 ## Functional Enhancements
@@ -72,3 +78,4 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* bitromortac

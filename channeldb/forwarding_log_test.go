@@ -362,9 +362,10 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 	}
 }
 
-// TestForwardingLogQueryIncomingChanIDs tests that querying the forwarding log
-// using only incoming channel IDs returns the correct subset of events.
-func TestForwardingLogQueryIncomingChanIDs(t *testing.T) {
+// TestForwardingLogQueryIncomingOrOutgoingChanIDs tests that querying the
+// forwarding log using only incoming channel IDs or outgoing channel IDs
+// returns the correct subset of events.
+func TestForwardingLogQueryIncomingOrOutgoingChanIDs(t *testing.T) {
 	t.Parallel()
 
 	// Set up a test database.
@@ -378,7 +379,7 @@ func TestForwardingLogQueryIncomingChanIDs(t *testing.T) {
 	initialTime := time.Unix(1234, 0)
 	endTime := time.Unix(1234, 0)
 
-	// Create 10 random events with varying incoming ChanIDs.
+	// Create 10 random events with varying incoming and outgoing ChanIDs.
 	numEvents := 10
 	events := make([]ForwardingEvent, numEvents)
 	incomingChanIDs := []lnwire.ShortChannelID{
@@ -387,75 +388,16 @@ func TestForwardingLogQueryIncomingChanIDs(t *testing.T) {
 		lnwire.NewShortChanIDFromInt(2003),
 	}
 
+	outgoingChanIDs := []lnwire.ShortChannelID{
+		lnwire.NewShortChanIDFromInt(3001),
+		lnwire.NewShortChanIDFromInt(3002),
+		lnwire.NewShortChanIDFromInt(3003),
+	}
+
 	for i := 0; i < numEvents; i++ {
 		events[i] = ForwardingEvent{
 			Timestamp:      endTime,
 			IncomingChanID: incomingChanIDs[i%len(incomingChanIDs)],
-			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
-			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
-		}
-		endTime = endTime.Add(time.Minute * 10)
-	}
-
-	// Add events to the database.
-	require.NoError(t, log.AddForwardingEvents(events),
-		"unable to add events")
-
-	// Query with multiple incoming channel IDs.
-	eventQuery := ForwardingEventQuery{
-		StartTime: initialTime,
-		EndTime:   endTime,
-		IncomingChanIDs: fn.NewSet(incomingChanIDs[0].ToUint64(),
-			incomingChanIDs[1].ToUint64()),
-		IndexOffset:  0,
-		NumMaxEvents: 10,
-	}
-	timeSlice, err := log.Query(eventQuery)
-	require.NoError(t, err, "unable to query for events")
-
-	// Verify that only events with the specified incomingChanIDs are
-	// returned.
-	expectedEvents := []ForwardingEvent{}
-	for _, e := range events {
-		if e.IncomingChanID == incomingChanIDs[0] ||
-			e.IncomingChanID == incomingChanIDs[1] {
-
-			expectedEvents = append(expectedEvents, e)
-		}
-	}
-
-	require.Equal(t, expectedEvents, timeSlice.ForwardingEvents,
-		"unexpected events returned")
-}
-
-// TestForwardingLogQueryOutgoingChanIDs tests that querying the forwarding log
-// using only outgoing channel IDs returns the correct subset of events.
-func TestForwardingLogQueryOutgoingChanIDs(t *testing.T) {
-	t.Parallel()
-
-	// Set up a test database.
-	db, err := MakeTestDB(t)
-	require.NoError(t, err, "unable to make test db")
-
-	log := ForwardingLog{
-		db: db,
-	}
-
-	initialTime := time.Unix(1234, 0)
-	endTime := time.Unix(1234, 0)
-
-	// Create 10 random events with varying outgoing ChanIDs.
-	numEvents := 10
-	events := make([]ForwardingEvent, numEvents)
-	outgoingChanIDs := []lnwire.ShortChannelID{
-		lnwire.NewShortChanIDFromInt(2001),
-		lnwire.NewShortChanIDFromInt(2002),
-		lnwire.NewShortChanIDFromInt(2003),
-	}
-
-	for i := 0; i < numEvents; i++ {
-		events[i] = ForwardingEvent{
-			Timestamp:      endTime,
 			OutgoingChanID: outgoingChanIDs[i%len(outgoingChanIDs)],
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
@@ -464,34 +406,77 @@ func TestForwardingLogQueryOutgoingChanIDs(t *testing.T) {
 	}
 
 	// Add events to the database.
-	require.NoError(t, log.AddForwardingEvents(events),
-		"unable to add events")
+	require.NoError(
+		t,
+		log.AddForwardingEvents(events),
+		"unable to add events",
+	)
 
-	// Query with multiple outgoing channel IDs.
-	eventQuery := ForwardingEventQuery{
+	// Query with multiple incoming channel IDs.
+	incomingEventQuery := ForwardingEventQuery{
 		StartTime: initialTime,
 		EndTime:   endTime,
-		OutgoingChanIDs: fn.NewSet(outgoingChanIDs[0].ToUint64(),
-			outgoingChanIDs[1].ToUint64()),
+		IncomingChanIDs: fn.NewSet(
+			incomingChanIDs[0].ToUint64(),
+			incomingChanIDs[1].ToUint64(),
+		),
 		IndexOffset:  0,
 		NumMaxEvents: 10,
 	}
-	timeSlice, err := log.Query(eventQuery)
+	incomingEventsTimeSlice, err := log.Query(incomingEventQuery)
+	require.NoError(t, err, "unable to query for events")
+
+	// Verify that only events with the specified incomingChanIDs are
+	// returned.
+	expectedIncomingEvents := []ForwardingEvent{}
+	for _, e := range events {
+		if e.IncomingChanID == incomingChanIDs[0] ||
+			e.IncomingChanID == incomingChanIDs[1] {
+
+			expectedIncomingEvents = append(
+				expectedIncomingEvents, e,
+			)
+		}
+	}
+
+	require.Equal(
+		t,
+		expectedIncomingEvents,
+		incomingEventsTimeSlice.ForwardingEvents,
+	)
+
+	// Query with multiple outgoing channel IDs.
+	outgoingEventQuery := ForwardingEventQuery{
+		StartTime: initialTime,
+		EndTime:   endTime,
+		OutgoingChanIDs: fn.NewSet(
+			outgoingChanIDs[0].ToUint64(),
+			outgoingChanIDs[1].ToUint64(),
+		),
+		IndexOffset:  0,
+		NumMaxEvents: 10,
+	}
+	outgoingEventsTimeSlice, err := log.Query(outgoingEventQuery)
 	require.NoError(t, err, "unable to query for events")
 
 	// Verify that only events with the specified outgoingChanIDs are
 	// returned.
-	expectedEvents := []ForwardingEvent{}
+	expectedOutgoingEvents := []ForwardingEvent{}
 	for _, e := range events {
 		if e.OutgoingChanID == outgoingChanIDs[0] ||
 			e.OutgoingChanID == outgoingChanIDs[1] {
 
-			expectedEvents = append(expectedEvents, e)
+			expectedOutgoingEvents = append(
+				expectedOutgoingEvents, e,
+			)
 		}
 	}
 
-	require.Equal(t, expectedEvents, timeSlice.ForwardingEvents,
-		"unexpected events returned")
+	require.Equal(
+		t,
+		expectedOutgoingEvents,
+		outgoingEventsTimeSlice.ForwardingEvents,
+	)
 }
 
 // TestForwardingLogQueryIncomingAndOutgoingChanIDs tests that querying the
@@ -545,10 +530,14 @@ func TestForwardingLogQueryIncomingAndOutgoingChanIDs(t *testing.T) {
 	eventQuery := ForwardingEventQuery{
 		StartTime: initialTime,
 		EndTime:   endTime,
-		OutgoingChanIDs: fn.NewSet(outgoingChanIDs[0].ToUint64(),
-			outgoingChanIDs[1].ToUint64()),
-		IncomingChanIDs: fn.NewSet(incomingChanIDs[0].ToUint64(),
-			incomingChanIDs[1].ToUint64()),
+		OutgoingChanIDs: fn.NewSet(
+			outgoingChanIDs[0].ToUint64(),
+			outgoingChanIDs[1].ToUint64(),
+		),
+		IncomingChanIDs: fn.NewSet(
+			incomingChanIDs[0].ToUint64(),
+			incomingChanIDs[1].ToUint64(),
+		),
 		IndexOffset:  0,
 		NumMaxEvents: 10,
 	}
@@ -568,6 +557,5 @@ func TestForwardingLogQueryIncomingAndOutgoingChanIDs(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, expectedEvents, timeSlice.ForwardingEvents,
-		"unexpected events returned")
+	require.Equal(t, expectedEvents, timeSlice.ForwardingEvents)
 }

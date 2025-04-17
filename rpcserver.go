@@ -7954,8 +7954,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	var (
 		startTime, endTime time.Time
 
-		numEvents                        uint32
-		incomingChanIDs, outgoingChanIDs fn.Set[uint64]
+		numEvents uint32
 	)
 
 	// startTime defaults to the Unix epoch (0 unixtime, or
@@ -7979,15 +7978,8 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 
 	// Create sets of incoming and outgoing channel IDs from the request
 	// for faster lookups for filtering.
-	incomingChanIDs = make(fn.Set[uint64], len(req.IncomingChanIds))
-	outgoingChanIDs = make(fn.Set[uint64], len(req.OutgoingChanIds))
-	for _, chanID := range req.IncomingChanIds {
-		incomingChanIDs.Add(chanID)
-	}
-
-	for _, chanID := range req.OutgoingChanIds {
-		outgoingChanIDs.Add(chanID)
-	}
+	incomingChanIDs := fn.NewSet(req.IncomingChanIds...)
+	outgoingChanIDs := fn.NewSet(req.OutgoingChanIds...)
 
 	// Next, we'll map the proto request into a format that is understood by
 	// the forwarding log.

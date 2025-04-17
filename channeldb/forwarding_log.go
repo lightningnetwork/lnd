@@ -303,41 +303,41 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 				}
 
 				// Check if the incoming channel ID matches the
-				// filter criteria.
-				// Either no filtering is applied (IsEmpty), or
-				// the ID is explicitly included.
+				// filter criteria. Either no filtering is
+				// applied (IsEmpty), or the ID is explicitly
+				// included.
 				incomingMatch := q.IncomingChanIDs.IsEmpty() ||
 					q.IncomingChanIDs.Contains(
 						event.IncomingChanID.ToUint64(),
 					)
 
 				// Check if the outgoing channel ID matches the
-				// filter criteria.
-				// Either no filtering is applied (IsEmpty), or
-				// the ID is explicitly included.
+				// filter criteria. Either no filtering is
+				// applied (IsEmpty), or  the ID is explicitly
+				// included.
 				outgoingMatch := q.OutgoingChanIDs.IsEmpty() ||
 					q.OutgoingChanIDs.Contains(
 						event.OutgoingChanID.ToUint64(),
 					)
 
-				// If both conditions are met, then we'll add
-				// the event to our return payload.
-				if incomingMatch && outgoingMatch {
-					// If we're not yet past the user
-					// defined offset , then we'll continue
-					// to seek forward.
-					if recordsToSkip > 0 {
-						recordsToSkip--
-						continue
-					}
-
-					event.Timestamp = currentTime
-					resp.ForwardingEvents = append(
-						resp.ForwardingEvents,
-						event,
-					)
-					recordOffset++
+				// Skip this event if it doesn't match the
+				// filters.
+				if !incomingMatch || !outgoingMatch {
+					continue
 				}
+				// If we're not yet past the user defined offset
+				// then we'll continue to seek forward.
+				if recordsToSkip > 0 {
+					recordsToSkip--
+					continue
+				}
+
+				event.Timestamp = currentTime
+				resp.ForwardingEvents = append(
+					resp.ForwardingEvents,
+					event,
+				)
+				recordOffset++
 			}
 		}
 

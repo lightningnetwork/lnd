@@ -1523,13 +1523,15 @@ var forwardingHistoryCommand = cli.Command{
 		},
 		cli.Int64SliceFlag{
 			Name: "incoming_chan_ids",
-			Usage: "the short channel ids of the incoming " +
-				"channels to filter events by",
+			Usage: "the short channel id of the incoming " +
+				"channel to filter events by; can be " +
+				"specified multiple times in the same command",
 		},
 		cli.Int64SliceFlag{
 			Name: "outgoing_chan_ids",
-			Usage: "the short channel ids of the outgoing " +
-				"channels to filter events by",
+			Usage: "the short channel id of the outgoing " +
+				"channel to filter events by; can be " +
+				"specified multiple times in the same command",
 		},
 	},
 	Action: actionDecorator(forwardingHistory),

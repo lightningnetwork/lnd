@@ -49,6 +49,7 @@ func (c *confDetailsEvent) dummy() {
 }
 
 type registerConf struct {
+	fullBlock bool
 }
 
 func (r *registerConf) dummy() {
@@ -173,6 +174,7 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 			Txid:       chainhash.Hash{1},
 			PkScript:   []byte{0x01},
 			HeightHint: 100,
+			FullBlock:  newEvent.fullBlock,
 			PostConfMapper: fn.Some[ConfMapper[dummyEvents]](
 				confMapper,
 			),
@@ -383,7 +385,8 @@ func (d *dummyAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	opts ...chainntnfs.NotifierOption,
 ) (*chainntnfs.ConfirmationEvent, error) {
 
-	args := d.Called(txid, pkScript, numConfs)
+	// Pass opts as the last argument to the mock call checker.
+	args := d.Called(txid, pkScript, numConfs, heightHint, opts)
 
 	err := args.Error(0)
 
@@ -589,11 +592,12 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 	env.AssertExpectations(t)
 }
 
-// TestStateMachineConfMapper tests that the state machine is able to properly
-// map the confirmation event into a custom event that can be used to trigger a
-// state transition.
-func TestStateMachineConfMapper(t *testing.T) {
-	t.Parallel()
+// testStateMachineConfMapperImpl is a helper function that encapsulates the
+// core logic for testing the confirmation mapping functionality of the state
+// machine. It takes a boolean flag `fullBlock` to determine whether to test the
+// scenario where full block details are requested in the confirmation
+// notification.
+func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
 	ctx := context.Background()
 
 	// Create the state machine.
@@ -614,15 +618,49 @@ func TestStateMachineConfMapper(t *testing.T) {
 	stateMachine.Start(ctx)
 	defer stateMachine.Stop()
 
-	// Expect the RegisterConfirmationsNtfn call when we send the event.
-	// We use NumConfs=1 as the default.
-	adapters.On(
-		"RegisterConfirmationsNtfn", &chainhash.Hash{1}, []byte{0x01},
-		uint32(1),
-	).Return(nil)
+	// Define the expected arguments for the mock call.
+	expectedTxid := &chainhash.Hash{1}
+	expectedPkScript := []byte{0x01}
+	expectedNumConfs := uint32(1)
+	expectedHeightHint := uint32(100)
+
+	// Set up the mock expectation based on the FullBlock flag. We use
+	// mock.MatchedBy to assert the options passed.
+	if fullBlock {
+		// Expect WithIncludeBlock() option when FullBlock is true.
+		adapters.On(
+			"RegisterConfirmationsNtfn",
+			expectedTxid, expectedPkScript,
+			expectedNumConfs, expectedHeightHint,
+			mock.MatchedBy(
+				func(opts []chainntnfs.NotifierOption) bool {
+					// Check if exactly one option is passed
+					// and it's the correct type. Unless we
+					// use reflect, we can introspect into
+					// the private fields.
+					return len(opts) == 1
+				},
+			),
+		).Return(nil)
+	} else {
+		// Expect no options when FullBlock is false.
+		adapters.On(
+			"RegisterConfirmationsNtfn",
+			expectedTxid, expectedPkScript,
+			expectedNumConfs, expectedHeightHint,
+			mock.MatchedBy(func(opts []chainntnfs.NotifierOption) bool { //nolint:ll
+				return len(opts) == 0
+			}),
+		).Return(nil)
+	}
+
+	// Create the registerConf event with the specified FullBlock value.
+	regConfEvent := &registerConf{
+		fullBlock: fullBlock,
+	}
 
 	// Send the event that triggers RegisterConf emission.
-	stateMachine.SendEvent(ctx, &registerConf{})
+	stateMachine.SendEvent(ctx, regConfEvent)
 
 	// We should transition back to the starting state initially.
 	expectedStates := []State[dummyEvents, *dummyEnv]{
@@ -630,11 +668,11 @@ func TestStateMachineConfMapper(t *testing.T) {
 	}
 	assertStateTransitions(t, stateSub, expectedStates)
 
-	// Assert the registration call was made.
+	// Assert the registration call was made with the correct arguments
+	// (including options).
 	adapters.AssertExpectations(t)
 
 	// Now, simulate the confirmation event coming back from the notifier.
-	// Populate it with some data to be mapped.
 	simulatedConf := &chainntnfs.TxConfirmation{
 		BlockHash:   &chainhash.Hash{2},
 		BlockHeight: 123,
@@ -642,7 +680,7 @@ func TestStateMachineConfMapper(t *testing.T) {
 	adapters.confChan <- simulatedConf
 
 	// This should trigger the mapper and send the confDetailsEvent,
-	// transitioning us to the final state.
+	// transitioning us to the confirmed state.
 	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateConfirmed{}}
 	assertStateTransitions(t, stateSub, expectedStates)
 
@@ -660,6 +698,23 @@ func TestStateMachineConfMapper(t *testing.T) {
 
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)
+}
+
+// TestStateMachineConfMapper tests the confirmation mapping functionality using
+// subtests driven by the testStateMachineConfMapperImpl helper function. It
+// covers scenarios both with and without requesting the full block details.
+func TestStateMachineConfMapper(t *testing.T) {
+	t.Parallel()
+
+	t.Run("full block false", func(t *testing.T) {
+		t.Parallel()
+		testStateMachineConfMapperImpl(t, false)
+	})
+
+	t.Run("full block true", func(t *testing.T) {
+		t.Parallel()
+		testStateMachineConfMapperImpl(t, true)
+	})
 }
 
 // TestStateMachineSpendMapper tests that the state machine is able to properly

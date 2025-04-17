@@ -140,7 +140,7 @@ type mockTrafficShaper struct{}
 // by the provided channel ID may have external mechanisms that would
 // allow it to carry out the payment.
 func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
-	_ fn.Option[tlv.Blob]) (bool, error) {
+	_, _ fn.Option[tlv.Blob]) (bool, error) {
 
 	return true, nil
 }

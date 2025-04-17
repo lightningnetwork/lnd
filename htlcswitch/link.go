@@ -3505,6 +3505,7 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	commitmentBlob := l.CommitmentCustomBlob()
 	auxBandwidth, err := ts.PaymentBandwidth(
 		htlcBlob, commitmentBlob, l.Bandwidth(), amount,
+		l.channel.FetchLatestAuxHTLCView(),
 	)
 	if err != nil {
 		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+

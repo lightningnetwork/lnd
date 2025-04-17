@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -516,8 +517,8 @@ type AuxTrafficShaper interface {
 	// is a custom channel that should be handled by the traffic shaper, the
 	// ShouldHandleTraffic method should be called first.
 	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
-		linkBandwidth,
-		htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error)
+		linkBandwidth, htlcAmt lnwire.MilliSatoshi,
+		htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error)
 
 	// IsCustomHTLC returns true if the HTLC carries the set of relevant
 	// custom records to put it under the purview of the traffic shaper,

@@ -7,6 +7,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -150,7 +151,8 @@ func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // is a custom channel that should be handled by the traffic shaper, the
 // HandleTraffic method should be called first.
 func (*mockTrafficShaper) PaymentBandwidth(_, _ fn.Option[tlv.Blob],
-	linkBandwidth, _ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	linkBandwidth, _ lnwire.MilliSatoshi,
+	_ lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
 	return linkBandwidth, nil
 }

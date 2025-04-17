@@ -133,7 +133,7 @@ type CommitDiffAuxInput struct {
 	// UnfilteredView is the unfiltered, original HTLC view of the channel.
 	// Unfiltered in this context means that the view contains all HTLCs,
 	// including the canceled ones.
-	UnfilteredView *HtlcView
+	UnfilteredView AuxHtlcView
 
 	// WhoseCommit denotes whose commitment transaction we are computing the
 	// diff for.
@@ -177,9 +177,8 @@ type AuxLeafStore interface {
 	// correspond to the passed aux blob, and an existing channel
 	// commitment.
 	FetchLeavesFromCommit(chanState AuxChanState,
-		commit channeldb.ChannelCommitment,
-		keyRing CommitmentKeyRing, whoseCommit lntypes.ChannelParty,
-	) fn.Result[CommitDiffAuxResult]
+		commit channeldb.ChannelCommitment, keyRing CommitmentKeyRing,
+		whoseCommit lntypes.ChannelParty) fn.Result[CommitDiffAuxResult]
 
 	// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 	// from a channel revocation that stores balance + blob information.
@@ -206,7 +205,7 @@ func auxLeavesFromView(leafStore AuxLeafStore, chanState *channeldb.OpenChannel,
 			return leafStore.FetchLeavesFromView(CommitDiffAuxInput{
 				ChannelState:   NewAuxChanState(chanState),
 				PrevBlob:       blob,
-				UnfilteredView: originalView,
+				UnfilteredView: newAuxHtlcView(originalView),
 				WhoseCommit:    whoseCommit,
 				OurBalance:     ourBalance,
 				TheirBalance:   theirBalance,
@@ -227,13 +226,15 @@ func updateAuxBlob(leafStore AuxLeafStore, chanState *channeldb.OpenChannel,
 	return fn.MapOptionZ(
 		prevBlob, func(blob tlv.Blob) fn.Result[fn.Option[tlv.Blob]] {
 			return leafStore.ApplyHtlcView(CommitDiffAuxInput{
-				ChannelState:   NewAuxChanState(chanState),
-				PrevBlob:       blob,
-				UnfilteredView: nextViewUnfiltered,
-				WhoseCommit:    whoseCommit,
-				OurBalance:     ourBalance,
-				TheirBalance:   theirBalance,
-				KeyRing:        keyRing,
+				ChannelState: NewAuxChanState(chanState),
+				PrevBlob:     blob,
+				UnfilteredView: newAuxHtlcView(
+					nextViewUnfiltered,
+				),
+				WhoseCommit:  whoseCommit,
+				OurBalance:   ourBalance,
+				TheirBalance: theirBalance,
+				KeyRing:      keyRing,
 			})
 		},
 	)

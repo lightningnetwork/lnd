@@ -1436,6 +1436,16 @@ message FundPsbtRequest {
 
     // The max fee to total output amount ratio that this psbt should adhere to.
     double max_fee_ratio = 12;
+
+    // The custom lock ID to use for the inputs in the funded PSBT. The value
+    // if set must be exactly 32 bytes long. If empty, the default lock ID will
+    // be used.
+    bytes custom_lock_id = 13;
+
+    // If set, then the inputs in the funded PSBT will be locked for the
+    // specified duration. The lock duration is specified in seconds. If not
+    // set, the default lock duration will be used.
+    uint64 lock_expiration_seconds = 14;
 }
 message FundPsbtResponse {
     /*

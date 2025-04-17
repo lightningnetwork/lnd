@@ -1600,6 +1600,24 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		account = req.Account
 	}
 
+	var customLockID *wtxmgr.LockID
+	if len(req.CustomLockId) > 0 {
+		lockID := wtxmgr.LockID{}
+		if len(req.CustomLockId) != len(lockID) {
+			return nil, fmt.Errorf("custom lock ID must be " +
+				"exactly 32 bytes")
+		}
+
+		copy(lockID[:], req.CustomLockId)
+		customLockID = &lockID
+	}
+
+	var customLockDuration time.Duration
+	if req.LockExpirationSeconds != 0 {
+		customLockDuration = time.Duration(req.LockExpirationSeconds) *
+			time.Second
+	}
+
 	// There are three ways a user can specify what we call the template (a
 	// list of inputs and outputs to use in the PSBT): Either as a PSBT
 	// packet directly with no coin selection, a PSBT with coin selection or
@@ -1619,6 +1637,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		return w.fundPsbtInternalWallet(
 			account, keyScopeFromChangeAddressType(req.ChangeType),
 			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
+			customLockID, customLockDuration,
 		)
 
 	// The template is specified as a PSBT with the intention to perform
@@ -1701,6 +1720,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		return w.fundPsbtCoinSelect(
 			account, changeIndex, packet, minConfs, changeType,
 			feeSatPerKW, coinSelectionStrategy, maxFeeRatio,
+			customLockID, customLockDuration,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1758,6 +1778,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		return w.fundPsbtInternalWallet(
 			account, keyScopeFromChangeAddressType(req.ChangeType),
 			packet, minConfs, feeSatPerKW, coinSelectionStrategy,
+			customLockID, customLockDuration,
 		)
 
 	default:
@@ -1770,8 +1791,9 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 // wallet that does not allow specifying custom inputs while selecting coins.
 func (w *WalletKit) fundPsbtInternalWallet(account string,
 	keyScope *waddrmgr.KeyScope, packet *psbt.Packet, minConfs int32,
-	feeSatPerKW chainfee.SatPerKWeight,
-	strategy base.CoinSelectionStrategy) (*FundPsbtResponse, error) {
+	feeSatPerKW chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy,
+	customLockID *wtxmgr.LockID, customLockDuration time.Duration) (
+	*FundPsbtResponse, error) {
 
 	// The RPC parsing part is now over. Several of the following operations
 	// require us to hold the global coin selection lock, so we do the rest
@@ -1885,7 +1907,8 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 		}
 
 		response, err = w.lockAndCreateFundingResponse(
-			packet, outpoints, changeIndex,
+			packet, outpoints, changeIndex, customLockID,
+			customLockDuration,
 		)
 
 		return err
@@ -1904,7 +1927,8 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 	packet *psbt.Packet, minConfs int32,
 	changeType chanfunding.ChangeAddressType,
 	feeRate chainfee.SatPerKWeight, strategy base.CoinSelectionStrategy,
-	maxFeeRatio float64) (*FundPsbtResponse, error) {
+	maxFeeRatio float64, customLockID *wtxmgr.LockID,
+	customLockDuration time.Duration) (*FundPsbtResponse, error) {
 
 	// We want to make sure we don't select any inputs that are already
 	// specified in the template. To do that, we require those inputs to
@@ -2019,7 +2043,10 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 		}
 
 		// We're done. Let's serialize and return the updated package.
-		return w.lockAndCreateFundingResponse(packet, nil, changeIndex)
+		return w.lockAndCreateFundingResponse(
+			packet, nil, changeIndex, customLockID,
+			customLockDuration,
+		)
 	}
 
 	// The RPC parsing part is now over. Several of the following operations
@@ -2091,7 +2118,8 @@ func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
 		}
 
 		response, err = w.lockAndCreateFundingResponse(
-			packet, addedOutpoints, changeIndex,
+			packet, addedOutpoints, changeIndex, customLockID,
+			customLockDuration,
 		)
 
 		return err
@@ -2136,8 +2164,9 @@ func (w *WalletKit) assertNotAvailable(inputs []*wire.TxIn, minConfs int32,
 // lockAndCreateFundingResponse locks the given outpoints and creates a funding
 // response with the serialized PSBT, the change index and the locked UTXOs.
 func (w *WalletKit) lockAndCreateFundingResponse(packet *psbt.Packet,
-	newOutpoints []wire.OutPoint, changeIndex int32) (*FundPsbtResponse,
-	error) {
+	newOutpoints []wire.OutPoint, changeIndex int32,
+	customLockID *wtxmgr.LockID, customLockDuration time.Duration) (
+	*FundPsbtResponse, error) {
 
 	// Make sure we can properly serialize the packet. If this goes wrong
 	// then something isn't right with the inputs, and we probably shouldn't
@@ -2148,7 +2177,9 @@ func (w *WalletKit) lockAndCreateFundingResponse(packet *psbt.Packet,
 		return nil, fmt.Errorf("error serializing funded PSBT: %w", err)
 	}
 
-	locks, err := lockInputs(w.cfg.Wallet, newOutpoints)
+	locks, err := lockInputs(
+		w.cfg.Wallet, newOutpoints, customLockID, customLockDuration,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("could not lock inputs: %w", err)
 	}

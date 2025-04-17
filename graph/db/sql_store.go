@@ -575,7 +575,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			alreadyExists = false
 		},
 		Do: func(tx SQLQueries) error {
-			err := insertChannel(ctx, tx, edge)
+			_, err := insertChannel(ctx, tx, edge)
 
 			// Silence ErrEdgeAlreadyExist so that the batch can
 			// succeed, but propagate the error via local state.
@@ -3756,9 +3756,15 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 	return records, nil
 }
 
+type dbChanInfo struct {
+	channelID int64
+	node1ID   int64
+	node2ID   int64
+}
+
 // insertChannel inserts a new channel record into the database.
 func insertChannel(ctx context.Context, db SQLQueries,
-	edge *models.ChannelEdgeInfo) error {
+	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
 
 	var chanIDB [8]byte
 	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
@@ -3774,21 +3780,21 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		},
 	)
 	if err == nil {
-		return ErrEdgeAlreadyExist
+		return nil, ErrEdgeAlreadyExist
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("unable to fetch channel: %w", err)
+		return nil, fmt.Errorf("unable to fetch channel: %w", err)
 	}
 
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
 	if err != nil {
-		return fmt.Errorf("unable to create shell node: %w", err)
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
 	if err != nil {
-		return fmt.Errorf("unable to create shell node: %w", err)
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	var capacity sql.NullInt64
@@ -3819,7 +3825,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Insert the new channel record.
 	dbChanID, err := db.CreateChannel(ctx, createParams)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Insert any channel features.
@@ -3827,7 +3833,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		chanFeatures := lnwire.NewRawFeatureVector()
 		err := chanFeatures.Decode(bytes.NewReader(edge.Features))
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		fv := lnwire.NewFeatureVector(chanFeatures, lnwire.Features)
@@ -3839,7 +3845,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 				},
 			)
 			if err != nil {
-				return fmt.Errorf("unable to insert "+
+				return nil, fmt.Errorf("unable to insert "+
 					"channel(%d) feature(%v): %w", dbChanID,
 					feature, err)
 			}
@@ -3849,8 +3855,8 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Finally, insert any extra TLV fields in the channel announcement.
 	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
 	if err != nil {
-		return fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
+		return nil, fmt.Errorf("unable to marshal extra opaque "+
+			"data: %w", err)
 	}
 
 	for tlvType, value := range extra {
@@ -3862,13 +3868,17 @@ func insertChannel(ctx context.Context, db SQLQueries,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to upsert channel(%d) extra "+
-				"signed field(%v): %w", edge.ChannelID,
-				tlvType, err)
+			return nil, fmt.Errorf("unable to upsert "+
+				"channel(%d) extra signed field(%v): %w",
+				edge.ChannelID, tlvType, err)
 		}
 	}
 
-	return nil
+	return &dbChanInfo{
+		channelID: dbChanID,
+		node1ID:   node1DBID,
+		node2ID:   node2DBID,
+	}, nil
 }
 
 // maybeCreateShellNode checks if a shell node entry exists for the

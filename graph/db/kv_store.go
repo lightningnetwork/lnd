@@ -4867,3 +4867,68 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 		},
 	)
 }
+
+func (c *KVStore) forEachPruneLogEntry(cb func(height uint32,
+	hash *chainhash.Hash) error) error {
+
+	return kvdb.View(c.db, func(tx kvdb.RTx) error {
+		metaBucket := tx.ReadBucket(graphMetaBucket)
+		if metaBucket == nil {
+			return ErrGraphNotFound
+		}
+
+		pruneBucket := metaBucket.NestedReadBucket(pruneLogBucket)
+		if pruneBucket == nil {
+			// Graph never been pruned. No entries to iterate over.
+			return nil
+		}
+
+		return pruneBucket.ForEach(func(k, v []byte) error {
+			blockHeight := byteOrder.Uint32(k)
+			var blockHash chainhash.Hash
+			copy(blockHash[:], v)
+
+			return cb(blockHeight, &blockHash)
+		})
+	}, func() {})
+}
+
+func (c *KVStore) forEachZombieEntry(cb func(chanID uint64, pubKey1,
+	pubKey2 [33]byte) error) error {
+
+	return kvdb.View(c.db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex := edges.NestedReadBucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		return zombieIndex.ForEach(func(k, v []byte) error {
+			var pubKey1, pubKey2 [33]byte
+			copy(pubKey1[:], v[:33])
+			copy(pubKey2[:], v[33:])
+
+			return cb(byteOrder.Uint64(k), pubKey1, pubKey2)
+		})
+	}, func() {})
+}
+
+func (c *KVStore) forEachClosedSCID(
+	cb func(lnwire.ShortChannelID) error) error {
+
+	return kvdb.View(c.db, func(tx kvdb.RTx) error {
+		closedScids := tx.ReadBucket(closedScidBucket)
+		if closedScids == nil {
+			return nil
+		}
+
+		return closedScids.ForEach(func(k, _ []byte) error {
+			return cb(lnwire.NewShortChanIDFromInt(
+				byteOrder.Uint64(k),
+			))
+		})
+	}, func() {})
+}

@@ -5227,11 +5227,13 @@ func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, err
 
 // fetchLastChanUpdate returns a function which is able to retrieve our latest
 // channel update for a target channel.
-func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
-	*lnwire.ChannelUpdate1, error) {
+func (s *server) fetchLastChanUpdate() func(context.Context,
+	lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 
 	ourPubKey := s.identityECDH.PubKey().SerializeCompressed()
-	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
+	return func(_ context.Context, cid lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate1, error) {
+
 		info, edge1, edge2, err := s.graphBuilder.GetChannelByID(cid)
 		if err != nil {
 			return nil, err

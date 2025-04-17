@@ -183,8 +183,9 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 		FwdingLog: &mockForwardingLog{
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
-		FetchLastChannelUpdate: func(scid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate1, error) {
+		FetchLastChannelUpdate: func(_ context.Context,
+			scid lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
+			error) {
 
 			return &lnwire.ChannelUpdate1{
 				ShortChannelID: scid,
@@ -735,7 +736,7 @@ type mockChannelLink struct {
 
 	checkHtlcForwardResult *LinkError
 
-	failAliasUpdate func(sid lnwire.ShortChannelID,
+	failAliasUpdate func(ctx context.Context, sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1
 
 	confirmedZC bool
@@ -844,14 +845,15 @@ func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 
 func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
 }
-func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
-	lnwire.MilliSatoshi, uint32, uint32, models.InboundFee, uint32,
-	lnwire.ShortChannelID, lnwire.CustomRecords) *LinkError {
+func (f *mockChannelLink) CheckHtlcForward(context.Context, [32]byte,
+	lnwire.MilliSatoshi, lnwire.MilliSatoshi, uint32, uint32,
+	models.InboundFee, uint32, lnwire.ShortChannelID,
+	lnwire.CustomRecords) *LinkError {
 
 	return f.checkHtlcForwardResult
 }
 
-func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
+func (f *mockChannelLink) CheckHtlcTransit(_ context.Context, payHash [32]byte,
 	amt lnwire.MilliSatoshi, timeout uint32,
 	heightNow uint32, _ lnwire.CustomRecords) *LinkError {
 
@@ -870,7 +872,7 @@ func (f *mockChannelLink) AttachMailBox(mailBox MailBox) {
 	mailBox.SetDustClosure(f.getDustClosure())
 }
 
-func (f *mockChannelLink) attachFailAliasUpdate(closure func(
+func (f *mockChannelLink) attachFailAliasUpdate(closure func(_ context.Context,
 	sid lnwire.ShortChannelID, incoming bool) *lnwire.ChannelUpdate1) {
 
 	f.failAliasUpdate = closure

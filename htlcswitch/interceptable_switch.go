@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"sync"
@@ -89,8 +90,9 @@ type InterceptableSwitch struct {
 	// currentHeight is the currently best known height.
 	currentHeight int32
 
-	wg   sync.WaitGroup
-	quit chan struct{}
+	wg     sync.WaitGroup
+	quit   chan struct{}
+	cancel fn.Option[context.CancelFunc]
 }
 
 type interceptedPackets struct {
@@ -229,6 +231,9 @@ func (s *InterceptableSwitch) Start() error {
 		return fmt.Errorf("InterceptableSwitch started more than once")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = fn.Some(cancel)
+
 	blockEpochStream, err := s.notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -239,7 +244,7 @@ func (s *InterceptableSwitch) Start() error {
 	go func() {
 		defer s.wg.Done()
 
-		err := s.run()
+		err := s.run(ctx)
 		if err != nil {
 			log.Errorf("InterceptableSwitch stopped: %v", err)
 		}
@@ -257,6 +262,7 @@ func (s *InterceptableSwitch) Stop() error {
 		return fmt.Errorf("InterceptableSwitch stopped more than once")
 	}
 
+	s.cancel.WhenSome(func(fn context.CancelFunc) { fn() })
 	close(s.quit)
 	s.wg.Wait()
 
@@ -271,7 +277,7 @@ func (s *InterceptableSwitch) Stop() error {
 	return nil
 }
 
-func (s *InterceptableSwitch) run() error {
+func (s *InterceptableSwitch) run(ctx context.Context) error {
 	// The block epoch stream will immediately stream the current height.
 	// Read it out here.
 	select {
@@ -282,6 +288,9 @@ func (s *InterceptableSwitch) run() error {
 		s.currentHeight = currentBlock.Height
 
 	case <-s.quit:
+		return nil
+
+	case <-ctx.Done():
 		return nil
 	}
 
@@ -298,7 +307,7 @@ func (s *InterceptableSwitch) run() error {
 			var notIntercepted []*htlcPacket
 			for _, p := range packets.packets {
 				intercepted, err := s.interceptForward(
-					p, packets.isReplay,
+					ctx, p, packets.isReplay,
 				)
 				if err != nil {
 					return err
@@ -311,7 +320,7 @@ func (s *InterceptableSwitch) run() error {
 				}
 			}
 			err := s.htlcSwitch.ForwardPackets(
-				packets.linkQuit, notIntercepted...,
+				ctx, packets.linkQuit, notIntercepted...,
 			)
 			if err != nil {
 				log.Errorf("Cannot forward packets: %v", err)
@@ -325,12 +334,12 @@ func (s *InterceptableSwitch) run() error {
 			// already intercepted in the off-chain flow. And even
 			// if not, it is safe to signal replay so that we won't
 			// unexpectedly skip over this htlc.
-			if _, err := s.forward(fwd, true); err != nil {
+			if _, err := s.forward(ctx, fwd, true); err != nil {
 				return err
 			}
 
 		case res := <-s.resolutionChan:
-			res.errChan <- s.resolve(res.resolution)
+			res.errChan <- s.resolve(ctx, res.resolution)
 
 		case currentBlock, ok := <-s.blockEpochStream.Epochs:
 			if !ok {
@@ -341,20 +350,23 @@ func (s *InterceptableSwitch) run() error {
 
 			// A new block is appended. Fail any held htlcs that
 			// expire at this height to prevent channel force-close.
-			s.failExpiredHtlcs()
+			s.failExpiredHtlcs(ctx)
 
 		case <-s.quit:
+			return nil
+
+		case <-ctx.Done():
 			return nil
 		}
 	}
 }
 
-func (s *InterceptableSwitch) failExpiredHtlcs() {
+func (s *InterceptableSwitch) failExpiredHtlcs(ctx context.Context) {
 	s.heldHtlcSet.popAutoFails(
 		uint32(s.currentHeight),
 		func(fwd InterceptedForward) {
 			err := fwd.FailWithCode(
-				lnwire.CodeTemporaryChannelFailure,
+				ctx, lnwire.CodeTemporaryChannelFailure,
 			)
 			if err != nil {
 				log.Errorf("Cannot fail packet: %v", err)
@@ -407,7 +419,9 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 
 // resolve processes a HTLC given the resolution type specified by the
 // intercepting client.
-func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
+func (s *InterceptableSwitch) resolve(ctx context.Context,
+	res *FwdResolution) error {
+
 	intercepted, err := s.heldHtlcSet.pop(res.Key)
 	if err != nil {
 		return err
@@ -431,7 +445,7 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 			return intercepted.Fail(res.FailureMessage)
 		}
 
-		return intercepted.FailWithCode(res.FailureCode)
+		return intercepted.FailWithCode(ctx, res.FailureCode)
 
 	default:
 		return fmt.Errorf("unrecognized action %v", res.Action)
@@ -503,8 +517,8 @@ func (s *InterceptableSwitch) ForwardPacket(
 
 // interceptForward forwards the packet to the external interceptor after
 // checking the interception criteria.
-func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
-	isReplay bool) (bool, error) {
+func (s *InterceptableSwitch) interceptForward(ctx context.Context,
+	packet *htlcPacket, isReplay bool) (bool, error) {
 
 	switch htlc := packet.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
@@ -522,7 +536,7 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 		}
 
 		// Handle forwards that are too close to expiry.
-		handled, err := s.handleExpired(intercepted)
+		handled, err := s.handleExpired(ctx, intercepted)
 		if err != nil {
 			log.Errorf("Error handling intercepted htlc "+
 				"that expires too soon: circuit=%v, "+
@@ -542,7 +556,7 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 			return true, nil
 		}
 
-		return s.forward(intercepted, isReplay)
+		return s.forward(ctx, intercepted, isReplay)
 
 	default:
 		return false, nil
@@ -550,7 +564,7 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 }
 
 // forward records the intercepted htlc and forwards it to the interceptor.
-func (s *InterceptableSwitch) forward(
+func (s *InterceptableSwitch) forward(ctx context.Context,
 	fwd InterceptedForward, isReplay bool) (bool, error) {
 
 	inKey := fwd.Packet().IncomingCircuit
@@ -573,7 +587,7 @@ func (s *InterceptableSwitch) forward(
 		// yet. This limits the backlog of htlcs when the interceptor is down.
 		if !isReplay {
 			err := fwd.FailWithCode(
-				lnwire.CodeTemporaryChannelFailure,
+				ctx, lnwire.CodeTemporaryChannelFailure,
 			)
 			if err != nil {
 				log.Errorf("Cannot fail packet: %v", err)
@@ -605,8 +619,8 @@ func (s *InterceptableSwitch) forward(
 
 // handleExpired checks that the htlc isn't too close to the channel
 // force-close broadcast height. If it is, it is cancelled back.
-func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
-	bool, error) {
+func (s *InterceptableSwitch) handleExpired(ctx context.Context,
+	fwd *interceptedForward) (bool, error) {
 
 	height := uint32(s.currentHeight)
 	if fwd.packet.incomingTimeout >= height+s.cltvInterceptDelta {
@@ -620,7 +634,7 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 		fwd.packet.incomingTimeout)
 
 	err := fwd.FailWithCode(
-		lnwire.CodeExpiryTooSoon,
+		ctx, lnwire.CodeExpiryTooSoon,
 	)
 	if err != nil {
 		return false, err
@@ -661,9 +675,10 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 
 // Resume resumes the default behavior as if the packet was not intercepted.
 func (f *interceptedForward) Resume() error {
+	ctx := context.TODO()
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
-	return f.htlcSwitch.ForwardPackets(nil, f.packet)
+	return f.htlcSwitch.ForwardPackets(ctx, nil, f.packet)
 }
 
 // ResumeModified resumes the default behavior with field modifications. The
@@ -675,6 +690,8 @@ func (f *interceptedForward) ResumeModified(
 	inAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outAmountMsat fn.Option[lnwire.MilliSatoshi],
 	outWireCustomRecords fn.Option[lnwire.CustomRecords]) error {
+
+	ctx := context.TODO()
 
 	// Convert the optional custom records to the correct type and validate
 	// them.
@@ -732,7 +749,7 @@ func (f *interceptedForward) ResumeModified(
 
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
-	return f.htlcSwitch.ForwardPackets(nil, f.packet)
+	return f.htlcSwitch.ForwardPackets(ctx, nil, f.packet)
 }
 
 // Fail notifies the intention to Fail an existing hold forward with an
@@ -747,7 +764,9 @@ func (f *interceptedForward) Fail(reason []byte) error {
 
 // FailWithCode notifies the intention to fail an existing hold forward with the
 // specified failure code.
-func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
+func (f *interceptedForward) FailWithCode(ctx context.Context,
+	code lnwire.FailCode) error {
+
 	shaOnionBlob := func() [32]byte {
 		return sha256.Sum256(f.htlc.OnionBlob[:])
 	}
@@ -773,13 +792,13 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 	case lnwire.CodeTemporaryChannelFailure:
 		update := f.htlcSwitch.failAliasUpdate(
-			f.packet.incomingChanID, true,
+			ctx, f.packet.incomingChanID, true,
 		)
 		if update == nil {
 			// Fallback to the original, non-alias behavior.
 			var err error
 			update, err = f.htlcSwitch.cfg.FetchLastChannelUpdate(
-				f.packet.incomingChanID,
+				ctx, f.packet.incomingChanID,
 			)
 			if err != nil {
 				return err
@@ -790,7 +809,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 	case lnwire.CodeExpiryTooSoon:
 		update, err := f.htlcSwitch.cfg.FetchLastChannelUpdate(
-			f.packet.incomingChanID,
+			ctx, f.packet.incomingChanID,
 		)
 		if err != nil {
 			return err

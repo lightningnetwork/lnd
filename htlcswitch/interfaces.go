@@ -85,7 +85,7 @@ type dustHandler interface {
 type scidAliasHandler interface {
 	// attachFailAliasUpdate allows the link to properly fail incoming
 	// HTLCs on option_scid_alias channels.
-	attachFailAliasUpdate(failClosure func(
+	attachFailAliasUpdate(failClosure func(ctx context.Context,
 		sid lnwire.ShortChannelID,
 		incoming bool) *lnwire.ChannelUpdate1)
 
@@ -281,7 +281,8 @@ type ChannelLink interface {
 	// a LinkError with a valid protocol failure message should be returned
 	// in order to signal to the source of the HTLC, the policy consistency
 	// issue.
-	CheckHtlcForward(payHash [32]byte, incomingAmt lnwire.MilliSatoshi,
+	CheckHtlcForward(ctx context.Context, payHash [32]byte,
+		incomingAmt lnwire.MilliSatoshi,
 		amtToForward lnwire.MilliSatoshi, incomingTimeout,
 		outgoingTimeout uint32, inboundFee models.InboundFee,
 		heightNow uint32, scid lnwire.ShortChannelID,
@@ -292,8 +293,8 @@ type ChannelLink interface {
 	// valid protocol failure message should be returned in order to signal
 	// the violation. This call is intended to be used for locally initiated
 	// payments for which there is no corresponding incoming htlc.
-	CheckHtlcTransit(payHash [32]byte, amt lnwire.MilliSatoshi,
-		timeout uint32, heightNow uint32,
+	CheckHtlcTransit(ctx context.Context, payHash [32]byte,
+		amt lnwire.MilliSatoshi, timeout uint32, heightNow uint32,
 		customRecords lnwire.CustomRecords) *LinkError
 
 	// Stats return the statistics of channel link. Number of updates,
@@ -452,7 +453,7 @@ type InterceptedForward interface {
 
 	// FailWithCode notifies the intention to fail an existing hold forward
 	// with the specified failure code.
-	FailWithCode(code lnwire.FailCode) error
+	FailWithCode(ctx context.Context, code lnwire.FailCode) error
 }
 
 // htlcNotifier is an interface which represents the input side of the

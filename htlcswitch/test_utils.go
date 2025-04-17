@@ -95,8 +95,8 @@ func genIDs() (lnwire.ChannelID, lnwire.ChannelID, lnwire.ShortChannelID,
 
 // mockGetChanUpdateMessage helper function which returns topology update of
 // the channel
-func mockGetChanUpdateMessage(_ lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
-	error) {
+func mockGetChanUpdateMessage(_ context.Context,
+	_ lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 
 	return &lnwire.ChannelUpdate1{
 		Signature: wireSig,
@@ -1134,7 +1134,9 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 	forwardPackets := func(linkQuit <-chan struct{}, _ bool,
 		packets ...*htlcPacket) error {
 
-		return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
+		return server.htlcSwitch.ForwardPackets(
+			context.Background(), linkQuit, packets...,
+		)
 	}
 
 	//nolint:ll

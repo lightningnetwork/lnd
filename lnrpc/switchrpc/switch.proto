@@ -58,6 +58,16 @@ message SendOnionRequest {
     // The attempt ID uniquely identifying this payment attempt. The caller can
     // expect to track results for the payment via this attempt ID.
     uint64 attempt_id = 7;
+
+    // The optional blinding point to use when constructing the HTLC.
+    // If set, this will be used to blind the next hop in the route.
+    bytes blinding_point = 8;
+
+    // Optional custom TLV records to include in the HTLC.
+    map<uint64, bytes> custom_records = 9;
+
+    // Optional opaque extra data to attach to the UpdateAddHTLC message.
+    bytes extra_data = 10;
 }
 
 message SendOnionResponse {

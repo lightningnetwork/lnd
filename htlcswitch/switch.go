@@ -1149,6 +1149,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 func (s *Switch) checkCircularForward(incoming, outgoing lnwire.ShortChannelID,
 	allowCircular bool, paymentHash lntypes.Hash) *LinkError {
 
+	log.Tracef("Checking for circular route: incoming=%v, outgoing=%v "+
+		"(payment hash: %x)", incoming, outgoing, paymentHash[:])
+
 	// If they are equal, we can skip the alias mapping checks.
 	if incoming == outgoing {
 		// The switch may be configured to allow circular routes, so
@@ -1189,6 +1192,10 @@ func (s *Switch) checkCircularForward(incoming, outgoing lnwire.ShortChannelID,
 
 	// Check base SCID equality.
 	if incomingBaseScid != outgoingBaseScid {
+		log.Tracef("Incoming base SCID %v does not match outgoing "+
+			"base SCID %v (payment hash: %x)", incomingBaseScid,
+			outgoingBaseScid, paymentHash[:])
+
 		// The base SCIDs are not equal so these are not the same
 		// channel.
 		return nil

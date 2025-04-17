@@ -377,6 +377,10 @@ The underlying functionality between those two options remain the same.
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
    [3](https://github.com/lightningnetwork/lnd/pull/9478).
 
+* [CI has been updated to build against
+  `bitcoind 29.0`](https://github.com/lightningnetwork/lnd/pull/9628) to ensure
+  compatibility.
+
 ## Breaking Changes
 ## Performance Improvements
 

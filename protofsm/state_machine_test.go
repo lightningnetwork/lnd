@@ -40,6 +40,20 @@ type daemonEvents struct {
 func (s *daemonEvents) dummy() {
 }
 
+type confDetailsEvent struct {
+	blockHash   chainhash.Hash
+	blockHeight uint32
+}
+
+func (c *confDetailsEvent) dummy() {
+}
+
+type registerConf struct {
+}
+
+func (r *registerConf) dummy() {
+}
+
 type dummyEnv struct {
 	mock.Mock
 }
@@ -127,6 +141,55 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 				},
 			}),
 		}, nil
+
+	// This state will emit a RegisterConf event which uses a mapper to
+	// transition to the final state upon confirmation.
+	case *registerConf:
+		confMapper := func(
+			conf *chainntnfs.TxConfirmation) dummyEvents {
+
+			// Map the conf details into our custom event.
+			return &confDetailsEvent{
+				blockHash:   *conf.BlockHash,
+				blockHeight: conf.BlockHeight,
+			}
+		}
+
+		regConfEvent := &RegisterConf[dummyEvents]{
+			Txid:       chainhash.Hash{1},
+			PkScript:   []byte{0x01},
+			HeightHint: 100,
+			PostConfMapper: fn.Some[ConfMapper[dummyEvents]](
+				confMapper,
+			),
+		}
+
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			// Stay in the start state until the conf event is
+			// received and mapped.
+			NextState: &dummyStateStart{
+				canSend: d.canSend,
+			},
+			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+				ExternalEvents: DaemonEventSet{
+					regConfEvent,
+				},
+			}),
+		}, nil
+
+	// This event contains details from the confirmation and signals us to
+	// transition to the final state.
+	case *confDetailsEvent:
+		eventDetails := event.(*confDetailsEvent)
+
+		// We received the mapped confirmation details, transition to the
+		// confirmed state.
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: &dummyStateConfirmed{
+				blockHash:   eventDetails.blockHash,
+				blockHeight: eventDetails.blockHeight,
+			},
+		}, nil
 	}
 
 	return nil, fmt.Errorf("unknown event: %T", event)
@@ -152,6 +215,28 @@ func (d *dummyStateFin) ProcessEvent(event dummyEvents, env *dummyEnv,
 }
 
 func (d *dummyStateFin) IsTerminal() bool {
+	return true
+}
+
+type dummyStateConfirmed struct {
+	blockHash   chainhash.Hash
+	blockHeight uint32
+}
+
+func (d *dummyStateConfirmed) String() string {
+	return "dummyStateConfirmed"
+}
+
+func (d *dummyStateConfirmed) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	// This is a terminal state, no further transitions.
+	return &StateTransition[dummyEvents, *dummyEnv]{
+		NextState: d,
+	}, nil
+}
+
+func (d *dummyStateConfirmed) IsTerminal() bool {
 	return true
 }
 
@@ -397,6 +482,78 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateFin{}}
 	assertStateTransitions(t, stateSub, expectedStates)
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// TestStateMachineConfMapper tests that the state machine is able to properly
+// map the confirmation event into a custom event that can be used to trigger a
+// state transition.
+func TestStateMachineConfMapper(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Create the state machine.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	// Expect the RegisterConfirmationsNtfn call when we send the event.
+	// We use NumConfs=1 as the default.
+	adapters.On(
+		"RegisterConfirmationsNtfn", &chainhash.Hash{1}, []byte{0x01},
+		uint32(1),
+	).Return(nil)
+
+	// Send the event that triggers RegisterConf emission.
+	stateMachine.SendEvent(ctx, &registerConf{})
+
+	// We should transition back to the starting state initially.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateStart{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Assert the registration call was made.
+	adapters.AssertExpectations(t)
+
+	// Now, simulate the confirmation event coming back from the notifier.
+	// Populate it with some data to be mapped.
+	simulatedConf := &chainntnfs.TxConfirmation{
+		BlockHash:   &chainhash.Hash{2},
+		BlockHeight: 123,
+	}
+	adapters.confChan <- simulatedConf
+
+	// This should trigger the mapper and send the confDetailsEvent,
+	// transitioning us to the final state.
+	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateConfirmed{}}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Final state assertion.
+	finalState, err := stateMachine.CurrentState()
+	require.NoError(t, err)
+	require.IsType(t, &dummyStateConfirmed{}, finalState)
+
+	// Assert that the details from the confirmation event were correctly
+	// propagated to the final state.
+	finalStateDetails := finalState.(*dummyStateConfirmed)
+	require.Equal(t, simulatedConf.BlockHash, &finalStateDetails.blockHash)
+	require.Equal(t, simulatedConf.BlockHeight, finalStateDetails.blockHeight)
 
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)

@@ -101,7 +101,8 @@
   than once.
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9609) a bug that may
-  cause `listunspent` to give inaccurate wallet UTXOs.
+  cause `listunspent` to give inaccurate wallet UTXOs and
+  [`locked_balance`](https://github.com/lightningnetwork/lnd/pull/9693).
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9626) a bug where a
 keysend payment would not fail properly and only resolve after restart. Now

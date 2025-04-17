@@ -2282,6 +2282,28 @@ func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
 	return tx
 }
 
+// SendCoins sends all coins from node A to node B, returns the sending tx.
+func (h *HarnessTest) SendAllCoins(a, b *node.HarnessNode) *wire.MsgTx {
+	// Create an address for Bob receive the coins.
+	req := &lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+	resp := b.RPC.NewAddress(req)
+
+	// Send the coins from Alice to Bob. We should expect a tx to be
+	// broadcast and seen in the mempool.
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:             resp.Address,
+		TargetConf:       6,
+		SendAll:          true,
+		SpendUnconfirmed: true,
+	}
+	a.RPC.SendCoins(sendReq)
+	tx := h.GetNumTxsFromMempool(1)[0]
+
+	return tx
+}
+
 // CreateSimpleNetwork creates the number of nodes specified by the number of
 // configs and makes a topology of `node1 -> node2 -> node3...`. Each node is
 // created using the specified config, the neighbors are connected, and the

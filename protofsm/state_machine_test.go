@@ -54,6 +54,20 @@ type registerConf struct {
 func (r *registerConf) dummy() {
 }
 
+type spendDetailsEvent struct {
+	spenderTxHash  chainhash.Hash
+	spendingHeight int32
+}
+
+func (s *spendDetailsEvent) dummy() {
+}
+
+type registerSpend struct {
+}
+
+func (r *registerSpend) dummy() {
+}
+
 type dummyEnv struct {
 	mock.Mock
 }
@@ -88,7 +102,7 @@ var (
 func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 ) (*StateTransition[dummyEvents, *dummyEnv], error) {
 
-	switch event.(type) {
+	switch newEvent := event.(type) {
 	case *goToFin:
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateFin{},
@@ -180,14 +194,59 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 	// This event contains details from the confirmation and signals us to
 	// transition to the final state.
 	case *confDetailsEvent:
-		eventDetails := event.(*confDetailsEvent)
-
-		// We received the mapped confirmation details, transition to the
-		// confirmed state.
+		// We received the mapped confirmation details, transition to
+		// the confirmed state.
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateConfirmed{
-				blockHash:   eventDetails.blockHash,
-				blockHeight: eventDetails.blockHeight,
+				blockHash:   newEvent.blockHash,
+				blockHeight: newEvent.blockHeight,
+			},
+		}, nil
+
+	// This state will emit a RegisterSpend event which uses a mapper to
+	// transition to the spent state upon spend detection.
+	case *registerSpend:
+		spendMapper := func(
+			spend *chainntnfs.SpendDetail) dummyEvents {
+
+			// Map the spend details into our custom event.
+			return &spendDetailsEvent{
+				spenderTxHash:  *spend.SpenderTxHash,
+				spendingHeight: spend.SpendingHeight,
+			}
+		}
+
+		regSpendEvent := &RegisterSpend[dummyEvents]{
+			OutPoint:   wire.OutPoint{Hash: chainhash.Hash{3}},
+			PkScript:   []byte{0x03},
+			HeightHint: 300,
+			PostSpendEvent: fn.Some[SpendMapper[dummyEvents]](
+				spendMapper,
+			),
+		}
+
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			// Stay in the start state until the spend event is
+			// received and mapped.
+			NextState: &dummyStateStart{
+				canSend: d.canSend,
+			},
+			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+				ExternalEvents: DaemonEventSet{
+					regSpendEvent,
+				},
+			}),
+		}, nil
+
+	// This event contains details from the spend notification and signals
+	// us to transition to the spent state.
+	case *spendDetailsEvent:
+		// We received the mapped spend details, transition to the
+		// spent state.
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: &dummyStateSpent{
+				spenderTxHash:  newEvent.spenderTxHash,
+				spendingHeight: newEvent.spendingHeight,
 			},
 		}, nil
 	}
@@ -237,6 +296,28 @@ func (d *dummyStateConfirmed) ProcessEvent(event dummyEvents, env *dummyEnv,
 }
 
 func (d *dummyStateConfirmed) IsTerminal() bool {
+	return true
+}
+
+type dummyStateSpent struct {
+	spenderTxHash  chainhash.Hash
+	spendingHeight int32
+}
+
+func (d *dummyStateSpent) String() string {
+	return "dummyStateSpent"
+}
+
+func (d *dummyStateSpent) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	// This is a terminal state, no further transitions.
+	return &StateTransition[dummyEvents, *dummyEnv]{
+		NextState: d,
+	}, nil
+}
+
+func (d *dummyStateSpent) IsTerminal() bool {
 	return true
 }
 
@@ -552,8 +633,92 @@ func TestStateMachineConfMapper(t *testing.T) {
 	// Assert that the details from the confirmation event were correctly
 	// propagated to the final state.
 	finalStateDetails := finalState.(*dummyStateConfirmed)
-	require.Equal(t, simulatedConf.BlockHash, &finalStateDetails.blockHash)
-	require.Equal(t, simulatedConf.BlockHeight, finalStateDetails.blockHeight)
+	require.Equal(t,
+		*simulatedConf.BlockHash, finalStateDetails.blockHash,
+	)
+	require.Equal(t,
+		simulatedConf.BlockHeight, finalStateDetails.blockHeight,
+	)
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// TestStateMachineSpendMapper tests that the state machine is able to properly
+// map the spend event into a custom event that can be used to trigger a state
+// transition.
+func TestStateMachineSpendMapper(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Create the state machine.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	// Expect the RegisterSpendNtfn call when we send the event.
+	targetOutpoint := &wire.OutPoint{Hash: chainhash.Hash{3}}
+	targetPkScript := []byte{0x03}
+	targetHeightHint := uint32(300)
+	adapters.On(
+		"RegisterSpendNtfn", targetOutpoint, targetPkScript,
+		targetHeightHint,
+	).Return(nil)
+
+	// Send the event that triggers RegisterSpend emission.
+	stateMachine.SendEvent(ctx, &registerSpend{})
+
+	// We should transition back to the starting state initially.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateStart{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Assert the registration call was made.
+	adapters.AssertExpectations(t)
+
+	// Now, simulate the spend event coming back from the notifier. Populate
+	// it with some data to be mapped.
+	simulatedSpend := &chainntnfs.SpendDetail{
+		SpentOutPoint:  targetOutpoint,
+		SpenderTxHash:  &chainhash.Hash{4},
+		SpendingTx:     &wire.MsgTx{},
+		SpendingHeight: 456,
+	}
+	adapters.spendChan <- simulatedSpend
+
+	// This should trigger the mapper and send the spendDetailsEvent,
+	// transitioning us to the spent state.
+	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateSpent{}}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Final state assertion.
+	finalState, err := stateMachine.CurrentState()
+	require.NoError(t, err)
+	require.IsType(t, &dummyStateSpent{}, finalState)
+
+	// Assert that the details from the spend event were correctly
+	// propagated to the final state.
+	finalStateDetails := finalState.(*dummyStateSpent)
+	require.Equal(t,
+		*simulatedSpend.SpenderTxHash, finalStateDetails.spenderTxHash,
+	)
+	require.Equal(t,
+		simulatedSpend.SpendingHeight, finalStateDetails.spendingHeight,
+	)
 
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)

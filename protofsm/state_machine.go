@@ -104,8 +104,7 @@ type DaemonAdapters interface {
 	// TODO(roasbeef): could abstract further?
 	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
 		numConfs, heightHint uint32,
-		opts ...chainntnfs.NotifierOption,
-	) (*chainntnfs.ConfirmationEvent, error)
+		opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
 	// outpoint is successfully spent within a transaction. The script that
@@ -494,10 +493,15 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 		s.log.DebugS(ctx, "Registering conf",
 			"txid", daemonEvent.Txid)
 
+		var opts []chainntnfs.NotifierOption
+		if daemonEvent.FullBlock {
+			opts = append(opts, chainntnfs.WithIncludeBlock())
+		}
+
 		numConfs := daemonEvent.NumConfs.UnwrapOr(1)
 		confEvent, err := s.cfg.Daemon.RegisterConfirmationsNtfn(
 			&daemonEvent.Txid, daemonEvent.PkScript,
-			numConfs, daemonEvent.HeightHint,
+			numConfs, daemonEvent.HeightHint, opts...,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register conf: %w", err)

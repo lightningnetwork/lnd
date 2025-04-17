@@ -116,6 +116,11 @@ type RegisterConf[Event any] struct {
 	// transaction needs to dispatch an event.
 	NumConfs fn.Option[uint32]
 
+	// FullBlock is a boolean that indicates whether we want the full block
+	// in the returned response. This is useful if callers want to create an
+	// SPV proof for the transaction post conf.
+	FullBlock bool
+
 	// PostConfMapper is a special conf mapper, that if present, will be
 	// used to map the protofsm confirmation event to a custom event.
 	PostConfMapper fn.Option[ConfMapper[Event]]

@@ -1011,21 +1011,6 @@ func testMPPToSingleBlindedPath(ht *lntest.HarnessTest) {
 		}
 	}
 	require.Equal(ht, succeeded, settled, "num of HTLCs wrong")
-
-	// Close all channels without mining the closing transactions.
-	ht.CloseChannelAssertPending(alice, channelPoints[0], false)
-	ht.CloseChannelAssertPending(alice, channelPoints[1], false)
-	ht.CloseChannelAssertPending(bob, channelPoints[2], false)
-	ht.CloseChannelAssertPending(eve, channelPoints[3], false)
-	ht.CloseChannelAssertPending(carol, channelPoints[4], false)
-
-	// Now mine a block to include all the closing transactions.
-	ht.MineBlocksAndAssertNumTxes(1, 5)
-
-	// Assert that the channels are closed.
-	for _, hn := range nodes {
-		ht.AssertNumWaitingClose(hn, 0)
-	}
 }
 
 // testBlindedRouteDummyHops tests that the route blinding flow works as
@@ -1189,19 +1174,6 @@ func testBlindedRouteDummyHops(ht *lntest.HarnessTest) {
 	// Make sure Dave show the invoice as settled.
 	inv = dave.RPC.LookupInvoice(invoiceResp.RHash)
 	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State)
-
-	// Close all channels without mining the closing transactions.
-	ht.CloseChannelAssertPending(alice, channelPoints[0], false)
-	ht.CloseChannelAssertPending(bob, channelPoints[1], false)
-	ht.CloseChannelAssertPending(carol, channelPoints[2], false)
-
-	// Now mine a block to include all the closing transactions.
-	ht.MineBlocksAndAssertNumTxes(1, 3)
-
-	// Assert that the channels are closed.
-	for _, hn := range nodes {
-		ht.AssertNumWaitingClose(hn, 0)
-	}
 }
 
 // testMPPToMultipleBlindedPaths tests that a two-shard MPP payment can be sent
@@ -1355,21 +1327,6 @@ func testMPPToMultipleBlindedPaths(ht *lntest.HarnessTest) {
 		}
 	}
 	require.Equal(ht, succeeded, settled, "num of HTLCs wrong")
-
-	// Close all channels without mining the closing transactions.
-	ht.CloseChannelAssertPending(alice, channelPoints[0], false)
-	ht.CloseChannelAssertPending(alice, channelPoints[1], false)
-	ht.CloseChannelAssertPending(bob, channelPoints[2], false)
-	ht.CloseChannelAssertPending(carol, channelPoints[3], false)
-
-	// Now mine a block to include all the closing transactions. (first
-	// iteration: no blinded paths)
-	ht.MineBlocksAndAssertNumTxes(1, 4)
-
-	// Assert that the channels are closed.
-	for _, hn := range nodes {
-		ht.AssertNumWaitingClose(hn, 0)
-	}
 }
 
 // testBlindedPaymentHTLCReForward tests that an UpdateAddHTLC message is

@@ -301,6 +301,9 @@ close transaction.
   `lnrpc.HTLC`. This field is used to indicate whether a given HTLC has been
   locked in by the remote peer.
 
+* [Allow custom lock ID and
+  duration in FundPsbt](https://github.com/lightningnetwork/lnd/pull/9724) RPC.
+
 ## lncli Updates
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9605) a case where

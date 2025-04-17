@@ -104,9 +104,9 @@ func testSendOnion(ht *lntest.HarnessTest) {
 	onionResp := alice.RPC.BuildOnion(onionReq)
 
 	// Dispatch a payment via the SendOnion RPC.
-	firstHop := bob.PubKey
+	aliceBobChannel := ht.AssertChannelExists(alice, chanPointAliceBob)
 	sendReq := &switchrpc.SendOnionRequest{
-		FirstHopPubkey: firstHop[:],
+		FirstHopChanId: aliceBobChannel.ChanId,
 		Amount:         route.TotalAmtMsat,
 		Timelock:       route.TotalTimeLock,
 		PaymentHash:    paymentHash,

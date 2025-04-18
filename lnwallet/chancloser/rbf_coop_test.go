@@ -508,7 +508,7 @@ func (d dustExpectation) String() string {
 // message to the remote party, and all the other intermediate steps.
 func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation) {
+	dustExpect dustExpectation, iteration bool) {
 
 	ctx := context.Background()
 	numFeeCalls := 2
@@ -569,8 +569,16 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 		}
 
 	case *SendOfferEvent:
-
 		expectedStates = []RbfState{&ClosingNegotiation{}}
+
+		// If we're in the middle of an iteration, then we expect a
+		// transition from ClosePending -> LocalCloseStart.
+		if iteration {
+			expectedStates = append(
+				expectedStates, &ClosingNegotiation{},
+			)
+		}
+
 	case *ChannelFlushed:
 		// If we're sending a flush event here, then this means that we
 		// also have enough balance to cover the fee so we'll have
@@ -585,10 +593,6 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 
 	// We should transition from the negotiation state back to
 	// itself.
-	//
-	// TODO(roasbeef): take in expected set of transitions!!!
-	//  * or base off of event, if shutdown recv'd know we're doing a full
-	//  loop
 	r.assertStateTransitions(expectedStates...)
 
 	// If we examine the final resting state, we should see that
@@ -610,7 +614,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 
 func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation) {
+	dustExpect dustExpectation, iteration bool) {
 
 	ctx := context.Background()
 
@@ -618,6 +622,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
 		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		iteration,
 	)
 
 	// Now that we're in the local offer sent state, we'll send the
@@ -1299,7 +1304,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 			// flow.
 			closeHarness.expectHalfSignerIteration(
 				&flushEvent, balanceAfterClose, absoluteFee,
-				noDustExpect,
+				noDustExpect, false,
 			)
 		})
 	}
@@ -1418,7 +1423,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// pending state.
 		closeHarness.assertSingleRbfIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 	})
 
@@ -1434,7 +1439,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// event to advance the state machine.
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// We'll now craft the local sig received event, but this time
@@ -1489,7 +1494,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// proper field is set.
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			remoteDustExpect,
+			remoteDustExpect, false,
 		)
 	})
 
@@ -1516,7 +1521,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		dustBalance := btcutil.Amount(100)
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, dustBalance, absoluteFee,
-			localDustExpect,
+			localDustExpect, false,
 		)
 	})
 
@@ -1581,7 +1586,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// assuming we start in this negotiation state.
 		closeHarness.assertSingleRbfIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// Next, we'll send in a new SendOfferEvent event which
@@ -1596,12 +1601,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect,
-		)
-
-		// We should terminate in the negotiation state.
-		closeHarness.assertStateTransitions(
-			&ClosingNegotiation{},
+			noDustExpect, true,
 		)
 	})
 
@@ -2004,7 +2004,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// We should terminate in the negotiation state.

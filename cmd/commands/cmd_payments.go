@@ -1842,6 +1842,9 @@ func deletePayments(ctx *cli.Context) error {
 		if err != nil {
 			return fmt.Errorf("error deleting payments: %w", err)
 		}
+
+	default:
+		return fmt.Errorf("either --all or --payment_hash must be set")
 	}
 
 	printJSON(resp)

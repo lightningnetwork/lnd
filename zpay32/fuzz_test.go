@@ -1,17 +1,13 @@
 package zpay32
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
-// getPrefixAndChainParams selects network chain parameters based on the fuzzer-
-// selected input byte "net". 50% of the time mainnet is selected, while the
-// other 50% of the time one of the test networks is selected. For each network
-// the appropriate invoice HRP prefix is also returned, with a small chance that
-// no prefix is returned, allowing the fuzzer to generate invalid prefixes too.
 func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
 	switch {
 	case net == 0x00:
@@ -42,22 +38,33 @@ func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
 }
 
 func FuzzDecode(f *testing.F) {
+	f.Add(byte(0xFF), "lnbc100n1p38q7dzpp5ypz09jrd8p993snjwnm68g0l4ftwwj5ep5r8c7z73rh4pxvw5khqdqqcqzpgxqyz5vqsp5usyc4lk9chsfp53kvcnvq456ganh60d89reykdngsmtj6yw0fmas9qyyssqj9ye8k3888pjhle3l5qpgday3basdukmmprh3xazelgacdcmc6a84f0x9jzvn9lyha7dgesg68dl5k3h3655fj2ggkpn4470dcj59cqvsa9k4")
+	
 	f.Fuzz(func(t *testing.T, net byte, data string) {
 		_, chainParams := getPrefixAndChainParams(net)
-		_, _ = Decode(data, chainParams)
+		invoice, err := Decode(data, chainParams)
+		if err != nil {
+			return
+		}
+		
+		if len(invoice.PaymentHash) > 0 {
+			if len(invoice.PaymentHash) != 32 {
+				t.Errorf("Invalid payment hash length: %d", len(invoice.PaymentHash))
+			}
+		}
+		
+		if invoice.MilliSat != nil {
+			amount := *invoice.MilliSat
+			if amount < 0 {
+				t.Errorf("Negative amount parsed: %v", amount)
+			}
+		}
 	})
 }
 
-// appendChecksum returns a string containing bech followed by its bech32
-// checksum if a checksum could be calculated. Otherwise, the function returns
-// bech unchanged.
-//
-// This code is based on checksum calculation in zpay32/bech32.go.
 func appendChecksum(bech string) string {
 	lower := strings.ToLower(bech)
 
-	// The string is invalid if the last '1' is non-existent or it is the
-	// first character of the string (no human-readable part).
 	one := strings.LastIndexByte(lower, '1')
 	if one < 1 {
 		return bech
@@ -80,8 +87,6 @@ func appendChecksum(bech string) string {
 
 func FuzzEncode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, net byte, data string) {
-		// Make it easier for the fuzzer to generate valid invoice
-		// encodings by adding the required prefix and valid checksum.
 		hrpPrefix, chainParams := getPrefixAndChainParams(net)
 		data = hrpPrefix + data
 		data = appendChecksum(data)
@@ -91,10 +96,35 @@ func FuzzEncode(f *testing.F) {
 			return
 		}
 
-		// Re-encode the invoice using our private key from unit tests.
-		_, err = inv.Encode(testMessageSigner)
+		encoded, err := inv.Encode(testMessageSigner)
 		if err != nil {
 			return
+		}
+		
+		decodedAgain, err := Decode(encoded, chainParams)
+		if err != nil {
+			t.Errorf("Failed to decode re-encoded invoice: %v", err)
+			return
+		}
+		
+		if !bytes.Equal(inv.PaymentHash[:], decodedAgain.PaymentHash[:]) {
+			t.Errorf("Payment hash mismatch after re-encoding")
+		}
+		
+		if (inv.MilliSat == nil) != (decodedAgain.MilliSat == nil) {
+			t.Errorf("MilliSat nullability changed after re-encoding")
+		} else if inv.MilliSat != nil && decodedAgain.MilliSat != nil {
+			if *inv.MilliSat != *decodedAgain.MilliSat {
+				t.Errorf("Amount changed: %v vs %v", *inv.MilliSat, *decodedAgain.MilliSat)
+			}
+		}
+		
+		if (inv.Description == nil) != (decodedAgain.Description == nil) {
+			t.Errorf("Description nullability changed after re-encoding")
+		} else if inv.Description != nil && decodedAgain.Description != nil {
+			if *inv.Description != *decodedAgain.Description {
+				t.Errorf("Description changed after re-encoding")
+			}
 		}
 	})
 }

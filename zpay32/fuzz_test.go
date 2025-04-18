@@ -42,6 +42,24 @@ func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
 	}
 }
 
+// validateInvoiceForFuzz performs common validation checks on decoded invoices
+// during fuzzing. Returns false if the invoice fails validation.
+func validateInvoiceForFuzz(t *testing.T, invoice *Invoice) bool {
+	// 1) If a hash is present, it must be exactly 32 bytes
+	if len(invoice.PaymentHash) > 0 && len(invoice.PaymentHash) != 32 {
+		t.Errorf("payment hash length = %d; want 32", len(invoice.PaymentHash))
+		return false
+	}
+
+	// 2) If an amount is present, it must never be negative
+	if invoice.MilliSat != nil && *invoice.MilliSat < 0 {
+		t.Errorf("parsed negative amount: %d", *invoice.MilliSat)
+		return false
+	}
+	
+	return true
+}
+
 func FuzzDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, net byte, data string) {
 		// We only need the chain params here.
@@ -52,15 +70,7 @@ func FuzzDecode(f *testing.F) {
 			return
 		}
 
-		// 1) If a hash is present, it must be exactly 32 bytes.
-		if len(invoice.PaymentHash) > 0 && len(invoice.PaymentHash) != 32 {
-			t.Errorf("payment hash length = %d; want 32", len(invoice.PaymentHash))
-		}
-
-		// 2) If an amount is present, it must never be negative.
-		if invoice.MilliSat != nil && *invoice.MilliSat < 0 {
-			t.Errorf("parsed negative amount: %d", *invoice.MilliSat)
-		}
+		validateInvoiceForFuzz(t, invoice)
 	})
 }
 
@@ -98,6 +108,11 @@ func FuzzEncode(f *testing.F) {
 		if err != nil {
 			return
 		}
+		
+		// Validate the initially decoded invoice
+		if !validateInvoiceForFuzz(t, inv) {
+			return
+		}
 
 		// Re-encode.
 		encoded, err := inv.Encode(testMessageSigner)
@@ -111,6 +126,9 @@ func FuzzEncode(f *testing.F) {
 			t.Errorf("re-decode failed: %v", err)
 			return
 		}
+		
+		// Validate the round-trip decoded invoice
+		validateInvoiceForFuzz(t, inv2)
 
 		// PaymentHash preserved exactly.
 		if !bytes.Equal(inv.PaymentHash[:], inv2.PaymentHash[:]) {

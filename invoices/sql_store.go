@@ -24,6 +24,10 @@ const (
 	// defaultQueryPaginationLimit is used in the LIMIT clause of the SQL
 	// queries to limit the number of rows returned.
 	defaultQueryPaginationLimit = 100
+
+	// invoiceScanBatchSize is the number we use limiting the logging output
+	// when scanning invoices.
+	invoiceScanBatchSize = 1000
 )
 
 // SQLInvoiceQueries is an interface that defines the set of operations that can
@@ -785,7 +789,11 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 	[]Invoice, error) {
 
-	var invoices []Invoice
+	var (
+		invoices       []Invoice
+		start          = time.Now()
+		processedCount int
+	)
 
 	if idx == 0 {
 		return invoices, nil
@@ -819,6 +827,14 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				}
 
 				invoices = append(invoices, *invoice)
+
+				processedCount++
+				if processedCount%invoiceScanBatchSize == 0 {
+					log.Debugf("Processed %d settled "+
+						"invoices since invoice with "+
+						"settle index %v",
+						processedCount, idx)
+				}
 			}
 
 			return len(rows), nil
@@ -873,6 +889,13 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 			}
 
 			invoices = append(invoices, *invoice)
+
+			processedCount++
+			if processedCount%invoiceScanBatchSize == 0 {
+				log.Debugf("Processed %d settled invoices "+
+					"since invoice with settle index %v",
+					processedCount, idx)
+			}
 		}
 
 		return nil
@@ -883,6 +906,12 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 		return nil, fmt.Errorf("unable to get invoices settled since "+
 			"index (excluding) %d: %w", idx, err)
 	}
+
+	elapsed := time.Since(start)
+	log.Debugf("Completed scanning invoices settled since index %v: "+
+		"total_processed=%d, found_invoices=%d, elapsed=%v",
+		idx, processedCount, len(invoices),
+		elapsed.Round(time.Millisecond))
 
 	return invoices, nil
 }
@@ -896,7 +925,11 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	[]Invoice, error) {
 
-	var result []Invoice
+	var (
+		result         []Invoice
+		start          = time.Now()
+		processedCount int
+	)
 
 	if idx == 0 {
 		return result, nil
@@ -928,6 +961,13 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 				}
 
 				result = append(result, *invoice)
+
+				processedCount++
+				if processedCount%invoiceScanBatchSize == 0 {
+					log.Debugf("Processed %d invoices "+
+						"added since invoice with add "+
+						"index %v", processedCount, idx)
+				}
 			}
 
 			return len(rows), nil
@@ -940,6 +980,12 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 		return nil, fmt.Errorf("unable to get invoices added since "+
 			"index %d: %w", idx, err)
 	}
+
+	elapsed := time.Since(start)
+	log.Debugf("Completed scanning invoices added since index %v: "+
+		"total_processed=%d, found_invoices=%d, elapsed=%v",
+		idx, processedCount, len(result),
+		elapsed.Round(time.Millisecond))
 
 	return result, nil
 }

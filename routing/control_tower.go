@@ -365,10 +365,13 @@ func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 	p.subscriberIndex++
 	p.subscribersMtx.Unlock()
 
+	log.Debugf("Scanning for inflight payments")
 	inflightPayments, err := p.db.FetchInFlightPayments()
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("Scanning for inflight payments finished",
+		len(inflightPayments))
 
 	for index := range inflightPayments {
 		// Always write current payment state to the channel.

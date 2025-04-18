@@ -484,15 +484,24 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 func (i *InvoiceRegistry) deliverBacklogEvents(ctx context.Context,
 	client *InvoiceSubscription) error {
 
+	log.Debugf("Collecting added invoices since %v for client %v",
+		client.addIndex, client.id)
+
 	addEvents, err := i.idb.InvoicesAddedSince(ctx, client.addIndex)
 	if err != nil {
 		return err
 	}
 
+	log.Debugf("Collecting settled invoices since %v for client %v",
+		client.settleIndex, client.id)
+
 	settleEvents, err := i.idb.InvoicesSettledSince(ctx, client.settleIndex)
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("Delivering %d added invoices and %d settled invoices "+
+		"for client %v", len(addEvents), len(settleEvents), client.id)
 
 	// If we have any to deliver, then we'll append them to the end of the
 	// notification queue in order to catch up the client before delivering

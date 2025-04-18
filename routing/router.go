@@ -1400,10 +1400,14 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
 	// Get all payments that are inflight.
+	log.Debugf("Scanning for inflight payments")
 	payments, err := r.cfg.Control.FetchInFlightPayments()
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("Scanning finished, found %d inflight payments",
+		len(payments))
 
 	// Before we restart existing payments and start accepting more
 	// payments to be made, we clean the network result store of the

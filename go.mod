@@ -216,3 +216,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.23.6
 
 retract v0.0.2
+
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb

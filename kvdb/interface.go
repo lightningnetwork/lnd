@@ -157,4 +157,8 @@ var (
 	// ErrDatabaseNotOpen is returned when a database instance is accessed
 	// before it is opened or after it is closed.
 	ErrDatabaseNotOpen = walletdb.ErrDbNotOpen
+
+	// ErrDbDoesNotExist is returned when a database instance is opened
+	// but it does not exist.
+	ErrDbDoesNotExist = walletdb.ErrDbDoesNotExist
 )

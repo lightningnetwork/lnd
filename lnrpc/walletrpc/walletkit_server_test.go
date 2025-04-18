@@ -660,7 +660,7 @@ func TestFundPsbtCoinSelect(t *testing.T) {
 				"", tc.changeIndex, copiedPacket, 0,
 				tc.changeType, tc.feeRate,
 				rpcServer.cfg.CoinSelectionStrategy,
-				tc.maxFeeRatio,
+				tc.maxFeeRatio, nil, 0,
 			)
 
 			switch {

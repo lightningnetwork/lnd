@@ -274,6 +274,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundPsbt,
 	},
 	{
+		Name:     "fund psbt custom lock",
+		TestFunc: testFundPsbtCustomLock,
+	},
+	{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},
@@ -754,6 +758,9 @@ func init() {
 	)
 	allTestCases = appendPrefixed(
 		"channel force close", allTestCases, channelForceCloseTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"wallet", allTestCases, walletTestCases,
 	)
 
 	// Prepare the test cases for windows to exclude some of the flaky

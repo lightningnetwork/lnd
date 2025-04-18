@@ -1430,6 +1430,74 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 	return nil
 }
 
+// handleNeutrinoPostgresDBMigration handles the migration of the neutrino db
+// to postgres. Initially we kept the neutrino db in the bolt db when running
+// with kvdb postgres backend. Now now move it to postgres as well. However we
+// need to make a distinction whether the user migrated the neutrino db to
+// postgres via lndinit or not. Currently if the db is not migrated we start
+// with a fresh db in postgres.
+//
+// TODO(ziggie): Also migrate the db to postgres in case it is still not
+// migrated ?
+func handleNeutrinoPostgresDBMigration(dbName, dbPath string,
+	cfg *Config) error {
+
+	if !lnrpc.FileExists(dbName) {
+		return nil
+	}
+
+	// Open bolt db to check if it is tombstoned. If it is we assume that
+	// the neutrino db was successfully migrated to postgres. We open it
+	// in read-only mode to avoid long db open times.
+	boltDB, err := kvdb.Open(
+		kvdb.BoltBackendName, dbName, true,
+		cfg.DB.Bolt.DBTimeout, true,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to open bolt db: %w", err)
+	}
+	defer boltDB.Close()
+
+	isTombstoned := false
+	err = boltDB.View(func(tx kvdb.RTx) error {
+		_, err = channeldb.CheckMarkerPresent(
+			tx, channeldb.TombstoneKey,
+		)
+
+		return err
+	}, func() {})
+	if err == nil {
+		isTombstoned = true
+	}
+
+	if isTombstoned {
+		ltndLog.Infof("Neutrino Bolt DB is tombstoned, assuming " +
+			"database was successfully migrated to postgres")
+
+		return nil
+	}
+
+	// If the db is not tombstoned, we remove the files and start fresh with
+	// postgres. This is the case when a user was running lnd with the
+	// postgres backend from the beginning without migrating from bolt.
+	ltndLog.Infof("Neutrino Bolt DB found but NOT tombstoned, removing " +
+		"it and starting fresh with postgres")
+
+	filesToRemove := []string{
+		filepath.Join(dbPath, "block_headers.bin"),
+		filepath.Join(dbPath, "reg_filter_headers.bin"),
+		dbName,
+	}
+
+	for _, file := range filesToRemove {
+		if err := os.Remove(file); err != nil {
+			ltndLog.Warnf("Could not remove %s: %v", file, err)
+		}
+	}
+
+	return nil
+}
+
 // initNeutrinoBackend inits a new instance of the neutrino light client
 // backend given a target chain directory to store the chain state.
 func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
@@ -1471,10 +1539,29 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 			lncfg.SqliteNeutrinoDBName, lncfg.NSNeutrinoDB,
 		)
 
+	case cfg.DB.Backend == kvdb.PostgresBackendName:
+		dbName := filepath.Join(dbPath, lncfg.NeutrinoDBName)
+
+		// This code needs to be in place because we did not start
+		// the postgres backend for neutrino at the beginning. Now we
+		// are also moving it into the postgres backend so we can phase
+		// out the bolt backend.
+		err = handleNeutrinoPostgresDBMigration(dbName, dbPath, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		postgresConfig := lncfg.GetPostgresConfigKVDB(cfg.DB.Postgres)
+		db, err = kvdb.Open(
+			kvdb.PostgresBackendName, ctx, postgresConfig,
+			lncfg.NSNeutrinoDB,
+		)
+
 	default:
-		dbName := filepath.Join(dbPath, "neutrino.db")
+		dbName := filepath.Join(dbPath, lncfg.NeutrinoDBName)
 		db, err = walletdb.Create(
-			"bdb", dbName, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+			kvdb.BoltBackendName, dbName, !cfg.SyncFreelist,
+			cfg.DB.Bolt.DBTimeout, false,
 		)
 	}
 	if err != nil {

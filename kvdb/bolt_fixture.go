@@ -28,6 +28,7 @@ func (b *boltFixture) NewBackend() walletdb.DB {
 		DBFileName:     "test.db",
 		NoFreelistSync: true,
 		DBTimeout:      DefaultDBTimeout,
+		ReadOnly:       false,
 	})
 	require.NoError(b.t, err)
 

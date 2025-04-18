@@ -35,7 +35,7 @@ var (
 func setupTestRootKeyStorage(t *testing.T) kvdb.Backend {
 	db, err := kvdb.Create(
 		kvdb.BoltBackendName, path.Join(t.TempDir(), "macaroons.db"), true,
-		kvdb.DefaultDBTimeout,
+		kvdb.DefaultDBTimeout, false,
 	)
 	require.NoError(t, err, "Error opening store DB")
 	t.Cleanup(func() {

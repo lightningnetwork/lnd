@@ -60,7 +60,7 @@ wait_for_node() {
 
   echo -n "⌛ Waiting for $node to start (timeout: ${TIMEOUT}s)"
 
-  while ! $node getinfo 2>/dev/null | grep -q identity_pubkey; do
+  while ! $node state 2>/dev/null | grep -q SERVER_ACTIVE; do
       echo -n "."
       sleep 0.5
 
@@ -96,9 +96,9 @@ do_for() {
 
 # setup_network sets up the basic A <> B <> C <> D network.
 function setup_network() {
-  wait_for_nodes alice bob charlie dave
-
   setup_bitcoin
+
+  wait_for_nodes alice bob charlie dave
 
   do_for fund_node alice bob charlie dave
   mine 6

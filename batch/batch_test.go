@@ -17,7 +17,7 @@ func TestRetry(t *testing.T) {
 
 	dbName := filepath.Join(dbDir, "weks.db")
 	db, err := walletdb.Create(
-		"bdb", dbName, true, kvdb.DefaultDBTimeout,
+		"bdb", dbName, true, kvdb.DefaultDBTimeout, false,
 	)
 	if err != nil {
 		t.Fatalf("unable to create walletdb: %v", err)

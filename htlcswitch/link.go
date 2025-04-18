@@ -3484,7 +3484,7 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
 
 	fundingBlob := l.FundingCustomBlob()
-	shouldHandle, err := ts.ShouldHandleTraffic(cid, fundingBlob)
+	shouldHandle, err := ts.ShouldHandleTraffic(cid, fundingBlob, htlcBlob)
 	if err != nil {
 		return fn.Err[OptionalBandwidth](fmt.Errorf("traffic shaper "+
 			"failed to decide whether to handle traffic: %w", err))
@@ -3505,6 +3505,7 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	commitmentBlob := l.CommitmentCustomBlob()
 	auxBandwidth, err := ts.PaymentBandwidth(
 		htlcBlob, commitmentBlob, l.Bandwidth(), amount,
+		l.channel.FetchLatestAuxHTLCView(),
 	)
 	if err != nil {
 		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+

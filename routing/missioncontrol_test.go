@@ -72,6 +72,7 @@ func createMcTestContext(t *testing.T) *mcTestContext {
 
 	ctx.db, err = kvdb.Open(
 		kvdb.BoltBackendName, ctx.dbPath, true, kvdb.DefaultDBTimeout,
+		false,
 	)
 	if err != nil {
 		t.Fatal(err)

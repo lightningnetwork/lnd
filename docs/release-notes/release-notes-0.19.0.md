@@ -101,7 +101,8 @@
   than once.
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9609) a bug that may
-  cause `listunspent` to give inaccurate wallet UTXOs.
+  cause `listunspent` to give inaccurate wallet UTXOs and
+  [`locked_balance`](https://github.com/lightningnetwork/lnd/pull/9693).
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9626) a bug where a
 keysend payment would not fail properly and only resolve after restart. Now
@@ -110,6 +111,9 @@ keysend payment validation is stricter.
 * [Make sure](https://github.com/lightningnetwork/lnd/pull/9643) the startup
   process of the node won't be interrupted if a non-fatal error is returned from
   the subsystems.
+
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9703) a possible panic
+  when reloading legacy inflight payments which don't have the MPP feature.
 
 # New Features
 
@@ -146,8 +150,6 @@ close transaction.
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9424) a case where the
   initial historical sync may be blocked due to a race condition in handling the
   syncer's internal state.
-
-
 
 * [The max fee rate](https://github.com/lightningnetwork/lnd/pull/9491) is now
   respected when a coop close is initiated. Before the max fee rate would only
@@ -300,6 +302,9 @@ close transaction.
   `lnrpc.HTLC`. This field is used to indicate whether a given HTLC has been
   locked in by the remote peer.
 
+* [Allow custom lock ID and
+  duration in FundPsbt](https://github.com/lightningnetwork/lnd/pull/9724) RPC.
+
 ## lncli Updates
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9605) a case where
@@ -374,6 +379,10 @@ The underlying functionality between those two options remain the same.
    [1](https://github.com/lightningnetwork/lnd/pull/9476)
    [2](https://github.com/lightningnetwork/lnd/pull/9477)
    [3](https://github.com/lightningnetwork/lnd/pull/9478).
+
+* [CI has been updated to build against
+  `bitcoind 29.0`](https://github.com/lightningnetwork/lnd/pull/9628) to ensure
+  compatibility.
 
 ## Breaking Changes
 ## Performance Improvements
@@ -462,6 +471,9 @@ the on going rate we'll permit.
 
 * [Establish a base DB version even if it is not yet
   tracked](https://github.com/lightningnetwork/lnd/pull/9647).
+
+* [When running with neutrino as a backend with the kv-db backend `postgres`
+selected use postgres for the neutrino.db store](https://github.com/lightningnetwork/lnd/pull/9674).
 
 ## Code Health
 

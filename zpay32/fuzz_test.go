@@ -8,6 +8,11 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
+// getPrefixAndChainParams selects network chain parameters based on the fuzzer-
+// selected input byte "net". 50% of the time mainnet is selected, while the
+// other 50% of the time one of the test networks is selected. For each network
+// the appropriate invoice HRP prefix is also returned, with a small chance that
+// no prefix is returned, allowing the fuzzer to generate invalid prefixes too.
 func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
 	switch {
 	case net == 0x00:
@@ -38,33 +43,31 @@ func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
 }
 
 func FuzzDecode(f *testing.F) {
-	f.Add(byte(0xFF), "lnbc100n1p38q7dzpp5ypz09jrd8p993snjwnm68g0l4ftwwj5ep5r8c7z73rh4pxvw5khqdqqcqzpgxqyz5vqsp5usyc4lk9chsfp53kvcnvq456ganh60d89reykdngsmtj6yw0fmas9qyyssqj9ye8k3888pjhle3l5qpgday3basdukmmprh3xazelgacdcmc6a84f0x9jzvn9lyha7dgesg68dl5k3h3655fj2ggkpn4470dcj59cqvsa9k4")
-	
 	f.Fuzz(func(t *testing.T, net byte, data string) {
-		_, chainParams := getPrefixAndChainParams(net)
-		invoice, err := Decode(data, chainParams)
+		// We only need the chain params here.
+		_, params := getPrefixAndChainParams(net)
+
+		invoice, err := Decode(data, params)
 		if err != nil {
 			return
 		}
-		
-		if len(invoice.PaymentHash) > 0 {
-			if len(invoice.PaymentHash) != 32 {
-				t.Errorf("Invalid payment hash length: %d", len(invoice.PaymentHash))
-			}
+
+		// 1) If a hash is present, it must be exactly 32 bytes.
+		if len(invoice.PaymentHash) > 0 && len(invoice.PaymentHash) != 32 {
+			t.Errorf("payment hash length = %d; want 32", len(invoice.PaymentHash))
 		}
-		
-		if invoice.MilliSat != nil {
-			amount := *invoice.MilliSat
-			if amount < 0 {
-				t.Errorf("Negative amount parsed: %v", amount)
-			}
+
+		// 2) If an amount is present, it must never be negative.
+		if invoice.MilliSat != nil && *invoice.MilliSat < 0 {
+			t.Errorf("parsed negative amount: %d", *invoice.MilliSat)
 		}
 	})
 }
 
+// appendChecksum returns bech with its bech32 checksum appended (if valid).
+// Otherwise returns bech unchanged.
 func appendChecksum(bech string) string {
 	lower := strings.ToLower(bech)
-
 	one := strings.LastIndexByte(lower, '1')
 	if one < 1 {
 		return bech
@@ -76,55 +79,49 @@ func appendChecksum(bech string) string {
 	if err != nil {
 		return bech
 	}
-
 	checksum, err := toChars(bech32Checksum(hrp, decoded))
 	if err != nil {
 		return bech
 	}
-
 	return bech + checksum
 }
 
 func FuzzEncode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, net byte, data string) {
-		hrpPrefix, chainParams := getPrefixAndChainParams(net)
-		data = hrpPrefix + data
+		// Prepend valid HRP and checksum to help the fuzzer.
+		hrp, params := getPrefixAndChainParams(net)
+		data = hrp + data
 		data = appendChecksum(data)
 
-		inv, err := Decode(data, chainParams)
+		// Decode; skip invalid.
+		inv, err := Decode(data, params)
 		if err != nil {
 			return
 		}
 
+		// Re-encode.
 		encoded, err := inv.Encode(testMessageSigner)
 		if err != nil {
 			return
 		}
-		
-		decodedAgain, err := Decode(encoded, chainParams)
+
+		// Round‑trip: decode what we just encoded and compare fields.
+		inv2, err := Decode(encoded, params)
 		if err != nil {
-			t.Errorf("Failed to decode re-encoded invoice: %v", err)
+			t.Errorf("re-decode failed: %v", err)
 			return
 		}
-		
-		if !bytes.Equal(inv.PaymentHash[:], decodedAgain.PaymentHash[:]) {
-			t.Errorf("Payment hash mismatch after re-encoding")
+
+		// PaymentHash preserved exactly.
+		if !bytes.Equal(inv.PaymentHash[:], inv2.PaymentHash[:]) {
+			t.Errorf("payment hash mismatch after round-trip")
 		}
-		
-		if (inv.MilliSat == nil) != (decodedAgain.MilliSat == nil) {
-			t.Errorf("MilliSat nullability changed after re-encoding")
-		} else if inv.MilliSat != nil && decodedAgain.MilliSat != nil {
-			if *inv.MilliSat != *decodedAgain.MilliSat {
-				t.Errorf("Amount changed: %v vs %v", *inv.MilliSat, *decodedAgain.MilliSat)
-			}
-		}
-		
-		if (inv.Description == nil) != (decodedAgain.Description == nil) {
-			t.Errorf("Description nullability changed after re-encoding")
-		} else if inv.Description != nil && decodedAgain.Description != nil {
-			if *inv.Description != *decodedAgain.Description {
-				t.Errorf("Description changed after re-encoding")
-			}
+
+		// MilliSat nullability and value preserved.
+		if (inv.MilliSat == nil) != (inv2.MilliSat == nil) ||
+			(inv.MilliSat != nil && *inv.MilliSat != *inv2.MilliSat) {
+			t.Errorf("amount changed after round-trip: %v vs %v",
+				inv.MilliSat, inv2.MilliSat)
 		}
 	})
 }

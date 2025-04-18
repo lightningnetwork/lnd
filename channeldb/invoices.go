@@ -142,6 +142,10 @@ const (
 	ampStateSettleDateType  tlv.Type = 3
 	ampStateCircuitKeysType tlv.Type = 4
 	ampStateAmtPaidType     tlv.Type = 5
+
+	// invoiceScanBatchSize is the number we use limiting the logging output
+	// of invoice processing.
+	invoiceScanBatchSize = 1000
 )
 
 // AddInvoice inserts the targeted invoice into the database. If the invoice has
@@ -241,7 +245,11 @@ func (d *DB) AddInvoice(_ context.Context, newInvoice *invpkg.Invoice,
 func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 	[]invpkg.Invoice, error) {
 
-	var newInvoices []invpkg.Invoice
+	var (
+		newInvoices    []invpkg.Invoice
+		start          = time.Now()
+		processedCount int
+	)
 
 	// If an index of zero was specified, then in order to maintain
 	// backwards compat, we won't send out any new invoices.
@@ -274,7 +282,6 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 		addSeqNo, invoiceKey := invoiceCursor.Next()
 
 		for ; addSeqNo != nil && bytes.Compare(addSeqNo, startIndex[:]) > 0; addSeqNo, invoiceKey = invoiceCursor.Next() {
-
 			// For each key found, we'll look up the actual
 			// invoice, then accumulate it into our return value.
 			invoice, err := fetchInvoice(
@@ -285,6 +292,13 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 			}
 
 			newInvoices = append(newInvoices, invoice)
+
+			processedCount++
+			if processedCount%invoiceScanBatchSize == 0 {
+				log.Debugf("Processed %d invoices since "+
+					"invoice with add index %v",
+					processedCount, sinceAddIndex)
+			}
 		}
 
 		return nil
@@ -294,6 +308,12 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 	if err != nil {
 		return nil, err
 	}
+
+	elapsed := time.Since(start)
+	log.Debugf("Completed scanning invoices added since index %v: "+
+		"total_processed=%d, found_invoices=%d, elapsed=%v",
+		sinceAddIndex, processedCount, len(newInvoices),
+		elapsed.Round(time.Millisecond))
 
 	return newInvoices, nil
 }
@@ -1045,7 +1065,11 @@ func (k *kvInvoiceUpdater) serializeAndStoreInvoice() error {
 func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 	[]invpkg.Invoice, error) {
 
-	var settledInvoices []invpkg.Invoice
+	var (
+		settledInvoices []invpkg.Invoice
+		start           = time.Now()
+		processedCount  int
+	)
 
 	// If an index of zero was specified, then in order to maintain
 	// backwards compat, we won't send out any new invoices.
@@ -1104,6 +1128,13 @@ func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 			}
 
 			settledInvoices = append(settledInvoices, invoice)
+
+			processedCount++
+			if processedCount%invoiceScanBatchSize == 0 {
+				log.Debugf("Processed %d settled invoices "+
+					"since invoice with settle index %v",
+					processedCount, sinceSettleIndex)
+			}
 		}
 
 		return nil
@@ -1113,6 +1144,12 @@ func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 	if err != nil {
 		return nil, err
 	}
+
+	elapsed := time.Since(start)
+	log.Debugf("Completed scanning invoices settled since index %v: "+
+		"total_processed=%d, found_invoices=%d, elapsed=%v",
+		sinceSettleIndex, processedCount, len(settledInvoices),
+		elapsed.Round(time.Millisecond))
 
 	return settledInvoices, nil
 }

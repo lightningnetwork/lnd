@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -16,6 +17,10 @@ const (
 	// paymentSeqBlockSize is the block size used when we batch allocate
 	// payment sequences for future payments.
 	paymentSeqBlockSize = 1000
+
+	// paymentBatchSize is the number we use limiting the logging output
+	// of payment processing.
+	paymentBatchSize = 1000
 )
 
 var (
@@ -770,7 +775,12 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 
 // FetchInFlightPayments returns all payments with status InFlight.
 func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
-	var inFlights []*MPPayment
+	var (
+		inFlights      []*MPPayment
+		start          = time.Now()
+		processedCount int
+	)
+
 	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
@@ -788,6 +798,14 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 				return err
 			}
 
+			processedCount++
+			if processedCount%paymentBatchSize == 0 {
+				log.Debugf("Scanning inflight payments "+
+					"(in progress), processed %d, last "+
+					"processed payment: %v", processedCount,
+					p.Info)
+			}
+
 			// Skip the payment if it's terminated.
 			if p.Terminated() {
 				return nil
@@ -802,6 +820,11 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	elapsed := time.Since(start)
+	log.Debugf("Completed scanning inflight payments: total_processed=%d, "+
+		"found_inflight=%d, elapsed=%v", processedCount, len(inFlights),
+		elapsed.Round(time.Millisecond))
 
 	return inFlights, nil
 }

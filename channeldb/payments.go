@@ -202,6 +202,12 @@ type PaymentCreationInfo struct {
 	FirstHopCustomRecords lnwire.CustomRecords
 }
 
+func (p *PaymentCreationInfo) String() string {
+	return fmt.Sprintf("payment_id=%v, amount=%v, created_at=%v, "+
+		"payment_request=%v", p.PaymentIdentifier, p.Value,
+		p.CreationTime, p.PaymentRequest)
+}
+
 // htlcBucketKey creates a composite key from prefix and id where the result is
 // simply the two concatenated.
 func htlcBucketKey(prefix, id []byte) []byte {

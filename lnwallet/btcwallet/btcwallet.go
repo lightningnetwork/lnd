@@ -20,7 +20,6 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
-	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -85,7 +84,7 @@ var (
 // operate.
 type BtcWallet struct {
 	// wallet is an active instance of btcwallet.
-	wallet *base.Wallet
+	wallet *wallet.Wallet
 
 	chain chain.Interface
 
@@ -211,7 +210,7 @@ func LoaderWithExternalWalletDB(db kvdb.Backend) LoaderOption {
 
 // NewWalletLoader constructs a wallet loader.
 func NewWalletLoader(chainParams *chaincfg.Params, recoveryWindow uint32,
-	opts ...LoaderOption) (*base.Loader, error) {
+	opts ...LoaderOption) (*wallet.Loader, error) {
 
 	cfg := &loaderCfg{}
 
@@ -226,7 +225,7 @@ func NewWalletLoader(chainParams *chaincfg.Params, recoveryWindow uint32,
 	}
 
 	if cfg.externalDB != nil {
-		loader, err := base.NewLoaderWithDB(
+		loader, err := wallet.NewLoaderWithDB(
 			chainParams, recoveryWindow, cfg.externalDB,
 			func() (bool, error) {
 				return externalWalletExists(cfg.externalDB)
@@ -242,7 +241,7 @@ func NewWalletLoader(chainParams *chaincfg.Params, recoveryWindow uint32,
 		return loader, nil
 	}
 
-	return base.NewLoader(
+	return wallet.NewLoader(
 		chainParams, cfg.dbDirPath, cfg.noFreelistSync,
 		cfg.dbTimeout, recoveryWindow,
 	), nil
@@ -289,7 +288,7 @@ func (b *BtcWallet) BackEnd() string {
 
 // InternalWallet returns a pointer to the internal base wallet which is the
 // core of btcwallet.
-func (b *BtcWallet) InternalWallet() *base.Wallet {
+func (b *BtcWallet) InternalWallet() *wallet.Wallet {
 	return b.wallet
 }
 
@@ -904,7 +903,7 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 	minConfs int32, label string,
-	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+	strategy wallet.CoinSelectionStrategy) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -949,7 +948,7 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
-	strategy base.CoinSelectionStrategy, dryRun bool) (
+	strategy wallet.CoinSelectionStrategy, dryRun bool) (
 	*txauthor.AuthoredTx, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
@@ -1018,7 +1017,7 @@ func (b *BtcWallet) LeaseOutput(id wtxmgr.LockID, op wire.OutPoint,
 }
 
 // ListLeasedOutputs returns a list of all currently locked outputs.
-func (b *BtcWallet) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
+func (b *BtcWallet) ListLeasedOutputs() ([]*wallet.ListLeasedOutputResult,
 	error) {
 
 	return b.wallet.ListLeasedOutputs()
@@ -1242,7 +1241,7 @@ func (b *BtcWallet) LabelTransaction(hash chainhash.Hash, label string,
 // extractBalanceDelta extracts the net balance delta from the PoV of the
 // wallet given a TransactionSummary.
 func extractBalanceDelta(
-	txSummary base.TransactionSummary,
+	txSummary wallet.TransactionSummary,
 	tx *wire.MsgTx,
 ) (btcutil.Amount, error) {
 	// For each input we debit the wallet's outflow for this transaction,
@@ -1262,7 +1261,7 @@ func extractBalanceDelta(
 // getPreviousOutpoints is a helper function which gets the previous
 // outpoints of a transaction.
 func getPreviousOutpoints(wireTx *wire.MsgTx,
-	myInputs []base.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
+	myInputs []wallet.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
 
 	// isOurOutput is a map containing the output indices
 	// controlled by the wallet.
@@ -1305,8 +1304,8 @@ func (b *BtcWallet) GetTransactionDetails(
 	if tx.Confirmations > 0 {
 		txDetails, err := minedTransactionsToDetails(
 			currentHeight,
-			base.Block{
-				Transactions: []base.TransactionSummary{
+			wallet.Block{
+				Transactions: []wallet.TransactionSummary{
 					tx.Summary,
 				},
 				Hash:      tx.BlockHash,
@@ -1328,7 +1327,7 @@ func (b *BtcWallet) GetTransactionDetails(
 // information about mined transactions to a TransactionDetail.
 func minedTransactionsToDetails(
 	currentHeight int32,
-	block base.Block,
+	block wallet.Block,
 	chainParams *chaincfg.Params,
 ) ([]*lnwallet.TransactionDetail, error) {
 
@@ -1402,7 +1401,7 @@ func minedTransactionsToDetails(
 // unminedTransactionsToDetail is a helper function which converts a summary
 // for an unconfirmed transaction to a transaction detail.
 func unminedTransactionsToDetail(
-	summary base.TransactionSummary,
+	summary wallet.TransactionSummary,
 	chainParams *chaincfg.Params,
 ) (*lnwallet.TransactionDetail, error) {
 
@@ -1486,8 +1485,8 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 	currentHeight := bestBlock.Height
 
 	// We'll attempt to find all transactions from start to end height.
-	start := base.NewBlockIdentifierFromHeight(startHeight)
-	stop := base.NewBlockIdentifierFromHeight(endHeight)
+	start := wallet.NewBlockIdentifierFromHeight(startHeight)
+	stop := wallet.NewBlockIdentifierFromHeight(endHeight)
 	txns, err := b.wallet.GetTransactions(start, stop, accountFilter, nil)
 	if err != nil {
 		return nil, 0, 0, err
@@ -1550,12 +1549,12 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 // the base wallet. Notifications received from the client will be proxied over
 // two distinct channels.
 type txSubscriptionClient struct {
-	txClient base.TransactionNotificationsClient
+	txClient wallet.TransactionNotificationsClient
 
 	confirmed   chan *lnwallet.TransactionDetail
 	unconfirmed chan *lnwallet.TransactionDetail
 
-	w *base.Wallet
+	w *wallet.Wallet
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -1603,7 +1602,7 @@ out:
 			// Launch a goroutine to re-package and send
 			// notifications for any newly confirmed transactions.
 			//nolint:ll
-			go func(txNtfn *base.TransactionNotifications) {
+			go func(txNtfn *wallet.TransactionNotifications) {
 				for _, block := range txNtfn.AttachedBlocks {
 					details, err := minedTransactionsToDetails(
 						currentHeight, block,
@@ -1625,7 +1624,7 @@ out:
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly unconfirmed transactions.
-			go func(txNtfn *base.TransactionNotifications) {
+			go func(txNtfn *wallet.TransactionNotifications) {
 				for _, tx := range txNtfn.UnminedTransactions {
 					detail, err := unminedTransactionsToDetail(
 						tx, t.w.ChainParams(),

@@ -38,6 +38,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendAllCoins,
 	},
 	{
+		Name: "bump fee until max reached", 
+		Test: testBumpFeeUntilMaxReached,
+	},
+	{
 		Name:     "send selected coins",
 		TestFunc: testSendSelectedCoins,
 	},

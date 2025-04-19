@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1395,4 +1396,215 @@ func testSendPaymentKeysendMPPFail(ht *lntest.HarnessTest) {
 	// cannot be combined.
 	_, err = ht.ReceivePaymentUpdate(client)
 	require.Error(ht, err)
+}
+
+// testSendPaymentRouteHintsKeysend tests sending a keysend payment using
+// manually provided route hints derived from a private channel.
+func testSendPaymentRouteHintsKeysend(ht *lntest.HarnessTest) {
+	// Setup a three-node network: Alice -> Bob -> Carol.
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
+	// Ensure Carol accepts keysend payments.
+	carol := ht.NewNode("Carol", []string{"--accept-keysend"})
+	defer ht.Shutdown(carol)
+
+	ht.ConnectNodes(alice, bob)
+	ht.ConnectNodes(bob, carol)
+
+	// Fund Alice and Bob.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Open channels: Alice -> Bob (public), Bob -> Carol (private).
+	const chanAmt = btcutil.Amount(1_000_000)
+	aliceBobChanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	defer ht.CloseChannel(alice, aliceBobChanPoint)
+	bobCarolChanPoint := ht.OpenChannel(bob, carol,
+		lntest.OpenChannelParams{Amt: chanAmt, Private: true},
+	)
+	defer ht.CloseChannel(bob, bobCarolChanPoint)
+
+	// Manually create route hints for the private Bob -> Carol channel.
+	bobChan := ht.GetChannelByChanPoint(bob, bobCarolChanPoint)
+	require.NotNil(ht, bobChan, "Bob should have channel with Carol")
+
+	hints := []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{
+		{
+			NodeId:                    bob.PubKeyStr,
+			ChanId:                    bobChan.ChanId,
+			FeeBaseMsat:               1000,
+			FeeProportionalMillionths: 1,
+			CltvExpiryDelta:           routing.MinCLTVDelta,
+		}}},
+	}
+
+	// Prepare Keysend payment details.
+	preimage := ht.RandomPreimage()
+	payHash := preimage.Hash()
+	destBytes, err := hex.DecodeString(carol.PubKeyStr)
+	require.NoError(ht, err)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		Dest:           destBytes,
+		Amt:            10_000,
+		PaymentHash:    payHash[:],
+		FinalCltvDelta: int32(routing.MinCLTVDelta),
+		DestCustomRecords: map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		},
+		RouteHints:     hints,
+		FeeLimitSat:    int64(chanAmt),
+		TimeoutSeconds: 60,
+	}
+
+	// Send keysend payment and assert success.
+	ht.AssertPaymentStatusFromStream(
+		alice.RPC.SendPayment(sendReq),
+		lnrpc.Payment_SUCCEEDED,
+	)
+}
+
+// testSendPaymentRouteHintsAMP tests sending an AMP payment using
+// manually provided route hints derived from a private channel.
+func testSendPaymentRouteHintsAMP(ht *lntest.HarnessTest) {
+	// Setup a three-node network: Alice -> Bob -> Carol.
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
+
+	ht.ConnectNodes(alice, bob)
+	ht.ConnectNodes(bob, carol)
+
+	// Fund Alice and Bob.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Open channels: Alice -> Bob (public), Bob -> Carol (private).
+	const chanAmt = btcutil.Amount(1_000_000)
+	aliceBobChanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	defer ht.CloseChannel(alice, aliceBobChanPoint)
+	bobCarolChanPoint := ht.OpenChannel(bob, carol,
+		lntest.OpenChannelParams{Amt: chanAmt, Private: true},
+	)
+	defer ht.CloseChannel(bob, bobCarolChanPoint)
+
+	// Manually create route hints for the private Bob -> Carol channel.
+	bobChan := ht.GetChannelByChanPoint(bob, bobCarolChanPoint)
+	require.NotNil(ht, bobChan, "Bob should have channel with Carol")
+
+	hints := []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{
+		{
+			NodeId:                    bob.PubKeyStr,
+			ChanId:                    bobChan.ChanId,
+			FeeBaseMsat:               1000,
+			FeeProportionalMillionths: 1,
+			CltvExpiryDelta:           routing.MinCLTVDelta,
+		}}},
+	}
+
+	// Carol creates an AMP invoice
+	const paymentAmtSat = 10_000
+	carolDestBytes, err := hex.DecodeString(carol.PubKeyStr)
+	require.NoError(ht, err)
+
+	invoiceTemplate := &lnrpc.Invoice{
+		Value:   paymentAmtSat,
+		Private: true,
+		IsAmp:   true,
+	}
+	addInvoiceResp := carol.RPC.AddInvoice(invoiceTemplate)
+
+	// We need to decode to get CltvExpiry.
+	decodedPayReq := alice.RPC.DecodePayReq(addInvoiceResp.PaymentRequest)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		Dest: carolDestBytes,
+		Amt:  paymentAmtSat,
+		// PaymentHash is omitted for AMP
+		PaymentAddr:    addInvoiceResp.PaymentAddr,
+		FinalCltvDelta: int32(decodedPayReq.CltvExpiry),
+		Amp:            true,
+		RouteHints:     hints,
+		FeeLimitSat:    int64(chanAmt),
+		TimeoutSeconds: 60,
+	}
+
+	// Send AMP payment and assert success
+	ht.AssertPaymentStatusFromStream(
+		alice.RPC.SendPayment(sendReq),
+		lnrpc.Payment_SUCCEEDED,
+	)
+}
+
+// testQueryRoutesRouteHints tests that QueryRoutes successfully
+// finds a route through a private channel when provided with route hints.
+func testQueryRoutesRouteHints(ht *lntest.HarnessTest) {
+	// Setup a three-node network: Alice -> Bob -> Carol.
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+	bob := ht.NewNode("Bob", nil)
+	defer ht.Shutdown(bob)
+	carol := ht.NewNode("Carol", nil)
+	defer ht.Shutdown(carol)
+
+	ht.ConnectNodes(alice, bob)
+	ht.ConnectNodes(bob, carol)
+
+	// Fund Alice and Bob.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Open channels: Alice -> Bob (public), Bob -> Carol (private).
+	const chanAmt = btcutil.Amount(1_000_000)
+	aliceBobChanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+	defer ht.CloseChannel(alice, aliceBobChanPoint)
+	bobCarolChanPoint := ht.OpenChannel(bob, carol,
+		lntest.OpenChannelParams{Amt: chanAmt, Private: true},
+	)
+	defer ht.CloseChannel(bob, bobCarolChanPoint)
+
+	// Manually create route hints for the private Bob -> Carol channel.
+	bobChan := ht.GetChannelByChanPoint(bob, bobCarolChanPoint)
+	require.NotNil(ht, bobChan, "Bob should have channel with Carol")
+
+	hints := []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{
+		{
+			NodeId:                    bob.PubKeyStr,
+			ChanId:                    bobChan.ChanId,
+			FeeBaseMsat:               1000,
+			FeeProportionalMillionths: 1,
+			CltvExpiryDelta:           routing.MinCLTVDelta,
+		}}},
+	}
+
+	queryReq := &lnrpc.QueryRoutesRequest{
+		PubKey:            carol.PubKeyStr,
+		Amt:               10_000,
+		FinalCltvDelta:    int32(routing.MinCLTVDelta),
+		RouteHints:        hints,
+		UseMissionControl: true, // Use MC for realistic pathfinding
+	}
+
+	routes := alice.RPC.QueryRoutes(queryReq)
+
+	// Assert that a route was found and it goes Alice -> Bob -> Carol.
+	require.NotEmpty(ht, routes.Routes, "QueryRoutes should find a route")
+	require.Len(ht, routes.Routes[0].Hops, 2, "Route should have 2 hops")
+
+	hop1 := routes.Routes[0].Hops[0]
+	hop2 := routes.Routes[0].Hops[1]
+
+	require.Equal(ht, bob.PubKeyStr, hop1.PubKey, "Hop 1 should be Bob")
+	require.Equal(ht, carol.PubKeyStr, hop2.PubKey, "Hop 2 should be Carol")
 }

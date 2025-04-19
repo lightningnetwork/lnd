@@ -877,6 +877,92 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 }
 
+// testConfirmationsUntilActiveOnPending verifies that as a channel status
+// transitions from pending to active, the ConfirmationsUntilActive field of the
+// PendingChannel decreases to 0 as expected.
+func testConfirmationsUntilActiveOnPending(ht *lntest.HarnessTest) {
+	const (
+		numConfs = int32(5)
+		chanAmt  = 100000
+	)
+
+	// As we need to create a channel that requires more than 1 confirmation
+	// before it's open, with the current set of defaults, we'll need to
+	// create a new node instance.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", []string{
+		fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs),
+	})
+
+	// Ensure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Alice initiates a channel opening to Bob.
+	param := lntest.OpenChannelParams{Amt: chanAmt}
+	ht.OpenChannelAssertPending(alice, bob, param)
+
+	// Both Alice and Bob have one pending open channel.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Since the funding transaction is not confirmed yet,
+	// ConfirmationsUntilActive will always be numConfs.
+	require.Equal(ht, numConfs, ht.AssertNumPendingOpenChannels(alice,
+		1)[0].ConfirmationsUntilActive)
+	require.Equal(ht, numConfs, ht.AssertNumPendingOpenChannels(bob, 1)[0].
+		ConfirmationsUntilActive)
+
+	// Ensure that even if a block is mined and the funding transaction
+	// remains unconfirmed, ConfirmationsUntilActive still equals numConfs
+	ht.MineEmptyBlocks(1)
+	require.Equal(ht, numConfs, ht.AssertNumPendingOpenChannels(alice,
+		1)[0].ConfirmationsUntilActive)
+	require.Equal(ht, numConfs, ht.AssertNumPendingOpenChannels(bob, 1)[0].
+		ConfirmationsUntilActive)
+
+	// Mine the first block containing the funding transaction, This
+	// confirms the funding transaction but does not change the channel
+	// status.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Channel remains pending after the first confirmation.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	ht.RestartNode(alice)
+	ht.RestartNode(bob)
+
+	// ConfirmationsUntilActive field should decrease as each block is
+	// mined until the required number of confirmations is reached. Let's
+	// mine a few empty blocks and verify the value of
+	// ConfirmationsUntilActive at each step.
+	for i := int32(1); i < numConfs; i++ {
+		expectedConfirmationsLeft := numConfs - i
+
+		// Retrieve pending channels for Alice and verify the remaining
+		// confirmations.
+		pendingAlice := ht.AssertNumPendingOpenChannels(alice, 1)
+		require.Equal(ht, expectedConfirmationsLeft, pendingAlice[0].
+			ConfirmationsUntilActive)
+
+		// Retrieve pending channels for Bob and verify the remaining
+		// confirmations.
+		pendingBob := ht.AssertNumPendingOpenChannels(bob, 1)
+		require.Equal(ht, expectedConfirmationsLeft, pendingBob[0].
+			ConfirmationsUntilActive)
+
+		// Mine the next block.
+		ht.MineEmptyBlocks(1)
+	}
+
+	// After the required number of confirmations, the channel should be
+	// marked as active.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertNumPendingOpenChannels(bob, 0)
+}
+
 // testSimpleTaprootChannelActivation ensures that a simple taproot channel is
 // active if the initiator disconnects and reconnects in between channel opening
 // and channel confirmation.

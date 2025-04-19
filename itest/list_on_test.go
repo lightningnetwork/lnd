@@ -58,6 +58,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundingExpiryBlocksOnPending,
 	},
 	{
+		Name:     "confirmations until active on pending",
+		TestFunc: testConfirmationsUntilActiveOnPending,
+	},
+	{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},

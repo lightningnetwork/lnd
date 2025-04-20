@@ -348,6 +348,11 @@ var listInvoicesCommand = cli.Command{
 				"invoices with creation date less than or " +
 				"equal to it",
 		},
+		cli.BoolFlag{
+			Name: "count_total_invoices",
+			Usage: "if set, only the total number of invoices will be " +
+				"returned, no invoice data",
+		},
 	},
 	Action: actionDecorator(listInvoices),
 }
@@ -358,12 +363,13 @@ func listInvoices(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly:       ctx.Bool("pending_only"),
-		IndexOffset:       ctx.Uint64("index_offset"),
-		NumMaxInvoices:    ctx.Uint64("max_invoices"),
-		Reversed:          !ctx.Bool("paginate-forwards"),
-		CreationDateStart: ctx.Uint64("creation_date_start"),
-		CreationDateEnd:   ctx.Uint64("creation_date_end"),
+		PendingOnly:        ctx.Bool("pending_only"),
+		IndexOffset:        ctx.Uint64("index_offset"),
+		NumMaxInvoices:     ctx.Uint64("max_invoices"),
+		Reversed:           !ctx.Bool("paginate-forwards"),
+		CreationDateStart:  ctx.Uint64("creation_date_start"),
+		CreationDateEnd:    ctx.Uint64("creation_date_end"),
+		CountTotalInvoices: ctx.Bool("count_total_invoices"),
 	}
 
 	invoices, err := client.ListInvoices(ctxc, req)

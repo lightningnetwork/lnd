@@ -990,20 +990,96 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	return result, nil
 }
 
+// countInvoices returns the total number of invoices matching the given query parameters.
+func countInvoices(ctx context.Context, db SQLInvoiceQueries, q InvoiceQuery, 
+	paginationLimit int) (uint64, error) {
+	
+	var count uint64
+
+	// Use the queryWithLimit helper to count all matching invoices
+	err := queryWithLimit(func(offset int) (int, error) {
+		params := sqlc.FilterInvoicesParams{
+			NumOffset:   int32(offset),
+			NumLimit:    int32(paginationLimit),
+			PendingOnly: q.PendingOnly,
+			Reverse:     q.Reversed,
+		}
+
+		// Set up the filter parameters based on the query
+		if q.Reversed {
+			if q.IndexOffset == 0 {
+				params.AddIndexLet = sqldb.SQLInt64(
+					int64(math.MaxInt64),
+				)
+			} else {
+				params.AddIndexLet = sqldb.SQLInt64(
+					q.IndexOffset - 1,
+				)
+			}
+		} else {
+			params.AddIndexGet = sqldb.SQLInt64(
+				q.IndexOffset + 1,
+			)
+		}
+
+		if q.CreationDateStart != 0 {
+			params.CreatedAfter = sqldb.SQLTime(
+				time.Unix(q.CreationDateStart, 0).UTC(),
+			)
+		}
+
+		if q.CreationDateEnd != 0 {
+			params.CreatedBefore = sqldb.SQLTime(
+				time.Unix(q.CreationDateEnd+1, 0).UTC(),
+			)
+		}
+
+		// Execute the query to get the matching rows, but don't process them
+		rows, err := db.FilterInvoices(ctx, params)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, fmt.Errorf("unable to count invoices: %w", err)
+		}
+
+		// Update the count
+		count += uint64(len(rows))
+
+		return len(rows), nil
+	}, paginationLimit)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
 // QueryInvoices allows a caller to query the invoice database for invoices
 // within the specified add index range.
 func (i *SQLStore) QueryInvoices(ctx context.Context,
 	q InvoiceQuery) (InvoiceSlice, error) {
 
 	var invoices []Invoice
+	var totalCount uint64
 
-	if q.NumMaxInvoices == 0 {
+	// If CountOnly is set, we only need to count invoices, so NumMaxInvoices can be 0
+	if q.NumMaxInvoices == 0 && !q.CountOnly {
 		return InvoiceSlice{}, fmt.Errorf("max invoices must " +
 			"be non-zero")
 	}
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+		// If we just want to count the invoices without fetching them
+		if q.CountOnly {
+			count, err := countInvoices(ctx, db, q, i.opts.paginationLimit)
+			if err != nil {
+				return err
+			}
+			totalCount = count
+			return nil
+		}
+
+		// Otherwise, proceed with the regular query to fetch invoices
 		return queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
 				NumOffset:   int32(offset),
@@ -1078,6 +1154,14 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 	if err != nil {
 		return InvoiceSlice{}, fmt.Errorf("unable to query "+
 			"invoices: %w", err)
+	}
+
+	// For count-only queries, return just the count in the InvoiceSlice
+	if q.CountOnly {
+		return InvoiceSlice{
+			InvoiceQuery:   q,
+			TotalInvoices:  totalCount,
+		}, nil
 	}
 
 	if len(invoices) == 0 {

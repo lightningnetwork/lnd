@@ -121,6 +121,9 @@ when running LND with an aux component injected (custom channels).
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9750): if a Taproot
   address is added to LND using the `ImportTapscript` RPC, LND previously failed
   to perform a cooperative close to that address.
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9744) where unnecessary
+  warnings about existing bbolt database files would appear when using SQLite backend
+  with already migrated databases.
 
 # New Features
 

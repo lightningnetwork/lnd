@@ -738,12 +738,48 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 // warnExistingBoltDBs checks if there is an existing bbolt database in the
 // given location and logs a warning if so.
 func warnExistingBoltDBs(log btclog.Logger, dbType, dir, fileName string) {
-	if lnrpc.FileExists(filepath.Join(dir, fileName)) {
-		log.Warnf("Found existing bbolt database file in %s/%s while "+
-			"using database type %s. Existing data will NOT be "+
-			"migrated to %s automatically!", dir, fileName, dbType,
-			dbType)
+	// Check if the bbolt file exists
+	bboltPath := filepath.Join(dir, fileName)
+	if !lnrpc.FileExists(bboltPath) {
+		// No bbolt file, no need for warning
+		return
 	}
+
+	// Determine the corresponding SQLite file name based on the bbolt file
+	var sqliteFileName string
+	switch fileName {
+	case WalletDBName:
+		sqliteFileName = SqliteChainDBName
+	case ChannelDBName:
+		sqliteFileName = SqliteChannelDBName
+	case MacaroonDBName:
+		sqliteFileName = SqliteChainDBName
+	case DecayedLogDbName:
+		sqliteFileName = SqliteChannelDBName
+	case TowerClientDBName:
+		sqliteFileName = SqliteChannelDBName
+	case TowerServerDBName:
+		sqliteFileName = SqliteTowerDBName
+	default:
+		// For any other file types, still show the warning
+		log.Warnf("Found existing bbolt database file in %s/%s "+
+			"while using database type %s. Existing data will "+
+			"NOT be migrated to %s automatically!",
+			dir, fileName, dbType, dbType)
+
+		return
+	}
+
+	// Check if the corresponding SQLite file exists
+	sqlitePath := filepath.Join(dir, sqliteFileName)
+	if !lnrpc.FileExists(sqlitePath) {
+		// SQLite file doesn't exist, show the warning
+		log.Warnf("Found existing bbolt database file in %s/%s "+
+			"while using database type %s. Existing data will "+
+			"NOT be migrated to %s automatically!",
+			dir, fileName, dbType, dbType)
+	}
+	// If SQLite file exists, don't show the warning
 }
 
 // Compile-time constraint to ensure Workers implements the Validator interface.

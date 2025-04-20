@@ -7351,6 +7351,23 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		ControlBlock: ctrlBlock,
 	}
 
+	// In case it is a legacy channel we return early as no aux resolution
+	// is neeeded.
+	if txSignDetails == nil {
+		return &OutgoingHtlcResolution{
+			Expiry:          htlc.RefundTimeout,
+			SignedTimeoutTx: timeoutTx,
+			SignDetails:     txSignDetails,
+			CsvDelay:        csvDelay,
+			ResolutionBlob:  fn.None[tlv.Blob](),
+			ClaimOutpoint: wire.OutPoint{
+				Hash:  timeoutTx.TxHash(),
+				Index: 0,
+			},
+			SweepSignDesc: sweepSignDesc,
+		}, nil
+	}
+
 	// This might be an aux channel, so we'll go ahead and attempt to
 	// generate the resolution blob for the channel so we can pass along to
 	// the sweeping sub-system.
@@ -7692,6 +7709,20 @@ func newIncomingHtlcResolution(signer input.Signer,
 		),
 		SignMethod:   signMethod,
 		ControlBlock: ctrlBlock,
+	}
+
+	if txSignDetails == nil {
+		return &IncomingHtlcResolution{
+			SignedSuccessTx: successTx,
+			SignDetails:     txSignDetails,
+			CsvDelay:        csvDelay,
+			ResolutionBlob:  fn.None[tlv.Blob](),
+			ClaimOutpoint: wire.OutPoint{
+				Hash:  successTx.TxHash(),
+				Index: 0,
+			},
+			SweepSignDesc: sweepSignDesc,
+		}, nil
 	}
 
 	resolveRes := fn.MapOptionZ(

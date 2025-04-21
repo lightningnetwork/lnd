@@ -5,7 +5,7 @@ require (
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/miekg/dns v1.1.43
 	github.com/stretchr/testify v1.8.2
-	golang.org/x/net v0.21.0
+	golang.org/x/net v0.39.0
 )
 
 require (

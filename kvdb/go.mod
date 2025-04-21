@@ -15,7 +15,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.12
 	go.etcd.io/etcd/client/v3 v3.5.12
 	go.etcd.io/etcd/server/v3 v3.5.12
-	golang.org/x/net v0.25.0
+	golang.org/x/net v0.39.0
 	modernc.org/sqlite v1.29.10
 )
 

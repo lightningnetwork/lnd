@@ -663,7 +663,7 @@ func InternalKeyForAddr(wallet WalletController, netParams *chaincfg.Params,
 	pubKeyAddr, ok := walletAddr.(waddrmgr.ManagedPubKeyAddress)
 	if !ok {
 		return none, fmt.Errorf("expected pubkey addr, got %T",
-			pubKeyAddr)
+			walletAddr)
 	}
 
 	_, derivationPath, _ := pubKeyAddr.DerivationInfo()

@@ -143,9 +143,9 @@ const (
 	ampStateCircuitKeysType tlv.Type = 4
 	ampStateAmtPaidType     tlv.Type = 5
 
-	// invoiceScanBatchSize is the number we use limiting the logging output
-	// of invoice processing.
-	invoiceScanBatchSize = 1000
+	// invoiceProgressLogInterval is the interval we use limiting the
+	// logging output of invoice processing.
+	invoiceProgressLogInterval = 30 * time.Second
 )
 
 // AddInvoice inserts the targeted invoice into the database. If the invoice has
@@ -248,6 +248,7 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 	var (
 		newInvoices    []invpkg.Invoice
 		start          = time.Now()
+		lastLogTime    = time.Now()
 		processedCount int
 	)
 
@@ -294,10 +295,14 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 			newInvoices = append(newInvoices, invoice)
 
 			processedCount++
-			if processedCount%invoiceScanBatchSize == 0 {
-				log.Debugf("Processed %d invoices since "+
-					"invoice with add index %v",
+			if time.Since(lastLogTime) >=
+				invoiceProgressLogInterval {
+
+				log.Debugf("Processed %d invoices which "+
+					"were added since add index %v",
 					processedCount, sinceAddIndex)
+
+				lastLogTime = time.Now()
 			}
 		}
 
@@ -310,7 +315,7 @@ func (d *DB) InvoicesAddedSince(_ context.Context, sinceAddIndex uint64) (
 	}
 
 	elapsed := time.Since(start)
-	log.Debugf("Completed scanning invoices added since index %v: "+
+	log.Debugf("Completed scanning for invoices added since index %v: "+
 		"total_processed=%d, found_invoices=%d, elapsed=%v",
 		sinceAddIndex, processedCount, len(newInvoices),
 		elapsed.Round(time.Millisecond))
@@ -1068,6 +1073,7 @@ func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 	var (
 		settledInvoices []invpkg.Invoice
 		start           = time.Now()
+		lastLogTime     = time.Now()
 		processedCount  int
 	)
 
@@ -1130,10 +1136,15 @@ func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 			settledInvoices = append(settledInvoices, invoice)
 
 			processedCount++
-			if processedCount%invoiceScanBatchSize == 0 {
+			if time.Since(lastLogTime) >=
+				invoiceProgressLogInterval {
+
 				log.Debugf("Processed %d settled invoices "+
-					"since invoice with settle index %v",
-					processedCount, sinceSettleIndex)
+					"which have a settle index greater "+
+					"than %v", processedCount,
+					sinceSettleIndex)
+
+				lastLogTime = time.Now()
 			}
 		}
 
@@ -1146,8 +1157,8 @@ func (d *DB) InvoicesSettledSince(_ context.Context, sinceSettleIndex uint64) (
 	}
 
 	elapsed := time.Since(start)
-	log.Debugf("Completed scanning invoices settled since index %v: "+
-		"total_processed=%d, found_invoices=%d, elapsed=%v",
+	log.Debugf("Completed scanning for settled invoices starting at "+
+		"index %v: total_processed=%d, found_invoices=%d, elapsed=%v",
 		sinceSettleIndex, processedCount, len(settledInvoices),
 		elapsed.Round(time.Millisecond))
 

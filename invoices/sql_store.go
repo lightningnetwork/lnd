@@ -25,9 +25,9 @@ const (
 	// queries to limit the number of rows returned.
 	defaultQueryPaginationLimit = 100
 
-	// invoiceScanBatchSize is the number we use limiting the logging output
-	// when scanning invoices.
-	invoiceScanBatchSize = 1000
+	// invoiceProgressLogInterval is the interval we use limiting the
+	// logging output of invoice processing.
+	invoiceProgressLogInterval = 30 * time.Second
 )
 
 // SQLInvoiceQueries is an interface that defines the set of operations that can
@@ -792,6 +792,7 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 	var (
 		invoices       []Invoice
 		start          = time.Now()
+		lastLogTime    = time.Now()
 		processedCount int
 	)
 
@@ -829,11 +830,15 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 				invoices = append(invoices, *invoice)
 
 				processedCount++
-				if processedCount%invoiceScanBatchSize == 0 {
+				if time.Since(lastLogTime) >=
+					invoiceProgressLogInterval {
+
 					log.Debugf("Processed %d settled "+
-						"invoices since invoice with "+
-						"settle index %v",
+						"invoices which have a settle "+
+						"index greater than %v",
 						processedCount, idx)
+
+					lastLogTime = time.Now()
 				}
 			}
 
@@ -891,10 +896,15 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 			invoices = append(invoices, *invoice)
 
 			processedCount++
-			if processedCount%invoiceScanBatchSize == 0 {
+			if time.Since(lastLogTime) >=
+				invoiceProgressLogInterval {
+
 				log.Debugf("Processed %d settled invoices "+
-					"since invoice with settle index %v",
+					"including AMP sub invoices which "+
+					"have a settle index greater than %v",
 					processedCount, idx)
+
+				lastLogTime = time.Now()
 			}
 		}
 
@@ -908,8 +918,8 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 	}
 
 	elapsed := time.Since(start)
-	log.Debugf("Completed scanning invoices settled since index %v: "+
-		"total_processed=%d, found_invoices=%d, elapsed=%v",
+	log.Debugf("Completed scanning for settled invoices starting at "+
+		"index %v: total_processed=%d, found_invoices=%d, elapsed=%v",
 		idx, processedCount, len(invoices),
 		elapsed.Round(time.Millisecond))
 
@@ -928,6 +938,7 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	var (
 		result         []Invoice
 		start          = time.Now()
+		lastLogTime    = time.Now()
 		processedCount int
 	)
 
@@ -963,10 +974,14 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 				result = append(result, *invoice)
 
 				processedCount++
-				if processedCount%invoiceScanBatchSize == 0 {
+				if time.Since(lastLogTime) >=
+					invoiceProgressLogInterval {
+
 					log.Debugf("Processed %d invoices "+
-						"added since invoice with add "+
+						"which were added since add "+
 						"index %v", processedCount, idx)
+
+					lastLogTime = time.Now()
 				}
 			}
 
@@ -982,7 +997,7 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 	}
 
 	elapsed := time.Since(start)
-	log.Debugf("Completed scanning invoices added since index %v: "+
+	log.Debugf("Completed scanning for invoices added since index %v: "+
 		"total_processed=%d, found_invoices=%d, elapsed=%v",
 		idx, processedCount, len(result),
 		elapsed.Round(time.Millisecond))

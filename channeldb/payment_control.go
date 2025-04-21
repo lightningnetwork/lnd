@@ -18,9 +18,9 @@ const (
 	// payment sequences for future payments.
 	paymentSeqBlockSize = 1000
 
-	// paymentBatchSize is the number we use limiting the logging output
-	// of payment processing.
-	paymentBatchSize = 1000
+	// paymentProgressLogInterval is the interval we use limiting the
+	// logging output of payment processing.
+	paymentProgressLogInterval = 30 * time.Second
 )
 
 var (
@@ -778,6 +778,7 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 	var (
 		inFlights      []*MPPayment
 		start          = time.Now()
+		lastLogTime    = time.Now()
 		processedCount int
 	)
 
@@ -799,11 +800,15 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 			}
 
 			processedCount++
-			if processedCount%paymentBatchSize == 0 {
+			if time.Since(lastLogTime) >=
+				paymentProgressLogInterval {
+
 				log.Debugf("Scanning inflight payments "+
 					"(in progress), processed %d, last "+
 					"processed payment: %v", processedCount,
 					p.Info)
+
+				lastLogTime = time.Now()
 			}
 
 			// Skip the payment if it's terminated.
@@ -822,8 +827,9 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 	}
 
 	elapsed := time.Since(start)
-	log.Debugf("Completed scanning inflight payments: total_processed=%d, "+
-		"found_inflight=%d, elapsed=%v", processedCount, len(inFlights),
+	log.Debugf("Completed scanning for inflight payments: "+
+		"total_processed=%d, found_inflight=%d, elapsed=%v",
+		processedCount, len(inFlights),
 		elapsed.Round(time.Millisecond))
 
 	return inFlights, nil

@@ -2,7 +2,6 @@ package itest
 
 import (
 	"fmt"
-	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -11,53 +10,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest) {
-	ok := ht.Run("set P2WPKH delivery address at open", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(
-			tt, true, lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
-		)
-	})
-	// Abort the test if failed.
-	if !ok {
-		return
-	}
-
-	ok = ht.Run("set P2WPKH delivery address at close", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(
-			tt, false, lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
-		)
-	})
-	// Abort the test if failed.
-	if !ok {
-		return
-	}
-
-	ok = ht.Run("set P2TR delivery address at open", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(
-			tt, true, lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
-		)
-	})
-	// Abort the test if failed.
-	if !ok {
-		return
-	}
-
-	ht.Run("set P2TR delivery address at close", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		testCoopCloseWithExternalDeliveryImpl(
-			tt, false, lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
-		)
-	})
+var coopCloseWithExternalTestCases = []*lntest.TestCase{
+	{
+		Name: "set P2WPKH delivery address at open",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testCoopCloseWithExternalDelivery(
+				ht, true,
+				lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "set P2WPKH delivery address at close",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testCoopCloseWithExternalDelivery(
+				ht, false,
+				lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+			)
+		},
+	},
+	{
+		Name: "set P2TR delivery address at open",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testCoopCloseWithExternalDelivery(
+				ht, true,
+				lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
+			)
+		},
+	},
+	{
+		Name: "set P2TR delivery address at close",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			testCoopCloseWithExternalDelivery(
+				ht, false,
+				lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY,
+			)
+		},
+	},
 }
 
-// testCoopCloseWithExternalDeliveryImpl ensures that we have a valid settled
+// testCoopCloseWithExternalDelivery ensures that we have a valid settled
 // balance irrespective of whether the delivery address is in LND's wallet or
 // not. Some users set this value to be an address in a different wallet and
 // this should not affect our ability to accurately report the settled balance.
-func testCoopCloseWithExternalDeliveryImpl(ht *lntest.HarnessTest,
+func testCoopCloseWithExternalDelivery(ht *lntest.HarnessTest,
 	upfrontShutdown bool, deliveryAddressType lnrpc.AddressType) {
 
 	alice := ht.NewNodeWithCoins("Alice", nil)

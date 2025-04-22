@@ -5,6 +5,7 @@ package itest
 import (
 	"fmt"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -643,10 +644,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSweepCommitOutputAndAnchor,
 	},
 	{
-		Name:     "coop close with external delivery",
-		TestFunc: testCoopCloseWithExternalDelivery,
-	},
-	{
 		Name:     "payment failed htlc local swept",
 		TestFunc: testPaymentFailedHTLCLocalSwept,
 	},
@@ -720,6 +717,13 @@ func appendPrefixed(prefix string, testCases,
 	return testCases
 }
 
+// extractNames is used to extract tests' names from a group of prefixed tests.
+func extractNames(prefix string, subtestCases []*lntest.TestCase) []string {
+	return fn.Map(subtestCases, func(tc *lntest.TestCase) string {
+		return fmt.Sprintf("%s-%s", prefix, tc.Name)
+	})
+}
+
 func init() {
 	// Register subtests.
 	allTestCases = appendPrefixed(
@@ -761,6 +765,10 @@ func init() {
 	)
 	allTestCases = appendPrefixed(
 		"wallet", allTestCases, walletTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"coop close with external delivery", allTestCases,
+		coopCloseWithExternalTestCases,
 	)
 
 	// Prepare the test cases for windows to exclude some of the flaky

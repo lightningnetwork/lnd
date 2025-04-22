@@ -13,7 +13,7 @@ import (
 // be excluded from the test suite atm.
 //
 // TODO(yy): fix these tests and remove them from this list.
-var excludedTestsWindows = []string{
+var excludedTestsWindows = append(append([]string{
 	"batch channel funding",
 	"zero conf channel open",
 	"open channel with unstable utxos",
@@ -45,25 +45,11 @@ var excludedTestsWindows = []string{
 	"wipe forwarding packages",
 
 	"coop close with htlcs",
-	"coop close with external delivery",
 
 	"forward interceptor restart",
 	"forward interceptor dedup htlcs",
 	"invoice HTLC modifier basic",
 	"lookup htlc resolution",
-
-	"remote signer-taproot",
-	"remote signer-account import",
-	"remote signer-bump fee",
-	"remote signer-funding input types",
-	"remote signer-funding async payments taproot",
-	"remote signer-funding async payments",
-	"remote signer-random seed",
-	"remote signer-verify msg",
-	"remote signer-channel open",
-	"remote signer-shared key",
-	"remote signer-psbt",
-	"remote signer-sign output raw",
 
 	"on chain to blinded",
 	"query blinded route",
@@ -76,7 +62,12 @@ var excludedTestsWindows = []string{
 	// more investigation is needed.
 	"channel force close-anchor restart",
 	"channel force close-simple taproot restart",
-}
+}, extractNames(
+	"coop close with external delivery",
+	coopCloseWithExternalTestCases)...,
+),
+	extractNames("remote signer", remoteSignerTestCases)...,
+)
 
 // filterWindowsFlakyTests filters out the flaky tests that are excluded from
 // the test suite on Windows.

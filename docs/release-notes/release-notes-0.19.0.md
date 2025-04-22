@@ -115,6 +115,9 @@ keysend payment validation is stricter.
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9703) a possible panic
   when reloading legacy inflight payments which don't have the MPP feature.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/9746) a possible panic
+when running LND with an aux component injected (custom channels).
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

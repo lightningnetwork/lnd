@@ -1501,6 +1501,37 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 	return putOpenChannel(chanBucket, c)
 }
 
+// MarkConfirmedScid updates the channel's ShortChannelID once the channel
+// opening transaction receives one confirmation.
+func (c *OpenChannel) MarkConfirmedScid(scid lnwire.ShortChannelID) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := fetchChanBucketRw(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		channel.ShortChannelID = scid
+
+		return putOpenChannel(chanBucket, channel)
+	}, func() {}); err != nil {
+		return err
+	}
+
+	c.ShortChannelID = scid
+
+	return nil
+}
+
 // MarkAsOpen marks a channel as fully open given a locator that uniquely
 // describes its location within the chain.
 func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {

@@ -23,6 +23,13 @@
 # New Features
 
 ## Functional Enhancements
+* [Add](https://github.com/lightningnetwork/lnd/pull/9677)
+  `ConfirmationsUntilActive` field to the
+  `PendingChannelsResponse_PendingChannel` message, providing users with the
+  number of confirmations remaining before a pending channel becomes active.
+  This change also persists the channel's short channel ID in the database once
+  its funding transaction receives one confirmation, allowing tracking of
+  confirmation progress before the channel is active.
 
 ## RPC Additions
 

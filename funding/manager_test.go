@@ -1496,6 +1496,16 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	assertErrorNotSent(t, alice.msgChan)
 	assertErrorNotSent(t, bob.msgChan)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1809,6 +1819,16 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	}
 	alice.fundingMgr.cfg.NotifyWhenOnline = notifyWhenOnline
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1969,6 +1989,16 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 		conChan <- connected
 	}
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2465,6 +2495,16 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2578,6 +2618,16 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2677,6 +2727,16 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2772,6 +2832,16 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2897,6 +2967,16 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -3339,6 +3419,16 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -3675,6 +3765,17 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 
 	// Notify that the transactions were mined.
 	for i := 0; i < maxPending; i++ {
+		// We send two notifications:
+		// 1. The first adds the SCID to the database, allowing
+		//    calculation of the number of confirmations before the
+		//    channel is fully opened.
+		// 2. The second marks the channel as open.
+		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+			Tx: txs[i],
+		}
+		bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+			Tx: txs[i],
+		}
 		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 			Tx: txs[i],
 		}
@@ -4954,10 +5055,19 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Send along the oneConfChannel again and then assert that the open
 	// event is sent. This serves as the 100 block + MinAcceptDepth
 	// confirmation.
+	// We send two notifications:
+	// 1. The first adds the SCID to the database, allowing calculation of
+	//    the number of confirmations before the channel is fully opened.
+	// 2. The second marks the channel as open.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}
-
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
 	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
 	}

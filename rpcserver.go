@@ -3919,6 +3919,37 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			pendingChan.BroadcastHeight()
 		fundingExpiryBlocks := int32(maxFundingHeight) - currentHeight
 
+		// remainingConfs is the number of blocks remaining until the
+		// funding transaction reaches the required confirmation height.
+		//
+		// If the funding transaction has received at least one
+		// confirmation(i.e. its block height is known), then
+		// confirmationHeight is calculated as: funding transaction
+		// block height + required number of confirmations - 1
+		// (subtracting 1 because one confirmation is already achieved).
+		// remainingConfs is computed as the difference between
+		// confirmationHeight and currentHeight, but is never less than
+		// zero.
+		//
+		// If the funding transaction hasn't been confirmed,
+		// remainingConfs is set to the total number of confirmations
+		// required.
+		var remainingConfs int32
+		openTxBlockHeight := int32(
+			pendingChan.ShortChannelID.BlockHeight,
+		)
+
+		if openTxBlockHeight > 0 {
+			confirmationHeight := openTxBlockHeight +
+				int32(pendingChan.NumConfsRequired) - 1
+			remainingConfs = max(0, confirmationHeight-
+				currentHeight)
+		} else {
+			// If the funding transaction is not confirmed yet,then
+			// remainingConfs will always be NumConfsRequired.
+			remainingConfs = int32(pendingChan.NumConfsRequired)
+		}
+
 		customChanBytes, err := encodeCustomChanData(pendingChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode open chan "+
@@ -3940,11 +3971,12 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Memo:                 string(pendingChan.Memo),
 				CustomChannelData:    customChanBytes,
 			},
-			CommitWeight:        commitWeight,
-			CommitFee:           int64(localCommitment.CommitFee),
-			FeePerKw:            int64(localCommitment.FeePerKw),
-			FundingExpiryBlocks: fundingExpiryBlocks,
-			// TODO(roasbeef): need to track confirmation height
+			CommitWeight: commitWeight,
+			CommitFee:    int64(localCommitment.CommitFee),
+			FeePerKw: int64(localCommitment.
+				FeePerKw),
+			FundingExpiryBlocks:      fundingExpiryBlocks,
+			ConfirmationsUntilActive: remainingConfs,
 		}
 	}
 

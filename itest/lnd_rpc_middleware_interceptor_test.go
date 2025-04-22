@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon.v2"
 )
@@ -223,6 +224,18 @@ func middlewareInterceptionTest(t *testing.T,
 	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
+	// Add some gRPC metadata pairs to the context that we use for one of
+	// the calls. This is so that we can test that the interceptor does
+	// properly receive the pairs via the interceptor request.
+	requestMetadata := metadata.MD{
+		"itest-metadata-key": []string{"itest-metadata-value"},
+		"itest-metadata-key2": []string{
+			"itest-metadata-value1",
+			"itest-metadata-value2",
+		},
+	}
+	ctxm := metadata.NewOutgoingContext(ctxc, requestMetadata)
+
 	// Create a client connection that we'll use to simulate user requests
 	// to lnd with.
 	cleanup, client := macaroonClient(t, node, userMac)
@@ -234,10 +247,11 @@ func middlewareInterceptionTest(t *testing.T,
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", req, nil, readOnly, false,
+		requestMetadata,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
-	resp, err := client.ListChannels(ctxc, req)
+	resp, err := client.ListChannels(ctxm, req)
 	require.NoError(t, err)
 
 	// Did we receive the correct intercept message?
@@ -252,7 +266,7 @@ func middlewareInterceptionTest(t *testing.T,
 	}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", invalidReq, nil, readOnly,
-		false,
+		false, nil,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -384,7 +398,7 @@ func middlewareResponseManipulationTest(t *testing.T,
 	req := &lnrpc.ListChannelsRequest{ActiveOnly: true}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", req, replacementResponse,
-		readOnly, false,
+		readOnly, false, nil,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -408,7 +422,7 @@ func middlewareResponseManipulationTest(t *testing.T,
 	}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/ListChannels", invalidReq, betterError,
-		readOnly, false,
+		readOnly, false, nil,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -500,7 +514,7 @@ func middlewareRequestManipulationTest(t *testing.T, node *node.HarnessNode,
 	}
 	go registration.interceptUnary(
 		"/lnrpc.Lightning/AddInvoice", req, replacementRequest,
-		readOnly, true,
+		readOnly, true, nil,
 	)
 
 	// Do the actual call now and wait for the interceptor to do its thing.
@@ -717,11 +731,27 @@ func registerMiddleware(t *testing.T, node *node.HarnessNode,
 // read from the response channel.
 func (h *middlewareHarness) interceptUnary(methodURI string,
 	expectedRequest proto.Message, responseReplacement interface{},
-	readOnly bool, replaceRequest bool) {
+	readOnly bool, replaceRequest bool, expectedMetadata metadata.MD) {
 
 	// Read intercept message and make sure it's for an RPC request.
 	reqIntercept, err := h.stream.Recv()
 	require.NoError(h.t, err)
+
+	// Check that we have the expected metadata in the request.
+	if len(expectedMetadata) > 0 {
+		require.GreaterOrEqual(
+			h.t, len(reqIntercept.MetadataPairs),
+			len(expectedMetadata),
+		)
+
+		for key := range expectedMetadata {
+			require.Contains(h.t, reqIntercept.MetadataPairs, key)
+			require.Equal(
+				h.t, expectedMetadata[key],
+				reqIntercept.MetadataPairs[key].Values,
+			)
+		}
+	}
 
 	// Make sure the custom condition is populated correctly (if we're using
 	// a macaroon with a custom condition).

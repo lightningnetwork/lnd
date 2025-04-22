@@ -512,11 +512,13 @@ type AuxTrafficShaper interface {
 		fundingBlob, htlcBlob fn.Option[tlv.Blob]) (bool, error)
 
 	// PaymentBandwidth returns the available bandwidth for a custom channel
-	// decided by the given channel aux blob and HTLC blob. A return value
-	// of 0 means there is no bandwidth available. To find out if a channel
-	// is a custom channel that should be handled by the traffic shaper, the
-	// ShouldHandleTraffic method should be called first.
-	PaymentBandwidth(htlcBlob, commitmentBlob fn.Option[tlv.Blob],
+	// decided by the given channel funding/commitment aux blob and HTLC
+	// blob. A return value of 0 means there is no bandwidth available. To
+	// find out if a channel is a custom channel that should be handled by
+	// the traffic shaper, the ShouldHandleTraffic method should be called
+	// first.
+	PaymentBandwidth(fundingBlob, htlcBlob,
+		commitmentBlob fn.Option[tlv.Blob],
 		linkBandwidth, htlcAmt lnwire.MilliSatoshi,
 		htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error)
 

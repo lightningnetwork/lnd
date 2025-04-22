@@ -3504,7 +3504,7 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 	// Ask for a specific bandwidth to be used for the channel.
 	commitmentBlob := l.CommitmentCustomBlob()
 	auxBandwidth, err := ts.PaymentBandwidth(
-		htlcBlob, commitmentBlob, l.Bandwidth(), amount,
+		fundingBlob, htlcBlob, commitmentBlob, l.Bandwidth(), amount,
 		l.channel.FetchLatestAuxHTLCView(),
 	)
 	if err != nil {

@@ -192,22 +192,25 @@ func TestSuccessProbability(t *testing.T) {
 			amount:              largeAmount,
 			expectedProbability: 0.0,
 		},
-		// Same success and failure amounts (illogical).
+		// Same success and failure amounts (illogical), which gets
+		// reset to no knowledge.
 		{
 			name:                "previous f/s, same",
 			capacity:            capacity,
 			failAmount:          largeAmount,
 			successAmount:       largeAmount,
 			amount:              largeAmount,
-			expectedProbability: 0.0,
+			expectedProbability: 0.5,
 		},
-		// Higher success than failure amount (illogical).
+		// Higher success than failure amount (illogical), which gets
+		// reset to no knowledge.
 		{
-			name:                "previous f/s, higher success",
+			name:                "previous f/s, illogical",
 			capacity:            capacity,
 			failAmount:          smallAmount,
 			successAmount:       largeAmount,
-			expectedProbability: 0.0,
+			amount:              largeAmount,
+			expectedProbability: 0.5,
 		},
 	}
 

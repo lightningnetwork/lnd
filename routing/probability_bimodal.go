@@ -488,6 +488,18 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		return 0.0, nil
 	}
 
+	// The next statement is a safety check against an illogical condition.
+	// We discard the knowledge for the channel in that case since we have
+	// inconsistent data.
+	if failAmount <= successAmount {
+		log.Warnf("Fail amount (%s) is smaller than or equal to the "+
+			"success amount (%s) for capacity (%s)",
+			failAmountMsat, successAmountMsat, capacityMsat)
+
+		successAmount = 0
+		failAmount = capacity
+	}
+
 	// Mission control may have some outdated values, we correct them here.
 	// TODO(bitromortac): there may be better decisions to make in these
 	//  cases, e.g., resetting failAmount=cap and successAmount=0.
@@ -506,18 +518,6 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 			successAmount, capacity)
 
 		successAmount = capacity
-	}
-
-	// The next statement is a safety check against an illogical condition,
-	// otherwise the renormalization integral would become zero. This may
-	// happen if a large channel gets closed and smaller ones remain, but
-	// it should recover with the time decay.
-	if failAmount <= successAmount {
-		log.Tracef("fail amount (%v) is smaller than or equal the "+
-			"success amount (%v) for capacity (%v)",
-			failAmountMsat, successAmountMsat, capacityMsat)
-
-		return 0.0, nil
 	}
 
 	// We cannot send more than the fail amount.

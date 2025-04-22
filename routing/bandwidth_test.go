@@ -145,12 +145,12 @@ func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 	return true, nil
 }
 
-// PaymentBandwidth returns the available bandwidth for a custom channel
-// decided by the given channel aux blob and HTLC blob. A return value
-// of 0 means there is no bandwidth available. To find out if a channel
-// is a custom channel that should be handled by the traffic shaper, the
-// HandleTraffic method should be called first.
-func (*mockTrafficShaper) PaymentBandwidth(_, _ fn.Option[tlv.Blob],
+// PaymentBandwidth returns the available bandwidth for a custom channel decided
+// by the given channel funding/commitment aux blob and HTLC blob. A return
+// value of 0 means there is no bandwidth available. To find out if a channel is
+// a custom channel that should be handled by the traffic shaper, the
+// ShouldHandleTraffic method should be called first.
+func (*mockTrafficShaper) PaymentBandwidth(_, _, _ fn.Option[tlv.Blob],
 	linkBandwidth, _ lnwire.MilliSatoshi,
 	_ lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 

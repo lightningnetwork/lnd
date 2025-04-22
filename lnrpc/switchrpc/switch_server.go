@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/tlv"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -316,6 +317,21 @@ func (s *Server) SendOnion(_ context.Context,
 			"invalid payment_hash=%x: %v", req.PaymentHash, err)
 	}
 
+	blindingPoint := lnwire.BlindingPointRecord{}
+	if len(req.BlindingPoint) > 0 {
+		pubkey, err := btcec.ParsePubKey(req.BlindingPoint)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument,
+				"invalid blinding point: %v", err)
+		}
+
+		blindingPoint = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+				pubkey,
+			),
+		)
+	}
+
 	// Craft an HTLC packet to send to the htlcswitch. The metadata within
 	// this packet will be used to route the payment through the network,
 	// starting with the first-hop.
@@ -324,6 +340,10 @@ func (s *Server) SendOnion(_ context.Context,
 		Expiry:      req.Timelock,
 		PaymentHash: hash,
 		OnionBlob:   [lnwire.OnionPacketSize]byte(req.OnionBlob),
+		// TODO: Add these from SendOnionRequest.
+		BlindingPoint: blindingPoint,
+		CustomRecords: req.CustomRecords,
+		ExtraData:     lnwire.ExtraOpaqueData(req.ExtraData),
 	}
 
 	// Make sure that SendOnion and TrackOnion have not been called with

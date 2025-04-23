@@ -218,3 +218,5 @@ go 1.23.6
 retract v0.0.2
 
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
+replace github.com/lightningnetwork/lnd/sqldb => ./sqldb

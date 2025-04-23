@@ -373,6 +373,11 @@ config option](https://github.com/lightningnetwork/lnd/pull/9182) and introduce
 a new option `channel-max-fee-exposure` which is unambiguous in its description.
 The underlying functionality between those two options remain the same.
 
+* [Replace offset with keyset pagination
+for sql invoice queries](https://github.com/lightningnetwork/lnd/pull/9756)
+because the offset query becomes inefficient for large databases.
+
+
 * Graph abstraction work:
     - [Abstract autopilot access](https://github.com/lightningnetwork/lnd/pull/9480)
     - [Abstract invoicerpc server access](https://github.com/lightningnetwork/lnd/pull/9516)

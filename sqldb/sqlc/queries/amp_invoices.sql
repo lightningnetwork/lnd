@@ -57,7 +57,9 @@ WHERE (
 ) AND (
     a.settle_index <= sqlc.narg('settle_index_let') OR
     sqlc.narg('settle_index_let') IS NULL
-);
+)
+ORDER BY  a.settle_index ASC
+LIMIT @num_limit;
 
 -- name: UpdateAMPSubInvoiceHTLCPreimage :execresult
 UPDATE amp_sub_invoice_htlcs AS a

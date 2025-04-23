@@ -104,7 +104,7 @@ CASE
     WHEN $9 = TRUE THEN id
     ELSE NULL
 END DESC
-LIMIT $11 OFFSET $10
+LIMIT $10
 `
 
 type FilterInvoicesParams struct {
@@ -117,7 +117,6 @@ type FilterInvoicesParams struct {
 	CreatedBefore  sql.NullTime
 	PendingOnly    interface{}
 	Reverse        interface{}
-	NumOffset      int32
 	NumLimit       int32
 }
 
@@ -132,7 +131,6 @@ func (q *Queries) FilterInvoices(ctx context.Context, arg FilterInvoicesParams) 
 		arg.CreatedBefore,
 		arg.PendingOnly,
 		arg.Reverse,
-		arg.NumOffset,
 		arg.NumLimit,
 	)
 	if err != nil {

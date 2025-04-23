@@ -105,7 +105,7 @@ CASE
     WHEN sqlc.narg('reverse') = TRUE THEN id
     ELSE NULL
 END DESC
-LIMIT @num_limit OFFSET @num_offset;
+LIMIT @num_limit;
 
 -- name: UpdateInvoiceState :execresult
 UPDATE invoices

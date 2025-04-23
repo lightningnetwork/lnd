@@ -148,11 +148,14 @@ WHERE (
     a.settle_index <= $2 OR
     $2 IS NULL
 )
+ORDER BY  a.settle_index ASC
+LIMIT $3
 `
 
 type FetchSettledAMPSubInvoicesParams struct {
 	SettleIndexGet sql.NullInt64
 	SettleIndexLet sql.NullInt64
+	NumLimit       int32
 }
 
 type FetchSettledAMPSubInvoicesRow struct {
@@ -180,7 +183,7 @@ type FetchSettledAMPSubInvoicesRow struct {
 }
 
 func (q *Queries) FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchSettledAMPSubInvoices, arg.SettleIndexGet, arg.SettleIndexLet)
+	rows, err := q.db.QueryContext(ctx, fetchSettledAMPSubInvoices, arg.SettleIndexGet, arg.SettleIndexLet, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}

@@ -741,34 +741,48 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				PendingOnly: true,
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
-				Reverse:     false,
-			}
-
-			rows, err := db.FilterInvoices(ctx, params)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
-			}
-
-			// Load all the information for the invoices.
-			for _, row := range rows {
-				hash, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
-				)
-				if err != nil {
-					return 0, err
+		return queryWithLimit(0, false, i.opts.paginationLimit,
+			func(addIndexGet int64) (int, int64, error) {
+				params := sqlc.FilterInvoicesParams{
+					PendingOnly: true,
+					NumLimit: int32(
+						i.opts.paginationLimit,
+					),
+					Reverse: false,
+					AddIndexGet: sqldb.SQLInt64(
+						addIndexGet,
+					),
 				}
 
-				invoices[*hash] = *invoice
-			}
+				rows, err := db.FilterInvoices(ctx, params)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+					return 0, 0, fmt.Errorf("unable to "+
+						"get pending invoices from "+
+						"db: %w", err)
+				}
+
+				// In case we do not have any rows we exit
+				// early.
+				if len(rows) == 0 {
+					return 0, 0, nil
+				}
+
+				// Load all the information for the invoices.
+				for _, row := range rows {
+					hash, invoice, err := fetchInvoiceData(
+						ctx, db, row, nil, true,
+					)
+					if err != nil {
+						return 0, 0, err
+					}
+
+					invoices[*hash] = *invoice
+				}
+
+				return len(rows), rows[len(rows)-1].ID, nil
+			})
 	}, func() {
 		invoices = make(map[lntypes.Hash]Invoice)
 	})
@@ -802,113 +816,143 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		err := queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				SettleIndexGet: sqldb.SQLInt64(idx + 1),
-				NumOffset:      int32(offset),
-				NumLimit:       int32(i.opts.paginationLimit),
-				Reverse:        false,
-			}
-
-			rows, err := db.FilterInvoices(ctx, params)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
-			}
-
-			// Load all the information for the invoices.
-			for _, row := range rows {
-				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
-				)
-				if err != nil {
-					return 0, fmt.Errorf("unable to fetch "+
-						"invoice(id=%d) from db: %w",
-						row.ID, err)
+		err := queryWithLimit(int64(idx), false, i.opts.paginationLimit,
+			func(offset int64) (int, int64, error) {
+				params := sqlc.FilterInvoicesParams{
+					SettleIndexGet: sqldb.SQLInt64(offset),
+					NumLimit: int32(
+						i.opts.paginationLimit,
+					),
+					Reverse: false,
 				}
 
-				invoices = append(invoices, *invoice)
+				rows, err := db.FilterInvoices(ctx, params)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
 
-				processedCount++
-				if time.Since(lastLogTime) >=
-					invoiceProgressLogInterval {
-
-					log.Debugf("Processed %d settled "+
-						"invoices which have a settle "+
-						"index greater than %v",
-						processedCount, idx)
-
-					lastLogTime = time.Now()
+					return 0, 0, fmt.Errorf("unable to "+
+						"get invoices from db: %w", err)
 				}
-			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+				// If we do not have any rows, we exit early.
+				if len(rows) == 0 {
+					return 0, 0, nil
+				}
+
+				// Load all the information for the invoices.
+				for _, row := range rows {
+					_, invoice, err := fetchInvoiceData(
+						ctx, db, row, nil, true,
+					)
+					if err != nil {
+						err = fmt.Errorf("unable to "+
+							"fetch invoice(id=%d) "+
+							"from db: %w", row.ID,
+							err)
+
+						return 0, 0, err
+					}
+
+					invoices = append(invoices, *invoice)
+
+					processedCount++
+					if time.Since(lastLogTime) >=
+						invoiceProgressLogInterval {
+
+						log.Debugf("Processed %d "+
+							"settled invoices "+
+							"which have a settle "+
+							"index greater than %v",
+							processedCount, idx)
+
+						lastLogTime = time.Now()
+					}
+				}
+
+				return len(rows),
+					rows[len(rows)-1].SettleIndex.Int64, nil
+			})
 		if err != nil {
 			return err
 		}
 
 		// Now fetch all the AMP sub invoices that were settled since
 		// the provided index.
-		ampInvoices, err := i.db.FetchSettledAMPSubInvoices(
-			ctx, sqlc.FetchSettledAMPSubInvoicesParams{
-				SettleIndexGet: sqldb.SQLInt64(idx + 1),
-			},
-		)
-		if err != nil {
-			return err
-		}
+		err = queryWithLimit(int64(idx), false, i.opts.paginationLimit,
+			//nolint:ll
+			func(offset int64) (int, int64, error) {
+				ampInvoices, err := i.db.FetchSettledAMPSubInvoices(
+					ctx, sqlc.FetchSettledAMPSubInvoicesParams{
+						SettleIndexGet: sqldb.SQLInt64(
+							offset,
+						),
+						NumLimit: int32(i.opts.paginationLimit),
+					},
+				)
+				if err != nil {
+					return 0, 0, err
+				}
 
-		for _, ampInvoice := range ampInvoices {
-			// Convert the row to a sqlc.Invoice so we can use the
-			// existing fetchInvoiceData function.
-			sqlInvoice := sqlc.Invoice{
-				ID:             ampInvoice.ID,
-				Hash:           ampInvoice.Hash,
-				Preimage:       ampInvoice.Preimage,
-				SettleIndex:    ampInvoice.AmpSettleIndex,
-				SettledAt:      ampInvoice.AmpSettledAt,
-				Memo:           ampInvoice.Memo,
-				AmountMsat:     ampInvoice.AmountMsat,
-				CltvDelta:      ampInvoice.CltvDelta,
-				Expiry:         ampInvoice.Expiry,
-				PaymentAddr:    ampInvoice.PaymentAddr,
-				PaymentRequest: ampInvoice.PaymentRequest,
-				State:          ampInvoice.State,
-				AmountPaidMsat: ampInvoice.AmountPaidMsat,
-				IsAmp:          ampInvoice.IsAmp,
-				IsHodl:         ampInvoice.IsHodl,
-				IsKeysend:      ampInvoice.IsKeysend,
-				CreatedAt:      ampInvoice.CreatedAt.UTC(),
-			}
+				if len(ampInvoices) == 0 {
+					return 0, 0, nil
+				}
 
-			// Fetch the state and HTLCs for this AMP sub invoice.
-			_, invoice, err := fetchInvoiceData(
-				ctx, db, sqlInvoice,
-				(*[32]byte)(ampInvoice.SetID), true,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to fetch "+
-					"AMP invoice(id=%d) from db: %w",
-					ampInvoice.ID, err)
-			}
+				for _, ampInvoice := range ampInvoices {
+					// Convert the row to a sqlc.Invoice so we can use the
+					// existing fetchInvoiceData function.
+					sqlInvoice := sqlc.Invoice{
+						ID:             ampInvoice.ID,
+						Hash:           ampInvoice.Hash,
+						Preimage:       ampInvoice.Preimage,
+						SettleIndex:    ampInvoice.AmpSettleIndex,
+						SettledAt:      ampInvoice.AmpSettledAt,
+						Memo:           ampInvoice.Memo,
+						AmountMsat:     ampInvoice.AmountMsat,
+						CltvDelta:      ampInvoice.CltvDelta,
+						Expiry:         ampInvoice.Expiry,
+						PaymentAddr:    ampInvoice.PaymentAddr,
+						PaymentRequest: ampInvoice.PaymentRequest,
+						State:          ampInvoice.State,
+						AmountPaidMsat: ampInvoice.AmountPaidMsat,
+						IsAmp:          ampInvoice.IsAmp,
+						IsHodl:         ampInvoice.IsHodl,
+						IsKeysend:      ampInvoice.IsKeysend,
+						CreatedAt:      ampInvoice.CreatedAt.UTC(),
+					}
 
-			invoices = append(invoices, *invoice)
+					// Fetch the state and HTLCs for this AMP sub invoice.
+					_, invoice, err := fetchInvoiceData(
+						ctx, db, sqlInvoice,
+						(*[32]byte)(ampInvoice.SetID), true,
+					)
+					if err != nil {
+						return 0, 0, fmt.Errorf("unable to fetch "+
+							"AMP invoice(id=%d) from db: %w",
+							ampInvoice.ID, err)
+					}
 
-			processedCount++
-			if time.Since(lastLogTime) >=
-				invoiceProgressLogInterval {
+					invoices = append(invoices, *invoice)
 
-				log.Debugf("Processed %d settled invoices "+
-					"including AMP sub invoices which "+
-					"have a settle index greater than %v",
-					processedCount, idx)
+					processedCount++
+					if time.Since(lastLogTime) >=
+						invoiceProgressLogInterval {
 
-				lastLogTime = time.Now()
-			}
-		}
+						log.Debugf("Processed %d settled invoices "+
+							"including AMP sub invoices which "+
+							"have a settle index greater than %v",
+							processedCount, idx)
 
-		return nil
+						lastLogTime = time.Now()
+					}
+				}
+
+				lastInv := ampInvoices[len(ampInvoices)-1]
+				LastIndexOffset := lastInv.SettleIndex.Int64
+
+				return len(ampInvoices), LastIndexOffset, nil
+			})
+
+		return err
 	}, func() {
 		invoices = nil
 	})
@@ -948,45 +992,61 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				AddIndexGet: sqldb.SQLInt64(idx + 1),
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
-				Reverse:     false,
-			}
-
-			rows, err := db.FilterInvoices(ctx, params)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
-			}
-
-			// Load all the information for the invoices.
-			for _, row := range rows {
-				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
-				)
-				if err != nil {
-					return 0, err
+		return queryWithLimit(int64(idx), false, i.opts.paginationLimit,
+			func(offset int64) (int, int64, error) {
+				params := sqlc.FilterInvoicesParams{
+					AddIndexGet: sqldb.SQLInt64(offset),
+					NumLimit: int32(
+						i.opts.paginationLimit,
+					),
+					Reverse: false,
 				}
 
-				result = append(result, *invoice)
+				rows, err := db.FilterInvoices(ctx, params)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
 
-				processedCount++
-				if time.Since(lastLogTime) >=
-					invoiceProgressLogInterval {
-
-					log.Debugf("Processed %d invoices "+
-						"which were added since add "+
-						"index %v", processedCount, idx)
-
-					lastLogTime = time.Now()
+					return 0, 0, fmt.Errorf("unable to "+
+						"get invoices from db: %w", err)
 				}
-			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+				// If we do not have any rows, we exit early.
+				if len(rows) == 0 {
+					return 0, 0, nil
+				}
+
+				// Load all the information for the invoices.
+				for _, row := range rows {
+					_, invoice, err := fetchInvoiceData(
+						ctx, db, row, nil, true,
+					)
+					if err != nil {
+						err = fmt.Errorf("unable to "+
+							"fetch invoice(id=%d) "+
+							"from db: %w", row.ID,
+							err)
+
+						return 0, 0, err
+					}
+
+					result = append(result, *invoice)
+
+					processedCount++
+					if time.Since(lastLogTime) >=
+						invoiceProgressLogInterval {
+
+						log.Debugf("Processed %d "+
+							"invoices which were "+
+							"added since add "+
+							"index %v",
+							processedCount, idx)
+
+						lastLogTime = time.Now()
+					}
+				}
+
+				return len(rows), rows[len(rows)-1].ID, nil
+			})
 	}, func() {
 		result = nil
 	})
@@ -1019,74 +1079,96 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 
 	readTxOpt := NewSQLInvoiceQueryReadTx()
 	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
-		return queryWithLimit(func(offset int) (int, error) {
-			params := sqlc.FilterInvoicesParams{
-				NumOffset:   int32(offset),
-				NumLimit:    int32(i.opts.paginationLimit),
-				PendingOnly: q.PendingOnly,
-				Reverse:     q.Reversed,
-			}
+		return queryWithLimit(int64(q.IndexOffset), q.Reversed,
+			i.opts.paginationLimit,
+			func(offset int64) (int, int64, error) {
+				params := sqlc.FilterInvoicesParams{
+					NumLimit: int32(
+						i.opts.paginationLimit,
+					),
+					PendingOnly: q.PendingOnly,
+					Reverse:     q.Reversed,
+					AddIndexGet: sqldb.SQLInt64(offset),
+				}
 
-			if q.Reversed {
-				// If the index offset was not set, we want to
-				// fetch from the lastest invoice.
-				if q.IndexOffset == 0 {
-					params.AddIndexLet = sqldb.SQLInt64(
-						int64(math.MaxInt64),
+				// We need to set the other index key if we are
+				// iterating in reverse order.
+				if q.Reversed {
+					params = sqlc.FilterInvoicesParams{
+						NumLimit: int32(
+							i.opts.paginationLimit,
+						),
+						PendingOnly: q.PendingOnly,
+						Reverse:     q.Reversed,
+						AddIndexLet: sqldb.SQLInt64(
+							offset,
+						),
+					}
+				}
+
+				if q.CreationDateStart != 0 {
+					params.CreatedAfter = sqldb.SQLTime(
+						time.Unix(
+							q.CreationDateStart, 0,
+						).UTC(),
 					)
-				} else {
-					// The invoice with index offset id must
-					// not be included in the results.
-					params.AddIndexLet = sqldb.SQLInt64(
-						q.IndexOffset - 1,
+				}
+
+				if q.CreationDateEnd != 0 {
+					// We need to add 1 to the end date
+					// as we're checking less than the end
+					// date in SQL.
+					params.CreatedBefore = sqldb.SQLTime(
+						time.Unix(
+							q.CreationDateEnd+1, 0,
+						).UTC(),
 					)
 				}
-			} else {
-				// The invoice with index offset id must not be
-				// included in the results.
-				params.AddIndexGet = sqldb.SQLInt64(
-					q.IndexOffset + 1,
-				)
-			}
 
-			if q.CreationDateStart != 0 {
-				params.CreatedAfter = sqldb.SQLTime(
-					time.Unix(q.CreationDateStart, 0).UTC(),
-				)
-			}
+				rows, err := db.FilterInvoices(ctx, params)
+				if err != nil &&
+					!errors.Is(err, sql.ErrNoRows) {
 
-			if q.CreationDateEnd != 0 {
-				// We need to add 1 to the end date as we're
-				// checking less than the end date in SQL.
-				params.CreatedBefore = sqldb.SQLTime(
-					time.Unix(q.CreationDateEnd+1, 0).UTC(),
-				)
-			}
+					err = fmt.Errorf("unable to get "+
+						"invoices from db: %w", err)
 
-			rows, err := db.FilterInvoices(ctx, params)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return 0, fmt.Errorf("unable to get invoices "+
-					"from db: %w", err)
-			}
-
-			// Load all the information for the invoices.
-			for _, row := range rows {
-				_, invoice, err := fetchInvoiceData(
-					ctx, db, row, nil, true,
-				)
-				if err != nil {
-					return 0, err
+					return 0, 0, err
 				}
 
-				invoices = append(invoices, *invoice)
+				// Load all the information for the invoices.
+				for _, row := range rows {
+					_, invoice, err := fetchInvoiceData(
+						ctx, db, row, nil, true,
+					)
+					if err != nil {
+						err = fmt.Errorf("unable to "+
+							"fetch invoice(id=%d) "+
+							"from db: %w", row.ID,
+							err)
 
-				if len(invoices) == int(q.NumMaxInvoices) {
-					return 0, nil
+						return 0, 0, err
+					}
+
+					invoices = append(invoices, *invoice)
+
+					// TODO(ziggie): Should we instead use
+					// `NumMaxInvoices` as pagination limit?
+					if len(invoices) ==
+						int(q.NumMaxInvoices) {
+
+						return 0, 0, nil
+					}
 				}
-			}
 
-			return len(rows), nil
-		}, i.opts.paginationLimit)
+				// In case we have iterated through the index
+				// and have no invoices we return a last index
+				// of 0.
+				if len(rows) == 0 {
+					return 0, 0, nil
+				}
+
+				return len(rows), rows[len(rows)-1].ID, nil
+			})
 	}, func() {
 		invoices = nil
 	})
@@ -1847,10 +1929,21 @@ func unmarshalInvoiceHTLC(row sqlc.InvoiceHtlc) (CircuitKey,
 // queryWithLimit is a helper method that can be used to query the database
 // using a limit and offset. The passed query function should return the number
 // of rows returned and an error if any.
-func queryWithLimit(query func(int) (int, error), limit int) error {
-	offset := 0
+func queryWithLimit(indexOffset int64, reversed bool, limit int,
+	query func(indexOffset int64) (int, int64, error)) error {
+
+	// We make sure we do not include the last row in the next query.
+	offset := indexOffset + 1
+	if reversed {
+		if indexOffset == 0 {
+			offset = int64(math.MaxInt64)
+		} else {
+			offset = indexOffset - 1
+		}
+	}
+
 	for {
-		rows, err := query(offset)
+		rows, lastID, err := query(offset)
 		if err != nil {
 			return err
 		}
@@ -1859,6 +1952,10 @@ func queryWithLimit(query func(int) (int, error), limit int) error {
 			return nil
 		}
 
-		offset += limit
+		if reversed {
+			offset = lastID - 1
+		} else {
+			offset = lastID + 1
+		}
 	}
 }

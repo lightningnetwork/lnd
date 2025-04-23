@@ -5128,6 +5128,22 @@ message RPCMiddlewareRequest {
     intercept message.
     */
     uint64 msg_id = 7;
+
+    /*
+    The metadata pairs that were sent along with the original gRPC request via
+    the golang context.Context using explicit [gRPC
+    metadata](https://grpc.io/docs/guides/metadata/). Context values are not
+    propagated via gRPC and so we send any pairs along explicitly here so that
+    the interceptor can access them.
+    */
+    map<string, MetadataValues> metadata_pairs = 9;
+}
+
+message MetadataValues {
+    /*
+    The set of metadata values that correspond to the metadata key.
+    */
+    repeated string values = 1;
 }
 
 message StreamAuth {

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -391,6 +392,10 @@ type InterceptionRequest struct {
 	// IsError indicates that the message contained within this request is
 	// an error. Will only ever be true for response messages.
 	IsError bool
+
+	// CtxMetadataPairs contains the metadata pairs that were sent along
+	// with the RPC request via the context.
+	CtxMetadataPairs metadata.MD
 }
 
 // NewMessageInterceptionRequest creates a new interception request for either
@@ -404,12 +409,15 @@ func NewMessageInterceptionRequest(ctx context.Context,
 		return nil, err
 	}
 
+	md, _ := metadata.FromIncomingContext(ctx)
+
 	req := &InterceptionRequest{
-		Type:        authType,
-		StreamRPC:   isStream,
-		Macaroon:    mac,
-		RawMacaroon: rawMacaroon,
-		FullURI:     fullMethod,
+		Type:             authType,
+		StreamRPC:        isStream,
+		Macaroon:         mac,
+		RawMacaroon:      rawMacaroon,
+		FullURI:          fullMethod,
+		CtxMetadataPairs: md,
 	}
 
 	// The message is either a proto message or an error, we don't support
@@ -486,11 +494,21 @@ func macaroonFromContext(ctx context.Context) (*macaroon.Macaroon, []byte,
 func (r *InterceptionRequest) ToRPC(requestID,
 	msgID uint64) (*lnrpc.RPCMiddlewareRequest, error) {
 
+	mdPairs := make(
+		map[string]*lnrpc.MetadataValues, len(r.CtxMetadataPairs),
+	)
+	for key, values := range r.CtxMetadataPairs {
+		mdPairs[key] = &lnrpc.MetadataValues{
+			Values: values,
+		}
+	}
+
 	rpcRequest := &lnrpc.RPCMiddlewareRequest{
 		RequestId:             requestID,
 		MsgId:                 msgID,
 		RawMacaroon:           r.RawMacaroon,
 		CustomCaveatCondition: r.CustomCaveatCondition,
+		MetadataPairs:         mdPairs,
 	}
 
 	switch r.Type {

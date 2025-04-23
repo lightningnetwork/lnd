@@ -307,6 +307,10 @@ close transaction.
 
 * [Allow custom lock ID and
   duration in FundPsbt](https://github.com/lightningnetwork/lnd/pull/9724) RPC.
+ 
+* Expand the [lnrpc.RPCMiddlewareRequest](https://github.com/lightningnetwork/lnd/pull/9739) 
+  to include any [gRPC metadata](https://grpc.io/docs/guides/metadata) pairs 
+  that are passed to the initial request via the `context.Context`.
 
 ## lncli Updates
 

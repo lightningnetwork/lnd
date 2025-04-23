@@ -6093,6 +6093,18 @@
         }
       }
     },
+    "lnrpcMetadataValues": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The set of metadata values that correspond to the metadata key."
+        }
+      }
+    },
     "lnrpcMiddlewareRegistration": {
       "type": "object",
       "properties": {
@@ -7051,6 +7063,13 @@
           "type": "string",
           "format": "uint64",
           "description": "The unique message ID of this middleware intercept message. There can be\nmultiple middleware intercept messages per single gRPC request (one for the\nincoming request and one for the outgoing response) or gRPC stream (one for\neach incoming message and one for each outgoing response). This message ID\nmust be referenced when responding (accepting/rejecting/modifying) to an\nintercept message."
+        },
+        "metadata_pairs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcMetadataValues"
+          },
+          "description": "The metadata pairs that were sent along with the original gRPC request via\nthe golang context.Context using explicit [gRPC\nmetadata](https://grpc.io/docs/guides/metadata/). Context values are not\npropagated via gRPC and so we send any pairs along explicitly here so that\nthe interceptor can access them."
         }
       }
     },

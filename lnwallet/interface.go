@@ -660,10 +660,16 @@ func InternalKeyForAddr(wallet WalletController, netParams *chaincfg.Params,
 		return none, nil
 	}
 
+	// Imported addresses do not provide private keys, so they do not
+	// implement waddrmgr.ManagedPubKeyAddress. See RPC ImportTapscript.
+	if walletAddr.Imported() {
+		return none, nil
+	}
+
 	pubKeyAddr, ok := walletAddr.(waddrmgr.ManagedPubKeyAddress)
 	if !ok {
 		return none, fmt.Errorf("expected pubkey addr, got %T",
-			pubKeyAddr)
+			walletAddr)
 	}
 
 	_, derivationPath, _ := pubKeyAddr.DerivationInfo()

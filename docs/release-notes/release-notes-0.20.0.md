@@ -114,6 +114,9 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   `channel_update` message and handle it explicitly throughout the code base 
   instead of extracting it from the TLV stream at various call-sites.
 
+* [Require invoices to include a payment address or blinded paths](https://github.com/lightningnetwork/lnd/pull/9752) 
+  to comply with updated BOLT 11 specifications before sending payments.
+
 ## Testing
 
 ## Database
@@ -126,6 +129,7 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 * Abdulkbk
 * Elle Mouton
+* Erick Cestari
 * Funyug
 * Mohamed Awnallah
 * Pins

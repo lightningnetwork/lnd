@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,7 +18,7 @@ import (
 // maximum fee rate of 100 sat/vbyte is reached.
 func testBumpFeeUntilMaxReached(ht *lntest.HarnessTest) {
 	const (
-		maxFeeRate    = 100 // sat/vbyte
+		maxFeeRate     = 100 // sat/vbyte
 		defaultTimeout = 30 * time.Second
 	)
 
@@ -47,12 +48,12 @@ func testBumpFeeUntilMaxReached(ht *lntest.HarnessTest) {
 	// Get the raw transaction to find an input outpoint for fee-bumping.
 	txHash, err := chainhash.NewHashFromStr(txid)
 	require.NoError(ht, err, "invalid txid")
-	txRaw, err := ht.Miner.Client.GetRawTransactionVerbose(txid)
+	txRawVerbose, err := ht.Miner().Client.GetRawTransactionVerbose(txHash)
 	require.NoError(ht, err, "failed to get raw tx")
 
 	// Select the first input outpoint (assumes at least one input).
-	require.Greater(ht, len(txRaw.Vin), 0, "no inputs in transaction")
-	input := txRaw.Vin[0]
+	require.Greater(ht, len(txRawVerbose.Vin), 0, "no inputs in transaction")
+	input := txRawVerbose.Vin[0]
 	op := &lnrpc.OutPoint{
 		TxidBytes:   txHash[:],
 		OutputIndex: uint32(input.Vout),
@@ -71,7 +72,7 @@ func testBumpFeeUntilMaxReached(ht *lntest.HarnessTest) {
 	}
 	var currentFeeRate uint64
 	for i := 0; i < 20; i++ {
-		_, err := alice.RPC.WalletKit.BumpFee(ht.MainContext, bumpReq)
+		_, err := alice.RPC.WalletKit.BumpFee(ht.Context(), bumpReq)
 		if err != nil {
 			if strings.Contains(err.Error(), "max fee rate exceeded") ||
 				strings.Contains(err.Error(), "position already at max") {

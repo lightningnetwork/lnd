@@ -118,6 +118,32 @@ var (
 		},
 	}
 
+	resultOld3 = paymentResultOld{
+		id:               3,
+		timeFwd:          time.Unix(0, 4),
+		timeReply:        time.Unix(0, 7),
+		success:          false,
+		failure:          nil,
+		failureSourceIdx: &failureIndex,
+		route: &Route{
+			TotalTimeLock: 101,
+			TotalAmount:   401,
+			SourcePubKey:  testPub2,
+			Hops: []*Hop{
+				{
+					PubKeyBytes:      testPub,
+					ChannelID:        800,
+					OutgoingTimeLock: 4,
+					AmtToForward:     4,
+					BlindingPoint:    pubkey,
+					EncryptedData:    []byte{1, 2, 3},
+					CustomRecords:    customRecord,
+					TotalAmtMsat:     600,
+				},
+			},
+		},
+	}
+
 	//nolint:ll
 	resultNew1Hop1 = &mcHop{
 		channelID:   tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](100),
@@ -182,7 +208,7 @@ var (
 		),
 		failure: tlv.SomeRecordT(
 			tlv.NewRecordT[tlv.TlvType3](
-				*newPaymentFailure(
+				newPaymentFailure(
 					&failureIndex,
 					&lnwire.FailFeeInsufficient{},
 				),
@@ -217,6 +243,31 @@ var (
 			}),
 		}),
 	}
+
+	//nolint:ll
+	resultNew3 = paymentResultNew{
+		id: 3,
+		timeFwd: tlv.NewPrimitiveRecord[tlv.TlvType0, uint64](
+			uint64(time.Unix(0, 4).UnixNano()),
+		),
+		timeReply: tlv.NewPrimitiveRecord[tlv.TlvType1, uint64](
+			uint64(time.Unix(0, 7).UnixNano()),
+		),
+		failure: tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType3](
+				newPaymentFailure(
+					&failureIndex, nil,
+				),
+			),
+		),
+		route: tlv.NewRecordT[tlv.TlvType2](mcRoute{
+			sourcePubKey: tlv.NewRecordT[tlv.TlvType0](testPub2),
+			totalAmount:  tlv.NewRecordT[tlv.TlvType1, lnwire.MilliSatoshi](401),
+			hops: tlv.NewRecordT[tlv.TlvType2](mcHops{
+				resultNew2Hop1,
+			}),
+		}),
+	}
 )
 
 // TestMigrateMCRouteSerialisation tests that the MigrateMCRouteSerialisation
@@ -225,10 +276,10 @@ var (
 func TestMigrateMCRouteSerialisation(t *testing.T) {
 	var (
 		resultsOld = []*paymentResultOld{
-			&resultOld1, &resultOld2,
+			&resultOld1, &resultOld2, &resultOld3,
 		}
 		expectedResultsNew = []*paymentResultNew{
-			&resultNew1, &resultNew2,
+			&resultNew1, &resultNew2, &resultNew3,
 		}
 	)
 

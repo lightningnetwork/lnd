@@ -6212,6 +6212,41 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			blindingRestrictions.NodeOmissionSet.Add(vertex)
 		}
+
+		blindingRestrictions.IncomingChainedChannels = append(
+			blindingRestrictions.IncomingChainedChannels,
+			blindCfg.IncomingChannelList...,
+		)
+
+		numChainedChannels :=
+			uint8(len(blindingRestrictions.IncomingChainedChannels))
+
+		// When selecting the blinded incoming channel list parameter
+		// the maximum number of hops is implictitly set.
+		if numChainedChannels > blindingRestrictions.NumHops {
+			rpcsLog.Warnf("Changing the num_blinded_hops "+
+				"from (%d) to (%d)",
+				blindingRestrictions.NumHops,
+				numChainedChannels)
+
+			blindingRestrictions.NumHops =
+				numChainedChannels
+		}
+
+		// The MinDistanceFromIntroNode must be greater than or equal to
+		// the number of hops specified on the chained channels.
+		minNumHops := blindingRestrictions.MinDistanceFromIntroNode
+		if minNumHops < numChainedChannels {
+			// Ensure MinimumPath is at least the size of the
+			// chained path to avoid shorter routes being returned
+			// by the pathfinder.
+			return nil, fmt.Errorf("minimum number of blinded "+
+				"path hops (%d) must be greater than or equal "+
+				"to the number of hops specified on the "+
+				"chained channels (%d)", minNumHops,
+				numChainedChannels)
+		}
+
 	}
 
 	if blindingRestrictions.MinDistanceFromIntroNode >

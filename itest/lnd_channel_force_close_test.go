@@ -191,10 +191,18 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// expect Alice's anchor sweeping tx being published.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Assert Alice's has one pending anchor output - because she doesn't
-	// have incoming HTLCs, her outgoing HTLC won't have a deadline, thus
-	// she won't use the anchor to perform CPFP.
-	aliceAnchor := ht.AssertNumPendingSweeps(alice, 1)[0]
+	// Assert Alice's has one pending anchor output and the commit output
+	// sweep - because she doesn't have incoming HTLCs, her outgoing HTLC
+	// won't have a deadline, thus she won't use the anchor to perform CPFP.
+	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+
+	// Find the anchor sweep - assume it's the first one, and change to the
+	// second one if the first one has a larger value.
+	aliceAnchor := sweeps[0]
+	if aliceAnchor.AmountSat > sweeps[1].AmountSat {
+		aliceAnchor = sweeps[1]
+	}
+
 	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
 		waitingClose.Commitments.LocalTxid)
 
@@ -250,8 +258,9 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// commit and anchor outputs.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Alice should still have the anchor sweeping request.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// Alice should still have the anchor and commit output sweeping
+	// requests.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Alice should see the channel in her set of pending force closed
 	// channels with her funds still in limbo.
@@ -282,8 +291,8 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
-	sweeps := ht.AssertNumPendingSweeps(alice, 2)
-	commitSweep, anchorSweep := sweeps[0], sweeps[1]
+	aliceSweeps := ht.AssertNumPendingSweeps(alice, 2)
+	commitSweep, anchorSweep := aliceSweeps[0], aliceSweeps[1]
 	if commitSweep.AmountSat < anchorSweep.AmountSat {
 		commitSweep = anchorSweep
 	}
@@ -790,10 +799,18 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	// expect Alice's anchor sweeping tx being published.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Assert Alice's has one pending anchor output - because she doesn't
-	// have incoming HTLCs, her outgoing HTLC won't have a deadline, thus
-	// she won't use the anchor to perform CPFP.
-	aliceAnchor := ht.AssertNumPendingSweeps(alice, 1)[0]
+	// Assert Alice's has one pending anchor output and the commit output
+	// sweep - because she doesn't have incoming HTLCs, her outgoing HTLC
+	// won't have a deadline, thus she won't use the anchor to perform CPFP.
+	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+
+	// Find the anchor sweep - assume it's the first one, and change to the
+	// second one if the first one has a larger value.
+	aliceAnchor := sweeps[0]
+	if aliceAnchor.AmountSat > sweeps[1].AmountSat {
+		aliceAnchor = sweeps[1]
+	}
+
 	require.Equal(ht, aliceAnchor.Outpoint.TxidStr,
 		waitingClose.Commitments.LocalTxid)
 
@@ -860,8 +877,9 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	// commit and anchor outputs.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Alice should still have the anchor sweeping request.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// Alice should still have the anchor and commit output sweeping
+	// requests.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// The following restart checks to ensure that outputs in the contract
 	// court are persisted while waiting for the required number of
@@ -918,7 +936,7 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the output should be offered to the sweeper.
-	sweeps := ht.AssertNumPendingSweeps(alice, 2)
+	sweeps = ht.AssertNumPendingSweeps(alice, 2)
 	commitSweep, anchorSweep := sweeps[0], sweeps[1]
 	if commitSweep.AmountSat < anchorSweep.AmountSat {
 		commitSweep, anchorSweep = anchorSweep, commitSweep

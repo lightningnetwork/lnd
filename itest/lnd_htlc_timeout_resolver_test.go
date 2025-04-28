@@ -309,8 +309,9 @@ func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
 
 	// Once Bob's force closing tx is confirmed, he will re-offer the
 	// anchor output to his sweeper, which won't be swept due to it being
-	// uneconomical.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// uneconomical. In addition, the to_local output should also be found
+	// although it's immature.
+	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Mine 3 blocks so the output will be offered to the sweeper.
 	ht.MineBlocks(defaultCSV - 1)

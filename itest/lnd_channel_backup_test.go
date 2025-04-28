@@ -1454,7 +1454,7 @@ func assertTimeLockSwept(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	// Carol should sweep her funds immediately, as they are not
 	// timelocked.
 	ht.AssertNumPendingSweeps(carol, 2)
-	ht.AssertNumPendingSweeps(dave, 1)
+	ht.AssertNumPendingSweeps(dave, 2)
 
 	// We expect Carol to sweep her funds and her anchor in a single sweep
 	// tx. In addition, Dave will attempt to sweep his anchor output but
@@ -1577,9 +1577,10 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 
 		// Both Dave and Carol should have an anchor sweep request.
 		// Note that they cannot sweep them as these anchor sweepings
-		// are uneconomical.
-		ht.AssertNumPendingSweeps(dave, 1)
-		ht.AssertNumPendingSweeps(carol, 1)
+		// are uneconomical. In addition, they should also have their
+		// leased to_local commit output.
+		ht.AssertNumPendingSweeps(dave, 2)
+		ht.AssertNumPendingSweeps(carol, 2)
 
 		// After Carol's output matures, she should also reclaim her
 		// funds.
@@ -1620,7 +1621,7 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// timelocked. We also expect Carol and Dave sweep their
 		// anchors if it's an anchor channel.
 		if lntest.CommitTypeHasAnchors(commitType) {
-			ht.AssertNumPendingSweeps(carol, 1)
+			ht.AssertNumPendingSweeps(carol, 2)
 			ht.AssertNumPendingSweeps(dave, 2)
 		} else {
 			ht.AssertNumPendingSweeps(dave, 1)

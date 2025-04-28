@@ -711,8 +711,11 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	}
 
 	// Assert there's a pending anchor sweep.
+	//
+	// NOTE: We may have a local sweep here, that's why we use
+	// AssertAtLeastNumPendingSweeps instead of AssertNumPendingSweeps.
 	if anchorSweep {
-		h.AssertNumPendingSweeps(hn, 1)
+		h.AssertAtLeastNumPendingSweeps(hn, 1)
 	}
 
 	return closingTxid
@@ -2723,9 +2726,10 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode,
 		numDesc := "\n"
 		for _, s := range resp.PendingSweeps {
 			desc := fmt.Sprintf("op=%v:%v, amt=%v, type=%v, "+
-				"deadline=%v\n", s.Outpoint.TxidStr,
-				s.Outpoint.OutputIndex, s.AmountSat,
-				s.WitnessType, s.DeadlineHeight)
+				"deadline=%v, maturityHeight=%v\n",
+				s.Outpoint.TxidStr, s.Outpoint.OutputIndex,
+				s.AmountSat, s.WitnessType, s.DeadlineHeight,
+				s.MaturityHeight)
 			numDesc += desc
 
 			// The deadline height must be set, otherwise the
@@ -2736,6 +2740,47 @@ func (h *HarnessTest) AssertNumPendingSweeps(hn *node.HarnessNode,
 		}
 
 		if num == n {
+			results = resp.PendingSweeps
+			return nil
+		}
+
+		return fmt.Errorf("want %d , got %d, sweeps: %s", n, num,
+			numDesc)
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: check pending sweeps timeout", hn.Name())
+
+	return results
+}
+
+// AssertAtLeastNumPendingSweeps asserts there are at least n pending sweeps for
+// the given node.
+func (h *HarnessTest) AssertAtLeastNumPendingSweeps(hn *node.HarnessNode,
+	n int) []*walletrpc.PendingSweep {
+
+	results := make([]*walletrpc.PendingSweep, 0, n)
+
+	err := wait.NoError(func() error {
+		resp := hn.RPC.PendingSweeps()
+		num := len(resp.PendingSweeps)
+
+		numDesc := "\n"
+		for _, s := range resp.PendingSweeps {
+			desc := fmt.Sprintf("op=%v:%v, amt=%v, type=%v, "+
+				"deadline=%v, maturityHeight=%v\n",
+				s.Outpoint.TxidStr, s.Outpoint.OutputIndex,
+				s.AmountSat, s.WitnessType, s.DeadlineHeight,
+				s.MaturityHeight)
+			numDesc += desc
+
+			// The deadline height must be set, otherwise the
+			// pending input response is not update-to-date.
+			if s.DeadlineHeight == 0 {
+				return fmt.Errorf("input not updated: %s", desc)
+			}
+		}
+
+		if num >= n {
 			results = resp.PendingSweeps
 			return nil
 		}

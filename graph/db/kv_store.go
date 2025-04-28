@@ -512,6 +512,8 @@ func (c *KVStore) forEachNodeDirectedChannel(tx kvdb.RTx,
 
 		if node == e.NodeKey2Bytes {
 			directedChannel.OtherNode = e.NodeKey1Bytes
+
+			directedChannel.IsNode1 = false
 		}
 
 		return cb(directedChannel)
@@ -622,6 +624,8 @@ func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
 				if node.PubKeyBytes == e.NodeKey2Bytes {
 					directedChannel.OtherNode =
 						e.NodeKey1Bytes
+
+					directedChannel.IsNode1 = false
 				}
 
 				channels[e.ChannelID] = directedChannel

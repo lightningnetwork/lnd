@@ -6200,6 +6200,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			blindingRestrictions.NumHops = uint8(*blindCfg.NumHops)
 		}
 		if blindCfg.MaxNumPaths != nil {
+			if *blindCfg.MaxNumPaths == 0 {
+				return nil, fmt.Errorf("blinded max num " +
+					"paths cannot be 0")
+			}
 			blindingRestrictions.MaxNumPaths =
 				uint8(*blindCfg.MaxNumPaths)
 		}

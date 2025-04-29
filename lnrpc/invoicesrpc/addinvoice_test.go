@@ -6,10 +6,13 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -895,4 +898,126 @@ func TestPopulateHopHints(t *testing.T) {
 			require.ElementsMatch(t, tc.expectedHopHints, hopHints)
 		})
 	}
+}
+
+// TestBlindedPathsToRoutes checks that BlindedPathsToRoutes builds, orders,
+// and filters routes from blinded paths based on mocked success probabilities.
+func TestBlindedPathsToRoutes(t *testing.T) {
+	t.Parallel()
+
+	// Create the hops alice -> bob -> carol and alice -> bob -> dave
+	alice := route.Vertex{1}
+	bob := route.Vertex{2}
+	carol := route.Vertex{3}
+	dave := route.Vertex{4}
+
+	blindedPaths := [][]routing.BlindedHop{
+		{
+			{
+				Vertex:    alice,
+				ChannelID: 1,
+			},
+			{
+				Vertex:    bob,
+				ChannelID: 2,
+			},
+			{
+				Vertex:    carol,
+				ChannelID: 3,
+			},
+		},
+		{
+			{
+				Vertex:    alice,
+				ChannelID: 1,
+			},
+			{
+				Vertex:    bob,
+				ChannelID: 2,
+			},
+			{
+				Vertex:    dave,
+				ChannelID: 4,
+			},
+		},
+	}
+
+	// Create a mission control store which initially sets the success
+	// probability of each node pair to 1.
+	missionControl := map[route.Vertex]map[route.Vertex]float64{
+		alice: {
+			bob: 1,
+		},
+		bob: {
+			carol: 1,
+			dave:  1,
+		},
+	}
+
+	// probabilitySrc is a helper that returns the mission control success
+	// probability of a forward between two vertices.
+	probabilitySrc := func(from route.Vertex, to route.Vertex,
+		amt lnwire.MilliSatoshi, _ btcutil.Amount) float64 {
+
+		return missionControl[from][to]
+	}
+
+	cfg := &AddInvoiceConfig{
+		ProbabilitySource: probabilitySrc,
+	}
+
+	// assertRoutes checks that the resulting set of routes is equal to the
+	// expected set and that the order is correct.
+	assertRoutes := func(routes []*route.Route,
+		expectedRoutes [][]route.Vertex) {
+
+		require.Len(t, routes, len(expectedRoutes))
+
+		for i, route := range routes {
+			for j, hop := range route.Hops {
+				require.Equal(t, hop.PubKeyBytes,
+					expectedRoutes[i][j])
+			}
+		}
+	}
+
+	// All the probabilities are set to 1, then we expect two paths here,
+	// with the initial order created.
+	routes, err := blindedPathsToRoutes(blindedPaths, cfg, 0)
+
+	require.NoError(t, err)
+	expectedRoutes := [][]route.Vertex{
+		{bob, carol},
+		{bob, dave},
+	}
+	assertRoutes(routes, expectedRoutes)
+
+	// Now, let's lower the MC probability of alice-> bob, then we expect
+	// carol first than bob.
+	missionControl[bob][carol] = 0.5
+	routes, err = blindedPathsToRoutes(blindedPaths, cfg, 0)
+
+	require.NoError(t, err)
+	expectedRoutes = [][]route.Vertex{
+		{bob, dave},
+		{bob, carol},
+	}
+	assertRoutes(routes, expectedRoutes)
+
+	// We make one of the routes have a probability less than the minimum.
+	// This means we expect that route not to be chosen.
+	missionControl[bob][carol] = routing.DefaultMinRouteProbability
+	routes, err = blindedPathsToRoutes(blindedPaths, cfg, 0)
+
+	require.NoError(t, err)
+	expectedRoutes = [][]route.Vertex{
+		{bob, dave},
+	}
+	assertRoutes(routes, expectedRoutes)
+
+	// Finally, we send an nil blindePaths. This means we expect an error.
+	blindedPaths = [][]routing.BlindedHop{nil}
+	_, err = blindedPathsToRoutes(blindedPaths, cfg, 0)
+
+	require.EqualError(t, err, "a blinded path must have at least one hop")
 }

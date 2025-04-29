@@ -94,9 +94,14 @@ type AddInvoiceConfig struct {
 	// aware of.
 	BestHeight func() (uint32, error)
 
-	// QueryBlindedRoutes can be used to generate a few routes to this node
+	// QueryBlindedPaths can be used to generate a few paths to this node
 	// that can then be used in the construction of a blinded payment path.
-	QueryBlindedRoutes func(lnwire.MilliSatoshi) ([]*route.Route, error)
+	QueryBlindedPaths func() ([][]routing.BlindedHop, error)
+
+	// ProbabilitySource is a callback that is expected to return the
+	// success probability of traversing the channel from the node.
+	ProbabilitySource func(route.Vertex, route.Vertex,
+		lnwire.MilliSatoshi, btcutil.Amount) float64
 }
 
 // AddInvoiceData contains the required data to create a new invoice.
@@ -178,6 +183,9 @@ type BlindedPathConfig struct {
 	// should be. Dummy hops will be used to pad any route with a length
 	// less than this.
 	MinNumPathHops uint8
+
+	// MaxNumPaths is the maximum number of blinded paths to select.
+	MaxNumPaths uint8
 
 	// DefaultDummyHopPolicy holds the default policy values to use for
 	// dummy hops in a blinded path in the case where they cant be derived
@@ -276,6 +284,96 @@ func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage,
 	}
 
 	return paymentPreimage, paymentHash, nil
+}
+
+// BlindedPathsToRoutes converts blinded paths into *route.Route objects,
+// filtering out low-probability routes based on a given ProbabilitySource, and
+// returns the valid ones sorted by success probability.
+func blindedPathsToRoutes(blindedPaths [][]routing.BlindedHop,
+	cfg *AddInvoiceConfig,
+	amt lnwire.MilliSatoshi) ([]*route.Route, error) {
+
+	// routeWithProbability groups a route with the probability of a
+	// payment of the given amount succeeding on that path.
+	type routeWithProbability struct {
+		route       *route.Route
+		probability float64
+	}
+
+	// Iterate over all the candidate paths and determine the
+	// success probability of each path given the data we have about
+	// forwards between any two nodes on a path.
+	routes := make([]*routeWithProbability, 0, len(blindedPaths))
+	for _, path := range blindedPaths {
+		if len(path) < 1 {
+			return nil,
+				fmt.Errorf("a blinded path must have " +
+					"at least one hop")
+		}
+
+		var (
+			introNode = path[0].Vertex
+			prevNode  = introNode
+			hops      = make(
+				[]*route.Hop, 0, len(path)-1,
+			)
+			totalRouteProbability = float64(1)
+		)
+
+		// For each set of hops on the path, get the success
+		// probability of a forward between those two vertices
+		// and use that to update the overall route probability.
+		for j := 1; j < len(path); j++ {
+			probability := cfg.ProbabilitySource(
+				prevNode, path[j].Vertex, amt,
+				path[j-1].EdgeCapacity,
+			)
+
+			totalRouteProbability *= probability
+
+			hops = append(hops, &route.Hop{
+				PubKeyBytes: path[j].Vertex,
+				ChannelID:   path[j-1].ChannelID,
+			})
+
+			prevNode = path[j].Vertex
+		}
+
+		// Don't bother adding a route if its success
+		// probability less minimum that can be assigned to any
+		// single pair.
+		if totalRouteProbability <=
+			routing.DefaultMinRouteProbability {
+
+			continue
+		}
+
+		routes = append(routes, &routeWithProbability{
+			route: &route.Route{
+				SourcePubKey: introNode,
+				Hops:         hops,
+			},
+			probability: totalRouteProbability,
+		})
+	}
+
+	// Sort the routes based on probability.
+	sort.Slice(routes, func(i, j int) bool {
+		return routes[i].probability > routes[j].probability
+	})
+
+	log.Debugf("Found %v routes, discarded %v low probability "+
+		"routes", len(blindedPaths),
+		len(blindedPaths)-len(routes),
+	)
+
+	// Return all routes.
+	allRoutes := make([]*route.Route, 0, len(routes))
+	for _, route := range routes {
+		allRoutes = append(allRoutes, route.route)
+	}
+
+	return allRoutes, nil
 }
 
 // AddInvoice attempts to add a new invoice to the invoice database. Any
@@ -519,10 +617,22 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		finalCLTVDelta := uint32(cltvExpiryDelta)
 		finalCLTVDelta += uint32(routing.BlockPadding)
 
+		// This will return a set of paths made up of real nodes.
+		allPaths, err := cfg.QueryBlindedPaths()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// This will return routes made up of real nodes.
+		allRoutes, err := blindedPathsToRoutes(allPaths, cfg, amtMSat)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		//nolint:ll
 		paths, err := blindedpath.BuildBlindedPaymentPaths(
 			&blindedpath.BuildBlindedPathCfg{
-				FindRoutes:              cfg.QueryBlindedRoutes,
+				Routes:                  allRoutes,
 				FetchChannelEdgesByID:   cfg.Graph.FetchChannelEdgesByID,
 				FetchOurOpenChannels:    cfg.ChanDB.FetchAllOpenChannels,
 				PathID:                  paymentAddr[:],
@@ -542,6 +652,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 				},
 				MinNumHops:            blindCfg.MinNumPathHops,
 				DefaultDummyHopPolicy: blindCfg.DefaultDummyHopPolicy,
+				MaxNumPaths:           blindCfg.MaxNumPaths,
 			},
 		)
 		if err != nil {

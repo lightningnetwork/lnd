@@ -1,6 +1,8 @@
 package itest
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -10,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -438,7 +441,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// With the closing transaction confirmed, we should expect Bob's HTLC
 	// timeout transaction to be offered to the sweeper due to the expiry
 	// being reached. we also expect Carol's anchor sweeps.
-	ht.AssertNumPendingSweeps(bob, 1)
+	ht.AssertNumPendingSweeps(bob, 2)
 	ht.AssertNumPendingSweeps(carol, 1)
 
 	// Bob's sweeper should sweep his outgoing HTLC immediately since it's
@@ -490,8 +493,9 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		ht.MineBlocks(int(resp.BlocksTilMaturity - 1))
 
 		// Check that Bob has a pending sweeping tx which sweeps his
-		// to_local output.
-		ht.AssertNumPendingSweeps(bob, 1)
+		// to_local output. In addition, his immature outgoing HTLC
+		// should also be found.
+		ht.AssertNumPendingSweeps(bob, 2)
 
 		// Mine a block to confirm the to_local sweeping tx, which also
 		// triggers the sweeping of the second stage HTLC output.
@@ -803,17 +807,12 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// off-chain. He will also try to sweep his anchor and to_local
 	// outputs, with the anchor output being skipped due to it being
 	// uneconomical.
-	if params.CommitmentType == leasedType {
-		// For leased channels, Bob cannot sweep his to_local output
-		// yet since it's timelocked, so we only see his anchor input.
-		ht.AssertNumPendingSweeps(bob, 1)
-	} else {
-		// For non-leased channels, Bob should have two pending sweeps,
-		// 1. to_local output.
-		// 2. anchor output, tho it won't be swept due to it being
-		//    uneconomical.
-		ht.AssertNumPendingSweeps(bob, 2)
-	}
+	//
+	// Bob should have two pending sweeps,
+	// 1. to_local output - immature for leased channel.
+	// 2. anchor output, tho it won't be swept due to it being
+	//    uneconomical.
+	ht.AssertNumPendingSweeps(bob, 2)
 
 	flakeTxNotifierNeutrino(ht)
 
@@ -1088,7 +1087,18 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// The channel close has anchors, we should expect to see both Bob and
 	// Carol has a pending sweep request for the anchor sweep.
 	ht.AssertNumPendingSweeps(carol, 1)
-	anchorSweep := ht.AssertNumPendingSweeps(bob, 1)[0]
+
+	// For Bob, we should see two pending sweep requests,
+	// 1. anchor output.
+	// 2. to_local output, immature.
+	sweeps := ht.AssertNumPendingSweeps(bob, 2)
+
+	// Find the anchor sweep - assume it's the first one, and change to the
+	// second one if the first one has a larger value.
+	anchorSweep := sweeps[0]
+	if anchorSweep.AmountSat > sweeps[1].AmountSat {
+		anchorSweep = sweeps[1]
+	}
 
 	// We expcet Bob's anchor sweep to be a non-CPFP anchor sweep now.
 	// Although he has time-sensitive outputs, which means initially his
@@ -1144,7 +1154,13 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// Bob should have two pending sweep requests,
 	// 1. the anchor sweep.
 	// 2. the outgoing HTLC sweep.
-	ht.AssertNumPendingSweeps(bob, 2)
+	if params.CommitmentType != leasedType {
+		ht.AssertNumPendingSweeps(bob, 2)
+	} else {
+		// For leased channel, Bob still has the to_local output sweep
+		// request.
+		ht.AssertNumPendingSweeps(bob, 3)
+	}
 
 	// Bob's outgoing HTLC sweep should be broadcast now. Mine a block to
 	// confirm it.
@@ -1209,7 +1225,16 @@ func testRemoteForceCloseBeforeTimeoutAnchor(ht *lntest.HarnessTest) {
 	// Prepare params.
 	params := lntest.OpenChannelParams{Amt: chanAmt}
 
-	cfg := node.CfgAnchor
+	cltvDelta := routing.MinCLTVDelta
+	cfg := []string{
+		"--protocol.anchors",
+		// Use a small CLTV to mine less blocks.
+		fmt.Sprintf("--bitcoin.timelockdelta=%d", cltvDelta),
+		// Use a very large CSV, this way to_local outputs are never
+		// swept so we can focus on testing HTLCs.
+		fmt.Sprintf("--bitcoin.defaultremotedelay=%v", cltvDelta*10),
+	}
+
 	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
 	cfgs := [][]string{cfg, cfg, cfgCarol}
 
@@ -1420,8 +1445,8 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		// For script enforced lease channels, Bob can sweep his anchor
 		// output immediately although it will be skipped due to it
 		// being uneconomical. His to_local output is CLTV locked so it
-		// cannot be swept yet.
-		ht.AssertNumPendingSweeps(bob, 1)
+		// cannot be swept yet so it will show up as immature.
+		ht.AssertNumPendingSweeps(bob, 2)
 	} else {
 		// For non-leased channels, Bob can sweep his commit and anchor
 		// outputs immediately.
@@ -1455,7 +1480,13 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// Bob should have two pending sweep requests,
 	// 1. the uneconomical anchor sweep.
 	// 2. the direct timeout sweep.
-	ht.AssertNumPendingSweeps(bob, 2)
+	if params.CommitmentType != leasedType {
+		ht.AssertNumPendingSweeps(bob, 2)
+	} else {
+		// For leased channel, Bob should have the to_local output which
+		// is immature.
+		ht.AssertNumPendingSweeps(bob, 3)
+	}
 
 	// Bob's sweeping tx should now be found in the mempool.
 	sweepTx := ht.AssertNumTxsInMempool(1)[0]
@@ -1953,12 +1984,13 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 		bob, aliceChanPoint, hasAnchorSweep, closeStream,
 	)
 
-	// Alice will offer her anchor output to her sweeper. Her commitment
-	// output cannot be swept yet as it has incurred an additional CLTV due
-	// to being the initiator of a script-enforced leased channel.
+	// Alice will offer her anchor output and to_local output to her
+	// sweeper. Her commitment output cannot be swept yet as it has incurred
+	// an additional CLTV due to being the initiator of a script-enforced
+	// leased channel.
 	//
 	// This anchor output cannot be swept due to it being uneconomical.
-	ht.AssertNumPendingSweeps(alice, 1)
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Bob will offer his anchor to his sweeper.
 	//
@@ -2003,10 +2035,11 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// Once Bob is online and sees the force close tx Bob=>Carol, he will
 	// offer his commitment output to his sweeper, which will be skipped
 	// due to it being timelocked. His anchor outputs will not be swept due
-	// to uneconomical. We expect to see two sweeping requests,
+	// to uneconomical. We expect to see three sweeping requests,
 	// - the anchor output from channel Alice=>Bob.
 	// - the anchor output from channel Bob=>Carol.
-	ht.AssertNumPendingSweeps(bob, 2)
+	// - to to_local output from channel Bob=>Carol, immature.
+	ht.AssertNumPendingSweeps(bob, 3)
 
 	// Assert txns can be found in the mempool.
 	//
@@ -2024,11 +2057,12 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	// When Bob notices Carol's second level tx in the block, he will
 	// extract the preimage and broadcast a second level tx to claim the
 	// HTLC in his (already closed) channel with Alice, which means Bob has
-	// three sweeping requests,
+	// four sweeping requests,
 	// - the second level HTLC tx from channel Alice=>Bob.
 	// - the anchor output from channel Alice=>Bob.
 	// - the anchor output from channel Bob=>Carol.
-	ht.AssertNumPendingSweeps(bob, 3)
+	// - to to_local output from channel Bob=>Carol, immature.
+	ht.AssertNumPendingSweeps(bob, 4)
 
 	flakePreimageSettlement(ht)
 
@@ -2293,8 +2327,9 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	ht.AssertChannelPendingForceClose(alice, aliceChanPoint)
 
 	// Once the force closing tx is mined, Alice should offer the anchor
-	// output to her sweeper.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// output to her sweeper. In addition, the immature to_local output is
+	// also found in the pending sweeps.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Bob should offer his anchor output to his sweeper.
 	ht.AssertNumPendingSweeps(bob, 1)
@@ -2544,8 +2579,8 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	ht.AssertChannelPendingForceClose(alice, aliceChanPoint)
 
 	// Once the force closing tx is mined, Alice should offer the anchor
-	// output to her sweeper.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// output and to_local output (immature) to her sweeper.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Bob should offer his anchor output to his sweeper.
 	ht.AssertNumPendingSweeps(bob, 1)
@@ -2601,8 +2636,8 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// - the anchor output from channel Alice=>Bob, uneconomical.
 	// - the anchor output from channel Bob=>Carol, uneconomical.
 	// - the commit output sweep from the channel with Carol, which is CLTV
-	//   locked so it won't show up the pending sweeps.
-	ht.AssertNumPendingSweeps(bob, 2)
+	//   locked so it's immature.
+	ht.AssertNumPendingSweeps(bob, 3)
 
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
@@ -2613,7 +2648,8 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 	// - the anchor output from channel Alice=>Bob, uneconomical.
 	// - the anchor output from channel Bob=>Carol, uneconomical.
 	// - the htlc sweeping tx.
-	ht.AssertNumPendingSweeps(bob, 3)
+	// - the to_local output sweep, immature.
+	ht.AssertNumPendingSweeps(bob, 4)
 
 	flakePreimageSettlement(ht)
 
@@ -2999,8 +3035,9 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// Mine a block to confirm Bob's force close tx and anchor sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
-	// Bob should have `numInvoices` for HTLC timeout txns.
-	ht.AssertNumPendingSweeps(bob, numInvoices)
+	// Bob should have `numInvoices` for HTLC timeout txns. In addition he
+	// should have a local commit sweep.
+	ht.AssertNumPendingSweeps(bob, numInvoices+1)
 
 	// Once bob has force closed, we can restart carol.
 	require.NoError(ht, restartCarol())
@@ -3015,8 +3052,8 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	}
 
 	// Bob should have `numInvoices` for both HTLC success and timeout
-	// txns.
-	ht.AssertNumPendingSweeps(bob, numInvoices*2)
+	// txns. In addition he should have a local commit sweep.
+	ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
 
 	flakePreimageSettlement(ht)
 
@@ -3038,7 +3075,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		ht.MineBlocks(1)
 
 		// Bob should offer the to_local output to his sweeper now.
-		ht.AssertNumPendingSweeps(bob, 1)
+		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
 
 		// Mine a block to confirm Bob's sweeping of his to_local
 		// output.
@@ -3056,14 +3093,12 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	ht.MineBlocks(int(resp.PendingHtlcs[0].BlocksTilMaturity))
 
 	// With the above mined block, Bob's HTLCs should now all be offered to
-	// his sweeper since the CSV lock is now expired.
-	//
-	// For leased channel, due to the test setup, Bob's to_local output is
-	// now also mature and can be swept together with his HTLCs.
-	if params.CommitmentType == leasedType {
-		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
-	} else {
+	// his sweeper since the CSV lock is now expired. In addition he should
+	// have a local commit sweep if this is a leased channel.
+	if params.CommitmentType != leasedType {
 		ht.AssertNumPendingSweeps(bob, numInvoices*2)
+	} else {
+		ht.AssertNumPendingSweeps(bob, numInvoices*2+1)
 	}
 
 	// When we mine one additional block, that will confirm Bob's second

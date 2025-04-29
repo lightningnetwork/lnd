@@ -316,6 +316,15 @@ when running LND with an aux component injected (custom channels).
   to include any [gRPC metadata](https://grpc.io/docs/guides/metadata) pairs 
   that are passed to the initial request via the `context.Context`.
 
+* Previously when calling `PendingSweeps`, if the outputs being swept had a
+  locktime in the future, they would be filtered out. This is now
+  [changed](https://github.com/lightningnetwork/lnd/pull/9772) such that all
+  outputs registered in the sweeper will be returned in the RPC response
+  regardless of their locktime, which enables users to plan ahead about upcoming
+  sweeps and implement customized aggregation logic. A new field
+  `MaturityHeight` is added to `PendingSweep` to show the absolute locktime
+  value.
+
 ## lncli Updates
 
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/9605) a case where

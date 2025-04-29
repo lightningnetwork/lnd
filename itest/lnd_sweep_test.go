@@ -346,7 +346,7 @@ func testSweepCPFPAnchorOutgoingTimeout(ht *lntest.HarnessTest) {
 	// contractcourt will offer the HTLC to his sweeper. We are not testing
 	// the HTLC sweeping behaviors so we just perform a simple check and
 	// exit the test.
-	ht.AssertNumPendingSweeps(bob, 1)
+	ht.AssertNumPendingSweeps(bob, 2)
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Finally, clean the mempool for the next test.
@@ -901,8 +901,9 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Update the blocks left till Bob force closes Alice->Bob.
 	blocksTillIncomingSweep--
 
-	// Bob should have one pending sweep for the outgoing HTLC.
-	ht.AssertNumPendingSweeps(bob, 1)
+	// Bob should have one pending sweep for the outgoing HTLC and another
+	// one for his to_local output.
+	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Bob should have one sweeping tx in the mempool.
 	outgoingSweep := ht.GetNumTxsFromMempool(1)[0]
@@ -975,8 +976,9 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// mempool.
 		ht.AssertTxNotInMempool(outgoingSweep.TxHash())
 
-		// Bob should still have the outgoing HTLC sweep.
-		ht.AssertNumPendingSweeps(bob, 1)
+		// Bob should still have the outgoing HTLC sweep and the
+		// to_local output.
+		ht.AssertNumPendingSweeps(bob, 2)
 
 		// We should see Bob's replacement tx in the mempool.
 		outgoingSweep = ht.GetNumTxsFromMempool(1)[0]
@@ -999,12 +1001,13 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Bob should now have two pending sweeps:
 	// 1. the outgoing HTLC output.
 	// 2. the anchor output from his local commitment.
-	expectedNumSweeps = 2
+	// 3. the to_local output, which is not matured yet.
+	expectedNumSweeps = 3
 
 	// For neutrino backend, we expect the anchor output from his remote
 	// commitment to be present.
 	if ht.IsNeutrinoBackend() {
-		expectedNumSweeps = 3
+		expectedNumSweeps = 4
 	}
 
 	ht.AssertNumPendingSweeps(bob, expectedNumSweeps)
@@ -1033,11 +1036,12 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// Update Bob's fee function position.
 	outgoingFuncPosition++
 
-	// Bob should now have three pending sweeps:
+	// Bob should now have four pending sweeps:
 	// 1. the outgoing HTLC output on Bob->Carol.
 	// 2. the incoming HTLC output on Alice->Bob.
 	// 3. the anchor sweeping on Alice-> Bob.
-	ht.AssertNumPendingSweeps(bob, 3)
+	// 4. the to_local output, immature.
+	ht.AssertNumPendingSweeps(bob, 4)
 
 	// We should see three txns in the mempool:
 	// 1. the outgoing HTLC sweeping tx.
@@ -1163,7 +1167,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 		// Bob should have two pending sweeps:
 		// 1. the outgoing HTLC output on Bob->Carol.
 		// 2. the incoming HTLC output on Alice->Bob.
-		ht.AssertNumPendingSweeps(bob, 2)
+		// 3. the to_local output, immature.
+		ht.AssertNumPendingSweeps(bob, 3)
 
 		// We should see Bob's replacement txns in the mempool.
 		incomingSweep, outgoingSweep = identifySweepTxns()
@@ -1347,9 +1352,10 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// to their sweepers.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-	// Alice should have one pending sweep,
+	// Alice should have two pending sweeps,
 	// - anchor sweeping from her local commitment.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// - to_local output from her local commitment.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Bob should have two pending sweeps,
 	// - anchor sweeping from the remote anchor on Alice's commit tx.
@@ -2301,8 +2307,9 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// so we can focus on testing his outgoing HTLCs.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
-	// Bob should have numPayments pending sweep for the outgoing HTLCs.
-	ht.AssertNumPendingSweeps(bob, numPayments)
+	// Bob should have numPayments pending sweep for the outgoing HTLCs. In
+	// addition, he should see his immature to_local output sweep.
+	ht.AssertNumPendingSweeps(bob, numPayments+1)
 
 	// Bob should have one sweeping tx in the mempool, which sweeps all his
 	// outgoing HTLCs.
@@ -2356,7 +2363,9 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// sweeping tx and broadcast it using the remaining outgoing HTLC.
 	//
 	// Bob should have numPayments-1 pending sweep for the outgoing HTLCs.
-	ht.AssertNumPendingSweeps(bob, numPayments-1)
+	// In addition, he should have his to_local output sweep which is
+	// immature.
+	ht.AssertNumPendingSweeps(bob, numPayments)
 
 	// Assert Bob immediately sweeps his remaining HTLC with the previous
 	// fee rate.

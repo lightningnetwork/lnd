@@ -463,8 +463,9 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	forceCloseTxID, _ := chainhash.NewHashFromStr(aliceCloseTx)
 
-	// Alice's should have the anchor sweep request.
-	ht.AssertNumPendingSweeps(alice, 1)
+	// Alice's should have the anchor sweep request. In addition, she should
+	// see her immature to_local output sweep.
+	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Mine 3 blocks so Alice will sweep her commit output.
 	forceClose := ht.AssertChannelPendingForceClose(alice, aliceChanPoint1)

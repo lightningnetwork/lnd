@@ -530,3 +530,32 @@ type AuxTrafficShaper interface {
 	// meaning that it's from a custom channel.
 	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
 }
+
+// AttemptStore defines the interface for initializing, managing, and tracking
+// the lifecycle of HTLC payment attempts. It supports both local and remote
+// payment lifecycle controllers.
+//
+// NOTE: This store is designed to be managed by a *single* logical dispatcher
+// (e.g., a ChannelRouter instance, or a remote payment orchestrator) at a time
+// to avoid collisions of attemptIDs and ensure an unambiguous source of truth
+// for payment state. Concurrent usage by multiple dispatchers is NOT supported.
+type AttemptStore interface {
+	// StoreResult stores the result of a given payment attempt (identified
+	// by attemptID). This will be called when a result is received from the
+	// network.
+	StoreResult(attemptID uint64, result *networkResult) error
+
+	// GetResult returns the network result for the specified attempt ID if
+	// it's available.
+	GetResult(attemptID uint64) (*networkResult, error)
+
+	// SubscribeResult subscribes to be notified when a result for a
+	// specific attempt ID becomes available. It returns a channel that will
+	// receive the result.
+	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
+
+	// CleanStore removes all attempt results from the store except for
+	// those listed in the keepPids map. This allows for a "delete all
+	// except" approach to cleanup.
+	CleanStore(keepPids map[uint64]struct{}) error
+}

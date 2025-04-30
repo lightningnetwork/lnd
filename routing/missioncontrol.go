@@ -837,21 +837,29 @@ func (n *namespacedDB) purge() error {
 func newPaymentFailure(sourceIdx *int,
 	failureMsg lnwire.FailureMessage) paymentFailure {
 
+	// If we can't identify a failure source, we also won't have a decrypted
+	// failure message. In this case we return an empty payment failure.
 	if sourceIdx == nil {
 		return paymentFailure{}
 	}
 
-	return paymentFailure{
+	info := paymentFailure{
 		sourceIdx: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType0](
 				uint8(*sourceIdx),
-			)),
-		msg: tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1](
-				failureMessage{failureMsg},
 			),
 		),
 	}
+
+	if failureMsg != nil {
+		info.msg = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType1](
+				failureMessage{failureMsg},
+			),
+		)
+	}
+
+	return info
 }
 
 // paymentFailure holds additional information about a payment failure.

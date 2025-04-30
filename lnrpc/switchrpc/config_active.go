@@ -39,12 +39,21 @@ type Config struct {
 
 	// HtlcDispatcher provides the means by which payment attempts can
 	// be dispatched.
-	HtlcDispatcher routing.PaymentAttemptDispatcher
+	// HtlcDispatcher routing.PaymentAttemptDispatcher
+	HtlcDispatcher HtlcDispatcher
 
 	// ChannelInfoAccessor defines an interface for accessing channel
 	// information necessary for dispatching payment attempts, specifically
 	// methods for fetching links by public key.
 	ChannelInfoAccessor ChannelInfoAccessor
+}
+
+// HtlcDispatcher provides the means to safely send HTLCs via the lightning
+// network. It is expected that the underlying implementation is idempotent
+// in that it will not forward the same (attempt ID, onion) twice.
+type HtlcDispatcher interface {
+	routing.PaymentAttemptDispatcher
+	htlcswitch.Store
 }
 
 type RouteProcessor interface {

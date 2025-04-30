@@ -428,7 +428,7 @@ func (s *Server) TrackOnion(ctx context.Context,
 		message, code := TranslateErrorForRPC(err)
 
 		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
-			" payment=%v: %v", hash, message)
+			"payment=%v: %v", req.AttemptId, hash, message)
 
 		// If this is a htlcswitch.ErrPaymentIDNotFound error, we need
 		// to transmit that fact to the client so they can know with

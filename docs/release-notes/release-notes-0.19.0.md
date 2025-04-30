@@ -132,18 +132,34 @@ when running LND with an aux component injected (custom channels).
 ## Protocol Updates
 
 * `lnd` now [supports the new RBF cooperative close
-  flow](https://github.com/lightningnetwork/lnd/pull/9610). Unlike the old
-  flow, this version now uses RBF to enable either side to increase their fee
-  rate using their _own_ channel funds. This removes the old "negotiation"
-  logic that could fail, with a version where either side can increase the fee
-  on their coop close transaction using their channel balance. 
+  flow](https://github.com/lightningnetwork/lnd/pull/9610). This flow is based
+  on a new protocol `option_simple_close` defined with the bolt proposal
+  [1205](https://github.com/lightning/bolts/pull/1205)
+  Unlike the old flow, this version now uses RBF to enable either side to
+  increase their fee rate using their _own_ channel funds.
+  This replaces the old "negotiation" logic that could fail, with a version
+  where either side can increase the fee on their coop close transaction using
+  their channel balance.
 
-  This new feature can be activated with a new config flag:
+  Channel peers must support the `option_simple_close` for this new protocol to
+  work. This new feature can be activated with a new config flag:
   `--protocol.rbf-coop-close`.
 
   With this new co-op close type, users can issue multiple `lncli closechannnel`
   commands with increasing fee rates to use RBF to bump an existing signed co-op
   close transaction.
+
+  Please note this feature is not compatible with older LND versions.
+  When closing channels with peers running older versions, fee bumping the
+  closing transaction would be done via CPFP.
+
+  Regarding interoperation cross implementations, it currently only works
+  with Eclair v0.12.0 or up. Interop with other implementations should work 
+  as they roll out support for this protocol.
+
+  This protocol currently does not support the channel types:
+  - Taproot channels
+  - Taproot asset channels
 
 * [Support](https://github.com/lightningnetwork/lnd/pull/8390) for 
   [experimental endorsement](https://github.com/lightning/blips/pull/27) 

@@ -110,6 +110,94 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	}
 }
 
+// InitAttempt initializes the payment attempt with the given attemptID.
+//
+// If any record (even a pending result placeholder) already exists in the
+// store, this method returns ErrPaymentIDAlreadyExists. This guarantees that
+// only one HTLC will be initialized and dispatched for a given attempt ID until
+// the ID is explicitly cleaned from attempt store.
+//
+// NOTE: Subscribed clients do not receive notice of this initialization.
+func (store *networkResultStore) InitAttempt(attemptID uint64) error {
+	// We get a mutex for this attempt ID. This is needed to ensure
+	// consistency between the database state and the subscribers in case
+	// of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	// Check if any attempt by this ID is already initialized or whether a
+	// result for the attempt exists in the store.
+	var existingResult *networkResult
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		var err error
+		existingResult, err = fetchResult(tx, attemptID)
+		if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
+			return err
+		}
+
+		return nil
+	}, func() {
+		existingResult = nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// If the result is already in-progress, return an error indicating that
+	// the attempt already exists.
+	if existingResult != nil {
+		log.Warnf("Already initialized attempt for ID=%v", attemptID)
+
+		return ErrPaymentIDAlreadyExists
+	}
+
+	// Create an empty networkResult to serve as place holder until a result
+	// from the network is received.
+	pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
+	if err != nil {
+		// This should not happen with a static message type.
+		return err
+	}
+	inProgressResult := &networkResult{
+		msg:          pendingMsg,
+		unencrypted:  true,
+		isResolution: false,
+	}
+
+	var b bytes.Buffer
+	if err := serializeNetworkResult(&b, inProgressResult); err != nil {
+		return err
+	}
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	// Mark an attempt with this ID as having been seen. No network result
+	// is available yet.
+	//
+	// NOTE: Subscribed clients expecting to block until a network result is
+	// available must not be notified of this initialization.
+	err = kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
+		networkResults, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Store the in-progress result.
+		return networkResults.Put(attemptIDBytes[:], b.Bytes())
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Initialized attempt for local payment with attemptID=%v",
+		attemptID)
+
+	return nil
+}
+
 // StoreResult stores the networkResult for the given attemptID, and notifies
 // any subscribers.
 func (store *networkResultStore) StoreResult(attemptID uint64,

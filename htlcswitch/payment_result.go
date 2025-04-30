@@ -111,7 +111,7 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 
 // storeResult stores the networkResult for the given attemptID, and notifies
 // any subscribers.
-func (store *networkResultStore) storeResult(attemptID uint64,
+func (store *networkResultStore) StoreResult(attemptID uint64,
 	result *networkResult) error {
 
 	// We get a mutex for this attempt ID. This is needed to ensure
@@ -159,7 +159,7 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 
 // subscribeResult is used to get the HTLC attempt result for the given attempt
 // ID.  It returns a channel on which the result will be delivered when ready.
-func (store *networkResultStore) subscribeResult(attemptID uint64) (
+func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	<-chan *networkResult, error) {
 
 	// We get a mutex for this payment ID. This is needed to ensure
@@ -219,7 +219,7 @@ func (store *networkResultStore) subscribeResult(attemptID uint64) (
 
 // getResult attempts to immediately fetch the result for the given pid from
 // the store. If no result is available, ErrPaymentIDNotFound is returned.
-func (store *networkResultStore) getResult(pid uint64) (
+func (store *networkResultStore) GetResult(pid uint64) (
 	*networkResult, error) {
 
 	var result *networkResult
@@ -263,7 +263,7 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 // should be taken to ensure no new payment attempts are being made
 // concurrently while this process is ongoing, as its result might end up being
 // deleted.
-func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
+func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,

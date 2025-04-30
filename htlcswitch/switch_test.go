@@ -3107,7 +3107,7 @@ func TestSwitchGetAttemptResult(t *testing.T) {
 		isResolution: true,
 	}
 
-	err = s.networkResults.storeResult(paymentID, n)
+	err = s.Store.StoreResult(paymentID, n)
 	require.NoError(t, err, "unable to store result")
 
 	// The result should be available.

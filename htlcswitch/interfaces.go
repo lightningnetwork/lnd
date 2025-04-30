@@ -535,3 +535,25 @@ type AuxTrafficShaper interface {
 	// meaning that it's from a custom channel.
 	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
 }
+
+// Store defines the interface for storing and managing the results
+// of HTLC payment attempts. It is designed to support both local and remote
+// lifecycle controllers, allowing full control over result storage and cleanup.
+type Store interface {
+	// StoreResult stores the result of a given payment attempt (identified by attemptID).
+	// This will be called when a result is received from the network.
+	StoreResult(attemptID uint64, result *networkResult) error
+
+	// GetResult returns the network result for the specified attempt ID if
+	// it's available.
+	GetResult(attemptID uint64) (*networkResult, error)
+
+	// SubscribeResult subscribes to be notified when a result for a specific attempt
+	// ID becomes available. It returns a channel that will receive the result.
+	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
+
+	// CleanStore removes all attempt results from the store except for the ones
+	// listed in the keepPids map. This allows for a "delete all except" approach
+	// to cleanup.
+	CleanStore(keepPids map[uint64]struct{}) error
+}

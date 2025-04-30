@@ -1113,10 +1113,72 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 		// it's a legacy payment.
 		a = p.patchLegacyPaymentHash(a)
 
+		// Call SendHTLC defensively. It's duplicate-safe.
+		// NOTE(calvin): This is primarily to resolve any ambiguity in
+		// the status of an HTLC dispatched in the remote ChannelRouter
+		// case. Deployments where router and switch run in the same
+		// process do not need resolve ambiguity, but this should be
+		// harmless since...
+		err := p.retrySendHTLC(&a)
+		if err != nil {
+			log.Warnf("Retrying HTLC %v for payment %v failed: %v",
+				a.AttemptID, p.identifier, err)
+		}
+
+		// Always track the result regardless of send error.
 		p.resultCollector(&a)
 	}
 
 	return payment, nil
+}
+
+func (p *paymentLifecycle) retrySendHTLC(attempt *channeldb.HTLCAttempt) error {
+	log.Infof("Retrying HTLC attempt %v for payment %v",
+		attempt.AttemptID, p.identifier)
+
+	firstHop := lnwire.NewShortChanIDFromInt(
+		attempt.Route.Hops[0].ChannelID,
+	)
+
+	// Recreate the HTLC add message using the original route and attempt data.
+	htlcAdd := &lnwire.UpdateAddHTLC{
+		Amount:        attempt.Route.FirstHopAmount.Val.Int(),
+		Expiry:        attempt.Route.TotalTimeLock,
+		PaymentHash:   *attempt.Hash,
+		CustomRecords: attempt.Route.FirstHopWireCustomRecords,
+	}
+
+	// Generate the raw encoded sphinx packet to include with the HTLC.
+	onionBlob, _, err := channeldb.GenerateSphinxPacket(
+		&attempt.Route, attempt.Hash[:], attempt.SessionKey(),
+	)
+	if err != nil {
+		log.Errorf("Failed to create onion blob: attempt=%d in payment"+
+			"=%v, err=%v", attempt.AttemptID, p.identifier, err)
+
+		return err
+	}
+	copy(htlcAdd.OnionBlob[:], onionBlob)
+
+	// Send the HTLC to the switch.
+	err = p.router.cfg.Payer.SendHTLC(firstHop, attempt.AttemptID, htlcAdd)
+
+	switch {
+	case err == nil:
+		log.Debugf("SendHTLC: resent HTLC for attemptID=%v",
+			attempt.AttemptID)
+
+	case errors.Is(err, htlcswitch.ErrDuplicateAdd):
+		log.Infof("SendHTLC: HTLC for attemptID=%v already in-flight "+
+			"(duplicate), tracking result", attempt.AttemptID)
+
+	default:
+		// Only log unexpected errors as warnings.
+		log.Warnf("SendHTLC: unexpected error for attemptID=%v: %v",
+			attempt.AttemptID, err)
+	}
+
+	return err
 }
 
 // reloadPayment returns the latest payment found in the db (control tower).

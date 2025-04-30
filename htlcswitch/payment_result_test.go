@@ -120,7 +120,7 @@ func TestNetworkResultStore(t *testing.T) {
 	// Subscribe to 2 of them.
 	var subs []<-chan *networkResult
 	for i := uint64(0); i < 2; i++ {
-		sub, err := store.subscribeResult(i)
+		sub, err := store.SubscribeResult(i)
 		if err != nil {
 			t.Fatalf("unable to subscribe: %v", err)
 		}
@@ -129,7 +129,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Store three of them.
 	for i := uint64(0); i < 3; i++ {
-		err := store.storeResult(i, results[i])
+		err := store.StoreResult(i, results[i])
 		if err != nil {
 			t.Fatalf("unable to store result: %v", err)
 		}
@@ -146,7 +146,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Let the third one subscribe now. THe result should be received
 	// immediately.
-	sub, err := store.subscribeResult(2)
+	sub, err := store.SubscribeResult(2)
 	require.NoError(t, err, "unable to subscribe")
 	select {
 	case <-sub:
@@ -156,22 +156,22 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Try fetching the result directly for the non-stored one. This should
 	// fail.
-	_, err = store.getResult(3)
+	_, err = store.GetResult(3)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 	}
 
 	// Add the result and try again.
-	err = store.storeResult(3, results[3])
+	err = store.StoreResult(3, results[3])
 	require.NoError(t, err, "unable to store result")
 
-	_, err = store.getResult(3)
+	_, err = store.GetResult(3)
 	require.NoError(t, err, "unable to get result")
 
 	// Since we don't delete results from the store (yet), make sure we
 	// will get subscriptions for all of them.
 	for i := uint64(0); i < numResults; i++ {
-		sub, err := store.subscribeResult(i)
+		sub, err := store.SubscribeResult(i)
 		if err != nil {
 			t.Fatalf("unable to subscribe: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestNetworkResultStore(t *testing.T) {
 	}
 }
 
-// TestNetworkResultStoreCleanStore tests that cleanStore prunes the store down
+// TestNetworkResultStoreCleanStore tests that CleanStore prunes the store down
 // to exactly the requested attempt IDs. It opens the store via
 // kvdb.GetTestBackend so that, under the postgres/sqlite build tags, the SQL
 // drop-and-recreate path is exercised (TestNetworkResultStore above goes
@@ -255,16 +255,16 @@ func TestNetworkResultStoreCleanStore(t *testing.T) {
 					unencrypted:  true,
 					isResolution: true,
 				}
-				require.NoError(t, store.storeResult(i, n))
+				require.NoError(t, store.StoreResult(i, n))
 			}
 
 			// Prune, keeping only the IDs in the keep set.
-			require.NoError(t, store.cleanStore(test.keep))
+			require.NoError(t, store.CleanStore(test.keep))
 
 			// Every kept ID must still be present; every other ID
 			// must have been removed.
 			for i := range test.numResults {
-				result, err := store.getResult(i)
+				result, err := store.GetResult(i)
 				if _, ok := test.keep[i]; ok {
 					require.NoErrorf(t, err,
 						"kept id %d missing", i)
@@ -375,7 +375,7 @@ func BenchmarkPostgresNetworkResultStoreCleanStore(b *testing.B) {
 				require.NoError(b, populate())
 				b.StartTimer()
 
-				require.NoError(b, store.cleanStore(keep))
+				require.NoError(b, store.CleanStore(keep))
 			}
 		})
 	}

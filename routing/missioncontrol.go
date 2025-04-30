@@ -276,7 +276,7 @@ type paymentResult struct {
 
 // newPaymentResult constructs a new paymentResult.
 func newPaymentResult(id uint64, rt *mcRoute, timeFwd, timeReply time.Time,
-	failure *paymentFailure) *paymentResult {
+	failure fn.Option[paymentFailure]) *paymentResult {
 
 	result := &paymentResult{
 		id: id,
@@ -289,11 +289,13 @@ func newPaymentResult(id uint64, rt *mcRoute, timeFwd, timeReply time.Time,
 		route: tlv.NewRecordT[tlv.TlvType2](*rt),
 	}
 
-	if failure != nil {
-		result.failure = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3](*failure),
-		)
-	}
+	failure.WhenSome(
+		func(f paymentFailure) {
+			result.failure = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType3](f),
+			)
+		},
+	)
 
 	return result
 }
@@ -621,7 +623,7 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 
 	result := newPaymentResult(
 		paymentID, extractMCRoute(rt), timestamp, timestamp,
-		newPaymentFailure(failureSourceIdx, failure),
+		fn.Some(newPaymentFailure(failureSourceIdx, failure)),
 	)
 
 	return m.processPaymentResult(result)
@@ -635,7 +637,8 @@ func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 	timestamp := m.cfg.clock.Now()
 
 	result := newPaymentResult(
-		paymentID, extractMCRoute(rt), timestamp, timestamp, nil,
+		paymentID, extractMCRoute(rt), timestamp, timestamp,
+		fn.None[paymentFailure](),
 	)
 
 	_, err := m.processPaymentResult(result)
@@ -832,13 +835,13 @@ func (n *namespacedDB) purge() error {
 // failure with unknown details. Otherwise, the index and failure message are
 // used to populate the info field of the paymentFailure.
 func newPaymentFailure(sourceIdx *int,
-	failureMsg lnwire.FailureMessage) *paymentFailure {
+	failureMsg lnwire.FailureMessage) paymentFailure {
 
 	if sourceIdx == nil {
-		return &paymentFailure{}
+		return paymentFailure{}
 	}
 
-	return &paymentFailure{
+	return paymentFailure{
 		sourceIdx: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType0](
 				uint8(*sourceIdx),

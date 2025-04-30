@@ -732,7 +732,7 @@ func TestResultInterpretation(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			var failure fn.Option[paymentFailure]
 			if !testCase.success {
-				failure = fn.Some(*newPaymentFailure(
+				failure = fn.Some(newPaymentFailure(
 					&testCase.failureSrcIdx,
 					testCase.failure,
 				))

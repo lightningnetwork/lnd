@@ -5554,3 +5554,111 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	require.NoError(t, interceptSwitch.Stop())
 }
+
+// TestSwitchDuplicateAttemptPrevention validates the behavior of the Switch and
+// its underlying stores with respect to re-use of HTLC attempt ID. We expect
+// the Switch to guarantee that only one HTLC will be forwarded for a given
+// attemptID until the ID is explicitly cleaned from the underlying attempt
+// store.
+func TestSwitchDuplicateAttemptPrevention(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil,
+		testDefaultDelta)
+	require.NoError(t, err)
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	defer func() { _ = s.Stop() }()
+
+	chanID, _, aliceChanID, _ := genIDs()
+
+	aliceLink := newMockChannelLink(
+		s, chanID, aliceChanID, emptyScid,
+		alicePeer, true, false, false, false,
+	)
+	require.NoError(t, s.AddLink(aliceLink))
+
+	preimage, err := genPreimage()
+	require.NoError(t, err)
+	rhash := sha256.Sum256(preimage[:])
+	attemptID := uint64(123)
+
+	update := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		ChanID:      chanID,
+	}
+
+	// --- Subtest 1: Duplicate in-flight attempt ---
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.NoError(t, err, "expected first SendHTLC to succeed")
+
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.ErrorIs(t, err, ErrDuplicateAdd, "expected duplicate attempt "+
+		"to fail while in-flight")
+
+	// --- Subtest 2: Duplicate after result rejected ---
+
+	// Launch a routine to await the result of the HTLC attempt.
+	errChan := make(chan error, 1)
+	go func() {
+		resultChan, err := s.GetAttemptResult(
+			attemptID, rhash,
+			newMockDeobfuscator(),
+		)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		result, ok := <-resultChan
+		if !ok {
+			errChan <- fmt.Errorf("result channel closed")
+			return
+		}
+		if result.Error != nil {
+			errChan <- result.Error
+			return
+		}
+		if result.Preimage != preimage {
+			errChan <- fmt.Errorf("preimage mismatch")
+			return
+		}
+		errChan <- nil
+	}()
+
+	select {
+	case pkt := <-aliceLink.packets:
+		require.NoError(t, aliceLink.completeCircuit(pkt))
+	case <-time.After(time.Second):
+		t.Fatal("packet not received")
+	}
+
+	// Send fulfillment packet.
+	settlePkt := &htlcPacket{
+		outgoingChanID: aliceLink.ShortChanID(),
+		outgoingHTLCID: 0,
+		htlc: &lnwire.UpdateFulfillHTLC{
+			PaymentPreimage: preimage,
+		},
+		amount: lnwire.NewMSatFromSatoshis(1000),
+	}
+	require.NoError(t, s.ForwardPackets(nil, settlePkt))
+
+	// The SendHTLC goroutine should complete successfully.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "expected HTLC to complete "+
+			"successfully")
+	case <-time.After(time.Second):
+		t.Fatal("did not receive result")
+	}
+
+	// Attempt to reuse the attempt ID after the full settle or fail result
+	// is back from the network.
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.ErrorIs(t, err, ErrDuplicateAdd, "expected reuse after result "+
+		"to fail")
+}

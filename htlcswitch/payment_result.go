@@ -109,6 +109,72 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	}
 }
 
+// InitAttempt initializes the payment attempt with the given attemptID.
+// If the attemptID has already been initialized, it returns an error. This
+// method ensures that we do not create duplicate payment attempts for the same
+// attemptID.
+//
+// NOTE(calvin): Subscribed clients do not receive notice of this initialization.
+func (store *networkResultStore) InitAttempt(attemptID uint64) error {
+
+	// We get a mutex for this attempt ID to ensure no concurrent writes
+	// for the same attempt ID.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	// Check if the attemptID is already initialized or exists in the store
+	existingResult, err := store.GetResult(attemptID)
+	if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
+		// If the error is anything other than "not found", return it.
+		return err
+	}
+
+	if existingResult != nil {
+		// If the result is already in-progress, return an error
+		// indicating that the attempt already exists.
+		return ErrPaymentIDAlreadyExists
+	}
+
+	// Create an empty networkResult to serve as place holder until a result
+	// from the network is received.
+	inProgressResult := &networkResult{
+		msg:          &lnwire.PendingNetworkResult{},
+		unencrypted:  true,
+		isResolution: false,
+	}
+
+	// This is an in-progress result, no need to notify subscribers yet.
+	var b bytes.Buffer
+	if err := serializeNetworkResult(&b, inProgressResult); err != nil {
+		return err
+	}
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	// Mark this an HTLC attempt with this ID as having been seen. No
+	// network result is available yet.
+	//
+	// NOTE(calvin): subscribing clients expecting to block until a network
+	// result is available must not be notified of this initialization.
+	err = kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
+		networkResults, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Store the in-progress result.
+		return networkResults.Put(attemptIDBytes[:], b.Bytes())
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // storeResult stores the networkResult for the given attemptID, and notifies
 // any subscribers.
 func (store *networkResultStore) StoreResult(attemptID uint64,

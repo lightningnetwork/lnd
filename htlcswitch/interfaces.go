@@ -540,6 +540,9 @@ type AuxTrafficShaper interface {
 // of HTLC payment attempts. It is designed to support both local and remote
 // lifecycle controllers, allowing full control over result storage and cleanup.
 type Store interface {
+	// Initialize the payment attempt. This is called before actually sending the HTLC.
+	InitAttempt(attemptID uint64) error
+
 	// StoreResult stores the result of a given payment attempt (identified by attemptID).
 	// This will be called when a result is received from the network.
 	StoreResult(attemptID uint64, result *networkResult) error

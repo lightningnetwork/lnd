@@ -200,4 +200,46 @@ func TestNetworkResultStore(t *testing.T) {
 			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 		}
 	}
+
+	t.Run("InitAttempt duplicate prevention", func(t *testing.T) {
+		var id uint64 = 100
+
+		// First initialization should succeed.
+		err := store.InitAttempt(id)
+		require.NoError(t, err, "unexpected InitAttempt failure")
+
+		// Second initialization should fail (already initialized).
+		// Try initializing an attempt with the same ID before a full
+		// settle or fail result is back from the network (simulated by
+		// StoreResult).
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected duplicate InitAttempt to fail")
+
+		// Store a result to simulate a full settle or fail HTLC result
+		// coming back from the network.
+		netResult := &networkResult{
+			msg:          &lnwire.UpdateFulfillHTLC{},
+			unencrypted:  true,
+			isResolution: true,
+		}
+		err = store.StoreResult(id, netResult)
+		require.NoError(t, err, "unable to store result after init")
+
+		// Try InitAttempt again — still should fail even after a full
+		// result is back from the network.
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected InitAttempt to fail after result stored")
+
+		// Verify that ID can be re-used only after explicit deletion of
+		// attempts via CleanStore or a DeleteAttempts style method.
+		err = store.CleanStore(map[uint64]struct{}{})
+		require.NoError(t, err)
+
+		// Now InitAttempt should succeed again.
+		err = store.InitAttempt(id)
+		require.NoError(t, err, "InitAttempt should succeed after cleanup")
+
+	})
 }

@@ -827,12 +827,6 @@ func (n *namespacedDB) purge() error {
 	}, func() {})
 }
 
-// paymentFailure represents the presence of a payment failure. It may or may
-// not include additional information about said failure.
-type paymentFailure struct {
-	info tlv.OptionalRecordT[tlv.TlvType0, paymentFailureInfo]
-}
-
 // newPaymentFailure constructs a new paymentFailure struct. If the source
 // index is nil, then an empty paymentFailure is returned. This represents a
 // failure with unknown details. Otherwise, the index and failure message are
@@ -844,7 +838,7 @@ func newPaymentFailure(sourceIdx *int,
 		return &paymentFailure{}
 	}
 
-	info := paymentFailureInfo{
+	return &paymentFailure{
 		sourceIdx: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType0](
 				uint8(*sourceIdx),
@@ -855,10 +849,19 @@ func newPaymentFailure(sourceIdx *int,
 			),
 		),
 	}
+}
 
-	return &paymentFailure{
-		info: tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType0](info)),
-	}
+// paymentFailure holds additional information about a payment failure.
+type paymentFailure struct {
+	// sourceIdx is the hop the error was reported from. In order to be able
+	// to decrypt the error message, we need to know the source, which is
+	// why an error message can only be present if the source is known.
+	sourceIdx tlv.OptionalRecordT[tlv.TlvType0, uint8]
+
+	// msg is the error why a payment failed. If we identify the failure of
+	// a certain hop at the above index, but aren't able to decode the
+	// failure message we indicate this by not setting this field.
+	msg tlv.OptionalRecordT[tlv.TlvType1, failureMessage]
 }
 
 // Record returns a TLV record that can be used to encode/decode a
@@ -877,89 +880,13 @@ func (r *paymentFailure) Record() tlv.Record {
 	}
 
 	return tlv.MakeDynamicRecord(
-		0, r, recordSize, encodePaymentFailure, decodePaymentFailure,
+		0, r, recordSize, encodePaymentFailure,
+		decodePaymentFailure,
 	)
 }
 
 func encodePaymentFailure(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*paymentFailure); ok {
-		var recordProducers []tlv.RecordProducer
-		v.info.WhenSome(
-			func(r tlv.RecordT[tlv.TlvType0, paymentFailureInfo]) {
-				recordProducers = append(recordProducers, &r)
-			},
-		)
-
-		return lnwire.EncodeRecordsTo(
-			w, lnwire.ProduceRecordsSorted(recordProducers...),
-		)
-	}
-
-	return tlv.NewTypeForEncodingErr(val, "routing.paymentFailure")
-}
-
-func decodePaymentFailure(r io.Reader, val interface{}, _ *[8]byte,
-	l uint64) error {
-
-	if v, ok := val.(*paymentFailure); ok {
-		var h paymentFailure
-
-		info := tlv.ZeroRecordT[tlv.TlvType0, paymentFailureInfo]()
-		typeMap, err := lnwire.DecodeRecords(
-			r, lnwire.ProduceRecordsSorted(&info)...,
-		)
-		if err != nil {
-			return err
-		}
-
-		if _, ok := typeMap[h.info.TlvType()]; ok {
-			h.info = tlv.SomeRecordT(info)
-		}
-
-		*v = h
-
-		return nil
-	}
-
-	return tlv.NewTypeForDecodingErr(val, "routing.paymentFailure", l, l)
-}
-
-// paymentFailureInfo holds additional information about a payment failure.
-type paymentFailureInfo struct {
-	// sourceIdx is the hop the error was reported from. In order to be able
-	// to decrypt the error message, we need to know the source, which is
-	// why an error message can only be present if the source is known.
-	sourceIdx tlv.OptionalRecordT[tlv.TlvType0, uint8]
-
-	// msg is the error why a payment failed. If we identify the failure of
-	// a certain hop at the above index, but aren't able to decode the
-	// failure message we indicate this by not setting this field.
-	msg tlv.OptionalRecordT[tlv.TlvType1, failureMessage]
-}
-
-// Record returns a TLV record that can be used to encode/decode a
-// paymentFailureInfo to/from a TLV stream.
-func (r *paymentFailureInfo) Record() tlv.Record {
-	recordSize := func() uint64 {
-		var (
-			b   bytes.Buffer
-			buf [8]byte
-		)
-		if err := encodePaymentFailureInfo(&b, r, &buf); err != nil {
-			panic(err)
-		}
-
-		return uint64(len(b.Bytes()))
-	}
-
-	return tlv.MakeDynamicRecord(
-		0, r, recordSize, encodePaymentFailureInfo,
-		decodePaymentFailureInfo,
-	)
-}
-
-func encodePaymentFailureInfo(w io.Writer, val interface{}, _ *[8]byte) error {
-	if v, ok := val.(*paymentFailureInfo); ok {
 		var recordProducers []tlv.RecordProducer
 
 		v.sourceIdx.WhenSome(
@@ -985,14 +912,14 @@ func encodePaymentFailureInfo(w io.Writer, val interface{}, _ *[8]byte) error {
 		)
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "routing.paymentFailureInfo")
+	return tlv.NewTypeForEncodingErr(val, "routing.paymentFailure")
 }
 
-func decodePaymentFailureInfo(r io.Reader, val interface{}, _ *[8]byte,
+func decodePaymentFailure(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
-	if v, ok := val.(*paymentFailureInfo); ok {
-		var h paymentFailureInfo
+	if v, ok := val.(*paymentFailure); ok {
+		var h paymentFailure
 
 		sourceIdx := tlv.ZeroRecordT[tlv.TlvType0, uint8]()
 		msg := tlv.ZeroRecordT[tlv.TlvType1, failureMessage]()
@@ -1020,6 +947,6 @@ func decodePaymentFailureInfo(r io.Reader, val interface{}, _ *[8]byte,
 	}
 
 	return tlv.NewTypeForDecodingErr(
-		val, "routing.paymentFailureInfo", l, l,
+		val, "routing.paymentFailure", l, l,
 	)
 }

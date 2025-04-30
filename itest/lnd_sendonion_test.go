@@ -71,6 +71,8 @@ func testSendOnion(ht *lntest.HarnessTest) {
 	// Make sure Alice knows the channel between Bob and Carol.
 	ht.AssertChannelInGraph(alice, chanPointBob)
 	ht.AssertChannelInGraph(alice, chanPointCarol)
+	ht.AssertChannelActive(carol, chanPointCarol)
+	ht.AssertChannelActive(dave, chanPointCarol)
 
 	const (
 		numPayments = 1

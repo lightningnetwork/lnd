@@ -138,8 +138,17 @@ func (i *interpretedResult) processFail(rt *mcRoute, failure paymentFailure) {
 
 	failure.info.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType0, paymentFailureInfo]) {
-			idx = int(r.Val.sourceIdx.Val)
-			failMsg = r.Val.msg.Val.FailureMessage
+			r.Val.sourceIdx.WhenSome(
+				func(r tlv.RecordT[tlv.TlvType0, uint8]) {
+					idx = int(r.Val)
+				},
+			)
+
+			r.Val.msg.WhenSome(
+				func(r tlv.RecordT[tlv.TlvType1, failureMessage]) {
+					failMsg = r.Val.FailureMessage
+				},
+			)
 		},
 	)
 

@@ -543,12 +543,37 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.Store.CleanStore(keepPids)
 }
 
-// SendHTLC is used by other subsystems which aren't belong to htlc switch
-// package in order to send the htlc update. The attemptID used MUST be unique
-// for this HTLC, and MUST be used only once, otherwise the switch might reject
-// it.
+// SendHTLC attempts to forward an HTLC to the given first hop using the
+// specified attempt ID. It can be used by other subsystems in order to dispatch
+// a payment attempt. The attemptID MUST be globally unique across the lifetime
+// of the payment.
+//
+// Duplicate attemptIDs are rejected to ensure correctness of the
+// asynchronous payment result store and to prevent reuse after completion.
+//
+// The Switch guarantees that only one HTLC will be forwarded for a given
+// attemptID, and will return ErrDuplicateAdd for subsequent uses.
+//
+// This method is safe to call from remote clients via SendOnion or from
+// a local ChannelRouter.
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
+
+	// Safety check to ensure that this attempt ID is not currently created
+	// within the result store.
+	err := s.Store.InitAttempt(attemptID)
+	if err != nil {
+		if errors.Is(err, ErrPaymentIDAlreadyExists) {
+			log.Debugf("Attempt id=%v already exists", attemptID)
+
+			return ErrDuplicateAdd
+		}
+
+		log.Errorf("unable to initialize attempt id=%d: %v",
+			attemptID, err)
+
+		return err
+	}
 
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our

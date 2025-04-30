@@ -66,6 +66,11 @@ const (
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
 
+	// MsgPendingNetworkResult is an internal message used by the Switch
+	// network result store as a place holder when initializing an HTLC
+	// attempt within the store. It will not be received from network peers.
+	MsgPendingNetworkResult = 0xffff
+
 	// MsgEnd defines the end of the official message range of the protocol.
 	// If a new message is added beyond this message, then this should be
 	// modified.
@@ -192,6 +197,8 @@ func (t MessageType) String() string {
 		return "ChannelAnnouncement2"
 	case MsgChannelUpdate2:
 		return "ChannelUpdate2"
+	case MsgPendingNetworkResult:
+		return "PendingNetworkResult"
 	default:
 		return "<unknown>"
 	}
@@ -352,6 +359,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ChannelAnnouncement2{}
 	case MsgChannelUpdate2:
 		msg = &ChannelUpdate2{}
+	case MsgPendingNetworkResult:
+		msg = &PendingNetworkResult{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.
@@ -445,4 +454,27 @@ func ReadMessage(r io.Reader, pver uint32) (Message, error) {
 	}
 
 	return msg, nil
+}
+
+// PendingNetworkResult is a dummy message that implements the Message interface.
+// It acts as a placeholder for the in-progress state of an HTLC payment attempt.
+type PendingNetworkResult struct{}
+
+// MsgType returns a default MessageType.
+func (e *PendingNetworkResult) MsgType() MessageType {
+	return MsgPendingNetworkResult
+}
+
+// Decode is a no-op decoder for the empty message. Since this is just a placeholder,
+// it doesn't actually decode any data.
+func (e *PendingNetworkResult) Decode(r io.Reader, pver uint32) error {
+	// No decoding necessary for an empty message
+	return nil
+}
+
+// Encode is a no-op encoder for the empty message. Since this is just a placeholder,
+// it doesn't actually encode any data.
+func (e *PendingNetworkResult) Encode(w *bytes.Buffer, pver uint32) error {
+	// No encoding necessary for an empty message
+	return nil
 }

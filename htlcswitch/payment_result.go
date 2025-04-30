@@ -122,7 +122,7 @@ func (store *networkResultStore) StoreResult(attemptID uint64,
 
 	log.Debugf("Storing result for attemptID=%v", attemptID)
 
-	// Serialize the payment result.
+	// Handle finalized result (success or failure).
 	var b bytes.Buffer
 	if err := serializeNetworkResult(&b, result); err != nil {
 		return err
@@ -146,13 +146,16 @@ func (store *networkResultStore) StoreResult(attemptID uint64,
 	}
 
 	// Now that the result is stored in the database, we can notify any
-	// active subscribers.
-	store.resultsMtx.Lock()
-	for _, res := range store.results[attemptID] {
-		res <- result
+	// active subscribers - but only if this isn't an initialized attempt
+	// awaiting a settle/fail result from the network.
+	if result.msg.MsgType() != lnwire.MsgPendingNetworkResult {
+		store.resultsMtx.Lock()
+		for _, res := range store.results[attemptID] {
+			res <- result
+		}
+		delete(store.results, attemptID)
+		store.resultsMtx.Unlock()
 	}
-	delete(store.results, attemptID)
-	store.resultsMtx.Unlock()
 
 	return nil
 }
@@ -199,11 +202,16 @@ func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 		return nil, err
 	}
 
-	// If the result was found, we can send it on the result channel
-	// imemdiately.
+	// If a result is back from the network, we can send it on the result
+	// channel immemdiately. If the result is still our initialized place
+	// holder, then treat it as not yet available.
 	if result != nil {
-		resultChan <- result
-		return resultChan, nil
+		if result.msg.MsgType() != lnwire.MsgPendingNetworkResult {
+			log.Debugf("SubscribeResult: obtained full result for attemptID=%v", attemptID)
+			resultChan <- result
+			return resultChan, nil
+		}
+		log.Debugf("SubscribeResult: result was placeholder for attemptID=%v", attemptID)
 	}
 
 	// Otherwise we store the result channel for when the result is
@@ -217,8 +225,13 @@ func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	return resultChan, nil
 }
 
-// getResult attempts to immediately fetch the result for the given pid from
-// the store. If no result is available, ErrPaymentIDNotFound is returned.
+// GetResult attempts to immediately fetch the final network result for the
+// given attempt ID from the store. If no result is available, or if the only
+// entry is an initialization placeholder (e.g. created via InitAttempt),
+// ErrPaymentIDNotFound is returned to signal that the result is not yet
+// available.
+//
+// NOTE: This method does not currently acquire the result subscription mutex.
 func (store *networkResultStore) GetResult(pid uint64) (
 	*networkResult, error) {
 
@@ -226,7 +239,16 @@ func (store *networkResultStore) GetResult(pid uint64) (
 	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// If it's still a placeholder, treat it as not yet available.
+		if result.msg.MsgType() == lnwire.MsgPendingNetworkResult {
+			return ErrPaymentIDNotFound
+		}
+
+		return nil
 	}, func() {
 		result = nil
 	})

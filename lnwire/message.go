@@ -67,6 +67,11 @@ const (
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
 
+	// MsgPendingNetworkResult is an internal message used by the Switch
+	// network result store as a place holder when initializing an HTLC
+	// attempt within the store. It will not be received from network peers.
+	MsgPendingNetworkResult = 0xffff
+
 	// MsgEnd defines the end of the official message range of the protocol.
 	// If a new message is added beyond this message, then this should be
 	// modified.
@@ -195,6 +200,8 @@ func (t MessageType) String() string {
 		return "ChannelAnnouncement2"
 	case MsgChannelUpdate2:
 		return "ChannelUpdate2"
+	case MsgPendingNetworkResult:
+		return "PendingNetworkResult"
 	default:
 		return "<unknown>"
 	}
@@ -357,6 +364,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ChannelAnnouncement2{}
 	case MsgChannelUpdate2:
 		msg = &ChannelUpdate2{}
+	case MsgPendingNetworkResult:
+		msg = &PendingNetworkResult{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

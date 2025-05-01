@@ -170,28 +170,23 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	routes.Routes[0].Hops[1].AmtToForward = amtSat
 	routes.Routes[0].Hops[1].AmtToForwardMsat = amtMSat
 
-	// Send the payment with the modified value.
-	alicePayStream := alice.RPC.SendToRoute()
-
-	sendReq := &lnrpc.SendToRouteRequest{
+	// Send the payment with the modified value. The payment is expected to
+	// fail, and the min_htlc value should be communicated back to us, as
+	// the attempted HTLC value is too low.
+	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
 		Route:       routes.Routes[0],
 	}
-	err := alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
-
-	// We expect this payment to fail, and that the min_htlc value is
-	// communicated back to us, since the attempted HTLC value was too low.
-	sendResp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "unable to receive payment stream")
+	sendResp := alice.RPC.SendToRouteV2(sendReq)
+	require.Equal(ht, sendResp.Status, lnrpc.HTLCAttempt_FAILED)
 
 	// Expected as part of the error message.
 	substrs := []string{
-		"AmountBelowMinimum",
-		"HtlcMinimumMsat: (lnwire.MilliSatoshi) 5000 mSAT",
+		"AMOUNT_BELOW_MINIMUM",
+		"htlc_minimum_msat:5000",
 	}
 	for _, s := range substrs {
-		require.Contains(ht, sendResp.PaymentError, s)
+		require.Contains(ht, sendResp.Failure.String(), s)
 	}
 
 	// Make sure sending using the original value succeeds.
@@ -213,17 +208,15 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		TotalAmtMsat: amtMSat,
 	}
 
-	sendReq = &lnrpc.SendToRouteRequest{
+	sendReq = &routerrpc.SendToRouteRequest{
 		PaymentHash: resp.RHash,
 		Route:       route,
 	}
 
-	err = alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
-
-	sendResp, err = ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "unable to receive payment stream")
-	require.Empty(ht, sendResp.PaymentError, "expected payment to succeed")
+	sendResp = alice.RPC.SendToRouteV2(sendReq)
+	require.Equal(ht, sendResp.Status, lnrpc.HTLCAttempt_SUCCEEDED)
+	require.Nilf(ht, sendResp.Failure, "received payment error "+
+		"from %s", alice.Name())
 
 	// With our little cluster set up, we'll update the outbound fees and
 	// the max htlc size for the Bob side of the Alice->Bob channel, and

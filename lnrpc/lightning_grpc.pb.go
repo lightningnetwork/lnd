@@ -185,35 +185,6 @@ type LightningClient interface {
 	// never broadcast. Only available for non-externally funded channels in dev
 	// build.
 	AbandonChannel(ctx context.Context, in *AbandonChannelRequest, opts ...grpc.CallOption) (*AbandonChannelResponse, error)
-	// Deprecated: Do not use.
-	// lncli: `sendpayment`
-	// Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
-	// bi-directional streaming RPC for sending payments through the Lightning
-	// Network. A single RPC invocation creates a persistent bi-directional
-	// stream allowing clients to rapidly send payments through the Lightning
-	// Network with a single persistent connection.
-	SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous
-	// non-streaming version of SendPayment. This RPC is intended to be consumed by
-	// clients of the REST proxy. Additionally, this RPC expects the destination's
-	// public key and the payment hash (if any) to be encoded as hex strings.
-	SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error)
-	// Deprecated: Do not use.
-	// lncli: `sendtoroute`
-	// Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
-	// streaming RPC for sending payment through the Lightning Network. This
-	// method differs from SendPayment in that it allows users to specify a full
-	// route manually. This can be used for things like rebalancing, and atomic
-	// swaps.
-	SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error)
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous
-	// version of SendToRoute. It Will block until the payment either fails or
-	// succeeds.
-	SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error)
 	// lncli: `addinvoice`
 	// AddInvoice attempts to add a new invoice to the invoice database. Any
 	// duplicated invoices are rejected, therefore all invoices *must* have a
@@ -829,90 +800,6 @@ func (c *lightningClient) AbandonChannel(ctx context.Context, in *AbandonChannel
 	return out, nil
 }
 
-// Deprecated: Do not use.
-func (c *lightningClient) SendPayment(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendPaymentClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[6], "/lnrpc.Lightning/SendPayment", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &lightningSendPaymentClient{stream}
-	return x, nil
-}
-
-type Lightning_SendPaymentClient interface {
-	Send(*SendRequest) error
-	Recv() (*SendResponse, error)
-	grpc.ClientStream
-}
-
-type lightningSendPaymentClient struct {
-	grpc.ClientStream
-}
-
-func (x *lightningSendPaymentClient) Send(m *SendRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *lightningSendPaymentClient) Recv() (*SendResponse, error) {
-	m := new(SendResponse)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// Deprecated: Do not use.
-func (c *lightningClient) SendPaymentSync(ctx context.Context, in *SendRequest, opts ...grpc.CallOption) (*SendResponse, error) {
-	out := new(SendResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendPaymentSync", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-// Deprecated: Do not use.
-func (c *lightningClient) SendToRoute(ctx context.Context, opts ...grpc.CallOption) (Lightning_SendToRouteClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[7], "/lnrpc.Lightning/SendToRoute", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &lightningSendToRouteClient{stream}
-	return x, nil
-}
-
-type Lightning_SendToRouteClient interface {
-	Send(*SendToRouteRequest) error
-	Recv() (*SendResponse, error)
-	grpc.ClientStream
-}
-
-type lightningSendToRouteClient struct {
-	grpc.ClientStream
-}
-
-func (x *lightningSendToRouteClient) Send(m *SendToRouteRequest) error {
-	return x.ClientStream.SendMsg(m)
-}
-
-func (x *lightningSendToRouteClient) Recv() (*SendResponse, error) {
-	m := new(SendResponse)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// Deprecated: Do not use.
-func (c *lightningClient) SendToRouteSync(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*SendResponse, error) {
-	out := new(SendResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendToRouteSync", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *lightningClient) AddInvoice(ctx context.Context, in *Invoice, opts ...grpc.CallOption) (*AddInvoiceResponse, error) {
 	out := new(AddInvoiceResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/AddInvoice", in, out, opts...)
@@ -941,7 +828,7 @@ func (c *lightningClient) LookupInvoice(ctx context.Context, in *PaymentHash, op
 }
 
 func (c *lightningClient) SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[8], "/lnrpc.Lightning/SubscribeInvoices", opts...)
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[6], "/lnrpc.Lightning/SubscribeInvoices", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1072,7 +959,7 @@ func (c *lightningClient) StopDaemon(ctx context.Context, in *StopRequest, opts 
 }
 
 func (c *lightningClient) SubscribeChannelGraph(ctx context.Context, in *GraphTopologySubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelGraphClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[9], "/lnrpc.Lightning/SubscribeChannelGraph", opts...)
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[7], "/lnrpc.Lightning/SubscribeChannelGraph", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1176,7 +1063,7 @@ func (c *lightningClient) RestoreChannelBackups(ctx context.Context, in *Restore
 }
 
 func (c *lightningClient) SubscribeChannelBackups(ctx context.Context, in *ChannelBackupSubscription, opts ...grpc.CallOption) (Lightning_SubscribeChannelBackupsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[10], "/lnrpc.Lightning/SubscribeChannelBackups", opts...)
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[8], "/lnrpc.Lightning/SubscribeChannelBackups", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1253,7 +1140,7 @@ func (c *lightningClient) CheckMacaroonPermissions(ctx context.Context, in *Chec
 }
 
 func (c *lightningClient) RegisterRPCMiddleware(ctx context.Context, opts ...grpc.CallOption) (Lightning_RegisterRPCMiddlewareClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[11], "/lnrpc.Lightning/RegisterRPCMiddleware", opts...)
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[9], "/lnrpc.Lightning/RegisterRPCMiddleware", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1293,7 +1180,7 @@ func (c *lightningClient) SendCustomMessage(ctx context.Context, in *SendCustomM
 }
 
 func (c *lightningClient) SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error) {
-	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[12], "/lnrpc.Lightning/SubscribeCustomMessages", opts...)
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[10], "/lnrpc.Lightning/SubscribeCustomMessages", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1513,35 +1400,6 @@ type LightningServer interface {
 	// never broadcast. Only available for non-externally funded channels in dev
 	// build.
 	AbandonChannel(context.Context, *AbandonChannelRequest) (*AbandonChannelResponse, error)
-	// Deprecated: Do not use.
-	// lncli: `sendpayment`
-	// Deprecated, use routerrpc.SendPaymentV2. SendPayment dispatches a
-	// bi-directional streaming RPC for sending payments through the Lightning
-	// Network. A single RPC invocation creates a persistent bi-directional
-	// stream allowing clients to rapidly send payments through the Lightning
-	// Network with a single persistent connection.
-	SendPayment(Lightning_SendPaymentServer) error
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use routerrpc.SendPaymentV2. SendPaymentSync is the synchronous
-	// non-streaming version of SendPayment. This RPC is intended to be consumed by
-	// clients of the REST proxy. Additionally, this RPC expects the destination's
-	// public key and the payment hash (if any) to be encoded as hex strings.
-	SendPaymentSync(context.Context, *SendRequest) (*SendResponse, error)
-	// Deprecated: Do not use.
-	// lncli: `sendtoroute`
-	// Deprecated, use routerrpc.SendToRouteV2. SendToRoute is a bi-directional
-	// streaming RPC for sending payment through the Lightning Network. This
-	// method differs from SendPayment in that it allows users to specify a full
-	// route manually. This can be used for things like rebalancing, and atomic
-	// swaps.
-	SendToRoute(Lightning_SendToRouteServer) error
-	// Deprecated: Do not use.
-	//
-	// Deprecated, use routerrpc.SendToRouteV2. SendToRouteSync is a synchronous
-	// version of SendToRoute. It Will block until the payment either fails or
-	// succeeds.
-	SendToRouteSync(context.Context, *SendToRouteRequest) (*SendResponse, error)
 	// lncli: `addinvoice`
 	// AddInvoice attempts to add a new invoice to the invoice database. Any
 	// duplicated invoices are rejected, therefore all invoices *must* have a
@@ -1842,18 +1700,6 @@ func (UnimplementedLightningServer) CloseChannel(*CloseChannelRequest, Lightning
 }
 func (UnimplementedLightningServer) AbandonChannel(context.Context, *AbandonChannelRequest) (*AbandonChannelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AbandonChannel not implemented")
-}
-func (UnimplementedLightningServer) SendPayment(Lightning_SendPaymentServer) error {
-	return status.Errorf(codes.Unimplemented, "method SendPayment not implemented")
-}
-func (UnimplementedLightningServer) SendPaymentSync(context.Context, *SendRequest) (*SendResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendPaymentSync not implemented")
-}
-func (UnimplementedLightningServer) SendToRoute(Lightning_SendToRouteServer) error {
-	return status.Errorf(codes.Unimplemented, "method SendToRoute not implemented")
-}
-func (UnimplementedLightningServer) SendToRouteSync(context.Context, *SendToRouteRequest) (*SendResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendToRouteSync not implemented")
 }
 func (UnimplementedLightningServer) AddInvoice(context.Context, *Invoice) (*AddInvoiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddInvoice not implemented")
@@ -2514,94 +2360,6 @@ func _Lightning_AbandonChannel_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LightningServer).AbandonChannel(ctx, req.(*AbandonChannelRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Lightning_SendPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(LightningServer).SendPayment(&lightningSendPaymentServer{stream})
-}
-
-type Lightning_SendPaymentServer interface {
-	Send(*SendResponse) error
-	Recv() (*SendRequest, error)
-	grpc.ServerStream
-}
-
-type lightningSendPaymentServer struct {
-	grpc.ServerStream
-}
-
-func (x *lightningSendPaymentServer) Send(m *SendResponse) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *lightningSendPaymentServer) Recv() (*SendRequest, error) {
-	m := new(SendRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func _Lightning_SendPaymentSync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(LightningServer).SendPaymentSync(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.Lightning/SendPaymentSync",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LightningServer).SendPaymentSync(ctx, req.(*SendRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Lightning_SendToRoute_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(LightningServer).SendToRoute(&lightningSendToRouteServer{stream})
-}
-
-type Lightning_SendToRouteServer interface {
-	Send(*SendResponse) error
-	Recv() (*SendToRouteRequest, error)
-	grpc.ServerStream
-}
-
-type lightningSendToRouteServer struct {
-	grpc.ServerStream
-}
-
-func (x *lightningSendToRouteServer) Send(m *SendResponse) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func (x *lightningSendToRouteServer) Recv() (*SendToRouteRequest, error) {
-	m := new(SendToRouteRequest)
-	if err := x.ServerStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func _Lightning_SendToRouteSync_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendToRouteRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(LightningServer).SendToRouteSync(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.Lightning/SendToRouteSync",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LightningServer).SendToRouteSync(ctx, req.(*SendToRouteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3356,14 +3114,6 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Lightning_AbandonChannel_Handler,
 		},
 		{
-			MethodName: "SendPaymentSync",
-			Handler:    _Lightning_SendPaymentSync_Handler,
-		},
-		{
-			MethodName: "SendToRouteSync",
-			Handler:    _Lightning_SendToRouteSync_Handler,
-		},
-		{
 			MethodName: "AddInvoice",
 			Handler:    _Lightning_AddInvoice_Handler,
 		},
@@ -3515,18 +3265,6 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "CloseChannel",
 			Handler:       _Lightning_CloseChannel_Handler,
 			ServerStreams: true,
-		},
-		{
-			StreamName:    "SendPayment",
-			Handler:       _Lightning_SendPayment_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-		{
-			StreamName:    "SendToRoute",
-			Handler:       _Lightning_SendToRoute_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
 		},
 		{
 			StreamName:    "SubscribeInvoices",

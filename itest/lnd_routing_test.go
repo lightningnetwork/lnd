@@ -22,24 +22,9 @@ import (
 
 var sendToRouteTestCases = []*lntest.TestCase{
 	{
-		Name: "single hop with sync",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: false, routerrpc: false.
-			testSingleHopSendToRouteCase(ht, false, false)
-		},
-	},
-	{
-		Name: "single hop with stream",
-		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: true, routerrpc: false.
-			testSingleHopSendToRouteCase(ht, true, false)
-		},
-	},
-	{
 		Name: "single hop with v2",
 		TestFunc: func(ht *lntest.HarnessTest) {
-			// useStream: false, routerrpc: true.
-			testSingleHopSendToRouteCase(ht, false, true)
+			testSingleHopSendToRouteCase(ht)
 		},
 	},
 }
@@ -50,13 +35,11 @@ var sendToRouteTestCases = []*lntest.TestCase{
 //
 //	Carol --100k--> Dave
 //
-// We'll query the daemon for routes from Carol to Dave and then send payments
-// by feeding the route back into the various SendToRoute RPC methods. Here we
-// test all three SendToRoute endpoints, forcing each to perform both a regular
-// payment and an MPP payment.
-func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
-	useStream, useRPC bool) {
-
+// We'll query the daemon for a route from Carol to Dave and then send payments
+// using SendToRouteV2. This test ensures that payments are properly processed
+// through the provided route with a single hop, and tests both regular payments
+// and Multi-Path Payments (MPP) via the same method.
+func testSingleHopSendToRouteCase(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 	const paymentAmtSat = 1000
 	const numPayments = 5
@@ -119,44 +102,7 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 		}
 	}
 
-	// Construct closures for each of the payment types covered:
-	//  - main rpc server sync
-	//  - main rpc server streaming
-	//  - routerrpc server sync
-	sendToRouteSync := func() {
-		for i, rHash := range rHashes {
-			setMPPFields(i)
-
-			sendReq := &lnrpc.SendToRouteRequest{
-				PaymentHash: rHash,
-				Route:       r,
-			}
-			resp := carol.RPC.SendToRouteSync(sendReq)
-			require.Emptyf(ht, resp.PaymentError,
-				"received payment error from %s: %v",
-				carol.Name(), resp.PaymentError)
-		}
-	}
-	sendToRouteStream := func() {
-		alicePayStream := carol.RPC.SendToRoute()
-
-		for i, rHash := range rHashes {
-			setMPPFields(i)
-
-			sendReq := &lnrpc.SendToRouteRequest{
-				PaymentHash: rHash,
-				Route:       routes.Routes[0],
-			}
-			err := alicePayStream.Send(sendReq)
-			require.NoError(ht, err, "unable to send payment")
-
-			resp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-			require.NoError(ht, err, "unable to receive stream")
-			require.Emptyf(ht, resp.PaymentError,
-				"received payment error from %s: %v",
-				carol.Name(), resp.PaymentError)
-		}
-	}
+	// Closure to send payments via the routerrpc server.
 	sendToRouteRouterRPC := func() {
 		for i, rHash := range rHashes {
 			setMPPFields(i)
@@ -172,19 +118,8 @@ func testSingleHopSendToRouteCase(ht *lntest.HarnessTest,
 	}
 
 	// Using Carol as the node as the source, send the payments
-	// synchronously via the routerrpc's SendToRoute, or via the main RPC
-	// server's SendToRoute streaming or sync calls.
-	switch {
-	case !useRPC && useStream:
-		sendToRouteStream()
-	case !useRPC && !useStream:
-		sendToRouteSync()
-	case useRPC && !useStream:
-		sendToRouteRouterRPC()
-	default:
-		require.Fail(ht, "routerrpc does not support "+
-			"streaming send_to_route")
-	}
+	// synchronously via the routerrpc's SendToRouteV2 method.
+	sendToRouteRouterRPC()
 
 	// Verify that the payment's from Carol's PoV have the correct payment
 	// hash and amount.
@@ -352,6 +287,7 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 			),
 		}
 
+		// Using Alice as the source, pay to the invoice from Bob.
 		sendReq := &routerrpc.SendToRouteRequest{
 			PaymentHash: rHash,
 			Route:       route,
@@ -432,21 +368,16 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	rHash := resp.RHash
 
 	// Using Alice as the source, pay to the invoice from Bob.
-	alicePayStream := alice.RPC.SendToRoute()
-
-	sendReq := &lnrpc.SendToRouteRequest{
+	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: rHash,
 		Route:       fakeRoute.Routes[0],
 	}
-	err := alicePayStream.Send(sendReq)
-	require.NoError(ht, err, "unable to send payment")
+	sendResp := alice.RPC.SendToRouteV2(sendReq)
+	require.Equal(ht, sendResp.Status, lnrpc.HTLCAttempt_FAILED)
 
 	// At this place we should get an rpc error with notification
-	// that edge is not found on hop(0)
-	event, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
-	require.NoError(ht, err, "payment stream has been closed but fake "+
-		"route has consumed")
-	require.Contains(ht, event.PaymentError, "UnknownNextPeer")
+	// that edge is not found on hop(0).
+	require.Contains(ht, sendResp.Failure.String(), "UNKNOWN_NEXT_PEER")
 }
 
 // testPrivateChannels tests that a private channel can be used for

@@ -38,7 +38,7 @@ through the aforementioned PR example, they are now able to provide their
 signature for the new release's "Manifest" file. To do so, the developer must
 follow these steps:
 
-* Follow the build instructions at https://github.com/lightningnetwork/lnd/blob/masterdocs/release.md#building-a-new-release.
+* Follow the build instructions at https://github.com/lightningnetwork/lnd/blob/master/docs/release.md#building-a-new-release.
 
 * After a successful build, all binaries and Manifest files, will be placed
 in a directory, named after the tag, created within the directory in which the build occurred. For 

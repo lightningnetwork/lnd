@@ -113,36 +113,37 @@ lnd $  lncli sendpayment --pay_req=<PAY_REQ>
 Your Python console should now display the details of the recently satisfied
 invoice.
 
-### Bidirectional-streaming RPC
+### Server-streaming RPC
 
 ```python
-from time import sleep
 import codecs
 
-def request_generator(dest, amt):
-      # Initialization code here
-      counter = 0
-      print("Starting up")
-      while True:
-          request = ln.SendRequest(
-              dest=dest,
-              amt=amt,
-          )
-          yield request
-          # Alter parameters here
-          counter += 1
-          sleep(2)
-
-# Outputs from lncli are hex-encoded
-dest_hex = <RECEIVER_ID_PUBKEY>
+# Outputs from lncli are hex-encoded.
+dest_hex = "<THE_RECEIVER_NODE_IDENTITY_PUBLIC_KEY_IN_HEX>"
 dest_bytes = codecs.decode(dest_hex, 'hex')
 
-request_iterable = request_generator(dest=dest_bytes, amt=100)
+amount = 100
+
+payment_hash = "<THE_PAYMENT_HASH_IN_HEX>"
+payment_hash_bytes = codecs.decode(payment_hash, 'hex')
+
+final_cltv_delta = <THE_FINAL_CLTV_DELTA_AS_INTEGER>
+
+payment_address = "<THE_PAYMENT_ADDRESS_IN_HEX>"
+payment_address_bytes = codecs.decode(payment_address, 'hex')
+
+request = routerrpc.SendPaymentRequest(
+   dest=dest_bytes,
+   amt=amount,
+   payment_hash=payment_hash_bytes,
+   final_cltv_delta=final_cltv_delta,
+   payment_addr=payment_address_bytes
+)
 
 for payment in stub.SendPayment(request_iterable):
     print(payment)
 ```
-This example will send a payment of 100 satoshis every 2 seconds.
+This example will send a payment of 100 satoshis.
 
 ### Using Macaroons
 

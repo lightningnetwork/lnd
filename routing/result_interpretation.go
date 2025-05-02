@@ -126,7 +126,9 @@ func (i *interpretedResult) processSuccess(route *mcRoute) {
 
 // processFail processes a failed payment attempt.
 func (i *interpretedResult) processFail(rt *mcRoute, failure paymentFailure) {
-	if failure.info.IsNone() {
+	// Not having a source index means that we were unable to decrypt the
+	// error message.
+	if failure.sourceIdx.IsNone() {
 		i.processPaymentOutcomeUnknown(rt)
 		return
 	}
@@ -136,10 +138,17 @@ func (i *interpretedResult) processFail(rt *mcRoute, failure paymentFailure) {
 		failMsg lnwire.FailureMessage
 	)
 
-	failure.info.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType0, paymentFailureInfo]) {
-			idx = int(r.Val.sourceIdx.Val)
-			failMsg = r.Val.msg.Val.FailureMessage
+	failure.sourceIdx.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType0, uint8]) {
+			idx = int(r.Val)
+
+			failure.msg.WhenSome(
+				func(r tlv.RecordT[tlv.TlvType1,
+					failureMessage]) {
+
+					failMsg = r.Val.FailureMessage
+				},
+			)
 		},
 	)
 

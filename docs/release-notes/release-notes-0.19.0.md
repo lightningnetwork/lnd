@@ -484,10 +484,12 @@ the on going rate we'll permit.
 
 ## Database
 
-* [Migrate the mission control 
-  store](https://github.com/lightningnetwork/lnd/pull/8911) to use a more 
-  minimal encoding for payment attempt routes as well as use [pure TLV 
-  encoding](https://github.com/lightningnetwork/lnd/pull/9167).
+* [Migrate the mission control
+  store](https://github.com/lightningnetwork/lnd/pull/8911) to use a more
+  minimal encoding for payment attempt routes as well as use [pure TLV
+  encoding](https://github.com/lightningnetwork/lnd/pull/9167). [A
+  fix](https://github.com/lightningnetwork/lnd/pull/9770) was added to handle
+  nil routing failure messages and the serialization was optimized.
 
 * [Migrate the mission control 
   store](https://github.com/lightningnetwork/lnd/pull/9001) so that results are 

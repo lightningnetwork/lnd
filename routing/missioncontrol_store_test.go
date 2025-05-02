@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -85,19 +86,19 @@ func TestMissionControlStore(t *testing.T) {
 
 	result1 := newPaymentResult(
 		99, mcStoreTestRoute, testTime, testTime,
-		newPaymentFailure(
+		fn.Some(newPaymentFailure(
 			&failureSourceIdx,
 			lnwire.NewFailIncorrectDetails(100, 1000),
-		),
+		)),
 	)
 
 	result2 := newPaymentResult(
 		2, mcStoreTestRoute, testTime.Add(time.Hour),
 		testTime.Add(time.Hour),
-		newPaymentFailure(
+		fn.Some(newPaymentFailure(
 			&failureSourceIdx,
 			lnwire.NewFailIncorrectDetails(100, 1000),
-		),
+		)),
 	)
 
 	// Store result.
@@ -134,7 +135,7 @@ func TestMissionControlStore(t *testing.T) {
 	)
 	result3.id = 3
 	result3.failure = tlv.SomeRecordT(
-		tlv.NewRecordT[tlv.TlvType3](*newPaymentFailure(
+		tlv.NewRecordT[tlv.TlvType3](newPaymentFailure(
 			&failureSourceIdx, &lnwire.FailMPPTimeout{},
 		)),
 	)
@@ -153,7 +154,7 @@ func TestMissionControlStore(t *testing.T) {
 	// Also demonstrate the persistence of a success result.
 	result4 := newPaymentResult(
 		5, mcStoreTestRoute, testTime.Add(3*time.Hour),
-		testTime.Add(3*time.Hour), nil,
+		testTime.Add(3*time.Hour), fn.None[paymentFailure](),
 	)
 	store.AddResult(result4)
 	require.NoError(t, store.storeResults())
@@ -186,7 +187,10 @@ func TestMissionControlStoreFlushing(t *testing.T) {
 		return newPaymentResult(
 			lastID, mcStoreTestRoute, testTime.Add(-time.Hour),
 			testTime,
-			newPaymentFailure(&failureSourceIdx, failureDetails),
+			fn.Some(newPaymentFailure(
+				&failureSourceIdx,
+				failureDetails,
+			)),
 		)
 	}
 
@@ -287,10 +291,10 @@ func BenchmarkMissionControlStoreFlushing(b *testing.B) {
 				result := newPaymentResult(
 					lastID, mcStoreTestRoute, testTimeFwd,
 					testTime,
-					newPaymentFailure(
+					fn.Some(newPaymentFailure(
 						&failureSourceIdx,
 						failureDetails,
-					),
+					)),
 				)
 				store.AddResult(result)
 			}
@@ -305,10 +309,10 @@ func BenchmarkMissionControlStoreFlushing(b *testing.B) {
 				results[i] = newPaymentResult(
 					0, mcStoreTestRoute, testTimeFwd,
 					testTime,
-					newPaymentFailure(
+					fn.Some(newPaymentFailure(
 						&failureSourceIdx,
 						failureDetails,
-					),
+					)),
 				)
 			}
 

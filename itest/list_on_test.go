@@ -11,6 +11,10 @@ import (
 
 var allTestCases = []*lntest.TestCase{
 	{
+		Name:     "max new nodes",
+		TestFunc: testMaxNewNodes,
+	},
+	{
 		Name:     "update channel status",
 		TestFunc: testUpdateChanStatus,
 	},

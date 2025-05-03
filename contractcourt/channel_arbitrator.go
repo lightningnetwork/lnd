@@ -38,10 +38,6 @@ var (
 )
 
 const (
-	// arbitratorBlockBufferSize is the size of the buffer we give to each
-	// channel arbitrator.
-	arbitratorBlockBufferSize = 20
-
 	// AnchorOutputValue is the output value for the anchor output of an
 	// anchor channel.
 	// See BOLT 03 for more details:

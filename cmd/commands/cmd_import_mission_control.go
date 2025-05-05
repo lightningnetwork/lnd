@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
+	"time"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/urfave/cli"
@@ -15,7 +18,7 @@ const argsStr = "[source node] [dest node] [unix ts seconds] [amount in msat]"
 
 var importMissionControlCommand = cli.Command{
 	Name:      "importmc",
-	Category:  "Payments",
+	Category:  "Mission Control",
 	Usage:     "Import a result to the internal mission control state.",
 	ArgsUsage: fmt.Sprintf("importmc %v", argsStr),
 	Action:    actionDecorator(importMissionControl),
@@ -97,4 +100,174 @@ func importMissionControl(ctx *cli.Context) error {
 	rpcCtx := context.Background()
 	_, err = client.XImportMissionControl(rpcCtx, req)
 	return err
+}
+
+var loadMissionControlCommand = cli.Command{
+	Name:     "loadmc",
+	Category: "Mission Control",
+	Usage: "Load mission control results to the internal mission " +
+		"control state from a file produced by querymc with the " +
+		"option to shift timestamps. Note that this data is not " +
+		"persisted across restarts.",
+	Action: actionDecorator(loadMissionControl),
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "mcdatapath",
+			Usage: "The path to the querymc output file (json).",
+		},
+		cli.BoolFlag{
+			Name:  "discard",
+			Usage: "Discards current mission control data.",
+		},
+		cli.StringFlag{
+			Name: "timeoffset",
+			Usage: "Time offset to add to all timestamps. " +
+				"Format: 1m for a minute, 1h for an hour, 1d " +
+				"for one day. This can be used to let " +
+				"mission control data appear to be more " +
+				"recent, to trick pathfinding's in-built " +
+				"information decay mechanism. Additionally " +
+				"by setting 0m, this will report the most " +
+				"recent result timestamp, which can be used " +
+				"to find out how old this data is.",
+		},
+		cli.BoolFlag{
+			Name: "force",
+			Usage: "Whether to force overiding more recent " +
+				"results in the database with older results " +
+				"from the file.",
+		},
+	},
+}
+
+// loadMissionControl loads mission control data into an LND instance.
+func loadMissionControl(ctx *cli.Context) error {
+	rpcCtx := context.Background()
+
+	mcDataPath := ctx.String("mcdatapath")
+	if mcDataPath == "" {
+		return fmt.Errorf("mcdatapath must be set")
+	}
+
+	if _, err := os.Stat(mcDataPath); os.IsNotExist(err) {
+		return fmt.Errorf("%v does not exist", mcDataPath)
+	}
+
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	// Load and unmarshal the querymc output file.
+	mcRaw, err := os.ReadFile(mcDataPath)
+	if err != nil {
+		return fmt.Errorf("could not read querymc output file: %w", err)
+	}
+
+	mc := &routerrpc.QueryMissionControlResponse{}
+	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(mcRaw, mc)
+	if err != nil {
+		return fmt.Errorf("could not unmarshal querymc output file: %w",
+			err)
+	}
+
+	// We discard mission control data if requested.
+	if ctx.Bool("discard") {
+		if !promptForConfirmation("This will discard all current " +
+			"mission control data in the database (yes/no): ") {
+
+			return nil
+		}
+
+		_, err = client.ResetMissionControl(
+			rpcCtx, &routerrpc.ResetMissionControlRequest{},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Add a time offset to all timestamps if requested.
+	timeOffset := ctx.String("timeoffset")
+	if timeOffset != "" {
+		offset, err := time.ParseDuration(timeOffset)
+		if err != nil {
+			return fmt.Errorf("could not parse time offset: %w",
+				err)
+		}
+
+		var maxTimestamp time.Time
+
+		for _, pair := range mc.Pairs {
+			if pair.History.SuccessTime != 0 {
+				unix := time.Unix(pair.History.SuccessTime, 0)
+				unix = unix.Add(offset)
+
+				if unix.After(maxTimestamp) {
+					maxTimestamp = unix
+				}
+
+				pair.History.SuccessTime = unix.Unix()
+			}
+
+			if pair.History.FailTime != 0 {
+				unix := time.Unix(pair.History.FailTime, 0)
+				unix = unix.Add(offset)
+
+				if unix.After(maxTimestamp) {
+					maxTimestamp = unix
+				}
+
+				pair.History.FailTime = unix.Unix()
+			}
+		}
+
+		fmt.Printf("Adding time offset %v to all timestamps. "+
+			"New max timestamp: %v\n", offset, maxTimestamp)
+	}
+
+	sanitizeMCData(mc.Pairs)
+
+	fmt.Printf("Mission control file contains %v pairs.\n", len(mc.Pairs))
+	if !promptForConfirmation("Import mission control data (yes/no): ") {
+		return nil
+	}
+
+	_, err = client.XImportMissionControl(
+		rpcCtx,
+		&routerrpc.XImportMissionControlRequest{
+			Pairs: mc.Pairs, Force: ctx.Bool("force"),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not import mission control data: %w",
+			err)
+	}
+
+	return nil
+}
+
+// sanitizeMCData removes invalid data from the exported mission control data.
+func sanitizeMCData(mc []*routerrpc.PairHistory) {
+	for _, pair := range mc {
+		// It is not allowed to import a zero-amount success to mission
+		// control if a timestamp is set. We unset it in this case.
+		if pair.History.SuccessTime != 0 &&
+			pair.History.SuccessAmtMsat == 0 &&
+			pair.History.SuccessAmtSat == 0 {
+
+			pair.History.SuccessTime = 0
+		}
+
+		// If we only deal with a failure, we need to set the failure
+		// amount to a tiny value due to a limitation in the RPC. This
+		// will lead to a similar penalization in pathfinding.
+		if pair.History.SuccessTime == 0 &&
+			pair.History.FailTime != 0 &&
+			pair.History.FailAmtMsat == 0 &&
+			pair.History.FailAmtSat == 0 {
+
+			pair.History.FailAmtMsat = 1
+		}
+	}
 }

@@ -7,6 +7,7 @@ func routerCommands() []cli.Command {
 	return []cli.Command{
 		queryMissionControlCommand,
 		importMissionControlCommand,
+		loadMissionControlCommand,
 		queryProbCommand,
 		resetMissionControlCommand,
 		buildRouteCommand,

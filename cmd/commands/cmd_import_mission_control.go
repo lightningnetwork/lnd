@@ -15,7 +15,7 @@ const argsStr = "[source node] [dest node] [unix ts seconds] [amount in msat]"
 
 var importMissionControlCommand = cli.Command{
 	Name:      "importmc",
-	Category:  "Payments",
+	Category:  "Mission Control",
 	Usage:     "Import a result to the internal mission control state.",
 	ArgsUsage: fmt.Sprintf("importmc %v", argsStr),
 	Action:    actionDecorator(importMissionControl),

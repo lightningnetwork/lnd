@@ -1,11 +1,21 @@
 package itest
 
 import (
+	"bytes"
+
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,6 +56,12 @@ var walletTestCases = []*lntest.TestCase{
 		Name: "listunspent P2TR restart",
 		TestFunc: func(ht *lntest.HarnessTest) {
 			runTestListUnspentRestart(ht, ht.FundCoinsP2TR)
+		},
+	},
+	{
+		Name: "submit package basic",
+		TestFunc: func(ht *lntest.HarnessTest) {
+			runTestSubmitPackageBasicCPFP(ht)
 		},
 	},
 }
@@ -117,4 +133,320 @@ func runTestListUnspentRestart(ht *lntest.HarnessTest, fundCoins fundMethod) {
 
 	// Alice should have no UTXO.
 	ht.AssertNumUTXOs(alice, 0)
+}
+
+// Helper to convert walletrpc.KeyDescriptor to a P2WPKH address.
+func keyDescToAddrP2WPKH(ht *lntest.HarnessTest,
+	keyDesc *signrpc.KeyDescriptor) btcutil.Address {
+
+	harnessNetParams := &chaincfg.RegressionNetParams
+
+	pubKeyBytes := keyDesc.RawKeyBytes
+	require.NotEmpty(ht, pubKeyBytes, "KeyDescriptor has empty RawKeyBytes")
+
+	addr, err := btcutil.NewAddressWitnessPubKeyHash(
+		btcutil.Hash160(pubKeyBytes),
+		harnessNetParams,
+	)
+	require.NoError(ht, err)
+
+	return addr
+}
+
+// runTestSubmitPackageBasicCPFP tests the SubmitPackage RPC for a simple
+// Child-Pays-For-Parent (CPFP) scenario.
+func runTestSubmitPackageBasicCPFP(ht *lntest.HarnessTest) {
+	const (
+		fundingAmount = btcutil.Amount(10_000_000)
+		childFeeRate  = 100
+		testKeyFamily = 111
+	)
+
+	// Create a new node (Alice).
+	alice := ht.NewNode("Alice", nil)
+	defer ht.Shutdown(alice)
+
+	// Derive a key and address for the initial funding.
+	fundingKey := alice.RPC.DeriveNextKey(
+		&walletrpc.KeyReq{
+			KeyFamily: testKeyFamily,
+		},
+	)
+
+	fundingAddr := keyDescToAddrP2WPKH(ht, fundingKey)
+	ht.Logf("Funding address: %s", fundingAddr)
+
+	// Create a second funding UTXO that will be used as the fee-paying
+	// input in the child transaction.
+	feePayingAmount := btcutil.Amount(1_000_000)
+	feePayingKey := alice.RPC.DeriveNextKey(
+		&walletrpc.KeyReq{
+			KeyFamily: testKeyFamily,
+		},
+	)
+
+	feePayingAddr := keyDescToAddrP2WPKH(ht, feePayingKey)
+	ht.Logf("Fee-paying address: %s", feePayingAddr)
+
+	// Send funds from the miner to both addresses directly to avoid wallet
+	// balance issues.
+	fundingPkScript := ht.PayToAddrScript(fundingAddr)
+	feePayingPkScript := ht.PayToAddrScript(feePayingAddr)
+
+	outputs := []*wire.TxOut{
+		{
+			Value:    int64(fundingAmount),
+			PkScript: fundingPkScript,
+		},
+		{
+			Value:    int64(feePayingAmount),
+			PkScript: feePayingPkScript,
+		},
+	}
+	ht.Miner().SendOutputsWithoutChange(outputs, 10)
+
+	// Mine the funding transaction.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Now find both funding txs in the mined block so we can use their outputs
+	// as inputs to the parent and child txs.
+	var (
+		fundingOutIndex   uint32
+		fundingOut        *wire.TxOut
+		fundingTx         *wire.MsgTx
+		feePayingOutIndex uint32
+		feePayingOut      *wire.TxOut
+		feePayingTx       *wire.MsgTx
+	)
+
+	for _, tx := range block[0].Transactions {
+		for i, txOut := range tx.TxOut {
+			if bytes.Equal(txOut.PkScript, fundingPkScript) {
+				fundingTx = tx
+				fundingOut = txOut
+				fundingOutIndex = uint32(i)
+			} else if bytes.Equal(txOut.PkScript, feePayingPkScript) { //nolint:ll
+				feePayingTx = tx
+				feePayingOut = txOut
+				feePayingOutIndex = uint32(i)
+			}
+		}
+	}
+	require.NotNil(ht, fundingTx, "Funding output not found")
+	require.NotNil(ht, feePayingTx, "Fee-paying output not found")
+
+	fundOutPoint := wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: fundingOutIndex,
+	}
+
+	feePayingOutPoint := wire.OutPoint{
+		Hash:  feePayingTx.TxHash(),
+		Index: feePayingOutIndex,
+	}
+
+	parentOutValue := int64(fundingAmount)
+
+	// Create a V3 "parent" transaction spending the funding output.
+	parentTx := wire.NewMsgTx(3)
+	parentTx.AddTxIn(wire.NewTxIn(&fundOutPoint, nil, nil))
+
+	// Derive a key and address for the parent's output.
+	parentOutKey := alice.RPC.DeriveNextKey(
+		&walletrpc.KeyReq{
+			KeyFamily: testKeyFamily,
+		},
+	)
+
+	parentOutAddr := keyDescToAddrP2WPKH(ht, parentOutKey)
+	parentOutPkScript := ht.PayToAddrScript(parentOutAddr)
+	parentTx.AddTxOut(wire.NewTxOut(parentOutValue, parentOutPkScript))
+
+	// Serialize the parent tx.
+	var parentBuf bytes.Buffer
+	require.NoError(ht, parentTx.Serialize(&parentBuf))
+
+	// Create a sign descriptor for the parent tx.
+	parentSignDesc := &signrpc.SignDescriptor{
+		KeyDesc: fundingKey,
+		Output: &signrpc.TxOut{
+			Value:    fundingOut.Value,
+			PkScript: fundingOut.PkScript,
+		},
+		Sighash:       uint32(txscript.SigHashAll),
+		WitnessScript: fundingOut.PkScript,
+		SignMethod:    signrpc.SignMethod_SIGN_METHOD_WITNESS_V0,
+	}
+
+	// Sign the parent tx.
+	parentSignResp, err := alice.RPC.Signer.SignOutputRaw(
+		ht.Context(),
+		&signrpc.SignReq{
+			RawTxBytes: parentBuf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{
+				parentSignDesc,
+			},
+		},
+	)
+	require.NoError(ht, err)
+
+	// Set the parent tx's witness to the signature.
+	parentTx.TxIn[0].Witness = makeP2WPKHWitness(
+		parentSignResp.RawSigs[0], fundingKey,
+	)
+
+	// Reserialize the parent after the witness has been set.
+	parentBuf.Reset()
+	require.NoError(ht, parentTx.Serialize(&parentBuf))
+
+	parentOut := &wire.OutPoint{
+		Hash:  parentTx.TxHash(),
+		Index: 0,
+	}
+
+	// Create a new P2WPKH address for the child's output.
+	childOutAddrResp := alice.RPC.NewAddress(
+		&lnrpc.NewAddressRequest{
+			Account: lnwallet.DefaultAccountName,
+			Type:    lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		},
+	)
+	require.NoError(ht, err)
+
+	// Estimate child's weight and fee for 2 inputs and 2 outputs.
+	// The child transaction will have:
+	// - 2 inputs: the parent output and a fee-paying input.
+	// - 2 outputs: one for the main output and one for change.
+	childEstimator := input.TxWeightEstimator{}
+	childEstimator.AddP2WKHInput()
+	childEstimator.AddP2WKHInput()
+	childEstimator.AddP2WKHOutput()
+	childEstimator.AddP2WKHOutput()
+	childWeight := childEstimator.Weight()
+	childFee := chainfee.SatPerVByte(
+		childFeeRate,
+	).FeePerKWeight().FeeForWeight(
+		childWeight,
+	)
+
+	// Create a new P2WPKH address for the child's change output.
+	childChangeAddrResp := alice.RPC.NewAddress(
+		&lnrpc.NewAddressRequest{
+			Account: lnwallet.DefaultAccountName,
+			Type:    lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		},
+	)
+	require.NoError(ht, err)
+
+	// Create the unsigned child transaction with 2 inputs and 2 outputs.
+	childTx := wire.NewMsgTx(3)
+	// Add both inputs: parent output and fee-paying input.
+	childTx.AddTxIn(wire.NewTxIn(parentOut, nil, nil))
+	childTx.AddTxIn(wire.NewTxIn(&feePayingOutPoint, nil, nil))
+
+	childOutAddr := ht.DecodeAddress(childOutAddrResp.Address)
+	childOutPkScript := ht.PayToAddrScript(childOutAddr)
+
+	childChangeAddr := ht.DecodeAddress(childChangeAddrResp.Address)
+	childChangePkScript := ht.PayToAddrScript(childChangeAddr)
+
+	// First output: same amount as parent output (preserving value).
+	childTx.AddTxOut(
+		wire.NewTxOut(parentOutValue, childOutPkScript),
+	)
+
+	// Second output: change from the fee-paying input.
+	changeValue := int64(feePayingAmount) - int64(childFee)
+	childTx.AddTxOut(
+		wire.NewTxOut(changeValue, childChangePkScript),
+	)
+
+	// Serialize the child tx.
+	var childBuf bytes.Buffer
+	require.NoError(ht, childTx.Serialize(&childBuf))
+
+	// Create sign descriptors for both child tx inputs.
+	childParentSignDesc := &signrpc.SignDescriptor{
+		KeyDesc: parentOutKey,
+		Output: &signrpc.TxOut{
+			Value:    parentOutValue,
+			PkScript: parentOutPkScript,
+		},
+		Sighash:       uint32(txscript.SigHashAll),
+		WitnessScript: parentOutPkScript,
+		SignMethod:    signrpc.SignMethod_SIGN_METHOD_WITNESS_V0,
+		InputIndex:    0,
+	}
+
+	childFeePayingSignDesc := &signrpc.SignDescriptor{
+		KeyDesc: feePayingKey,
+		Output: &signrpc.TxOut{
+			Value:    feePayingOut.Value,
+			PkScript: feePayingOut.PkScript,
+		},
+		Sighash:       uint32(txscript.SigHashAll),
+		WitnessScript: feePayingOut.PkScript,
+		SignMethod:    signrpc.SignMethod_SIGN_METHOD_WITNESS_V0,
+		InputIndex:    1,
+	}
+
+	// Sign the child tx with both input descriptors.
+	childSignResp, err := alice.RPC.Signer.SignOutputRaw(
+		ht.Context(),
+		&signrpc.SignReq{
+			RawTxBytes: childBuf.Bytes(),
+			SignDescs: []*signrpc.SignDescriptor{
+				childParentSignDesc,
+				childFeePayingSignDesc,
+			},
+		},
+	)
+	require.NoError(ht, err)
+
+	// Set the child tx's witnesses for both inputs.
+	childTx.TxIn[0].Witness = makeP2WPKHWitness(
+		childSignResp.RawSigs[0], parentOutKey,
+	)
+	childTx.TxIn[1].Witness = makeP2WPKHWitness(
+		childSignResp.RawSigs[1], feePayingKey,
+	)
+
+	// Reserialize the child after the witness has been set.
+	childBuf.Reset()
+	require.NoError(ht, childTx.Serialize(&childBuf))
+
+	submitPackageResp, err := alice.RPC.WalletKit.SubmitPackage(
+		ht.Context(), &walletrpc.SubmitPackageRequest{
+			ParentTxs: [][]byte{parentBuf.Bytes()},
+			ChildTx:   childBuf.Bytes(),
+		},
+	)
+	require.NoError(ht, err)
+	ht.Logf("SubmitPackage response: %v", spew.Sdump(submitPackageResp))
+
+	// TODO(bhandras): once we have package support for btcd or we switch
+	// to bitcoind miner in the tests we can uncomment the following lines
+	// and test the package transactions in the mempool and mined blocks.
+	/*
+		ht.AssertTxInMempool(parentTx.TxHash())
+		ht.AssertTxInMempool(childTx.TxHash())
+
+		ht.Log("Mining block with package transactions...")
+		block = ht.MineBlocksAndAssertNumTxes(1, 2)
+		ht.AssertTxInBlock(block[0], parentTx.TxHash())
+		ht.AssertTxInBlock(block[0], childTx.TxHash())
+	*/
+}
+
+// makeP2WPKHWitness creates a P2WPKH witness stack for the given signature and
+// key descriptor.
+func makeP2WPKHWitness(sig []byte,
+	keyDesc *signrpc.KeyDescriptor) wire.TxWitness {
+
+	sigWithHash := append(sig, byte(txscript.SigHashAll))
+
+	return wire.TxWitness{
+		sigWithHash,         // element 0: 70-73-byte signature.
+		keyDesc.RawKeyBytes, // element 1: 33-byte compressed pubkey.
+	}
 }

@@ -115,10 +115,6 @@ var loadMissionControlCommand = cli.Command{
 			Name:  "mcdatapath",
 			Usage: "The path to the querymc output file (json).",
 		},
-		cli.BoolFlag{
-			Name:  "discard",
-			Usage: "Discards current mission control data.",
-		},
 		cli.StringFlag{
 			Name: "timeoffset",
 			Usage: "Time offset to add to all timestamps. " +
@@ -170,22 +166,6 @@ func loadMissionControl(ctx *cli.Context) error {
 	defer conn.Close()
 
 	client := routerrpc.NewRouterClient(conn)
-
-	// We discard mission control data if requested.
-	if ctx.Bool("discard") {
-		if !promptForConfirmation("This will discard all current " +
-			"mission control data in the database (yes/no): ") {
-
-			return nil
-		}
-
-		_, err = client.ResetMissionControl(
-			rpcCtx, &routerrpc.ResetMissionControlRequest{},
-		)
-		if err != nil {
-			return err
-		}
-	}
 
 	// Add a time offset to all timestamps if requested.
 	timeOffset := ctx.String("timeoffset")

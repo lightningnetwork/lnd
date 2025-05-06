@@ -106,7 +106,7 @@ var loadMissionControlCommand = cli.Command{
 	Name:     "loadmc",
 	Category: "Mission Control",
 	Usage: "Load mission control results to the internal mission " +
-		"control state from a file produced by querymc with the " +
+		"control state from a file produced by `querymc` with the " +
 		"option to shift timestamps. Note that this data is not " +
 		"persisted across restarts.",
 	Action: actionDecorator(loadMissionControl),
@@ -122,12 +122,12 @@ var loadMissionControlCommand = cli.Command{
 		cli.StringFlag{
 			Name: "timeoffset",
 			Usage: "Time offset to add to all timestamps. " +
-				"Format: 1m for a minute, 1h for an hour, 1d " +
-				"for one day. This can be used to let " +
-				"mission control data appear to be more " +
-				"recent, to trick pathfinding's in-built " +
-				"information decay mechanism. Additionally " +
-				"by setting 0m, this will report the most " +
+				"Follows a format like 72h3m0.5s. " +
+				"This can be used to make mission control " +
+				"data appear more recent, to trick " +
+				"pathfinding's in-built information decay " +
+				"mechanism. Additionally, " +
+				"by setting 0s, this will report the most " +
 				"recent result timestamp, which can be used " +
 				"to find out how old this data is.",
 		},
@@ -222,7 +222,7 @@ func loadMissionControl(ctx *cli.Context) error {
 			}
 		}
 
-		fmt.Printf("Adding time offset %v to all timestamps. "+
+		fmt.Printf("Added a time offset %v to all timestamps. "+
 			"New max timestamp: %v\n", offset, maxTimestamp)
 	}
 

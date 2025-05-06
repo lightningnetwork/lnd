@@ -23,6 +23,9 @@ const (
 	// NeutrinoBackendName is the name of the neutrino backend.
 	NeutrinoBackendName = "neutrino"
 
+	// BitcoindBackendName is the name of the bitcoind backend.
+	BitcoindBackendName = "bitcoind"
+
 	DefaultTimeout = wait.DefaultTimeout
 
 	// noFeeLimitMsat is used to specify we will put no requirements on fee

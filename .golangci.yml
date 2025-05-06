@@ -1,7 +1,7 @@
 run:
   # If you change this please also update GO_VERSION in Makefile (then run
   # `make lint` to see where else it needs to be updated as well).
-  go: "1.23.6"
+  go: "1.23.9"
 
   # Abort after 10 minutes.
   timeout: 10m

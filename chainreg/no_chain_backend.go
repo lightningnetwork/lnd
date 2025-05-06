@@ -224,4 +224,10 @@ func (n *NoChainSource) MapRPCErr(err error) error {
 	return err
 }
 
+func (n *NoChainSource) SubmitPackage([]*wire.MsgTx, *wire.MsgTx,
+	*float64) (*btcjson.SubmitPackageResult, error) {
+
+	return nil, errNotImplemented
+}
+
 var _ chain.Interface = (*NoChainSource)(nil)

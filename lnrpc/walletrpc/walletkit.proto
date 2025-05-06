@@ -357,6 +357,14 @@ service WalletKit {
     unlock/release any locked UTXOs in case of an error in this method.
     */
     rpc FinalizePsbt (FinalizePsbtRequest) returns (FinalizePsbtResponse);
+
+    /*
+    SubmitPackage attempts to broadcast a transaction package, consisting of
+    one or more parent transactions and exactly one child transaction.
+    The package is submitted to the backend node's mempool atomically.
+    This RPC is primarily used for Child-Pays-For-Parent (CPFP) fee bumping.
+    */
+    rpc SubmitPackage (SubmitPackageRequest) returns (SubmitPackageResponse);
 }
 
 message ListUnspentRequest {
@@ -1591,4 +1599,61 @@ message ListLeasesRequest {
 message ListLeasesResponse {
     // The list of currently leased utxos.
     repeated UtxoLease locked_utxos = 1;
+}
+
+message SubmitPackageRequest {
+    // A list of raw, serialized parent transactions. These transactions are
+    // typically the ones being fee-bumped.
+    repeated bytes parent_txs = 1;
+
+    // The raw, serialized child transaction. This transaction spends outputs
+    // from one or more of the parent_txs and should provide sufficient fees for
+    // the entire package.
+    bytes child_tx = 2;
+
+    // An optional fee rate cap for the package, expressed in satoshis per
+    // kilo-weight (sat/kw). If non-zero, the backend node may reject the
+    // package if its effective fee rate exceeds this value. A value of 0
+    // indicates no specific limit should be enforced by the caller.
+    uint32 max_fee_rate_sat_per_kw = 3;
+}
+
+message SubmitPackageResponse {
+    // Overall status message for the package submission (e.g., "success",
+    // or a general reason if the entire package is rejected before individual
+    // transaction checks).
+    string package_msg = 1;
+
+    // Detailed result for each transaction within the submitted package.
+    // The key is the wtxid (witness transaction ID, hex-encoded) of the
+    // transaction as submitted in the package.
+    map<string, TxResult> tx_results = 2;
+
+    // A list of hex-encoded transaction IDs of transactions that were evicted
+    // from the mempool due to replacement by transactions in this package
+    // (as a result of Package RBF).
+    repeated string replaced_transactions = 3;
+
+    // TxResult provides information about a single transaction within the
+    // submitted package.
+    message TxResult {
+        // The transaction hash (txid, hex-encoded) of this transaction.
+        string txid = 1;
+
+        // If the submitted transaction was recognized as a witness-replacement
+        // for an existing mempool transaction (i.e., same txid but different
+        // witness), this field will contain the wtxid (hex-encoded) of the
+        // pre-existing transaction that was kept in the mempool.
+        // This field will be empty if this was not a witness-replacement
+        // scenario or if the submitted transaction was preferred.
+        string other_wtxid = 2;
+
+        // If the transaction was rejected or failed processing for any reason
+        // (either individual checks or package validation rules), this field
+        // contains a human-readable error message.
+        // This field will be empty if the transaction was successfully
+        // processed (i.e., accepted into the mempool or was already present and
+        // valid).
+        string error_message = 3;
+    }
 }

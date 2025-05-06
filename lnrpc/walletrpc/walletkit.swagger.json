@@ -968,6 +968,24 @@
         }
       }
     },
+    "SubmitPackageResponseTxResult": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "description": "The transaction hash (txid, hex-encoded) of this transaction."
+        },
+        "other_wtxid": {
+          "type": "string",
+          "description": "If the submitted transaction was recognized as a witness-replacement\nfor an existing mempool transaction (i.e., same txid but different\nwitness), this field will contain the wtxid (hex-encoded) of the\npre-existing transaction that was kept in the mempool.\nThis field will be empty if this was not a witness-replacement\nscenario or if the submitted transaction was preferred."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "If the transaction was rejected or failed processing for any reason\n(either individual checks or package validation rules), this field\ncontains a human-readable error message.\nThis field will be empty if the transaction was successfully\nprocessed (i.e., accepted into the mempool or was already present and\nvalid)."
+        }
+      },
+      "description": "TxResult provides information about a single transaction within the\nsubmitted package."
+    },
     "lnrpcAddressType": {
       "type": "string",
       "enum": [
@@ -2177,6 +2195,29 @@
             "format": "int64"
           },
           "description": "The indices of signed inputs."
+        }
+      }
+    },
+    "walletrpcSubmitPackageResponse": {
+      "type": "object",
+      "properties": {
+        "package_msg": {
+          "type": "string",
+          "description": "Overall status message for the package submission (e.g., \"success\",\nor a general reason if the entire package is rejected before individual\ntransaction checks)."
+        },
+        "tx_results": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/SubmitPackageResponseTxResult"
+          },
+          "description": "Detailed result for each transaction within the submitted package.\nThe key is the wtxid (witness transaction ID, hex-encoded) of the\ntransaction as submitted in the package."
+        },
+        "replaced_transactions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A list of hex-encoded transaction IDs of transactions that were evicted\nfrom the mempool due to replacement by transactions in this package\n(as a result of Package RBF)."
         }
       }
     },

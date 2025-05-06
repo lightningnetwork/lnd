@@ -185,6 +185,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/SubmitPackage": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -3075,4 +3079,95 @@ func (w *WalletKit) ImportTapscript(_ context.Context,
 	return &ImportTapscriptResponse{
 		P2TrAddress: addr.Address().String(),
 	}, nil
+}
+
+// SubmitPackage attempts to broadcast a transaction package, consisting of one
+// or more parent transactions and exactly one child transaction. The package is
+// submitted to the backend node's mempool atomically. This RPC is primarily
+// used for Child-Pays-For-Parent (CPFP) fee bumping.
+func (w *WalletKit) SubmitPackage(ctx context.Context,
+	req *SubmitPackageRequest) (*SubmitPackageResponse, error) {
+
+	// Validate that there's at least one parent transaction.
+	if len(req.ParentTxs) == 0 {
+		return nil, fmt.Errorf("at least one parent transaction is " +
+			"required")
+	}
+
+	// Validate that there's a child transaction specified.
+	if len(req.ChildTx) == 0 {
+		return nil, fmt.Errorf("child transaction is required")
+	}
+
+	// Deserialize parent transactions.
+	parents := make([]*wire.MsgTx, 0, len(req.ParentTxs))
+	for i, parentBytes := range req.ParentTxs {
+		if len(parentBytes) == 0 {
+			return nil, fmt.Errorf("parent transaction at index "+
+				"%d is empty", i)
+		}
+
+		parentTx := wire.NewMsgTx(wire.TxVersion)
+		err := parentTx.Deserialize(bytes.NewReader(parentBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to deserialize parent "+
+				"transaction at index %d: %w", i, err)
+		}
+
+		parents = append(parents, parentTx)
+	}
+
+	// Deserialize child transaction.
+	childTx := wire.NewMsgTx(wire.TxVersion)
+	err := childTx.Deserialize(bytes.NewReader(req.ChildTx))
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize child "+
+			"transaction: %w", err)
+	}
+
+	// Attempt to submit the package using the underlying wallet.
+	submitPackageResult, err := w.cfg.Wallet.SubmitPackage(
+		parents, childTx,
+		chainfee.SatPerKWeight(req.MaxFeeRateSatPerKw),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit package: %w", err)
+	}
+
+	// Translate the wallet's Go result to the protobuf response.
+	protoResponse := &SubmitPackageResponse{
+		PackageMsg: submitPackageResult.PackageMsg,
+		TxResults:  make(map[string]*SubmitPackageResponse_TxResult),
+	}
+
+	// Translate TxResults.
+	for wtxid, txRes := range submitPackageResult.TxResults {
+		protoTxRes := &SubmitPackageResponse_TxResult{
+			Txid: txRes.TxID.String(),
+		}
+		if txRes.OtherWtxid != nil {
+			protoTxRes.OtherWtxid = txRes.OtherWtxid.String()
+		}
+		if txRes.Error != nil {
+			protoTxRes.ErrorMessage = *txRes.Error
+		}
+
+		protoResponse.TxResults[wtxid] = protoTxRes
+	}
+
+	// Translate ReplacedTransactions.
+	if len(submitPackageResult.ReplacedTransactions) > 0 {
+		protoResponse.ReplacedTransactions = make(
+			[]string, 0,
+			len(submitPackageResult.ReplacedTransactions),
+		)
+		for _, hash := range submitPackageResult.ReplacedTransactions {
+			protoResponse.ReplacedTransactions = append(
+				protoResponse.ReplacedTransactions,
+				hash.String(),
+			)
+		}
+	}
+
+	return protoResponse, nil
 }

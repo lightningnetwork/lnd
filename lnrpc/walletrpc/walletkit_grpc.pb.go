@@ -279,6 +279,11 @@ type WalletKitClient interface {
 	// caller's responsibility to either publish the transaction on success or
 	// unlock/release any locked UTXOs in case of an error in this method.
 	FinalizePsbt(ctx context.Context, in *FinalizePsbtRequest, opts ...grpc.CallOption) (*FinalizePsbtResponse, error)
+	// SubmitPackage attempts to broadcast a transaction package, consisting of
+	// one or more parent transactions and exactly one child transaction.
+	// The package is submitted to the backend node's mempool atomically.
+	// This RPC is primarily used for Child-Pays-For-Parent (CPFP) fee bumping.
+	SubmitPackage(ctx context.Context, in *SubmitPackageRequest, opts ...grpc.CallOption) (*SubmitPackageResponse, error)
 }
 
 type walletKitClient struct {
@@ -535,6 +540,15 @@ func (c *walletKitClient) SignPsbt(ctx context.Context, in *SignPsbtRequest, opt
 func (c *walletKitClient) FinalizePsbt(ctx context.Context, in *FinalizePsbtRequest, opts ...grpc.CallOption) (*FinalizePsbtResponse, error) {
 	out := new(FinalizePsbtResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/FinalizePsbt", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *walletKitClient) SubmitPackage(ctx context.Context, in *SubmitPackageRequest, opts ...grpc.CallOption) (*SubmitPackageResponse, error) {
+	out := new(SubmitPackageResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/SubmitPackage", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -804,6 +818,11 @@ type WalletKitServer interface {
 	// caller's responsibility to either publish the transaction on success or
 	// unlock/release any locked UTXOs in case of an error in this method.
 	FinalizePsbt(context.Context, *FinalizePsbtRequest) (*FinalizePsbtResponse, error)
+	// SubmitPackage attempts to broadcast a transaction package, consisting of
+	// one or more parent transactions and exactly one child transaction.
+	// The package is submitted to the backend node's mempool atomically.
+	// This RPC is primarily used for Child-Pays-For-Parent (CPFP) fee bumping.
+	SubmitPackage(context.Context, *SubmitPackageRequest) (*SubmitPackageResponse, error)
 	mustEmbedUnimplementedWalletKitServer()
 }
 
@@ -894,6 +913,9 @@ func (UnimplementedWalletKitServer) SignPsbt(context.Context, *SignPsbtRequest) 
 }
 func (UnimplementedWalletKitServer) FinalizePsbt(context.Context, *FinalizePsbtRequest) (*FinalizePsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizePsbt not implemented")
+}
+func (UnimplementedWalletKitServer) SubmitPackage(context.Context, *SubmitPackageRequest) (*SubmitPackageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SubmitPackage not implemented")
 }
 func (UnimplementedWalletKitServer) mustEmbedUnimplementedWalletKitServer() {}
 
@@ -1412,6 +1434,24 @@ func _WalletKit_FinalizePsbt_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_SubmitPackage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SubmitPackageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).SubmitPackage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/SubmitPackage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).SubmitPackage(ctx, req.(*SubmitPackageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WalletKit_ServiceDesc is the grpc.ServiceDesc for WalletKit service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1530,6 +1570,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FinalizePsbt",
 			Handler:    _WalletKit_FinalizePsbt_Handler,
+		},
+		{
+			MethodName: "SubmitPackage",
+			Handler:    _WalletKit_SubmitPackage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

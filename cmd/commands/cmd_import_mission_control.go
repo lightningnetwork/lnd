@@ -106,7 +106,7 @@ var loadMissionControlCommand = cli.Command{
 	Name:     "loadmc",
 	Category: "Mission Control",
 	Usage: "Load mission control results to the internal mission " +
-		"control state from a file produced by querymc with the " +
+		"control state from a file produced by `querymc` with the " +
 		"option to shift timestamps. Note that this data is not " +
 		"persisted across restarts.",
 	Action: actionDecorator(loadMissionControl),
@@ -115,19 +115,15 @@ var loadMissionControlCommand = cli.Command{
 			Name:  "mcdatapath",
 			Usage: "The path to the querymc output file (json).",
 		},
-		cli.BoolFlag{
-			Name:  "discard",
-			Usage: "Discards current mission control data.",
-		},
 		cli.StringFlag{
 			Name: "timeoffset",
 			Usage: "Time offset to add to all timestamps. " +
-				"Format: 1m for a minute, 1h for an hour, 1d " +
-				"for one day. This can be used to let " +
-				"mission control data appear to be more " +
-				"recent, to trick pathfinding's in-built " +
-				"information decay mechanism. Additionally " +
-				"by setting 0m, this will report the most " +
+				"Follows a format like 72h3m0.5s. " +
+				"This can be used to make mission control " +
+				"data appear more recent, to trick " +
+				"pathfinding's in-built information decay " +
+				"mechanism. Additionally, " +
+				"by setting 0s, this will report the most " +
 				"recent result timestamp, which can be used " +
 				"to find out how old this data is.",
 		},
@@ -136,6 +132,11 @@ var loadMissionControlCommand = cli.Command{
 			Usage: "Whether to force overiding more recent " +
 				"results in the database with older results " +
 				"from the file.",
+		},
+		cli.BoolFlag{
+			Name: "skip_confirmation",
+			Usage: "Skip the confirmation prompt and import " +
+				"immediately",
 		},
 	},
 }
@@ -153,11 +154,6 @@ func loadMissionControl(ctx *cli.Context) error {
 		return fmt.Errorf("%v does not exist", mcDataPath)
 	}
 
-	conn := getClientConn(ctx, false)
-	defer conn.Close()
-
-	client := routerrpc.NewRouterClient(conn)
-
 	// Load and unmarshal the querymc output file.
 	mcRaw, err := os.ReadFile(mcDataPath)
 	if err != nil {
@@ -171,21 +167,10 @@ func loadMissionControl(ctx *cli.Context) error {
 			err)
 	}
 
-	// We discard mission control data if requested.
-	if ctx.Bool("discard") {
-		if !promptForConfirmation("This will discard all current " +
-			"mission control data in the database (yes/no): ") {
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
 
-			return nil
-		}
-
-		_, err = client.ResetMissionControl(
-			rpcCtx, &routerrpc.ResetMissionControlRequest{},
-		)
-		if err != nil {
-			return err
-		}
-	}
+	client := routerrpc.NewRouterClient(conn)
 
 	// Add a time offset to all timestamps if requested.
 	timeOffset := ctx.String("timeoffset")
@@ -222,14 +207,18 @@ func loadMissionControl(ctx *cli.Context) error {
 			}
 		}
 
-		fmt.Printf("Adding time offset %v to all timestamps. "+
+		fmt.Printf("Added a time offset %v to all timestamps. "+
 			"New max timestamp: %v\n", offset, maxTimestamp)
 	}
 
 	sanitizeMCData(mc.Pairs)
 
 	fmt.Printf("Mission control file contains %v pairs.\n", len(mc.Pairs))
-	if !promptForConfirmation("Import mission control data (yes/no): ") {
+	if !ctx.Bool("skip_confirmation") &&
+		!promptForConfirmation(
+			"Import mission control data (yes/no): ",
+		) {
+
 		return nil
 	}
 

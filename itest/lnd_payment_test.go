@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1395,4 +1396,162 @@ func testSendPaymentKeysendMPPFail(ht *lntest.HarnessTest) {
 	// cannot be combined.
 	_, err = ht.ReceivePaymentUpdate(client)
 	require.Error(ht, err)
+}
+
+// testSendPaymentRouteHintsKeysend tests sending a keysend payment using
+// manually provided route hints derived from a private channel.
+func testSendPaymentRouteHintsKeysend(ht *lntest.HarnessTest) {
+	// Setup a three-node network: Alice -> Bob -> Carol.
+	// The Bob->Carol channel is private.
+	const chanAmt = btcutil.Amount(1_000_000)
+	alice, bob, carol, _, bobCarolCP, cleanup := setupThreeNodeNetwork(
+		ht, chanAmt, true,
+	)
+	defer cleanup()
+
+	// Manually create route hints for the private Bob -> Carol channel.
+	bobChan := ht.GetChannelByChanPoint(bob, bobCarolCP)
+	require.NotNil(ht, bobChan, "Bob should have channel with Carol")
+	hints := createRouteHintFromChannel(bob, bobChan)
+
+	// Prepare Keysend payment details.
+	preimage := ht.RandomPreimage()
+	payHash := preimage.Hash()
+	destBytes, err := hex.DecodeString(carol.PubKeyStr)
+	require.NoError(ht, err)
+
+	sendReq := &routerrpc.SendPaymentRequest{
+		Dest:           destBytes,
+		Amt:            10_000,
+		PaymentHash:    payHash[:],
+		FinalCltvDelta: int32(routing.MinCLTVDelta),
+		DestCustomRecords: map[uint64][]byte{
+			record.KeySendType: preimage[:],
+		},
+		// RouteHints omitted initially.
+		FeeLimitSat:    int64(chanAmt),
+		TimeoutSeconds: 30,
+	}
+
+	// Attempt keysend payment without hints - should fail.
+	ht.AssertPaymentStatusFromStream(
+		alice.RPC.SendPayment(sendReq),
+		lnrpc.Payment_FAILED,
+	)
+
+	// Now, add the hints and try again - should succeed.
+	sendReq.RouteHints = hints
+	ht.AssertPaymentStatusFromStream(
+		alice.RPC.SendPayment(sendReq),
+		lnrpc.Payment_SUCCEEDED,
+	)
+}
+
+// testQueryRoutesRouteHints tests that QueryRoutes successfully
+// finds a route through a private channel when provided with route hints.
+func testQueryRoutesRouteHints(ht *lntest.HarnessTest) {
+	// Setup a three-node network: Alice -> Bob -> Carol.
+	// The Bob->Carol channel is private.
+	const chanAmt = btcutil.Amount(1_000_000)
+	alice, bob, carol, _, bobCarolCP, cleanup := setupThreeNodeNetwork(
+		ht, chanAmt, true,
+	)
+	defer cleanup()
+
+	// Manually create route hints for the private Bob -> Carol channel.
+	bobChan := ht.GetChannelByChanPoint(bob, bobCarolCP)
+	require.NotNil(ht, bobChan, "Bob should have channel with Carol")
+	hints := createRouteHintFromChannel(bob, bobChan)
+
+	queryReq := &lnrpc.QueryRoutesRequest{
+		PubKey:         carol.PubKeyStr,
+		Amt:            10_000,
+		FinalCltvDelta: int32(routing.MinCLTVDelta),
+		// RouteHints omitted initially.
+		UseMissionControl: true, // Use MC for realistic pathfinding
+	}
+
+	// Query routes without hints - should fail (find no routes).
+	// Call the client directly to check the error without halting the test.
+	_, err := alice.RPC.LN.QueryRoutes(ht.Context(), queryReq)
+	require.Error(ht, err,
+		"QueryRoutes without hints should return an error")
+
+	// Now add the hints and query again - should succeed.
+	// Use the helper function here as we expect success.
+	queryReq.RouteHints = hints
+	routes := alice.RPC.QueryRoutes(queryReq)
+
+	// Assert that a route was found and it goes Alice -> Bob -> Carol.
+	require.NotEmpty(ht, routes.Routes,
+		"QueryRoutes with hints should find a route")
+	require.Len(ht, routes.Routes[0].Hops, 2, "Route should have 2 hops")
+
+	hop1 := routes.Routes[0].Hops[0]
+	hop2 := routes.Routes[0].Hops[1]
+
+	require.Equal(ht, bob.PubKeyStr, hop1.PubKey, "Hop 1 should be Bob")
+	require.Equal(ht, carol.PubKeyStr, hop2.PubKey, "Hop 2 should be Carol")
+}
+
+// createRouteHintFromChannel takes a source node and a channel object and
+// constructs a RouteHint slice containing a single hop hint for that channel.
+func createRouteHintFromChannel(sourceNode *node.HarnessNode,
+	channel *lnrpc.Channel) []*lnrpc.RouteHint {
+
+	return []*lnrpc.RouteHint{{HopHints: []*lnrpc.HopHint{
+		{
+			NodeId:                    sourceNode.PubKeyStr,
+			ChanId:                    channel.ChanId,
+			FeeBaseMsat:               1000,
+			FeeProportionalMillionths: 1,
+			CltvExpiryDelta:           routing.MinCLTVDelta,
+		}}},
+	}
+}
+
+// setupThreeNodeNetwork sets up a standard three-node network topology:
+// Alice -> Bob -> Carol. It creates the nodes, connects them, funds Alice and
+// Bob, opens a channel between Alice and Bob, and optionally opens a private
+// channel between Bob and Carol. It returns the nodes, channel points, and a
+// cleanup function.
+func setupThreeNodeNetwork(ht *lntest.HarnessTest, chanAmt btcutil.Amount,
+	bobCarolPrivate bool) (*node.HarnessNode, *node.HarnessNode,
+	*node.HarnessNode, *lnrpc.ChannelPoint, *lnrpc.ChannelPoint, func()) {
+
+	// Create nodes.
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+	carol := ht.NewNode("Carol", nil)
+
+	// Connect nodes.
+	ht.ConnectNodes(alice, bob)
+	ht.ConnectNodes(bob, carol)
+
+	// Fund nodes.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+
+	// Open Alice -> Bob channel (public).
+	aliceBobChanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
+	)
+
+	// Open Bob -> Carol channel (potentially private).
+	bobCarolParams := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		Private: bobCarolPrivate,
+	}
+	bobCarolChanPoint := ht.OpenChannel(bob, carol, bobCarolParams)
+
+	// Define cleanup function.
+	cleanup := func() {
+		ht.CloseChannel(alice, aliceBobChanPoint)
+		ht.CloseChannel(bob, bobCarolChanPoint)
+		ht.Shutdown(alice)
+		ht.Shutdown(bob)
+		ht.Shutdown(carol)
+	}
+
+	return alice, bob, carol, aliceBobChanPoint, bobCarolChanPoint, cleanup
 }

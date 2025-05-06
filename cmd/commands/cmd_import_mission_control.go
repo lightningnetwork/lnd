@@ -153,11 +153,6 @@ func loadMissionControl(ctx *cli.Context) error {
 		return fmt.Errorf("%v does not exist", mcDataPath)
 	}
 
-	conn := getClientConn(ctx, false)
-	defer conn.Close()
-
-	client := routerrpc.NewRouterClient(conn)
-
 	// Load and unmarshal the querymc output file.
 	mcRaw, err := os.ReadFile(mcDataPath)
 	if err != nil {
@@ -170,6 +165,11 @@ func loadMissionControl(ctx *cli.Context) error {
 		return fmt.Errorf("could not unmarshal querymc output file: %w",
 			err)
 	}
+
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
 
 	// We discard mission control data if requested.
 	if ctx.Bool("discard") {

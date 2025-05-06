@@ -133,6 +133,11 @@ var loadMissionControlCommand = cli.Command{
 				"results in the database with older results " +
 				"from the file.",
 		},
+		cli.BoolFlag{
+			Name: "skip_confirmation",
+			Usage: "Skip the confirmation prompt and import " +
+				"immediately",
+		},
 	},
 }
 
@@ -209,7 +214,11 @@ func loadMissionControl(ctx *cli.Context) error {
 	sanitizeMCData(mc.Pairs)
 
 	fmt.Printf("Mission control file contains %v pairs.\n", len(mc.Pairs))
-	if !promptForConfirmation("Import mission control data (yes/no): ") {
+	if !ctx.Bool("skip_confirmation") &&
+		!promptForConfirmation(
+			"Import mission control data (yes/no): ",
+		) {
+
 		return nil
 	}
 

@@ -273,14 +273,14 @@ func SortRecords(records []Record) {
 //
 // NOTE: for uint32, we would only gain space reduction if the encoded value is
 // no greater than 65535, which requires at most 3 bytes to encode.
-func MakeBigSizeRecord(typ Type, val interface{}) Record {
+func MakeBigSizeRecord[T constraintUint32Or64](typ Type, val *T) Record {
 	var (
 		staticSize uint64
 		sizeFunc   SizeFunc
 		encoder    Encoder
 		decoder    Decoder
 	)
-	switch val.(type) {
+	switch any(val).(type) {
 	case *uint32:
 		sizeFunc = SizeBigSize(val)
 		encoder = EBigSize

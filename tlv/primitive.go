@@ -375,16 +375,22 @@ func DBigSize(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	return NewTypeForDecodingErr(val, "BigSize", l, 8)
 }
 
+// constraintUint32Or64 is a type constraint for uint32 or uint64 types.
+type constraintUint32Or64 interface {
+	uint32 | uint64
+}
+
 // SizeBigSize returns a SizeFunc that can compute the length of BigSize.
-func SizeBigSize(val interface{}) SizeFunc {
+func SizeBigSize[T constraintUint32Or64](val *T) SizeFunc {
 	var size uint64
 
-	if i, ok := val.(*uint32); ok {
+	switch i := any(val).(type) {
+	case *uint32:
 		size = VarIntSize(uint64(*i))
-	}
-
-	if i, ok := val.(*uint64); ok {
-		size = VarIntSize(uint64(*i))
+	case *uint64:
+		size = VarIntSize(*i)
+	default:
+		panic(fmt.Sprintf("unexpected type %T for SizeBigSize", val))
 	}
 
 	return func() uint64 {

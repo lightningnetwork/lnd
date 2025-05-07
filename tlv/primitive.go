@@ -379,15 +379,18 @@ func DBigSize(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 func SizeBigSize(val interface{}) SizeFunc {
 	var size uint64
 
-	if i, ok := val.(*uint32); ok {
+	switch i := val.(type) {
+	case *uint32:
 		size = VarIntSize(uint64(*i))
+	case *uint64:
+		size = VarIntSize(*i)
+	default:
+		return func() (uint64, error) {
+			return 0, fmt.Errorf("invalid type %T for BigSize", val)
+		}
 	}
 
-	if i, ok := val.(*uint64); ok {
-		size = VarIntSize(uint64(*i))
-	}
-
-	return func() uint64 {
-		return size
+	return func() (uint64, error) {
+		return size, nil
 	}
 }

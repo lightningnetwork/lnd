@@ -40,16 +40,16 @@ func DNOP(io.Reader, interface{}, *[8]byte, uint64) error { return nil }
 // SizeFunc is a function that can compute the length of a given field. Since
 // the size of the underlying field can change, this allows the size of the
 // field to be evaluated at the time of encoding.
-type SizeFunc func() uint64
+type SizeFunc func() (uint64, error)
 
 // SizeVarBytes returns a SizeFunc that can compute the length of a byte slice.
 func SizeVarBytes(e *[]byte) SizeFunc {
-	return func() uint64 {
-		return uint64(len(*e))
+	return func() (uint64, error) {
+		return uint64(len(*e)), nil
 	}
 }
 
-// RecorderProducer is an interface for objects that can produce a Record object
+// RecordProducer is an interface for objects that can produce a Record object
 // capable of encoding and/or decoding the RecordProducer as a Record.
 type RecordProducer interface {
 	// Record returns a Record that can be used to encode or decode the
@@ -78,9 +78,9 @@ func (f *Record) Record() Record {
 
 // Size returns the size of the Record's value. If no static size is known, the
 // dynamic size will be evaluated.
-func (f *Record) Size() uint64 {
+func (f *Record) Size() (uint64, error) {
 	if f.sizeFunc == nil {
-		return f.staticSize
+		return f.staticSize, nil
 	}
 
 	return f.sizeFunc()

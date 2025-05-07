@@ -54,8 +54,8 @@ type N1 struct {
 	stream *tlv.Stream
 }
 
-func (n *N1) sizeAmt() uint64 {
-	return tlv.SizeTUint64(n.amt)
+func (n *N1) sizeAmt() (uint64, error) {
+	return tlv.SizeTUint64(n.amt), nil
 }
 
 func NewN1() *N1 {
@@ -89,12 +89,12 @@ type N2 struct {
 	stream *tlv.Stream
 }
 
-func (n *N2) sizeAmt() uint64 {
-	return tlv.SizeTUint64(n.amt)
+func (n *N2) sizeAmt() (uint64, error) {
+	return tlv.SizeTUint64(n.amt), nil
 }
 
-func (n *N2) sizeCltv() uint64 {
-	return tlv.SizeTUint32(n.cltvExpiry)
+func (n *N2) sizeCltv() (uint64, error) {
+	return tlv.SizeTUint32(n.cltvExpiry), nil
 }
 
 func NewN2() *N2 {

@@ -234,14 +234,14 @@ func FuzzStream(f *testing.F) {
 			boolean bool
 		)
 
-		sizeTU16 := func() uint64 {
-			return SizeTUint16(tu16)
+		sizeTU16 := func() (uint64, error) {
+			return SizeTUint16(tu16), nil
 		}
-		sizeTU32 := func() uint64 {
-			return SizeTUint32(tu32)
+		sizeTU32 := func() (uint64, error) {
+			return SizeTUint32(tu32), nil
 		}
-		sizeTU64 := func() uint64 {
-			return SizeTUint64(tu64)
+		sizeTU64 := func() (uint64, error) {
+			return SizeTUint64(tu64), nil
 		}
 
 		// We deliberately set each record's type number to its index in

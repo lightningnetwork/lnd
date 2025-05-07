@@ -3,6 +3,7 @@ package tlv
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 )
@@ -94,8 +95,14 @@ func (s *Stream) Encode(w io.Writer) error {
 			return err
 		}
 
+		size, err := rec.Size()
+		if err != nil {
+			return fmt.Errorf("could not determine record size: %w",
+				err)
+		}
+
 		// Write the record's length as a varint.
-		err = WriteVarInt(w, rec.Size(), &s.buf)
+		err = WriteVarInt(w, size, &s.buf)
 		if err != nil {
 			return err
 		}

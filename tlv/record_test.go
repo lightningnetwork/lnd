@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/require"
 )
 
 // TestSortRecords tests that SortRecords is able to properly sort records in
@@ -135,12 +136,13 @@ func TestRecordMapTransformation(t *testing.T) {
 					i, tlvBytes, b.Bytes())
 			}
 
-			if unmappedRecords[i].Size() != testCase.records[0].Size() {
-				t.Fatalf("#%v: wrong size: expected %v, "+
-					"got %v", i,
-					unmappedRecords[i].Size(),
-					testCase.records[i].Size())
-			}
+			unmappedSize, err := unmappedRecords[i].Size()
+			require.NoError(t, err)
+
+			testCaseSize, err := testCase.records[0].Size()
+			require.NoError(t, err)
+
+			require.Equal(t, unmappedSize, testCaseSize)
 		}
 	}
 }

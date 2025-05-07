@@ -154,7 +154,7 @@ func (c *ChannelUpdate2) DecodeTLVRecords(r io.Reader) error {
 		c.ExtraOpaqueData = tlvRecords
 	}
 
-	return nil
+	return c.ExtraOpaqueData.ValidateTLV()
 }
 
 // Encode serializes the target ChannelUpdate2 into the passed io.Writer

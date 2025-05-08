@@ -187,6 +187,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testPaymentFailureReasonCanceled,
 	},
 	{
+		Name:     "tracked payment invalidates",
+		TestFunc: testTrackedPaymentInvalidates,
+	},
+	{
 		Name:     "invoice update subscription",
 		TestFunc: testInvoiceSubscriptions,
 	},

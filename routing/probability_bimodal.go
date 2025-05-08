@@ -416,34 +416,38 @@ func cannotSend(failAmount, capacity lnwire.MilliSatoshi, now,
 
 // primitive computes the indefinite integral of our assumed (normalized)
 // liquidity probability distribution. The distribution of liquidity x here is
-// the function P(x) ~ exp(-x/s) + exp((x-c)/s), i.e., two exponentials residing
-// at the ends of channels. This means that we expect liquidity to be at either
-// side of the channel with capacity c. The s parameter (scale) defines how far
-// the liquidity leaks into the channel. A very low scale assumes completely
-// unbalanced channels, a very high scale assumes a random distribution. More
-// details can be found in
+// the function P(x) ~ exp(-x/s) + exp((x-c)/s) + 1/c, i.e., two exponentials
+// residing at the ends of channels. This means that we expect liquidity to be
+// at either side of the channel with capacity c. The s parameter (scale)
+// defines how far the liquidity leaks into the channel. A very low scale
+// assumes completely unbalanced channels, a very high scale assumes a random
+// distribution. More details can be found in
 // https://github.com/lightningnetwork/lnd/issues/5988#issuecomment-1131234858.
+// Additionally, we add a constant term 1/c to the distribution to avoid
+// normalization issues and to fall back to a uniform distribution should the
+// previous success and fail amounts contradict a bimodal distribution.
 func (p *BimodalEstimator) primitive(c, x float64) float64 {
 	s := float64(p.BimodalScaleMsat)
 
 	// The indefinite integral of P(x) is given by
-	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s)),
+	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s) + x/(c*s)),
 	// and its norm from 0 to c can be computed from it,
-	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 -(1 + e(-c/s))).
+	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 + 1/s -(-1 + e(-c/s))) =
+	// = s * (-2*e(-c/s) + 2 + 1/s).
+	// The prefactors s are left out, as they cancel out in the end.
+	// norm can only become zero, if c is zero, which we sorted out before
+	// calling this method.
 	ecs := math.Exp(-c / s)
-	exs := math.Exp(-x / s)
+	norm := -2*ecs + 2 + 1/s
 
 	// It would be possible to split the next term and reuse the factors
 	// from before, but this can lead to numerical issues with large
 	// numbers.
 	excs := math.Exp((x - c) / s)
-
-	// norm can only become zero, if c is zero, which we sorted out before
-	// calling this method.
-	norm := -2*ecs + 2
+	exs := math.Exp(-x / s)
 
 	// We end up with the primitive function of the normalized P(x).
-	return (-exs + excs) / norm
+	return (-exs + excs + x/(c*s)) / norm
 }
 
 // integral computes the integral of our liquidity distribution from the lower
@@ -484,41 +488,58 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		return 0.0, nil
 	}
 
-	// Mission control may have some outdated values, we correct them here.
-	// TODO(bitromortac): there may be better decisions to make in these
-	//  cases, e.g., resetting failAmount=cap and successAmount=0.
+	// The next statement is a safety check against an illogical condition.
+	// We discard the knowledge for the channel in that case since we have
+	// inconsistent data.
+	if failAmount <= successAmount {
+		log.Warnf("Fail amount (%s) is smaller than or equal to the "+
+			"success amount (%s) for capacity (%s)",
+			failAmountMsat, successAmountMsat, capacityMsat)
 
-	// failAmount should be capacity at max.
-	if failAmount > capacity {
-		log.Debugf("Correcting failAmount %v to capacity %v",
-			failAmount, capacity)
-
+		successAmount = 0
 		failAmount = capacity
 	}
 
-	// successAmount should be capacity at max.
-	if successAmount > capacity {
-		log.Debugf("Correcting successAmount %v to capacity %v",
-			successAmount, capacity)
+	// Mission control may have some outdated values with regard to the
+	// current channel capacity between a node pair. This can happen in case
+	// a large parallel channel was closed or if a channel was downscaled
+	// and can lead to success and/or failure amounts to be out of the range
+	// [0, capacity]. We assume that the liquidity situation of the channel
+	// is similar as before due to flow bias.
 
-		successAmount = capacity
+	// In case we have a large success we need to correct it to be in the
+	// valid range. We set the success amount close to the capacity, because
+	// we assume to still be able to send. Any possible failure (that must
+	// in this case be larger than the capacity) is corrected as well.
+	if successAmount >= capacity {
+		log.Debugf("Correcting success amount %s and failure amount "+
+			"%s to capacity %s", successAmountMsat,
+			failAmount, capacityMsat)
+
+		// We choose the success amount to be one less than the
+		// capacity, to both fit success and failure amounts into the
+		// capacity range in a consistent manner.
+		successAmount = capacity - 1
+		failAmount = capacity
 	}
 
-	// The next statement is a safety check against an illogical condition,
-	// otherwise the renormalization integral would become zero. This may
-	// happen if a large channel gets closed and smaller ones remain, but
-	// it should recover with the time decay.
-	if failAmount <= successAmount {
-		log.Tracef("fail amount (%v) is smaller than or equal the "+
-			"success amount (%v) for capacity (%v)",
-			failAmountMsat, successAmountMsat, capacityMsat)
+	// Having no or only a small success, but a large failure only needs
+	// adjustment of the failure amount.
+	if failAmount > capacity {
+		log.Debugf("Correcting failure amount %s to capacity %s",
+			failAmountMsat, capacityMsat)
 
-		return 0.0, nil
+		failAmount = capacity
 	}
 
 	// We cannot send more than the fail amount.
 	if amount >= failAmount {
 		return 0.0, nil
+	}
+
+	// We can send the amount if it is smaller than the success amount.
+	if amount <= successAmount {
+		return 1.0, nil
 	}
 
 	// The success probability for payment amount a is the integral over the

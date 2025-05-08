@@ -167,9 +167,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
-	if err != ErrGraphNodeNotFound {
-		t.Fatalf("fetch after delete should fail!")
-	}
+	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where
@@ -273,9 +271,7 @@ func TestAliasLookup(t *testing.T) {
 	nodePub, err = node.PubKey()
 	require.NoError(t, err, "unable to generate pubkey")
 	_, err = graph.LookupAlias(nodePub)
-	if err != ErrNodeAliasNotFound {
-		t.Fatalf("alias lookup should fail for non-existent pubkey")
-	}
+	require.ErrorIs(t, err, ErrNodeAliasNotFound)
 }
 
 func TestSourceNode(t *testing.T) {
@@ -290,9 +286,8 @@ func TestSourceNode(t *testing.T) {
 
 	// Attempt to fetch the source node, this should return an error as the
 	// source node hasn't yet been set.
-	if _, err := graph.SourceNode(); err != ErrSourceNodeNotSet {
-		t.Fatalf("source node shouldn't be set in new graph")
-	}
+	_, err = graph.SourceNode()
+	require.ErrorIs(t, err, ErrSourceNodeNotSet)
 
 	// Set the source the source node, this should insert the node into the
 	// database in a special way indicating it's the source node.
@@ -387,9 +382,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.
 	err = graph.DeleteChannelEdges(false, true, chanID)
-	if err != ErrEdgeNotFound {
-		t.Fatalf("deleting a non-existent edge should fail!")
-	}
+	require.ErrorIs(t, err, ErrEdgeNotFound)
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
@@ -721,9 +714,8 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
-	if err := graph.UpdateEdgePolicy(edge1); err != ErrEdgeNotFound {
-		t.Fatalf("expected ErrEdgeNotFound, got: %v", err)
-	}
+	err = graph.UpdateEdgePolicy(edge1)
+	require.ErrorIs(t, err, ErrEdgeNotFound)
 	require.Len(t, graph.graphCache.nodeChannels, 0)
 
 	// Add the edge info.

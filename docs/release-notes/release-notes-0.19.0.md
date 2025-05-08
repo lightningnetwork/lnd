@@ -128,6 +128,9 @@ when running LND with an aux component injected (custom channels).
   such that the probability is evaluated quicker and to be more accurate in
   outdated scenarios.
 
+* [Fixed a possible crash of htlcswitch upon shutdown](https://github.com/lightningnetwork/lnd/pull/9140)
+    caused by a race condition in goroutines tracking mechanism.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

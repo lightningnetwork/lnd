@@ -55,8 +55,10 @@ func (m MilliSatoshi) String() string {
 // Record returns a TLV record that can be used to encode/decode a MilliSatoshi
 // to/from a TLV stream.
 func (m *MilliSatoshi) Record() tlv.Record {
+	msat := uint64(*m)
+
 	return tlv.MakeDynamicRecord(
-		0, m, tlv.SizeBigSize(m), encodeMilliSatoshis,
+		0, m, tlv.SizeBigSize(&msat), encodeMilliSatoshis,
 		decodeMilliSatoshis,
 	)
 }

@@ -9165,14 +9165,6 @@ func checkExpectedHtlcs(t *testing.T, actual []*paymentDescriptor,
 	}
 }
 
-// heights represents the heights on a payment descriptor.
-type heights struct {
-	localAdd     uint64
-	localRemove  uint64
-	remoteAdd    uint64
-	remoteRemove uint64
-}
-
 // TestChannelUnsignedAckedFailure tests that unsigned acked updates are
 // properly restored after signing for them and disconnecting.
 //

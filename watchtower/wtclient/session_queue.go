@@ -98,7 +98,6 @@ type sessionQueueConfig struct {
 type sessionQueue struct {
 	started sync.Once
 	stopped sync.Once
-	forced  sync.Once
 
 	cfg *sessionQueueConfig
 	log btclog.Logger

@@ -136,6 +136,27 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// The two nodes should match exactly!
 	compareNodes(t, node, dbNode)
 
+	// Check that the addresses for the node are fetched correctly.
+	pub, err := node.PubKey()
+	require.NoError(t, err)
+
+	known, addrs, err := graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.Equal(t, testAddrs, addrs)
+
+	// Check that the node's features are fetched correctly. This check
+	// will use the graph cache to fetch the features.
+	features, err := graph.FetchNodeFeatures(node.PubKeyBytes)
+	require.NoError(t, err)
+	require.Equal(t, testFeatures, features)
+
+	// Check that the node's features are fetched correctly. This check
+	// will check the database directly.
+	features, err = graph.V1Store.FetchNodeFeatures(node.PubKeyBytes)
+	require.NoError(t, err)
+	require.Equal(t, testFeatures, features)
+
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
 	if err := graph.DeleteLightningNode(testPub); err != nil {

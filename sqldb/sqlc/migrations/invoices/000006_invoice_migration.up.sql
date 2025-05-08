@@ -3,7 +3,7 @@
 -- don't have a mapping from hash to add index.
 CREATE TABLE IF NOT EXISTS invoice_payment_hashes (
      -- id represents is the key of the invoice in the KV store.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- add_index is the KV add index of the invoice.
     add_index BIGINT NOT NULL,

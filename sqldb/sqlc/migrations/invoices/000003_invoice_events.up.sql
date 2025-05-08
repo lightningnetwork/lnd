@@ -1,6 +1,6 @@
 -- invoice_event_types stores the different types of invoice events. 
 CREATE TABLE IF NOT EXISTS invoice_event_types(
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     description TEXT NOT NULL
 );
@@ -34,7 +34,7 @@ WHERE NOT EXISTS (
 -- AMP sub invoices. This table can be used to create a historical view of what
 -- happened to the node's invoices.
 CREATE TABLE IF NOT EXISTS invoice_events (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- added_at is the timestamp when this event was added.
     added_at TIMESTAMP NOT NULL,

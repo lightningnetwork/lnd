@@ -19,60 +19,6 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
-var (
-	// migrationConfig defines a list of migrations to be applied to the
-	// database. Each migration is assigned a version number, determining
-	// its execution order.
-	// The schema version, tracked by golang-migrate, ensures migrations are
-	// applied to the correct schema. For migrations involving only schema
-	// changes, the migration function can be left nil. For custom
-	// migrations an implemented migration function is required.
-	//
-	// NOTE: The migration function may have runtime dependencies, which
-	// must be injected during runtime.
-	migrationConfig = []MigrationConfig{
-		{
-			Name:          "000001_invoices",
-			Version:       1,
-			SchemaVersion: 1,
-		},
-		{
-			Name:          "000002_amp_invoices",
-			Version:       2,
-			SchemaVersion: 2,
-		},
-		{
-			Name:          "000003_invoice_events",
-			Version:       3,
-			SchemaVersion: 3,
-		},
-		{
-			Name:          "000004_invoice_expiry_fix",
-			Version:       4,
-			SchemaVersion: 4,
-		},
-		{
-			Name:          "000005_migration_tracker",
-			Version:       5,
-			SchemaVersion: 5,
-		},
-		{
-			Name:          "000006_invoice_migration",
-			Version:       6,
-			SchemaVersion: 6,
-		},
-		{
-			Name:          "kv_invoice_migration",
-			Version:       7,
-			SchemaVersion: 6,
-			// A migration function is may be attached to this
-			// migration to migrate KV invoices to the native SQL
-			// schema. This is optional and can be disabled by the
-			// user if necessary.
-		},
-	}
-)
-
 // MigrationConfig is a configuration struct that describes SQL migrations. Each
 // migration is associated with a specific schema version and a global database
 // version. Migrations are applied in the order of their global database
@@ -99,6 +45,14 @@ type MigrationConfig struct {
 	MigrationFn func(tx *sqlc.Queries) error
 }
 
+type MigrationStream struct {
+	MigrateTableName string
+
+	SQLFileDirectory string
+
+	Configs []MigrationConfig
+}
+
 // MigrationTarget is a functional option that can be passed to applyMigrations
 // to specify a target version to migrate to.
 type MigrationTarget func(mig *migrate.Migrate) error
@@ -111,7 +65,7 @@ type MigrationExecutor interface {
 	// Developers must ensure that migrations are defined in the correct
 	// order. Migration details are stored in the global variable
 	// migrationConfig.
-	ExecuteMigrations(target MigrationTarget) error
+	ExecuteMigrations(target MigrationTarget, stream MigrationStream) error
 
 	// GetSchemaVersion returns the current schema version of the database.
 	GetSchemaVersion() (int, bool, error)
@@ -138,14 +92,6 @@ var (
 		}
 	}
 )
-
-// GetMigrations returns a copy of the migration configuration.
-func GetMigrations() []MigrationConfig {
-	migrations := make([]MigrationConfig, len(migrationConfig))
-	copy(migrations, migrationConfig)
-
-	return migrations
-}
 
 // migrationLogger is a logger that wraps the passed btclog.Logger so it can be
 // used to log migrations.
@@ -345,9 +291,10 @@ func (m *MigrationTxOptions) ReadOnly() bool {
 // It ensures migrations are executed in the correct order, applying both custom
 // migration functions and SQL migrations as needed.
 func ApplyMigrations(ctx context.Context, db *BaseDB,
-	migrator MigrationExecutor, migrations []MigrationConfig) error {
+	migrator MigrationExecutor, stream MigrationStream) error {
 
 	// Ensure that the migrations are sorted by version.
+	migrations := stream.Configs
 	for i := 0; i < len(migrations); i++ {
 		if migrations[i].Version != i+1 {
 			return fmt.Errorf("migration version %d is out of "+
@@ -425,7 +372,7 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 
 		// Execute SQL schema migrations up to the target version.
 		err = migrator.ExecuteMigrations(
-			TargetVersion(uint(migration.SchemaVersion)),
+			TargetVersion(uint(migration.SchemaVersion)), stream,
 		)
 		if err != nil {
 			return fmt.Errorf("error executing schema migrations "+

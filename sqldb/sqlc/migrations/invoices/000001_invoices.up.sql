@@ -13,7 +13,7 @@ VALUES ('settle_index', 0)
 -- invoices table contains all the information shared by all the invoice types. 
 CREATE TABLE IF NOT EXISTS invoices (
     -- The id of the invoice. Translates to the AddIndex.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- The hash for this invoice. The invoice hash will always identify that 
     -- invoice.
@@ -104,7 +104,7 @@ CREATE INDEX IF NOT EXISTS invoice_feature_invoice_id_idx ON invoice_features(in
 CREATE TABLE IF NOT EXISTS invoice_htlcs (
     -- The id for this htlc. Used in foreign keys instead of the 
     -- htlc_id/chan_id combination.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- Short chan id indicating the htlc's origin. uint64 stored as text.
     chan_id TEXT NOT NULL, 

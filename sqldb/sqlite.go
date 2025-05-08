@@ -155,14 +155,21 @@ func (s *SqliteStore) GetBaseDB() *BaseDB {
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
 // SQLite database.
 func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
-	migrations []MigrationConfig) error {
+	streams []MigrationStream) error {
 
 	// Execute migrations unless configured to skip them.
 	if s.cfg.SkipMigrations {
 		return nil
 	}
 
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
+	for _, stream := range streams {
+		err := ApplyMigrations(ctx, s.BaseDB, s, stream)
+		if err != nil {
+			return fmt.Errorf("error applying migrations: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func errSqliteMigration(err error) error {
@@ -171,9 +178,13 @@ func errSqliteMigration(err error) error {
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
+	stream MigrationStream) error {
+
 	driver, err := sqlite_migrate.WithInstance(
-		s.DB, &sqlite_migrate.Config{},
+		s.DB, &sqlite_migrate.Config{
+			MigrationsTable: stream.MigrateTableName,
+		},
 	)
 	if err != nil {
 		return errSqliteMigration(err)
@@ -183,7 +194,7 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 	// in-memory file system.
 	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
 	return applyMigrations(
-		sqliteFS, driver, "sqlc/migrations", "sqlite", target,
+		sqliteFS, driver, stream.MigrateTableName, "sqlite", target,
 	)
 }
 
@@ -220,7 +231,7 @@ func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
-func NewTestSqliteDB(t *testing.T) *SqliteStore {
+func NewTestSqliteDB(t *testing.T, streams []MigrationStream) *SqliteStore {
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing")
@@ -234,7 +245,7 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	require.NoError(t, err)
 
 	require.NoError(t, sqlDB.ApplyAllMigrations(
-		context.Background(), GetMigrations()),
+		context.Background(), streams),
 	)
 
 	t.Cleanup(func() {
@@ -246,7 +257,9 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 
 // NewTestSqliteDBWithVersion is a helper function that creates an SQLite
 // database for testing and migrates it to the given version.
-func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
+func NewTestSqliteDBWithVersion(t *testing.T, stream MigrationStream,
+	version uint) *SqliteStore {
+
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing, migrating to version %d",
@@ -260,7 +273,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	}, dbFileName)
 	require.NoError(t, err)
 
-	err = sqlDB.ExecuteMigrations(TargetVersion(version))
+	err = sqlDB.ExecuteMigrations(TargetVersion(version), stream)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

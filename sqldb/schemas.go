@@ -4,5 +4,5 @@ import (
 	"embed"
 )
 
-//go:embed sqlc/migrations/*.up.sql
+//go:embed sqlc/migrations/**/*.up.sql
 var sqlSchemas embed.FS

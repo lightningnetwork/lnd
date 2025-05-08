@@ -148,14 +148,21 @@ func (s *PostgresStore) GetBaseDB() *BaseDB {
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
 // Postgres database.
 func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
-	migrations []MigrationConfig) error {
+	streams []MigrationStream) error {
 
 	// Execute migrations unless configured to skip them.
 	if s.cfg.SkipMigrations {
 		return nil
 	}
 
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
+	for _, stream := range streams {
+		err := ApplyMigrations(ctx, s.BaseDB, s, stream)
+		if err != nil {
+			return fmt.Errorf("error applying migrations: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func errPostgresMigration(err error) error {
@@ -164,13 +171,17 @@ func errPostgresMigration(err error) error {
 
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
+	stream MigrationStream) error {
+
 	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
 	if err != nil {
 		return err
 	}
 
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{
+		MigrationsTable: stream.MigrateTableName,
+	})
 	if err != nil {
 		return errPostgresMigration(err)
 	}
@@ -179,7 +190,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	// in-memory file system.
 	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
 	return applyMigrations(
-		postgresFS, driver, "sqlc/migrations", dbName, target,
+		postgresFS, driver, stream.SQLFileDirectory, dbName, target,
 	)
 }
 

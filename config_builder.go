@@ -1094,7 +1094,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	// Instantiate a native SQL store if the flag is set.
 	if d.cfg.DB.UseNativeSQL {
-		migrations := sqldb.GetMigrations()
+		streams := []sqldb.MigrationStream{
+			channeldb.PaymentsMigrations,
+		}
 
 		// If the user has not explicitly disabled the SQL invoice
 		// migration, attach the custom migration function to invoice
@@ -1104,6 +1106,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// migration's version (7), it will be skipped permanently,
 		// regardless of the flag.
 		if !d.cfg.DB.SkipNativeSQLMigration {
+			invoiceStream := invoices.InvoicesMigrations
 			migrationFn := func(tx *sqlc.Queries) error {
 				err := invoices.MigrateInvoicesToSQL(
 					ctx, dbs.ChanStateDB.Backend,
@@ -1125,18 +1128,20 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
-			for i := 0; i < len(migrations); i++ {
-				if migrations[i].Version != invoiceMigration {
+			for i := 0; i < len(invoiceStream.Configs); i++ {
+				if invoiceStream.Configs[i].Version != invoiceMigration {
 					continue
 				}
 
-				migrations[i].MigrationFn = migrationFn
+				invoiceStream.Configs[i].MigrationFn = migrationFn
 			}
+
+			streams = append(streams, invoiceStream)
 		}
 
 		// We need to apply all migrations to the native SQL store
 		// before we can use it.
-		err = dbs.NativeSQLStore.ApplyAllMigrations(ctx, migrations)
+		err = dbs.NativeSQLStore.ApplyAllMigrations(ctx, streams)
 		if err != nil {
 			cleanUp()
 			err = fmt.Errorf("faild to run migrations for the "+

@@ -1,7 +1,9 @@
 version: "2"
 sql:
   - engine: "postgresql"
-    schema: "sqldb/sqlc/migrations"
+    schema: 
+     - "sqldb/sqlc/migrations/invoices"
+     - "sqldb/sqlc/migrations/payments"
     queries: "sqldb/sqlc/queries"
     gen:
       go:

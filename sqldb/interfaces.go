@@ -370,8 +370,7 @@ type DB interface {
 
 	// ApplyAllMigrations applies all migrations to the database including
 	// both sqlc and custom in-code migrations.
-	ApplyAllMigrations(ctx context.Context,
-		customMigrations []MigrationConfig) error
+	ApplyAllMigrations(ctx context.Context, streams []MigrationStream) error
 }
 
 // BaseDB is the base database struct that each implementation can embed to

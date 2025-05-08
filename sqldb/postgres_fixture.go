@@ -135,7 +135,9 @@ func randomDBName(t *testing.T) string {
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
 // testing using the given fixture.
-func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
+func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture,
+	streams []MigrationStream) *PostgresStore {
+
 	t.Helper()
 
 	dbName := randomDBName(t)
@@ -152,7 +154,7 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 	require.NoError(t, err)
 
 	require.NoError(t, store.ApplyAllMigrations(
-		context.Background(), GetMigrations()),
+		context.Background(), streams),
 	)
 
 	return store
@@ -161,7 +163,7 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 // NewTestPostgresDBWithVersion is a helper function that creates a Postgres
 // database for testing and migrates it to the given version.
 func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
-	version uint) *PostgresStore {
+	stream MigrationStream, version uint) *PostgresStore {
 
 	t.Helper()
 
@@ -179,7 +181,7 @@ func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
 	store, err := NewPostgresStore(storeCfg)
 	require.NoError(t, err)
 
-	err = store.ExecuteMigrations(TargetVersion(version))
+	err = store.ExecuteMigrations(TargetVersion(version), stream)
 	require.NoError(t, err)
 
 	return store

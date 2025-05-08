@@ -28,6 +28,11 @@ type AmpSubInvoiceHtlc struct {
 	Preimage   []byte
 }
 
+type Example struct {
+	ID   int32
+	Name string
+}
+
 type Invoice struct {
 	ID                 int64
 	Hash               []byte

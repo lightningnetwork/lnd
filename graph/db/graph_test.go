@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -329,7 +330,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	require.NoError(t, err, "unable to generate node key")
 	edgeInfo := models.ChannelEdgeInfo{
 		ChannelID: chanID,
-		ChainHash: key,
+		ChainHash: *chaincfg.MainNetParams.GenesisHash,
 		AuthProof: &models.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
@@ -409,7 +410,7 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 	node2Pub, _ := node2.PubKey()
 	edgeInfo := models.ChannelEdgeInfo{
 		ChannelID: shortChanID.ToUint64(),
-		ChainHash: key,
+		ChainHash: *chaincfg.MainNetParams.GenesisHash,
 		AuthProof: &models.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
@@ -652,7 +653,7 @@ func createChannelEdge(node1, node2 *models.LightningNode) (
 	// errors.
 	edgeInfo := &models.ChannelEdgeInfo{
 		ChannelID: chanID,
-		ChainHash: key,
+		ChainHash: *chaincfg.MainNetParams.GenesisHash,
 		AuthProof: &models.ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
@@ -1363,7 +1364,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 			edgeInfo := models.ChannelEdgeInfo{
 				ChannelID: chanID,
-				ChainHash: key,
+				ChainHash: *chaincfg.MainNetParams.GenesisHash,
 				AuthProof: &models.ChannelAuthProof{
 					NodeSig1Bytes:    testSig.Serialize(),
 					NodeSig2Bytes:    testSig.Serialize(),
@@ -1545,7 +1546,7 @@ func TestGraphPruning(t *testing.T) {
 
 		edgeInfo := models.ChannelEdgeInfo{
 			ChannelID: chanID,
-			ChainHash: key,
+			ChainHash: *chaincfg.MainNetParams.GenesisHash,
 			AuthProof: &models.ChannelAuthProof{
 				NodeSig1Bytes:    testSig.Serialize(),
 				NodeSig2Bytes:    testSig.Serialize(),

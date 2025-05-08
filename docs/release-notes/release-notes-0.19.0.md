@@ -122,6 +122,12 @@ when running LND with an aux component injected (custom channels).
   address is added to LND using the `ImportTapscript` RPC, LND previously failed
   to perform a cooperative close to that address.
 
+* [Bimodal pathfinding probability
+  improvements](https://github.com/lightningnetwork/lnd/pull/8330). A fallback
+  probability is used if the bimodal model is not applicable. Fixes are added
+  such that the probability is evaluated quicker and to be more accurate in
+  outdated scenarios.
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

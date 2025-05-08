@@ -399,6 +399,12 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 		Index: outPointIndex,
 	}
 
+	var (
+		features   = lnwire.NewRawFeatureVector()
+		featureBuf bytes.Buffer
+	)
+	_ = features.Encode(&featureBuf)
+
 	node1Pub, _ := node1.PubKey()
 	node2Pub, _ := node2.PubKey()
 	edgeInfo := models.ChannelEdgeInfo{
@@ -410,8 +416,10 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
-		ChannelPoint: outpoint,
-		Capacity:     9000,
+		ChannelPoint:    outpoint,
+		Capacity:        9000,
+		ExtraOpaqueData: make([]byte, 0),
+		Features:        featureBuf.Bytes(),
 	}
 
 	copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
@@ -634,6 +642,12 @@ func createChannelEdge(node1, node2 *models.LightningNode) (
 		Index: prand.Uint32(),
 	}
 
+	var (
+		features   = lnwire.NewRawFeatureVector()
+		featureBuf bytes.Buffer
+	)
+	_ = features.Encode(&featureBuf)
+
 	// Add the new edge to the database, this should proceed without any
 	// errors.
 	edgeInfo := &models.ChannelEdgeInfo{
@@ -652,6 +666,7 @@ func createChannelEdge(node1, node2 *models.LightningNode) (
 			2, 2, 2, 2,
 			3, 3, 3, 3, 3,
 		},
+		Features: featureBuf.Bytes(),
 	}
 	copy(edgeInfo.NodeKey1Bytes[:], firstNode[:])
 	copy(edgeInfo.NodeKey2Bytes[:], secondNode[:])

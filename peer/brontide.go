@@ -538,6 +538,10 @@ type Brontide struct {
 	// objects to queue messages to be sent out on the wire.
 	outgoingQueue chan outgoingMsg
 
+	// superPrioSendQueue is a channel for messages that must bypass the
+	// regular sendQueue, such as pings.
+	superPrioSendQueue chan outgoingMsg
+
 	// activeChannels is a map which stores the state machines of all
 	// active channels. Channels are indexed into the map by the txid of
 	// the funding transaction which opened the channel.
@@ -651,11 +655,14 @@ func NewBrontide(cfg Config) *Brontide {
 	))
 
 	p := &Brontide{
-		cfg:           cfg,
-		activeSignal:  make(chan struct{}),
-		sendQueue:     make(chan outgoingMsg),
-		outgoingQueue: make(chan outgoingMsg),
-		addedChannels: &lnutils.SyncMap[lnwire.ChannelID, struct{}]{},
+		cfg:                cfg,
+		activeSignal:       make(chan struct{}),
+		sendQueue:          make(chan outgoingMsg),
+		outgoingQueue:      make(chan outgoingMsg),
+		superPrioSendQueue: make(chan outgoingMsg, 2),
+		addedChannels: &lnutils.SyncMap[
+			lnwire.ChannelID, struct{},
+		]{},
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
 		]{},
@@ -733,7 +740,16 @@ func NewBrontide(cfg Config) *Brontide {
 		IntervalDuration: p.scaleTimeout(pingInterval),
 		TimeoutDuration:  p.scaleTimeout(pingTimeout),
 		SendPing: func(ping *lnwire.Ping) {
-			p.queueMsg(ping, nil)
+			// Pings are fire-and-forget, so sync=false,
+			// errChan=nil. These messages are sent via the super
+			// priority queue to avoid delays from other messages.
+			err := p.SendSuperPriorityMessage(false, ping)
+			if err != nil &&
+				!errors.Is(err, lnpeer.ErrPeerExiting) {
+
+				p.log.Warnf("Failed to send ping "+
+					"via super priority queue: %v", err)
+			}
 		},
 		OnPongFailure: func(err error) {
 			eStr := "pong response failure for %s: %v " +
@@ -2094,9 +2110,13 @@ out:
 			p.lastPingPayload.Store(msg.PaddingBytes[:])
 
 			// Next, we'll send over the amount of specified pong
-			// bytes.
-			pong := lnwire.NewPong(p.cfg.PongBuf[0:msg.NumPongBytes])
-			p.queueMsg(pong, nil)
+			// bytes. Pong responses are sent via the super priority
+			// queue to ensure timely response to pings. These are
+			// fire-and-forget.
+			pong := lnwire.NewPong(
+				p.cfg.PongBuf[0:msg.NumPongBytes],
+			)
+			_ = p.SendSuperPriorityMessage(false, pong)
 
 		case *lnwire.OpenChannel,
 			*lnwire.AcceptChannel,
@@ -2635,62 +2655,75 @@ func (p *Brontide) writeHandler() {
 
 out:
 	for {
+		var msgToWrite outgoingMsg
+
+		// Prioritize superPrioSendQueue, only falling into the default
+		// to check the normal queue if we don't have anything to send.
 		select {
-		case outMsg := <-p.sendQueue:
-			// Record the time at which we first attempt to send the
-			// message.
-			startTime := time.Now()
+		case msgToWrite = <-p.superPrioSendQueue:
+		default:
+			// No superPrio msg, check normal sendQueue or quit.
+			select {
+			case msgToWrite = <-p.superPrioSendQueue:
 
-		retry:
-			// Write out the message to the socket. If a timeout
-			// error is encountered, we will catch this and retry
-			// after backing off in case the remote peer is just
-			// slow to process messages from the wire.
-			err := p.writeMessage(outMsg.msg)
-			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				p.log.Debugf("Write timeout detected for "+
-					"peer, first write for message "+
-					"attempted %v ago",
-					time.Since(startTime))
+			case msgToWrite = <-p.sendQueue:
 
-				// If we received a timeout error, this implies
-				// that the message was buffered on the
-				// connection successfully and that a flush was
-				// attempted. We'll set the message to nil so
-				// that on a subsequent pass we only try to
-				// flush the buffered message, and forgo
-				// reserializing or reencrypting it.
-				outMsg.msg = nil
-
-				goto retry
-			}
-
-			// The write succeeded, reset the idle timer to prevent
-			// us from disconnecting the peer.
-			if !idleTimer.Stop() {
-				select {
-				case <-idleTimer.C:
-				default:
-				}
-			}
-			idleTimer.Reset(idleTimeout)
-
-			// If the peer requested a synchronous write, respond
-			// with the error.
-			if outMsg.errChan != nil {
-				outMsg.errChan <- err
-			}
-
-			if err != nil {
-				exitErr = fmt.Errorf("unable to write "+
-					"message: %v", err)
+			case <-p.cg.Done():
+				exitErr = lnpeer.ErrPeerExiting
 				break out
 			}
+		}
 
-		case <-p.cg.Done():
-			exitErr = lnpeer.ErrPeerExiting
+		// Record the time at which we first attempt to send the
+		// message.
+		startTime := time.Now()
+
+	retryWrite:
+		// Write out the message to the socket. If a timeout error is
+		// encountered, we will catch this and retry after backing off
+		// in case the remote peer is just slow to process messages from
+		// the wire.
+		err := p.writeMessage(msgToWrite.msg)
+		var nerr net.Error
+		if errors.As(err, &nerr) && nerr.Timeout() {
+			logPrefix := "Write timeout detected for peer"
+			p.log.Debugf("%s, first write for message "+
+				"attempted %v ago",
+				logPrefix, time.Since(startTime))
+
+			// If we received a timeout error, this implies that the
+			// message was buffered on the connection successfully
+			// and that a flush was attempted. We'll set the message
+			// to nil so that on a subsequent pass we only try to
+			// flush the buffered message, and forgo reserializing
+			// or reencrypting it.
+			msgToWrite.msg = nil
+
+			goto retryWrite
+		}
+
+		// The write succeeded or failed with a non-timeout error. Reset
+		// the idle timer.
+		if !idleTimer.Stop() {
+			select {
+			case <-idleTimer.C:
+			default:
+			}
+		}
+		idleTimer.Reset(idleTimeout)
+
+		// If the peer requested a synchronous write, respond with the
+		// error.
+		if msgToWrite.errChan != nil {
+			msgToWrite.errChan <- err
+		}
+
+		if err != nil {
+			errMsgPrefix := "unable to write message"
+			exitErr = fmt.Errorf("%s: %w", errMsgPrefix, err)
 			break out
 		}
+
 	}
 
 	// Avoid an exit deadlock by ensuring WaitGroups are decremented before
@@ -2765,6 +2798,39 @@ func (p *Brontide) queueHandler() {
 			case <-p.cg.Done():
 				return
 			}
+		}
+	}
+}
+
+// queueSuperPriorityMsg adds the lnwire.Message to the super priority send
+// queue. If the errChan is non-nil, an error is sent back if the msg failed to
+// queue or failed to write, and nil otherwise.
+func (p *Brontide) queueSuperPriorityMsg(msg lnwire.Message,
+	errChan chan error) {
+
+	outMsg := outgoingMsg{
+		priority: true,
+		msg:      msg,
+		errChan:  errChan,
+	}
+
+	select {
+	case p.superPrioSendQueue <- outMsg:
+
+	case <-p.cg.Done():
+		p.log.Tracef("Peer shutting down, could not enqueue "+
+			"super priority msg: %v.", spew.Sdump(msg))
+
+		if errChan != nil {
+			errChan <- lnpeer.ErrPeerExiting
+		}
+
+	case <-p.cfg.Quit:
+		p.log.Tracef("Server shutting down, could not enqueue "+
+			"super priority msg: %v.", spew.Sdump(msg))
+
+		if errChan != nil {
+			errChan <- lnpeer.ErrPeerExiting
 		}
 	}
 }
@@ -4612,6 +4678,49 @@ func (p *Brontide) SendMessage(sync bool, msgs ...lnwire.Message) error {
 // NOTE: Part of the lnpeer.Peer interface.
 func (p *Brontide) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 	return p.sendMessage(sync, false, msgs...)
+}
+
+// SendSuperPriorityMessage sends a variadic number of super-priority messages
+// to the remote peer. If sync is true, this method will block until the
+// messages have been sent to the remote peer or an error is returned, otherwise
+// it returns immediately after queueing. These messages bypass the regular and
+// lazy send queues handled by the queueHandler.
+func (p *Brontide) SendSuperPriorityMessage(sync bool,
+	msgs ...lnwire.Message) error {
+
+	var errChans []chan error
+	if sync {
+		errChans = make([]chan error, 0, len(msgs))
+	}
+
+	for _, msg := range msgs {
+		var errChan chan error
+		if sync {
+			errChan = make(chan error, 1)
+			errChans = append(errChans, errChan)
+		}
+
+		p.queueSuperPriorityMsg(msg, errChan)
+	}
+
+	// Wait for all replies from the writeHandler if a sync send was
+	// requested.
+	for _, errChan := range errChans {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				return err
+			}
+
+		case <-p.cg.Done():
+			return lnpeer.ErrPeerExiting
+
+		case <-p.cfg.Quit:
+			return lnpeer.ErrPeerExiting
+		}
+	}
+
+	return nil
 }
 
 // sendMessage queues a variadic number of messages using the passed priority

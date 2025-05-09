@@ -4709,6 +4709,9 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 
 // MakeTestGraph creates a new instance of the ChannelGraph for testing
 // purposes.
+//
+// NOTE: this helper currently creates a ChannelGraph that is only ever backed
+// by the `KVStore` of the `V1Store` interface.
 func MakeTestGraph(t testing.TB, opts ...ChanGraphOption) *ChannelGraph {
 	t.Helper()
 

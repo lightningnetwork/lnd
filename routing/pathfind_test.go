@@ -159,28 +159,21 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	t.Cleanup(backendCleanup)
-
-	graphStore, err := graphdb.NewKVStore(backend)
-	require.NoError(t, err)
-
-	graph, err := graphdb.NewChannelGraph(
-		graphStore, graphdb.WithUseGraphCache(useCache),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
+	graph := graphdb.MakeTestGraph(t, graphdb.WithUseGraphCache(useCache))
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graph.Stop())
 	})
 
-	return graph, backend, nil
+	mcBackend, backendCleanup, err := kvdb.GetTestBackend(
+		t.TempDir(), "mission_control",
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	t.Cleanup(backendCleanup)
+
+	return graph, mcBackend, nil
 }
 
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON
@@ -212,7 +205,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, err := makeTestGraph(t, useCache)
+	graph, mcBackend, err := makeTestGraph(t, useCache)
 	if err != nil {
 		return nil, err
 	}
@@ -412,12 +405,12 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		channelIDs:   channelIDs,
-		links:        links,
+		graph:      graph,
+		mcBackend:  mcBackend,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
+		links:      links,
 	}, nil
 }
 
@@ -481,8 +474,8 @@ type testChannel struct {
 }
 
 type testGraphInstance struct {
-	graph        *graphdb.ChannelGraph
-	graphBackend kvdb.Backend
+	graph     *graphdb.ChannelGraph
+	mcBackend kvdb.Backend
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable alias
@@ -749,11 +742,11 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		links:        links,
+		graph:      graph,
+		mcBackend:  graphBackend,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		links:      links,
 	}, nil
 }
 

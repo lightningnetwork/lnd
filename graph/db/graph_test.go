@@ -4128,18 +4128,10 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 // TestGraphLoading asserts that the cache is properly reconstructed after a
 // restart.
 func TestGraphLoading(t *testing.T) {
-	// First, create a temporary directory to be used for the duration of
-	// this test.
-	tempDirName := t.TempDir()
+	t.Parallel()
 
 	// Next, create the graph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(tempDirName, "cgr")
-	require.NoError(t, err)
-	defer backend.Close()
-	defer backendCleanup()
-
-	graphStore, err := NewKVStore(backend)
-	require.NoError(t, err)
+	graphStore := NewTestDB(t)
 
 	graph, err := NewChannelGraph(graphStore)
 	require.NoError(t, err)

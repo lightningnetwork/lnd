@@ -112,8 +112,8 @@ var _ SizeableMessage = (*NodeAnnouncement)(nil)
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+func (a *NodeAnnouncement) Decode(r io.Reader, _ uint32) error {
+	err := ReadElements(r,
 		&a.Signature,
 		&a.Features,
 		&a.Timestamp,
@@ -123,6 +123,11 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 		&a.Addresses,
 		&a.ExtraOpaqueData,
 	)
+	if err != nil {
+		return err
+	}
+
+	return a.ExtraOpaqueData.ValidateTLV()
 }
 
 // Encode serializes the target NodeAnnouncement into the passed io.Writer

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -36,8 +37,9 @@ type NetworkPeerBootstrapper interface {
 	// denotes how many valid peer addresses to return. The passed set of
 	// node nodes allows the caller to ignore a set of nodes perhaps
 	// because they already have connections established.
-	SampleNodeAddrs(numAddrs uint32,
-		ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error)
+	SampleNodeAddrs(ctx context.Context, numAddrs uint32,
+		ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress,
+		error)
 
 	// Name returns a human readable string which names the concrete
 	// implementation of the NetworkPeerBootstrapper.
@@ -50,7 +52,8 @@ type NetworkPeerBootstrapper interface {
 // bootstrapper will be queried successively until the target amount is met. If
 // the ignore map is populated, then the bootstrappers will be instructed to
 // skip those nodes.
-func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
+func MultiSourceBootstrap(ctx context.Context,
+	ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
 	bootstrappers ...NetworkPeerBootstrapper) ([]*lnwire.NetAddress, error) {
 
 	// We'll randomly shuffle our bootstrappers before querying them in
@@ -73,7 +76,9 @@ func MultiSourceBootstrap(ignore map[autopilot.NodeID]struct{}, numAddrs uint32,
 		// the number of address remaining that we need to fetch.
 		numAddrsLeft := numAddrs - uint32(len(addrs))
 		log.Tracef("Querying for %v addresses", numAddrsLeft)
-		netAddrs, err := bootstrapper.SampleNodeAddrs(numAddrsLeft, ignore)
+		netAddrs, err := bootstrapper.SampleNodeAddrs(
+			ctx, numAddrsLeft, ignore,
+		)
 		if err != nil {
 			// If we encounter an error with a bootstrapper, then
 			// we'll continue on to the next available
@@ -152,8 +157,11 @@ func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper, e
 // many valid peer addresses to return.
 //
 // NOTE: Part of the NetworkPeerBootstrapper interface.
-func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
+func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
+	numAddrs uint32,
 	ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error) {
+
+	ctx := context.TODO()
 
 	// We'll merge the ignore map with our currently selected map in order
 	// to ensure we don't return any duplicate nodes.
@@ -177,7 +185,9 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(numAddrs uint32,
 			errFound = fmt.Errorf("found node")
 		)
 
-		err := c.chanGraph.ForEachNode(func(node autopilot.Node) error {
+		err := c.chanGraph.ForEachNode(ctx, func(_ context.Context,
+			node autopilot.Node) error {
+
 			nID := autopilot.NodeID(node.PubKey())
 			if _, ok := c.tried[nID]; ok {
 				return nil
@@ -382,7 +392,8 @@ func (d *DNSSeedBootstrapper) fallBackSRVLookup(soaShim string,
 // network peer bootstrapper source. The num addrs field passed in denotes how
 // many valid peer addresses to return. The set of DNS seeds are used
 // successively to retrieve eligible target nodes.
-func (d *DNSSeedBootstrapper) SampleNodeAddrs(numAddrs uint32,
+func (d *DNSSeedBootstrapper) SampleNodeAddrs(_ context.Context,
+	numAddrs uint32,
 	ignore map[autopilot.NodeID]struct{}) ([]*lnwire.NetAddress, error) {
 
 	var netAddrs []*lnwire.NetAddress

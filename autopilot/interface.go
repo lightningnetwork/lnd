@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"net"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -35,7 +36,8 @@ type Node interface {
 	// iterate through all edges emanating from/to the target node. For
 	// each active channel, this function should be called with the
 	// populated ChannelEdge that describes the active channel.
-	ForEachChannel(func(ChannelEdge) error) error
+	ForEachChannel(context.Context, func(context.Context,
+		ChannelEdge) error) error
 }
 
 // LocalChannel is a simple struct which contains relevant details of a
@@ -83,7 +85,7 @@ type ChannelGraph interface {
 	// ForEachNode is a higher-order function that should be called once
 	// for each connected node within the channel graph. If the passed
 	// callback returns an error, then execution should be terminated.
-	ForEachNode(func(Node) error) error
+	ForEachNode(context.Context, func(context.Context, Node) error) error
 }
 
 // NodeScore is a tuple mapping a NodeID to a score indicating the preference
@@ -142,7 +144,7 @@ type AttachmentHeuristic interface {
 	//
 	// NOTE: A NodeID not found in the returned map is implicitly given a
 	// score of 0.
-	NodeScores(g ChannelGraph, chans []LocalChannel,
+	NodeScores(ctx context.Context, g ChannelGraph, chans []LocalChannel,
 		chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
 		map[NodeID]*NodeScore, error)
 }
@@ -155,7 +157,7 @@ type NodeMetric interface {
 	Name() string
 
 	// Refresh refreshes the metric values based on the current graph.
-	Refresh(graph ChannelGraph) error
+	Refresh(ctx context.Context, graph ChannelGraph) error
 
 	// GetMetric returns the latest value of this metric. Values in the
 	// map are per node and can be in arbitrary domain. If normalize is

@@ -70,8 +70,8 @@ var _ SizeableMessage = (*ChannelAnnouncement1)(nil)
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement1) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+func (a *ChannelAnnouncement1) Decode(r io.Reader, _ uint32) error {
+	err := ReadElements(r,
 		&a.NodeSig1,
 		&a.NodeSig2,
 		&a.BitcoinSig1,
@@ -85,6 +85,11 @@ func (a *ChannelAnnouncement1) Decode(r io.Reader, pver uint32) error {
 		&a.BitcoinKey2,
 		&a.ExtraOpaqueData,
 	)
+	if err != nil {
+		return err
+	}
+
+	return a.ExtraOpaqueData.ValidateTLV()
 }
 
 // Encode serializes the target ChannelAnnouncement into the passed io.Writer

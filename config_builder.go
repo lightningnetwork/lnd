@@ -1046,10 +1046,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		)
 	}
 
-	dbs.GraphDB, err = graphdb.NewChannelGraph(&graphdb.Config{
-		KVDB:        databaseBackends.GraphDB,
-		KVStoreOpts: graphDBOptions,
-	}, chanGraphOpts...)
+	graphStore, err := graphdb.NewKVStore(
+		databaseBackends.GraphDB, graphDBOptions...,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dbs.GraphDB, err = graphdb.NewChannelGraph(graphStore, chanGraphOpts...)
 	if err != nil {
 		cleanUp()
 

@@ -132,7 +132,7 @@ var _ SizeableMessage = (*ChannelUpdate1)(nil)
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate1) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 	err := ReadElements(r,
 		&a.Signature,
 		a.ChainHash[:],
@@ -156,7 +156,12 @@ func (a *ChannelUpdate1) Decode(r io.Reader, pver uint32) error {
 		}
 	}
 
-	return a.ExtraOpaqueData.Decode(r)
+	err = a.ExtraOpaqueData.Decode(r)
+	if err != nil {
+		return err
+	}
+
+	return a.ExtraOpaqueData.ValidateTLV()
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer

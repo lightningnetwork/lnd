@@ -328,6 +328,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryRoutes,
 	},
 	{
+		Name:     "query routes routehints",
+		TestFunc: testQueryRoutesRouteHints,
+	},
+	{
 		Name:     "route fee cutoff",
 		TestFunc: testRouteFeeCutoff,
 	},
@@ -410,6 +414,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "send payment keysend mpp fail",
 		TestFunc: testSendPaymentKeysendMPPFail,
+	},
+	{
+		Name:     "send payment routehints keysend",
+		TestFunc: testSendPaymentRouteHintsKeysend,
 	},
 	{
 		Name:     "forward interceptor dedup htlcs",

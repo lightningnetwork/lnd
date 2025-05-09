@@ -82,6 +82,10 @@ type topologyClientUpdate struct {
 	// ntfnChan is a *send-only* channel in which notifications should be
 	// sent over from router -> client.
 	ntfnChan chan<- *TopologyChange
+
+	// updateHandled is closed once the given update has been handled by the
+	// topology client.
+	updateHandled chan struct{}
 }
 
 // SubscribeTopology returns a new topology client which can be used by the
@@ -103,14 +107,26 @@ func (c *ChannelGraph) SubscribeTopology() (*TopologyClient, error) {
 	log.Debugf("New graph topology client subscription, client %v",
 		clientID)
 
-	ntfnChan := make(chan *TopologyChange, 10)
+	var (
+		ntfnChan   = make(chan *TopologyChange, 10)
+		subscribed = make(chan struct{})
+	)
 
 	select {
 	case c.ntfnClientUpdates <- &topologyClientUpdate{
-		cancel:   false,
-		clientID: clientID,
-		ntfnChan: ntfnChan,
+		cancel:        false,
+		clientID:      clientID,
+		ntfnChan:      ntfnChan,
+		updateHandled: subscribed,
 	}:
+	case <-c.quit:
+		return nil, errors.New("ChannelRouter shutting down")
+	}
+
+	// Wait for the synchronous signal that the subscription has been
+	// handled.
+	select {
+	case <-subscribed:
 	case <-c.quit:
 		return nil, errors.New("ChannelRouter shutting down")
 	}
@@ -118,11 +134,22 @@ func (c *ChannelGraph) SubscribeTopology() (*TopologyClient, error) {
 	return &TopologyClient{
 		TopologyChanges: ntfnChan,
 		Cancel: func() {
+			cancelled := make(chan struct{})
+
 			select {
 			case c.ntfnClientUpdates <- &topologyClientUpdate{
-				cancel:   true,
-				clientID: clientID,
+				cancel:        true,
+				clientID:      clientID,
+				updateHandled: cancelled,
 			}:
+			case <-c.quit:
+				return
+			}
+
+			// Wait for the synchronous signal that the subscription
+			// has been cancelled.
+			select {
+			case <-cancelled:
 			case <-c.quit:
 				return
 			}

@@ -36,7 +36,8 @@ type PingManagerConfig struct {
 	// OnPongFailure is a closure that is responsible for executing the
 	// logic when a Pong message is either late or does not match our
 	// expectations for that Pong
-	OnPongFailure func(error)
+	OnPongFailure func(failureReason error, timeWaitedForPong time.Duration,
+		lastKnownRTT time.Duration)
 }
 
 // PingManager is a structure that is designed to manage the internal state
@@ -108,6 +109,29 @@ func (m *PingManager) Start() error {
 	return err
 }
 
+// getLastRTT safely retrieves the last known RTT, returning 0 if none exists.
+func (m *PingManager) getLastRTT() time.Duration {
+	rttPtr := m.pingTime.Load()
+	if rttPtr == nil {
+		return 0
+	}
+
+	return *rttPtr
+}
+
+// getTimeWaitedOrDefault calculates the time waited since the last ping was
+// sent. If no ping was sent (pingLastSend is nil), it returns the provided
+// defaultDuration.
+func (m *PingManager) getTimeWaitedOrDefault(defaultDuration time.Duration,
+) time.Duration {
+
+	if m.pingLastSend != nil {
+		return time.Since(*m.pingLastSend)
+	}
+
+	return defaultDuration
+}
+
 // pingHandler is the main goroutine responsible for enforcing the ping/pong
 // protocol.
 func (m *PingManager) pingHandler() {
@@ -127,12 +151,20 @@ func (m *PingManager) pingHandler() {
 			// awaiting a pong response.  This should never occur,
 			// but if it does, it implies a timeout.
 			if m.outstandingPongSize >= 0 {
-				e := errors.New("impossible: new ping" +
-					"in unclean state",
+				// Ping was outstanding, meaning it timed out by
+				// the arrival of the next ping interval.
+				timeWaited := m.getTimeWaitedOrDefault(
+					m.cfg.IntervalDuration,
 				)
-				m.cfg.OnPongFailure(e)
+				lastRTT := m.getLastRTT()
 
-				return
+				m.cfg.OnPongFailure(
+					errors.New("ping timed "+
+						"out by next interval"),
+					timeWaited, lastRTT,
+				)
+
+				m.resetPingState()
 			}
 
 			pongSize := m.cfg.NewPongSize()
@@ -143,52 +175,63 @@ func (m *PingManager) pingHandler() {
 
 			// Set up our bookkeeping for the new Ping.
 			if err := m.setPingState(pongSize); err != nil {
-				m.cfg.OnPongFailure(err)
-
+				// This is an internal error related to timer
+				// reset. Pass it to OnPongFailure as it's
+				// critical. Current and last RTT are not
+				// directly applicable here.
+				m.cfg.OnPongFailure(err, 0, 0)
 				return
 			}
 
 			m.cfg.SendPing(ping)
 
 		case <-m.pingTimeout.C:
-			m.resetPingState()
+			timeWaited := m.getTimeWaitedOrDefault(
+				m.cfg.TimeoutDuration,
+			)
+			lastRTT := m.getLastRTT()
 
-			e := errors.New("timeout while waiting for " +
-				"pong response",
+			m.cfg.OnPongFailure(
+				errors.New("timeout while waiting for "+
+					"pong response"),
+				timeWaited, lastRTT,
 			)
 
-			m.cfg.OnPongFailure(e)
-
-			return
+			m.resetPingState()
 
 		case pong := <-m.pongChan:
 			pongSize := int32(len(pong.PongBytes))
 
-			// Save off values we are about to override when we
-			// call resetPingState.
+			// Save off values we are about to override when we call
+			// resetPingState.
 			expected := m.outstandingPongSize
-			lastPing := m.pingLastSend
+			lastPingTime := m.pingLastSend
 
-			m.resetPingState()
+			if lastPingTime == nil {
+				// This is an unexpected pong, we'll continue.
+				continue
+			}
 
-			// If the pong we receive doesn't match the ping we
-			// sent out, then we fail out.
+			actualRTT := time.Since(*lastPingTime)
+
+			// If the pong we receive doesn't match the ping we sent
+			// out, then we fail out.
 			if pongSize != expected {
-				e := errors.New("pong response does " +
-					"not match expected size",
-				)
+				e := fmt.Errorf("pong response does not match "+
+					"expected size. Expected: %d, Got: %d",
+					expected, pongSize)
 
-				m.cfg.OnPongFailure(e)
+				lastRTT := m.getLastRTT()
+				m.cfg.OnPongFailure(e, actualRTT, lastRTT)
 
-				return
+				m.resetPingState()
+
+				continue
 			}
 
-			// Compute RTT of ping and save that for future
-			// querying.
-			if lastPing != nil {
-				rtt := time.Since(*lastPing)
-				m.pingTime.Store(&rtt)
-			}
+			// Pong is good, update RTT and reset state.
+			m.pingTime.Store(&actualRTT)
+			m.resetPingState()
 
 		case <-m.quit:
 			return
@@ -231,6 +274,7 @@ func (m *PingManager) setPingState(pongSize uint16) error {
 func (m *PingManager) resetPingState() {
 	m.pingLastSend = nil
 	m.outstandingPongSize = -1
+
 	if !m.pingTimeout.Stop() {
 		select {
 		case <-m.pingTimeout.C:

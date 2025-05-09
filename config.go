@@ -251,6 +251,11 @@ const (
 
 	defaultPrunedNodeMaxPeers = 4
 	defaultNeutrinoMaxPeers   = 8
+
+	// defaultDisconnectOnPongFailure is the default value for whether we
+	// should disconnect from a peer if we don't receive a pong response in
+	// time after we send a ping.
+	defaultDisconnectOnPongFailure = false
 )
 
 var (
@@ -527,6 +532,8 @@ type Config struct {
 	// NumRestrictedSlots is the number of restricted slots we'll allocate
 	// in the server.
 	NumRestrictedSlots uint64 `long:"num-restricted-slots" description:"The number of restricted slots we'll allocate in the server."`
+
+	DisconnectOnPongFailure bool `long:"disconnect-on-pong-failure" description:"Whether to disconnect a peer if a pong is not received in time or is mismatched. Defaults to false."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.
@@ -747,10 +754,11 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
-		LogConfig:          build.DefaultLogConfig(),
-		WtClient:           lncfg.DefaultWtClientCfg(),
-		HTTPHeaderTimeout:  DefaultHTTPHeaderTimeout,
-		NumRestrictedSlots: DefaultNumRestrictedSlots,
+		LogConfig:               build.DefaultLogConfig(),
+		WtClient:                lncfg.DefaultWtClientCfg(),
+		HTTPHeaderTimeout:       DefaultHTTPHeaderTimeout,
+		NumRestrictedSlots:      DefaultNumRestrictedSlots,
+		DisconnectOnPongFailure: defaultDisconnectOnPongFailure,
 	}
 }
 

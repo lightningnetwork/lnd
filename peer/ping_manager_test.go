@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -23,19 +24,19 @@ func TestPingManager(t *testing.T) {
 		result   bool
 	}{
 		{
-			name:     "Happy Path",
+			name:     "happy Path",
 			delay:    0,
 			pongSize: 4,
 			result:   true,
 		},
 		{
-			name:     "Bad Pong",
+			name:     "bad Pong",
 			delay:    0,
 			pongSize: 3,
 			result:   false,
 		},
 		{
-			name:     "Timeout",
+			name:     "timeout",
 			delay:    2,
 			pongSize: 4,
 			result:   false,
@@ -44,45 +45,56 @@ func TestPingManager(t *testing.T) {
 
 	payload := make([]byte, 4)
 	for _, test := range testCases {
-		// Set up PingManager.
-		pingSent := make(chan struct{})
-		disconnected := make(chan struct{})
-		mgr := NewPingManager(&PingManagerConfig{
-			NewPingPayload: func() []byte {
-				return payload
-			},
-			NewPongSize: func() uint16 {
-				return 4
-			},
-			IntervalDuration: time.Second * 2,
-			TimeoutDuration:  time.Second,
-			SendPing: func(ping *lnwire.Ping) {
-				close(pingSent)
-			},
-			OnPongFailure: func(err error) {
-				close(disconnected)
-			},
+		t.Run(test.name, func(t *testing.T) {
+			// Set up PingManager.
+			var pingOnce sync.Once
+			pingSent := make(chan struct{})
+			disconnected := make(chan struct{})
+			mgr := NewPingManager(&PingManagerConfig{
+				NewPingPayload: func() []byte {
+					return payload
+				},
+				NewPongSize: func() uint16 {
+					return 4
+				},
+				IntervalDuration: time.Second * 2,
+				TimeoutDuration:  time.Second,
+				SendPing: func(ping *lnwire.Ping) {
+					pingOnce.Do(func() {
+						close(pingSent)
+					})
+				},
+				OnPongFailure: func(err error,
+					_ time.Duration, _ time.Duration) {
+
+					close(disconnected)
+				},
+			})
+			require.NoError(
+				t, mgr.Start(), "Could not start pingManager",
+			)
+
+			// Wait for initial Ping.
+			<-pingSent
+
+			// Wait for pre-determined time before sending Pong
+			// response.
+			time.Sleep(time.Duration(test.delay) * time.Second)
+
+			// Send Pong back.
+			res := lnwire.Pong{
+				PongBytes: make([]byte, test.pongSize),
+			}
+			mgr.ReceivedPong(&res)
+
+			select {
+			case <-time.NewTimer(time.Second / 2).C:
+				require.True(t, test.result)
+			case <-disconnected:
+				require.False(t, test.result)
+			}
+
+			mgr.Stop()
 		})
-		require.NoError(t, mgr.Start(), "Could not start pingManager")
-
-		// Wait for initial Ping.
-		<-pingSent
-
-		// Wait for pre-determined time before sending Pong response.
-		time.Sleep(time.Duration(test.delay) * time.Second)
-
-		// Send Pong back.
-		res := lnwire.Pong{PongBytes: make([]byte, test.pongSize)}
-		mgr.ReceivedPong(&res)
-
-		// Evaluate result
-		select {
-		case <-time.NewTimer(time.Second / 2).C:
-			require.True(t, test.result)
-		case <-disconnected:
-			require.False(t, test.result)
-		}
-
-		mgr.Stop()
 	}
 }

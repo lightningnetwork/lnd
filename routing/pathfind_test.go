@@ -212,7 +212,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph, graphBackend, err := makeTestGraph(t, useCache)
+	graph, mcBackend, err := makeTestGraph(t, useCache)
 	if err != nil {
 		return nil, err
 	}
@@ -412,12 +412,12 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		channelIDs:   channelIDs,
-		links:        links,
+		graph:      graph,
+		mcBackend:  mcBackend,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
+		links:      links,
 	}, nil
 }
 
@@ -481,8 +481,8 @@ type testChannel struct {
 }
 
 type testGraphInstance struct {
-	graph        *graphdb.ChannelGraph
-	graphBackend kvdb.Backend
+	graph     *graphdb.ChannelGraph
+	mcBackend kvdb.Backend
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable alias
@@ -749,11 +749,11 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	}
 
 	return &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
-		aliasMap:     aliasMap,
-		privKeyMap:   privKeyMap,
-		links:        links,
+		graph:      graph,
+		mcBackend:  graphBackend,
+		aliasMap:   aliasMap,
+		privKeyMap: privKeyMap,
+		links:      links,
 	}, nil
 }
 

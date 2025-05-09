@@ -4709,8 +4709,8 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 
 // MakeTestGraph creates a new instance of the KVStore for testing
 // purposes.
-func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
-	*ChannelGraph, error) {
+func MakeTestGraph(t testing.TB,
+	modifiers ...KVStoreOptionModifier) *ChannelGraph {
 
 	opts := DefaultOptions()
 	for _, modifier := range modifiers {
@@ -4719,28 +4719,21 @@ func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
 
 	// Next, create KVStore for the first time.
 	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		backendCleanup()
-
-		return nil, err
-	}
+	t.Cleanup(backendCleanup)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, backend.Close())
+	})
 
 	graphStore, err := NewKVStore(backend, modifiers...)
 	require.NoError(t, err)
 
 	graph, err := NewChannelGraph(graphStore)
-	if err != nil {
-		backendCleanup()
-
-		return nil, err
-	}
+	require.NoError(t, err)
 	require.NoError(t, graph.Start())
-
 	t.Cleanup(func() {
-		_ = backend.Close()
-		backendCleanup()
 		require.NoError(t, graph.Stop())
 	})
 
-	return graph, nil
+	return graph
 }

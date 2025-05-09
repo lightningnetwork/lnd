@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -37,22 +36,7 @@ type testDBGraph struct {
 }
 
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
-	backend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:            t.TempDir(),
-		DBFileName:        "graph.db",
-		NoFreelistSync:    true,
-		AutoCompact:       false,
-		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
-		DBTimeout:         kvdb.DefaultDBTimeout,
-	})
-	require.NoError(t, err)
-
-	graphStore, err := graphdb.NewKVStore(backend)
-	require.NoError(t, err)
-
-	graphDB, err := graphdb.NewChannelGraph(graphStore)
-	require.NoError(t, err)
-
+	graphDB := graphdb.MakeTestGraph(t)
 	require.NoError(t, graphDB.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graphDB.Stop())

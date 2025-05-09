@@ -305,6 +305,10 @@ when running LND with an aux component injected (custom channels).
 
 * [remove x/exp/maps dependency](https://github.com/lightningnetwork/lnd/pull/9621)
 
+* [Add a new configuration option](https://github.com/lightningnetwork/lnd/pull/9801)
+  `--no-disconnect-on-pong-failure` (defaulting to false) to control whether a
+  peer is disconnected if a pong message is not received in time or is mismatched.
+
 ## RPC Updates
 
 * Some RPCs that previously just returned an empty response message now at least

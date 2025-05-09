@@ -4494,6 +4494,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 			)
 		},
 	}
+	pCfg.DisconnectOnPongFailure = s.cfg.DisconnectOnPongFailure
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
 	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())

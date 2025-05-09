@@ -2478,38 +2478,6 @@ func (h *HarnessTest) AssertNumInvoices(hn *node.HarnessNode,
 	return invoices
 }
 
-// ReceiveSendToRouteUpdate waits until a message is received on the
-// SendToRoute client stream or the timeout is reached.
-func (h *HarnessTest) ReceiveSendToRouteUpdate(
-	stream rpc.SendToRouteClient) (*lnrpc.SendResponse, error) {
-
-	chanMsg := make(chan *lnrpc.SendResponse, 1)
-	errChan := make(chan error, 1)
-	go func() {
-		// Consume one message. This will block until the message is
-		// received.
-		resp, err := stream.Recv()
-		if err != nil {
-			errChan <- err
-
-			return
-		}
-		chanMsg <- resp
-	}()
-
-	select {
-	case <-time.After(DefaultTimeout):
-		require.Fail(h, "timeout", "timeout waiting for send resp")
-		return nil, nil
-
-	case err := <-errChan:
-		return nil, err
-
-	case updateMsg := <-chanMsg:
-		return updateMsg, nil
-	}
-}
-
 // AssertInvoiceEqual asserts that two lnrpc.Invoices are equivalent. A custom
 // comparison function is defined for these tests, since proto message returned
 // from unary and streaming RPCs (as of protobuf 1.23.0 and grpc 1.29.1) aren't

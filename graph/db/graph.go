@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 // ErrChanGraphShuttingDown indicates that the ChannelGraph has shutdown or is
@@ -579,4 +581,31 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	}
 
 	return nil
+}
+
+// MakeTestGraphNew creates a new instance of the ChannelGraph for testing
+// purposes. The backing V1Store implementation depends on the version of
+// NewTestDB included in the current build.
+//
+// NOTE: this is currently unused, but is left here for future use to show how
+// NewTestDB can be used. As the SQL implementation of the V1Store is
+// implemented, unit tests will be switched to use this function instead of
+// the existing MakeTestGraph helper. Once only this function is used, the
+// existing MakeTestGraph function will be removed and this one will be renamed.
+func MakeTestGraphNew(t testing.TB,
+	opts ...ChanGraphOption) *ChannelGraph {
+
+	t.Helper()
+
+	store := NewTestDB(t)
+
+	graph, err := NewChannelGraph(store, opts...)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	return graph
 }

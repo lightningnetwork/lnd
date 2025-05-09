@@ -141,14 +141,14 @@ func (m *PingManager) pingHandler() {
 				PaddingBytes: m.cfg.NewPingPayload(),
 			}
 
-			// Set up our bookkeeping for the new Ping.
+			m.cfg.SendPing(ping)
+
+			// Set up our bookkeeping as we've sent the ping.
 			if err := m.setPingState(pongSize); err != nil {
 				m.cfg.OnPongFailure(err)
 
 				return
 			}
-
-			m.cfg.SendPing(ping)
 
 		case <-m.pingTimeout.C:
 			m.resetPingState()

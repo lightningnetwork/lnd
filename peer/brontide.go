@@ -94,7 +94,7 @@ const (
 	torTimeoutMultiplier = 3
 
 	// msgStreamSize is the size of the message streams.
-	msgStreamSize = 5
+	msgStreamSize = 256
 )
 
 var (
@@ -733,7 +733,15 @@ func NewBrontide(cfg Config) *Brontide {
 		IntervalDuration: p.scaleTimeout(pingInterval),
 		TimeoutDuration:  p.scaleTimeout(pingTimeout),
 		SendPing: func(ping *lnwire.Ping) {
-			p.queueMsg(ping, nil)
+			// We'll provide an errChan so we can make this a fully
+			// synchronous send.
+			errChan := make(chan error, 1)
+			p.queueMsg(ping, errChan)
+
+			select {
+			case <-errChan:
+			case <-p.cg.Done():
+			}
 		},
 		OnPongFailure: func(err error) {
 			eStr := "pong response failure for %s: %v " +

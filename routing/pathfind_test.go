@@ -159,28 +159,21 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	t.Cleanup(backendCleanup)
-
-	graphStore, err := graphdb.NewKVStore(backend)
-	require.NoError(t, err)
-
-	graph, err := graphdb.NewChannelGraph(
-		graphStore, graphdb.WithUseGraphCache(useCache),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
+	graph := graphdb.MakeTestGraph(t, graphdb.WithUseGraphCache(useCache))
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graph.Stop())
 	})
 
-	return graph, backend, nil
+	mcBackend, backendCleanup, err := kvdb.GetTestBackend(
+		t.TempDir(), "mission_control",
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	t.Cleanup(backendCleanup)
+
+	return graph, mcBackend, nil
 }
 
 // parseTestGraph returns a fully populated ChannelGraph given a path to a JSON

@@ -127,6 +127,10 @@ when running LND with an aux component injected (custom channels).
   probability is used if the bimodal model is not applicable. Fixes are added
   such that the probability is evaluated quicker and to be more accurate in
   outdated scenarios.
+ 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9798) that could 
+  result in a topology client missing a topology update if the update is sent 
+  very soon after the topology subscription call is made. 
 
 # New Features
 

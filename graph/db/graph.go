@@ -161,14 +161,18 @@ func (c *ChannelGraph) handleTopologySubscriptions() {
 
 					close(client.ntfnChan)
 				}
-
-				continue
+			} else {
+				c.topologyClients.Store(
+					clientID, &topologyClient{
+						ntfnChan: ntfnUpdate.ntfnChan,
+						exit:     make(chan struct{}),
+					},
+				)
 			}
 
-			c.topologyClients.Store(clientID, &topologyClient{
-				ntfnChan: ntfnUpdate.ntfnChan,
-				exit:     make(chan struct{}),
-			})
+			// Indicate to the caller that the update has been
+			// handled.
+			close(ntfnUpdate.updateHandled)
 
 		case <-c.quit:
 			return

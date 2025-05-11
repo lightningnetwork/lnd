@@ -57,10 +57,7 @@ func (d *DiskQueueDB[T]) PopUpTo(n int) ([]T, error) {
 		return nil, wtdb.ErrEmptyQueue
 	}
 
-	num := n
-	if d.disk.Len() < n {
-		num = d.disk.Len()
-	}
+	num := min(d.disk.Len(), n)
 
 	tasks := make([]T, 0, num)
 	for i := 0; i < num; i++ {

@@ -1583,10 +1583,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			maxChannelSize := uint64(
 				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
 			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
-			conf := maxConf * uint64(stake) / maxChannelSize
-			if conf < minConf {
-				conf = minConf
-			}
+			conf := max(maxConf*uint64(stake)/maxChannelSize, minConf)
 			if conf > maxConf {
 				conf = maxConf
 			}
@@ -1614,11 +1611,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			}
 
 			// If not we scale according to channel size.
-			delay := uint16(btcutil.Amount(maxRemoteDelay) *
-				chanAmt / MaxFundingAmount)
-			if delay < minRemoteDelay {
-				delay = minRemoteDelay
-			}
+			delay := uint16(
+				btcutil.Amount(maxRemoteDelay) *
+					chanAmt / MaxFundingAmount,
+			)
+			delay = max(delay, minRemoteDelay)
 			if delay > maxRemoteDelay {
 				delay = maxRemoteDelay
 			}
@@ -1656,10 +1653,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// times. If this value ends up dipping below the dust
 			// limit, then we'll use the dust limit itself as the
 			// reserve as required by BOLT #2.
-			reserve := chanAmt / 100
-			if reserve < dustLimit {
-				reserve = dustLimit
-			}
+			reserve := max(chanAmt/100, dustLimit)
 
 			return reserve
 		},
@@ -5196,10 +5190,7 @@ func (s *server) Peers() []*peer.Brontide {
 // stabilizing.
 func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 	// Double the current backoff, truncating if it exceeds our maximum.
-	nextBackoff := 2 * currBackoff
-	if nextBackoff > maxBackoff {
-		nextBackoff = maxBackoff
-	}
+	nextBackoff := min(2*currBackoff, maxBackoff)
 
 	// Using 1/10 of our duration as a margin, compute a random offset to
 	// avoid the nodes entering connection cycles.

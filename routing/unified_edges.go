@@ -224,10 +224,7 @@ func calcCappedInboundFee(edge *unifiedEdge, amt lnwire.MilliSatoshi,
 	inboundFee := edge.inboundFees.CalcFee(amt)
 
 	// Take into account that the total node fee cannot be negative.
-	if inboundFee < -int64(nextOutFee) {
-		inboundFee = -int64(nextOutFee)
-	}
-
+	inboundFee = max(inboundFee, -int64(nextOutFee))
 	return inboundFee
 }
 

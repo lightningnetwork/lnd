@@ -1818,10 +1818,9 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	//
 	// NOTE: Even with this bounding, the ChannelAcceptor may return an
 	// BOLT#02-invalid ChannelReserve.
-	maxDustLimit := reservation.OurContribution().DustLimit
-	if msg.DustLimit > maxDustLimit {
-		maxDustLimit = msg.DustLimit
-	}
+	maxDustLimit := max(
+		msg.DustLimit, reservation.OurContribution().DustLimit,
+	)
 
 	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, maxDustLimit)
 	if acceptorResp.Reserve != 0 {
@@ -3573,9 +3572,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	// channel capacity and <= the maximum in-flight msats set by the peer.
 	fwdMaxHTLC := c.LocalChanCfg.MaxPendingAmount
 	capacityMSat := lnwire.NewMSatFromSatoshis(c.Capacity)
-	if fwdMaxHTLC > capacityMSat {
-		fwdMaxHTLC = capacityMSat
-	}
+	fwdMaxHTLC = min(fwdMaxHTLC, capacityMSat)
 
 	return fwdMinHTLC, fwdMaxHTLC
 }
@@ -3701,10 +3698,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 	} else {
 		// Otherwise, we'll wait until the funding transaction has
 		// reached 6 confirmations before announcing it.
-		numConfs := uint32(completeChan.NumConfsRequired)
-		if numConfs < 6 {
-			numConfs = 6
-		}
+		numConfs := max(uint32(completeChan.NumConfsRequired), 6)
 		txid := completeChan.FundingOutpoint.Hash
 		log.Debugf("Will announce channel %v after ChannelPoint"+
 			"(%v) has gotten %d confirmations",

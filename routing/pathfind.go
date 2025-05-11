@@ -287,10 +287,7 @@ func newRoute(sourceVertex route.Vertex,
 				amtToForward + outboundFee,
 			)
 
-			fee = int64(outboundFee) + inboundFee
-			if fee < 0 {
-				fee = 0
-			}
+			fee = max(int64(outboundFee)+inboundFee, 0)
 
 			// We'll take the total timelock of the preceding hop as
 			// the outgoing timelock or this hop. Then we'll

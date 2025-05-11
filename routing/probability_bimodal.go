@@ -177,13 +177,9 @@ func (p *BimodalEstimator) LocalPairProbability(now time.Time,
 	// probability for some time to avoid infinite retries.
 	result, ok := results[toNode]
 	if ok && !result.FailTime.IsZero() {
-		timeAgo := now.Sub(result.FailTime)
-
 		// We only expect results in the past to get a probability
 		// between 0 and 1.
-		if timeAgo < 0 {
-			timeAgo = 0
-		}
+		timeAgo := max(now.Sub(result.FailTime), 0)
 		exponent := -float64(timeAgo) / float64(p.BimodalDecayTime)
 		directProbability -= math.Exp(exponent)
 	}

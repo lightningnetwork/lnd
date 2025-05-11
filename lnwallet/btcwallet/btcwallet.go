@@ -670,10 +670,10 @@ func (b *BtcWallet) RequiredReserve(
 	numAnchorChans uint32) btcutil.Amount {
 
 	anchorChanReservedValue := lnwallet.AnchorChanReservedValue
-	reserved := btcutil.Amount(numAnchorChans) * anchorChanReservedValue
-	if reserved > lnwallet.MaxAnchorChanReservedValue {
-		reserved = lnwallet.MaxAnchorChanReservedValue
-	}
+	reserved := min(
+		btcutil.Amount(numAnchorChans)*anchorChanReservedValue,
+		lnwallet.MaxAnchorChanReservedValue,
+	)
 
 	return reserved
 }

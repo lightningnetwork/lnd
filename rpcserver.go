@@ -2107,9 +2107,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		// determined minimum amount is actually available is
 		// ascertained downstream in the lnwallet's reservation
 		// workflow.
-		if remoteInitialBalance >= minFundAmt {
-			minFundAmt = remoteInitialBalance
-		}
+		minFundAmt = max(minFundAmt, remoteInitialBalance)
 	}
 
 	minHtlcIn := lnwire.MilliSatoshi(in.MinHtlcMsat)

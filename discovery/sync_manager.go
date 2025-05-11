@@ -582,7 +582,7 @@ func (m *SyncManager) waitMsgDelay(ctx context.Context, peerPub [33]byte,
 	// to be sent.
 	delay := limitReservation.Delay()
 	if delay > 0 {
-		log.Infof("GossipSyncer(%x): rate limiting gossip replies, "+
+		log.Tracef("GossipSyncer(%x): rate limiting gossip replies, "+
 			"responding in %s", peerPub, delay)
 
 		select {

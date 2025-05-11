@@ -1551,7 +1551,12 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// announcements, we'll blast them out w/o regard for
 			// our peer's policies so we ensure they propagate
 			// properly.
-			d.splitAndSendAnnBatch(announcementBatch)
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+
+				d.splitAndSendAnnBatch(announcementBatch)
+			}()
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
@@ -1560,10 +1565,16 @@ func (d *AuthenticatedGossiper) networkHandler() {
 		// have been dropped, or not properly propagated through the
 		// network.
 		case tick := <-d.cfg.RetransmitTicker.Ticks():
-			if err := d.retransmitStaleAnns(tick); err != nil {
-				log.Errorf("unable to rebroadcast stale "+
-					"announcements: %v", err)
-			}
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+
+				err := d.retransmitStaleAnns(tick)
+				if err != nil {
+					log.Errorf("unable to rebroadcast "+
+						"stale announcements: %v", err)
+				}
+			}()
 
 		// The gossiper has been signalled to exit, to we exit our
 		// main loop so the wait group can be decremented.

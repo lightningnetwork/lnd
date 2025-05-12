@@ -230,6 +230,48 @@ value, err := bar(
 )
 ```
 
+As long as the visual symmetry of the opening and closing parentheses is
+preserved, arguments that would otherwise introduce a new level of indentation
+are allowed to be written in a more compact form.
+
+Example with inline struct creation:
+
+**ACCEPTABLE**
+```go
+	response, err := node.AddInvoice(
+		ctx, &lnrpc.Invoice{
+			Memo:      "invoice",
+			ValueMsat: int64(oneUnitMilliSat - 1),
+		},
+	)
+```
+
+**PREFERRED**
+```go
+	response, err := node.AddInvoice(ctx, &lnrpc.Invoice{
+		Memo:      "invoice",
+		ValueMsat: int64(oneUnitMilliSat - 1),
+	})
+```
+
+Example with nested function call:
+
+**ACCEPTABLE**:
+```go
+	payInvoiceWithSatoshi(
+		t.t, dave, invoiceResp2, withFailure(
+			lnrpc.Payment_FAILED, failureNoRoute,
+        ),
+    )
+```
+
+**PREFERRED**:
+```go
+	payInvoiceWithSatoshi(t.t, dave, invoiceResp2, withFailure(
+		lnrpc.Payment_FAILED, failureNoRoute,
+	))
+```
+
 #### Exception for log and error message formatting
 
 **Note that the above guidelines don't apply to log or error messages.** For

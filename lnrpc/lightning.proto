@@ -4143,6 +4143,10 @@ message ListInvoiceRequest {
     // If set, returns all invoices with a creation date less than or equal to
     // it. Measured in seconds since the unix epoch.
     uint64 creation_date_end = 8;
+
+    // If set, only return the total number of invoices, and don't actually
+    // include the invoices themselves.
+    bool count_total_invoices = 9;
 }
 
 message ListInvoiceResponse {
@@ -4163,6 +4167,11 @@ message ListInvoiceResponse {
     to seek backwards, pagination style.
     */
     uint64 first_index_offset = 3;
+
+    // Will only be set if count_total_invoices in the request was set.
+    // Represents the total number of invoices currently present in the invoices
+    // database.
+    uint64 total_num_invoices = 4;
 }
 
 message InvoiceSubscription {

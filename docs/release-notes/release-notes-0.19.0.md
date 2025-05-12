@@ -128,6 +128,9 @@ when running LND with an aux component injected (custom channels).
   such that the probability is evaluated quicker and to be more accurate in
   outdated scenarios.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/9798) that could
+  result in a new topology client missing a channel-close notifications. 
+
 # New Features
 
 * Add support for [archiving channel backup](https://github.com/lightningnetwork/lnd/pull/9232)

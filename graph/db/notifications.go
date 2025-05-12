@@ -149,6 +149,9 @@ type topologyClient struct {
 
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
+//
+// NOTE: this should only ever be called from a call-stack originating from the
+// handleTopologySubscriptions handler.
 func (c *ChannelGraph) notifyTopologyChange(topologyDiff *TopologyChange) {
 	// notifyClient is a helper closure that will send topology updates to
 	// the given client.
@@ -194,7 +197,8 @@ func (c *ChannelGraph) notifyTopologyChange(topologyDiff *TopologyChange) {
 // handleTopologyUpdate is responsible for sending any topology changes
 // notifications to registered clients.
 //
-// NOTE: must be run inside goroutine.
+// NOTE: must be run inside goroutine and must only ever be called from within
+// handleTopologySubscriptions.
 func (c *ChannelGraph) handleTopologyUpdate(update any) {
 	defer c.wg.Done()
 
@@ -443,6 +447,10 @@ func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
 		// TODO(roasbeef): add bit to toggle
 		update.ChannelEdgeUpdates = append(update.ChannelEdgeUpdates,
 			edgeUpdate)
+		return nil
+
+	case []*ClosedChanSummary:
+		update.ClosedChannels = append(update.ClosedChannels, m...)
 		return nil
 
 	default:

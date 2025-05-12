@@ -492,9 +492,12 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 		closeSummaries := createCloseSummaries(
 			blockHeight, edges...,
 		)
-		c.notifyTopologyChange(&TopologyChange{
-			ClosedChannels: closeSummaries,
-		})
+
+		select {
+		case c.topologyUpdate <- closeSummaries:
+		case <-c.quit:
+			return nil, ErrChanGraphShuttingDown
+		}
 	}
 
 	return edges, nil

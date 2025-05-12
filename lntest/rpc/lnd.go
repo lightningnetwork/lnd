@@ -490,32 +490,6 @@ func (h *HarnessRPC) QueryRoutes(
 	return routes
 }
 
-type SendToRouteClient lnrpc.Lightning_SendToRouteClient
-
-// SendToRoute makes a RPC call to SendToRoute and asserts.
-func (h *HarnessRPC) SendToRoute() SendToRouteClient {
-	// SendToRoute needs to have the context alive for the entire test case
-	// as the returned client will be used for send and receive payment
-	// stream. Thus we use runCtx here instead of a timeout context.
-	client, err := h.LN.SendToRoute(h.runCtx)
-	h.NoError(err, "SendToRoute")
-
-	return client
-}
-
-// SendToRouteSync makes a RPC call to SendToRouteSync and asserts.
-func (h *HarnessRPC) SendToRouteSync(
-	req *lnrpc.SendToRouteRequest) *lnrpc.SendResponse {
-
-	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
-	defer cancel()
-
-	resp, err := h.LN.SendToRouteSync(ctxt, req)
-	h.NoError(err, "SendToRouteSync")
-
-	return resp
-}
-
 // UpdateChannelPolicy makes a RPC call to UpdateChannelPolicy and asserts.
 func (h *HarnessRPC) UpdateChannelPolicy(
 	req *lnrpc.PolicyUpdateRequest) *lnrpc.PolicyUpdateResponse {

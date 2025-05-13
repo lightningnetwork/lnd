@@ -124,8 +124,12 @@ func (f *TestPgFixture) TearDown(t *testing.T) {
 	require.NoError(t, err, "Could not purge resource")
 }
 
-// randomDBName generates a random database name.
-func randomDBName(t *testing.T) string {
+func (f *TestPgFixture) DB() *sql.DB {
+	return f.db
+}
+
+// RandomDBName generates a random database name.
+func RandomDBName(t *testing.T) string {
 	randBytes := make([]byte, 8)
 	_, err := rand.Read(randBytes)
 	require.NoError(t, err)
@@ -140,7 +144,7 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture,
 
 	t.Helper()
 
-	dbName := randomDBName(t)
+	dbName := RandomDBName(t)
 
 	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
 
@@ -153,9 +157,7 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture,
 	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
 
-	require.NoError(t, store.ApplyAllMigrations(
-		context.Background(), streams),
-	)
+	require.NoError(t, ApplyAllMigrations(store, streams))
 
 	return store
 }
@@ -170,7 +172,7 @@ func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
 	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
 		version)
 
-	dbName := randomDBName(t)
+	dbName := RandomDBName(t)
 	_, err := fixture.db.ExecContext(
 		context.Background(), "CREATE DATABASE "+dbName,
 	)

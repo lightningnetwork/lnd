@@ -3,7 +3,6 @@ package lnd
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -51,7 +50,8 @@ import (
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/lightningnetwork/lnd/sqlmodel"
+	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -1106,42 +1106,43 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// migration's version (7), it will be skipped permanently,
 		// regardless of the flag.
 		if !d.cfg.DB.SkipNativeSQLMigration {
-			invoiceStream := invoices.InvoicesMigrations
-			migrationFn := func(tx *sqlc.Queries) error {
-				err := invoices.MigrateInvoicesToSQL(
-					ctx, dbs.ChanStateDB.Backend,
-					dbs.ChanStateDB, tx,
-					invoiceMigrationBatchSize,
-				)
-				if err != nil {
-					return fmt.Errorf("failed to migrate "+
-						"invoices to SQL: %w", err)
-				}
-
-				// Set the invoice bucket tombstone to indicate
-				// that the migration has been completed.
-				d.logger.Debugf("Setting invoice bucket " +
-					"tombstone")
-
-				return dbs.ChanStateDB.SetInvoiceBucketTombstone() //nolint:ll
-			}
+			invoiceStream := sqlmodel.InvoicesMigrations
+			//migrationFn := func(tx *sqlc.Queries) error {
+			//	err := invoices.MigrateInvoicesToSQL(
+			//		ctx, dbs.ChanStateDB.Backend,
+			//		dbs.ChanStateDB, tx,
+			//		invoiceMigrationBatchSize,
+			//	)
+			//	if err != nil {
+			//		return fmt.Errorf("failed to migrate "+
+			//			"invoices to SQL: %w", err)
+			//	}
+			//
+			//	// Set the invoice bucket tombstone to indicate
+			//	// that the migration has been completed.
+			//	d.logger.Debugf("Setting invoice bucket " +
+			//		"tombstone")
+			//
+			//	return dbs.ChanStateDB.SetInvoiceBucketTombstone() //nolint:ll
+			//}
 
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
-			for i := 0; i < len(invoiceStream.Configs); i++ {
-				if invoiceStream.Configs[i].Version != invoiceMigration {
-					continue
-				}
-
-				invoiceStream.Configs[i].MigrationFn = migrationFn
-			}
+			//for i := 0; i < len(invoiceStream.Configs); i++ {
+			//	if invoiceStream.Configs[i].Version != invoiceMigration {
+			//		continue
+			//	}
+			//
+			//	invoiceStream.Configs[i].MigrationFn = migrationFn
+			//}
 
 			streams = append(streams, invoiceStream)
 		}
 
 		// We need to apply all migrations to the native SQL store
 		// before we can use it.
-		err = dbs.NativeSQLStore.ApplyAllMigrations(ctx, streams)
+		baseDB := dbs.NativeSQLStore.GetBaseDB()
+		err = sqldb.ApplyAllMigrations(dbs.NativeSQLStore, streams)
 		if err != nil {
 			cleanUp()
 			err = fmt.Errorf("faild to run migrations for the "+
@@ -1154,13 +1155,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// With the DB ready and migrations applied, we can now create
 		// the base DB and transaction executor for the native SQL
 		// invoice store.
-		baseDB := dbs.NativeSQLStore.GetBaseDB()
-		executor := sqldb.NewTransactionExecutor(
-			baseDB, func(tx *sql.Tx) invoices.SQLInvoiceQueries {
-				return baseDB.WithTx(tx)
-			},
-		)
-
+		queries := sqlc.New(baseDB)
+		executor := invoices.NewExecutor(baseDB, queries)
 		sqlInvoiceDB := invoices.NewSQLStore(
 			executor, clock.NewDefaultClock(),
 		)

@@ -2,21 +2,18 @@ package sqldb
 
 import (
 	"bytes"
-	"context"
-	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/btcsuite/btclog/v2"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // MigrationConfig is a configuration struct that describes SQL migrations. Each
@@ -37,16 +34,12 @@ type MigrationConfig struct {
 	// SchemaVersion represents the schema version tracked by golang-migrate
 	// at which the migration is applied.
 	SchemaVersion int
-
-	// MigrationFn is the function executed for custom migrations at the
-	// specified version. It is used to handle migrations that cannot be
-	// performed through SQL alone. If set to nil, no custom migration is
-	// applied.
-	MigrationFn func(tx *sqlc.Queries) error
 }
 
 type MigrationStream struct {
 	MigrateTableName string
+
+	Schemas embed.FS
 
 	SQLFileDirectory string
 
@@ -75,6 +68,8 @@ type MigrationExecutor interface {
 	// NOTE: This alters the internal database schema tracker. USE WITH
 	// CAUTION!!!
 	SetSchemaVersion(version int, dirty bool) error
+
+	SkipMigrations() bool
 }
 
 var (
@@ -287,11 +282,31 @@ func (m *MigrationTxOptions) ReadOnly() bool {
 	return false
 }
 
+// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
+// SQLite database.
+func ApplyAllMigrations(executor MigrationExecutor,
+	streams []MigrationStream) error {
+
+	// Execute migrations unless configured to skip them.
+	if executor.SkipMigrations() {
+		return nil
+	}
+
+	for _, stream := range streams {
+		err := ApplyMigrations(executor, stream)
+		if err != nil {
+			return fmt.Errorf("error applying migrations: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // ApplyMigrations applies the provided migrations to the database in sequence.
 // It ensures migrations are executed in the correct order, applying both custom
 // migration functions and SQL migrations as needed.
-func ApplyMigrations(ctx context.Context, db *BaseDB,
-	migrator MigrationExecutor, stream MigrationStream) error {
+func ApplyMigrations(migrator MigrationExecutor,
+	stream MigrationStream) error {
 
 	// Ensure that the migrations are sorted by version.
 	migrations := stream.Configs
@@ -302,61 +317,62 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 				i+1)
 		}
 	}
-	// Construct a transaction executor to apply custom migrations.
-	executor := NewTransactionExecutor(db, func(tx *sql.Tx) *sqlc.Queries {
-		return db.WithTx(tx)
-	})
+
+	//// Construct a transaction executor to apply custom migrations.
+	//executor := NewTransactionExecutor(db, func(tx *sql.Tx) any {
+	//	return sd.WithTx(tx)
+	//})
 
 	currentVersion := 0
-	version, err := db.GetDatabaseVersion(ctx)
-	if !errors.Is(err, sql.ErrNoRows) {
-		if err != nil {
-			return fmt.Errorf("error getting current database "+
-				"version: %w", err)
-		}
-
-		currentVersion = int(version)
-	} else {
-		// Since we don't have a version tracked by our own table yet,
-		// we'll use the schema version reported by sqlc to determine
-		// the current version.
-		//
-		// NOTE: This is safe because the first in-code migration was
-		// introduced in version 7. This is only possible if the user
-		// has a schema version <= 4.
-		var dirty bool
-		currentVersion, dirty, err = migrator.GetSchemaVersion()
-		if err != nil {
-			return err
-		}
-
-		log.Infof("No database version found, using schema version %d "+
-			"(dirty=%v) as base version", currentVersion, dirty)
-	}
+	//version, err := txExecutor.GetDatabaseVersion(ctx)
+	//if !errors.Is(err, sql.ErrNoRows) {
+	//	if err != nil {
+	//		return fmt.Errorf("error getting current database "+
+	//			"version: %w", err)
+	//	}
+	//
+	//	currentVersion = int(version)
+	//} else {
+	//	// Since we don't have a version tracked by our own table yet,
+	//	// we'll use the schema version reported by sqlc to determine
+	//	// the current version.
+	//	//
+	//	// NOTE: This is safe because the first in-code migration was
+	//	// introduced in version 7. This is only possible if the user
+	//	// has a schema version <= 4.
+	//	var dirty bool
+	//	currentVersion, dirty, err = migrator.GetSchemaVersion()
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	log.Infof("No database version found, using schema version %d "+
+	//		"(dirty=%v) as base version", currentVersion, dirty)
+	//}
 
 	// Due to an a migration issue in v0.19.0-rc1 we may be at version 2 and
 	// have a dirty schema due to failing migration 3. If this is indeed the
 	// case, we need to reset the dirty flag to be able to apply the fixed
 	// migration.
 	// NOTE: this could be removed as soon as we drop v0.19.0-beta.
-	if version == 2 {
-		schemaVersion, dirty, err := migrator.GetSchemaVersion()
-		if err != nil {
-			return err
-		}
-
-		if schemaVersion == 3 && dirty {
-			log.Warnf("Schema version %d is dirty. This is "+
-				"likely a consequence of a failed migration "+
-				"in v0.19.0-rc1. Attempting to recover by "+
-				"resetting the dirty flag", schemaVersion)
-
-			err = migrator.SetSchemaVersion(4, false)
-			if err != nil {
-				return err
-			}
-		}
-	}
+	//if version == 2 {
+	//	schemaVersion, dirty, err := migrator.GetSchemaVersion()
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	if schemaVersion == 3 && dirty {
+	//		log.Warnf("Schema version %d is dirty. This is "+
+	//			"likely a consequence of a failed migration "+
+	//			"in v0.19.0-rc1. Attempting to recover by "+
+	//			"resetting the dirty flag", schemaVersion)
+	//
+	//		err = migrator.SetSchemaVersion(4, false)
+	//		if err != nil {
+	//			return err
+	//		}
+	//	}
+	//}
 
 	for _, migration := range migrations {
 		if migration.Version <= currentVersion {
@@ -371,7 +387,7 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 			migration.SchemaVersion)
 
 		// Execute SQL schema migrations up to the target version.
-		err = migrator.ExecuteMigrations(
+		err := migrator.ExecuteMigrations(
 			TargetVersion(uint(migration.SchemaVersion)), stream,
 		)
 		if err != nil {
@@ -380,52 +396,52 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 				migration.SchemaVersion, err)
 		}
 
-		var opts MigrationTxOptions
-
-		// Run the custom migration as a transaction to ensure
-		// atomicity. If successful, mark the migration as complete in
-		// the migration tracker table.
-		err = executor.ExecTx(ctx, &opts, func(tx *sqlc.Queries) error {
-			// Apply the migration function if one is provided.
-			if migration.MigrationFn != nil {
-				log.Infof("Applying custom migration '%v' "+
-					"(version %d) to schema version %d",
-					migration.Name, migration.Version,
-					migration.SchemaVersion)
-
-				err = migration.MigrationFn(tx)
-				if err != nil {
-					return fmt.Errorf("error applying "+
-						"migration '%v' (version %d) "+
-						"to schema version %d: %w",
-						migration.Name,
-						migration.Version,
-						migration.SchemaVersion, err)
-				}
-
-				log.Infof("Migration '%v' (version %d) "+
-					"applied ", migration.Name,
-					migration.Version)
-			}
-
-			// Mark the migration as complete by adding the version
-			// to the migration tracker table along with the current
-			// timestamp.
-			err = tx.SetMigration(ctx, sqlc.SetMigrationParams{
-				Version:       int32(migration.Version),
-				MigrationTime: time.Now(),
-			})
-			if err != nil {
-				return fmt.Errorf("error setting migration "+
-					"version %d: %w", migration.Version,
-					err)
-			}
-
-			return nil
-		}, func() {})
-		if err != nil {
-			return err
-		}
+		//var opts MigrationTxOptions
+		//
+		//// Run the custom migration as a transaction to ensure
+		//// atomicity. If successful, mark the migration as complete in
+		//// the migration tracker table.
+		//err = txExecutor.ExecTx(ctx, &opts, func(tx T) error {
+		//	// Apply the migration function if one is provided.
+		//	if migration.MigrationFn != nil {
+		//		log.Infof("Applying custom migration '%v' "+
+		//			"(version %d) to schema version %d",
+		//			migration.Name, migration.Version,
+		//			migration.SchemaVersion)
+		//
+		//		err = migration.MigrationFn(tx)
+		//		if err != nil {
+		//			return fmt.Errorf("error applying "+
+		//				"migration '%v' (version %d) "+
+		//				"to schema version %d: %w",
+		//				migration.Name,
+		//				migration.Version,
+		//				migration.SchemaVersion, err)
+		//		}
+		//
+		//		log.Infof("Migration '%v' (version %d) "+
+		//			"applied ", migration.Name,
+		//			migration.Version)
+		//	}
+		//
+		//	// Mark the migration as complete by adding the version
+		//	// to the migration tracker table along with the current
+		//	// timestamp.
+		//	err = tx.SetMigration(ctx, sqlc.SetMigrationParams{
+		//		Version:       int32(migration.Version),
+		//		MigrationTime: time.Now(),
+		//	})
+		//	if err != nil {
+		//		return fmt.Errorf("error setting migration "+
+		//			"version %d: %w", migration.Version,
+		//			err)
+		//	}
+		//
+		//	return nil
+		//}, func() {})
+		//if err != nil {
+		//	return err
+		//}
 	}
 
 	return nil

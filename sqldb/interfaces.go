@@ -8,8 +8,6 @@ import (
 	"math/rand"
 	prand "math/rand"
 	"time"
-
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 var (
@@ -78,11 +76,6 @@ type QueryCreator[Q any] func(*sql.Tx) Q
 // database transaction based on an abstract type that implements the TxOptions
 // interface.
 type BatchedQuerier interface {
-	// Querier is the underlying query source, this is in place so we can
-	// pass a BatchedQuerier implementation directly into objects that
-	// create a batched version of the normal methods they need.
-	sqlc.Querier
-
 	// BeginTx creates a new database transaction given the set of
 	// transaction options.
 	BeginTx(ctx context.Context, options TxOptions) (*sql.Tx, error)
@@ -365,12 +358,14 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 // DB is an interface that represents a generic SQL database. It provides
 // methods to apply migrations and access the underlying database connection.
 type DB interface {
+	MigrationExecutor
+
 	// GetBaseDB returns the underlying BaseDB instance.
 	GetBaseDB() *BaseDB
 
 	// ApplyAllMigrations applies all migrations to the database including
 	// both sqlc and custom in-code migrations.
-	ApplyAllMigrations(ctx context.Context, streams []MigrationStream) error
+	// ApplyAllMigrations(ctx context.Context, streams []MigrationStream[T]) error
 }
 
 // BaseDB is the base database struct that each implementation can embed to
@@ -378,7 +373,7 @@ type DB interface {
 type BaseDB struct {
 	*sql.DB
 
-	*sqlc.Queries
+	SkipMigrations bool
 }
 
 // BeginTx wraps the normal sql specific BeginTx method with the TxOptions

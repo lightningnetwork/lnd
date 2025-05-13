@@ -15,7 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 	"github.com/pmezard/go-difflib/difflib"
 	"golang.org/x/time/rate"
 )

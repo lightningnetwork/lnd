@@ -3,7 +3,6 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
@@ -133,13 +131,12 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
-	queries := sqlc.New(db)
 
 	s := &SqliteStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      db,
-			Queries: queries,
+			DB:             db,
+			SkipMigrations: cfg.SkipMigrations,
 		},
 	}
 
@@ -150,26 +147,6 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 // It is a trivial helper method to comply with the sqldb.DB interface.
 func (s *SqliteStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
-}
-
-// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
-// SQLite database.
-func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
-	streams []MigrationStream) error {
-
-	// Execute migrations unless configured to skip them.
-	if s.cfg.SkipMigrations {
-		return nil
-	}
-
-	for _, stream := range streams {
-		err := ApplyMigrations(ctx, s.BaseDB, s, stream)
-		if err != nil {
-			return fmt.Errorf("error applying migrations: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func errSqliteMigration(err error) error {
@@ -192,9 +169,9 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
-	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
+	sqliteFS := newReplacerFS(stream.Schemas, sqliteSchemaReplacements)
 	return applyMigrations(
-		sqliteFS, driver, stream.MigrateTableName, "sqlite", target,
+		sqliteFS, driver, stream.SQLFileDirectory, "sqlite", target,
 	)
 }
 
@@ -229,6 +206,10 @@ func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
 	return driver.SetVersion(version, dirty)
 }
 
+func (s *SqliteStore) SkipMigrations() bool {
+	return s.cfg.SkipMigrations
+}
+
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
 func NewTestSqliteDB(t *testing.T, streams []MigrationStream) *SqliteStore {
@@ -244,9 +225,7 @@ func NewTestSqliteDB(t *testing.T, streams []MigrationStream) *SqliteStore {
 	}, dbFileName)
 	require.NoError(t, err)
 
-	require.NoError(t, sqlDB.ApplyAllMigrations(
-		context.Background(), streams),
-	)
+	require.NoError(t, ApplyAllMigrations(sqlDB, streams))
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())

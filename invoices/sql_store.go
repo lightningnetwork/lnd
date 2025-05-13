@@ -17,7 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 )
 
 const (
@@ -150,6 +150,26 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 }
 
 var _ InvoiceDB = (*SQLStore)(nil)
+
+type InvoiceExecutor[T any] struct {
+	*sqldb.TransactionExecutor[T]
+
+	SQLInvoiceQueries
+}
+
+func NewExecutor(baseDB *sqldb.BaseDB,
+	queries *sqlc.Queries) *InvoiceExecutor[SQLInvoiceQueries] {
+
+	executor := sqldb.NewTransactionExecutor(
+		baseDB, func(tx *sql.Tx) SQLInvoiceQueries {
+			return queries.WithTx(tx)
+		},
+	)
+	return &InvoiceExecutor[SQLInvoiceQueries]{
+		TransactionExecutor: executor,
+		SQLInvoiceQueries:   queries,
+	}
+}
 
 // SQLInvoiceQueriesTxOptions defines the set of db txn options the
 // SQLInvoiceQueries understands.

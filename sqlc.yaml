@@ -2,11 +2,11 @@ version: "2"
 sql:
   - engine: "postgresql"
     schema: 
-     - "sqldb/sqlc/migrations/invoices"
-     - "sqldb/sqlc/migrations/payments"
+     - "sqlmodel/sqlc/migrations/invoices"
+     - "sqlmodel/sqlc/migrations/payments"
     queries: "sqldb/sqlc/queries"
     gen:
       go:
-        out: sqldb/sqlc
+        out: sqlmodel/sqlc
         package: sqlc
         emit_interface: true

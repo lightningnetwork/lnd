@@ -1,7 +1,6 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -10,9 +9,8 @@ import (
 	"time"
 
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 var (
@@ -128,13 +126,11 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	db.SetMaxIdleConns(maxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
 
-	queries := sqlc.New(db)
-
 	return &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      db,
-			Queries: queries,
+			DB:             db,
+			SkipMigrations: cfg.SkipMigrations,
 		},
 	}, nil
 }
@@ -143,26 +139,6 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 // It is a trivial helper method to comply with the sqldb.DB interface.
 func (s *PostgresStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
-}
-
-// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
-// Postgres database.
-func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
-	streams []MigrationStream) error {
-
-	// Execute migrations unless configured to skip them.
-	if s.cfg.SkipMigrations {
-		return nil
-	}
-
-	for _, stream := range streams {
-		err := ApplyMigrations(ctx, s.BaseDB, s, stream)
-		if err != nil {
-			return fmt.Errorf("error applying migrations: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func errPostgresMigration(err error) error {
@@ -188,7 +164,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
 
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
-	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
+	postgresFS := newReplacerFS(stream.Schemas, postgresSchemaReplacements)
 	return applyMigrations(
 		postgresFS, driver, stream.SQLFileDirectory, dbName, target,
 	)
@@ -220,4 +196,8 @@ func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
 	}
 
 	return driver.SetVersion(version, dirty)
+}
+
+func (s *PostgresStore) SkipMigrations() bool {
+	return s.cfg.SkipMigrations
 }

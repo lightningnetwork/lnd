@@ -34,7 +34,7 @@ func (s *SqliteStore) GetBaseDB() *BaseDB {
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to
 // the SQLite database.
 func (s *SqliteStore) ApplyAllMigrations(context.Context,
-	[]MigrationConfig) error {
+	[]MigrationStream) error {
 
 	return fmt.Errorf("SQLite backend not supported in WebAssembly")
 }

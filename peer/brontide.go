@@ -2061,6 +2061,12 @@ out:
 			}
 		}
 
+		// Reset the ticker to delay sending the Ping. As long as we are
+		// receiving a message here, we know for sure the connection is
+		// alive, thus we can delay firing pings to check for the
+		// liveness.
+		p.pingManager.ResetPingTicker()
+
 		// If a message router is active, then we'll try to have it
 		// handle this message. If it can, then we're able to skip the
 		// rest of the message handling logic.

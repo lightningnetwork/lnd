@@ -610,6 +610,11 @@ type BlindedPathRestrictions struct {
 	// NodeOmissionSet is a set of nodes that should not be used within any
 	// of the blinded paths that we generate.
 	NodeOmissionSet fn.Set[route.Vertex]
+
+	// IncomingChainedChannels holds the chained channels list (specified
+	// via channel id) starting from a channel which points to the receiver
+	// node.
+	IncomingChainedChannels []uint64
 }
 
 // FindBlindedPaths finds a selection of paths to the destination node that can
@@ -620,11 +625,14 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 
 	// First, find a set of candidate paths given the destination node and
 	// path length restrictions.
+	incomingChainedChannels := restrictions.IncomingChainedChannels
+	minDistanceFromIntroNode := restrictions.MinDistanceFromIntroNode
 	paths, err := findBlindedPaths(
 		r.cfg.RoutingGraph, destination, &blindedPathRestrictions{
-			minNumHops:      restrictions.MinDistanceFromIntroNode,
-			maxNumHops:      restrictions.NumHops,
-			nodeOmissionSet: restrictions.NodeOmissionSet,
+			minNumHops:              minDistanceFromIntroNode,
+			maxNumHops:              restrictions.NumHops,
+			nodeOmissionSet:         restrictions.NodeOmissionSet,
+			incomingChainedChannels: incomingChainedChannels,
 		},
 	)
 	if err != nil {

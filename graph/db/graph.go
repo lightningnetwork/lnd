@@ -41,11 +41,6 @@ type ChannelGraph struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
-	// cacheMu guards any writes to the graphCache. It should be held
-	// across the DB write call and the graphCache update to make the
-	// two updates as atomic as possible.
-	cacheMu sync.Mutex
-
 	graphCache *GraphCache
 
 	*KVStore
@@ -283,9 +278,6 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 func (c *ChannelGraph) AddLightningNode(node *models.LightningNode,
 	op ...batch.SchedulerOption) error {
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	err := c.KVStore.AddLightningNode(node, op...)
 	if err != nil {
 		return err
@@ -309,9 +301,6 @@ func (c *ChannelGraph) AddLightningNode(node *models.LightningNode,
 // DeleteLightningNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
 func (c *ChannelGraph) DeleteLightningNode(nodePub route.Vertex) error {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	err := c.KVStore.DeleteLightningNode(nodePub)
 	if err != nil {
 		return err
@@ -332,9 +321,6 @@ func (c *ChannelGraph) DeleteLightningNode(nodePub route.Vertex) error {
 // globally within the database.
 func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
 
 	err := c.KVStore.AddChannelEdge(edge, op...)
 	if err != nil {
@@ -358,9 +344,6 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 // If the cache is enabled, the edge will be added back to the graph cache if
 // we still have a record of this channel in the DB.
 func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	err := c.KVStore.MarkEdgeLive(chanID)
 	if err != nil {
 		return err
@@ -397,9 +380,6 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	infos, err := c.KVStore.DeleteChannelEdges(
 		strictZombiePruning, markZombie, chanIDs...,
 	)
@@ -429,9 +409,6 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	edges, err := c.KVStore.DisconnectBlockAtHeight(height)
 	if err != nil {
 		return nil, err
@@ -459,9 +436,6 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
 	[]*models.ChannelEdgeInfo, error) {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
 
 	edges, nodes, err := c.KVStore.PruneGraph(
 		spentOutputs, blockHash, blockHeight,
@@ -508,9 +482,6 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	nodes, err := c.KVStore.PruneGraphNodes()
 	if err != nil {
 		return err
@@ -583,9 +554,6 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	err := c.KVStore.MarkEdgeZombie(chanID, pubKey1, pubKey2)
 	if err != nil {
 		return err
@@ -607,9 +575,6 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 // nodes on either side of the channel.
 func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
 
 	from, to, err := c.KVStore.UpdateEdgePolicy(edge, op...)
 	if err != nil {

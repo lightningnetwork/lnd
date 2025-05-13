@@ -3553,7 +3553,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	sourceRef channeldb.AddRef, failure *LinkError,
 	e hop.ErrorEncrypter, isReceive bool) {
 
-	reason, err := e.EncryptFirstHop(failure.WireMessage())
+	reason, _, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return
@@ -3655,7 +3655,7 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 		failureMsg := lnwire.NewInvalidBlinding(
 			fn.None[[lnwire.OnionPacketSize]byte](),
 		)
-		reason, err := e.EncryptFirstHop(failureMsg)
+		reason, _, err := e.EncryptFirstHop(failureMsg)
 		if err != nil {
 			return err
 		}

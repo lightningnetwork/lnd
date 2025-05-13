@@ -2743,7 +2743,7 @@ func TestSwitchSendPayment(t *testing.T) {
 	// back. This request should be forwarded back to alice channel link.
 	obfuscator := NewMockObfuscator()
 	failure := lnwire.NewFailIncorrectDetails(update.Amount, 100)
-	reason, err := obfuscator.EncryptFirstHop(failure)
+	reason, _, err := obfuscator.EncryptFirstHop(failure)
 	require.NoError(t, err, "unable obfuscate failure")
 
 	if s.IsForwardedHTLC(aliceChannelLink.ShortChanID(), update.ID) {

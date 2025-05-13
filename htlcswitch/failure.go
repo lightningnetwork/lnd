@@ -160,7 +160,7 @@ type OnionErrorDecrypter interface {
 	// node where error have occurred. As a result, in order to decrypt the
 	// error we need get all shared secret and apply decryption in the
 	// reverse order.
-	DecryptError(encryptedData []byte) (*sphinx.DecryptedError, error)
+	DecryptError(encryptedData, _ []byte, _ bool) (*sphinx.DecryptedError, error)
 }
 
 // SphinxErrorDecrypter wraps the sphinx data SphinxErrorDecrypter and maps the
@@ -177,7 +177,7 @@ type SphinxErrorDecrypter struct {
 func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 	*ForwardingError, error) {
 
-	failure, err := s.OnionErrorDecrypter.DecryptError(reason)
+	failure, err := s.OnionErrorDecrypter.DecryptError(reason, nil, false)
 	if err != nil {
 		return nil, err
 	}

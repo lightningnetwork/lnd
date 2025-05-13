@@ -178,9 +178,11 @@ func (m *mockAliasMgr) DeleteSixConfs(lnwire.ShortChannelID) error {
 }
 
 type mockNotifier struct {
-	oneConfChannel chan *chainntnfs.TxConfirmation
-	sixConfChannel chan *chainntnfs.TxConfirmation
-	epochChan      chan *chainntnfs.BlockEpoch
+	oneConfChannel   chan *chainntnfs.TxConfirmation
+	sixConfChannel   chan *chainntnfs.TxConfirmation
+	epochChan        chan *chainntnfs.BlockEpoch
+	oneUpdateChannel chan chainntnfs.TxUpdateInfo
+	sixUpdateChannel chan chainntnfs.TxUpdateInfo
 }
 
 func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
@@ -191,10 +193,12 @@ func (m *mockNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	if numConfs == 6 {
 		return &chainntnfs.ConfirmationEvent{
 			Confirmed: m.sixConfChannel,
+			Updates:   m.sixUpdateChannel,
 		}, nil
 	}
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: m.oneConfChannel,
+		Updates:   m.oneUpdateChannel,
 	}, nil
 }
 
@@ -406,9 +410,11 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	estimator := chainfee.NewStaticEstimator(62500, 0)
 
 	chainNotifier := &mockNotifier{
-		oneConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
-		sixConfChannel: make(chan *chainntnfs.TxConfirmation, 1),
-		epochChan:      make(chan *chainntnfs.BlockEpoch, 2),
+		oneConfChannel:   make(chan *chainntnfs.TxConfirmation, 1),
+		sixConfChannel:   make(chan *chainntnfs.TxConfirmation, 1),
+		epochChan:        make(chan *chainntnfs.BlockEpoch, 2),
+		oneUpdateChannel: make(chan chainntnfs.TxUpdateInfo, 1),
+		sixUpdateChannel: make(chan chainntnfs.TxUpdateInfo, 1),
 	}
 
 	aliasMgr := &mockAliasMgr{}
@@ -1496,6 +1502,14 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	assertErrorNotSent(t, alice.msgChan)
 	assertErrorNotSent(t, bob.msgChan)
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1550,6 +1564,17 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
+
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
@@ -1809,6 +1834,14 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	}
 	alice.fundingMgr.cfg.NotifyWhenOnline = notifyWhenOnline
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -1907,6 +1940,17 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	recreateAliceFundingManager(t, alice)
 	time.Sleep(300 * time.Millisecond)
 
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that six confirmations has been reached on funding
 	// transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
@@ -1967,6 +2011,14 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 		peerChan <- peer
 		conChan <- connected
+	}
+
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
 	}
 
 	// Notify that transaction was mined
@@ -2069,6 +2121,17 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
+
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
@@ -2465,6 +2528,14 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2533,6 +2604,17 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
 
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that six confirmations has been reached on funding
 	// transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
@@ -2577,6 +2659,14 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
+
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
@@ -2631,6 +2721,17 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	// we expect her to be able to handle it correctly.
 	recreateAliceFundingManager(t, alice)
 
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that six confirmations has been reached on funding
 	// transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
@@ -2676,6 +2777,14 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
+
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
@@ -2726,6 +2835,17 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	// Check that the state machine is updated accordingly
 	assertAddedToGraph(t, alice, bob, fundingOutPoint)
 
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that six confirmations has been reached on funding
 	// transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
@@ -2772,6 +2892,14 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2816,6 +2944,17 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
+
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
@@ -2897,6 +3036,14 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -2946,6 +3093,17 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
+
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Notify that six confirmations has been reached on funding
 	// transaction.
@@ -3339,6 +3497,14 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Notify that transaction was mined.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -3427,6 +3593,17 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
 	waitForOpenUpdate(t, updateChan)
+
+	// Send an update that the transaction has received six confirmations.
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
 
 	// Send along the 6-confirmation channel so that announcement sigs can
 	// be exchanged.
@@ -3675,6 +3852,14 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 
 	// Notify that the transactions were mined.
 	for i := 0; i < maxPending; i++ {
+		// Send an update that the transaction has received confirmation
+		alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+			NumConfsLeft: 0,
+		}
+		bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+			NumConfsLeft: 0,
+		}
+
 		alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 			Tx: txs[i],
 		}
@@ -4602,6 +4787,14 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		t.Fatalf("timed out waiting for alice to rebroadcast tx")
 	}
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// We'll now confirm the funding transaction.
 	alice.mockNotifier.sixConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -4628,6 +4821,17 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	case <-bob.reportScidChan:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("did not call ReportShortChanID in time")
+	}
+
+	// Send an update that the transaction has received 6-confirmation
+	// Ideally, an update would be sent on each confirmation, but since we
+	// only care about the final 6-confirmation event, we mock that behavior
+	// here.
+	alice.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.sixUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
 	}
 
 	// Send along the 6-confirmation channel so that announcement sigs can
@@ -4915,6 +5119,14 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.True(t, ok)
 
+	// Send an update that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+
 	// Confirm the funding transaction.
 	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
 		Tx: fundingTx,
@@ -4949,6 +5161,14 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	case <-bob.mockChanEvent.openEvent:
 		t.Fatalf("bob sent an open channel event")
 	case <-time.After(time.Second * 5):
+	}
+
+	// Send an update again that the transaction has received confirmation.
+	alice.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
+	}
+	bob.mockNotifier.oneUpdateChannel <- chainntnfs.TxUpdateInfo{
+		NumConfsLeft: 0,
 	}
 
 	// Send along the oneConfChannel again and then assert that the open

@@ -3860,6 +3860,37 @@ type (
 	waitingCloseChannels []*lnrpc.PendingChannelsResponse_WaitingCloseChannel
 )
 
+// calcRemainingConfs calculates how many more confirmations are needed for a
+// pending channel to be fully confirmed. It takes into account:
+// 1. The current blockchain height
+// 2. The block height at which the funding transaction was first confirmed
+// 3. The total number of confirmations required for the channel.
+func calcRemainingConfs(pendingChan *channeldb.OpenChannel,
+	currentHeight uint32) uint32 {
+
+	// If the funding transaction hasn't been confirmed yet,
+	// we need all the required confirmations.
+	if pendingChan.ConfirmationHeight == 0 {
+		return uint32(pendingChan.NumConfsRequired)
+	}
+
+	// Calculate the target height at which the channel will be fully
+	// confirmed. The -1 is because the confirmation height of the first
+	// confirmation has to be taken into account.
+	targetConfirmationHeight := pendingChan.ConfirmationHeight +
+		uint32(pendingChan.NumConfsRequired) - 1
+
+	// In case the current height is already past the target, return 0. This
+	// should never happen because the channel should already be moved from
+	// pending to open state but we handle this case in case of timing
+	// issues.
+	if currentHeight >= targetConfirmationHeight {
+		return 0
+	}
+
+	return targetConfirmationHeight - currentHeight
+}
+
 // fetchPendingOpenChannels queries the database for a list of channels that
 // have pending open state. The returned result is used in the response of the
 // PendingChannels RPC.
@@ -3919,6 +3950,15 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 			pendingChan.BroadcastHeight()
 		fundingExpiryBlocks := int32(maxFundingHeight) - currentHeight
 
+		// Calculate remainingConfs, the number of blocks left until the
+		// funding transaction reaches the required confirmation height.
+		//
+		// ZeroConf channels are marked OPEN immediately upon creation,
+		// so they never enter the "pending" state.
+		remainingConfs := calcRemainingConfs(
+			pendingChan, uint32(currentHeight),
+		)
+
 		customChanBytes, err := encodeCustomChanData(pendingChan)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode open chan "+
@@ -3940,11 +3980,14 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Memo:                 string(pendingChan.Memo),
 				CustomChannelData:    customChanBytes,
 			},
-			CommitWeight:        commitWeight,
-			CommitFee:           int64(localCommitment.CommitFee),
-			FeePerKw:            int64(localCommitment.FeePerKw),
-			FundingExpiryBlocks: fundingExpiryBlocks,
-			// TODO(roasbeef): need to track confirmation height
+			CommitWeight: commitWeight,
+			CommitFee:    int64(localCommitment.CommitFee),
+			FeePerKw: int64(localCommitment.
+				FeePerKw),
+			FundingExpiryBlocks:      fundingExpiryBlocks,
+			ConfirmationsUntilActive: remainingConfs,
+			ConfirmationHeight: pendingChan.
+				ConfirmationHeight,
 		}
 	}
 

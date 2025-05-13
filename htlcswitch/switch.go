@@ -3181,16 +3181,22 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 			packet.incomingChanID, packet.incomingHTLCID,
 			packet.outgoingChanID, packet.outgoingHTLCID)
 
-		htlc.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
+		htlc.Reason, err = circuit.ErrorEncrypter.EncryptMalformedError(
 			htlc.Reason,
 		)
+		if err != nil {
+			return err
+		}
 
 	default:
 		// Otherwise, it's a forwarded error, so we'll perform a
 		// wrapper encryption as normal.
-		htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
+		htlc.Reason, err = circuit.ErrorEncrypter.IntermediateEncrypt(
 			htlc.Reason,
 		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Deliver this packet.

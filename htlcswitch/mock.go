@@ -434,17 +434,17 @@ func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	return b.Bytes(), nil
 }
 
-func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
-	return reason
+func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
+	return reason, nil
 }
 
-func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
 	var b bytes.Buffer
 	b.Write(fakeHmac)
 
 	b.Write(reason)
 
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
 // mockDeobfuscator mock implementation of the failure deobfuscator which

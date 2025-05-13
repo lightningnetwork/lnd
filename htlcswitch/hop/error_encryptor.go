@@ -65,12 +65,12 @@ type ErrorEncrypter interface {
 	// message. This method is used when we receive an
 	// UpdateFailMalformedHTLC from the remote peer and then need to
 	// convert that into a proper error from only the raw bytes.
-	EncryptMalformedError(lnwire.OpaqueReason) lnwire.OpaqueReason
+	EncryptMalformedError(lnwire.OpaqueReason) (lnwire.OpaqueReason, error)
 
 	// IntermediateEncrypt wraps an already encrypted opaque reason error
 	// in an additional layer of onion encryption. This process repeats
 	// until the error arrives at the source of the payment.
-	IntermediateEncrypt(lnwire.OpaqueReason) lnwire.OpaqueReason
+	IntermediateEncrypt(lnwire.OpaqueReason) (lnwire.OpaqueReason, error)
 
 	// Type returns an enum indicating the underlying concrete instance
 	// backing this interface.
@@ -143,9 +143,9 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) EncryptMalformedError(
-	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
 
-	return s.EncryptError(true, reason)
+	return s.EncryptError(true, reason), nil
 }
 
 // IntermediateEncrypt wraps an already encrypted opaque reason error in an
@@ -156,9 +156,9 @@ func (s *SphinxErrorEncrypter) EncryptMalformedError(
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) IntermediateEncrypt(
-	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
+	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
 
-	return s.EncryptError(false, reason)
+	return s.EncryptError(false, reason), nil
 }
 
 // Type returns the identifier for a sphinx error encrypter.

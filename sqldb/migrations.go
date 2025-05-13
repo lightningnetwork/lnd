@@ -14,6 +14,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // MigrationConfig is a configuration struct that describes SQL migrations. Each
@@ -43,12 +44,20 @@ type MigrationStream struct {
 
 	SQLFileDirectory string
 
+	PostStepCallbacks map[uint]migrate.PostStepCallback
+
+	LatestMigrationVersion uint
+
 	Configs []MigrationConfig
 }
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
-// to specify a target version to migrate to.
-type MigrationTarget func(mig *migrate.Migrate) error
+// to specify a target version to migrate to. `currentDbVersion` is the current
+// (migration) version of the database, or None if unknown.
+// `maxMigrationVersion` is the maximum migration version known to the driver,
+// or None if unknown.
+type MigrationTarget func(mig *migrate.Migrate,
+	currentDbVersion int, maxMigrationVersion uint) error
 
 // MigrationExecutor is an interface that abstracts the migration functionality.
 type MigrationExecutor interface {
@@ -75,18 +84,64 @@ type MigrationExecutor interface {
 var (
 	// TargetLatest is a MigrationTarget that migrates to the latest
 	// version available.
-	TargetLatest = func(mig *migrate.Migrate) error {
+	TargetLatest = func(mig *migrate.Migrate, _ int, _ uint) error {
 		return mig.Up()
 	}
 
 	// TargetVersion is a MigrationTarget that migrates to the given
 	// version.
 	TargetVersion = func(version uint) MigrationTarget {
-		return func(mig *migrate.Migrate) error {
+		return func(mig *migrate.Migrate, _ int, _ uint) error {
 			return mig.Migrate(version)
 		}
 	}
+
+	// ErrMigrationDowngrade is returned when a database downgrade is
+	// detected.
+	ErrMigrationDowngrade = errors.New("database downgrade detected")
 )
+
+// migrationOption is a functional option that can be passed to migrate related
+// methods to modify their behavior.
+type migrateOptions struct {
+	latestVersion     fn.Option[uint]
+	postStepCallbacks map[uint]migrate.PostStepCallback
+}
+
+// defaultMigrateOptions returns a new migrateOptions instance with default
+// settings.
+func defaultMigrateOptions() *migrateOptions {
+	return &migrateOptions{
+		postStepCallbacks: make(map[uint]migrate.PostStepCallback),
+	}
+}
+
+// MigrateOpt is a functional option that can be passed to migrate related
+// methods to modify behavior.
+type MigrateOpt func(*migrateOptions)
+
+// WithLatestVersion allows callers to override the default latest version
+// setting.
+func WithLatestVersion(version uint) MigrateOpt {
+	return func(o *migrateOptions) {
+		o.latestVersion = fn.Some(version)
+	}
+}
+
+// WithPostStepCallbacks is an option that can be used to set a map of
+// PostStepCallback functions that can be used to execute a Golang based
+// migration step after a SQL based migration step has been executed. The key is
+// the migration version and the value is the callback function that should be
+// run _after_ the step was executed (but before the version is marked as
+// cleanly executed). An error returned from the callback will cause the
+// migration to fail and the step to be marked as dirty.
+func WithPostStepCallbacks(
+	postStepCallbacks map[uint]migrate.PostStepCallback) MigrateOpt {
+
+	return func(o *migrateOptions) {
+		o.postStepCallbacks = postStepCallbacks
+	}
+}
 
 // migrationLogger is a logger that wraps the passed btclog.Logger so it can be
 // used to log migrations.
@@ -125,8 +180,8 @@ func (m *migrationLogger) Verbose() bool {
 // applyMigrations executes all database migration files found in the given file
 // system under the given path, using the passed database driver and database
 // name.
-func applyMigrations(fs fs.FS, driver database.Driver, path,
-	dbName string, targetVersion MigrationTarget) error {
+func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
+	targetVersion MigrationTarget, opts *migrateOptions) error {
 
 	// With the migrate instance open, we'll create a new migration source
 	// using the embedded file system stored in sqlSchemas. The library
@@ -142,29 +197,53 @@ func applyMigrations(fs fs.FS, driver database.Driver, path,
 	// above.
 	sqlMigrate, err := migrate.NewWithInstance(
 		"migrations", migrateFileServer, dbName, driver,
+		migrate.WithPostStepCallbacks(opts.postStepCallbacks),
 	)
 	if err != nil {
 		return err
 	}
 
-	migrationVersion, _, err := sqlMigrate.Version()
-	if err != nil && !errors.Is(err, migrate.ErrNilVersion) {
-		log.Errorf("Unable to determine current migration version: %v",
-			err)
+	migrationVersion, _, _ := sqlMigrate.Version()
 
-		return err
+	// As the down migrations may end up *dropping* data, we want to
+	// prevent that without explicit accounting.
+	latestVersion, err := opts.latestVersion.UnwrapOrErr(
+		fmt.Errorf("latest version not set"),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to get latest version: %w", err)
+	}
+	if migrationVersion > latestVersion {
+		return fmt.Errorf("%w: database version is newer than the "+
+			"latest migration version, preventing downgrade: "+
+			"db_version=%v, latest_migration_version=%v",
+			ErrMigrationDowngrade, migrationVersion, latestVersion)
 	}
 
-	log.Infof("Applying migrations from version=%v", migrationVersion)
+	// Report the current version of the database before the migration.
+	currentDbVersion, _, err := driver.Version()
+	if err != nil {
+		return fmt.Errorf("unable to get current db version: %w", err)
+	}
+	log.Infof("Attempting to apply migration(s) "+
+		"(current_db_version=%v, latest_migration_version=%v)",
+		currentDbVersion, latestVersion)
 
 	// Apply our local logger to the migration instance.
 	sqlMigrate.Log = &migrationLogger{log}
 
 	// Execute the migration based on the target given.
-	err = targetVersion(sqlMigrate)
+	err = targetVersion(sqlMigrate, currentDbVersion, latestVersion)
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}
+
+	// Report the current version of the database after the migration.
+	currentDbVersion, _, err = driver.Version()
+	if err != nil {
+		return fmt.Errorf("unable to get current db version: %w", err)
+	}
+	log.Infof("Database version after migration: %v", currentDbVersion)
 
 	return nil
 }

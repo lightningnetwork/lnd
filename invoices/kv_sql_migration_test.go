@@ -16,7 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,11 +45,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
 		}
 
-		invoiceExecutor := sqldb.NewTransactionExecutor(
-			db, func(tx *sql.Tx) invpkg.SQLInvoiceQueries {
-				return db.WithTx(tx)
-			},
-		)
+		invoiceExecutor := invpkg.NewExecutor(db, sqlc.New(db))
 
 		genericExecutor := sqldb.NewTransactionExecutor(
 			db, func(tx *sql.Tx) *sqlc.Queries {

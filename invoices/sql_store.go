@@ -33,6 +33,8 @@ const (
 // SQLInvoiceQueries is an interface that defines the set of operations that can
 // be executed against the invoice SQL database.
 type SQLInvoiceQueries interface { //nolint:interfacebloat
+	sqldb.BaseQuerier
+
 	InsertInvoice(ctx context.Context, arg sqlc.InsertInvoiceParams) (int64,
 		error)
 
@@ -151,7 +153,7 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 var _ InvoiceDB = (*SQLStore)(nil)
 
-type InvoiceExecutor[T any] struct {
+type InvoiceExecutor[T sqldb.BaseQuerier] struct {
 	*sqldb.TransactionExecutor[T]
 
 	SQLInvoiceQueries

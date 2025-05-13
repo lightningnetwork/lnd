@@ -95,6 +95,27 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 			DBError: sqliteErr,
 		}
 
+	// A write operation could not continue because of a conflict within the
+	// same database connection.
+	case sqlite3.SQLITE_LOCKED:
+		return &ErrDeadlockError{
+			DbError: sqliteErr,
+		}
+
+	// Generic error, need to parse the message further.
+	case sqlite3.SQLITE_ERROR:
+		errMsg := sqliteErr.Error()
+
+		switch {
+		case strings.Contains(errMsg, "no such table"):
+			return &ErrSchemaError{
+				DbError: sqliteErr,
+			}
+
+		default:
+			return fmt.Errorf("unknown sqlite error: %w", sqliteErr)
+		}
+
 	default:
 		return fmt.Errorf("unknown sqlite error: %w", sqliteErr)
 	}
@@ -128,6 +149,12 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 	case pgerrcode.DeadlockDetected:
 		return &ErrSerializationError{
 			DBError: pqErr,
+		}
+
+	// Handle schema error.
+	case pgerrcode.UndefinedColumn, pgerrcode.UndefinedTable:
+		return &ErrSchemaError{
+			DbError: pqErr,
 		}
 
 	default:
@@ -167,4 +194,54 @@ func (e ErrSerializationError) Error() string {
 func IsSerializationError(err error) bool {
 	var serializationError *ErrSerializationError
 	return errors.As(err, &serializationError)
+}
+
+// ErrDeadlockError is an error type which represents a database agnostic
+// error where transactions have led to cyclic dependencies in lock acquisition.
+type ErrDeadlockError struct {
+	DbError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrDeadlockError) Unwrap() error {
+	return e.DbError
+}
+
+// Error returns the error message.
+func (e ErrDeadlockError) Error() string {
+	return e.DbError.Error()
+}
+
+// IsDeadlockError returns true if the given error is a deadlock error.
+func IsDeadlockError(err error) bool {
+	var deadlockError *ErrDeadlockError
+	return errors.As(err, &deadlockError)
+}
+
+// IsSerializationOrDeadlockError returns true if the given error is either a
+// deadlock error or a serialization error.
+func IsSerializationOrDeadlockError(err error) bool {
+	return IsDeadlockError(err) || IsSerializationError(err)
+}
+
+// ErrSchemaError is an error type which represents a database agnostic error
+// that the schema of the database is incorrect for the given query.
+type ErrSchemaError struct {
+	DbError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrSchemaError) Unwrap() error {
+	return e.DbError
+}
+
+// Error returns the error message.
+func (e ErrSchemaError) Error() string {
+	return e.DbError.Error()
+}
+
+// IsSchemaError returns true if the given error is a schema error.
+func IsSchemaError(err error) bool {
+	var schemaError *ErrSchemaError
+	return errors.As(err, &schemaError)
 }

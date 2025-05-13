@@ -1155,7 +1155,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// With the DB ready and migrations applied, we can now create
 		// the base DB and transaction executor for the native SQL
 		// invoice store.
-		queries := sqlc.New(baseDB)
+		queries := sqlc.NewForType(baseDB, baseDB.BackendType)
 		executor := invoices.NewExecutor(baseDB, queries)
 		sqlInvoiceDB := invoices.NewSQLStore(
 			executor, clock.NewDefaultClock(),

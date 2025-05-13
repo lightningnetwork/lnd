@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	prand "math/rand"
 	"time"
 )
 
@@ -22,12 +21,31 @@ const (
 	// repetition.
 	DefaultNumTxRetries = 20
 
-	// DefaultRetryDelay is the default delay between retries. This will be
-	// used to generate a random delay between 0 and this value.
-	DefaultRetryDelay = time.Millisecond * 50
+	// DefaultInitialRetryDelay is the default initial delay between
+	// retries. This will be used to generate a random delay between -50%
+	// and +50% of this value, so 20 to 60 milliseconds. The retry will be
+	// doubled after each attempt until we reach DefaultMaxRetryDelay. We
+	// start with a random value to avoid multiple goroutines that are
+	// created at the same time to effectively retry at the same time.
+	DefaultInitialRetryDelay = time.Millisecond * 40
 
 	// DefaultMaxRetryDelay is the default maximum delay between retries.
-	DefaultMaxRetryDelay = time.Second
+	DefaultMaxRetryDelay = time.Second * 3
+)
+
+// BackendType is an enum that represents the type of database backend we're
+// using.
+type BackendType uint8
+
+const (
+	// BackendTypeUnknown indicates we're using an unknown backend.
+	BackendTypeUnknown BackendType = iota
+
+	// BackendTypeSqlite indicates we're using a SQLite backend.
+	BackendTypeSqlite
+
+	// BackendTypePostgres indicates we're using a Postgres backend.
+	BackendTypePostgres
 )
 
 // TxOptions represents a set of options one can use to control what type of
@@ -37,12 +55,17 @@ type TxOptions interface {
 	ReadOnly() bool
 }
 
+type BaseQuerier interface {
+	// Backend returns the type of the database backend used.
+	Backend() BackendType
+}
+
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
 // transaction. Typically, Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
-type BatchedTx[Q any] interface {
+type BatchedTx[Q BaseQuerier] interface {
 	// ExecTx will execute the passed txBody, operating upon generic
 	// parameter Q (usually a storage interface) in a single transaction.
 	//
@@ -51,6 +74,9 @@ type BatchedTx[Q any] interface {
 	// type of concurrency control should be used.
 	ExecTx(ctx context.Context, txOptions TxOptions,
 		txBody func(Q) error, reset func()) error
+
+	// Backend returns the type of the database backend used.
+	Backend() BackendType
 }
 
 // Tx represents a database transaction that can be committed or rolled back.
@@ -85,23 +111,19 @@ type BatchedQuerier interface {
 // executor. This can be used to do things like retry a transaction due to an
 // error a certain amount of times.
 type txExecutorOptions struct {
-	numRetries int
-	retryDelay time.Duration
+	numRetries        int
+	initialRetryDelay time.Duration
+	maxRetryDelay     time.Duration
 }
 
 // defaultTxExecutorOptions returns the default options for the transaction
 // executor.
 func defaultTxExecutorOptions() *txExecutorOptions {
 	return &txExecutorOptions{
-		numRetries: DefaultNumTxRetries,
-		retryDelay: DefaultRetryDelay,
+		numRetries:        DefaultNumTxRetries,
+		initialRetryDelay: DefaultInitialRetryDelay,
+		maxRetryDelay:     DefaultMaxRetryDelay,
 	}
-}
-
-// randRetryDelay returns a random retry delay between 0 and the configured max
-// delay.
-func (t *txExecutorOptions) randRetryDelay() time.Duration {
-	return time.Duration(prand.Int63n(int64(t.retryDelay))) //nolint:gosec
 }
 
 // TxExecutorOption is a functional option that allows us to pass in optional
@@ -120,7 +142,7 @@ func WithTxRetries(numRetries int) TxExecutorOption {
 // to wait before a transaction is retried.
 func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 	return func(o *txExecutorOptions) {
-		o.retryDelay = delay
+		o.initialRetryDelay = delay
 	}
 }
 
@@ -128,7 +150,7 @@ func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 // query a type needs to run under a database transaction, and also the set of
 // options for that transaction. The QueryCreator is used to create a query
 // given a database transaction created by the BatchedQuerier.
-type TransactionExecutor[Query any] struct {
+type TransactionExecutor[Query BaseQuerier] struct {
 	BatchedQuerier
 
 	createQuery QueryCreator[Query]
@@ -139,7 +161,7 @@ type TransactionExecutor[Query any] struct {
 // NewTransactionExecutor creates a new instance of a TransactionExecutor given
 // a Querier query object and a concrete type for the type of transactions the
 // Querier understands.
-func NewTransactionExecutor[Querier any](db BatchedQuerier,
+func NewTransactionExecutor[Querier BaseQuerier](db BatchedQuerier,
 	createQuery QueryCreator[Querier],
 	opts ...TxExecutorOption) *TransactionExecutor[Querier] {
 
@@ -215,11 +237,12 @@ type OnBackoff func(retry int, delay time.Duration)
 // retries is exceeded.
 func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 	rollbackTx RollbackTx, txBody TxBody, onBackoff OnBackoff,
-	numRetries int) error {
+	opts *txExecutorOptions) error {
 
 	waitBeforeRetry := func(attemptNumber int) bool {
 		retryDelay := randRetryDelay(
-			DefaultRetryDelay, DefaultMaxRetryDelay, attemptNumber,
+			opts.initialRetryDelay, opts.maxRetryDelay,
+			attemptNumber,
 		)
 
 		onBackoff(attemptNumber, retryDelay)
@@ -236,14 +259,14 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		}
 	}
 
-	for i := 0; i < numRetries; i++ {
+	for i := 0; i < opts.numRetries; i++ {
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
 			log.Tracef("Failed to makeTx: err=%v, dbErr=%v", err,
 				dbErr)
 
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we haven't
 				// even get a transaction yet. We'll just wait
 				// and try again.
@@ -272,7 +295,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			}
 
 			dbErr := MapSQLError(bodyErr)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				if waitBeforeRetry(i) {
 					continue
 				}
@@ -293,7 +316,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			}
 
 			dbErr := MapSQLError(commitErr)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				if waitBeforeRetry(i) {
 					continue
 				}
@@ -350,8 +373,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	}
 
 	return ExecuteSQLTransactionWithRetry(
-		ctx, makeTx, rollbackTx, execTxBody, onBackoff,
-		t.opts.numRetries,
+		ctx, makeTx, rollbackTx, execTxBody, onBackoff, t.opts,
 	)
 }
 
@@ -362,16 +384,14 @@ type DB interface {
 
 	// GetBaseDB returns the underlying BaseDB instance.
 	GetBaseDB() *BaseDB
-
-	// ApplyAllMigrations applies all migrations to the database including
-	// both sqlc and custom in-code migrations.
-	// ApplyAllMigrations(ctx context.Context, streams []MigrationStream[T]) error
 }
 
 // BaseDB is the base database struct that each implementation can embed to
 // gain some common functionality.
 type BaseDB struct {
 	*sql.DB
+
+	BackendType BackendType
 
 	SkipMigrations bool
 }
@@ -386,4 +406,9 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 	}
 
 	return s.DB.BeginTx(ctx, &sqlOptions)
+}
+
+// Backend returns the type of the database backend used.
+func (s *BaseDB) Backend() BackendType {
+	return s.BackendType
 }

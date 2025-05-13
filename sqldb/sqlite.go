@@ -8,8 +8,11 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite" // Register relevant drivers.
 )
@@ -47,6 +50,8 @@ type pragmaOption struct {
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
 	cfg *SqliteConfig
+
+	dbPath string
 
 	*BaseDB
 }
@@ -130,12 +135,14 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
-	db.SetConnMaxLifetime(connIdleLifetime)
+	db.SetConnMaxLifetime(defaultConnMaxLifetime)
 
 	s := &SqliteStore{
-		cfg: cfg,
+		cfg:    cfg,
+		dbPath: dbPath,
 		BaseDB: &BaseDB{
 			DB:             db,
+			BackendType:    BackendTypePostgres,
 			SkipMigrations: cfg.SkipMigrations,
 		},
 	}
@@ -153,6 +160,79 @@ func errSqliteMigration(err error) error {
 	return fmt.Errorf("error creating sqlite migration: %w", err)
 }
 
+// backupSqliteDatabase creates a backup of the given SQLite database.
+func backupSqliteDatabase(srcDB *sql.DB, dbFullFilePath string) error {
+	if srcDB == nil {
+		return fmt.Errorf("backup source database is nil")
+	}
+
+	// Create a database backup file full path from the given source
+	// database full file path.
+	//
+	// Get the current time and format it as a Unix timestamp in
+	// nanoseconds.
+	timestamp := time.Now().UnixNano()
+
+	// Add the timestamp to the backup name.
+	backupFullFilePath := fmt.Sprintf(
+		"%s.%d.backup", dbFullFilePath, timestamp,
+	)
+
+	log.Infof("Creating backup of database file: %v -> %v",
+		dbFullFilePath, backupFullFilePath)
+
+	// Create the database backup.
+	vacuumIntoQuery := "VACUUM INTO ?;"
+	stmt, err := srcDB.Prepare(vacuumIntoQuery)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(backupFullFilePath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// backupAndMigrate is a helper function that creates a database backup before
+// initiating the migration, and then migrates the database to the latest
+// version.
+func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
+	currentDbVersion int, maxMigrationVersion uint) error {
+
+	// Determine if a database migration is necessary given the current
+	// database version and the maximum migration version.
+	versionUpgradePending := currentDbVersion < int(maxMigrationVersion)
+	if !versionUpgradePending {
+		log.Infof("Current database version is up-to-date, skipping "+
+			"migration attempt and backup creation "+
+			"(current_db_version=%v, max_migration_version=%v)",
+			currentDbVersion, maxMigrationVersion)
+		return nil
+	}
+
+	// At this point, we know that a database migration is necessary.
+	// Create a backup of the database before starting the migration.
+	if !s.cfg.SkipMigrationDbBackup {
+		log.Infof("Creating database backup (before applying " +
+			"migration(s))")
+
+		err := backupSqliteDatabase(s.DB, s.dbPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		log.Infof("Skipping database backup creation before applying " +
+			"migration(s)")
+	}
+
+	log.Infof("Applying migrations to database")
+	return mig.Up()
+}
+
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
 func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
@@ -167,11 +247,17 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 		return errSqliteMigration(err)
 	}
 
+	opts := &migrateOptions{
+		latestVersion:     fn.Some(stream.LatestMigrationVersion),
+		postStepCallbacks: stream.PostStepCallbacks,
+	}
+
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
 	sqliteFS := newReplacerFS(stream.Schemas, sqliteSchemaReplacements)
 	return applyMigrations(
 		sqliteFS, driver, stream.SQLFileDirectory, "sqlite", target,
+		opts,
 	)
 }
 

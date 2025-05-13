@@ -21,6 +21,8 @@ var (
 		SQLFileDirectory: "sqlc/migrations/invoices",
 		Schemas:          sqlSchemas,
 
+		LatestMigrationVersion: 7,
+
 		// Configs defines a list of migrations to be applied to the
 		// database. Each migration is assigned a version number, determining
 		// its execution order.
@@ -85,6 +87,8 @@ var (
 		MigrateTableName: "schema_migrations_payments",
 		SQLFileDirectory: "sqlc/migrations/payments",
 		Schemas:          sqlSchemas,
+
+		LatestMigrationVersion: 1,
 
 		// Configs defines a list of migrations to be applied to the
 		// database. Each migration is assigned a version number, determining

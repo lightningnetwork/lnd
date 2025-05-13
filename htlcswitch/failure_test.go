@@ -52,7 +52,9 @@ func TestLongFailureMessage(t *testing.T) {
 	}
 
 	errorDecryptor := &SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(
+			circuit, nil,
+		),
 	}
 
 	// Assert that the failure message can still be extracted.

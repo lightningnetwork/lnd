@@ -58,19 +58,22 @@ type ErrorEncrypter interface {
 	// encrypted opaque failure reason. This method will be used at the
 	// source that the error occurs. It differs from IntermediateEncrypt
 	// slightly, in that it computes a proper MAC over the error.
-	EncryptFirstHop(lnwire.FailureMessage) (lnwire.OpaqueReason, error)
+	EncryptFirstHop(lnwire.FailureMessage) (lnwire.OpaqueReason, []byte,
+		error)
 
 	// EncryptMalformedError is similar to EncryptFirstHop (it adds the
 	// MAC), but it accepts an opaque failure reason rather than a failure
 	// message. This method is used when we receive an
 	// UpdateFailMalformedHTLC from the remote peer and then need to
 	// convert that into a proper error from only the raw bytes.
-	EncryptMalformedError(lnwire.OpaqueReason) (lnwire.OpaqueReason, error)
+	EncryptMalformedError(lnwire.OpaqueReason) (lnwire.OpaqueReason, []byte,
+		error)
 
 	// IntermediateEncrypt wraps an already encrypted opaque reason error
 	// in an additional layer of onion encryption. This process repeats
 	// until the error arrives at the source of the payment.
-	IntermediateEncrypt(lnwire.OpaqueReason) (lnwire.OpaqueReason, error)
+	IntermediateEncrypt(lnwire.OpaqueReason, []byte) (lnwire.OpaqueReason,
+		[]byte, error)
 
 	// Type returns an enum indicating the underlying concrete instance
 	// backing this interface.
@@ -123,16 +126,16 @@ func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) EncryptFirstHop(
-	failure lnwire.FailureMessage) (lnwire.OpaqueReason, error) {
+	failure lnwire.FailureMessage) (lnwire.OpaqueReason, []byte, error) {
 
 	var b bytes.Buffer
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// We pass a true as the first parameter to indicate that a MAC should
 	// be added.
-	return s.EncryptError(true, b.Bytes()), nil
+	return s.EncryptError(true, b.Bytes(), nil, 0)
 }
 
 // EncryptMalformedError is similar to EncryptFirstHop (it adds the MAC), but
@@ -143,9 +146,9 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) EncryptMalformedError(
-	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
+	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, []byte, error) {
 
-	return s.EncryptError(true, reason), nil
+	return s.EncryptError(true, reason, nil, 0)
 }
 
 // IntermediateEncrypt wraps an already encrypted opaque reason error in an
@@ -156,9 +159,10 @@ func (s *SphinxErrorEncrypter) EncryptMalformedError(
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) IntermediateEncrypt(
-	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, error) {
+	reason lnwire.OpaqueReason, _ []byte) (lnwire.OpaqueReason, []byte,
+	error) {
 
-	return s.EncryptError(false, reason), nil
+	return s.EncryptError(false, reason, nil, 0)
 }
 
 // Type returns the identifier for a sphinx error encrypter.

@@ -1232,7 +1232,7 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 	// Encrypt the failure so that the sender will be able to read the error
 	// message. Since we failed this packet, we use EncryptFirstHop to
 	// obfuscate the failure for their eyes only.
-	reason, err := packet.obfuscator.EncryptFirstHop(failure.WireMessage())
+	reason, _, err := packet.obfuscator.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
 		err := fmt.Errorf("unable to obfuscate "+
 			"error: %v", err)
@@ -3163,7 +3163,7 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 		var err error
 		// TODO(roasbeef): don't need to pass actually?
 		failure := &lnwire.FailPermanentChannelFailure{}
-		htlc.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
+		htlc.Reason, _, err = circuit.ErrorEncrypter.EncryptFirstHop(
 			failure,
 		)
 		if err != nil {
@@ -3181,7 +3181,7 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 			packet.incomingChanID, packet.incomingHTLCID,
 			packet.outgoingChanID, packet.outgoingHTLCID)
 
-		htlc.Reason, err = circuit.ErrorEncrypter.EncryptMalformedError(
+		htlc.Reason, _, err = circuit.ErrorEncrypter.EncryptMalformedError(
 			htlc.Reason,
 		)
 		if err != nil {
@@ -3191,8 +3191,8 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 	default:
 		// Otherwise, it's a forwarded error, so we'll perform a
 		// wrapper encryption as normal.
-		htlc.Reason, err = circuit.ErrorEncrypter.IntermediateEncrypt(
-			htlc.Reason,
+		htlc.Reason, _, err = circuit.ErrorEncrypter.IntermediateEncrypt(
+			htlc.Reason, nil,
 		)
 		if err != nil {
 			return err

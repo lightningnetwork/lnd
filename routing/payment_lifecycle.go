@@ -534,7 +534,7 @@ func (p *paymentLifecycle) collectResult(
 	// parse+decode any failures incurred by this payment within the
 	// switch.
 	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit, nil),
 	}
 
 	// Now ask the switch to return the result of the payment when

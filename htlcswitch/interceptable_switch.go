@@ -738,7 +738,10 @@ func (f *interceptedForward) ResumeModified(
 // Fail notifies the intention to Fail an existing hold forward with an
 // encrypted failure reason.
 func (f *interceptedForward) Fail(reason []byte) error {
-	obfuscatedReason := f.packet.obfuscator.IntermediateEncrypt(reason)
+	obfuscatedReason, err := f.packet.obfuscator.IntermediateEncrypt(reason)
+	if err != nil {
+		return err
+	}
 
 	return f.resolve(&lnwire.UpdateFailHTLC{
 		Reason: obfuscatedReason,

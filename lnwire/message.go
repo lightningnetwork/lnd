@@ -66,6 +66,7 @@ const (
 	MsgChannelAnnouncement2                = 267
 	MsgNodeAnnouncement2                   = 269
 	MsgChannelUpdate2                      = 271
+	MsgOnionMessage                        = 513
 	MsgKickoffSig                          = 777
 
 	// MsgEnd defines the end of the official message range of the protocol.
@@ -198,6 +199,8 @@ func (t MessageType) String() string {
 		return "NodeAnnouncement2"
 	case MsgChannelUpdate2:
 		return "ChannelUpdate2"
+	case MsgOnionMessage:
+		return "OnionMessage"
 	default:
 		return "<unknown>"
 	}
@@ -362,6 +365,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &NodeAnnouncement2{}
 	case MsgChannelUpdate2:
 		msg = &ChannelUpdate2{}
+	case MsgOnionMessage:
+		msg = &OnionMessage{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

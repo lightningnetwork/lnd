@@ -65,12 +65,14 @@ const (
 	// This MUST be a smaller value than the pingInterval.
 	pingTimeout = 30 * time.Second
 
-	// idleTimeout is the duration of inactivity before we time out a peer.
-	idleTimeout = 5 * time.Minute
-
 	// writeMessageTimeout is the timeout used when writing a message to the
-	// peer.
+	// connection buffer.
 	writeMessageTimeout = 5 * time.Second
+
+	// writeFlushTimeout is the time we wait until a message is flushed.
+	// Once the message is written to the connection, we will retry flushing
+	// it until this timeout is hit.
+	writeFlushTimeout = 5 * time.Minute
 
 	// readMessageTimeout is the timeout used when reading a message from a
 	// peer.
@@ -2611,20 +2613,19 @@ func (p *Brontide) writeMessage(msg lnwire.Message) error {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *Brontide) writeHandler() {
-	// We'll stop the timer after a new messages is sent, and also reset it
-	// after we process the next message.
-	idleTimer := time.AfterFunc(idleTimeout, func() {
-		err := fmt.Errorf("peer %s no write for %s -- disconnecting",
-			p, idleTimeout)
-		p.Disconnect(err)
-	})
-
 	var exitErr error
+
+	// Create a timer to time out the write. We create it here to avoid
+	// allocations in the loop below.
+	flushTimer := time.NewTimer(writeFlushTimeout)
 
 out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
+			// Reset the timeout.
+			flushTimer.Reset(writeFlushTimeout)
+
 			// Record the time at which we first attempt to send the
 			// message.
 			startTime := time.Now()
@@ -2636,7 +2637,7 @@ out:
 			// slow to process messages from the wire.
 			err := p.writeMessage(outMsg.msg)
 			if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
-				p.log.Debugf("Write timeout detected for "+
+				p.log.Warnf("Write timeout detected for "+
 					"peer, first write for message "+
 					"attempted %v ago",
 					time.Since(startTime))
@@ -2650,18 +2651,20 @@ out:
 				// reserializing or reencrypting it.
 				outMsg.msg = nil
 
-				goto retry
-			}
-
-			// The write succeeded, reset the idle timer to prevent
-			// us from disconnecting the peer.
-			if !idleTimer.Stop() {
+				// Check whether the flushing has already timed
+				// out. If so, we will exit and disconnect the
+				// peer with a timeout error.
 				select {
-				case <-idleTimer.C:
+				case <-flushTimer.C:
+					exitErr = errors.New("write timeout")
+
+					break out
+
 				default:
 				}
+
+				goto retry
 			}
-			idleTimer.Reset(idleTimeout)
 
 			// Reset the ticker to delay sending the Ping. Since
 			// we've successfully wriiten a msg to the connection,

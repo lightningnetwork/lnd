@@ -1990,14 +1990,6 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 func (p *Brontide) readHandler() {
 	defer p.cg.WgDone()
 
-	// We'll stop the timer after a new messages is received, and also
-	// reset it after we process the next message.
-	idleTimer := time.AfterFunc(idleTimeout, func() {
-		err := fmt.Errorf("peer %s no answer for %s -- disconnecting",
-			p, idleTimeout)
-		p.Disconnect(err)
-	})
-
 	// Initialize our negotiated gossip sync method before reading messages
 	// off the wire. When using gossip queries, this ensures a gossip
 	// syncer is active by the time query messages arrive.
@@ -2009,15 +2001,10 @@ func (p *Brontide) readHandler() {
 	discStream := newDiscMsgStream(p)
 	discStream.Start()
 	defer discStream.Stop()
+
 out:
 	for atomic.LoadInt32(&p.disconnect) == 0 {
 		nextMsg, err := p.readNextMessage()
-		if !idleTimer.Stop() {
-			select {
-			case <-idleTimer.C:
-			default:
-			}
-		}
 		if err != nil {
 			p.log.Infof("unable to read message from peer: %v", err)
 
@@ -2032,7 +2019,6 @@ out:
 			// compatible manner.
 			case *lnwire.UnknownMessage:
 				p.storeError(e)
-				idleTimer.Reset(idleTimeout)
 				continue
 
 			// If they sent us an address type that we don't yet
@@ -2041,7 +2027,6 @@ out:
 			// messages.
 			case *lnwire.ErrUnknownAddrType:
 				p.storeError(e)
-				idleTimer.Reset(idleTimeout)
 				continue
 
 			// If the NodeAnnouncement has an invalid alias, then
@@ -2050,13 +2035,14 @@ out:
 			// store this error because it is of little debugging
 			// value.
 			case *lnwire.ErrInvalidNodeAlias:
-				idleTimer.Reset(idleTimeout)
 				continue
 
 			// If the error we encountered wasn't just a message we
 			// didn't recognize, then we'll stop all processing as
 			// this is a fatal error.
 			default:
+				p.log.Errorf("read next msg err: %v", err)
+
 				break out
 			}
 		}
@@ -2203,13 +2189,9 @@ out:
 			// into the channel's in-order message stream.
 			p.sendLinkUpdateMsg(targetChan, nextMsg)
 		}
-
-		idleTimer.Reset(idleTimeout)
 	}
 
 	p.Disconnect(errors.New("read handler closed"))
-
-	p.log.Trace("readHandler for peer done")
 }
 
 // handleCustomMessage handles the given custom message if a handler is

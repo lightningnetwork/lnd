@@ -2681,6 +2681,18 @@ out:
 			}
 			idleTimer.Reset(idleTimeout)
 
+			// Reset the ticker to delay sending the Ping. Since
+			// we've successfully wriiten a msg to the connection,
+			// we know for sure the connection is alive, thus we can
+			// delay firing pings to check for the liveness.
+			//
+			// NOTE: This means if the connection is idle, the
+			// interval of pings is not strictly one minute as we
+			// will reset it here after a successful write. This
+			// offset should be negligible if the connection is
+			// healthy.
+			p.pingManager.ResetPingTicker()
+
 			// If the peer requested a synchronous write, respond
 			// with the error.
 			if outMsg.errChan != nil {

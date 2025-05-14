@@ -448,6 +448,65 @@ func foo(a, b, c,
 }
 ```
 
+### Inline slice definitions
+
+In Go a list of slices can be initialized with values directly, using curly
+braces. Whenever possible, the more verbose/indented style should be used for
+better readability and easier git diff handling. Because that results in more
+levels of code indentation, the more compact version is allowed in situations
+where the remaining space would otherwise be too restricted, resulting in too
+long lines (or excessive use of the `// nolint: ll` directive).
+
+**ACCEPTABLE**
+```go
+	testCases := []testCase{{
+		name: "spend exactly all",
+		coins: []wallet.Coin{{
+			TxOut: wire.TxOut{
+				PkScript: p2wkhScript,
+				Value:    1 * btcutil.SatoshiPerBitcoin,
+			},
+		}},
+	}, {
+		name: "spend more",
+		coins: []wallet.Coin{{
+			TxOut: wire.TxOut{
+				PkScript: p2wkhScript,
+				Value:    1 * btcutil.SatoshiPerBitcoin,
+			},
+		}},
+	}}
+```
+
+**PREFERRED**
+```go
+	coin := btcutil.SatoshiPerBitcoin
+	testCases := []testCase{
+		{
+			name: "spend exactly all",
+			coins: []wallet.Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * coin,
+					},
+				},
+			},
+		},
+		{
+			name: "spend more",
+			coins: []wallet.Coin{
+				{
+					TxOut: wire.TxOut{
+						PkScript: p2wkhScript,
+						Value:    1 * coin,
+					},
+				},
+			},
+		},
+	}
+```
+
 ## Recommended settings for your editor
 
 To make it easier to follow the rules outlined above, we recommend setting up

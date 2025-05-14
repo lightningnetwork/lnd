@@ -108,6 +108,11 @@ func (m *PingManager) Start() error {
 	return err
 }
 
+// ResetPingTicker resets the internal `pingTicker`.
+func (m *PingManager) ResetPingTicker() {
+	m.pingTicker.Reset(m.cfg.IntervalDuration)
+}
+
 // pingHandler is the main goroutine responsible for enforcing the ping/pong
 // protocol.
 func (m *PingManager) pingHandler() {

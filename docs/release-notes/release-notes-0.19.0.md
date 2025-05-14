@@ -207,6 +207,9 @@ when running LND with an aux component injected (custom channels).
   the payment. This prevents payments from entering a path finding loop that
   would eventually timeout.
 
+* [Only send a `Ping`](https://github.com/lightningnetwork/lnd/pull/9805) if we
+  haven't received any messages from the peer for one minute.
+
 ## RPC Additions
 
 * [Add a new rpc endpoint](https://github.com/lightningnetwork/lnd/pull/8843)

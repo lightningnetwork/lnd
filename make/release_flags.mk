@@ -9,6 +9,7 @@ DOCKER_RELEASE_HELPER = docker run \
   -v $(shell bash -c "$(GOCC) env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "$(GOCC) env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -e SKIP_VERSION_CHECK \
+  -e SKIP_SOURCE_AND_VENDOR \
   lnd-release-helper
 
 # Please keep this list in sync with .github/workflows/main.yml!

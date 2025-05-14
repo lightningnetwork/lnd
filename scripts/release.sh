@@ -147,29 +147,45 @@ required Go version ($goversion)."
 
   echo "Building release for tag $tag with Go version $goversion"
 
-  green " - Packaging vendor"
-  go mod vendor
-  reproducible_tar_gzip vendor
-
+  # Create a directory for the release files.
   maindir=$PACKAGE-$tag
   mkdir -p $maindir
-  mv vendor.tar.gz "${maindir}/"
 
-  # Don't use tag in source directory, otherwise our file names get too long and
-  # tar starts to package them non-deterministically.
-  package_source="${PACKAGE}-source"
 
-  # The git archive command doesn't support setting timestamps and file
-  # permissions. That's why we unpack the tar again, then use our reproducible
-  # method to create the final archive.
-  git archive -o "${maindir}/${package_source}.tar" HEAD
+# Skip source and vendor if SKIP_SOURCE_AND_VENDOR is set.
+  if [[ "$SKIP_SOURCE_AND_VENDOR" -eq "0" ]]; then
+    echo "maindir: $maindir"
+    green " - Packaging vendor"
+    go mod vendor
+    reproducible_tar_gzip vendor
+    mv vendor.tar.gz "${maindir}/"
 
-  cd "${maindir}"
-  mkdir -p ${package_source}
-  tar -xf "${package_source}.tar" -C ${package_source}
-  rm "${package_source}.tar"
-  reproducible_tar_gzip ${package_source}
-  mv "${package_source}.tar.gz" "${package_source}-$tag.tar.gz" 
+    echo "maindir: $maindir"
+
+
+    package_source="${PACKAGE}-source"
+    git archive -o "${maindir}/${package_source}.tar" HEAD
+
+    cd "${maindir}"
+    mkdir -p ${package_source}
+    tar -xf "${package_source}.tar" -C ${package_source}
+    rm "${package_source}.tar"
+    reproducible_tar_gzip ${package_source}
+    mv "${package_source}.tar.gz" "${package_source}-$tag.tar.gz" 
+  else
+    green "skipping source and vendor packaging because SKIP_SOURCE_AND_VENDOR \
+environment variable is set"
+       # Still need the source files for building
+    package_source="${PACKAGE}-source"
+    git archive -o "${maindir}/${package_source}.tar" HEAD
+
+    cd "${maindir}"
+    mkdir -p ${package_source}
+    tar -xf "${package_source}.tar" -C ${package_source}
+    rm "${package_source}.tar"
+    rm -rf ${package_source}
+  fi
+
 
   for i in $sys; do
     os=$(echo $i | cut -f1 -d-)
@@ -204,10 +220,13 @@ required Go version ($goversion)."
     fi
   done
 
-  # Add the hash of the packages too, then sort by the second column (name).
-  shasum -a 256 lnd-* vendor* >> "manifest-$tag.txt"
+#   # Add the hash of the packages too, then sort by the second column (name).
+find . -type f \( -name "lnd-*" -o -name "vendor*" \) \
+ -exec shasum -a 256 {} \; >> "manifest-$tag.txt"
+
   LC_ALL=C sort -k2 -o "manifest-$tag.txt" "manifest-$tag.txt"
   cat "manifest-$tag.txt"
+
 }
 
 # usage prints the usage of the whole script.

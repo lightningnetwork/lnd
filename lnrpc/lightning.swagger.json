@@ -5067,6 +5067,11 @@
         "peer_alias_out": {
           "type": "string",
           "description": "The peer alias of the outgoing channel."
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The index of the HTLC in the channel. This allows for better tracking\nand reconciliation of forwarding events."
         }
       }
     },

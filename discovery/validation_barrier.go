@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -103,7 +104,24 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) (JobID,
 	// channel to be closed.
 	select {
 	case <-v.validationSemaphore:
+
 	case <-v.quit:
+
+	default:
+		// We could not get a slot immediately, so we record the time
+		// here how long we wait.
+		waitStart := time.Now()
+		select {
+		case <-v.validationSemaphore:
+			waitTime := time.Since(waitStart)
+			if waitTime > 500*time.Millisecond {
+				log.Debugf("Validation barrier bottleneck: "+
+					"waited for %v to process new job",
+					waitTime)
+			}
+
+		case <-v.quit:
+		}
 	}
 
 	v.Lock()

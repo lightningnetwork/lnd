@@ -25,6 +25,10 @@
 ## Functional Enhancements
 
 ## RPC Additions
+* When returning the response from [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813)
+, the response now include the incoming and outgoing htlc indices of the payment
+ circuit.
+
 
 ## lncli Additions
 
@@ -72,3 +76,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Abdulkbk

@@ -25,11 +25,11 @@ const (
 	// is as follows:
 	//
 	//  * 8 byte incoming chan ID || 8 byte outgoing chan ID || 8 byte value in
-	//    || 8 byte value out
+	//    || 8 byte value out || 8 byte htlc index
 	//
 	// From the value in and value out, callers can easily compute the
 	// total fee extract from a forwarding event.
-	forwardingEventSize = 32
+	forwardingEventSize = 40
 
 	// MaxResponseEvents is the max number of forwarding events that will
 	// be returned by a single query response. This size was selected to
@@ -78,6 +78,10 @@ type ForwardingEvent struct {
 	// AmtOut is the amount of the outgoing HTLC. Subtracting the incoming
 	// amount from this gives the total fees for this payment circuit.
 	AmtOut lnwire.MilliSatoshi
+
+	// HtlcIndex is the index of the HTLC in the channel. This is used to
+	// match the HTLC in the channel with the HTLC in the forwarding log.
+	HtlcIndex uint64
 }
 
 // encodeForwardingEvent writes out the target forwarding event to the passed
@@ -86,6 +90,7 @@ type ForwardingEvent struct {
 func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 	return WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
+		f.HtlcIndex,
 	)
 }
 
@@ -96,6 +101,7 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 	return ReadElements(
 		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
+		&f.HtlcIndex,
 	)
 }
 

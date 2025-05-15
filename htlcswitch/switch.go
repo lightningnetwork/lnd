@@ -3074,6 +3074,7 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 				OutgoingChanID: circuit.Outgoing.ChanID,
 				AmtIn:          circuit.IncomingAmount,
 				AmtOut:         circuit.OutgoingAmount,
+				HtlcIndex:      circuit.Incoming.HtlcID,
 			},
 		)
 		s.fwdEventMtx.Unlock()

@@ -41,6 +41,7 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			HtlcIndex:      uint64(i),
 		}
 
 		timestamp = timestamp.Add(time.Minute * 10)
@@ -109,6 +110,7 @@ func TestForwardingLogQueryOptions(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			HtlcIndex:      uint64(i),
 		}
 
 		endTime = endTime.Add(time.Minute * 10)
@@ -208,6 +210,7 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			HtlcIndex:      uint64(i),
 		}
 
 		endTime = endTime.Add(time.Minute * 10)
@@ -317,6 +320,7 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			HtlcIndex:      uint64(i),
 		}
 	}
 

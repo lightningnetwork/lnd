@@ -25,6 +25,10 @@
 ## Functional Enhancements
 
 ## RPC Additions
+* When querying [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813)
+logs, the response now include the incoming and outgoing htlc indices of the payment 
+circuit. The indices are only available for forwarding events saved after v0.20.
+
 
 * The `lncli addinvoice --blind` command now has the option to include a
   [chained channels](https://github.com/lightningnetwork/lnd/pull/9127)
@@ -94,4 +98,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Abdulkbk
 Pins

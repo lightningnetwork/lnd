@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -15,7 +16,10 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // testUpdateChanStatus checks that calls to the UpdateChanStatus RPC update
@@ -418,6 +422,24 @@ func testNodeAnnouncement(ht *lntest.HarnessTest) {
 	allUpdates := ht.AssertNumNodeAnns(alice, dave.PubKeyStr, 1)
 	nodeUpdate := allUpdates[len(allUpdates)-1]
 	assertAddrs(nodeUpdate.Addresses, advertisedAddrs...)
+}
+
+// testGetChannelInfoNotFound verifies that a missing channel reports an
+// appropriate gRPC status code when calling GetChanInfo
+func testGetChannelInfoNotFound(ht *lntest.HarnessTest) {
+	ctx, cancel := context.WithTimeout(context.Background(), lntest.DefaultTimeout)
+	defer cancel()
+
+	alice := ht.NewNode("Alice", nil)
+	_, err := alice.RPC.LN.GetChanInfo(ctx, &lnrpc.ChanInfoRequest{
+		ChanId: 949807622323240961,
+	})
+
+	ht.Logf("err: %s", err)
+	assert.Equal(
+		ht, codes.NotFound.String(), status.Code(err).String(),
+		"unknown channels should return a proper status code",
+	)
 }
 
 // testUpdateNodeAnnouncement ensures that the RPC endpoint validates

@@ -1723,6 +1723,50 @@
         ]
       }
     },
+    "/v1/invoice": {
+      "delete": {
+        "summary": "lncli: `deleteinvoices`\nDeleteInvoices deletes cancelled invoices from DB. Note that it will not\nattempt to delete an non-cancelled invoice, since that would be unsafe.",
+        "operationId": "Lightning_DeleteInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteInvoicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoice_hashes",
+            "description": "List of Invoice payment hashes to delete.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "hash_array",
+            "description": "Array of Invoices payment hashes to delete.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "byte"
+            },
+            "collectionFormat": "multi"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/invoice/{r_hash_str}": {
       "get": {
         "summary": "lncli: `lookupinvoice`\nLookupInvoice attempts to look up an invoice according to its payment hash.\nThe passed payment hash *must* be exactly 32 bytes, if not, an error is\nreturned.",
@@ -1827,6 +1871,36 @@
             "required": false,
             "type": "string",
             "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      },
+      "delete": {
+        "summary": "lncli: `deleteinvoices --all`\nDeleteAllInvoices deletes all cancelled invoices from DB. Note that it will\nnot attempt to delete non-cancelled invoices, since that would be unsafe.",
+        "operationId": "Lightning_DeleteAllInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteAllInvoicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "all_invoices",
+            "description": "Delete all cancelled invoices.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -4767,7 +4841,25 @@
         }
       }
     },
+    "lnrpcDeleteAllInvoicesResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
+    },
     "lnrpcDeleteAllPaymentsResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
+    },
+    "lnrpcDeleteInvoicesResponse": {
       "type": "object",
       "properties": {
         "status": {

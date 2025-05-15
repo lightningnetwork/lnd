@@ -94,7 +94,7 @@ const (
 	torTimeoutMultiplier = 3
 
 	// msgStreamSize is the size of the message streams.
-	msgStreamSize = 5
+	msgStreamSize = 50
 )
 
 var (
@@ -455,6 +455,10 @@ type Config struct {
 	// experimental endorsement signals should be set.
 	ShouldFwdExpEndorsement func() bool
 
+	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
+	// disconnected if a pong is not received in time or is mismatched.
+	NoDisconnectOnPongFailure bool
+
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -735,11 +739,27 @@ func NewBrontide(cfg Config) *Brontide {
 		SendPing: func(ping *lnwire.Ping) {
 			p.queueMsg(ping, nil)
 		},
-		OnPongFailure: func(err error) {
-			eStr := "pong response failure for %s: %v " +
-				"-- disconnecting"
-			p.log.Warnf(eStr, p, err)
-			go p.Disconnect(fmt.Errorf(eStr, p, err))
+		OnPongFailure: func(reason error,
+			timeWaitedForPong time.Duration,
+			lastKnownRTT time.Duration) {
+
+			logMsg := fmt.Sprintf("pong response "+
+				"failure for %s: %v. Time waited for this "+
+				"pong: %v. Last successful RTT: %v.",
+				p, reason, timeWaitedForPong, lastKnownRTT)
+
+			// If NoDisconnectOnPongFailure is true, we don't
+			// disconnect. Otherwise (if it's false, the default),
+			// we disconnect.
+			if p.cfg.NoDisconnectOnPongFailure {
+				p.log.Warnf("%s -- not disconnecting "+
+					"due to config", logMsg)
+				return
+			}
+
+			p.log.Warnf("%s -- disconnecting", logMsg)
+
+			go p.Disconnect(fmt.Errorf("pong failure: %w", reason))
 		},
 	})
 

@@ -4493,6 +4493,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 				EndorsementExperimentEnd,
 			)
 		},
+		NoDisconnectOnPongFailure: s.cfg.NoDisconnectOnPongFailure,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

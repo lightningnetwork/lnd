@@ -56,6 +56,12 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   the channel announcement) to the returned ChannelEdge.
 
 
+* Added [`deletecanceledinvoices`](
+  https://github.com/lightningnetwork/lnd/pull/9625) RPC to allow removal of
+  canceled invoices. Supports two arguments: `--all` deleting all canceled
+  invoices and `--invoice_hashes` deleting specific canceled invoices by
+  providing a list of hashes.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the

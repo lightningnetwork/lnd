@@ -3,6 +3,7 @@ package itest
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -211,6 +212,17 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 		// Carol->Dave->Alice.
 		require.Equal(ht, carolAlias, event.PeerAliasIn)
 		require.Equal(ht, aliceAlias, event.PeerAliasOut)
+	}
+
+	// Verify HTLC IDs are not nil and unique across all forwarding events.
+	seenIDs := make(map[uint64]bool)
+	for _, event := range fwdingHistory.ForwardingEvents {
+		require.NotEqual(ht, fn.None[uint64](), event.IncomingHtlcId)
+		require.NotEqual(ht, fn.None[uint64](), event.OutgoingHtlcId)
+		require.False(ht, seenIDs[*event.IncomingHtlcId])
+		require.False(ht, seenIDs[*event.OutgoingHtlcId])
+		seenIDs[*event.IncomingHtlcId] = true
+		seenIDs[*event.OutgoingHtlcId] = true
 	}
 
 	// We expect Carol to have successful forwards and settles for

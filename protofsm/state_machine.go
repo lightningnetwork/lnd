@@ -506,16 +506,18 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 		launched := s.gm.Go(ctx, func(ctx context.Context) {
 			for {
 				select {
-				case <-confEvent.Confirmed:
-					// If there's a post-conf event, then
+				case conf, ok := <-confEvent.Confirmed:
+					if !ok {
+						return
+					}
+
+					// If there's a post-conf mapper, then
 					// we'll send that into the current
 					// state now.
-					//
-					// TODO(roasbeef): refactor to
-					// dispatchAfterRecv w/ above
-					postConf := daemonEvent.PostConfEvent
-					postConf.WhenSome(func(e Event) {
-						s.SendEvent(ctx, e)
+					postConfMapper := daemonEvent.PostConfMapper        //nolint:ll
+					postConfMapper.WhenSome(func(f ConfMapper[Event]) { //nolint:ll
+						customEvent := f(conf)
+						s.SendEvent(ctx, customEvent)
 					})
 
 					return

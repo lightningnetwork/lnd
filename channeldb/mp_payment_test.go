@@ -597,6 +597,6 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 
 	sessionKey, _ := btcec.NewPrivateKey()
 	emptyRoute := &route.Route{}
-	_, _, err := generateSphinxPacket(emptyRoute, testHash[:], sessionKey)
+	_, _, err := GenerateSphinxPacket(emptyRoute, testHash[:], sessionKey)
 	require.ErrorIs(t, err, route.ErrNoRouteHopsProvided)
 }

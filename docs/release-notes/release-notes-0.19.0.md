@@ -245,9 +245,9 @@ when running LND with an aux component injected (custom channels).
   specify the max fees to output amounts ratio.](https://github.com/lightningnetwork/lnd/pull/8600)
 
 * [Enhance](https://github.com/lightningnetwork/lnd/pull/9390) the
-  `lncli listchannels` output by adding the human readable short
-  channel id and the channel id defined in BOLT02. Moreover change
-  the misnomer of `chan_id` which was describing the short channel
+  `lncli listchannels` and `lncli closedchannels` output by adding the human
+  readable short channel id and the channel id defined in BOLT02. Moreover
+  change the misnomer of `chan_id` which was describing the short channel
   id to `scid` to represent what it really is.
 
 * [In the coop close](https://github.com/lightningnetwork/lnd/pull/9491) case
@@ -439,6 +439,21 @@ The underlying functionality between those two options remain the same.
   compatibility.
 
 ## Breaking Changes
+
+* ⚠️ **Breaking Change (lncli only)**: The `lncli listchannels` and
+ `lncli closedchannels` command output has been updated to fix a misnomer in the
+  field names. The field previously named `chan_id` (which actually contained
+  the short channel ID) has been renamed to `scid` to correctly represent its
+  content. The `chan_id` field now contains the actual channel ID as defined
+  in BOLT02. This is a breaking change for any automation scripts that parse
+  the `chan_id` field from the command output. Please update your scripts to
+  use the new `scid` field name if you were previously using the 
+  short channel ID value. For more details, see 
+  the [lncli Additions](#lncli-additions) section.
+
+  >**Note**: This change only affects the `lncli` command output.
+  >The RPC responses for `listchannels` and `closedchannels` remain unchanged.
+
 ## Performance Improvements
 
 * Users can now [limit the total amount of

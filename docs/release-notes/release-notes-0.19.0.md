@@ -231,6 +231,9 @@ when running LND with an aux component injected (custom channels).
 * [`lnrpc.ClosedChannels` now also includes the `custom_channel_data` used by
   custom channels](https://github.com/lightningnetwork/lnd/pull/9504).
 
+* When returning the response from `ForwardingEvents`, the response now include the
+[`HtlcIndex`](https://github.com/lightningnetwork/lnd/issues/9656). 
+
 ## lncli Additions
 
 * [A pre-generated macaroon root key can now be specified in `lncli create` and

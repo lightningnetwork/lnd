@@ -4710,6 +4710,10 @@ message ForwardingEvent {
     // The peer alias of the outgoing channel.
     string peer_alias_out = 13;
 
+    // The index of the HTLC in the channel. This allows for better tracking
+    // and reconciliation of forwarding events.
+    uint64 htlc_index = 14;
+
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?
     //  * also list failures?

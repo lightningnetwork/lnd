@@ -8060,6 +8060,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			FeeMsat:     uint64(feeMsat),
 			AmtInMsat:   uint64(amtInMsat),
 			AmtOutMsat:  uint64(amtOutMsat),
+			HtlcIndex:   event.HtlcIndex,
 		}
 
 		if req.PeerAliasLookup {

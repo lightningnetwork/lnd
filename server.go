@@ -528,16 +528,34 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 		port = portNum
 	}
 
+	// Handle the Onion address type.
 	if tor.IsOnionHost(host) {
 		return &tor.OnionAddr{OnionService: host, Port: port}, nil
 	}
 
-	// If the host is part of a TCP address, we'll use the network
-	// specific ResolveTCPAddr function in order to resolve these
-	// addresses over Tor in order to prevent leaking your real IP
-	// address.
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	return netCfg.ResolveTCPAddr("tcp", hostPort)
+	// For loopback or IP addresses: Use ResolveTCPAddr to properly
+	// resolve these through Tor or other proxies, preventing IP leakage.
+	if lncfg.IsLoopback(host) || lnwire.IsIPv4Like(host) || isIP(host) {
+		hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+		return netCfg.ResolveTCPAddr("tcp", hostPort)
+	}
+
+	// Attempt to parse as a DNS hostname address. The validation performed
+	// by NewDNSHostnameAddress ensures compliance with BOLT-07
+	// specifications.
+	addr, err := lnwire.NewDNSHostnameAddress(host, port)
+	if err != nil {
+		return nil, err
+	}
+
+	return addr, nil
+}
+
+// isIP checks if the provided host is an IP address (IPv4 or IPv6).
+func isIP(host string) bool {
+	// Try parsing the host as an IP address.
+	ip := net.ParseIP(host)
+	return ip != nil
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lncfg"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -130,7 +131,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 
 // TestParseAddress verifies the behavior of parseAddr for a variety of address
 // formats and input scenarios. It checks correct parsing of onion addresses, IP
-// addresses, with or without ports, as well as appropriate
+// addresses, and DNS hostnames, with or without ports, as well as appropriate
 // error handling for invalid inputs.
 func TestParseAddress(t *testing.T) {
 	t.Parallel()
@@ -261,6 +262,47 @@ func TestParseAddress(t *testing.T) {
 			},
 			expectErr: true,
 			errMsg:    "resolve error",
+		},
+		{
+			name:    "DNSHostname WithExplicitPort ReturnsAddr",
+			address: "example.com:8080",
+			netCfg:  nil,
+			expected: &lnwire.DNSHostnameAddress{
+				Hostname: "example.com",
+				Port:     8080,
+			},
+			expectErr: false,
+		},
+		{
+			name:    "DNSHostname WithoutPort ReturnsAddrWithPort",
+			address: "example.com",
+			netCfg:  nil,
+			expected: &lnwire.DNSHostnameAddress{
+				Hostname: "example.com",
+				Port:     defaultPeerPort,
+			},
+			expectErr: false,
+		},
+		{
+			name:      "DNSHostname InvalidFormat ReturnsError",
+			address:   "invalid..hostname.com",
+			netCfg:    nil,
+			expectErr: true,
+			errMsg:    "hostname contains an empty label",
+		},
+		{
+			name:      "Address NonNumericPort PortParsingError",
+			address:   "example.com:invalid",
+			netCfg:    &mockTorNet{},
+			expectErr: true,
+			errMsg:    "strconv.Atoi",
+		},
+		{
+			name:      "Address EmptyString ReturnsInvalidAddrErr",
+			address:   "",
+			netCfg:    nil,
+			expectErr: true,
+			errMsg:    "hostname cannot be empty",
 		},
 	}
 

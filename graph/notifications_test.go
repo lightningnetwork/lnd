@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/kvdb"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -89,7 +88,7 @@ func createTestNode(t *testing.T) *models.LightningNode {
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
 		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub[:]),
+		Alias:                "kek" + hex.EncodeToString(pub),
 		AuthSigBytes:         testSig.Serialize(),
 		Features:             testFeatures,
 	}
@@ -1034,9 +1033,7 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph, graphBackend, err := makeTestGraph(t, true)
-	require.NoError(t, err, "failed to make test graph")
-
+	graph := graphdb.MakeTestGraph(t)
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
@@ -1044,8 +1041,7 @@ func createTestCtxSingleNode(t *testing.T,
 	)
 
 	graphInstance := &testGraphInstance{
-		graph:        graph,
-		graphBackend: graphBackend,
+		graph: graph,
 	}
 
 	return createTestCtxFromGraphInstance(
@@ -1084,37 +1080,8 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 	c.builder = builder
 }
 
-// makeTestGraph creates a new instance of a channeldb.ChannelGraph for testing
-// purposes.
-func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
-	kvdb.Backend, error) {
-
-	// Create channelgraph for the first time.
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		return nil, nil, err
-	}
-
-	t.Cleanup(backendCleanup)
-
-	graph, err := graphdb.NewChannelGraph(
-		&graphdb.Config{KVDB: backend},
-		graphdb.WithUseGraphCache(useCache),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	require.NoError(t, graph.Start())
-	t.Cleanup(func() {
-		require.NoError(t, graph.Stop())
-	})
-
-	return graph, backend, nil
-}
-
 type testGraphInstance struct {
-	graph        *graphdb.ChannelGraph
-	graphBackend kvdb.Backend
+	graph *graphdb.ChannelGraph
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable

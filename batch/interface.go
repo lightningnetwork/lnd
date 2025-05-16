@@ -5,6 +5,9 @@ import "github.com/lightningnetwork/lnd/kvdb"
 // Request defines an operation that can be batched into a single bbolt
 // transaction.
 type Request struct {
+	// Opts holds various configuration options for a scheduled request.
+	Opts *SchedulerOptions
+
 	// Reset is called before each invocation of Update and is used to clear
 	// any possible modifications to local state as a result of previous
 	// calls to Update that were not committed due to a concurrent batch
@@ -25,22 +28,45 @@ type Request struct {
 	//
 	// NOTE: This field is optional.
 	OnCommit func(commitErr error) error
+}
 
+// SchedulerOptions holds various configuration options for a scheduled request.
+type SchedulerOptions struct {
 	// lazy should be true if we don't have to immediately execute this
 	// request when it comes in. This means that it can be scheduled later,
 	// allowing larger batches.
 	lazy bool
 }
 
+// NewDefaultSchedulerOpts returns a new SchedulerOptions with default values.
+func NewDefaultSchedulerOpts() *SchedulerOptions {
+	return &SchedulerOptions{
+		lazy: false,
+	}
+}
+
+// NewSchedulerOptions returns a new SchedulerOptions with the given options
+// applied on top of the default options.
+func NewSchedulerOptions(options ...SchedulerOption) *SchedulerOptions {
+	opts := NewDefaultSchedulerOpts()
+	for _, o := range options {
+		o(opts)
+	}
+
+	return opts
+}
+
 // SchedulerOption is a type that can be used to supply options to a scheduled
 // request.
-type SchedulerOption func(r *Request)
+type SchedulerOption func(*SchedulerOptions)
 
 // LazyAdd will make the request be executed lazily, added to the next batch to
 // reduce db contention.
+//
+// NOTE: This is currently a no-op for any DB backend other than bbolt.
 func LazyAdd() SchedulerOption {
-	return func(r *Request) {
-		r.lazy = true
+	return func(opts *SchedulerOptions) {
+		opts.lazy = true
 	}
 }
 

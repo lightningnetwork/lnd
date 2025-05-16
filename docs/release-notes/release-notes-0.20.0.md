@@ -31,6 +31,12 @@
 # Improvements
 ## Functional Updates
 
+* Graph Store SQL implementation and migration project:
+  * Introduce an [abstract graph 
+    store](https://github.com/lightningnetwork/lnd/pull/9791) interface. 
+  * Start [validating](https://github.com/lightningnetwork/lnd/pull/9787) that 
+    byte blobs at the end of gossip messages are valid TLV streams.
+
 ## RPC Updates
 
 ## lncli Updates

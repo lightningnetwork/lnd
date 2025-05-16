@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -603,28 +602,13 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 
 	const chanActiveTimeout = time.Minute
 
-	dbPath := t.TempDir()
-
-	graphBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
-		DBPath:            dbPath,
-		DBFileName:        "graph.db",
-		NoFreelistSync:    true,
-		AutoCompact:       false,
-		AutoCompactMinAge: kvdb.DefaultBoltAutoCompactMinAge,
-		DBTimeout:         kvdb.DefaultDBTimeout,
-	})
-	require.NoError(t, err)
-
-	dbAliceGraph, err := graphdb.NewChannelGraph(&graphdb.Config{
-		KVDB: graphBackend,
-	})
-	require.NoError(t, err)
+	dbAliceGraph := graphdb.MakeTestGraph(t)
 	require.NoError(t, dbAliceGraph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, dbAliceGraph.Stop())
 	})
 
-	dbAliceChannel := channeldb.OpenForTesting(t, dbPath)
+	dbAliceChannel := channeldb.OpenForTesting(t, t.TempDir())
 
 	nodeSignerAlice := netann.NewNodeSigner(aliceKeySigner)
 

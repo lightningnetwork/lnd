@@ -63,6 +63,28 @@ func (e *ExtraOpaqueData) Decode(r io.Reader) error {
 	return nil
 }
 
+// ValidateTLV checks that the raw bytes that make up the ExtraOpaqueData
+// instance are a valid TLV stream.
+func (e *ExtraOpaqueData) ValidateTLV() error {
+	// There is nothing to validate if the ExtraOpaqueData is nil or empty.
+	if e == nil || len(*e) == 0 {
+		return nil
+	}
+
+	tlvStream, err := tlv.NewStream()
+	if err != nil {
+		return err
+	}
+
+	// Ensure that the TLV stream is valid by attempting to decode it.
+	_, err = tlvStream.DecodeWithParsedTypesP2P(bytes.NewReader(*e))
+	if err != nil {
+		return fmt.Errorf("invalid TLV stream: %w: %v", err, *e)
+	}
+
+	return nil
+}
+
 // PackRecords attempts to encode the set of tlv records into the target
 // ExtraOpaqueData instance. The records will be encoded as a raw TLV stream
 // and stored within the backing slice pointer.

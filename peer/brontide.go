@@ -1989,9 +1989,13 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 // channel announcements.
 func newDiscMsgStream(p *Brontide) *msgStream {
 	apply := func(msg lnwire.Message) {
+		// TODO(elle): thread contexts through the peer system properly
+		// so that a parent context can be passed in here.
+		ctx := context.TODO()
+
 		// TODO(yy): `ProcessRemoteAnnouncement` returns an error chan
 		// and we need to process it.
-		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(msg, p)
+		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 
 	return newMsgStream(

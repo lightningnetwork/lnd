@@ -51,7 +51,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -554,7 +553,9 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 
 // newServer creates a new instance of the server which is to listen using the
 // passed listener address.
-func newServer(cfg *Config, listenAddrs []net.Addr,
+//
+//nolint:funlen
+func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
@@ -1210,7 +1211,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(selfVertex,
-				func(_ kvdb.RTx, c *models.ChannelEdgeInfo,
+				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
 
@@ -2217,7 +2218,7 @@ func (s *server) startLowLevelServices() error {
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
-func (s *server) Start() error {
+func (s *server) Start(ctx context.Context) error {
 	// Get the current blockbeat.
 	beat, err := s.getStartingBeat()
 	if err != nil {
@@ -2626,7 +2627,9 @@ func (s *server) Start() error {
 			}
 
 			s.wg.Add(1)
-			go s.peerBootstrapper(defaultMinPeers, bootstrappers)
+			go s.peerBootstrapper(
+				ctx, defaultMinPeers, bootstrappers,
+			)
 		} else {
 			srvrLog.Infof("Auto peer bootstrapping is disabled")
 		}
@@ -3073,7 +3076,7 @@ func (s *server) createBootstrapIgnorePeers() map[autopilot.NodeID]struct{} {
 // invariant, we ensure that our node is connected to a diverse set of peers
 // and that nodes newly joining the network receive an up to date network view
 // as soon as possible.
-func (s *server) peerBootstrapper(numTargetPeers uint32,
+func (s *server) peerBootstrapper(ctx context.Context, numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
 	defer s.wg.Done()
@@ -3083,7 +3086,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 
 	// We'll start off by aggressively attempting connections to peers in
 	// order to be a part of the network as soon as possible.
-	s.initialPeerBootstrap(ignoreList, numTargetPeers, bootstrappers)
+	s.initialPeerBootstrap(ctx, ignoreList, numTargetPeers, bootstrappers)
 
 	// Once done, we'll attempt to maintain our target minimum number of
 	// peers.
@@ -3161,7 +3164,7 @@ func (s *server) peerBootstrapper(numTargetPeers uint32,
 			ignoreList = s.createBootstrapIgnorePeers()
 
 			peerAddrs, err := discovery.MultiSourceBootstrap(
-				ignoreList, numNeeded*2, bootstrappers...,
+				ctx, ignoreList, numNeeded*2, bootstrappers...,
 			)
 			if err != nil {
 				srvrLog.Errorf("Unable to retrieve bootstrap "+
@@ -3210,8 +3213,8 @@ const bootstrapBackOffCeiling = time.Minute * 5
 // initialPeerBootstrap attempts to continuously connect to peers on startup
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
-func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
-	numTargetPeers uint32,
+func (s *server) initialPeerBootstrap(ctx context.Context,
+	ignore map[autopilot.NodeID]struct{}, numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
 	srvrLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
@@ -3270,7 +3273,7 @@ func (s *server) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
 		// in order to reach our target.
 		peersNeeded := numTargetPeers - numActivePeers
 		bootstrapAddrs, err := discovery.MultiSourceBootstrap(
-			ignore, peersNeeded, bootstrappers...,
+			ctx, ignore, peersNeeded, bootstrappers...,
 		)
 		if err != nil {
 			srvrLog.Errorf("Unable to retrieve initial bootstrap "+
@@ -3549,36 +3552,17 @@ func (s *server) establishPersistentConnections() error {
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
 	// that have been added via NodeAnnouncement messages.
-	sourceNode, err := s.graphDB.SourceNode()
-	if err != nil {
-		return fmt.Errorf("failed to fetch source node: %w", err)
-	}
-
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	selfPub := s.identityECDH.PubKey().SerializeCompressed()
-	err = s.graphDB.ForEachNodeChannel(sourceNode.PubKeyBytes, func(
-		tx kvdb.RTx,
-		chanInfo *models.ChannelEdgeInfo,
-		policy, _ *models.ChannelEdgePolicy) error {
+	err = s.graphDB.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+		havePolicy bool, channelPeer *models.LightningNode) error {
 
 		// If the remote party has announced the channel to us, but we
 		// haven't yet, then we won't have a policy. However, we don't
 		// need this to connect to the peer, so we'll log it and move on.
-		if policy == nil {
+		if !havePolicy {
 			srvrLog.Warnf("No channel policy found for "+
-				"ChannelPoint(%v): ", chanInfo.ChannelPoint)
-		}
-
-		// We'll now fetch the peer opposite from us within this
-		// channel so we can queue up a direct connection to them.
-		channelPeer, err := s.graphDB.FetchOtherNode(
-			tx, chanInfo, selfPub,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch channel peer for "+
-				"ChannelPoint(%v): %v", chanInfo.ChannelPoint,
-				err)
+				"ChannelPoint(%v): ", chanPoint)
 		}
 
 		pubStr := string(channelPeer.PubKeyBytes[:])
@@ -3638,8 +3622,8 @@ func (s *server) establishPersistentConnections() error {
 		return nil
 	})
 	if err != nil {
-		srvrLog.Errorf("Failed to iterate channels for node %x",
-			sourceNode.PubKeyBytes)
+		srvrLog.Errorf("Failed to iterate over source node channels: "+
+			"%v", err)
 
 		if !errors.Is(err, graphdb.ErrGraphNoEdgesFound) &&
 			!errors.Is(err, graphdb.ErrEdgeNotFound) {

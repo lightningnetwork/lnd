@@ -564,6 +564,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryBlindedRoutes,
 	},
 	{
+		Name:     "query not-found channel info",
+		TestFunc: testGetChannelInfoNotFound,
+	},
+	{
 		Name:     "route blinding invoices",
 		TestFunc: testBlindedRouteInvoices,
 	},

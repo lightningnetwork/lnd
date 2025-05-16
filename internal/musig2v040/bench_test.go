@@ -14,8 +14,6 @@ import (
 )
 
 var (
-	testPrivBytes = hexToModNScalar("9e0699c91ca1e3b7e3c9ba71eb71c89890872be97576010fe593fbf3fd57e66d")
-
 	testMsg = hexToBytes("c301ba9de5d6053caad9f5eb46523f007702add2c62fa39de03146a36b8026b7")
 )
 
@@ -25,18 +23,6 @@ func hexToBytes(s string) []byte {
 		panic("invalid hex in source file: " + s)
 	}
 	return b
-}
-
-func hexToModNScalar(s string) *btcec.ModNScalar {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		panic("invalid hex in source file: " + s)
-	}
-	var scalar btcec.ModNScalar
-	if overflow := scalar.SetByteSlice(b); overflow {
-		panic("hex in source file overflows mod N scalar: " + s)
-	}
-	return &scalar
 }
 
 func genSigner(t *testing.B) signer {

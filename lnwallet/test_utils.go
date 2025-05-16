@@ -510,15 +510,6 @@ func privkeyFromHex(keyHex string) (*btcec.PrivateKey, error) {
 
 }
 
-// blockFromHex parses a full Bitcoin block from a hex encoded string.
-func blockFromHex(blockHex string) (*btcutil.Block, error) {
-	bytes, err := hex.DecodeString(blockHex)
-	if err != nil {
-		return nil, err
-	}
-	return btcutil.NewBlockFromBytes(bytes)
-}
-
 // txFromHex parses a full Bitcoin transaction from a hex encoded string.
 func txFromHex(txHex string) (*btcutil.Tx, error) {
 	bytes, err := hex.DecodeString(txHex)

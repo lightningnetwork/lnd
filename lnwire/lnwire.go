@@ -52,6 +52,9 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 4
+
+	// dnsHostnameAddr denotes a DNS hostname address.
+	dnsHostnameAddr addressType = 5
 )
 
 // AddrLen returns the number of bytes that it takes to encode the target
@@ -800,6 +803,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			addrBytesRead++
 
 			var address net.Addr
+			var dnsHostnameAddressFound bool
 			switch aType := addressType(descriptor[0]); aType {
 			case noAddr:
 				addrBytesRead += aType.AddrLen()
@@ -880,6 +884,48 @@ func ReadElement(r io.Reader, element interface{}) error {
 					Port:         port,
 				}
 				addrBytesRead += aType.AddrLen()
+
+			case dnsHostnameAddr:
+				if dnsHostnameAddressFound {
+					return errors.New("cannot advertise " +
+						"multiple DNS hostname " +
+						"addresses. See Bolt 07")
+				}
+				dnsHostnameAddressFound = true
+
+				// Read hostname length byte.
+				var hostnameLen byte
+				err := binary.Read(
+					addrBuf, binary.BigEndian, &hostnameLen,
+				)
+				if err != nil {
+					return err
+				}
+
+				// Read hostname of variable size.
+				hostname := make([]byte, hostnameLen)
+				_, err = io.ReadFull(addrBuf, hostname)
+				if err != nil {
+					return err
+				}
+
+				// Read port.
+				const portLen = 2
+				var port [portLen]byte
+				_, err = io.ReadFull(addrBuf, port[:])
+				if err != nil {
+					return err
+				}
+
+				portValue := int(
+					binary.BigEndian.Uint16(port[:]),
+				)
+				address = &DNSHostnameAddress{
+					Hostname: string(hostname),
+					Port:     portValue,
+				}
+				length := 1 + uint16(hostnameLen) + portLen
+				addrBytesRead += length
 
 			default:
 				// If we don't understand this address type,

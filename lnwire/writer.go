@@ -29,6 +29,9 @@ var (
 	// ErrNilOnionAddress is returned when the supplied address is nil.
 	ErrNilOnionAddress = errors.New("cannot write nil onion address")
 
+	// ErrNilOnionAddress is returned when the supplied address is nil.
+	ErrNilDNSAddress = errors.New("cannot write nil DNS address")
+
 	// ErrNilNetAddress is returned when a nil value is used in []net.Addr.
 	ErrNilNetAddress = errors.New("cannot write nil address")
 
@@ -364,6 +367,36 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 	return WriteUint16(buf, uint16(addr.Port))
 }
 
+// WriteDNSHostnameAddr appends the onion address to the provided buffer.
+func WriteDNSHostnameAddr(buf *bytes.Buffer, addr *DNSHostnameAddress) error {
+	if addr == nil {
+		return ErrNilDNSAddress
+	}
+
+	// Hold a slice of bytes to hold the data of descriptor, DNS hostname
+	// length, and the DNS address. At most we need 257 bytes – 1 byte for
+	// the descriptor, 1 byte for DNS hostname length, and 225 bytes max for
+	// DNS hostname address.
+	hostnameLen := len(addr.Hostname)
+	dataLen := 1 + 1 + hostnameLen
+	data := make([]byte, 0, dataLen)
+
+	// Write the DNS address type descriptor.
+	data = append(data, byte(dnsHostnameAddr))
+
+	// Write the DNS hostname address length.
+	data = append(data, byte(hostnameLen))
+
+	// Write the DNS hostname address.
+	data = append(data, []byte(addr.Hostname)...)
+
+	if _, err := buf.Write(data); err != nil {
+		return err
+	}
+
+	return WriteUint16(buf, uint16(addr.Port))
+}
+
 // WriteOpaqueAddrs appends the payload of the given OpaqueAddrs to buffer.
 func WriteOpaqueAddrs(buf *bytes.Buffer, addr *OpaqueAddrs) error {
 	if addr == nil {
@@ -382,7 +415,7 @@ func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
 	// length of the addresses.
 	buffer := make([]byte, 0, MaxMsgBody)
 	addrBuf := bytes.NewBuffer(buffer)
-
+	var dnsHostnameAddressFound bool
 	for _, address := range addresses {
 		switch a := address.(type) {
 		case *net.TCPAddr:
@@ -393,6 +426,15 @@ func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
 			if err := WriteOnionAddr(addrBuf, a); err != nil {
 				return err
 			}
+		case *DNSHostnameAddress:
+			if dnsHostnameAddressFound {
+				return errors.New("cannot advertise multiple " +
+					"DNS hostname addresses. See Bolt 07")
+			}
+			if err := WriteDNSHostnameAddr(addrBuf, a); err != nil {
+				return err
+			}
+			dnsHostnameAddressFound = true
 		case *OpaqueAddrs:
 			if err := WriteOpaqueAddrs(addrBuf, a); err != nil {
 				return err

@@ -947,8 +947,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	addrsLen := len(externalIPs)
+	if cfg.ExternalDNSHostnameAddress != nil {
+		addrsLen++
+	}
+
+	selfAddrs := make([]net.Addr, 0, addrsLen)
 	selfAddrs = append(selfAddrs, externalIPs...)
+
+	if cfg.ExternalDNSHostnameAddress != nil {
+		selfAddrs = append(selfAddrs, cfg.ExternalDNSHostnameAddress)
+	}
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within

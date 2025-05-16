@@ -441,6 +441,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	for _, addr := range extraAddrs {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
+	lndArgs = append(lndArgs, "--external-dns-hostname="+"example.com")
 	dave := ht.NewNode("Dave", lndArgs)
 
 	// assertNodeAnn is a helper closure that checks a given node update
@@ -650,6 +651,19 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	// Check that we cannot unset a feature bit that is already unset.
 	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		FeatureUpdates: updateFeatureActions,
+	}
+	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
+
+	// Check that we cannot add another DNS hostname in Node Announcement
+	// Message.
+	updateAddressActions = []*peersrpc.UpdateAddressAction{
+		{
+			Action:  peersrpc.UpdateAction_ADD,
+			Address: "example.org",
+		},
+	}
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
+		AddressUpdates: updateAddressActions,
 	}
 	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
 }

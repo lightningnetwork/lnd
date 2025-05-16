@@ -552,10 +552,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	totalChans []LocalChannel) error {
 
 	// As channel size we'll use the maximum channel size available.
-	chanSize := a.cfg.Constraints.MaxChanSize()
-	if availableFunds < chanSize {
-		chanSize = availableFunds
-	}
+	chanSize := min(availableFunds, a.cfg.Constraints.MaxChanSize())
 
 	if chanSize < a.cfg.Constraints.MinChanSize() {
 		return fmt.Errorf("not enough funds available to open a " +

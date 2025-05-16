@@ -824,10 +824,7 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 
 	// If the result is too low, then we'll clamp it to our current fee
 	// floor.
-	satPerKw := SatPerKVByte(feePerKb).FeePerKWeight()
-	if satPerKw < FeePerKwFloor {
-		satPerKw = FeePerKwFloor
-	}
+	satPerKw := max(SatPerKVByte(feePerKb).FeePerKWeight(), FeePerKwFloor)
 
 	log.Debugf("Web API returning %v sat/kw for conf target of %v",
 		int64(satPerKw), numBlocks)

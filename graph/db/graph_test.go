@@ -159,10 +159,14 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	if err := graph.DeleteLightningNode(testPub); err != nil {
-		t.Fatalf("unable to delete node; %v", err)
-	}
+	require.NoError(t, graph.DeleteLightningNode(testPub))
 	assertNodeNotInCache(t, graph, testPub)
+
+	// Attempting to delete the node again should return an error since
+	// the node is no longer known.
+	require.ErrorIs(
+		t, graph.DeleteLightningNode(testPub), ErrGraphNodeNotFound,
+	)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
@@ -299,6 +303,7 @@ func TestSourceNode(t *testing.T) {
 	compareNodes(t, testNode, sourceNode)
 }
 
+// TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
@@ -340,40 +345,33 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
 	copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
 
-	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(&edgeInfo))
 	assertEdgeWithNoPoliciesInCache(t, graph, &edgeInfo)
+
+	// Show that trying to insert the same channel again will return the
+	// expected error.
+	err = graph.AddChannelEdge(&edgeInfo)
+	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
 	// Ensure that both policies are returned as unknown (nil).
 	_, e1, e2, err := graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel edge")
-	}
-	if e1 != nil || e2 != nil {
-		t.Fatalf("channel edges not unknown")
-	}
+	require.NoError(t, err)
+	require.Nil(t, e1)
+	require.Nil(t, e2)
 
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
-	if err := graph.DeleteChannelEdges(false, true, chanID); err != nil {
-		t.Fatalf("unable to delete edge: %v", err)
-	}
+	require.NoError(t, graph.DeleteChannelEdges(false, true, chanID))
 	assertNoEdge(t, graph, chanID)
 
 	// Ensure that any query attempts to lookup the delete channel edge are
 	// properly deleted.
 	_, _, _, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
-	if err == nil {
-		t.Fatalf("channel edge not deleted")
-	}
-	if _, _, _, err := graph.FetchChannelEdgesByID(chanID); err == nil {
-		t.Fatalf("channel edge not deleted")
-	}
+	require.ErrorIs(t, err, ErrEdgeNotFound)
+	_, _, _, err = graph.FetchChannelEdgesByID(chanID)
+	require.ErrorIs(t, err, ErrZombieEdge)
 	isZombie, _, _ := graph.IsZombieEdge(chanID)
-	if !isZombie {
-		t.Fatal("channel edge not marked as zombie")
-	}
+	require.True(t, isZombie)
 
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.

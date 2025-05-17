@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -963,3 +964,21 @@ type RbfEvent = protofsm.EmittedEvent[ProtocolEvent]
 // RbfStateSub is a type alias for the state subscription type of the RBF chan
 // closer.
 type RbfStateSub = protofsm.StateSubscriber[ProtocolEvent, *Environment]
+
+// ChanCloserActorMsg is an adapter to enable the state machine executor that
+// runs this state machine to be passed around as an actor.
+type ChanCloserActorMsg = protofsm.ActorMessage[ProtocolEvent]
+
+// NewRbfCloserServiceKey returns a new service key that can be used to reach an
+// RBF chan closer.
+//
+//nolint:ll
+func NewRbfCloserServiceKey(op wire.OutPoint) actor.ServiceKey[ChanCloserActorMsg, bool] {
+	opStr := op.String()
+
+	// Now that even just using the channel point here would be enough, as
+	// we have a unique type here ChanCloserActorMsg which will handle the
+	// final actor selection.
+	actorKey := fmt.Sprintf("RbfChanCloser(%v)", opStr)
+	return actor.NewServiceKey[ChanCloserActorMsg, bool](actorKey)
+}

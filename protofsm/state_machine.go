@@ -248,6 +248,26 @@ func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
 	}
 }
 
+// Receive processes a message and returns a Result. The provided context is the
+// actor's internal context, which can be used to detect actor shutdown
+// requests.
+//
+// NOTE: This implements the actor.ActorBehavior interface.
+func (s *StateMachine[Event, Env]) Receive(ctx context.Context,
+	e ActorMessage[Event]) fn.Result[bool] {
+
+	select {
+	case s.events <- e.Event:
+		return fn.Ok(true)
+
+	case <-ctx.Done():
+		return fn.Err[bool](ctx.Err())
+
+	case <-s.quit:
+		return fn.Err[bool](ErrStateMachineShutdown)
+	}
+}
+
 // CanHandle returns true if the target message can be routed to the state
 // machine.
 func (s *StateMachine[Event, Env]) CanHandle(msg msgmux.PeerMsg) bool {

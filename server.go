@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -914,20 +915,30 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
-	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
+	color, alias, addresses, features, err := getNodeAnnouncementFields(
+		cfg, s, serializedPubKey,
+	)
 	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
 	}
 
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
+	// Create a map to track existing addresses for quick lookup. This is
+	// used to avoid having duplicates in the node's address list.
+	addressMap := make(map[string]struct{}, len(selfAddrs))
+	// Populate the map with the existing addresses we know so far.
+	for _, existingAddr := range selfAddrs {
+		addressMap[existingAddr.String()] = struct{}{}
 	}
+	// Append unique addresses from the persisted list to the node's
+	// address list. This ensures that the node's address list contains
+	// only unique addresses.
+	for _, addr := range addresses {
+		if _, found := addressMap[addr.String()]; !found {
+			selfAddrs = append(selfAddrs, addr)
+			addressMap[addr.String()] = struct{}{}
+		}
+	}
+
 	nodeAlias, err := lnwire.NewNodeAlias(alias)
 	if err != nil {
 		return nil, err
@@ -937,7 +948,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		LastUpdate:           time.Now(),
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+		Features:             features,
 		Color:                color,
 	}
 	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
@@ -5545,4 +5556,61 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 	}
 
 	return updates, nil
+}
+
+// getNodeAnnouncementFields populates the alias, color, addresses, and feature
+// bits. This is used during startup to construct the initial node announcement.
+func getNodeAnnouncementFields(cfg *Config, s *server,
+	serializedPubKey [33]byte) (color.RGBA, string, []net.Addr,
+	*lnwire.FeatureVector, error) {
+
+	var (
+		color    color.RGBA
+		alias    = cfg.Alias
+		features *lnwire.FeatureVector
+		addr     []net.Addr
+	)
+
+	// Fetch the source node from the graphDB. If it exists, we'll use its
+	// data for our initial node announcement.
+	sourceNode, err := s.graphDB.SourceNode()
+	if err != nil {
+		srvrLog.Debugf("Unable to get source node from graphDB to "+
+			"construct initial node announcement: %v", err)
+
+		color, err = lncfg.ParseHexColor(cfg.Color)
+		if err != nil {
+			srvrLog.Errorf("unable to parse color: %v\n", err)
+
+			return color, alias, addr, features, err
+		}
+
+		// If an alias was not set, we'll set it to the first 10 bytes
+		// of the serialized public key.
+		if alias == "" {
+			alias = hex.EncodeToString(serializedPubKey[:10])
+		}
+
+		features = s.featureMgr.Get(feature.SetNodeAnn)
+
+		return color, alias, addr, features, nil
+	}
+
+	// If the color is still set to default, it means that we didn't
+	// specify a color in the config. We'll use the source node's color.
+	if cfg.Color == defaultColor {
+		color = sourceNode.Color
+	}
+
+	// If an alias was not specified in the configuration, we'll use
+	// the source node's alias.
+	if alias == "" {
+		alias = sourceNode.Alias
+	}
+
+	addr = sourceNode.Addresses
+
+	features = sourceNode.Features
+
+	return color, alias, addr, features, nil
 }

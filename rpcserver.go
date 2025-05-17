@@ -2909,13 +2909,23 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			rpcsLog.Infof("Bypassing Switch to do fee bump "+
 				"for ChannelPoint(%v)", chanPoint)
 
-			closeUpdates, err := r.server.AttemptRBFCloseUpdate(
-				updateStream.Context(), *chanPoint, feeRate,
-				deliveryScript,
+			// To perform this RBF bump, we'll send a bump message
+			// to the RBF close actor.
+			rbfBumpMsg := peer.NewRbfBumpCloseMsg(
+				*chanPoint, feeRate, deliveryScript,
 			)
+			rbfActorKey := peer.NewRbfCloserServiceKey(*chanPoint)
+			rbfRouter := peer.RbfChanCloserRouter(
+				r.server.actors, rbfActorKey,
+			)
+
+			ctx := updateStream.Context()
+			closeUpdates, err := rbfRouter.Ask(
+				ctx, rbfBumpMsg,
+			).Await(ctx).Unpack()
 			if err != nil {
-				return fmt.Errorf("unable to do RBF close "+
-					"update: %w", err)
+				return fmt.Errorf("unable to ask for RBF "+
+					"close: %w", err)
 			}
 
 			updateChan = closeUpdates.UpdateChan

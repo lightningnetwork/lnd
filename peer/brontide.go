@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -459,6 +460,10 @@ type Config struct {
 	// disconnected if a pong is not received in time or is mismatched.
 	NoDisconnectOnPongFailure bool
 
+	// Actors enables the peer to send messages to the set of actors, and
+	// also register new actors itself.
+
+	Actors *actor.ActorSystem
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
 }
@@ -3925,6 +3930,18 @@ func (p *Brontide) initRbfChanCloser(
 			"close: %w", err)
 	}
 
+	// In addition to the message router, we'll register the state machine
+	// with the actor system.
+	if p.cfg.Actors != nil {
+		p.log.Infof("Registering RBF actor for channel %v",
+			channel.ChannelPoint())
+
+		actorWrapper := newRbfCloseActor(
+			channel.ChannelPoint(), p, p.cfg.Actors,
+		)
+		actorWrapper.registerActor()
+	}
+
 	p.activeChanCloses.Store(chanID, makeRbfCloser(&chanCloser))
 
 	// Now that we've created the rbf closer state machine, we'll launch a
@@ -5350,43 +5367,4 @@ func (p *Brontide) ChanHasRbfCoopCloser(chanPoint wire.OutPoint) bool {
 	}
 
 	return chanCloser.IsRight()
-}
-
-// TriggerCoopCloseRbfBump given a chan ID, and the params needed to trigger a
-// new RBF co-op close update, a bump is attempted. A channel used for updates,
-// along with one used to o=communicate any errors is returned. If no chan
-// closer is found, then false is returned for the second argument.
-func (p *Brontide) TriggerCoopCloseRbfBump(ctx context.Context,
-	chanPoint wire.OutPoint, feeRate chainfee.SatPerKWeight,
-	deliveryScript lnwire.DeliveryAddress) (*CoopCloseUpdates, error) {
-
-	// If RBF coop close isn't permitted, then we'll an error.
-	if !p.rbfCoopCloseAllowed() {
-		return nil, fmt.Errorf("rbf coop close not enabled for " +
-			"channel")
-	}
-
-	closeUpdates := &CoopCloseUpdates{
-		UpdateChan: make(chan interface{}, 1),
-		ErrChan:    make(chan error, 1),
-	}
-
-	// We'll re-use the existing switch struct here, even though we're
-	// bypassing the switch entirely.
-	closeReq := htlcswitch.ChanClose{
-		CloseType:      contractcourt.CloseRegular,
-		ChanPoint:      &chanPoint,
-		TargetFeePerKw: feeRate,
-		DeliveryScript: deliveryScript,
-		Updates:        closeUpdates.UpdateChan,
-		Err:            closeUpdates.ErrChan,
-		Ctx:            ctx,
-	}
-
-	err := p.startRbfChanCloser(newRPCShutdownInit(&closeReq), chanPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return closeUpdates, nil
 }

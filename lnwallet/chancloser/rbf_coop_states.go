@@ -1026,3 +1026,7 @@ type RbfEvent = protofsm.EmittedEvent[ProtocolEvent]
 // RbfStateSub is a type alias for the state subscription type of the RBF chan
 // closer.
 type RbfStateSub = protofsm.StateSubscriber[ProtocolEvent, *Environment]
+
+// ChanCloserActorMsg is an adapter to enable the state machine executor that
+// runs this state machine to be passed around as an actor.
+type ChanCloserActorMsg = protofsm.ActorMessage[ProtocolEvent]

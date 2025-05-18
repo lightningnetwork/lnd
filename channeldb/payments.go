@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -103,111 +103,6 @@ var (
 	paymentsIndexBucket = []byte("payments-index-bucket")
 )
 
-var (
-	// ErrNoSequenceNumber is returned if we look up a payment which does
-	// not have a sequence number.
-	ErrNoSequenceNumber = errors.New("sequence number not found")
-
-	// ErrDuplicateNotFound is returned when we lookup a payment by its
-	// index and cannot find a payment with a matching sequence number.
-	ErrDuplicateNotFound = errors.New("duplicate payment not found")
-
-	// ErrNoDuplicateBucket is returned when we expect to find duplicates
-	// when looking up a payment from its index, but the payment does not
-	// have any.
-	ErrNoDuplicateBucket = errors.New("expected duplicate bucket")
-
-	// ErrNoDuplicateNestedBucket is returned if we do not find duplicate
-	// payments in their own sub-bucket.
-	ErrNoDuplicateNestedBucket = errors.New("nested duplicate bucket not " +
-		"found")
-)
-
-// FailureReason encodes the reason a payment ultimately failed.
-type FailureReason byte
-
-const (
-	// FailureReasonTimeout indicates that the payment did timeout before a
-	// successful payment attempt was made.
-	FailureReasonTimeout FailureReason = 0
-
-	// FailureReasonNoRoute indicates no successful route to the
-	// destination was found during path finding.
-	FailureReasonNoRoute FailureReason = 1
-
-	// FailureReasonError indicates that an unexpected error happened during
-	// payment.
-	FailureReasonError FailureReason = 2
-
-	// FailureReasonPaymentDetails indicates that either the hash is unknown
-	// or the final cltv delta or amount is incorrect.
-	FailureReasonPaymentDetails FailureReason = 3
-
-	// FailureReasonInsufficientBalance indicates that we didn't have enough
-	// balance to complete the payment.
-	FailureReasonInsufficientBalance FailureReason = 4
-
-	// FailureReasonCanceled indicates that the payment was canceled by the
-	// user.
-	FailureReasonCanceled FailureReason = 5
-
-	// TODO(joostjager): Add failure reasons for:
-	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
-)
-
-// Error returns a human-readable error string for the FailureReason.
-func (r FailureReason) Error() string {
-	return r.String()
-}
-
-// String returns a human-readable FailureReason.
-func (r FailureReason) String() string {
-	switch r {
-	case FailureReasonTimeout:
-		return "timeout"
-	case FailureReasonNoRoute:
-		return "no_route"
-	case FailureReasonError:
-		return "error"
-	case FailureReasonPaymentDetails:
-		return "incorrect_payment_details"
-	case FailureReasonInsufficientBalance:
-		return "insufficient_balance"
-	case FailureReasonCanceled:
-		return "canceled"
-	}
-
-	return "unknown"
-}
-
-// PaymentCreationInfo is the information necessary to have ready when
-// initiating a payment, moving it into state InFlight.
-type PaymentCreationInfo struct {
-	// PaymentIdentifier is the hash this payment is paying to in case of
-	// non-AMP payments, and the SetID for AMP payments.
-	PaymentIdentifier lntypes.Hash
-
-	// Value is the amount we are paying.
-	Value lnwire.MilliSatoshi
-
-	// CreationTime is the time when this payment was initiated.
-	CreationTime time.Time
-
-	// PaymentRequest is the full payment request, if any.
-	PaymentRequest []byte
-
-	// FirstHopCustomRecords are the TLV records that are to be sent to the
-	// first hop of this payment. These records will be transmitted via the
-	// wire message only and therefore do not affect the onion payload size.
-	FirstHopCustomRecords lnwire.CustomRecords
-}
-
-// String returns a human-readable description of the payment creation info.
-func (p *PaymentCreationInfo) String() string {
-	return fmt.Sprintf("payment_id=%v, amount=%v, created_at=%v",
-		p.PaymentIdentifier, p.Value, p.CreationTime)
-}
-
 // htlcBucketKey creates a composite key from prefix and id where the result is
 // simply the two concatenated.
 func htlcBucketKey(prefix, id []byte) []byte {
@@ -220,8 +115,10 @@ func htlcBucketKey(prefix, id []byte) []byte {
 // FetchPayments returns all sent payments found in the DB.
 //
 // nolint: dupl
-func (d *DB) FetchPayments() ([]*MPPayment, error) {
-	var payments []*MPPayment
+//
+// TODO(replace with QueryPayments)
+func (d *DB) FetchPayments() ([]*pymtpkg.MPPayment, error) {
+	var payments []*pymtpkg.MPPayment
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
@@ -272,7 +169,9 @@ func (d *DB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
-func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
+func fetchCreationInfo(bucket kvdb.RBucket) (*pymtpkg.PaymentCreationInfo,
+	error) {
+
 	b := bucket.Get(paymentCreationInfoKey)
 	if b == nil {
 		return nil, fmt.Errorf("creation info not found")
@@ -282,7 +181,7 @@ func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
 	return deserializePaymentCreationInfo(r)
 }
 
-func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
+func fetchPayment(bucket kvdb.RBucket) (*pymtpkg.MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -296,7 +195,7 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 		return nil, err
 	}
 
-	var htlcs []HTLCAttempt
+	var htlcs []pymtpkg.HTLCAttempt
 	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 	if htlcsBucket != nil {
 		// Get the payment attempts. This can be empty.
@@ -307,15 +206,15 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *FailureReason
+	var failureReason *pymtpkg.FailureReason
 	b := bucket.Get(paymentFailInfoKey)
 	if b != nil {
-		reason := FailureReason(b[0])
+		reason := pymtpkg.FailureReason(b[0])
 		failureReason = &reason
 	}
 
 	// Create a new payment.
-	payment := &MPPayment{
+	payment := &pymtpkg.MPPayment{
 		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		HTLCs:         htlcs,
@@ -323,7 +222,7 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Set its state and status.
-	if err := payment.setState(); err != nil {
+	if err := payment.SetState(); err != nil {
 		return nil, err
 	}
 
@@ -332,15 +231,15 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 
 // fetchHtlcAttempts retrieves all htlc attempts made for the payment found in
 // the given bucket.
-func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
-	htlcsMap := make(map[uint64]*HTLCAttempt)
+func fetchHtlcAttempts(bucket kvdb.RBucket) ([]pymtpkg.HTLCAttempt, error) {
+	htlcsMap := make(map[uint64]*pymtpkg.HTLCAttempt)
 
 	attemptInfoCount := 0
 	err := bucket.ForEach(func(k, v []byte) error {
 		aid := byteOrder.Uint64(k[len(k)-8:])
 
 		if _, ok := htlcsMap[aid]; !ok {
-			htlcsMap[aid] = &HTLCAttempt{}
+			htlcsMap[aid] = &pymtpkg.HTLCAttempt{}
 		}
 
 		var err error
@@ -379,7 +278,7 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 
 	// Sanity check that all htlcs have an attempt info.
 	if attemptInfoCount != len(htlcsMap) {
-		return nil, errNoAttemptInfo
+		return nil, pymtpkg.ErrNoAttemptInfo
 	}
 
 	keys := make([]uint64, len(htlcsMap))
@@ -396,7 +295,7 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 		return keys[i] < keys[j]
 	})
 
-	htlcs := make([]HTLCAttempt, len(htlcsMap))
+	htlcs := make([]pymtpkg.HTLCAttempt, len(htlcsMap))
 	for i, key := range keys {
 		htlcs[i] = *htlcsMap[key]
 	}
@@ -405,21 +304,21 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
 }
 
 // readHtlcAttemptInfo reads the payment attempt info for this htlc.
-func readHtlcAttemptInfo(b []byte) (*HTLCAttemptInfo, error) {
+func readHtlcAttemptInfo(b []byte) (*pymtpkg.HTLCAttemptInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCAttemptInfo(r)
 }
 
 // readHtlcSettleInfo reads the settle info for the htlc. If the htlc isn't
 // settled, nil is returned.
-func readHtlcSettleInfo(b []byte) (*HTLCSettleInfo, error) {
+func readHtlcSettleInfo(b []byte) (*pymtpkg.HTLCSettleInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCSettleInfo(r)
 }
 
 // readHtlcFailInfo reads the failure info for the htlc. If the htlc hasn't
 // failed, nil is returned.
-func readHtlcFailInfo(b []byte) (*HTLCFailInfo, error) {
+func readHtlcFailInfo(b []byte) (*pymtpkg.HTLCFailInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCFailInfo(r)
 }
@@ -429,7 +328,7 @@ func readHtlcFailInfo(b []byte) (*HTLCFailInfo, error) {
 func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 
-	var htlcs []HTLCAttempt
+	var htlcs []pymtpkg.HTLCAttempt
 	var err error
 	if htlcsBucket != nil {
 		htlcs, err = fetchHtlcAttempts(htlcsBucket)
@@ -455,79 +354,11 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 	return htlcKeys, nil
 }
 
-// PaymentsQuery represents a query to the payments database starting or ending
-// at a certain offset index. The number of retrieved records can be limited.
-type PaymentsQuery struct {
-	// IndexOffset determines the starting point of the payments query and
-	// is always exclusive. In normal order, the query starts at the next
-	// higher (available) index compared to IndexOffset. In reversed order,
-	// the query ends at the next lower (available) index compared to the
-	// IndexOffset. In the case of a zero index_offset, the query will start
-	// with the oldest payment when paginating forwards, or will end with
-	// the most recent payment when paginating backwards.
-	IndexOffset uint64
-
-	// MaxPayments is the maximal number of payments returned in the
-	// payments query.
-	MaxPayments uint64
-
-	// Reversed gives a meaning to the IndexOffset. If reversed is set to
-	// true, the query will fetch payments with indices lower than the
-	// IndexOffset, otherwise, it will return payments with indices greater
-	// than the IndexOffset.
-	Reversed bool
-
-	// If IncludeIncomplete is true, then return payments that have not yet
-	// fully completed. This means that pending payments, as well as failed
-	// payments will show up if this field is set to true.
-	IncludeIncomplete bool
-
-	// CountTotal indicates that all payments currently present in the
-	// payment index (complete and incomplete) should be counted.
-	CountTotal bool
-
-	// CreationDateStart, expressed in Unix seconds, if set, filters out
-	// all payments with a creation date greater than or equal to it.
-	CreationDateStart int64
-
-	// CreationDateEnd, expressed in Unix seconds, if set, filters out all
-	// payments with a creation date less than or equal to it.
-	CreationDateEnd int64
-}
-
-// PaymentsResponse contains the result of a query to the payments database.
-// It includes the set of payments that match the query and integers which
-// represent the index of the first and last item returned in the series of
-// payments. These integers allow callers to resume their query in the event
-// that the query's response exceeds the max number of returnable events.
-type PaymentsResponse struct {
-	// Payments is the set of payments returned from the database for the
-	// PaymentsQuery.
-	Payments []*MPPayment
-
-	// FirstIndexOffset is the index of the first element in the set of
-	// returned MPPayments. Callers can use this to resume their query
-	// in the event that the slice has too many events to fit into a single
-	// response. The offset can be used to continue reverse pagination.
-	FirstIndexOffset uint64
-
-	// LastIndexOffset is the index of the last element in the set of
-	// returned MPPayments. Callers can use this to resume their query
-	// in the event that the slice has too many events to fit into a single
-	// response. The offset can be used to continue forward pagination.
-	LastIndexOffset uint64
-
-	// TotalCount represents the total number of payments that are currently
-	// stored in the payment database. This will only be set if the
-	// CountTotal field in the query was set to true.
-	TotalCount uint64
-}
-
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
-	var resp PaymentsResponse
+func (d *DB) QueryPayments(query pymtpkg.Query) (pymtpkg.Response, error) {
+	var resp pymtpkg.Response
 
 	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
@@ -566,7 +397,7 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 
 			// To keep compatibility with the old API, we only
 			// return non-succeeded payments if requested.
-			if payment.Status != StatusSucceeded &&
+			if payment.Status != pymtpkg.StatusSucceeded &&
 				!query.IncludeIncomplete {
 
 				return false, err
@@ -639,7 +470,7 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 
 		return nil
 	}, func() {
-		resp = PaymentsResponse{}
+		resp = pymtpkg.Response{}
 	}); err != nil {
 		return resp, err
 	}
@@ -668,7 +499,7 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 // we previously had more than one payment per hash, so we have multiple indexes
 // pointing to a single payment; we want to retrieve the correct one.
 func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
-	sequenceNumber []byte) (*MPPayment, error) {
+	sequenceNumber []byte) (*pymtpkg.MPPayment, error) {
 
 	// We can now lookup the payment keyed by its hash in
 	// the payments root bucket.
@@ -682,7 +513,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	// the payment we are actually looking for.
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
-		return nil, ErrNoSequenceNumber
+		return nil, pymtpkg.ErrNoSequenceNumber
 	}
 
 	// If this top level payment has the sequence number we are looking for,
@@ -697,15 +528,15 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	// find a duplicate payments bucket here, something is wrong.
 	dup := bucket.NestedReadBucket(duplicatePaymentsBucket)
 	if dup == nil {
-		return nil, ErrNoDuplicateBucket
+		return nil, pymtpkg.ErrNoDuplicateBucket
 	}
 
-	var duplicatePayment *MPPayment
+	var duplicatePayment *pymtpkg.MPPayment
 	err = dup.ForEach(func(k, v []byte) error {
 		subBucket := dup.NestedReadBucket(k)
 		if subBucket == nil {
 			// We one bucket for each duplicate to be found.
-			return ErrNoDuplicateNestedBucket
+			return pymtpkg.ErrNoDuplicateNestedBucket
 		}
 
 		seqBytes := subBucket.Get(duplicatePaymentSequenceKey)
@@ -734,7 +565,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 	// failed to find the payment with this sequence number; something is
 	// wrong.
 	if duplicatePayment == nil {
-		return nil, ErrDuplicateNotFound
+		return nil, pymtpkg.ErrDuplicateNotFound
 	}
 
 	return duplicatePayment, nil
@@ -767,7 +598,7 @@ func (d *DB) DeletePayment(paymentHash lntypes.Hash,
 
 		// If the payment has inflight HTLCs, we cannot safely delete
 		// the payment information, so we return an error.
-		if err := paymentStatus.removable(); err != nil {
+		if err := paymentStatus.Removable(); err != nil {
 			return fmt.Errorf("payment '%v' has inflight HTLCs"+
 				"and therefore cannot be deleted: %w",
 				paymentHash.String(), err)
@@ -875,13 +706,13 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int, error) {
 			// If the payment has inflight HTLCs, we cannot safely
 			// delete the payment information, so we return an nil
 			// to skip it.
-			if err := paymentStatus.removable(); err != nil {
+			if err := paymentStatus.Removable(); err != nil {
 				return nil
 			}
 
 			// If we requested to only delete failed payments, we
 			// can return if this one is not.
-			if failedOnly && paymentStatus != StatusFailed {
+			if failedOnly && paymentStatus != pymtpkg.StatusFailed {
 				return nil
 			}
 
@@ -1006,7 +837,9 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 }
 
 // nolint: dupl
-func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
+func serializePaymentCreationInfo(w io.Writer,
+	c *pymtpkg.PaymentCreationInfo) error {
+
 	var scratch [8]byte
 
 	if _, err := w.Write(c.PaymentIdentifier[:]); err != nil {
@@ -1043,12 +876,12 @@ func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	return nil
 }
 
-func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
+func deserializePaymentCreationInfo(r io.Reader) (*pymtpkg.PaymentCreationInfo,
 	error) {
 
 	var scratch [8]byte
 
-	c := &PaymentCreationInfo{}
+	c := &pymtpkg.PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
@@ -1090,8 +923,14 @@ func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
 	return c, nil
 }
 
-func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
-	if err := WriteElements(w, a.sessionKey); err != nil {
+func serializeHTLCAttemptInfo(w io.Writer, a *pymtpkg.HTLCAttemptInfo) error {
+	sessionKey := a.SessionKey().Serialize()
+
+	// We nned to make sure the session key is 32 bytes, so we copy the
+	// session key into a 32 byte array.
+	var sessionKeyArray [32]byte
+	copy(sessionKeyArray[:], sessionKey)
+	if err := WriteElements(w, sessionKeyArray); err != nil {
 		return err
 	}
 
@@ -1134,15 +973,19 @@ func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 	return nil
 }
 
-func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
-	a := &HTLCAttemptInfo{}
-	err := ReadElements(r, &a.sessionKey)
+func deserializeHTLCAttemptInfo(r io.Reader) (*pymtpkg.HTLCAttemptInfo, error) {
+	var sessionKey [32]byte
+	err := ReadElements(r, &sessionKey)
 	if err != nil {
 		return nil, err
 	}
 
+	a := &pymtpkg.HTLCAttemptInfo{}
+	a.SetSessionKey(sessionKey)
+
 	a.Route, err = DeserializeRoute(r)
 	if err != nil {
+
 		return nil, err
 	}
 

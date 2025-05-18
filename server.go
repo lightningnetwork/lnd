@@ -1081,9 +1081,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
+	kvPaymentDB := channeldb.NewKVPaymentDB(dbs.ChanStateDB)
 
-	s.controlTower = routing.NewControlTower(paymentControl)
+	// TODO(ziggie): Update this as soon as the sql backend is available.
+	s.controlTower = routing.NewControlTower(kvPaymentDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning

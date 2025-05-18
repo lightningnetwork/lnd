@@ -72,6 +72,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -5844,7 +5845,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		var attempt *channeldb.HTLCAttempt
+		var attempt *pymtpkg.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route, nil,
 		)
@@ -7387,7 +7388,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		}
 	}
 
-	query := channeldb.PaymentsQuery{
+	query := pymtpkg.Query{
 		IndexOffset:       req.IndexOffset,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,

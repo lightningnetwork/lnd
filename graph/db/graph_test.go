@@ -2078,7 +2078,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 func TestNodeUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	startTime := time.Unix(1234, 0)
 	endTime := startTime
@@ -2089,10 +2089,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
 	require.NoError(t, err, "unable to query for node updates")
-	if len(nodeUpdates) != 0 {
-		t.Fatalf("expected 0 node updates, instead got %v",
-			len(nodeUpdates))
-	}
+	require.Len(t, nodeUpdates, 0)
 
 	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
@@ -2111,9 +2108,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 		nodeAnns = append(nodeAnns, *nodeAnn)
 
-		if err := graph.AddLightningNode(nodeAnn); err != nil {
-			t.Fatalf("unable to add lightning node: %v", err)
-		}
+		require.NoError(t, graph.AddLightningNode(nodeAnn))
 	}
 
 	queryCases := []struct {
@@ -2167,15 +2162,8 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		resp, err := graph.NodeUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
-		if err != nil {
-			t.Fatalf("unable to query for nodes: %v", err)
-		}
-
-		if len(resp) != len(queryCase.resp) {
-			t.Fatalf("expected %v nodes, got %v nodes",
-				len(queryCase.resp), len(resp))
-
-		}
+		require.NoError(t, err)
+		require.Len(t, resp, len(queryCase.resp))
 
 		for i := 0; i < len(resp); i++ {
 			compareNodes(t, &queryCase.resp[i], &resp[i])

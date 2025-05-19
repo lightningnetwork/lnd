@@ -48,6 +48,7 @@ type SQLQueries interface {
 	*/
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
 	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.Node, error)
+	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.Node, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.NodeExtraType, error)
@@ -369,6 +370,57 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	}
 
 	return alias, nil
+}
+
+// NodeUpdatesInHorizon returns all the known lightning node which have an
+// update timestamp within the passed range. This method can be used by two
+// nodes to quickly determine if they have the same set of up to date node
+// announcements.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) NodeUpdatesInHorizon(startTime,
+	endTime time.Time) ([]models.LightningNode, error) {
+
+	ctx := context.TODO()
+
+	var (
+		readTx = NewReadTx()
+		nodes  []models.LightningNode
+	)
+	err := s.db.ExecTx(ctx, &readTx, func(db SQLQueries) error {
+		dbNodes, err := db.GetNodesByLastUpdateRange(
+			ctx, sqlc.GetNodesByLastUpdateRangeParams{
+				StartTime: sql.NullInt64{
+					Int64: startTime.Unix(),
+					Valid: true,
+				},
+				EndTime: sql.NullInt64{
+					Int64: endTime.Unix(),
+					Valid: true,
+				},
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch nodes: %w", err)
+		}
+
+		for _, dbNode := range dbNodes {
+			node, err := buildNode(ctx, db, &dbNode)
+			if err != nil {
+				return fmt.Errorf("unable to build node: %w",
+					err)
+			}
+
+			nodes = append(nodes, *node)
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
+	}
+
+	return nodes, nil
 }
 
 // getNodeByPubKey attempts to look up a target node by its public key.

@@ -88,3 +88,7 @@ CREATE TABLE IF NOT EXISTS node_addresses (
 CREATE UNIQUE INDEX IF NOT EXISTS node_addresses_unique ON node_addresses (
     node_id, type, position
 );
+
+CREATE TABLE IF NOT EXISTS source_nodes (
+    node_id BIGINT PRIMARY KEY REFERENCES nodes (id) ON DELETE CASCADE
+);

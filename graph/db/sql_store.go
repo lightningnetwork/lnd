@@ -63,6 +63,12 @@ type SQLQueries interface {
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]sqlc.NodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg sqlc.GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
+
+	/*
+		Source node queries.
+	*/
+	AddSourceNode(ctx context.Context, nodeID int64) error
+	GetSourceNodesByVersion(ctx context.Context, version int16) ([]sqlc.GetSourceNodesByVersionRow, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -370,6 +376,73 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	}
 
 	return alias, nil
+}
+
+// SourceNode returns the source node of the graph. The source node is treated
+// as the center node within a star-graph. This method may be used to kick off
+// a path finding algorithm in order to explore the reachability of another
+// node based off the source node.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
+	ctx := context.TODO()
+
+	var (
+		readTx = NewReadTx()
+		node   *models.LightningNode
+	)
+	err := s.db.ExecTx(ctx, &readTx, func(db SQLQueries) error {
+		_, nodePub, err := getSourceNode(ctx, db, ProtocolV1)
+		if err != nil {
+			return fmt.Errorf("unable to fetch V1 source node: %w",
+				err)
+		}
+
+		_, node, err = getNodeByPubKey(ctx, db, nodePub)
+
+		return err
+	}, func() {})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch source node: %w", err)
+	}
+
+	return node, nil
+}
+
+// SetSourceNode sets the source node within the graph database. The source
+// node is to be used as the center of a star-graph within path finding
+// algorithms.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
+	ctx := context.TODO()
+	var writeTxOpts TxOptions
+
+	return s.db.ExecTx(ctx, &writeTxOpts, func(db SQLQueries) error {
+		id, err := upsertNode(ctx, db, node)
+		if err != nil {
+			return fmt.Errorf("unable to upsert source node: %w",
+				err)
+		}
+
+		// Make sure that if a source node for this version is already
+		// set, then the ID is the same as the one we are about to set.
+		dbSourceNodeID, _, err := getSourceNode(ctx, db, ProtocolV1)
+		if err != nil && !errors.Is(err, ErrSourceNodeNotSet) {
+			return fmt.Errorf("unable to fetch source node: %w",
+				err)
+		} else if err == nil {
+			if dbSourceNodeID != id {
+				return fmt.Errorf("v1 source node already "+
+					"set to a different node: %d vs %d",
+					dbSourceNodeID, id)
+			}
+
+			return nil
+		}
+
+		return db.AddSourceNode(ctx, id)
+	}, func() {})
 }
 
 // NodeUpdatesInHorizon returns all the known lightning node which have an
@@ -936,6 +1009,31 @@ func upsertNodeExtraSignedFields(ctx context.Context, db SQLQueries,
 	}
 
 	return nil
+}
+
+// getSourceNode returns the DB node ID and pub key of the source node for the
+// specified protocol version.
+func getSourceNode(ctx context.Context, db SQLQueries,
+	version ProtocolVersion) (int64, route.Vertex, error) {
+
+	var pubKey route.Vertex
+
+	nodes, err := db.GetSourceNodesByVersion(ctx, int16(version))
+	if err != nil {
+		return 0, pubKey, fmt.Errorf("unable to fetch source node: %w",
+			err)
+	}
+
+	if len(nodes) == 0 {
+		return 0, pubKey, ErrSourceNodeNotSet
+	} else if len(nodes) > 1 {
+		return 0, pubKey, fmt.Errorf("multiple source nodes for "+
+			"protocol %s found", version)
+	}
+
+	copy(pubKey[:], nodes[0].PubKey)
+
+	return nodes[0].NodeID, pubKey, nil
 }
 
 // marshalExtraOpaqueData takes a flat byte slice parses it as a TLV stream.

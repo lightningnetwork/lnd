@@ -130,17 +130,17 @@ var (
 		"does not exist")
 )
 
-// PaymentControl implements persistence for payments and payment attempts.
-type PaymentControl struct {
+// KVPaymentsDB implements persistence for payments and payment attempts.
+type KVPaymentsDB struct {
 	paymentSeqMx     sync.Mutex
 	currPaymentSeq   uint64
 	storedPaymentSeq uint64
 	db               *DB
 }
 
-// NewPaymentControl creates a new instance of the PaymentControl.
-func NewPaymentControl(db *DB) *PaymentControl {
-	return &PaymentControl{
+// NewKVPaymentsDB creates a new instance of the KVPaymentsDB.
+func NewKVPaymentsDB(db *DB) *KVPaymentsDB {
+	return &KVPaymentsDB{
 		db: db,
 	}
 }
@@ -149,7 +149,7 @@ func NewPaymentControl(db *DB) *PaymentControl {
 // making sure it does not already exist as an in-flight payment. When this
 // method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
-func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
+func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {
 
 	// Obtain a new sequence number for this payment. This is used
@@ -252,8 +252,8 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 }
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
-// by the PaymentControl db.
-func (p *PaymentControl) DeleteFailedAttempts(hash lntypes.Hash) error {
+// by the KVPaymentsDB db.
+func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
 	if !p.db.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
 		err := p.db.DeletePayment(hash, failedHtlcsOnly)
@@ -318,7 +318,7 @@ func deserializePaymentIndex(r io.Reader) (lntypes.Hash, error) {
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
-func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
+func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
 	// Serialize the information before opening the db transaction.
@@ -467,7 +467,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 // After invoking this method, InitPayment should always return an error to
 // prevent us from making duplicate payments to the same payment hash. The
 // provided preimage is atomically saved to the DB for record keeping.
-func (p *PaymentControl) SettleAttempt(hash lntypes.Hash,
+func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
@@ -480,7 +480,7 @@ func (p *PaymentControl) SettleAttempt(hash lntypes.Hash,
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
+func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
@@ -493,7 +493,7 @@ func (p *PaymentControl) FailAttempt(hash lntypes.Hash,
 }
 
 // updateHtlcKey updates a database key for the specified htlc.
-func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
+func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 	attemptID uint64, key, value []byte) (*MPPayment, error) {
 
 	aid := make([]byte, 8)
@@ -561,7 +561,7 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
-func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
+func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
 
 	var (
@@ -585,7 +585,7 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 
 		// We mark the payment as failed as long as it is known. This
 		// lets the last attempt to fail with a terminal write its
-		// failure to the PaymentControl without synchronizing with
+		// failure to the KVPaymentsDB without synchronizing with
 		// other attempts.
 		_, err = fetchPaymentStatus(bucket)
 		if errors.Is(err, ErrPaymentNotInitiated) {
@@ -618,7 +618,7 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 }
 
 // FetchPayment returns information about a payment from the database.
-func (p *PaymentControl) FetchPayment(paymentHash lntypes.Hash) (
+func (p *KVPaymentsDB) FetchPayment(paymentHash lntypes.Hash) (
 	*MPPayment, error) {
 
 	var payment *MPPayment
@@ -714,7 +714,7 @@ func fetchPaymentBucketUpdate(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 
 // nextPaymentSequence returns the next sequence number to store for a new
 // payment.
-func (p *PaymentControl) nextPaymentSequence() ([]byte, error) {
+func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 	p.paymentSeqMx.Lock()
 	defer p.paymentSeqMx.Unlock()
 
@@ -774,7 +774,7 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
+func (p *KVPaymentsDB) FetchInFlightPayments() ([]*MPPayment, error) {
 	var (
 		inFlights      []*MPPayment
 		start          = time.Now()

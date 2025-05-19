@@ -35,7 +35,10 @@ var (
 		Port: 9000}
 	anotherAddr, _ = net.ResolveTCPAddr("tcp",
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
-	testAddrs = []net.Addr{testAddr, anotherAddr}
+	testAddrs      = []net.Addr{testAddr, anotherAddr}
+	testOpaqueAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
+	}
 
 	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18" +
 		"e949ddfa2965fb6caa1bf0314f882d7")
@@ -102,20 +105,23 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(1232342, 0),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek",
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-		ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
-		PubKeyBytes:          testPub,
+	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+		return &models.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSigBytes:         testSig.Serialize(),
+			LastUpdate:           time.Unix(1232342, 0),
+			Color:                color.RGBA{1, 2, 3, 0},
+			Alias:                "kek",
+			Features:             testFeatures,
+			Addresses:            addrs,
+			ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
+			PubKeyBytes:          testPub,
+		}
 	}
 
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
+	node := nodeWithAddrs(testAddrs)
 	if err := graph.AddLightningNode(node); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -135,15 +141,6 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// The two nodes should match exactly!
 	compareNodes(t, node, dbNode)
-
-	// Check that the addresses for the node are fetched correctly.
-	pub, err := node.PubKey()
-	require.NoError(t, err)
-
-	known, addrs, err := graph.AddrsForNode(pub)
-	require.NoError(t, err)
-	require.True(t, known)
-	require.Equal(t, testAddrs, addrs)
 
 	// Check that the node's features are fetched correctly. This check
 	// will use the graph cache to fetch the features.
@@ -172,6 +169,90 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
+
+	// Now, we'll specifically test the updating of addresses of a node
+	// since the serialisation and persistence of addresses is a bit
+	// tricky.
+
+	pub, err := node.PubKey()
+	require.NoError(t, err)
+
+	// Initially, the node is unknown to the graph and there should be no
+	// addresses for it.
+	known, addrs, err := graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.False(t, known)
+	require.Empty(t, addrs)
+
+	// Add the node without any addresses.
+	node = nodeWithAddrs(nil)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the empty addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Empty(t, dbNode.Addresses)
+
+	known, addrs, err = graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.Empty(t, addrs)
+
+	// Now, update the node's addresses.
+	expAddrs := []net.Addr{
+		// Add 2 IPV4 addresses.
+		testAddr,
+		testIPV4Addr,
+		// Add 2 IPV6 addresses.
+		testIPV6Addr,
+		anotherAddr,
+		// Add one v2 and one v3 onion address.
+		testOnionV2Addr,
+		testOnionV3Addr,
+		// Make sure to also test the opaque address type.
+		testOpaqueAddr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
+
+	known, addrs, err = graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.EqualValues(t, expAddrs, addrs)
+
+	// Now, change the address set a bit: change the order of the
+	// IPV4 addresses, remove one IPV6 address and remove both onion
+	// addresses.
+	expAddrs = []net.Addr{
+		testIPV4Addr,
+		testAddr,
+		testIPV6Addr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
+
+	// Finally, update the set to only contain the Tor addresses.
+	expAddrs = []net.Addr{
+		testOnionV2Addr,
+		testOnionV3Addr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where

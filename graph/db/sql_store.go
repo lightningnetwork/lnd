@@ -334,6 +334,43 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 	return fetchNodeFeatures(ctx, s.db, nodePub)
 }
 
+// LookupAlias attempts to return the alias as advertised by the target node.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
+	var (
+		ctx    = context.TODO()
+		readTx = NewReadTx()
+		alias  string
+	)
+	err := s.db.ExecTx(ctx, &readTx, func(db SQLQueries) error {
+		dbNode, err := db.GetNodeByPubKey(
+			ctx, sqlc.GetNodeByPubKeyParams{
+				Version: int16(ProtocolV1),
+				PubKey:  pub.SerializeCompressed(),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNodeAliasNotFound
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch node: %w", err)
+		}
+
+		if !dbNode.Alias.Valid {
+			return ErrNodeAliasNotFound
+		}
+
+		alias = dbNode.Alias.String
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return "", fmt.Errorf("unable to look up alias: %w", err)
+	}
+
+	return alias, nil
+}
+
 // getNodeByPubKey attempts to look up a target node by its public key.
 func getNodeByPubKey(ctx context.Context, db SQLQueries,
 	pubKey route.Vertex) (int64, *models.LightningNode, error) {

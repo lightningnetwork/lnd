@@ -10,7 +10,7 @@ import (
 )
 
 // NewTestDB is a helper function that creates an BBolt database for testing.
-func NewTestDB(t testing.TB) *KVStore {
+func NewTestDB(t testing.TB) V1Store {
 	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
 	require.NoError(t, err)
 

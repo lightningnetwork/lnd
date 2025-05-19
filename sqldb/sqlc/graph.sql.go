@@ -229,6 +229,49 @@ func (q *Queries) GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeatur
 	return items, nil
 }
 
+const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
+SELECT id, version, pub_key, alias, last_update, color, signature
+FROM nodes
+WHERE last_update >= $1
+  AND last_update < $2
+`
+
+type GetNodesByLastUpdateRangeParams struct {
+	StartTime sql.NullInt64
+	EndTime   sql.NullInt64
+}
+
+func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, getNodesByLastUpdateRange, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertNodeAddress = `-- name: InsertNodeAddress :exec
 /* ─────────────────────────────────────────────
    node_addresses table queries

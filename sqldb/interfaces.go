@@ -48,11 +48,42 @@ const (
 	BackendTypePostgres
 )
 
+func NoOpReset() {
+	// No-op function to reset the state of the transaction.
+}
+
 // TxOptions represents a set of options one can use to control what type of
 // database transaction is created. Transaction can be either read or write.
 type TxOptions interface {
 	// ReadOnly returns true if the transaction should be read only.
 	ReadOnly() bool
+}
+
+// BaseTxOptions defines the base set of db txn options.
+type BaseTxOptions struct {
+	// readOnly governs if a read only transaction is needed or not.
+	readOnly bool
+}
+
+// ReadOnly returns true if the transaction should be read only.
+//
+// NOTE: This implements the TxOptions
+func (r *BaseTxOptions) ReadOnly() bool {
+	return r.readOnly
+}
+
+// NewReadTx creates a new read transaction option set.
+func NewReadTx() *BaseTxOptions {
+	return &BaseTxOptions{
+		readOnly: true,
+	}
+}
+
+// NewWriteTx creates a new write transaction option set.
+func NewWriteTx() *BaseTxOptions {
+	return &BaseTxOptions{
+		readOnly: false,
+	}
 }
 
 type BaseQuerier interface {

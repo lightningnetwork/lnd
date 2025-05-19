@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4/database"
-	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 	"github.com/stretchr/testify/require"
 )

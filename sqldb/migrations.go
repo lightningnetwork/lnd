@@ -44,7 +44,8 @@ type MigrationStream struct {
 
 	SQLFileDirectory string
 
-	PostStepCallbacks map[uint]migrate.PostStepCallback
+	MakePostMigrationChecks func(
+		*BaseDB) (map[uint]migrate.PostStepCallback, error)
 
 	LatestMigrationVersion uint
 
@@ -69,14 +70,7 @@ type MigrationExecutor interface {
 	// migrationConfig.
 	ExecuteMigrations(target MigrationTarget, stream MigrationStream) error
 
-	// GetSchemaVersion returns the current schema version of the database.
-	GetSchemaVersion() (int, bool, error)
-
-	// SetSchemaVersion sets the schema version of the database.
-	//
-	// NOTE: This alters the internal database schema tracker. USE WITH
-	// CAUTION!!!
-	SetSchemaVersion(version int, dirty bool) error
+	DefaultTarget() MigrationTarget
 
 	SkipMigrations() bool
 }
@@ -180,8 +174,9 @@ func (m *migrationLogger) Verbose() bool {
 // applyMigrations executes all database migration files found in the given file
 // system under the given path, using the passed database driver and database
 // name.
-func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
-	targetVersion MigrationTarget, opts *migrateOptions) error {
+func applyMigrations(fs fs.FS, driver database.Driver, path,
+	dbName string, targetVersion MigrationTarget,
+	opts *migrateOptions) error {
 
 	// With the migrate instance open, we'll create a new migration source
 	// using the embedded file system stored in sqlSchemas. The library
@@ -372,155 +367,12 @@ func ApplyAllMigrations(executor MigrationExecutor,
 	}
 
 	for _, stream := range streams {
-		err := ApplyMigrations(executor, stream)
+		err := executor.ExecuteMigrations(
+			executor.DefaultTarget(), stream,
+		)
 		if err != nil {
 			return fmt.Errorf("error applying migrations: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// ApplyMigrations applies the provided migrations to the database in sequence.
-// It ensures migrations are executed in the correct order, applying both custom
-// migration functions and SQL migrations as needed.
-func ApplyMigrations(migrator MigrationExecutor,
-	stream MigrationStream) error {
-
-	// Ensure that the migrations are sorted by version.
-	migrations := stream.Configs
-	for i := 0; i < len(migrations); i++ {
-		if migrations[i].Version != i+1 {
-			return fmt.Errorf("migration version %d is out of "+
-				"order. Expected %d", migrations[i].Version,
-				i+1)
-		}
-	}
-
-	//// Construct a transaction executor to apply custom migrations.
-	//executor := NewTransactionExecutor(db, func(tx *sql.Tx) any {
-	//	return sd.WithTx(tx)
-	//})
-
-	currentVersion := 0
-	//version, err := txExecutor.GetDatabaseVersion(ctx)
-	//if !errors.Is(err, sql.ErrNoRows) {
-	//	if err != nil {
-	//		return fmt.Errorf("error getting current database "+
-	//			"version: %w", err)
-	//	}
-	//
-	//	currentVersion = int(version)
-	//} else {
-	//	// Since we don't have a version tracked by our own table yet,
-	//	// we'll use the schema version reported by sqlc to determine
-	//	// the current version.
-	//	//
-	//	// NOTE: This is safe because the first in-code migration was
-	//	// introduced in version 7. This is only possible if the user
-	//	// has a schema version <= 4.
-	//	var dirty bool
-	//	currentVersion, dirty, err = migrator.GetSchemaVersion()
-	//	if err != nil {
-	//		return err
-	//	}
-	//
-	//	log.Infof("No database version found, using schema version %d "+
-	//		"(dirty=%v) as base version", currentVersion, dirty)
-	//}
-
-	// Due to an a migration issue in v0.19.0-rc1 we may be at version 2 and
-	// have a dirty schema due to failing migration 3. If this is indeed the
-	// case, we need to reset the dirty flag to be able to apply the fixed
-	// migration.
-	// NOTE: this could be removed as soon as we drop v0.19.0-beta.
-	//if version == 2 {
-	//	schemaVersion, dirty, err := migrator.GetSchemaVersion()
-	//	if err != nil {
-	//		return err
-	//	}
-	//
-	//	if schemaVersion == 3 && dirty {
-	//		log.Warnf("Schema version %d is dirty. This is "+
-	//			"likely a consequence of a failed migration "+
-	//			"in v0.19.0-rc1. Attempting to recover by "+
-	//			"resetting the dirty flag", schemaVersion)
-	//
-	//		err = migrator.SetSchemaVersion(4, false)
-	//		if err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
-
-	for _, migration := range migrations {
-		if migration.Version <= currentVersion {
-			log.Infof("Skipping migration '%s' (version %d) as it "+
-				"has already been applied", migration.Name,
-				migration.Version)
-
-			continue
-		}
-
-		log.Infof("Migrating SQL schema to version %d",
-			migration.SchemaVersion)
-
-		// Execute SQL schema migrations up to the target version.
-		err := migrator.ExecuteMigrations(
-			TargetVersion(uint(migration.SchemaVersion)), stream,
-		)
-		if err != nil {
-			return fmt.Errorf("error executing schema migrations "+
-				"to target version %d: %w",
-				migration.SchemaVersion, err)
-		}
-
-		//var opts MigrationTxOptions
-		//
-		//// Run the custom migration as a transaction to ensure
-		//// atomicity. If successful, mark the migration as complete in
-		//// the migration tracker table.
-		//err = txExecutor.ExecTx(ctx, &opts, func(tx T) error {
-		//	// Apply the migration function if one is provided.
-		//	if migration.MigrationFn != nil {
-		//		log.Infof("Applying custom migration '%v' "+
-		//			"(version %d) to schema version %d",
-		//			migration.Name, migration.Version,
-		//			migration.SchemaVersion)
-		//
-		//		err = migration.MigrationFn(tx)
-		//		if err != nil {
-		//			return fmt.Errorf("error applying "+
-		//				"migration '%v' (version %d) "+
-		//				"to schema version %d: %w",
-		//				migration.Name,
-		//				migration.Version,
-		//				migration.SchemaVersion, err)
-		//		}
-		//
-		//		log.Infof("Migration '%v' (version %d) "+
-		//			"applied ", migration.Name,
-		//			migration.Version)
-		//	}
-		//
-		//	// Mark the migration as complete by adding the version
-		//	// to the migration tracker table along with the current
-		//	// timestamp.
-		//	err = tx.SetMigration(ctx, sqlc.SetMigrationParams{
-		//		Version:       int32(migration.Version),
-		//		MigrationTime: time.Now(),
-		//	})
-		//	if err != nil {
-		//		return fmt.Errorf("error setting migration "+
-		//			"version %d: %w", migration.Version,
-		//			err)
-		//	}
-		//
-		//	return nil
-		//}, func() {})
-		//if err != nil {
-		//	return err
-		//}
 	}
 
 	return nil

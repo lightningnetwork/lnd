@@ -49,9 +49,9 @@ type pragmaOption struct {
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
-	cfg *SqliteConfig
+	Config *SqliteConfig
 
-	dbPath string
+	DbPath string
 
 	*BaseDB
 }
@@ -138,11 +138,11 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	db.SetConnMaxLifetime(defaultConnMaxLifetime)
 
 	s := &SqliteStore{
-		cfg:    cfg,
-		dbPath: dbPath,
+		Config: cfg,
+		DbPath: dbPath,
 		BaseDB: &BaseDB{
 			DB:             db,
-			BackendType:    BackendTypePostgres,
+			BackendType:    BackendTypeSqlite,
 			SkipMigrations: cfg.SkipMigrations,
 		},
 	}
@@ -216,11 +216,11 @@ func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
 
 	// At this point, we know that a database migration is necessary.
 	// Create a backup of the database before starting the migration.
-	if !s.cfg.SkipMigrationDbBackup {
+	if !s.Config.SkipMigrationDbBackup {
 		log.Infof("Creating database backup (before applying " +
 			"migration(s))")
 
-		err := backupSqliteDatabase(s.DB, s.dbPath)
+		err := backupSqliteDatabase(s.DB, s.DbPath)
 		if err != nil {
 			return err
 		}
@@ -248,8 +248,15 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 	}
 
 	opts := &migrateOptions{
-		latestVersion:     fn.Some(stream.LatestMigrationVersion),
-		postStepCallbacks: stream.PostStepCallbacks,
+		latestVersion: fn.Some(stream.LatestMigrationVersion),
+	}
+
+	if stream.MakePostMigrationChecks != nil {
+		postMigSteps, err := stream.MakePostMigrationChecks(s.BaseDB)
+		if err != nil {
+			return errPostgresMigration(err)
+		}
+		opts.postStepCallbacks = postMigSteps
 	}
 
 	// Populate the database with our set of schemas based on our embedded
@@ -261,39 +268,12 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
 	)
 }
 
-// GetSchemaVersion returns the current schema version of the SQLite database.
-func (s *SqliteStore) GetSchemaVersion() (int, bool, error) {
-	driver, err := sqlite_migrate.WithInstance(
-		s.DB, &sqlite_migrate.Config{},
-	)
-	if err != nil {
-		return 0, false, errSqliteMigration(err)
-	}
-
-	version, dirty, err := driver.Version()
-	if err != nil {
-		return 0, dirty, err
-	}
-
-	return version, dirty, nil
-}
-
-// SetSchemaVersion sets the schema version of the SQLite database.
-//
-// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
-func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
-	driver, err := sqlite_migrate.WithInstance(
-		s.DB, &sqlite_migrate.Config{},
-	)
-	if err != nil {
-		return errSqliteMigration(err)
-	}
-
-	return driver.SetVersion(version, dirty)
+func (s *SqliteStore) DefaultTarget() MigrationTarget {
+	return s.backupAndMigrate
 }
 
 func (s *SqliteStore) SkipMigrations() bool {
-	return s.cfg.SkipMigrations
+	return s.Config.SkipMigrations
 }
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
@@ -309,6 +289,29 @@ func NewTestSqliteDB(t *testing.T, streams []MigrationStream) *SqliteStore {
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		SkipMigrations: false,
 	}, dbFileName)
+	require.NoError(t, err)
+
+	require.NoError(t, ApplyAllMigrations(sqlDB, streams))
+
+	t.Cleanup(func() {
+		require.NoError(t, sqlDB.DB.Close())
+	})
+
+	return sqlDB
+}
+
+// NewTestSqliteDBFromPath is a helper function that creates a SQLite database
+// for testing from a given database file path.
+func NewTestSqliteDBFromPath(t *testing.T, dbPath string,
+	streams []MigrationStream) *SqliteStore {
+
+	t.Helper()
+
+	t.Logf("Creating new SQLite DB for testing, using DB path %s", dbPath)
+
+	sqlDB, err := NewSqliteStore(&SqliteConfig{
+		SkipMigrations: false,
+	}, dbPath)
 	require.NoError(t, err)
 
 	require.NoError(t, ApplyAllMigrations(sqlDB, streams))

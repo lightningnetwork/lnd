@@ -15,7 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
-	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 )
 
 const (
@@ -112,7 +112,8 @@ func DefaultDB() *DB {
 			MaxMsgSize: 32768 * 1024,
 		},
 		Postgres: &sqldb.PostgresConfig{
-			MaxConnections: defaultPostgresMaxConnections,
+			MaxOpenConnections: defaultPostgresMaxConnections,
+			MaxIdleConnections: defaultPostgresMaxConnections,
 		},
 		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: defaultSqliteMaxConnections,
@@ -189,7 +190,7 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 		db.Etcd = cfg
 
 	case db.Backend == PostgresBackend:
-		sqlbase.Init(db.Postgres.MaxConnections)
+		sqlbase.Init(db.Postgres.MaxOpenConnections)
 
 	case db.Backend == SqliteBackend:
 		sqlbase.Init(db.Sqlite.MaxConnections)
@@ -255,7 +256,7 @@ func GetPostgresConfigKVDB(cfg *sqldb.PostgresConfig) *postgres.Config {
 	return &postgres.Config{
 		Dsn:            cfg.Dsn,
 		Timeout:        cfg.Timeout,
-		MaxConnections: cfg.MaxConnections,
+		MaxConnections: cfg.MaxOpenConnections,
 	}
 }
 

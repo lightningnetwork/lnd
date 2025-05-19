@@ -2,7 +2,7 @@
 
 package channeldb
 
-import "github.com/lightningnetwork/lnd/sqldb"
+import "github.com/lightningnetwork/lnd/sqldb/v2"
 
 var (
 	PaymentsMigrations = sqldb.MigrationStream{

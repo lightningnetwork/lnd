@@ -43,6 +43,7 @@ require (
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/lightningnetwork/lnd/queue v1.1.1
 	github.com/lightningnetwork/lnd/sqldb v1.0.9
+	github.com/lightningnetwork/lnd/sqldb/v2 v2.0.0-00010101000000-000000000000
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.0
 	github.com/lightningnetwork/lnd/tor v1.1.6
@@ -217,7 +218,7 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // did not yet make it into the upstream repository.
 replace github.com/golang-migrate/migrate/v4 => github.com/lightninglabs/migrate/v4 v4.18.2-9023d66a-fork-pr-2
 
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
+replace github.com/lightningnetwork/lnd/sqldb/v2 => ./sqldb
 
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as

@@ -49,7 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/lightningnetwork/lnd/sqlmodel"
 	"github.com/lightningnetwork/lnd/sqlmodel/sqlc"
 	"github.com/lightningnetwork/lnd/sweep"

@@ -182,8 +182,15 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
 	}
 
 	opts := &migrateOptions{
-		latestVersion:     fn.Some(stream.LatestMigrationVersion),
-		postStepCallbacks: stream.PostStepCallbacks,
+		latestVersion: fn.Some(stream.LatestMigrationVersion),
+	}
+
+	if stream.MakePostMigrationChecks != nil {
+		postMigSteps, err := stream.MakePostMigrationChecks(s.BaseDB)
+		if err != nil {
+			return errPostgresMigration(err)
+		}
+		opts.postStepCallbacks = postMigSteps
 	}
 
 	// Populate the database with our set of schemas based on our embedded
@@ -195,32 +202,8 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
 	)
 }
 
-// GetSchemaVersion returns the current schema version of the Postgres database.
-func (s *PostgresStore) GetSchemaVersion() (int, bool, error) {
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
-	if err != nil {
-		return 0, false, errPostgresMigration(err)
-
-	}
-
-	version, dirty, err := driver.Version()
-	if err != nil {
-		return 0, false, err
-	}
-
-	return version, dirty, nil
-}
-
-// SetSchemaVersion sets the schema version of the Postgres database.
-//
-// NOTE: This alters the internal database schema tracker. USE WITH CAUTION!!!
-func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
-	if err != nil {
-		return errPostgresMigration(err)
-	}
-
-	return driver.SetVersion(version, dirty)
+func (s *PostgresStore) DefaultTarget() MigrationTarget {
+	return TargetLatest
 }
 
 func (s *PostgresStore) SkipMigrations() bool {

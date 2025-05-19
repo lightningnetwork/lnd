@@ -325,10 +325,11 @@ func TestPartialNode(t *testing.T) {
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
+// TestAliasLookup tests the alias lookup functionality of the graph store.
 func TestAliasLookup(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the alias index within the database, so first
 	// create a new test node.
@@ -336,9 +337,7 @@ func TestAliasLookup(t *testing.T) {
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
-	if err := graph.AddLightningNode(testNode); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.AddLightningNode(testNode))
 
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
@@ -346,10 +345,7 @@ func TestAliasLookup(t *testing.T) {
 	require.NoError(t, err, "unable to generate pubkey")
 	dbAlias, err := graph.LookupAlias(nodePub)
 	require.NoError(t, err, "unable to find alias")
-	if dbAlias != testNode.Alias {
-		t.Fatalf("aliases don't match, expected %v got %v",
-			testNode.Alias, dbAlias)
-	}
+	require.Equal(t, testNode.Alias, dbAlias)
 
 	// Ensure that looking up a non-existent alias results in an error.
 	node := createTestVertex(t)

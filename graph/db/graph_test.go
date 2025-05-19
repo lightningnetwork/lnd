@@ -35,7 +35,10 @@ var (
 		Port: 9000}
 	anotherAddr, _ = net.ResolveTCPAddr("tcp",
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
-	testAddrs = []net.Addr{testAddr, anotherAddr}
+	testAddrs      = []net.Addr{testAddr, anotherAddr}
+	testOpaqueAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06},
+	}
 
 	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18" +
 		"e949ddfa2965fb6caa1bf0314f882d7")
@@ -102,20 +105,23 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
-	node := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(1232342, 0),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek",
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-		ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
-		PubKeyBytes:          testPub,
+	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+		return &models.LightningNode{
+			HaveNodeAnnouncement: true,
+			AuthSigBytes:         testSig.Serialize(),
+			LastUpdate:           time.Unix(1232342, 0),
+			Color:                color.RGBA{1, 2, 3, 0},
+			Alias:                "kek",
+			Features:             testFeatures,
+			Addresses:            addrs,
+			ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
+			PubKeyBytes:          testPub,
+		}
 	}
 
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
+	node := nodeWithAddrs(testAddrs)
 	if err := graph.AddLightningNode(node); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -136,15 +142,6 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// The two nodes should match exactly!
 	compareNodes(t, node, dbNode)
 
-	// Check that the addresses for the node are fetched correctly.
-	pub, err := node.PubKey()
-	require.NoError(t, err)
-
-	known, addrs, err := graph.AddrsForNode(pub)
-	require.NoError(t, err)
-	require.True(t, known)
-	require.Equal(t, testAddrs, addrs)
-
 	// Check that the node's features are fetched correctly. This check
 	// will use the graph cache to fetch the features.
 	features, err := graph.FetchNodeFeatures(node.PubKeyBytes)
@@ -159,15 +156,103 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	if err := graph.DeleteLightningNode(testPub); err != nil {
-		t.Fatalf("unable to delete node; %v", err)
-	}
+	require.NoError(t, graph.DeleteLightningNode(testPub))
 	assertNodeNotInCache(t, graph, testPub)
+
+	// Attempting to delete the node again should return an error since
+	// the node is no longer known.
+	require.ErrorIs(
+		t, graph.DeleteLightningNode(testPub), ErrGraphNodeNotFound,
+	)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
 	_, err = graph.FetchLightningNode(testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
+
+	// Now, we'll specifically test the updating of addresses of a node
+	// since the serialisation and persistence of addresses is a bit
+	// tricky.
+
+	pub, err := node.PubKey()
+	require.NoError(t, err)
+
+	// Initially, the node is unknown to the graph and there should be no
+	// addresses for it.
+	known, addrs, err := graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.False(t, known)
+	require.Empty(t, addrs)
+
+	// Add the node without any addresses.
+	node = nodeWithAddrs(nil)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the empty addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Empty(t, dbNode.Addresses)
+
+	known, addrs, err = graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.Empty(t, addrs)
+
+	// Now, update the node's addresses.
+	expAddrs := []net.Addr{
+		// Add 2 IPV4 addresses.
+		testAddr,
+		testIPV4Addr,
+		// Add 2 IPV6 addresses.
+		testIPV6Addr,
+		anotherAddr,
+		// Add one v2 and one v3 onion address.
+		testOnionV2Addr,
+		testOnionV3Addr,
+		// Make sure to also test the opaque address type.
+		testOpaqueAddr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
+
+	known, addrs, err = graph.AddrsForNode(pub)
+	require.NoError(t, err)
+	require.True(t, known)
+	require.EqualValues(t, expAddrs, addrs)
+
+	// Now, change the address set a bit: change the order of the
+	// IPV4 addresses, remove one IPV6 address and remove both onion
+	// addresses.
+	expAddrs = []net.Addr{
+		testIPV4Addr,
+		testAddr,
+		testIPV6Addr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
+
+	// Finally, update the set to only contain the Tor addresses.
+	expAddrs = []net.Addr{
+		testOnionV2Addr,
+		testOnionV3Addr,
+	}
+	node = nodeWithAddrs(expAddrs)
+	require.NoError(t, graph.AddLightningNode(node))
+
+	// Fetch the node and assert the updated addresses.
+	dbNode, err = graph.FetchLightningNode(testPub)
+	require.NoError(t, err)
+	require.Equal(t, expAddrs, dbNode.Addresses)
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where
@@ -299,6 +384,7 @@ func TestSourceNode(t *testing.T) {
 	compareNodes(t, testNode, sourceNode)
 }
 
+// TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
@@ -340,40 +426,33 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	copy(edgeInfo.BitcoinKey1Bytes[:], node1Pub.SerializeCompressed())
 	copy(edgeInfo.BitcoinKey2Bytes[:], node2Pub.SerializeCompressed())
 
-	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(&edgeInfo))
 	assertEdgeWithNoPoliciesInCache(t, graph, &edgeInfo)
+
+	// Show that trying to insert the same channel again will return the
+	// expected error.
+	err = graph.AddChannelEdge(&edgeInfo)
+	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
 	// Ensure that both policies are returned as unknown (nil).
 	_, e1, e2, err := graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel edge")
-	}
-	if e1 != nil || e2 != nil {
-		t.Fatalf("channel edges not unknown")
-	}
+	require.NoError(t, err)
+	require.Nil(t, e1)
+	require.Nil(t, e2)
 
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
-	if err := graph.DeleteChannelEdges(false, true, chanID); err != nil {
-		t.Fatalf("unable to delete edge: %v", err)
-	}
+	require.NoError(t, graph.DeleteChannelEdges(false, true, chanID))
 	assertNoEdge(t, graph, chanID)
 
 	// Ensure that any query attempts to lookup the delete channel edge are
 	// properly deleted.
 	_, _, _, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
-	if err == nil {
-		t.Fatalf("channel edge not deleted")
-	}
-	if _, _, _, err := graph.FetchChannelEdgesByID(chanID); err == nil {
-		t.Fatalf("channel edge not deleted")
-	}
+	require.ErrorIs(t, err, ErrEdgeNotFound)
+	_, _, _, err = graph.FetchChannelEdgesByID(chanID)
+	require.ErrorIs(t, err, ErrZombieEdge)
 	isZombie, _, _ := graph.IsZombieEdge(chanID)
-	if !isZombie {
-		t.Fatal("channel edge not marked as zombie")
-	}
+	require.True(t, isZombie)
 
 	// Finally, attempt to delete a (now) non-existent edge within the
 	// database, this should result in an error.
@@ -1320,7 +1399,17 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
 
+	// Duplicate the map before we start deleting from it so that we can
+	// check that both the cached and db version of
+	// ForEachNodeDirectedChannel works as expected here.
+	chanIndex2 := make(map[uint64]struct{})
+	for k, v := range chanIndex {
+		chanIndex2[k] = v
+	}
+
 	for _, node := range nodes {
+		// Query the ChannelGraph which uses the cache to iterate
+		// through the channels for each node.
 		err = graph.ForEachNodeDirectedChannel(
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
@@ -1328,8 +1417,18 @@ func TestGraphTraversalCacheable(t *testing.T) {
 			},
 		)
 		require.NoError(t, err)
+
+		// Now skip the cache and query the DB directly.
+		err = graph.V1Store.ForEachNodeDirectedChannel(
+			node, func(d *DirectedChannel) error {
+				delete(chanIndex2, d.ChannelID)
+				return nil
+			},
+		)
+		require.NoError(t, err)
 	}
 	require.Len(t, chanIndex, 0)
+	require.Len(t, chanIndex2, 0)
 }
 
 func TestGraphCacheTraversal(t *testing.T) {

@@ -406,7 +406,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 		// are initializing a payment that was attempted earlier, but
 		// left in a state where we could retry.
 		err = bucket.DeleteNestedBucket(paymentHtlcsBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
+		if err != nil && !errors.Is(err, kvdb.ErrBucketNotFound) {
 			return err
 		}
 
@@ -431,6 +431,7 @@ func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -454,6 +455,7 @@ func createPaymentIndexEntry(tx kvdb.RwTx, sequenceNumber []byte,
 	}
 
 	indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+
 	return indexes.Put(sequenceNumber, b.Bytes())
 }
 
@@ -621,6 +623,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 
 		// Retrieve attempt info for the notification.
 		payment, err = fetchPayment(bucket)
+
 		return err
 	})
 	if err != nil {
@@ -696,17 +699,25 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 			return fmt.Errorf("htlcs bucket not found")
 		}
 
-		if htlcsBucket.Get(htlcBucketKey(htlcAttemptInfoKey, aid)) == nil {
+		attemptInfo := htlcsBucket.Get(
+			htlcBucketKey(htlcAttemptInfoKey, aid),
+		)
+		if attemptInfo == nil {
 			return fmt.Errorf("HTLC with ID %v not registered",
 				attemptID)
 		}
 
-		// Make sure the shard is not already failed or settled.
-		if htlcsBucket.Get(htlcBucketKey(htlcFailInfoKey, aid)) != nil {
+		failInfo := htlcsBucket.Get(
+			htlcBucketKey(htlcFailInfoKey, aid),
+		)
+		if failInfo != nil {
 			return ErrAttemptAlreadyFailed
 		}
 
-		if htlcsBucket.Get(htlcBucketKey(htlcSettleInfoKey, aid)) != nil {
+		settleInfo := htlcsBucket.Get(
+			htlcBucketKey(htlcSettleInfoKey, aid),
+		)
+		if settleInfo != nil {
 			return ErrAttemptAlreadySettled
 		}
 
@@ -718,6 +729,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 
 		// Retrieve attempt info for the notification.
 		payment, err = fetchPayment(bucket)
+
 		return err
 	})
 	if err != nil {
@@ -746,7 +758,7 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
-		if err == ErrPaymentNotInitiated {
+		if errors.Is(err, ErrPaymentNotInitiated) {
 			updateErr = ErrPaymentNotInitiated
 			return nil
 		} else if err != nil {
@@ -861,7 +873,6 @@ func fetchPaymentBucket(tx kvdb.RTx, paymentHash lntypes.Hash) (
 	}
 
 	return bucket, nil
-
 }
 
 // fetchPaymentBucketUpdate is identical to fetchPaymentBucket, but it returns a
@@ -902,6 +913,7 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 
 			currPaymentSeq = paymentsBucket.Sequence()
 			newUpperBound = currPaymentSeq + paymentSeqBlockSize
+
 			return paymentsBucket.SetSequence(newUpperBound)
 		}, func() {}); err != nil {
 			return nil, err
@@ -987,6 +999,7 @@ func (p *KVPaymentsDB) FetchInFlightPayments() ([]*MPPayment, error) {
 			}
 
 			inFlights = append(inFlights, p)
+
 			return nil
 		})
 	}, func() {

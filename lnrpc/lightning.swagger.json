@@ -3265,6 +3265,16 @@
           "type": "integer",
           "format": "int32",
           "description": "The number of blocks until the funding transaction is considered\nexpired. If this value gets close to zero, there is a risk that the\nchannel funding will be canceled by the channel responder. The\nchannel should be fee bumped using CPFP (see walletrpc.BumpFee) to\nensure that the channel confirms in time. Otherwise a force-close\nwill be necessary if the channel confirms after the funding\ntransaction expires. A negative value means the channel responder has\nvery likely canceled the funding and the channel will never become\nfully operational."
+        },
+        "confirmations_until_active": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of blocks remaining until the channel status changes from\npending to active. A value of 0 indicates that the channel is now\nactive.\n\n\"Active\" here means both channel peers have the channel marked OPEN\nand can immediately start using it. For public channels, this does\nnot imply a channel_announcement has been gossiped. It only becomes\npublic on the network after 6 on‐chain confirmations (per BOLT07\n\"Routing Gossip\": If the funding transaction has less than 6\nconfirmations MUST NOT send `channel_announcement`).\n\nZeroConf channels bypass the pending state entirely: they are marked\nactive immediately upon creation, so they never show up as \"pending\"."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The confirmation height records the block height at which the funding\ntransaction was first confirmed."
         }
       }
     },

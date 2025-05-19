@@ -2847,6 +2847,25 @@ message PendingChannelsResponse {
         // very likely canceled the funding and the channel will never become
         // fully operational.
         int32 funding_expiry_blocks = 3;
+
+        // The number of blocks remaining until the channel status changes from
+        // pending to active. A value of 0 indicates that the channel is now
+        // active.
+        //
+        // "Active" here means both channel peers have the channel marked OPEN
+        // and can immediately start using it. For public channels, this does
+        // not imply a channel_announcement has been gossiped. It only becomes
+        // public on the network after 6 on‐chain confirmations (per BOLT07
+        // "Routing Gossip": If the funding transaction has less than 6
+        // confirmations MUST NOT send `channel_announcement`).
+        //
+        // ZeroConf channels bypass the pending state entirely: they are marked
+        // active immediately upon creation, so they never show up as "pending".
+        uint32 confirmations_until_active = 7;
+
+        // The confirmation height records the block height at which the funding
+        // transaction was first confirmed.
+        uint32 confirmation_height = 8;
     }
 
     message WaitingCloseChannel {

@@ -355,10 +355,11 @@ func TestAliasLookup(t *testing.T) {
 	require.ErrorIs(t, err, ErrNodeAliasNotFound)
 }
 
+// TestSourceNode tests the source node functionality of the graph store.
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
@@ -369,11 +370,9 @@ func TestSourceNode(t *testing.T) {
 	_, err := graph.SourceNode()
 	require.ErrorIs(t, err, ErrSourceNodeNotSet)
 
-	// Set the source the source node, this should insert the node into the
+	// Set the source node, this should insert the node into the
 	// database in a special way indicating it's the source node.
-	if err := graph.SetSourceNode(testNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
+	require.NoError(t, graph.SetSourceNode(testNode))
 
 	// Retrieve the source node from the database, it should exactly match
 	// the one we set above.

@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	AddSourceNode(ctx context.Context, nodeID int64) error
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
@@ -41,6 +42,7 @@ type Querier interface {
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error)
+	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)

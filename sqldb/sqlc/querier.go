@@ -13,13 +13,18 @@ import (
 type Querier interface {
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
+	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
+	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
+	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
+	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
+	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields
 	// from different invoices. It is the caller's responsibility to ensure that
 	// we bubble up an error in those cases.
@@ -31,6 +36,10 @@ type Querier interface {
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
 	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error)
 	GetMigration(ctx context.Context, version int32) (time.Time, error)
+	GetNodeAddressesByPubKey(ctx context.Context, arg GetNodeAddressesByPubKeyParams) ([]GetNodeAddressesByPubKeyRow, error)
+	GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (Node, error)
+	GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeature, error)
+	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
@@ -39,6 +48,8 @@ type Querier interface {
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
 	InsertKVInvoiceKeyAndAddIndex(ctx context.Context, arg InsertKVInvoiceKeyAndAddIndexParams) error
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
+	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
+	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
 	OnAMPSubInvoiceCreated(ctx context.Context, arg OnAMPSubInvoiceCreatedParams) error
@@ -55,6 +66,8 @@ type Querier interface {
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
+	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
+	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -101,15 +101,17 @@ func createTestVertex(t testing.TB) *models.LightningNode {
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
+	timeStamp := int64(1232342)
 	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+		timeStamp++
 		return &models.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Unix(1232342, 0),
+			LastUpdate:           time.Unix(timeStamp, 0),
 			Color:                color.RGBA{1, 2, 3, 0},
 			Alias:                "kek",
 			Features:             testFeatures,
@@ -4315,7 +4317,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	t.Parallel()
 
 	// Create a new test graph instance.
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	nodeAnnBytes, err := hex.DecodeString(testNodeAnn)
 	require.NoError(t, err)

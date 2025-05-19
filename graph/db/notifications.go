@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -462,4 +463,32 @@ func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
 // EncodeHexColor takes a color and returns it in hex code format.
 func EncodeHexColor(color color.RGBA) string {
 	return fmt.Sprintf("#%02x%02x%02x", color.R, color.G, color.B)
+}
+
+// DecodeHexColor takes a hex color string like "#rrggbb" and returns a
+// color.RGBA.
+func DecodeHexColor(hex string) (color.RGBA, error) {
+	r, err := strconv.ParseUint(hex[1:3], 16, 8)
+	if err != nil {
+		return color.RGBA{}, fmt.Errorf("invalid red component: %w",
+			err)
+	}
+
+	g, err := strconv.ParseUint(hex[3:5], 16, 8)
+	if err != nil {
+		return color.RGBA{}, fmt.Errorf("invalid green component: %w",
+			err)
+	}
+
+	b, err := strconv.ParseUint(hex[5:7], 16, 8)
+	if err != nil {
+		return color.RGBA{}, fmt.Errorf("invalid blue component: %w",
+			err)
+	}
+
+	return color.RGBA{
+		R: uint8(r),
+		G: uint8(g),
+		B: uint8(b),
+	}, nil
 }

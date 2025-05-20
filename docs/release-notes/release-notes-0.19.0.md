@@ -271,8 +271,8 @@ when running LND with an aux component injected (custom channels).
   logs during rotation with ZSTD via the `logging.file.compressor` startup 
   argument.
 
-* The SCB file now [contains more data][https://github.com/lightningnetwork/lnd/pull/8183]
-  that enable a last resort rescue for certain cases where the peer is no longer
+* The SCB file now [contains more data](https://github.com/lightningnetwork/lnd/pull/8183)
+  that enables a last resort rescue for certain cases where the peer is no longer
   around.
 
 * LND updates channel.backup file at shutdown time.

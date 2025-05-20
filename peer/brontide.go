@@ -1754,14 +1754,11 @@ func newMsgStream(p *Brontide, startMsg, stopMsg string, bufSize int,
 		quit:     make(chan struct{}),
 	}
 
-	// Initialize the backpressure queue. The predicate always returns
-	// false, meaning we don't proactively drop messages based on queue
-	// length here.
-	alwaysFalsePredicate := func(int, lnwire.Message) bool {
-		return false
-	}
+	// Initialize the backpressure queue with a predicate determined by
+	// build tags.
+	dropPredicate := getMsgStreamDropPredicate()
 	stream.queue = queue.NewBackpressureQueue[lnwire.Message](
-		bufSize, alwaysFalsePredicate,
+		bufSize, dropPredicate,
 	)
 
 	return stream
@@ -1820,20 +1817,12 @@ func (ms *msgStream) msgConsumer() {
 func (ms *msgStream) AddMsg(ctx context.Context, msg lnwire.Message) {
 	dropped, err := ms.queue.Enqueue(ctx, msg).Unpack()
 	if err != nil {
-		if !errors.Is(err, context.Canceled) &&
-			!errors.Is(err, context.DeadlineExceeded) {
-
-			ms.peer.log.Warnf("msgStream.AddMsg: failed to "+
-				"enqueue message: %v", err)
-		} else {
-			ms.peer.log.Tracef("msgStream.AddMsg: context "+
-				"canceled during enqueue: %v", err)
-		}
+		ms.peer.log.Warnf("unable to enqueue message: %v", err)
+		return
 	}
 
 	if dropped {
-		ms.peer.log.Debugf("msgStream.AddMsg: message %T "+
-			"dropped from queue", msg)
+		ms.peer.log.Debugf("message %T dropped by predicate", msg)
 	}
 }
 

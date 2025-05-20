@@ -215,4 +215,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // well).
 go 1.23.6
 
+replace github.com/lightningnetwork/lnd/queue => ./queue
+
 retract v0.0.2

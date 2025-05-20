@@ -4335,6 +4335,7 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			"unknown", chanID)
 		p.log.Errorf(err.Error())
 		req.Err <- err
+
 		return
 	}
 

@@ -1,14 +1,17 @@
 package routing
 
 import (
+	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -738,7 +741,9 @@ func TestResultInterpretation(t *testing.T) {
 				))
 			}
 
-			i := interpretResult(testCase.route, failure)
+			i := interpretResult(
+				InterpretCfg{}, testCase.route, failure,
+			)
 
 			expected := testCase.expectedResult
 
@@ -748,10 +753,131 @@ func TestResultInterpretation(t *testing.T) {
 				expected.pairResults = emptyResults
 			}
 
+			// We don't want to test the node fee deltas here, so we
+			// set them to nil.
+			i.nodeFeeDeltas = nil
+
 			if !reflect.DeepEqual(i, expected) {
 				t.Fatalf("unexpected result\nwant: %v\ngot: %v",
 					spew.Sdump(expected), spew.Sdump(i))
 			}
 		})
 	}
+}
+
+// TestFeeDeltas tests the fee level deltas of a temporary channel failure.
+// The delta peaks at the node behind the failing channel and halves with each
+// reach in hops.
+func TestFeeDeltas(t *testing.T) {
+	t.Parallel()
+
+	// The test reads the nodes from the route, because other tests change
+	// the hops variable.
+	node := func(idx int) route.Vertex {
+		return routeFourHop.hops.Val[idx].pubKeyBytes.Val
+	}
+
+	tests := []struct {
+		name      string
+		reach     float64
+		symmetric bool
+		expected  map[route.Vertex]uint64
+	}{
+		{
+			name:  "asymmetric",
+			reach: 1,
+			expected: map[route.Vertex]uint64{
+				node(1): 100, node(2): 50, node(3): 25,
+			},
+		},
+		{
+			name:      "symmetric",
+			reach:     2,
+			symmetric: true,
+			expected: map[route.Vertex]uint64{
+				node(0): 70, node(1): 100, node(2): 70,
+				node(3): 50,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			failureSrcIdx := 1
+			failure := fn.Some(newPaymentFailure(
+				&failureSrcIdx,
+				lnwire.NewTemporaryChannelFailure(nil),
+			))
+			i := interpretResult(
+				InterpretCfg{
+					FeeLevelPPM:       100,
+					FeeLevelReach:     test.reach,
+					FeeLevelSymmetric: test.symmetric,
+					FeeLevelDecay:     time.Hour,
+				},
+				routeFourHop, failure,
+			)
+
+			require.Equal(t, test.expected, i.nodeFeeDeltas)
+		})
+	}
+}
+
+// TestInterpretCfgValidate tests the fee level config rules. A fee level PPM
+// of zero turns fee levels off, so the other rules do not apply.
+func TestInterpretCfgValidate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		ppm   uint64
+		max   uint64
+		reach float64
+		decay time.Duration
+		valid bool
+	}{
+		{"valid", 100, 1000, 1, time.Hour, true},
+		{"max equals PPM", 100, 100, 1, time.Hour, true},
+		{"off", 0, 0, 0, 0, true},
+		{"zero reach", 100, 1000, 0, time.Hour, false},
+		{"negative reach", 100, 1000, -1, time.Hour, false},
+		{"NaN reach", 100, 1000, math.NaN(), time.Hour, false},
+		{"infinite reach", 100, 1000, math.Inf(1), time.Hour, false},
+		{"max below PPM", 100, 99, 1, time.Hour, false},
+		{"max above cap", 100, maxFeeLevelPPM + 1, 1, time.Hour, false},
+		{"zero decay", 100, 1000, 1, 0, false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := InterpretCfg{
+				FeeLevelPPM:   test.ppm,
+				FeeLevelMax:   test.max,
+				FeeLevelReach: test.reach,
+				FeeLevelDecay: test.decay,
+			}.Validate()
+
+			if test.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+// TestClampFeeLevel tests the conversion of float fee levels to PPM.
+func TestClampFeeLevel(t *testing.T) {
+	t.Parallel()
+
+	require.EqualValues(t, 0, clampFeeLevel(math.NaN()))
+	require.EqualValues(t, 0, clampFeeLevel(math.Inf(-1)))
+	require.EqualValues(t, 0, clampFeeLevel(-5))
+	require.EqualValues(t, 42, clampFeeLevel(42.9))
+	require.EqualValues(t, maxFeeLevelPPM, clampFeeLevel(math.Inf(1)))
+	require.EqualValues(t, maxFeeLevelPPM, clampFeeLevel(1e19))
 }

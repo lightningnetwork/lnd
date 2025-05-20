@@ -477,6 +477,7 @@ func (s *Server) probeDestination(dest []byte, amtSat int64,
 			FeeLimit:           routeFeeLimitSat,
 			CltvLimit:          backend.MaxTotalTimelock,
 			ProbabilitySource:  mc.GetProbability,
+			FeeLevelSource:     mc.GetFeeLevel,
 			OutgoingChannelIDs: outgoingChanIDs,
 		}, nil, nil, nil, backend.DefaultFinalCltvDelta,
 	)

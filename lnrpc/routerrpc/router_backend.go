@@ -445,6 +445,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 				fromNode, toNode, amt, capacity,
 			)
 		},
+		FeeLevelSource:        r.MissionControl.GetFeeLevel,
 		DestCustomRecords:     record.CustomSet(in.DestCustomRecords),
 		CltvLimit:             cltvLimit,
 		DestFeatures:          destinationFeatures,

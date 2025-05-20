@@ -1505,6 +1505,36 @@
       ],
       "default": "UNKNOWN"
     },
+    "routerrpcFeeLevelParameters": {
+      "type": "object",
+      "properties": {
+        "level_ppm": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee level increase in parts per million for routing failures. The fee\nlevel increases most strongly for the failing node to reach. Fee levels of\nneighboring nodes along the route are increased less strongly, controlled\nby reach. A value of zero turns fee levels off. The recommended value is\n50. It must not be above max_level_ppm."
+        },
+        "reach": {
+          "type": "number",
+          "format": "double",
+          "description": "The correlation extent for fee levels of neighboring nodes along the route\nin units of hops."
+        },
+        "decay_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Decay is the time it takes for a fee level to decay to 50% of its initial\nvalue. The decay is exponential, so the fee level will be halved after\nDecay time has passed."
+        },
+        "symmetric": {
+          "type": "boolean",
+          "description": "Symmetric is the flag that indicates whether to also apply the fee level\nfor successful hops before the failing node. This can be useful for\nrebalancing."
+        },
+        "max_level_ppm": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The largest fee level of a node in parts per million. It must be at least\nlevel_ppm and at most 1000000 when fee levels are on."
+        }
+      },
+      "description": "EXPERIMENTAL: The fee level parameters. Fee levels trade higher route fees\nfor fewer payment attempts."
+    },
     "routerrpcFinalHtlcEvent": {
       "type": "object",
       "properties": {
@@ -1819,6 +1849,9 @@
         },
         "bimodal": {
           "$ref": "#/definitions/routerrpcBimodalParameters"
+        },
+        "fee_level_parameters": {
+          "$ref": "#/definitions/routerrpcFeeLevelParameters"
         }
       }
     },

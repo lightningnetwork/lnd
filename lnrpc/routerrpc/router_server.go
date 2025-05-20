@@ -1173,12 +1173,20 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 
 	// Query the current mission control config.
 	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
+	feeLevelConfig := FeeLevelParameters{
+		LevelPpm:     cfg.InterpretCfg.FeeLevelPPM,
+		Reach:        cfg.InterpretCfg.FeeLevelReach,
+		DecaySeconds: uint64(cfg.InterpretCfg.FeeLevelDecay.Seconds()),
+		Symmetric:    cfg.InterpretCfg.FeeLevelSymmetric,
+		MaxLevelPpm:  cfg.InterpretCfg.FeeLevelMax,
+	}
 	resp := &GetMissionControlConfigResponse{
 		Config: &MissionControlConfig{
 			MaximumPaymentResults: uint32(cfg.MaxMcHistory),
 			MinimumFailureRelaxInterval: uint64(
 				cfg.MinFailureRelaxInterval.Seconds(),
 			),
+			FeeLevelParameters: &feeLevelConfig,
 		},
 	}
 
@@ -1233,6 +1241,21 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 		MinFailureRelaxInterval: time.Duration(
 			req.Config.MinimumFailureRelaxInterval,
 		) * time.Second,
+	}
+
+	// A request without fee level parameters keeps the current ones. The
+	// load option is not part of the RPC, so it always keeps its value.
+	mcCfg.InterpretCfg = s.cfg.RouterBackend.MissionControl.GetConfig().
+		InterpretCfg
+
+	if params := req.Config.FeeLevelParameters; params != nil {
+		mcCfg.InterpretCfg.FeeLevelPPM = params.LevelPpm
+		mcCfg.InterpretCfg.FeeLevelReach = params.Reach
+		mcCfg.InterpretCfg.FeeLevelDecay = time.Duration(
+			params.DecaySeconds,
+		) * time.Second
+		mcCfg.InterpretCfg.FeeLevelSymmetric = params.Symmetric
+		mcCfg.InterpretCfg.FeeLevelMax = params.MaxLevelPpm
 	}
 
 	switch req.Config.Model {

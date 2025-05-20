@@ -79,6 +79,33 @@ const (
 	// control name space. This is used as the sub-bucket key within the
 	// top level DB bucket to store mission control results.
 	DefaultMissionControlNamespace = "default"
+
+	// DefaultFeeLevelPPM is the default fee level increase for routing
+	// failures. By default we don't apply it.
+	DefaultFeeLevelPPM = 0
+
+	// DefaultFeeLevelReach is the default correlation factor for fee
+	// levels of neighboring nodes along the route in units of hops. The
+	// larger the reach, the more neighboring nodes have their fee levels
+	// increased. The default value of 1 means that the neighboring node
+	// gets half of the fee level increase of the failing node.
+	DefaultFeeLevelReach = 1
+
+	// DefaultFeeLevelDecay is the default time it takes for a fee level to
+	// decay to 50% of its initial value. The decay is exponential, so the
+	// fee level will be halved after FeeLevelDecay time has passed.
+	DefaultFeeLevelDecay = time.Hour
+
+	// DefaultFeeLevelMax is the default largest fee level of a node in
+	// parts per million. It bounds the extra fee that a fee level can make
+	// pathfinding accept on one channel.
+	DefaultFeeLevelMax = 1000
+
+	// DefaultFeeLevelSymmetric is the default value for whether to also
+	// apply the fee level to nodes before the failing node. It is off. With
+	// it on, any node on the route can raise the fee levels of the honest
+	// nodes before it with a temporary channel failure.
+	DefaultFeeLevelSymmetric = false
 )
 
 var (

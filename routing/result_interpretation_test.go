@@ -881,3 +881,35 @@ func TestClampFeeLevel(t *testing.T) {
 	require.EqualValues(t, maxFeeLevelPPM, clampFeeLevel(math.Inf(1)))
 	require.EqualValues(t, maxFeeLevelPPM, clampFeeLevel(1e19))
 }
+
+// TestFeeDeltaUpstreamDefault tests that the default fee level config gives no
+// delta to the nodes before the failing hop. Any routing node can report a
+// temporary channel failure, so it must not raise the fee levels of the honest
+// nodes before it.
+func TestFeeDeltaUpstreamDefault(t *testing.T) {
+	t.Parallel()
+
+	node := func(idx int) route.Vertex {
+		return routeFourHop.hops.Val[idx].pubKeyBytes.Val
+	}
+
+	// The failure source is node(2), the third hop. node(0) and node(1)
+	// forwarded the HTLC without an error.
+	failureSrcIdx := 3
+	failure := fn.Some(newPaymentFailure(
+		&failureSrcIdx, lnwire.NewTemporaryChannelFailure(nil),
+	))
+
+	i := interpretResult(
+		InterpretCfg{
+			FeeLevelPPM:       100,
+			FeeLevelReach:     DefaultFeeLevelReach,
+			FeeLevelSymmetric: DefaultFeeLevelSymmetric,
+			FeeLevelDecay:     DefaultFeeLevelDecay,
+		},
+		routeFourHop, failure,
+	)
+
+	require.Zero(t, i.nodeFeeDeltas[node(0)], "honest upstream node")
+	require.Zero(t, i.nodeFeeDeltas[node(1)], "honest upstream node")
+}

@@ -1,10 +1,35 @@
 package routing
 
 import (
+	"math"
 	"time"
 
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// FeeLevel is the fee level of a node. It halves with each half-life after
+// LastUpdate.
+type FeeLevel struct {
+	// FeeRate is the fee level of this node in parts per million.
+	FeeRate uint64
+
+	// LastUpdate is the time of the last delta. Decay starts at this time.
+	LastUpdate time.Time
+}
+
+// decayed returns the fee rate at time now, which halves with each half-life
+// since LastUpdate. A time before LastUpdate, for example after the clock steps
+// back, counts as no elapsed time.
+func (f FeeLevel) decayed(now time.Time, halfLife time.Duration) uint64 {
+	elapsed := now.Sub(f.LastUpdate)
+	if elapsed <= 0 || halfLife <= 0 {
+		return f.FeeRate
+	}
+
+	factor := math.Exp2(-float64(elapsed) / float64(halfLife))
+
+	return clampFeeLevel(float64(f.FeeRate) * factor)
+}
 
 // missionControlState is an object that manages the internal mission control
 // state. Note that it isn't thread safe and synchronization needs to be
@@ -20,6 +45,10 @@ type missionControlState struct {
 	// a directed node pair.
 	lastSecondChance map[DirectedNodePair]time.Time
 
+	// feeLevels tracks the fee level for a node. This is used to apply
+	// a cutoff to the node's lower fee channels.
+	feeLevels map[route.Vertex]FeeLevel
+
 	// minFailureRelaxInterval is the minimum time that must have passed
 	// since the previously recorded failure before the failure amount may
 	// be raised.
@@ -33,6 +62,7 @@ func newMissionControlState(
 	return &missionControlState{
 		lastPairResult:          make(map[route.Vertex]NodeResults),
 		lastSecondChance:        make(map[DirectedNodePair]time.Time),
+		feeLevels:               make(map[route.Vertex]FeeLevel),
 		minFailureRelaxInterval: minFailureRelaxInterval,
 	}
 }
@@ -46,11 +76,25 @@ func (m *missionControlState) getLastPairResult(node route.Vertex) (NodeResults,
 	return result, ok
 }
 
+// getFeeLevel returns the fee level of the given node, decayed to now. A node
+// without a fee level gives zero.
+func (f *missionControlState) getFeeLevel(now time.Time, node route.Vertex,
+	halfLife time.Duration) uint64 {
+
+	feeLevel, ok := f.feeLevels[node]
+	if !ok {
+		return 0
+	}
+
+	return feeLevel.decayed(now, halfLife)
+}
+
 // ResetHistory resets the history of missionControlState returning it to a
 // state as if no payment attempts have been made.
 func (m *missionControlState) resetHistory() {
 	m.lastPairResult = make(map[route.Vertex]NodeResults)
 	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
+	m.feeLevels = make(map[route.Vertex]FeeLevel)
 }
 
 // setLastPairResult stores a result for a node pair.
@@ -136,6 +180,26 @@ func (m *missionControlState) setLastPairResult(fromNode, toNode route.Vertex,
 		fromNode, toNode, current.SuccessAmt, current.FailAmt)
 
 	nodePairs[toNode] = current
+}
+
+// setFeeDelta applies a delta to the fee level of the given node. The fee level
+// is decayed by the time that has passed since the last update, and it does
+// not go above maxLevel.
+func (m *missionControlState) setFeeDelta(now time.Time, node route.Vertex,
+	delta uint64, halfLife time.Duration, maxLevel uint64) {
+
+	// A missing entry is a zero fee level. The cap keeps repeated
+	// failures from raising a fee level without a limit.
+	feeLevel := m.feeLevels[node]
+	feeLevel.FeeRate = min(feeLevel.decayed(now, halfLife)+delta, maxLevel)
+
+	// After a clock step back, LastUpdate stays at the later time, so the
+	// old value does not decay twice.
+	if now.After(feeLevel.LastUpdate) {
+		feeLevel.LastUpdate = now
+	}
+
+	m.feeLevels[node] = feeLevel
 }
 
 // setAllFail stores a fail result for all known connections to and from the

@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/queue"
 )
@@ -190,6 +191,9 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	if err != nil {
 		return err
 	}
+
+	// Observe the creation of a new payment.
+	monitoring.IncrementPaymentCount()
 
 	// Take lock before querying the db to prevent missing or duplicating
 	// an update.

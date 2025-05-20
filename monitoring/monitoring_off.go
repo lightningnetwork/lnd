@@ -23,3 +23,13 @@ func ExportPrometheusMetrics(_ *grpc.Server, _ lncfg.Prometheus) error {
 	return fmt.Errorf("lnd must be built with the monitoring tag to " +
 		"enable exporting Prometheus metrics")
 }
+
+// IncrementPaymentCount increments a counter tracking the number of payments
+// made by lnd when monitoring is enabled. This method no-ops as monitoring is
+// disabled.
+func IncrementPaymentCount() {}
+
+// IncrementHTLCAttemptCount increments a counter tracking the number of HTLC
+// attempts made by lnd when monitoring is enabled. This method no-ops as
+// monitoring is disabled.
+func IncrementHTLCAttemptCount() {}

@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1364,7 +1365,8 @@ type PaymentsResponse struct {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (p *KVPaymentsDB) QueryPayments(query PaymentsQuery) (PaymentsResponse,
+func (p *KVPaymentsDB) QueryPayments(_ context.Context,
+	query PaymentsQuery) (PaymentsResponse,
 	error) {
 
 	var resp PaymentsResponse

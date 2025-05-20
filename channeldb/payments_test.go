@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -509,9 +510,11 @@ func TestQueryPayments(t *testing.T) {
 
 			paymentDB := NewKVPaymentsDB(db)
 
+			ctx := context.Background()
+
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
-			resp, err := paymentDB.QueryPayments(tt.query)
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
 			require.NoError(t, err)
 			require.Len(t, resp.Payments, 0)
 
@@ -587,7 +590,9 @@ func TestQueryPayments(t *testing.T) {
 					len(allPayments), 6)
 			}
 
-			querySlice, err := paymentDB.QueryPayments(tt.query)
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

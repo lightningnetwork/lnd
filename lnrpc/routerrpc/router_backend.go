@@ -169,6 +169,10 @@ type MissionControl interface {
 	GetProbability(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 
+	// GetFeeLevel returns the fee level of the given node in parts per
+	// million.
+	GetFeeLevel(node route.Vertex) uint64
+
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
 	ResetHistory() error

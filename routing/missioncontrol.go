@@ -572,6 +572,22 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	)
 }
 
+// GetFeeLevel returns the fee level of the given node in parts per million.
+func (m *MissionControl) GetFeeLevel(node route.Vertex) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.interpretCfg.FeeLevelPPM == 0 {
+		return 0
+	}
+
+	now := m.cfg.clock.Now()
+	level := m.state.getFeeLevel(now, node, m.interpretCfg.FeeLevelDecay)
+
+	// The max can fall at run time below a fee level that already exists.
+	return min(level, m.interpretCfg.FeeLevelMax)
+}
+
 // GetHistorySnapshot takes a snapshot from the current mission control state
 // and actual probability estimates.
 func (m *MissionControl) GetHistorySnapshot() *MissionControlSnapshot {

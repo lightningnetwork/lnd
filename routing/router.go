@@ -183,6 +183,10 @@ type MissionControlQuerier interface {
 	// payment from fromNode along edge.
 	GetProbability(fromNode, toNode route.Vertex,
 		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
+
+	// GetFeeLevel returns the fee level of the given node in parts per
+	// million.
+	GetFeeLevel(node route.Vertex) uint64
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.

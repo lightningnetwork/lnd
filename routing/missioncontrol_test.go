@@ -312,6 +312,16 @@ func TestMissionControlNamespaces(t *testing.T) {
 	ctx.expectP(1000, testAprioriHopProbability+0.05)
 }
 
+// TestMissionControlFeeLevelInvalidConfig tests that mission control rejects an
+// invalid fee level config.
+func TestMissionControlFeeLevelInvalidConfig(t *testing.T) {
+	ctx := createMcTestContext(t)
+
+	cfg := ctx.mc.GetConfig()
+	cfg.InterpretCfg = InterpretCfg{FeeLevelPPM: 100}
+	require.Error(t, ctx.mc.SetConfig(cfg))
+}
+
 // testClock is an implementation of clock.Clock that lets the caller overwrite
 // the current time at any point.
 type testClock struct {

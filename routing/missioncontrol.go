@@ -127,6 +127,9 @@ type MissionControl struct {
 	// results that mission control collects.
 	estimator Estimator
 
+	// interpretCfg holds the fee level options for each payment result.
+	interpretCfg InterpretCfg
+
 	// onConfigUpdate is a function that is called whenever the
 	// mission control state is updated.
 	onConfigUpdate fn.Option[func(cfg *MissionControlConfig)]
@@ -202,6 +205,10 @@ type MissionControlConfig struct {
 	// since the previously recorded failure before the failure amount may
 	// be raised.
 	MinFailureRelaxInterval time.Duration
+
+	// InterpretCfg holds the fee level options that mission control applies
+	// to each payment result.
+	InterpretCfg InterpretCfg
 }
 
 func (c *MissionControlConfig) validate() error {
@@ -213,13 +220,14 @@ func (c *MissionControlConfig) validate() error {
 		return ErrInvalidFailureInterval
 	}
 
-	return nil
+	return c.InterpretCfg.Validate()
 }
 
 // String returns a string representation of a mission control config.
 func (c *MissionControlConfig) String() string {
 	return fmt.Sprintf("maximum history: %v, minimum failure relax "+
-		"interval: %v", c.MaxMcHistory, c.MinFailureRelaxInterval)
+		"interval: %v, interpret config: %+v", c.MaxMcHistory,
+		c.MinFailureRelaxInterval, c.InterpretCfg)
 }
 
 // TimedPairResult describes a timestamped pair result.
@@ -420,6 +428,7 @@ func (m *MissionController) initMissionControl(namespace string) (
 		estimator:      cfg.Estimator,
 		log:            log.WithPrefix(fmt.Sprintf("[%s]:", namespace)),
 		onConfigUpdate: cfg.OnConfigUpdate,
+		interpretCfg:   cfg.InterpretCfg,
 	}
 
 	m.mc[namespace] = mc
@@ -468,6 +477,10 @@ func (m *MissionControl) init() error {
 		_ = m.applyPaymentResult(result, true)
 	}
 
+	m.state.pruneFeeLevels(
+		m.cfg.clock.Now(), m.interpretCfg.FeeLevelDecay,
+	)
+
 	m.log.Debugf("Mission control state reconstruction finished: "+
 		"n=%v, time=%v", len(results), time.Since(start))
 
@@ -486,6 +499,7 @@ func (m *MissionControl) GetConfig() *MissionControlConfig {
 		MaxMcHistory:            m.store.maxRecords,
 		McFlushInterval:         m.store.flushInterval,
 		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
+		InterpretCfg:            m.interpretCfg,
 	}
 }
 
@@ -509,6 +523,8 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.store.maxRecords = cfg.MaxMcHistory
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
 	m.estimator = cfg.Estimator
+
+	m.interpretCfg = cfg.InterpretCfg
 
 	// Execute the callback function if it is set.
 	m.onConfigUpdate.WhenSome(func(f func(cfg *MissionControlConfig)) {
@@ -671,7 +687,7 @@ func (m *MissionControl) applyPaymentResult(
 
 	// Interpret result.
 	i := interpretResult(
-		InterpretCfg{}, &result.route.Val, result.failure.ValOpt(),
+		m.interpretCfg, &result.route.Val, result.failure.ValOpt(),
 	)
 
 	if i.policyFailure != nil {
@@ -682,6 +698,8 @@ func (m *MissionControl) applyPaymentResult(
 			return nil
 		}
 	}
+
+	replyTime := time.Unix(0, int64(result.timeReply.Val))
 
 	// If there is a node-level failure, record a failure for every tried
 	// connection of that node. A node-level failure can be considered as a
@@ -704,10 +722,7 @@ func (m *MissionControl) applyPaymentResult(
 		m.log.Debugf("Reporting node failure to Mission Control: "+
 			"node=%v", *i.nodeFailure)
 
-		m.state.setAllFail(
-			*i.nodeFailure,
-			time.Unix(0, int64(result.timeReply.Val)),
-		)
+		m.state.setAllFail(*i.nodeFailure, replyTime)
 	}
 
 	for pair, pairResult := range i.pairResults {
@@ -723,13 +738,53 @@ func (m *MissionControl) applyPaymentResult(
 		}
 
 		m.state.setLastPairResult(
-			pair.From, pair.To,
-			time.Unix(0, int64(result.timeReply.Val)), &pairResult,
-			false,
+			pair.From, pair.To, replyTime, &pairResult, false,
+		)
+	}
+
+	applyDeltas := !isInit || m.replayFeeDeltas(replyTime)
+	if applyDeltas && len(i.nodeFeeDeltas) > 0 {
+		m.log.Debugf("Reporting node fee deltas to Mission Control: %v",
+			i.nodeFeeDeltas)
+
+		for node, delta := range i.nodeFeeDeltas {
+			m.state.setFeeDelta(
+				replyTime, node, delta,
+				m.interpretCfg.FeeLevelDecay,
+				m.interpretCfg.FeeLevelMax,
+			)
+		}
+	}
+
+	// The startup replay prunes once at its end.
+	if !isInit {
+		m.state.pruneFeeLevels(
+			m.cfg.clock.Now(), m.interpretCfg.FeeLevelDecay,
 		)
 	}
 
 	return i.finalFailureReason
+}
+
+// feeLevelReplayHalfLives is the age limit, in fee level half-lives, of the
+// stored results that the startup replay uses for fee levels.
+const feeLevelReplayHalfLives = 4
+
+// replayFeeDeltas reports whether the startup replay applies the fee level
+// deltas of a result with the given reply time. The replay uses the config at
+// startup, so a config change before a restart also changes the levels that
+// the replay rebuilds.
+func (m *MissionControl) replayFeeDeltas(replyTime time.Time) bool {
+	cfg := m.interpretCfg
+	if !cfg.FeeLevelLoad || cfg.FeeLevelDecay <= 0 {
+		return false
+	}
+
+	// After feeLevelReplayHalfLives half-lives a delta is below 1/16 of its
+	// value, so older results add little and only cost startup time.
+	maxAge := feeLevelReplayHalfLives * cfg.FeeLevelDecay
+
+	return m.cfg.clock.Now().Sub(replyTime) <= maxAge
 }
 
 // namespacedDB is an implementation of the missionControlDB that gives a user

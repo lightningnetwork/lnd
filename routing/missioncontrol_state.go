@@ -202,6 +202,18 @@ func (m *missionControlState) setFeeDelta(now time.Time, node route.Vertex,
 	m.feeLevels[node] = feeLevel
 }
 
+// pruneFeeLevels removes the fee levels that have decayed to zero, so the map
+// holds only nodes with a recent fee level delta.
+func (m *missionControlState) pruneFeeLevels(now time.Time,
+	halfLife time.Duration) {
+
+	for node := range m.feeLevels {
+		if m.getFeeLevel(now, node, halfLife) == 0 {
+			delete(m.feeLevels, node)
+		}
+	}
+}
+
 // setAllFail stores a fail result for all known connections to and from the
 // given node.
 func (m *missionControlState) setAllFail(node route.Vertex,

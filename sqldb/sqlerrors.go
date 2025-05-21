@@ -90,7 +90,7 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 		}
 
 	// Database is currently busy, so we'll need to try again.
-	case sqlite3.SQLITE_BUSY:
+	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_BUSY_SNAPSHOT:
 		return &ErrSerializationError{
 			DBError: sqliteErr,
 		}

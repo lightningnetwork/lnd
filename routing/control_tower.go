@@ -61,8 +61,8 @@ type ControlTower interface {
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
-	// this is a multi shard payment, this might implicitly mean the the
-	// full payment succeeded.
+	// this is a multi shard payment, this might implicitly mean the full
+	// payment succeeded.
 	//
 	// After invoking this method, InitPayment should always return an
 	// error to prevent us from making duplicate payments to the same
@@ -233,8 +233,8 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If
-// this is a multi shard payment, this might implicitly mean the the
-// full payment succeeded.
+// this is a multi shard payment, this might implicitly mean the full payment
+// succeeded.
 func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) (
 	*channeldb.HTLCAttempt, error) {

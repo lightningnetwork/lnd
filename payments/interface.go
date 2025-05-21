@@ -8,6 +8,8 @@ import (
 )
 
 // PaymentDB is the interface that represents the underlying payments database.
+//
+//nolint:interfacebloat
 type PaymentDB interface {
 	// QueryPayments queries the payments database and should support
 	// pagination.
@@ -39,7 +41,7 @@ type PaymentDB interface {
 		*channeldb.HTLCAttemptInfo) (*channeldb.MPPayment, error)
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
-	// this is a multi shard payment, this might implicitly mean the the
+	// this is a multi shard payment, this might implicitly mean the
 	// full payment succeeded.
 	//
 	// After invoking this method, InitPayment should always return an

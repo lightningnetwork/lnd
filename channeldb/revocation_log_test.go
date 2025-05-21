@@ -59,13 +59,13 @@ var (
 		CustomBlob: tlv.SomeRecordT(
 			tlv.NewPrimitiveRecord[tlv.TlvType5](blobBytes),
 		),
-		HtlcIndex: tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType6, uint16](0x33),
-		),
+		HtlcIndex: tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType6](
+			tlv.NewBigSizeT(uint64(0x33)),
+		)),
 	}
 	testHTLCEntryBytes = []byte{
-		// Body length 45.
-		0x2d,
+		// Body length 44.
+		0x2c,
 		// Rhash tlv.
 		0x0, 0x0,
 		// RefundTimeout tlv.
@@ -80,7 +80,7 @@ var (
 		0x5, 0x11, 0xfe, 0x00, 0x01, 0x00, 0x01, 0x0b, 0x63, 0x75, 0x73,
 		0x74, 0x6f, 0x6d, 0x20, 0x64, 0x61, 0x74, 0x61,
 		// HLTC index tlv.
-		0x6, 0x2, 0x0, 0x33,
+		0x6, 0x1, 0x33,
 	}
 
 	testHTLCEntryHash = HTLCEntry{
@@ -133,7 +133,7 @@ var (
 			OutputIndex:   int32(testHTLCEntry.OutputIndex.Val),
 			HtlcIndex: uint64(
 				testHTLCEntry.HtlcIndex.ValOpt().
-					UnsafeFromSome(),
+					UnsafeFromSome().Int(),
 			),
 			Incoming: testHTLCEntry.Incoming.Val,
 			Amt: lnwire.NewMSatFromSatoshis(
@@ -303,7 +303,7 @@ func TestSerializeHTLCEntries(t *testing.T) {
 	partialBytes := testHTLCEntryBytes[3:]
 
 	// Write the total length and RHash tlv.
-	expectedBytes := []byte{0x4d, 0x0, 0x20}
+	expectedBytes := []byte{0x4c, 0x0, 0x20}
 	expectedBytes = append(expectedBytes, rHashBytes...)
 
 	// Append the rest.

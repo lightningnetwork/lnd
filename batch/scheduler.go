@@ -1,10 +1,11 @@
 package batch
 
 import (
+	"context"
 	"sync"
 	"time"
 
-	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/sqldb"
 )
 
 // TimeScheduler is a batching engine that executes requests within a fixed
@@ -12,13 +13,13 @@ import (
 // configurable duration for other concurrent requests to join the batch. Once
 // this time has elapsed, the batch is closed and executed. Subsequent requests
 // are then added to a new batch which undergoes the same process.
-type TimeScheduler struct {
-	db       kvdb.Backend
+type TimeScheduler[Q any] struct {
+	db       sqldb.BatchedTx[Q]
 	locker   sync.Locker
 	duration time.Duration
 
 	mu sync.Mutex
-	b  *batch
+	b  *batch[Q]
 }
 
 // NewTimeScheduler initializes a new TimeScheduler with a fixed duration at
@@ -26,14 +27,20 @@ type TimeScheduler struct {
 // cache, the cache's lock should be provided to so that external consistency
 // can be maintained, as successful db operations will cause a request's
 // OnCommit method to be executed while holding this lock.
-func NewTimeScheduler(db kvdb.Backend, locker sync.Locker,
-	duration time.Duration) *TimeScheduler {
+func NewTimeScheduler[Q any](db sqldb.BatchedTx[Q], locker sync.Locker,
+	duration time.Duration) *TimeScheduler[Q] {
 
-	return &TimeScheduler{
+	return &TimeScheduler[Q]{
 		db:       db,
 		locker:   locker,
 		duration: duration,
 	}
+}
+
+type writeOpts struct{}
+
+func (*writeOpts) ReadOnly() bool {
+	return false
 }
 
 // Execute schedules the provided request for batch execution along with other
@@ -42,12 +49,12 @@ func NewTimeScheduler(db kvdb.Backend, locker sync.Locker,
 // underlying operation is returned to the caller.
 //
 // NOTE: Part of the Scheduler interface.
-func (s *TimeScheduler) Execute(r *Request) error {
+func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 	if r.Opts == nil {
 		r.Opts = NewDefaultSchedulerOpts()
 	}
 
-	req := request{
+	req := request[Q]{
 		Request: r,
 		errChan: make(chan error, 1),
 	}
@@ -56,18 +63,21 @@ func (s *TimeScheduler) Execute(r *Request) error {
 	// or no batch exists, create a new one.
 	s.mu.Lock()
 	if s.b == nil {
-		s.b = &batch{
+		s.b = &batch[Q]{
 			db:     s.db,
 			clear:  s.clear,
 			locker: s.locker,
 		}
-		time.AfterFunc(s.duration, s.b.trigger)
+		trigger := s.b.trigger
+		time.AfterFunc(s.duration, func() {
+			trigger(ctx)
+		})
 	}
 	s.b.reqs = append(s.b.reqs, &req)
 
 	// If this is a non-lazy request, we'll execute the batch immediately.
-	if !r.Opts.lazy {
-		go s.b.trigger()
+	if !r.Opts.Lazy {
+		go s.b.trigger(ctx)
 	}
 
 	s.mu.Unlock()
@@ -87,7 +97,10 @@ func (s *TimeScheduler) Execute(r *Request) error {
 	}
 
 	// Otherwise, run the request on its own.
-	commitErr := kvdb.Update(s.db, req.Update, func() {
+	var writeTx writeOpts
+	commitErr := s.db.ExecTx(ctx, &writeTx, func(tx Q) error {
+		return req.Update(tx)
+	}, func() {
 		if req.Reset != nil {
 			req.Reset()
 		}
@@ -104,7 +117,7 @@ func (s *TimeScheduler) Execute(r *Request) error {
 
 // clear resets the scheduler's batch to nil so that no more requests can be
 // added.
-func (s *TimeScheduler) clear(b *batch) {
+func (s *TimeScheduler[Q]) clear(b *batch[Q]) {
 	s.mu.Lock()
 	if s.b == b {
 		s.b = nil

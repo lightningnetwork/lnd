@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
@@ -153,7 +153,7 @@ type BtcdEstimator struct {
 	// transaction to propagate through the network.
 	minFeeManager *minFeeManager
 
-	btcdConn *rpcclient.Client
+	btcdConn *chain.BtcdClient
 
 	// filterManager uses our peer's feefilter values to determine a
 	// suitable feerate to use that will allow successful transaction
@@ -161,28 +161,21 @@ type BtcdEstimator struct {
 	filterManager *filterManager
 }
 
-// NewBtcdEstimator creates a new BtcdEstimator given a fully populated
-// rpc config that is able to successfully connect and authenticate with the
-// btcd node, and also a fall back fee rate. The fallback fee rate is used in
-// the occasion that the estimator has insufficient data, or returns zero for a
+// NewBtcdEstimator creates a new BtcdEstimator given a fully initialized
+// BtcdClient and a fallback fee rate. The BtcdClient should already be
+// configured and connected to the btcd node. The fallback fee rate is used in
+// in cases where the estimator has insufficient data or returns zero for a
 // fee estimate.
-func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
+func NewBtcdEstimator(client *chain.BtcdClient,
 	fallBackFeeRate SatPerKWeight) (*BtcdEstimator, error) {
 
-	rpcConfig.DisableConnectOnNew = true
-	rpcConfig.DisableAutoReconnect = false
-	chainConn, err := rpcclient.New(&rpcConfig, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	fetchCb := func() ([]SatPerKWeight, error) {
-		return fetchBtcdFilters(chainConn)
+		return fetchBtcdFilters(client)
 	}
 
 	return &BtcdEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
-		btcdConn:         chainConn,
+		btcdConn:         client,
 		filterManager:    newFilterManager(fetchCb),
 	}, nil
 }
@@ -354,7 +347,7 @@ type BitcoindEstimator struct {
 
 	// TODO(ziggie): introduce an interface for the client to enhance
 	// testability of the estimator.
-	bitcoindConn *rpcclient.Client
+	bitcoindConn *chain.BitcoindClient
 
 	// filterManager uses our peer's feefilter values to determine a
 	// suitable feerate to use that will allow successful transaction
@@ -362,30 +355,22 @@ type BitcoindEstimator struct {
 	filterManager *filterManager
 }
 
-// NewBitcoindEstimator creates a new BitcoindEstimator given a fully populated
-// rpc config that is able to successfully connect and authenticate with the
-// bitcoind node, and also a fall back fee rate. The fallback fee rate is used
-// in the occasion that the estimator has insufficient data, or returns zero
-// for a fee estimate.
-func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
+// NewBitcoindEstimator creates a new BitcoindEstimator given a fully
+// initialized  BitcoindClient, a fee mode, and a fallback fee rate. The
+// BitcoindClient should already be configured and connected to the bitcoind
+// node. The fee mode specifies the method used to estimate fees. The fallback
+// fee rate is used in cases where the estimator has insufficient data or
+// returns zero for a fee estimate.
+func NewBitcoindEstimator(client *chain.BitcoindClient, feeMode string,
 	fallBackFeeRate SatPerKWeight) (*BitcoindEstimator, error) {
 
-	rpcConfig.DisableConnectOnNew = true
-	rpcConfig.DisableAutoReconnect = false
-	rpcConfig.DisableTLS = true
-	rpcConfig.HTTPPostMode = true
-	chainConn, err := rpcclient.New(&rpcConfig, nil)
-	if err != nil {
-		return nil, err
-	}
-
 	fetchCb := func() ([]SatPerKWeight, error) {
-		return fetchBitcoindFilters(chainConn)
+		return fetchBitcoindFilters(client)
 	}
 
 	return &BitcoindEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
-		bitcoindConn:     chainConn,
+		bitcoindConn:     client,
 		feeMode:          feeMode,
 		filterManager:    newFilterManager(fetchCb),
 	}, nil

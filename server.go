@@ -64,6 +64,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
@@ -316,6 +317,10 @@ type server struct {
 	miscDB *channeldb.DB
 
 	invoicesDB invoices.InvoiceDB
+
+	// paymentsDB is the DB that contains all functions for managing
+	// payments.
+	paymentsDB pymtpkg.PaymentDB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -658,6 +663,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
+		paymentsDB:     dbs.PaymentDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -1081,9 +1087,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
-
-	s.controlTower = routing.NewControlTower(paymentControl)
+	s.controlTower = routing.NewControlTower(dbs.PaymentDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning

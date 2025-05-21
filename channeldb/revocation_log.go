@@ -165,7 +165,7 @@ type HTLCEntry struct {
 	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
 
 	// HtlcIndex is the index of the HTLC in the channel.
-	HtlcIndex tlv.OptionalRecordT[tlv.TlvType6, uint16]
+	HtlcIndex tlv.OptionalRecordT[tlv.TlvType6, tlv.BigSizeT[uint64]]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
@@ -182,7 +182,9 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 		records = append(records, r.Record())
 	})
 
-	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6, uint16]) {
+	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6,
+		tlv.BigSizeT[uint64]]) {
+
 		records = append(records, r.Record())
 	})
 
@@ -207,8 +209,8 @@ func NewHTLCEntryFromHTLC(htlc HTLC) (*HTLCEntry, error) {
 		Amt: tlv.NewRecordT[tlv.TlvType4](
 			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
 		),
-		HtlcIndex: tlv.SomeRecordT(tlv.NewPrimitiveRecord[tlv.TlvType6](
-			uint16(htlc.HtlcIndex),
+		HtlcIndex: tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType6](
+			tlv.NewBigSizeT(htlc.HtlcIndex),
 		)),
 	}
 

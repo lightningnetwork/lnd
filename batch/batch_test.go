@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -12,7 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestRetry tests the retry logic of the batch scheduler.
 func TestRetry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
 	dbDir := t.TempDir()
 
 	dbName := filepath.Join(dbDir, "weks.db")
@@ -30,19 +35,21 @@ func TestRetry(t *testing.T) {
 		mu     sync.Mutex
 		called int
 	)
-	sched := NewTimeScheduler(db, &mu, time.Second)
+	sched := NewTimeScheduler[kvdb.RwTx](
+		NewBoltBackend[kvdb.RwTx](db), &mu, time.Second,
+	)
 
 	// First, we construct a request that should retry individually and
 	// execute it non-lazily. It should still return the error the second
 	// time.
-	req := &Request{
+	req := &Request[kvdb.RwTx]{
 		Update: func(tx kvdb.RwTx) error {
 			called++
 
 			return errors.New("test")
 		},
 	}
-	err = sched.Execute(req)
+	err = sched.Execute(ctx, req)
 
 	// Check and reset the called counter.
 	mu.Lock()
@@ -56,14 +63,14 @@ func TestRetry(t *testing.T) {
 	// a serialization error, which should cause the underlying postgres
 	// transaction to retry. Since we aren't using postgres, this will
 	// cause the transaction to not be retried at all.
-	req = &Request{
+	req = &Request[kvdb.RwTx]{
 		Update: func(tx kvdb.RwTx) error {
 			called++
 
 			return errors.New("could not serialize access")
 		},
 	}
-	err = sched.Execute(req)
+	err = sched.Execute(ctx, req)
 
 	// Check the called counter.
 	mu.Lock()

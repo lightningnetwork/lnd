@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -192,8 +193,8 @@ type KVStore struct {
 	rejectCache *rejectCache
 	chanCache   *channelCache
 
-	chanScheduler batch.Scheduler
-	nodeScheduler batch.Scheduler
+	chanScheduler batch.Scheduler[kvdb.RwTx]
+	nodeScheduler batch.Scheduler[kvdb.RwTx]
 }
 
 // A compile-time assertion to ensure that the KVStore struct implements the
@@ -222,10 +223,12 @@ func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
-		db, &g.cacheMu, opts.BatchCommitInterval,
+		batch.NewBoltBackend[kvdb.RwTx](db), &g.cacheMu,
+		opts.BatchCommitInterval,
 	)
 	g.nodeScheduler = batch.NewTimeScheduler(
-		db, nil, opts.BatchCommitInterval,
+		batch.NewBoltBackend[kvdb.RwTx](db), nil,
+		opts.BatchCommitInterval,
 	)
 
 	return g, nil
@@ -854,14 +857,16 @@ func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
 func (c *KVStore) AddLightningNode(node *models.LightningNode,
 	opts ...batch.SchedulerOption) error {
 
-	r := &batch.Request{
+	ctx := context.TODO()
+
+	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
 		Update: func(tx kvdb.RwTx) error {
 			return addLightningNode(tx, node)
 		},
 	}
 
-	return c.nodeScheduler.Execute(r)
+	return c.nodeScheduler.Execute(ctx, r)
 }
 
 func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
@@ -989,8 +994,10 @@ func (c *KVStore) deleteLightningNode(nodes kvdb.RwBucket,
 func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	opts ...batch.SchedulerOption) error {
 
+	ctx := context.TODO()
+
 	var alreadyExists bool
-	r := &batch.Request{
+	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			alreadyExists = false
@@ -1021,7 +1028,7 @@ func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 		},
 	}
 
-	return c.chanScheduler.Execute(r)
+	return c.chanScheduler.Execute(ctx, r)
 }
 
 // addChannelEdge is the private form of AddChannelEdge that allows callers to
@@ -2693,12 +2700,13 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
+		ctx          = context.TODO()
 		isUpdate1    bool
 		edgeNotFound bool
 		from, to     route.Vertex
 	)
 
-	r := &batch.Request{
+	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			isUpdate1 = false
@@ -2733,7 +2741,7 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 		},
 	}
 
-	err := c.chanScheduler.Execute(r)
+	err := c.chanScheduler.Execute(ctx, r)
 
 	return from, to, err
 }

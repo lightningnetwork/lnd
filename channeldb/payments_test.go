@@ -104,7 +104,9 @@ var (
 	}
 )
 
-func makeFakeInfo(t *testing.T) (*pymtpkg.PaymentCreationInfo, *pymtpkg.HTLCAttemptInfo) {
+func makeFakeInfo(t *testing.T) (*pymtpkg.PaymentCreationInfo,
+	*pymtpkg.HTLCAttemptInfo) {
+
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
@@ -846,8 +848,8 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
-func genInfo(t *testing.T) (*pymtpkg.PaymentCreationInfo, *pymtpkg.HTLCAttemptInfo,
-	lntypes.Preimage, error) {
+func genInfo(t *testing.T) (*pymtpkg.PaymentCreationInfo,
+	*pymtpkg.HTLCAttemptInfo, lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
 	if err != nil {
@@ -904,7 +906,9 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to fail payment hash")
 
 	// Verify the status is indeed Failed.
-	assertPaymentStatus(t, paymentDB, info.PaymentIdentifier, pymtpkg.StatusFailed)
+	assertPaymentStatus(
+		t, paymentDB, info.PaymentIdentifier, pymtpkg.StatusFailed,
+	)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, &failReason, nil,
 	)
@@ -1126,7 +1130,9 @@ func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Calling Fail should return an error.
-	_, err = paymentDB.Fail(info.PaymentIdentifier, pymtpkg.FailureReasonNoRoute)
+	_, err = paymentDB.Fail(
+		info.PaymentIdentifier, pymtpkg.FailureReasonNoRoute,
+	)
 	if !errors.Is(err, pymtpkg.ErrPaymentNotInitiated) {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
@@ -1548,7 +1554,8 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 
 		assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
 		assertPaymentStatus(
-			t, paymentDB, info.PaymentIdentifier, pymtpkg.StatusInitiated,
+			t, paymentDB, info.PaymentIdentifier,
+			pymtpkg.StatusInitiated,
 		)
 		assertPaymentInfo(
 			t, paymentDB, info.PaymentIdentifier, info, nil, nil,
@@ -1621,7 +1628,8 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 
 		// Payment should still be in-flight.
 		assertPaymentStatus(
-			t, paymentDB, info.PaymentIdentifier, pymtpkg.StatusInFlight,
+			t, paymentDB, info.PaymentIdentifier,
+			pymtpkg.StatusInFlight,
 		)
 
 		// Depending on the test case, settle or fail the first attempt.
@@ -1696,13 +1704,18 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 		b.AttemptID = 3
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
 		if test.settleFirst {
-			require.ErrorIs(t, err, pymtpkg.ErrPaymentPendingSettled)
+			require.ErrorIs(
+				t, err, pymtpkg.ErrPaymentPendingSettled,
+			)
 		} else {
-			require.ErrorIs(t, err, pymtpkg.ErrPaymentPendingFailed)
+			require.ErrorIs(
+				t, err, pymtpkg.ErrPaymentPendingFailed,
+			)
 		}
 
 		assertPaymentStatus(
-			t, paymentDB, info.PaymentIdentifier, pymtpkg.StatusInFlight,
+			t, paymentDB, info.PaymentIdentifier,
+			pymtpkg.StatusInFlight,
 		)
 
 		// Settle or fail the remaining attempt based on the testcase.
@@ -2010,7 +2023,8 @@ type htlcStatus struct {
 // assertPaymentInfo retrieves the payment referred to by hash and verifies the
 // expected values.
 func assertPaymentInfo(t *testing.T, p *KVPaymentsDB, hash lntypes.Hash,
-	c *pymtpkg.PaymentCreationInfo, f *pymtpkg.FailureReason, a *htlcStatus) {
+	c *pymtpkg.PaymentCreationInfo, f *pymtpkg.FailureReason,
+	a *htlcStatus) {
 
 	t.Helper()
 

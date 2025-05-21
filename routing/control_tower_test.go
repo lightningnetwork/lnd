@@ -117,11 +117,17 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	for i, s := range subscribers {
-		var result *pymtpkg.MPPayment
+		var (
+			result *pymtpkg.MPPayment
+			ok     bool
+		)
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*pymtpkg.MPPayment)
+				result, ok = item.(*pymtpkg.MPPayment)
+				require.True(t, ok, "unexpected type in "+
+					"payment update: %T", item)
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
@@ -246,8 +252,12 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		select {
 		case item := <-subscription.Updates():
-			id := item.(*pymtpkg.MPPayment).Info.PaymentIdentifier
-			results[id] = item.(*pymtpkg.MPPayment)
+			payment, ok := item.(*pymtpkg.MPPayment)
+			require.True(t, ok, "unexpected type in "+
+				"payment update: %T", item)
+			id := payment.Info.PaymentIdentifier
+			results[id] = payment
+
 		case <-time.After(testTimeout):
 			require.Fail(t, "timeout waiting for payment result")
 		}
@@ -316,11 +326,15 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	select {
 	case update := <-subscription.Updates():
 		require.NotNil(t, update)
+		payment, ok := update.(*pymtpkg.MPPayment)
+		require.True(t, ok, "unexpected type in "+
+			"payment update: %T", update)
 		require.Equal(
 			t, info.PaymentIdentifier,
-			update.(*pymtpkg.MPPayment).Info.PaymentIdentifier,
+			payment.Info.PaymentIdentifier,
 		)
 		require.Len(t, subscription.Updates(), 0)
+
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
@@ -463,11 +477,17 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	for i, s := range subscribers {
-		var result *pymtpkg.MPPayment
+		var (
+			result *pymtpkg.MPPayment
+			ok     bool
+		)
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*pymtpkg.MPPayment)
+				result, ok = item.(*pymtpkg.MPPayment)
+				require.True(t, ok, "unexpected type in "+
+					"payment update: %T", item)
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}

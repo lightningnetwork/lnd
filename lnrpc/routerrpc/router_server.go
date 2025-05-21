@@ -1435,7 +1435,12 @@ func (s *Server) trackPaymentStream(context context.Context,
 				// No more payment updates.
 				return nil
 			}
-			result := item.(*pymtpkg.MPPayment)
+
+			result, ok := item.(*pymtpkg.MPPayment)
+			if !ok {
+				return fmt.Errorf("unexpected type in "+
+					"payment update: %T", item)
+			}
 
 			log.Tracef("Payment %v updated to state %v",
 				result.Info.PaymentIdentifier, result.Status)

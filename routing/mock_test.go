@@ -441,6 +441,7 @@ func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
 
 		// Mark the payment successful on first settled attempt.
 		m.successful[phash] = struct{}{}
+
 		return &pymtpkg.HTLCAttempt{
 			Settle: settleInfo,
 		}, nil
@@ -479,6 +480,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 		}
 
 		p.attempts[i].Failure = failInfo
+
 		return &pymtpkg.HTLCAttempt{
 			Failure: failInfo,
 		}, nil

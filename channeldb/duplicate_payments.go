@@ -62,7 +62,9 @@ type duplicateHTLCAttemptInfo struct {
 
 // fetchDuplicatePaymentStatus fetches the payment status of the payment. If
 // the payment isn't found, it will return error `ErrPaymentNotInitiated`.
-func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (pymtpkg.PaymentStatus, error) {
+func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (pymtpkg.PaymentStatus,
+	error) {
+
 	if bucket.Get(duplicatePaymentSettleInfoKey) != nil {
 		return pymtpkg.StatusSucceeded, nil
 	}

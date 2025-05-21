@@ -477,8 +477,8 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 // After invoking this method, InitPayment should always return an error to
 // prevent us from making duplicate payments to the same payment hash. The
 // provided preimage is atomically saved to the DB for record keeping.
-func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash,
-	attemptID uint64, settleInfo *pymtpkg.HTLCSettleInfo) (*pymtpkg.MPPayment, error) {
+func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash, attemptID uint64,
+	settleInfo *pymtpkg.HTLCSettleInfo) (*pymtpkg.MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCSettleInfo(&b, settleInfo); err != nil {
@@ -490,8 +490,8 @@ func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash,
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash,
-	attemptID uint64, failInfo *pymtpkg.HTLCFailInfo) (*pymtpkg.MPPayment, error) {
+func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash, attemptID uint64,
+	failInfo *pymtpkg.HTLCFailInfo) (*pymtpkg.MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCFailInfo(&b, failInfo); err != nil {
@@ -919,7 +919,9 @@ func (p *KVPaymentsDB) FetchPayments() ([]*pymtpkg.MPPayment, error) {
 	return payments, nil
 }
 
-func fetchCreationInfo(bucket kvdb.RBucket) (*pymtpkg.PaymentCreationInfo, error) {
+func fetchCreationInfo(bucket kvdb.RBucket) (*pymtpkg.PaymentCreationInfo,
+	error) {
+
 	b := bucket.Get(paymentCreationInfoKey)
 	if b == nil {
 		return nil, fmt.Errorf("creation info not found")
@@ -1589,7 +1591,9 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 }
 
 // nolint: dupl
-func serializePaymentCreationInfo(w io.Writer, c *pymtpkg.PaymentCreationInfo) error {
+func serializePaymentCreationInfo(w io.Writer,
+	c *pymtpkg.PaymentCreationInfo) error {
+
 	var scratch [8]byte
 
 	if _, err := w.Write(c.PaymentIdentifier[:]); err != nil {

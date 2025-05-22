@@ -166,7 +166,12 @@ http:
       post: "/v1/custommessage"
       body: "*"
     - selector: lnrpc.Lightning.SubscribeCustomMessages
-      get: "/v1/custommessage/subscribe"      
+      get: "/v1/custommessage/subscribe"
+    - selector: lnrpc.Lightning.SendOnionMessage
+      post: "/v1/onionmessage"
+      body: "*"
+    - selector: lnrpc.Lightning.SubscribeOnionMessages
+      get: "/v1/onionmessage/subscribe"    
     - selector: lnrpc.Lightning.ListAliases
       get: "/v1/aliases/list"
     - selector: lnrpc.Lightning.LookupHtlcResolution

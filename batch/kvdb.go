@@ -26,7 +26,16 @@ func (t *BoltBatcher[Q]) ExecTx(_ context.Context, opts sqldb.TxOptions,
 	txBody func(Q) error, reset func()) error {
 
 	if opts.ReadOnly() {
-		return fmt.Errorf("read-only transactions not supported")
+		return kvdb.View(t.db, func(tx kvdb.RTx) error {
+			q, ok := any(tx).(Q)
+			if !ok {
+				return fmt.Errorf("unable to cast tx(%T) "+
+					"into the type expected by the "+
+					"BoltBatcher(%T)", tx, t)
+			}
+
+			return txBody(q)
+		}, reset)
 	}
 
 	return kvdb.Update(t.db, func(tx kvdb.RwTx) error {

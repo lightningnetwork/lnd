@@ -37,12 +37,6 @@ func NewTimeScheduler[Q any](db sqldb.BatchedTx[Q], locker sync.Locker,
 	}
 }
 
-type writeOpts struct{}
-
-func (*writeOpts) ReadOnly() bool {
-	return false
-}
-
 // Execute schedules the provided request for batch execution along with other
 // concurrent requests. The request will be executed within a fixed horizon,
 // parameterizeed by the duration of the scheduler. The error from the
@@ -67,6 +61,13 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 			db:     s.db,
 			clear:  s.clear,
 			locker: s.locker,
+
+			// By default, we assume that the batch is read-only,
+			// and we only upgrade it to read-write if a request
+			// is added that is not read-only.
+			txOpts: txOpts{
+				readOnly: true,
+			},
 		}
 		trigger := s.b.trigger
 		time.AfterFunc(s.duration, func() {
@@ -75,10 +76,21 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 	}
 	s.b.reqs = append(s.b.reqs, &req)
 
+	// We only upgrade the batch to read-write if the new request is not
+	// read-only. If it is already read-write, we don't need to do anything.
+	if s.b.txOpts.readOnly && !r.Opts.ReadOnly {
+		s.b.txOpts.readOnly = false
+	}
+
 	// If this is a non-lazy request, we'll execute the batch immediately.
 	if !r.Opts.Lazy {
 		go s.b.trigger(ctx)
 	}
+
+	// We need to grab a reference to the batch's txOpts so that we can
+	// pass it before we unlock the scheduler's mutex since the batch may
+	// be set to nil before we access the txOpts below.
+	txOpts := s.b.txOpts
 
 	s.mu.Unlock()
 
@@ -97,9 +109,8 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 	}
 
 	// Otherwise, run the request on its own.
-	var writeTx writeOpts
-	commitErr := s.db.ExecTx(ctx, &writeTx, func(tx Q) error {
-		return req.Update(tx)
+	commitErr := s.db.ExecTx(ctx, &txOpts, func(tx Q) error {
+		return req.Do(tx)
 	}, func() {
 		if req.Reset != nil {
 			req.Reset()

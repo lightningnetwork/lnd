@@ -861,7 +861,7 @@ func (c *KVStore) AddLightningNode(node *models.LightningNode,
 
 	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			return addLightningNode(tx, node)
 		},
 	}
@@ -1002,7 +1002,7 @@ func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 		Reset: func() {
 			alreadyExists = false
 		},
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			err := c.addChannelEdge(tx, edge)
 
 			// Silence ErrEdgeAlreadyExist so that the batch can
@@ -2712,7 +2712,7 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 			isUpdate1 = false
 			edgeNotFound = false
 		},
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			var err error
 			from, to, isUpdate1, err = updateEdgePolicy(tx, edge)
 			if err != nil {

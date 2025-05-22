@@ -597,6 +597,18 @@ service Lightning {
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
 
+    /* lncli: `sendonion`
+    SendOnionMessage sends an onion message to a peer.
+    */
+    rpc SendOnionMessage (SendOnionMessageRequest)
+        returns (SendOnionMessageResponse);
+
+    /* lncli: `subscribeonion`
+    SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+    */
+    rpc SubscribeOnionMessages (SubscribeOnionMessagesRequest)
+        returns (stream OnionMessage);
+
     /* lncli: `listaliases`
     ListAliases returns the set of all aliases that have ever existed with
     their confirmed SCID (if it exists) and/or the base SCID (in the case of
@@ -657,6 +669,41 @@ message SendCustomMessageRequest {
 
 message SendCustomMessageResponse {
     // The status of the send operation.
+    string status = 1;
+}
+
+message SubscribeOnionMessagesRequest {
+}
+
+message OnionMessage {
+    // Peer from which the message originates
+    bytes peer = 1;
+
+    // BlindingPoint is the route blinding ephemeral pubkey to be used for the
+    // onion message.
+    bytes blinding_point = 2;
+
+    // Onion is the raw serialized Sphinx onion packet containing the per-hop
+    // encrypted routing information used to relay this message through the
+    // network in a privacy-preserving manner.
+    bytes onion = 3;
+}
+
+message SendOnionMessageRequest {
+    // Peer to send the message to
+    bytes peer = 1;
+
+    // BlindingPoint is the route blinding ephemeral pubkey to be used for the
+    // onion message.
+    bytes blinding_point = 2;
+
+    // Onion is the raw serialized mix header used to relay messages in a
+    // privacy-preserving manner.
+    bytes onion = 3;
+}
+
+message SendOnionMessageResponse {
+    // The status of the onion message send operation.
     string status = 1;
 }
 

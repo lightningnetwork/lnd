@@ -6477,6 +6477,26 @@
         }
       }
     },
+    "lnrpcOnionMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer from which the message originates"
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "BlindingPoint is the route blinding ephemeral pubkey to be used for the\nonion message."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Onion is the raw serialized Sphinx onion packet containing the per-hop\nencrypted routing information used to relay this message through the\nnetwork in a privacy-preserving manner."
+        }
+      }
+    },
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
@@ -7589,6 +7609,15 @@
         "txid": {
           "type": "string",
           "title": "The id of the transaction"
+        }
+      }
+    },
+    "lnrpcSendOnionMessageResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the onion message send operation."
         }
       }
     },

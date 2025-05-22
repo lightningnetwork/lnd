@@ -36,6 +36,8 @@
     store](https://github.com/lightningnetwork/lnd/pull/9791) interface. 
   * Start [validating](https://github.com/lightningnetwork/lnd/pull/9787) that 
     byte blobs at the end of gossip messages are valid TLV streams.
+  * Various [preparations](https://github.com/lightningnetwork/lnd/pull/9692) 
+    of the graph code before the SQL implementation is added.
 
 ## RPC Updates
 

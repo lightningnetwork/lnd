@@ -58,7 +58,7 @@ func TestRetry(t *testing.T) {
 	// execute it non-lazily. It should still return the error the second
 	// time.
 	req := &Request[kvdb.RwTx]{
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			called++
 
 			return errors.New("test")
@@ -79,7 +79,7 @@ func TestRetry(t *testing.T) {
 	// transaction to retry. Since we aren't using postgres, this will
 	// cause the transaction to not be retried at all.
 	req = &Request[kvdb.RwTx]{
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			called++
 
 			return errors.New("could not serialize access")
@@ -93,6 +93,265 @@ func TestRetry(t *testing.T) {
 	mu.Unlock()
 
 	require.ErrorContains(t, err, "could not serialize access")
+}
+
+// TestReadOnly just ensures that nothing breaks if we specify a read-only tx
+// and then continue to add a write transaction to the same batch.
+func TestReadOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("bbolt-ReadWrite", func(t *testing.T) {
+		db, err := walletdb.Create(
+			"bdb", filepath.Join(t.TempDir(), "weks.db"), true,
+			kvdb.DefaultDBTimeout, false,
+		)
+		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("unable to create walletdb: %v", err)
+		}
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+
+		// Create a bbolt read-write scheduler.
+		rwSche := NewTimeScheduler[kvdb.RwTx](
+			NewBoltBackend[kvdb.RwTx](db), nil, time.Second,
+		)
+
+		// Call it without a read-only option.
+		var called bool
+		req := &Request[kvdb.RwTx]{
+			Do: func(tx kvdb.RwTx) error {
+				called = true
+				return nil
+			},
+		}
+		require.NoError(t, rwSche.Execute(ctx, req))
+		require.True(t, called)
+
+		// Call it with a read-only option.
+		called = false
+		req = &Request[kvdb.RwTx]{
+			Opts: NewSchedulerOptions(ReadOnly()),
+			Do: func(tx kvdb.RwTx) error {
+				called = true
+				return nil
+			},
+		}
+		require.NoError(t, rwSche.Execute(ctx, req))
+		require.True(t, called)
+
+		// Now, spin off a bunch of reads and writes at the same time
+		// so that we can simulate the upgrade from read-only to
+		// read-write.
+		var (
+			wg       sync.WaitGroup
+			reads    = 0
+			readsMu  sync.Mutex
+			writes   = 0
+			writesMu sync.Mutex
+		)
+		for i := 0; i < 100; i++ {
+			// Spin off the reads.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				req := &Request[kvdb.RwTx]{
+					Opts: NewSchedulerOptions(ReadOnly()),
+					Do: func(tx kvdb.RwTx) error {
+						readsMu.Lock()
+						reads++
+						readsMu.Unlock()
+
+						return nil
+					},
+				}
+				require.NoError(t, rwSche.Execute(ctx, req))
+			}()
+
+			// Spin off the writes.
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				req := &Request[kvdb.RwTx]{
+					Do: func(tx kvdb.RwTx) error {
+						writesMu.Lock()
+						writes++
+						writesMu.Unlock()
+
+						return nil
+					},
+				}
+				require.NoError(t, rwSche.Execute(ctx, req))
+			}()
+		}
+
+		wg.Wait()
+		require.Equal(t, 100, reads)
+		require.Equal(t, 100, writes)
+	})
+
+	// Note that if the scheduler is initialized with a read-only bbolt tx,
+	// then the ReadOnly option does nothing as it will be read-only
+	// regardless.
+	t.Run("bbolt-ReadOnly", func(t *testing.T) {
+		db, err := walletdb.Create(
+			"bdb", filepath.Join(t.TempDir(), "weks.db"), true,
+			kvdb.DefaultDBTimeout, false,
+		)
+		require.NoError(t, err)
+		if err != nil {
+			t.Fatalf("unable to create walletdb: %v", err)
+		}
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+
+		// Create a bbolt read only scheduler.
+		rwSche := NewTimeScheduler[kvdb.RTx](
+			NewBoltBackend[kvdb.RTx](db), nil, time.Second,
+		)
+
+		// Call it without a read-only option.
+		var called bool
+		req := &Request[kvdb.RTx]{
+			Do: func(tx kvdb.RTx) error {
+				called = true
+				return nil
+			},
+		}
+		require.NoError(t, rwSche.Execute(ctx, req))
+		require.True(t, called)
+
+		// Call it with a read-only option.
+		called = false
+		req = &Request[kvdb.RTx]{
+			Opts: NewSchedulerOptions(ReadOnly()),
+			Do: func(tx kvdb.RTx) error {
+				called = true
+				return nil
+			},
+		}
+		require.NoError(t, rwSche.Execute(ctx, req))
+		require.True(t, called)
+	})
+
+	t.Run("sql", func(t *testing.T) {
+		base := sqldb.NewTestSqliteDB(t).BaseDB
+		db := sqldb.NewTransactionExecutor(
+			base, func(tx *sql.Tx) *sqlc.Queries {
+				return base.WithTx(tx)
+			},
+		)
+
+		// Create a SQL scheduler with a long batch interval.
+		scheduler := NewTimeScheduler[*sqlc.Queries](
+			db, nil, time.Second,
+		)
+
+		// writeRecord is a helper that adds a single new invoice to the
+		// database. It uses the 'i' argument to create a unique hash
+		// for the invoice.
+		writeRecord := func(t *testing.T, tx *sqlc.Queries, i int64) {
+			var hash [8]byte
+			binary.BigEndian.PutUint64(hash[:], uint64(i))
+
+			_, err := tx.InsertInvoice(
+				ctx, sqlc.InsertInvoiceParams{
+					Hash:               hash[:],
+					PaymentAddr:        hash[:],
+					PaymentRequestHash: hash[:],
+					Expiry:             -123,
+				},
+			)
+			require.NoError(t, err)
+		}
+
+		// readRecord is a helper that reads a single invoice from the
+		// database. It uses the 'i' argument to create a unique hash
+		// for the invoice.
+		readRecord := func(t *testing.T, tx *sqlc.Queries,
+			i int) error {
+
+			var hash [8]byte
+			binary.BigEndian.PutUint64(hash[:], uint64(i))
+
+			_, err := tx.GetInvoiceByHash(ctx, hash[:])
+
+			return err
+		}
+
+		// Execute a bunch of read-only requests in parallel. These
+		// should be batched together and kept as read only.
+		var wg sync.WaitGroup
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				req := &Request[*sqlc.Queries]{
+					Opts: NewSchedulerOptions(ReadOnly()),
+					Do: func(tx *sqlc.Queries) error {
+						err := readRecord(t, tx, i)
+						require.ErrorIs(
+							t, err, sql.ErrNoRows,
+						)
+
+						return nil
+					},
+				}
+				require.NoError(t, scheduler.Execute(ctx, req))
+			}(i)
+		}
+		wg.Wait()
+
+		// Now, execute reads and writes in parallel. These should be
+		// batched together and the tx should be updated to read-write.
+		// We just simulate this scenario. Write transactions succeeding
+		// are how we know that the tx was upgraded to read-write.
+		for i := 0; i < 100; i++ {
+			// Spin off the writes.
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				req := &Request[*sqlc.Queries]{
+					Do: func(tx *sqlc.Queries) error {
+						writeRecord(t, tx, int64(i))
+
+						return nil
+					},
+				}
+				require.NoError(t, scheduler.Execute(ctx, req))
+			}(i)
+
+			// Spin off the reads.
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+
+				errExpected := func(err error) {
+					noRows := errors.Is(err, sql.ErrNoRows)
+					require.True(t, err == nil || noRows)
+				}
+
+				req := &Request[*sqlc.Queries]{
+					Opts: NewSchedulerOptions(ReadOnly()),
+					Do: func(tx *sqlc.Queries) error {
+						err := readRecord(t, tx, i)
+						errExpected(err)
+
+						return nil
+					},
+				}
+				require.NoError(t, scheduler.Execute(ctx, req))
+			}(i)
+		}
+		wg.Wait()
+	})
 }
 
 // BenchmarkBoltBatching benchmarks the performance of the batch scheduler
@@ -221,7 +480,7 @@ func BenchmarkBoltBatching(b *testing.B) {
 					Opts: NewSchedulerOptions(
 						opts...,
 					),
-					Update: func(tx kvdb.RwTx) error {
+					Do: func(tx kvdb.RwTx) error {
 						writeRecord(b, tx)
 						return nil
 					},
@@ -291,7 +550,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 	}
 
 	ctx := context.Background()
-	var opts writeOpts
+	var opts txOpts
 
 	// writeRecord is a helper that adds a single new invoice to the
 	// database. It uses the 'i' argument to create a unique hash for the
@@ -320,7 +579,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		binary.BigEndian.PutUint64(hash[:], uint64(N-1))
 
 		err := tx.ExecTx(
-			ctx, &writeOpts{}, func(queries *sqlc.Queries) error {
+			ctx, &txOpts{}, func(queries *sqlc.Queries) error {
 				_, err := queries.GetInvoiceByHash(ctx, hash[:])
 				require.NoError(b, err)
 
@@ -406,7 +665,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 					Opts: NewSchedulerOptions(
 						opts...,
 					),
-					Update: func(tx *sqlc.Queries) error {
+					Do: func(tx *sqlc.Queries) error {
 						writeRecord(b, tx, int64(j))
 						return nil
 					},

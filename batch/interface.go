@@ -16,10 +16,10 @@ type Request[Q any] struct {
 	// NOTE: This field is optional.
 	Reset func()
 
-	// Update is applied alongside other operations in the batch.
+	// Do is applied alongside other operations in the batch.
 	//
 	// NOTE: This method MUST NOT acquire any mutexes.
-	Update func(tx Q) error
+	Do func(tx Q) error
 
 	// OnCommit is called if the batch or a subset of the batch including
 	// this request all succeeded without failure. The passed error should
@@ -36,12 +36,17 @@ type SchedulerOptions struct {
 	// request when it comes in. This means that it can be scheduled later,
 	// allowing larger batches.
 	Lazy bool
+
+	// ReadOnly should be true if the request is read-only. By default,
+	// this is false.
+	ReadOnly bool
 }
 
 // NewDefaultSchedulerOpts returns a new SchedulerOptions with default values.
 func NewDefaultSchedulerOpts() *SchedulerOptions {
 	return &SchedulerOptions{
-		Lazy: false,
+		Lazy:     false,
+		ReadOnly: false,
 	}
 }
 
@@ -65,6 +70,16 @@ type SchedulerOption func(*SchedulerOptions)
 func LazyAdd() SchedulerOption {
 	return func(opts *SchedulerOptions) {
 		opts.Lazy = true
+	}
+}
+
+// ReadOnly will mark the request as read-only. This means that the
+// transaction will be executed in read-only mode, and no changes will be
+// made to the database. If any requests in the same batch are not read-only,
+// then the entire batch will be executed in read-write mode.
+func ReadOnly() SchedulerOption {
+	return func(opts *SchedulerOptions) {
+		opts.ReadOnly = true
 	}
 }
 

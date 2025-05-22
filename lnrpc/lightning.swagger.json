@@ -2264,6 +2264,71 @@
         ]
       }
     },
+    "/v1/onionmessage": {
+      "post": {
+        "summary": "lncli: `sendonion`\nSendOnionMessage sends an onion message to a peer.",
+        "operationId": "Lightning_SendOnionMessage",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendOnionMessageResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/lnrpcSendOnionMessageRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
+    "/v1/onionmessage/subscribe": {
+      "get": {
+        "summary": "lncli: `subscribeonion`\nSubscribeOnionMessages subscribes to a stream of incoming onion messages.",
+        "operationId": "Lightning_SubscribeOnionMessages",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/lnrpcOnionMessage"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of lnrpcOnionMessage"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/payment": {
       "delete": {
         "summary": "lncli: `deletepayments`\nDeletePayment deletes an outgoing payment from DB. Note that it will not\nattempt to delete an In-Flight payment, since that would be unsafe.",
@@ -6477,6 +6542,26 @@
         }
       }
     },
+    "lnrpcOnionMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "description": "Peer from which this message originates. Represented as a byte-encoded\npublic key."
+        },
+        "path_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "PathKey is used to derive the blinded node id by tweaking the hop's\nstatic public key. The hop uses the corresponding blinded private key\ntogether with the sender's ephemeral key to perform ECDH and obtain the\nshared secret for decrypting the onion payload. Separately, for\ndecrypting `encrypted_recipient_data`, the recipient performs ECDH\nbetween its static node private key and the path_key to derive the\ndecryption key."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop\nencrypted payloads and routing instructions used to forward this message\nalong its designated path."
+        }
+      }
+    },
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
@@ -7515,7 +7600,7 @@
         "peer": {
           "type": "string",
           "format": "byte",
-          "title": "Peer to send the message to"
+          "title": "Peer to which the message will be sent. Represented as a byte-encoded\npublic key"
         },
         "type": {
           "type": "integer",
@@ -7589,6 +7674,35 @@
         "txid": {
           "type": "string",
           "title": "The id of the transaction"
+        }
+      }
+    },
+    "lnrpcSendOnionMessageRequest": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer to send the message to"
+        },
+        "path_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "PathKey is used to derive the blinded node id by tweaking the hop's\nstatic public key. The hop uses the corresponding blinded private key\ntogether with the sender's ephemeral key to perform ECDH and obtain the\nshared secret for decrypting the onion payload. Separately, for\ndecrypting `encrypted_recipient_data`, the recipient performs ECDH\nbetween its static node private key and the path_key to derive the\ndecryption key."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop\nencrypted payloads and routing instructions used to forward this message\nalong its designated path."
+        }
+      }
+    },
+    "lnrpcSendOnionMessageResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the onion message send operation."
         }
       }
     },

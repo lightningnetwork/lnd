@@ -5005,23 +5005,26 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// being notified of it.
 	outpoint := dbChannel.FundingOutpoint
 	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
-	switch err {
-	// If the store does not know about the channel, we just log it.
-	case chanfitness.ErrChannelNotFound:
-		rpcsLog.Infof("channel: %v not found by channel event store",
-			outpoint)
-
-	// If we got our channel info, we further populate the channel.
-	case nil:
+	// If we got our channel info, populate the channel.
+	if err == nil {
 		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
 
-	// If we get an unexpected error, we return it.
-	default:
-		return nil, err
+		return channel, nil
 	}
 
-	return channel, nil
+	// In the case of expected errors, we just log it and return the
+	// channel.
+	if errors.Is(err, chanfitness.ErrChannelNotFound) ||
+		errors.Is(err, chanfitness.ErrPeerNotFound) {
+
+		rpcsLog.Infof("channel: %v not found by channel event store",
+			outpoint)
+		return channel, nil
+	}
+
+	// Return any unexpected errors.
+	return nil, err
 }
 
 // createRPCClosedChannel creates an *lnrpc.ClosedChannelSummary from a

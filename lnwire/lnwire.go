@@ -348,6 +348,11 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
+	case *OpaqueAddrs:
+		if err := WriteOpaqueAddrs(w, e); err != nil {
+			return err
+		}
+
 	case []net.Addr:
 		// First, we'll encode all the addresses into an intermediate
 		// buffer. We need to do this in order to compute the total

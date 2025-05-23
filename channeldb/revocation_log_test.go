@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"math"
 	"math/rand"
@@ -784,4 +785,64 @@ func createTestRevocationLogBuckets(tx kvdb.RwTx) (kvdb.RwBucket,
 	}
 
 	return chanBucket, logBucket, nil
+}
+
+// TestDeserializeHTLCEntriesLegacy checks that the legacy encoding of the
+// HtlcIndex can be correctly read as BigSizeT. The field `HtlcIndex` was
+// encoded using `uint16` and should now be deserialized into BigSizeT
+// on-the-fly.
+func TestDeserializeHTLCEntriesLegacy(t *testing.T) {
+	t.Parallel()
+
+	// rawBytes defines the bytes read from the disk for the testing HTLC
+	// entry.
+	rawBytes := []byte{
+		// Body length 45.
+		0x2d,
+		// Rhash tlv.
+		0x0, 0x0,
+		// RefundTimeout tlv.
+		0x1, 0x4, 0x0, 0xb, 0x4a, 0xa0,
+		// OutputIndex tlv.
+		0x2, 0x2, 0x0, 0xa,
+		// Incoming tlv.
+		0x3, 0x1, 0x1,
+		// Amt tlv.
+		0x4, 0x5, 0xfe, 0x0, 0xf, 0x42, 0x40,
+		// Custom blob tlv.
+		0x5, 0x11, 0xfe, 0x00, 0x01, 0x00, 0x01, 0x0b, 0x63, 0x75, 0x73,
+		0x74, 0x6f, 0x6d, 0x20, 0x64, 0x61, 0x74, 0x61,
+
+		// HTLC index tlv.
+		//
+		// NOTE: We are missing two bytes in the end, which is appended
+		// below.
+		0x6, 0x2,
+	}
+
+	// Iterate through all possible values encoded using uint16. They should
+	// be correctly read as uint16 and converted to BigSizeT.
+	for i := range math.MaxUint16 + 1 {
+		// Encode the index using two bytes.
+		rawHtlcIndex := make([]byte, 2)
+		binary.BigEndian.PutUint16(rawHtlcIndex, uint16(i))
+
+		// Copy the raw bytes and append the htlc index.
+		rawEntry := bytes.Clone(rawBytes)
+		rawEntry = append(rawEntry, rawHtlcIndex...)
+
+		// Read the tlv stream.
+		buf := bytes.NewBuffer(rawEntry)
+		htlcs, err := deserializeHTLCEntries(buf)
+		require.NoError(t, err)
+
+		// Check the bytes are read as expected.
+		require.Len(t, htlcs, 1)
+
+		// Assert that the uint16 is converted to BigSizeT.
+		record := tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType6](
+			tlv.NewBigSizeT(uint64(i)),
+		))
+		require.Equal(t, record, htlcs[0].HtlcIndex)
+	}
 }

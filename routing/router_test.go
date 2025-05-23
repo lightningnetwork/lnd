@@ -123,7 +123,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	mcConfig := &MissionControlConfig{Estimator: estimator}
 
 	mcController, err := NewMissionController(
-		graphInstance.graphBackend, route.Vertex{}, mcConfig,
+		graphInstance.mcBackend, route.Vertex{}, mcConfig,
 	)
 	require.NoError(t, err, "failed to create missioncontrol")
 

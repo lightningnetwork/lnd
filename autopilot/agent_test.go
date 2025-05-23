@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -85,9 +86,9 @@ func (m *mockHeuristic) Name() string {
 	return "mock"
 }
 
-func (m *mockHeuristic) NodeScores(g ChannelGraph, chans []LocalChannel,
-	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
-	map[NodeID]*NodeScore, error) {
+func (m *mockHeuristic) NodeScores(_ context.Context, g ChannelGraph,
+	chans []LocalChannel, chanSize btcutil.Amount,
+	nodes map[NodeID]struct{}) (map[NodeID]*NodeScore, error) {
 
 	if m.nodeScoresArgs != nil {
 		directive := directiveArg{

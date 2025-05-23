@@ -222,6 +222,8 @@ jobs:
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
+          - unit tags="test_db_sqlite"
+          - unit tags="test_db_postgres"
           - unit-race
           - unit-module
 

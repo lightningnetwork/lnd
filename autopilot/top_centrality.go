@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -50,12 +51,12 @@ func (g *TopCentrality) Name() string {
 // As our current implementation of betweenness centrality is non-incremental,
 // NodeScores will recalculate the centrality values on every call, which is
 // slow for large graphs.
-func (g *TopCentrality) NodeScores(graph ChannelGraph, chans []LocalChannel,
-	chanSize btcutil.Amount, nodes map[NodeID]struct{}) (
-	map[NodeID]*NodeScore, error) {
+func (g *TopCentrality) NodeScores(ctx context.Context, graph ChannelGraph,
+	chans []LocalChannel, chanSize btcutil.Amount,
+	nodes map[NodeID]struct{}) (map[NodeID]*NodeScore, error) {
 
 	// Calculate betweenness centrality for the whole graph.
-	if err := g.centralityMetric.Refresh(graph); err != nil {
+	if err := g.centralityMetric.Refresh(ctx, graph); err != nil {
 		return nil, err
 	}
 

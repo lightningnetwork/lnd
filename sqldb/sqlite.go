@@ -220,7 +220,7 @@ func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
-func NewTestSqliteDB(t *testing.T) *SqliteStore {
+func NewTestSqliteDB(t testing.TB) *SqliteStore {
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing")

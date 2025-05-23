@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/stretchr/testify/require"
 )
 
 type unknownAddrType struct{}
@@ -14,8 +15,30 @@ type unknownAddrType struct{}
 func (t unknownAddrType) Network() string { return "unknown" }
 func (t unknownAddrType) String() string  { return "unknown" }
 
-var testIP4 = net.ParseIP("192.168.1.1")
+var testIP4 = net.ParseIP("192.168.1.1").To4()
 var testIP6 = net.ParseIP("2001:0db8:0000:0000:0000:ff00:0042:8329")
+
+var (
+	testIPV4Addr = &net.TCPAddr{
+		IP:   testIP4,
+		Port: 12345,
+	}
+
+	testIPV6Addr = &net.TCPAddr{
+		IP:   testIP6,
+		Port: 65535,
+	}
+
+	testOnionV2Addr = &tor.OnionAddr{
+		OnionService: "3g2upl4pq6kufc4m.onion",
+		Port:         9735,
+	}
+
+	testOnionV3Addr = &tor.OnionAddr{
+		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion", //nolint:ll
+		Port:         80,
+	}
+)
 
 var addrTests = []struct {
 	expAddr net.Addr
@@ -23,28 +46,16 @@ var addrTests = []struct {
 }{
 	// Valid addresses.
 	{
-		expAddr: &net.TCPAddr{
-			IP:   testIP4,
-			Port: 12345,
-		},
+		expAddr: testIPV4Addr,
 	},
 	{
-		expAddr: &net.TCPAddr{
-			IP:   testIP6,
-			Port: 65535,
-		},
+		expAddr: testIPV6Addr,
 	},
 	{
-		expAddr: &tor.OnionAddr{
-			OnionService: "3g2upl4pq6kufc4m.onion",
-			Port:         9735,
-		},
+		expAddr: testOnionV2Addr,
 	},
 	{
-		expAddr: &tor.OnionAddr{
-			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion",
-			Port:         80,
-		},
+		expAddr: testOnionV3Addr,
 	},
 
 	// Invalid addresses.
@@ -141,9 +152,6 @@ func TestAddrSerialization(t *testing.T) {
 			t.Fatalf("unable to deserialize address: %v", err)
 		}
 
-		if addr.String() != test.expAddr.String() {
-			t.Fatalf("expected address %v after serialization, "+
-				"got %v", addr, test.expAddr)
-		}
+		require.Equal(t, test.expAddr, addr)
 	}
 }

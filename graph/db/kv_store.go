@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -192,9 +193,13 @@ type KVStore struct {
 	rejectCache *rejectCache
 	chanCache   *channelCache
 
-	chanScheduler batch.Scheduler
-	nodeScheduler batch.Scheduler
+	chanScheduler batch.Scheduler[kvdb.RwTx]
+	nodeScheduler batch.Scheduler[kvdb.RwTx]
 }
+
+// A compile-time assertion to ensure that the KVStore struct implements the
+// V1Store interface.
+var _ V1Store = (*KVStore)(nil)
 
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
@@ -218,10 +223,12 @@ func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
 	}
 	g.chanScheduler = batch.NewTimeScheduler(
-		db, &g.cacheMu, opts.BatchCommitInterval,
+		batch.NewBoltBackend[kvdb.RwTx](db), &g.cacheMu,
+		opts.BatchCommitInterval,
 	)
 	g.nodeScheduler = batch.NewTimeScheduler(
-		db, nil, opts.BatchCommitInterval,
+		batch.NewBoltBackend[kvdb.RwTx](db), nil,
+		opts.BatchCommitInterval,
 	)
 
 	return g, nil
@@ -297,29 +304,6 @@ var graphTopLevelBuckets = [][]byte{
 	edgeBucket,
 	graphMetaBucket,
 	closedScidBucket,
-}
-
-// Wipe completely deletes all saved state within all used buckets within the
-// database. The deletion is done in a single transaction, therefore this
-// operation is fully atomic.
-func (c *KVStore) Wipe() error {
-	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
-		for _, tlb := range graphTopLevelBuckets {
-			err := tx.DeleteTopLevelBucket(tlb)
-			if err != nil &&
-				!errors.Is(err, kvdb.ErrBucketNotFound) {
-
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-	if err != nil {
-		return err
-	}
-
-	return initKVStore(c.db)
 }
 
 // createChannelDB creates and initializes a fresh version of  In
@@ -584,7 +568,7 @@ func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
 
 		channels := make(map[uint64]*DirectedChannel)
 
-		err := c.ForEachNodeChannelTx(tx, node.PubKeyBytes,
+		err := c.forEachNodeChannelTx(tx, node.PubKeyBytes,
 			func(tx kvdb.RTx, e *models.ChannelEdgeInfo,
 				p1 *models.ChannelEdgePolicy,
 				p2 *models.ChannelEdgePolicy) error {
@@ -871,19 +855,18 @@ func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
 //
 // TODO(roasbeef): also need sig of announcement.
 func (c *KVStore) AddLightningNode(node *models.LightningNode,
-	op ...batch.SchedulerOption) error {
+	opts ...batch.SchedulerOption) error {
 
-	r := &batch.Request{
-		Update: func(tx kvdb.RwTx) error {
+	ctx := context.TODO()
+
+	r := &batch.Request[kvdb.RwTx]{
+		Opts: batch.NewSchedulerOptions(opts...),
+		Do: func(tx kvdb.RwTx) error {
 			return addLightningNode(tx, node)
 		},
 	}
 
-	for _, f := range op {
-		f(r)
-	}
-
-	return c.nodeScheduler.Execute(r)
+	return c.nodeScheduler.Execute(ctx, r)
 }
 
 func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
@@ -1009,14 +992,17 @@ func (c *KVStore) deleteLightningNode(nodes kvdb.RwBucket,
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
 func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	op ...batch.SchedulerOption) error {
+	opts ...batch.SchedulerOption) error {
+
+	ctx := context.TODO()
 
 	var alreadyExists bool
-	r := &batch.Request{
+	r := &batch.Request[kvdb.RwTx]{
+		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			alreadyExists = false
 		},
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			err := c.addChannelEdge(tx, edge)
 
 			// Silence ErrEdgeAlreadyExist so that the batch can
@@ -1042,15 +1028,7 @@ func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 		},
 	}
 
-	for _, f := range op {
-		if f == nil {
-			return fmt.Errorf("nil scheduler option was used")
-		}
-
-		f(r)
-	}
-
-	return c.chanScheduler.Execute(r)
+	return c.chanScheduler.Execute(ctx, r)
 }
 
 // addChannelEdge is the private form of AddChannelEdge that allows callers to
@@ -2719,20 +2697,22 @@ func makeZombiePubkeys(info *models.ChannelEdgeInfo,
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
 func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
-	op ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
+	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
+		ctx          = context.TODO()
 		isUpdate1    bool
 		edgeNotFound bool
 		from, to     route.Vertex
 	)
 
-	r := &batch.Request{
+	r := &batch.Request[kvdb.RwTx]{
+		Opts: batch.NewSchedulerOptions(opts...),
 		Reset: func() {
 			isUpdate1 = false
 			edgeNotFound = false
 		},
-		Update: func(tx kvdb.RwTx) error {
+		Do: func(tx kvdb.RwTx) error {
 			var err error
 			from, to, isUpdate1, err = updateEdgePolicy(tx, edge)
 			if err != nil {
@@ -2761,11 +2741,7 @@ func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 		},
 	}
 
-	for _, f := range op {
-		f(r)
-	}
-
-	err := c.chanScheduler.Execute(r)
+	err := c.chanScheduler.Execute(ctx, r)
 
 	return from, to, err
 }
@@ -2873,7 +2849,7 @@ func (c *KVStore) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 	// used to terminate the check early.
 	nodeIsPublic := false
 	errDone := errors.New("done")
-	err := c.ForEachNodeChannelTx(tx, nodePub, func(tx kvdb.RTx,
+	err := c.forEachNodeChannelTx(tx, nodePub, func(tx kvdb.RTx,
 		info *models.ChannelEdgeInfo, _ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
@@ -3126,13 +3102,56 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 //
 // Unknown policies are passed into the callback as nil values.
 func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
-	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
 
-	return nodeTraversal(nil, nodePub[:], c.db, cb)
+	return nodeTraversal(nil, nodePub[:], c.db, func(_ kvdb.RTx,
+		info *models.ChannelEdgeInfo, policy,
+		policy2 *models.ChannelEdgePolicy) error {
+
+		return cb(info, policy, policy2)
+	})
 }
 
-// ForEachNodeChannelTx iterates through all channels of the given node,
+// ForEachSourceNodeChannel iterates through all channels of the source node,
+// executing the passed callback on each. The callback is provided with the
+// channel's outpoint, whether we have a policy for the channel and the channel
+// peer's node information.
+func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
+	havePolicy bool, otherNode *models.LightningNode) error) error {
+
+	return kvdb.View(c.db, func(tx kvdb.RTx) error {
+		nodes := tx.ReadBucket(nodeBucket)
+		if nodes == nil {
+			return ErrGraphNotFound
+		}
+
+		node, err := c.sourceNode(nodes)
+		if err != nil {
+			return err
+		}
+
+		return nodeTraversal(
+			tx, node.PubKeyBytes[:], c.db, func(tx kvdb.RTx,
+				info *models.ChannelEdgeInfo,
+				policy, _ *models.ChannelEdgePolicy) error {
+
+				peer, err := c.fetchOtherNode(
+					tx, info, node.PubKeyBytes[:],
+				)
+				if err != nil {
+					return err
+				}
+
+				return cb(
+					info.ChannelPoint, policy != nil, peer,
+				)
+			},
+		)
+	}, func() {})
+}
+
+// forEachNodeChannelTx iterates through all channels of the given node,
 // executing the passed callback with an edge info structure and the policies
 // of each end of the channel. The first edge policy is the outgoing edge *to*
 // the connecting node, while the second is the incoming edge *from* the
@@ -3145,7 +3164,7 @@ func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
 // should be passed as the first argument.  Otherwise, the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
-func (c *KVStore) ForEachNodeChannelTx(tx kvdb.RTx,
+func (c *KVStore) forEachNodeChannelTx(tx kvdb.RTx,
 	nodePub route.Vertex, cb func(kvdb.RTx, *models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
@@ -3153,11 +3172,11 @@ func (c *KVStore) ForEachNodeChannelTx(tx kvdb.RTx,
 	return nodeTraversal(tx, nodePub[:], c.db, cb)
 }
 
-// FetchOtherNode attempts to fetch the full LightningNode that's opposite of
+// fetchOtherNode attempts to fetch the full LightningNode that's opposite of
 // the target node in the channel. This is useful when one knows the pubkey of
 // one of the nodes, and wishes to obtain the full LightningNode for the other
 // end of the channel.
-func (c *KVStore) FetchOtherNode(tx kvdb.RTx,
+func (c *KVStore) fetchOtherNode(tx kvdb.RTx,
 	channel *models.ChannelEdgeInfo, thisNodeKey []byte) (
 	*models.LightningNode, error) {
 
@@ -4687,7 +4706,7 @@ func (c *chanGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
 func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
-	return c.db.ForEachNodeChannelTx(c.tx, c.node.PubKeyBytes,
+	return c.db.forEachNodeChannelTx(c.tx, c.node.PubKeyBytes,
 		func(_ kvdb.RTx, info *models.ChannelEdgeInfo, policy1,
 			policy2 *models.ChannelEdgePolicy) error {
 
@@ -4696,40 +4715,31 @@ func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 	)
 }
 
-// MakeTestGraph creates a new instance of the KVStore for testing
+// MakeTestGraph creates a new instance of the ChannelGraph for testing
 // purposes.
-func MakeTestGraph(t testing.TB, modifiers ...KVStoreOptionModifier) (
-	*ChannelGraph, error) {
-
-	opts := DefaultOptions()
-	for _, modifier := range modifiers {
-		modifier(opts)
-	}
+//
+// NOTE: this helper currently creates a ChannelGraph that is only ever backed
+// by the `KVStore` of the `V1Store` interface.
+func MakeTestGraph(t testing.TB, opts ...ChanGraphOption) *ChannelGraph {
+	t.Helper()
 
 	// Next, create KVStore for the first time.
 	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	if err != nil {
-		backendCleanup()
-
-		return nil, err
-	}
-
-	graph, err := NewChannelGraph(&Config{
-		KVDB:        backend,
-		KVStoreOpts: modifiers,
-	})
-	if err != nil {
-		backendCleanup()
-
-		return nil, err
-	}
-	require.NoError(t, graph.Start())
-
+	t.Cleanup(backendCleanup)
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = backend.Close()
-		backendCleanup()
+		require.NoError(t, backend.Close())
+	})
+
+	graphStore, err := NewKVStore(backend)
+	require.NoError(t, err)
+
+	graph, err := NewChannelGraph(graphStore, opts...)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
 		require.NoError(t, graph.Stop())
 	})
 
-	return graph, nil
+	return graph
 }

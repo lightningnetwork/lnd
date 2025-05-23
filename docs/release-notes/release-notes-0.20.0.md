@@ -25,8 +25,14 @@
 ## Functional Enhancements
 
 ## RPC Additions
+* The `lnrpc.ForwardingHistory` RPC method now supports filtering by 
+  [`incoming_chan_ids` and `outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356). 
+  This allows to retrieve forwarding events for specific channels.
 
 ## lncli Additions
+* The `lncli fwdinghistory` command now supports two new flags: 
+  [`--incoming_chan_ids` and `--outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356). 
+  These filters allows to query forwarding events for specific channels.
 
 # Improvements
 ## Functional Updates
@@ -80,3 +86,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Funyug

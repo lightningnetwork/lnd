@@ -1,6 +1,8 @@
 package graphdb
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/sqldb"
 )
 
@@ -37,9 +39,21 @@ var _ V1Store = (*SQLStore)(nil)
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
 // storage backend.
-func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore) *SQLStore {
+func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
+	options ...StoreOptionModifier) (*SQLStore, error) {
+
+	opts := DefaultOptions()
+	for _, o := range options {
+		o(opts)
+	}
+
+	if opts.NoMigration {
+		return nil, fmt.Errorf("the NoMigration option is not yet " +
+			"supported for SQL stores")
+	}
+
 	return &SQLStore{
 		db:      db,
 		KVStore: kvStore,
-	}
+	}, nil
 }

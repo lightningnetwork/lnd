@@ -31,5 +31,8 @@ func NewTestDB(t testing.TB) V1Store {
 		},
 	)
 
-	return NewSQLStore(executor, graphStore)
+	store, err := NewSQLStore(executor, graphStore)
+	require.NoError(t, err)
+
+	return store
 }

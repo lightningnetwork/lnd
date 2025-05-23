@@ -2,7 +2,9 @@ package graphdb
 
 import (
 	"fmt"
+	"sync"
 
+	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/sqldb"
 )
 
@@ -28,6 +30,16 @@ type BatchedSQLQueries interface {
 type SQLStore struct {
 	db BatchedSQLQueries
 
+	// cacheMu guards all caches (rejectCache and chanCache). If
+	// this mutex will be acquired at the same time as the DB mutex then
+	// the cacheMu MUST be acquired first to prevent deadlock.
+	cacheMu     sync.RWMutex
+	rejectCache *rejectCache
+	chanCache   *channelCache
+
+	chanScheduler batch.Scheduler[SQLQueries]
+	nodeScheduler batch.Scheduler[SQLQueries]
+
 	// Temporary fall-back to the KVStore so that we can implement the
 	// interface incrementally.
 	*KVStore
@@ -52,8 +64,19 @@ func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
 			"supported for SQL stores")
 	}
 
-	return &SQLStore{
-		db:      db,
-		KVStore: kvStore,
-	}, nil
+	s := &SQLStore{
+		db:          db,
+		KVStore:     kvStore,
+		rejectCache: newRejectCache(opts.RejectCacheSize),
+		chanCache:   newChannelCache(opts.ChannelCacheSize),
+	}
+
+	s.chanScheduler = batch.NewTimeScheduler(
+		db, &s.cacheMu, opts.BatchCommitInterval,
+	)
+	s.nodeScheduler = batch.NewTimeScheduler(
+		db, nil, opts.BatchCommitInterval,
+	)
+
+	return s, nil
 }

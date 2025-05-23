@@ -203,7 +203,7 @@ var _ V1Store = (*KVStore)(nil)
 
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
-func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
+func NewKVStore(db kvdb.Backend, options ...StoreOptionModifier) (*KVStore,
 	error) {
 
 	opts := DefaultOptions()

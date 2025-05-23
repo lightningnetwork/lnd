@@ -464,6 +464,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBumpFee,
 	},
 	{
+		Name:     "bumpfee external input",
+		TestFunc: testBumpFeeExternalInput,
+	},
+	{
 		Name:     "bumpforceclosefee",
 		TestFunc: testBumpForceCloseFee,
 	},

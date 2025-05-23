@@ -8061,6 +8061,16 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			AmtOutMsat:  uint64(amtOutMsat),
 		}
 
+		// If the incoming htlc id is present, add it to the response.
+		event.IncomingHtlcID.WhenSome(func(id uint64) {
+			resp.ForwardingEvents[i].IncomingHtlcId = &id
+		})
+
+		// If the outgoing htlc id is present, add it to the response.
+		event.OutgoingHtlcID.WhenSome(func(id uint64) {
+			resp.ForwardingEvents[i].OutgoingHtlcId = &id
+		})
+
 		if req.PeerAliasLookup {
 			aliasIn, err := getRemoteAlias(event.IncomingChanID)
 			if err != nil {

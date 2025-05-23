@@ -26,6 +26,11 @@
 
 ## RPC Additions
 
+Added [`deleteinvoices`]((https://github.com/lightningnetwork/lnd/pull/9625))
+RPC to allow removal of cancelled invoices. Supports two arguments:
+`--all` deleting all cancelled invoices and `--invoice_hashes` deleting specific
+cancelled invoices by providing a list of hashes.
+
 ## lncli Additions
 
 # Improvements
@@ -80,3 +85,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+Pins

@@ -4,9 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/proto"
 )
 
 var AddInvoiceCommand = cli.Command{
@@ -415,5 +417,100 @@ func decodePayReq(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var deleteInvoicesCommand = cli.Command{
+	Name:      "deleteinvoices",
+	Category:  "Invoices",
+	Usage:     "Delete a list or all cancelled invoices from the database.",
+	ArgsUsage: "--all --invoice_hashes hash1,hash2",
+	Description: `
+	This command either deletes all cancelled invoices or a list of invoices
+	from the database.
+
+	If the --all flag is used, then all cancelled invoices are removed. 
+
+	If a --invoice_hashes is specified, those invoices are deleted,
+	if they are on cancelled state already.
+	`,
+	Action: actionDecorator(deleteInvoices),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "all",
+			Usage: "delete all cancelled invoices",
+		},
+		cli.StringFlag{
+			Name: "invoice_hashes",
+			Usage: "delete a list of invoices identified by " +
+				"their payment hashes",
+		},
+	},
+}
+
+func deleteInvoices(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	// Show command help if arguments or no flags are provided.
+	if ctx.NArg() > 0 || ctx.NumFlags() == 0 {
+		_ = cli.ShowCommandHelp(ctx, "deleteinvoices")
+		return nil
+	}
+
+	var (
+		hashArray     [][]byte
+		rHash         []byte
+		hashList      = ctx.String("invoice_hashes")
+		all           = ctx.Bool("all")
+		hashListIsSet = ctx.IsSet("invoice_hashes")
+		err           error
+		resp          proto.Message
+	)
+
+	// We pack two RPCs into the same CLI so we check a non-valid
+	// combination of the flags.
+	if all && hashListIsSet {
+		return fmt.Errorf("cannot use --all and --invoice_hashes at " +
+			"the same time")
+	}
+
+	// Deleting a list of invoices is implemented in a different RPC than
+	// removing all invoices.
+	switch {
+	case hashListIsSet:
+		invoiceHashList := strings.Split(hashList, ",")
+
+		for _, hash := range invoiceHashList {
+			rHash, err = hex.DecodeString(hash)
+			if err != nil {
+				return err
+			}
+			hashArray = append(hashArray, rHash)
+		}
+
+		resp, err = client.DeleteInvoices(
+			ctxc, &lnrpc.DeleteInvoicesRequest{
+				InvoiceHashes: hashArray,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+	case all:
+		resp, err = client.DeleteAllInvoices(
+			ctxc, &lnrpc.DeleteAllInvoicesRequest{
+				AllInvoices: all,
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	printJSON(resp)
+
 	return nil
 }

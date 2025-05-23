@@ -220,3 +220,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.23.6
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcwallet => github.com/yyforyongyu/btcwallet v0.16.12-0.20250523090928-d0926956f7b2

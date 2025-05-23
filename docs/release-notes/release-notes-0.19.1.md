@@ -27,6 +27,9 @@
   that would occur when an attempt was made to write a backup file for a channel 
   peer that has advertised an address that we do not yet know how to parse. 
 
+- Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9854) where the
+  `BumpFee` doesn't give an error response.
+
 # New Features
 
 ## Functional Enhancements
@@ -82,4 +85,5 @@
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
+* Yong Yu
 * Ziggie

@@ -107,4 +107,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.RbfCoopCloseOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

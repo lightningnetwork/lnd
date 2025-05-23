@@ -219,6 +219,7 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		}
 		if cfg.NoRbfCoopClose {
 			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
+			raw.Unset(lnwire.RbfCoopCloseOptional)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

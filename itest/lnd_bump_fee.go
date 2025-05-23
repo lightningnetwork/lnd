@@ -587,3 +587,47 @@ func runBumpFee(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	// Clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 }
+
+// testBumpFeeExternalInput assert that when the bump fee RPC is called with an
+// outpoint unknown to the node's wallet, an error is returned.
+func testBumpFeeExternalInput(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	// We'll start the test by sending Alice some coins, which she'll use
+	// to send to Bob.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Alice sends 0.5 BTC to Bob. This tx should have two outputs - one
+	// that belongs to Bob, the other is Alice's change output.
+	tx := ht.SendCoins(alice, bob, btcutil.SatoshiPerBitcoin/2)
+	txid := tx.TxHash()
+
+	// Find the wrong index to perform the fee bump. We assume the first
+	// output belongs to Bob, and switch to the second if the second output
+	// has a larger output value. Given we've funded Alice 1 btc, she then
+	// sends 0.5 btc to Bob, her change output will be below 0.5 btc after
+	// paying the mining fees.
+	wrongIndex := 0
+	if tx.TxOut[0].Value < tx.TxOut[1].Value {
+		wrongIndex = 1
+	}
+
+	// Alice now tries to bump the wrong output on this tx.
+	op := &lnrpc.OutPoint{
+		TxidBytes:   txid[:],
+		OutputIndex: uint32(wrongIndex),
+	}
+
+	// Create a request with the wrong outpoint.
+	bumpFeeReq := &walletrpc.BumpFeeRequest{
+		Outpoint: op,
+		// We use a force param to create the sweeping tx immediately.
+		Immediate: true,
+	}
+	err := alice.RPC.BumpFeeAssertErr(bumpFeeReq)
+	require.ErrorContains(ht, err, "does not belong to the wallet")
+
+	// Clean up the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+}

@@ -111,19 +111,19 @@ type scidAliasHandler interface {
 	zeroConfConfirmed() bool
 }
 
-// ChannelUpdateHandler is an interface that provides methods that allow
-// sending lnwire.Message to the underlying link as well as querying state.
-type ChannelUpdateHandler interface {
-	// HandleChannelUpdate handles the htlc requests as settle/add/fail
-	// which sent to us from remote peer we have a channel with.
-	//
-	// NOTE: This function MUST be non-blocking (or block as little as
-	// possible).
-	HandleChannelUpdate(lnwire.Message)
+type ChannelInfoProvider interface {
+	// NOTE(calvin): These four methods seem to have use in the routerrpc
+	// implementation of the SendOnion RPC. Maybe split into separate
+	// interface?
 
 	// ChanID returns the channel ID for the channel link. The channel ID
 	// is a more compact representation of a channel's full outpoint.
 	ChanID() lnwire.ChannelID
+
+	// ShortChanID returns the short channel ID for the channel link. The
+	// short channel ID encodes the exact location in the main chain that
+	// the original funding output can be found.
+	ShortChanID() lnwire.ShortChannelID
 
 	// Bandwidth returns the amount of milli-satoshis which current link
 	// might pass through channel link. The value returned from this method
@@ -143,6 +143,19 @@ type ChannelUpdateHandler interface {
 	// htlc to the channel, taking the amount of the htlc to add as a
 	// parameter.
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
+}
+
+// ChannelUpdateHandler is an interface that provides methods that allow
+// sending lnwire.Message to the underlying link as well as querying state.
+type ChannelUpdateHandler interface {
+	// HandleChannelUpdate handles the htlc requests as settle/add/fail
+	// which sent to us from remote peer we have a channel with.
+	//
+	// NOTE: This function MUST be non-blocking (or block as little as
+	// possible).
+	HandleChannelUpdate(lnwire.Message)
+
+	ChannelInfoProvider
 
 	// EnableAdds sets the ChannelUpdateHandler state to allow
 	// UpdateAddHtlc's in the specified direction. It returns true if the
@@ -260,11 +273,6 @@ type ChannelLink interface {
 
 	// ChannelPoint returns the channel outpoint for the channel link.
 	ChannelPoint() wire.OutPoint
-
-	// ShortChanID returns the short channel ID for the channel link. The
-	// short channel ID encodes the exact location in the main chain that
-	// the original funding output can be found.
-	ShortChanID() lnwire.ShortChannelID
 
 	// UpdateShortChanID updates the short channel ID for a link. This may
 	// be required in the event that a link is created before the short

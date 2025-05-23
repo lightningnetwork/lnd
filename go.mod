@@ -2,6 +2,7 @@ module github.com/lightningnetwork/lnd
 
 require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
+	github.com/RoaringBitmap/roaring/v2 v2.4.2
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/andybalholm/brotli v1.0.4
 	github.com/btcsuite/btcd v0.24.3-0.20250318170759-4f4ea81776d6
@@ -68,6 +69,11 @@ require (
 	gopkg.in/macaroon-bakery.v2 v2.0.1
 	gopkg.in/macaroon.v2 v2.0.0
 	pgregory.net/rapid v1.2.0
+)
+
+require (
+	github.com/bits-and-blooms/bitset v1.12.0 // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 )
 
 require (

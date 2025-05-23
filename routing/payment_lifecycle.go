@@ -606,7 +606,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 	lastShard bool) (*channeldb.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
+	sessionKey, err := GenerateNewSessionKey()
 	if err != nil {
 		return nil, err
 	}

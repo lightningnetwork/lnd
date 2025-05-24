@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -150,14 +151,14 @@ func RandNodeAlias(t *rapid.T) NodeAlias {
 
 // RandNetAddrs generates random network addresses.
 func RandNetAddrs(t *rapid.T) []net.Addr {
-	numAddresses := rapid.IntRange(0, 5).Draw(t, "numAddresses")
+	numAddresses := rapid.IntRange(0, 7).Draw(t, "numAddresses")
 	if numAddresses == 0 {
 		return nil
 	}
 
 	addresses := make([]net.Addr, numAddresses)
 	for i := 0; i < numAddresses; i++ {
-		addressType := rapid.IntRange(0, 1).Draw(
+		addressType := rapid.IntRange(5, 5).Draw(
 			t, fmt.Sprintf("addressType-%d", i),
 		)
 
@@ -186,6 +187,64 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 			addresses[i] = &net.TCPAddr{
 				IP:   ipBytes,
 				Port: port,
+			}
+
+		// OnionAddr v2.
+		case 2:
+			// V2 onion address (16 chars + .onion).
+			v2Bytes := rapid.SliceOfN(rapid.Byte(), 10, 10).Draw(
+				t, fmt.Sprintf("onion-service-v2-%d", i),
+			)
+			encoded := tor.Base32Encoding.EncodeToString(v2Bytes)
+			onionService := encoded[:16] + ".onion"
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &tor.OnionAddr{
+				OnionService: onionService,
+				Port:         port,
+			}
+
+		// OnionAddr v3.
+		case 3:
+			// V3 onion address (56 chars + .onion).
+			v3Bytes := rapid.SliceOfN(rapid.Byte(), 35, 35).Draw(
+				t, fmt.Sprintf("v3Bytes-%d", i),
+			)
+			encoded := tor.Base32Encoding.EncodeToString(v3Bytes)
+			onionService := encoded[:56] + ".onion"
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &tor.OnionAddr{
+				OnionService: onionService,
+				Port:         port,
+			}
+
+		// DNSAddr.
+		case 4:
+			// Simple domain name like example.com.
+			hostname := rapid.StringMatching(
+				`[a-z][a-z0-9\-]{3,28}\.(com|net|org)`,
+			).Draw(t, fmt.Sprintf("hostname-%d", i))
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &DNSAddr{
+				Hostname: hostname,
+				Port:     port,
+			}
+
+		// OpaqueAddrs.
+		case 5:
+			payload := rapid.SliceOfN(rapid.Byte(), 1, 50).Draw(
+				t, fmt.Sprintf("opaque-payload-%d", i),
+			)
+			addresses[i] = &OpaqueAddrs{
+				Payload: payload,
 			}
 		}
 	}

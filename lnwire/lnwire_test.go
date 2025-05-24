@@ -143,6 +143,12 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 		Port:         9065,
 	}
 
+	// Add a DNS hostname address.
+	dnsAddr := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
 	// Now add an address with an unknown type.
 	var newAddrType addressType = math.MaxUint8
 	data := make([]byte, 0, 16)
@@ -153,7 +159,7 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 
 	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
 	err := WriteNetAddrs(
-		buffer, []net.Addr{tcpAddr, onionAddr, opaqueAddrs},
+		buffer, []net.Addr{tcpAddr, onionAddr, dnsAddr, opaqueAddrs},
 	)
 	require.NoError(t, err)
 
@@ -161,10 +167,12 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 	var addrs []net.Addr
 	err = ReadElement(buffer, &addrs)
 	require.NoError(t, err)
-	require.Len(t, addrs, 3)
+	require.Len(t, addrs, 4)
 	require.Equal(t, tcpAddr.String(), addrs[0].String())
 	require.Equal(t, onionAddr.String(), addrs[1].String())
-	require.Equal(t, hex.EncodeToString(data), addrs[2].String())
+	require.Equal(t, dnsAddr.String(), addrs[2].String())
+	require.Equal(t, hex.EncodeToString(data), addrs[3].String())
+
 }
 
 func TestMaxOutPointIndex(t *testing.T) {

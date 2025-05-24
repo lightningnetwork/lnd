@@ -145,6 +145,22 @@ release-install:
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
 
+#? cross-release-install: Build lnd and lncli release binaries for single/all supported platforms to /tmp (useful for checking cross compilation or priming release build cache).
+cross-release-install:
+	@$(call print, "Cross compiling release lnd and lncli.")
+	for sys in $(BUILD_SYSTEM); do \
+		echo "Building lnd and lncli for $$sys"; \
+		export CGO_ENABLED=0 GOOS=$$(echo $$sys | cut -d- -f1) GOARCH=$$(echo $$sys | cut -d- -f2); \
+		if [ "$$GOARCH" = "armv6" ]; then \
+			export GOARCH=arm; GOARM=6; \
+		elif [ "$$GOARCH" = "armv7" ]; then \
+			export GOARCH=arm; GOARM=7; \
+		fi; \
+		$(GOBUILD) -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" -o /tmp/lnd-$$sys $(PKG)/cmd/lnd; \
+		$(GOBUILD) -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" -o /tmp/lncli-$$sys $(PKG)/cmd/lncli; \
+		echo; \
+	done
+
 #? release: Build the full set of reproducible release binaries for all supported platforms
 # Make sure the generated mobile RPC stubs don't influence our vendor package
 # by removing them first in the clean-mobile target.

@@ -803,7 +803,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			addrBytesRead++
 
 			var address net.Addr
-			var dnsHostnameAddressFound bool
+			var dnsAddrIncluded bool
 			switch aType := addressType(descriptor[0]); aType {
 			case noAddr:
 				addrBytesRead += aType.AddrLen()
@@ -886,12 +886,12 @@ func ReadElement(r io.Reader, element interface{}) error {
 				addrBytesRead += aType.AddrLen()
 
 			case dnsHostnameAddr:
-				if dnsHostnameAddressFound {
+				if dnsAddrIncluded {
 					return errors.New("cannot advertise " +
 						"multiple DNS hostname " +
 						"addresses. See Bolt 07")
 				}
-				dnsHostnameAddressFound = true
+				dnsAddrIncluded = true
 
 				// Read hostname length byte.
 				var hostnameLen byte
@@ -917,7 +917,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 					return err
 				}
 
-				address, err = NewDNSHostnameAddress(
+				address, err = NewDNSAddr(
 					string(hostname),
 					int(binary.BigEndian.Uint16(port[:])),
 				)

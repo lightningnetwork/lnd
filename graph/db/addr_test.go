@@ -61,7 +61,7 @@ var addrTests = []struct {
 		expAddr: testOnionV3Addr,
 	},
 	{
-		expAddr: &lnwire.DNSHostnameAddress{
+		expAddr: &lnwire.DNSAddr{
 			Hostname: "www.example.com",
 			Port:     80,
 		},
@@ -129,7 +129,7 @@ var addrTests = []struct {
 		serErr: "illegal base32",
 	},
 	{
-		expAddr: &lnwire.DNSHostnameAddress{
+		expAddr: &lnwire.DNSAddr{
 			// Invalid hostname length.
 			Hostname: strings.Repeat("a", 252) + ".com",
 			Port:     80,
@@ -173,13 +173,13 @@ func TestAddrSerialization(t *testing.T) {
 	}
 }
 
-// TestEncodeDNSHostnameAddress verifies encoding of DNSHostnameAddress into
-// its binary representation. It checks correct encoding for various valid
+// TestEncodeDNSAddress verifies encoding of DNSAddr into its binary
+// representation. It checks correct encoding for various valid
 // cases, hostname length limits, and error propagation from the writer.
-func TestEncodeDNSHostnameAddress(t *testing.T) {
+func TestEncodeDNSAddress(t *testing.T) {
 	tests := []struct {
 		name      string
-		addr      *lnwire.DNSHostnameAddress
+		addr      *lnwire.DNSAddr
 		writer    io.Writer
 		expected  []byte
 		expectErr bool
@@ -187,13 +187,13 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 	}{
 		{
 			name: "ValidHostname ShortLength EncodesCorrectly",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
 			writer: &bytes.Buffer{},
 			expected: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c', 'o', 'm',
@@ -203,14 +203,14 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name: "ValidHostname MaxLabelLength EncodesCorrectly",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: strings.Repeat("a", 63),
 				Port:     8080,
 			},
 			writer: &bytes.Buffer{},
 			expected: append(
 				append(
-					[]byte{byte(dnsHostnameAddr), 63},
+					[]byte{byte(dnsAddr), 63},
 					[]byte(strings.Repeat("a", 63))...,
 				),
 				[]byte{0x1F, 0x90}...,
@@ -219,13 +219,13 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name: "ValidHostname NonStandardPort EncodesCorrectly",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "lightning.network",
 				Port:     1234,
 			},
 			writer: &bytes.Buffer{},
 			expected: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				17,
 				'l', 'i', 'g', 'h', 't', 'n', 'i', 'n', 'g',
 				'.', 'n', 'e', 't', 'w', 'o', 'r', 'k',
@@ -235,7 +235,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name: "EmptyHostname ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "",
 				Port:     9735,
 			},
@@ -246,7 +246,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name: "HostnameTooLong ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: strings.Repeat("a", 256),
 				Port:     9735,
 			},
@@ -258,7 +258,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name: "WriterError AddressTypeWrite ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -272,7 +272,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		// Error after writing address type.
 		{
 			name: "WriterError HostnameLengthWrite ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -288,7 +288,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		// Error after writing address type and hostname length.
 		{
 			name: "WriterError HostnameWrite ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -304,7 +304,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 		// and hostname.
 		{
 			name: "WriterError PortWrite ReturnsError",
-			addr: &lnwire.DNSHostnameAddress{
+			addr: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -320,7 +320,7 @@ func TestEncodeDNSHostnameAddress(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := encodeDNSHostnameAddr(test.writer, test.addr)
+			err := encodeDNSAddr(test.writer, test.addr)
 			if test.expectErr {
 				require.ErrorContains(t, err, test.errMsg)
 				return
@@ -343,20 +343,20 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 	tests := []struct {
 		name      string
 		data      []byte
-		expected  *lnwire.DNSHostnameAddress
+		expected  *lnwire.DNSAddr
 		expectErr bool
 		errMsg    string
 	}{
 		{
 			name: "ValidHostname ShortLength DecodesCorrectly",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c', 'o', 'm',
 				0x26, 0x07, // port 9735 in big-endian
 			},
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -365,13 +365,13 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "ValidHostname NonStandardPort DecodesCorrectly",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				17,
 				'l', 'i', 'g', 'h', 't', 'n', 'i', 'n', 'g',
 				'.', 'n', 'e', 't', 'w', 'o', 'r', 'k',
 				0x04, 0xD2, // port 1234 in big-endian
 			},
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "lightning.network",
 				Port:     1234,
 			},
@@ -386,7 +386,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		},
 		{
 			name:      "IncompleteData MissingLength ReturnsError",
-			data:      []byte{byte(dnsHostnameAddr)},
+			data:      []byte{byte(dnsAddr)},
 			expected:  nil,
 			expectErr: true,
 			errMsg:    "EOF",
@@ -394,7 +394,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "IncompleteData MissingHostname ReturnsError",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11, // Length of hostname that isn't there
 			},
 			expected:  nil,
@@ -404,7 +404,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "IncompleteData MissingPort ReturnsError",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c', 'o', 'm',
@@ -417,7 +417,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "IncompleteData PartialHostname ReturnsError",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c',
@@ -430,7 +430,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "IncompleteData PartialPort ReturnsError",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c', 'o', 'm',
@@ -443,7 +443,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 		{
 			name: "ExcessiveData DecodesCorrectlyAndIgnoresExcess",
 			data: []byte{
-				byte(dnsHostnameAddr),
+				byte(dnsAddr),
 				11,
 				'e', 'x', 'a', 'm', 'p', 'l', 'e',
 				'.', 'c', 'o', 'm',
@@ -451,7 +451,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 				// Extra data
 				0x01, 0x02, 0x03,
 			},
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},
@@ -466,7 +466,7 @@ func TestDecodeDNSHostnameAddress(t *testing.T) {
 				'.', 'c', 'o', 'm',
 				0x26, 0x07, // port 9735 in big-endian
 			},
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     9735,
 			},

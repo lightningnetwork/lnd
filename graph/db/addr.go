@@ -32,8 +32,8 @@ const (
 	// not able to parse since LND is not yet aware of the address type.
 	opaqueAddrs addressType = 4
 
-	// dnsHostnameAddr denotes a DNS hostname address.
-	dnsHostnameAddr addressType = 5
+	// dnsAddr denotes a DNS hostname address.
+	dnsAddr addressType = 5
 )
 
 // encodeTCPAddr serializes a TCP address into its compact raw bytes
@@ -150,19 +150,19 @@ func encodeOpaqueAddrs(w io.Writer, addr *lnwire.OpaqueAddrs) error {
 	return err
 }
 
-// encodeDNSHostnameAddr serializes a DNS hostname address into its compact raw
-// bytes representation. It writes the address type, hostname length, hostname,
-// and port (in big-endian order) to the writer. The function validates that the
+// encodeDNSAddr serializes a DNS address into its compact raw bytes
+// representation. It writes the address type, hostname length, hostname, and
+// port (in big-endian order) to the writer. The function validates that the
 // DNS address. Returns an error if any part of the serialization fails.
-func encodeDNSHostnameAddr(w io.Writer, addr *lnwire.DNSHostnameAddress) error {
-	// Validate DNS hostname address.
-	_, err := lnwire.NewDNSHostnameAddress(addr.Hostname, addr.Port)
+func encodeDNSAddr(w io.Writer, addr *lnwire.DNSAddr) error {
+	// Validate DNS address.
+	_, err := lnwire.NewDNSAddr(addr.Hostname, addr.Port)
 	if err != nil {
 		return err
 	}
 
 	// Write the address type.
-	if _, err := w.Write([]byte{byte(dnsHostnameAddr)}); err != nil {
+	if _, err := w.Write([]byte{byte(dnsAddr)}); err != nil {
 		return err
 	}
 
@@ -287,7 +287,7 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 			Payload: payload,
 		}
 
-	case dnsHostnameAddr:
+	case dnsAddr:
 		var hostnameLen byte
 		err := binary.Read(r, binary.BigEndian, &hostnameLen)
 		if err != nil {
@@ -309,7 +309,7 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 				"port, but got %d bytes", n)
 		}
 
-		dnsAddr, err := lnwire.NewDNSHostnameAddress(
+		dnsAddr, err := lnwire.NewDNSAddr(
 			string(hostname), int(binary.BigEndian.Uint16(port[:])),
 		)
 		if err != nil {
@@ -333,8 +333,8 @@ func SerializeAddr(w io.Writer, address net.Addr) error {
 		return encodeTCPAddr(w, addr)
 	case *tor.OnionAddr:
 		return encodeOnionAddr(w, addr)
-	case *lnwire.DNSHostnameAddress:
-		return encodeDNSHostnameAddr(w, addr)
+	case *lnwire.DNSAddr:
+		return encodeDNSAddr(w, addr)
 	case *lnwire.OpaqueAddrs:
 		return encodeOpaqueAddrs(w, addr)
 	default:

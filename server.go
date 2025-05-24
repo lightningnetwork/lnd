@@ -535,15 +535,14 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 
 	// For loopback or IP addresses: Use ResolveTCPAddr to properly
 	// resolve these through Tor or other proxies, preventing IP leakage.
-	if lncfg.IsLoopback(host) || lnwire.IsIPv4Like(host) || isIP(host) {
+	if lncfg.IsLoopback(host) || isIP(host) || lnwire.IsIPv4Like(host) {
 		hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 		return netCfg.ResolveTCPAddr("tcp", hostPort)
 	}
 
-	// Attempt to parse as a DNS hostname address. The validation performed
-	// by NewDNSHostnameAddress ensures compliance with BOLT-07
-	// specifications.
-	addr, err := lnwire.NewDNSHostnameAddress(host, port)
+	// Attempt to parse as a DNS address. The validation performed by
+	// NewDNSAddr ensures compliance with BOLT-07 specifications.
+	addr, err := lnwire.NewDNSAddr(host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -551,18 +550,18 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	return addr, nil
 }
 
-// parseDNSAddress parses a raw DNS hostname address and returns a properly
+// parseDNSAddr parses a raw DNS address and returns a properly
 // formatted lnwire.DNSHostnameAddress or an error.
-func parseDNSAddress(rawAddress string,
-	netCfg tor.Net) (*lnwire.DNSHostnameAddress, error) {
+func parseDNSAddr(rawAddress string,
+	netCfg tor.Net) (*lnwire.DNSAddr, error) {
 
 	addr, err := parseAddr(rawAddress, netCfg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if the parsed address is a DNS hostname address.
-	dnsAddr, ok := addr.(*lnwire.DNSHostnameAddress)
+	// Check if the parsed address is a DNS address.
+	dnsAddr, ok := addr.(*lnwire.DNSAddr)
 	if !ok {
 		return nil, fmt.Errorf("expected DNS hostname address, "+
 			"got %T", addr)

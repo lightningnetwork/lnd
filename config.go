@@ -346,7 +346,7 @@ type Config struct {
 	RestCORS                      []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 	Listeners                     []net.Addr
 	ExternalIPs                   []net.Addr
-	ExternalDNSHostnameAddress    *lnwire.DNSHostnameAddress
+	ExternalDNSHostnameAddress    *lnwire.DNSAddr
 	DisableListen                 bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
 	DisableRest                   bool          `long:"norest" description:"Disable REST API"`
 	DisableRestTLS                bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
@@ -1619,7 +1619,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		// the default port if needed and validate that it's a proper
 		// DNS hostname address.
 		if cfg.RawExternalDNSHostnameAddress != "" {
-			addr, err := parseDNSAddress(
+			addr, err := parseDNSAddr(
 				cfg.RawExternalDNSHostnameAddress, cfg.net,
 			)
 			if err != nil {

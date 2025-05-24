@@ -267,7 +267,7 @@ func TestParseAddress(t *testing.T) {
 			name:    "DNSHostname WithExplicitPort ReturnsAddr",
 			address: "example.com:8080",
 			netCfg:  nil,
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     8080,
 			},
@@ -277,7 +277,7 @@ func TestParseAddress(t *testing.T) {
 			name:    "DNSHostname WithoutPort ReturnsAddrWithPort",
 			address: "example.com",
 			netCfg:  nil,
-			expected: &lnwire.DNSHostnameAddress{
+			expected: &lnwire.DNSAddr{
 				Hostname: "example.com",
 				Port:     defaultPeerPort,
 			},

@@ -144,7 +144,7 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 	}
 
 	// Add a DNS hostname address.
-	dnsAddr := &DNSHostnameAddress{
+	dnsAddr := &DNSAddr{
 		Hostname: "example.com",
 		Port:     8080,
 	}

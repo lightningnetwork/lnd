@@ -261,7 +261,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
@@ -3332,7 +3332,7 @@ func TestPruneGraphNodes(t *testing.T) {
 func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.

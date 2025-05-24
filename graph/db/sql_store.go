@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -96,7 +97,8 @@ type BatchedSQLQueries interface {
 // implemented,  things will fall back to the KVStore. This is ONLY the case
 // for the time being while this struct is purely used in unit tests only.
 type SQLStore struct {
-	db BatchedSQLQueries
+	cfg *SQLStoreConfig
+	db  BatchedSQLQueries
 
 	// cacheMu guards all caches (rejectCache and chanCache). If
 	// this mutex will be acquired at the same time as the DB mutex then
@@ -117,9 +119,16 @@ type SQLStore struct {
 // interface.
 var _ V1Store = (*SQLStore)(nil)
 
+// SQLStoreConfig holds the configuration for the SQLStore.
+type SQLStoreConfig struct {
+	// ChainHash is the genesis hash for the chain that all the gossip
+	// messages in this store are aimed at.
+	ChainHash chainhash.Hash
+}
+
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
 // storage backend.
-func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
+func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 	options ...StoreOptionModifier) (*SQLStore, error) {
 
 	opts := DefaultOptions()
@@ -133,6 +142,7 @@ func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
 	}
 
 	s := &SQLStore{
+		cfg:         cfg,
 		db:          db,
 		KVStore:     kvStore,
 		rejectCache: newRejectCache(opts.RejectCacheSize),

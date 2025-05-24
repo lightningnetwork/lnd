@@ -61,8 +61,8 @@ func WithPreAllocCacheNumNodes(n int) ChanGraphOption {
 	}
 }
 
-// KVStoreOptions holds parameters for tuning and customizing a graph.DB.
-type KVStoreOptions struct {
+// StoreOptions holds parameters for tuning and customizing a graph DB.
+type StoreOptions struct {
 	// RejectCacheSize is the maximum number of rejectCacheEntries to hold
 	// in the rejection cache.
 	RejectCacheSize int
@@ -81,37 +81,37 @@ type KVStoreOptions struct {
 	NoMigration bool
 }
 
-// DefaultOptions returns a KVStoreOptions populated with default values.
-func DefaultOptions() *KVStoreOptions {
-	return &KVStoreOptions{
+// DefaultOptions returns a StoreOptions populated with default values.
+func DefaultOptions() *StoreOptions {
+	return &StoreOptions{
 		RejectCacheSize:  DefaultRejectCacheSize,
 		ChannelCacheSize: DefaultChannelCacheSize,
 		NoMigration:      false,
 	}
 }
 
-// KVStoreOptionModifier is a function signature for modifying the default
-// KVStoreOptions.
-type KVStoreOptionModifier func(*KVStoreOptions)
+// StoreOptionModifier is a function signature for modifying the default
+// StoreOptions.
+type StoreOptionModifier func(*StoreOptions)
 
 // WithRejectCacheSize sets the RejectCacheSize to n.
-func WithRejectCacheSize(n int) KVStoreOptionModifier {
-	return func(o *KVStoreOptions) {
+func WithRejectCacheSize(n int) StoreOptionModifier {
+	return func(o *StoreOptions) {
 		o.RejectCacheSize = n
 	}
 }
 
 // WithChannelCacheSize sets the ChannelCacheSize to n.
-func WithChannelCacheSize(n int) KVStoreOptionModifier {
-	return func(o *KVStoreOptions) {
+func WithChannelCacheSize(n int) StoreOptionModifier {
+	return func(o *StoreOptions) {
 		o.ChannelCacheSize = n
 	}
 }
 
 // WithBatchCommitInterval sets the batch commit interval for the interval batch
 // schedulers.
-func WithBatchCommitInterval(interval time.Duration) KVStoreOptionModifier {
-	return func(o *KVStoreOptions) {
+func WithBatchCommitInterval(interval time.Duration) StoreOptionModifier {
+	return func(o *StoreOptions) {
 		o.BatchCommitInterval = interval
 	}
 }

@@ -75,6 +75,7 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -510,6 +511,35 @@ func (s *SQLStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	}
 
 	return s.chanScheduler.Execute(ctx, r)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+// This represents the "newest" channel from the PoV of the chain. This method
+// can be used by peers to quickly determine if their graphs are in sync.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) HighestChanID() (uint64, error) {
+	ctx := context.TODO()
+
+	var highestChanID uint64
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		chanID, err := db.HighestSCID(ctx, int16(ProtocolV1))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch highest chan ID: %w",
+				err)
+		}
+
+		highestChanID = byteOrder.Uint64(chanID)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch highest chan ID: %w", err)
+	}
+
+	return highestChanID, nil
 }
 
 // getNodeByPubKey attempts to look up a target node by its public key.

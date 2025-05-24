@@ -153,6 +153,13 @@ RETURNING id;
 SELECT * FROM channels
 WHERE scid = $1 AND version = $2;
 
+-- name: HighestSCID :one
+SELECT scid
+FROM channels
+WHERE version = $1
+ORDER BY scid DESC
+LIMIT 1;
+
 /* ─────────────────────────────────────────────
    channel_features table queries
    ─────────────────────────────────────────────

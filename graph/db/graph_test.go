@@ -1861,7 +1861,7 @@ func TestGraphPruning(t *testing.T) {
 func TestHighestChanID(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.

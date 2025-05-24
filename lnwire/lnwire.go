@@ -339,76 +339,17 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 		}
 
 	case *net.TCPAddr:
-		if e == nil {
-			return fmt.Errorf("cannot write nil TCPAddr")
-		}
-
-		if e.IP.To4() != nil {
-			var descriptor [1]byte
-			descriptor[0] = uint8(tcp4Addr)
-			if _, err := w.Write(descriptor[:]); err != nil {
-				return err
-			}
-
-			var ip [4]byte
-			copy(ip[:], e.IP.To4())
-			if _, err := w.Write(ip[:]); err != nil {
-				return err
-			}
-		} else {
-			var descriptor [1]byte
-			descriptor[0] = uint8(tcp6Addr)
-			if _, err := w.Write(descriptor[:]); err != nil {
-				return err
-			}
-			var ip [16]byte
-			copy(ip[:], e.IP.To16())
-			if _, err := w.Write(ip[:]); err != nil {
-				return err
-			}
-		}
-		var port [2]byte
-		binary.BigEndian.PutUint16(port[:], uint16(e.Port))
-		if _, err := w.Write(port[:]); err != nil {
+		if err := WriteTCPAddr(w, e); err != nil {
 			return err
 		}
 
 	case *tor.OnionAddr:
-		if e == nil {
-			return errors.New("cannot write nil onion address")
-		}
-
-		var suffixIndex int
-		switch len(e.OnionService) {
-		case tor.V2Len:
-			descriptor := []byte{byte(v2OnionAddr)}
-			if _, err := w.Write(descriptor); err != nil {
-				return err
-			}
-			suffixIndex = tor.V2Len - tor.OnionSuffixLen
-		case tor.V3Len:
-			descriptor := []byte{byte(v3OnionAddr)}
-			if _, err := w.Write(descriptor); err != nil {
-				return err
-			}
-			suffixIndex = tor.V3Len - tor.OnionSuffixLen
-		default:
-			return errors.New("unknown onion service length")
-		}
-
-		host, err := tor.Base32Encoding.DecodeString(
-			e.OnionService[:suffixIndex],
-		)
-		if err != nil {
-			return err
-		}
-		if _, err := w.Write(host); err != nil {
+		if err := WriteOnionAddr(w, e); err != nil {
 			return err
 		}
 
-		var port [2]byte
-		binary.BigEndian.PutUint16(port[:], uint16(e.Port))
-		if _, err := w.Write(port[:]); err != nil {
+	case *OpaqueAddrs:
+		if err := WriteOpaqueAddrs(w, e); err != nil {
 			return err
 		}
 

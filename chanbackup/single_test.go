@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,6 +37,15 @@ var (
 
 	addr1, _ = net.ResolveTCPAddr("tcp", "10.0.0.2:9000")
 	addr2, _ = net.ResolveTCPAddr("tcp", "10.0.0.3:9000")
+	addr3    = &tor.OnionAddr{
+		OnionService: "3g2upl4pq6kufc4m.onion",
+		Port:         9735,
+	}
+	addr4 = &lnwire.OpaqueAddrs{
+		// The first byte must be an address type we are not yet aware
+		// of for it to be a valid OpaqueAddrs.
+		Payload: []byte{math.MaxUint8, 1, 2, 3, 4},
+	}
 )
 
 func assertSingleEqual(t *testing.T, a, b Single) {
@@ -309,7 +319,9 @@ func TestSinglePackUnpack(t *testing.T) {
 	channel, err := genRandomOpenChannelShell()
 	require.NoError(t, err, "unable to gen open channel")
 
-	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
+	singleChanBackup := NewSingle(
+		channel, []net.Addr{addr1, addr2, addr3, addr4},
+	)
 
 	keyRing := &lnencrypt.MockKeyRing{}
 
@@ -634,7 +646,9 @@ func TestSingleUnconfirmedChannel(t *testing.T) {
 	channel.ShortChannelID.BlockHeight = 0
 	channel.FundingBroadcastHeight = fundingBroadcastHeight
 
-	singleChanBackup := NewSingle(channel, []net.Addr{addr1, addr2})
+	singleChanBackup := NewSingle(
+		channel, []net.Addr{addr1, addr2, addr3, addr4},
+	)
 	keyRing := &lnencrypt.MockKeyRing{}
 
 	// Pack it and then unpack it again to make sure everything is written

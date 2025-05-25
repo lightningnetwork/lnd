@@ -11,7 +11,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -48,9 +47,8 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB := pymtpkg.NewTestDB(t)
+	pControl := NewControlTower(paymentDB)
 
 	// Subscription should fail when the payment is not known.
 	_, err := pControl.SubscribePayment(lntypes.Hash{1})
@@ -62,9 +60,8 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB := pymtpkg.NewTestDB(t)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -187,9 +184,10 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB := pymtpkg.NewTestDB(
+		t, pymtpkg.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -304,9 +302,10 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB := pymtpkg.NewTestDB(
+		t, pymtpkg.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -345,9 +344,10 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB := pymtpkg.NewTestDB(
+		t, pymtpkg.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -414,9 +414,13 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db := initDB(t, keepFailedPaymentAttempts)
-
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	opts := []pymtpkg.KVStoreOptionModifier{
+		pymtpkg.WithKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	}
+	paymentDB := pymtpkg.NewTestDB(t, opts...)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -536,14 +540,6 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 			t.Fatal("timeout waiting for result channel close")
 		}
 	}
-}
-
-func initDB(t *testing.T, keepFailedPaymentAttempts bool) *channeldb.DB {
-	return channeldb.OpenForTesting(
-		t, t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
-	)
 }
 
 func genInfo() (*pymtpkg.PaymentCreationInfo, *pymtpkg.HTLCAttemptInfo,

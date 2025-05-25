@@ -1066,9 +1066,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		channeldb.OptionKeepFailedPaymentAttempts(
-			cfg.KeepFailedPaymentAttempts,
-		),
 		channeldb.OptionStoreFinalHtlcResolutions(
 			cfg.StoreFinalHtlcResolutions,
 		),
@@ -1192,9 +1189,21 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// Mount the payments DB which is only KV for now.
 	//
 	// TODO(ziggie): Add support for SQL payments DB.
-	kvPaymentsDB := channeldb.NewKVPaymentsDB(
-		dbs.ChanStateDB,
+	paymentsDBOptions := []pymtpkg.KVStoreOptionModifier{
+		pymtpkg.WithKeepFailedPaymentAttempts(
+			cfg.KeepFailedPaymentAttempts,
+		),
+	}
+	kvPaymentsDB, err := pymtpkg.NewKVStore(
+		databaseBackends.ChanStateDB,
+		paymentsDBOptions...,
 	)
+	if err != nil {
+		cleanUp()
+		err = fmt.Errorf("unable to open payments DB: %w", err)
+		d.logger.Error(err)
+		return nil, nil, err
+	}
 	dbs.PaymentDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.

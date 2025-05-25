@@ -50,10 +50,6 @@ type Options struct {
 	// database if set to true.
 	dryRun bool
 
-	// keepFailedPaymentAttempts determines whether failed htlc attempts
-	// are kept on disk or removed to save space.
-	keepFailedPaymentAttempts bool
-
 	// storeFinalHtlcResolutions determines whether to persistently store
 	// the final resolution of incoming htlcs.
 	storeFinalHtlcResolutions bool
@@ -99,14 +95,6 @@ func OptionClock(clock clock.Clock) OptionModifier {
 func OptionDryRunMigration(dryRun bool) OptionModifier {
 	return func(o *Options) {
 		o.dryRun = dryRun
-	}
-}
-
-// OptionKeepFailedPaymentAttempts controls whether failed payment attempts are
-// kept on disk after a payment settles.
-func OptionKeepFailedPaymentAttempts(keepFailedPaymentAttempts bool) OptionModifier {
-	return func(o *Options) {
-		o.keepFailedPaymentAttempts = keepFailedPaymentAttempts
 	}
 }
 

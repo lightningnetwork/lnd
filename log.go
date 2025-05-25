@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -185,6 +186,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "PFSM", interceptor, protofsm.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
+	AddSubLogger(root, pymtpkg.Subsystem, interceptor, pymtpkg.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)
 	AddSubLogger(root, chanfitness.Subsystem, interceptor, chanfitness.UseLogger)
 	AddSubLogger(root, verrpc.Subsystem, interceptor, verrpc.UseLogger)

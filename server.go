@@ -980,13 +980,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 	s.currentNodeAnn = nodeAnn
 
-	// The router will get access to the payment ID sequencer, such that it
-	// can generate unique payment IDs.
-	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.ChanStateDB)
-	if err != nil {
-		return nil, err
-	}
-
 	// Instantiate mission control with config from the sub server.
 	//
 	// TODO(joostjager): When we are further in the process of moving to sub
@@ -1118,7 +1111,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MissionControl:     s.defaultMC,
 		SessionSource:      paymentSessionSource,
 		GetLink:            s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:      sequencer.NextID,
+		NextPaymentID:      dbs.PaymentDB.NextID,
 		PathFindingConfig:  pathFindingConfig,
 		Clock:              clock.NewDefaultClock(),
 		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,

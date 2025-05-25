@@ -1,4 +1,4 @@
-package channeldb
+package payments
 
 import (
 	"bytes"
@@ -7,16 +7,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -106,6 +107,37 @@ var (
 	paymentsIndexBucket = []byte("payments-index-bucket")
 )
 
+// bucket name for duplicate payments.
+var (
+	// duplicatePaymentsBucket is the name of a optional sub-bucket within
+	// the payment hash bucket, that is used to hold duplicate payments to a
+	// payment hash. This is needed to support information from earlier
+	// versions of lnd, where it was possible to pay to a payment hash more
+	// than once.
+	duplicatePaymentsBucket = []byte("payment-duplicate-bucket")
+
+	// duplicatePaymentSettleInfoKey is a key used in the payment's
+	// sub-bucket to store the settle info of the payment.
+	duplicatePaymentSettleInfoKey = []byte("payment-settle-info")
+
+	// duplicatePaymentAttemptInfoKey is a key used in the payment's
+	// sub-bucket to store the info about the latest attempt that was done
+	// for the payment in question.
+	duplicatePaymentAttemptInfoKey = []byte("payment-attempt-info")
+
+	// duplicatePaymentCreationInfoKey is a key used in the payment's
+	// sub-bucket to store the creation info of the payment.
+	duplicatePaymentCreationInfoKey = []byte("payment-creation-info")
+
+	// duplicatePaymentFailInfoKey is a key used in the payment's sub-bucket
+	// to store information about the reason a payment failed.
+	duplicatePaymentFailInfoKey = []byte("payment-fail-info")
+
+	// duplicatePaymentSequenceKey is a key used in the payment's sub-bucket
+	// to store the sequence number of the payment.
+	duplicatePaymentSequenceKey = []byte("payment-sequence-key")
+)
+
 var (
 	// ErrNoSequenceNumber is returned if we look up a payment which does
 	// not have a sequence number.
@@ -132,37 +164,158 @@ const (
 	// payment sequences for future payments.
 	paymentSeqBlockSize = 1000
 
-	// paymentProgressLogInterval is the interval we use limiting the
+	// paymentProgrespLogInterval is the interval we use limiting the
 	// logging output of payment processing.
-	paymentProgressLogInterval = 30 * time.Second
+	paymentProgrespLogInterval = 30 * time.Second
 )
 
-// KVPaymentsDB implements persistence for payments and payment attempts.
-type KVPaymentsDB struct {
-	paymentSeqMx     sync.Mutex
-	currPaymentSeq   uint64
-	storedPaymentSeq uint64
-	db               *DB
+// KVStore is kv implementation of the payment store.
+type KVStore struct {
+	// db is the underlying database implementation.
+	db kvdb.Backend
+
+	// keepFailedPaymentAttempts is a flag that determines whether to keep
+	// failed payment attempts for a settled payment in the db.
+	keepFailedPaymentAttempts bool
+
+	// Sequence management for the kv store.
+	seqMu     sync.Mutex
+	currSeq   uint64
+	storedSeq uint64
+
+	// Sequencer for the htlc attempts.
+	Sequencer
 }
 
-// NewKVPaymentsDB creates a new instance of the KVPaymentsDB.
-func NewKVPaymentsDB(db *DB) *KVPaymentsDB {
-	return &KVPaymentsDB{
-		db: db,
+// NewKVStore creates a new KVStore for payments.
+func NewKVStore(db kvdb.Backend, options ...KVStoreOptionModifier) (*KVStore,
+	error) {
+
+	opts := DefaultOptions()
+	for _, option := range options {
+		option(opts)
 	}
+
+	if !opts.NoMigration {
+		if err := initKVStore(db); err != nil {
+			return nil, err
+		}
+	}
+
+	sequencer, err := newPersistentSequencer(db)
+	if err != nil {
+		return nil, err
+	}
+
+	return &KVStore{
+		db:                        db,
+		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
+		Sequencer:                 sequencer,
+	}, nil
+}
+
+var paymentsTopLevelBuckets = [][]byte{
+	paymentsRootBucket,
+	paymentsIndexBucket,
+}
+
+// initKVStore creates and initializes the top-level buckets for the payment db.
+func initKVStore(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		for _, tlb := range paymentsTopLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to create new payments db: %w", err)
+	}
+
+	return nil
+}
+
+// Wipe completely deletes all saved state within all used buckets within the
+// database. The deletion is done in a single transaction, therefore this
+// operation is fully atomic.
+//
+// NOTE: USE WITH CAUTION.
+func (s *KVStore) Wipe() error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
+		for _, tlb := range paymentsTopLevelBuckets {
+			err := tx.DeleteTopLevelBucket(tlb)
+			if err != nil && err != kvdb.ErrBucketNotFound {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	return initKVStore(s.db)
+}
+
+// nextPaymentSequence returns the next sequence number to store for a new
+// payment.
+func (s *KVStore) nextPaymentSequence() ([]byte, error) {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+
+	// Set a new upper bound in the DB every 1000 payments to avoid
+	// conflicts on the sequence when using etcd.
+	if s.currSeq == s.storedSeq {
+		var currSeq, newUpperBound uint64
+		if err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
+			paymentsBucket, err := tx.CreateTopLevelBucket(
+				paymentsRootBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			currSeq = paymentsBucket.Sequence()
+			newUpperBound = currSeq + paymentSeqBlockSize
+
+			return paymentsBucket.SetSequence(newUpperBound)
+		}, func() {}); err != nil {
+			return nil, err
+		}
+
+		// We lazy initialize the cached currPaymentSeq here using the
+		// first nextPaymentSequence() call. This if statement will auto
+		// initialize our stored currPaymentSeq, since by default both
+		// this variable and storedPaymentSeq are zero which in turn
+		// will have us fetch the current values from the DB.
+		if s.currSeq == 0 {
+			s.currSeq = currSeq
+		}
+
+		s.storedSeq = newUpperBound
+	}
+
+	s.currSeq++
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, s.currSeq)
+
+	return b, nil
 }
 
 // InitPayment checks or records the given PaymentCreationInfo with the DB,
 // making sure it does not already exist as an in-flight payment. When this
 // method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
-func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
-	info *pymtpkg.PaymentCreationInfo) error {
+func (s *KVStore) InitPayment(paymentHash lntypes.Hash,
+	info *PaymentCreationInfo) error {
 
 	// Obtain a new sequence number for this payment. This is used
 	// to sort the payments in order of creation, and also acts as
 	// a unique identifier for each payment.
-	sequenceNum, err := p.nextPaymentSequence()
+	sequenceNum, err := s.nextPaymentSequence()
 	if err != nil {
 		return err
 	}
@@ -174,7 +327,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 	infoBytes := b.Bytes()
 
 	var updateErr error
-	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -200,7 +353,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 
 		// Otherwise, if the error is not `ErrPaymentNotInitiated`,
 		// we'll return the error.
-		case !errors.Is(err, pymtpkg.ErrPaymentNotInitiated):
+		case !errors.Is(err, ErrPaymentNotInitiated):
 			return err
 		}
 
@@ -260,10 +413,10 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
 // by the KVPaymentsDB db.
-func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
-	if !p.db.keepFailedPaymentAttempts {
+func (s *KVStore) DeleteFailedAttempts(hash lntypes.Hash) error {
+	if !s.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
-		err := p.DeletePayment(hash, failedHtlcsOnly)
+		err := s.DeletePayment(hash, failedHtlcsOnly)
 		if err != nil {
 			return err
 		}
@@ -287,9 +440,7 @@ func createPaymentIndexEntry(tx kvdb.RwTx, sequenceNumber []byte,
 	id lntypes.Hash) error {
 
 	var b bytes.Buffer
-	if err := WriteElements(&b, paymentIndexTypeHash, id[:]); err != nil {
-		return err
-	}
+	WriteElements(&b, paymentIndexTypeHash, id[:])
 
 	indexes := tx.ReadWriteBucket(paymentsIndexBucket)
 
@@ -327,8 +478,8 @@ func deserializePaymentIndex(r io.Reader) (lntypes.Hash, error) {
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
-func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *pymtpkg.HTLCAttemptInfo) (*pymtpkg.MPPayment, error) {
+func (s *KVStore) RegisterAttempt(paymentHash lntypes.Hash,
+	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
 	// Serialize the information before opening the db transaction.
 	var a bytes.Buffer
@@ -341,8 +492,8 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 	htlcIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
-	var payment *pymtpkg.MPPayment
-	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	var payment *MPPayment
+	err = kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
@@ -374,7 +525,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 
 		// MPP records should not be set for attempts to blinded paths.
 		if isBlinded && mpp != nil {
-			return pymtpkg.ErrMPPRecordInBlindedPayment
+			return ErrMPPRecordInBlindedPayment
 		}
 
 		for _, h := range payment.InFlightHTLCs() {
@@ -383,7 +534,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 			// If this is a blinded payment, then no existing HTLCs
 			// should have MPP records.
 			if isBlinded && hMpp != nil {
-				return pymtpkg.ErrMPPRecordInBlindedPayment
+				return ErrMPPRecordInBlindedPayment
 			}
 
 			// If this is a blinded payment, then we just need to
@@ -395,7 +546,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 					h.Route.FinalHop().TotalAmtMsat {
 
 					//nolint:ll
-					return pymtpkg.ErrBlindedPaymentTotalAmountMismatch
+					return ErrBlindedPaymentTotalAmountMismatch
 				}
 
 				continue
@@ -405,12 +556,12 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 			// We tried to register a non-MPP attempt for a MPP
 			// payment.
 			case mpp == nil && hMpp != nil:
-				return pymtpkg.ErrMPPayment
+				return ErrMPPayment
 
 			// We tried to register a MPP shard for a non-MPP
 			// payment.
 			case mpp != nil && hMpp == nil:
-				return pymtpkg.ErrNonMPPayment
+				return ErrNonMPPayment
 
 			// Non-MPP payment, nothing more to validate.
 			case mpp == nil:
@@ -419,11 +570,11 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 
 			// Check that MPP options match.
 			if mpp.PaymentAddr() != hMpp.PaymentAddr() {
-				return pymtpkg.ErrMPPPaymentAddrMismatch
+				return ErrMPPPaymentAddrMismatch
 			}
 
 			if mpp.TotalMsat() != hMpp.TotalMsat() {
-				return pymtpkg.ErrMPPTotalAmountMismatch
+				return ErrMPPTotalAmountMismatch
 			}
 		}
 
@@ -432,14 +583,14 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 		// attempt.
 		amt := attempt.Route.ReceiverAmt()
 		if !isBlinded && mpp == nil && amt != payment.Info.Value {
-			return pymtpkg.ErrValueMismatch
+			return ErrValueMismatch
 		}
 
 		// Ensure we aren't sending more than the total payment amount.
 		sentAmt, _ := payment.SentAmt()
 		if sentAmt+amt > payment.Info.Value {
 			return fmt.Errorf("%w: attempted=%v, payment amount="+
-				"%v", pymtpkg.ErrValueExceedsAmt, sentAmt+amt,
+				"%v", ErrValueExceedsAmt, sentAmt+amt,
 				payment.Info.Value)
 		}
 
@@ -477,8 +628,8 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 // After invoking this method, InitPayment should always return an error to
 // prevent us from making duplicate payments to the same payment hash. The
 // provided preimage is atomically saved to the DB for record keeping.
-func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash, attemptID uint64,
-	settleInfo *pymtpkg.HTLCSettleInfo) (*pymtpkg.MPPayment, error) {
+func (s *KVStore) SettleAttempt(hash lntypes.Hash, attemptID uint64,
+	settleInfo *HTLCSettleInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCSettleInfo(&b, settleInfo); err != nil {
@@ -486,12 +637,12 @@ func (p *KVPaymentsDB) SettleAttempt(hash lntypes.Hash, attemptID uint64,
 	}
 	settleBytes := b.Bytes()
 
-	return p.updateHtlcKey(hash, attemptID, htlcSettleInfoKey, settleBytes)
+	return s.updateHtlcKey(hash, attemptID, htlcSettleInfoKey, settleBytes)
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash, attemptID uint64,
-	failInfo *pymtpkg.HTLCFailInfo) (*pymtpkg.MPPayment, error) {
+func (s *KVStore) FailAttempt(hash lntypes.Hash, attemptID uint64,
+	failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer
 	if err := serializeHTLCFailInfo(&b, failInfo); err != nil {
@@ -499,18 +650,18 @@ func (p *KVPaymentsDB) FailAttempt(hash lntypes.Hash, attemptID uint64,
 	}
 	failBytes := b.Bytes()
 
-	return p.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
+	return s.updateHtlcKey(hash, attemptID, htlcFailInfoKey, failBytes)
 }
 
 // updateHtlcKey updates a database key for the specified htlc.
-func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
-	attemptID uint64, key, value []byte) (*pymtpkg.MPPayment, error) {
+func (s *KVStore) updateHtlcKey(paymentHash lntypes.Hash,
+	attemptID uint64, key, value []byte) (*MPPayment, error) {
 
 	aid := make([]byte, 8)
 	binary.BigEndian.PutUint64(aid, attemptID)
 
-	var payment *pymtpkg.MPPayment
-	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	var payment *MPPayment
+	err := kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		payment = nil
 
 		prefetchPayment(tx, paymentHash)
@@ -519,7 +670,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 			return err
 		}
 
-		p, err := fetchPayment(bucket)
+		payment, err = fetchPayment(bucket)
 		if err != nil {
 			return err
 		}
@@ -527,7 +678,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 		// We can only update keys of in-flight payments. We allow
 		// updating keys even if the payment has reached a terminal
 		// condition, since the HTLC outcomes must still be updated.
-		if err := p.Status.Updatable(); err != nil {
+		if err := payment.Status.Updatable(); err != nil {
 			return err
 		}
 
@@ -548,14 +699,14 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 			htlcBucketKey(htlcFailInfoKey, aid),
 		)
 		if failInfo != nil {
-			return pymtpkg.ErrAttemptAlreadyFailed
+			return ErrAttemptAlreadyFailed
 		}
 
 		settleInfo := htlcsBucket.Get(
 			htlcBucketKey(htlcSettleInfoKey, aid),
 		)
 		if settleInfo != nil {
-			return pymtpkg.ErrAttemptAlreadySettled
+			return ErrAttemptAlreadySettled
 		}
 
 		// Add or update the key for this htlc.
@@ -580,14 +731,14 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
-func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
-	reason pymtpkg.FailureReason) (*pymtpkg.MPPayment, error) {
+func (s *KVStore) Fail(paymentHash lntypes.Hash,
+	reason FailureReason) (*MPPayment, error) {
 
 	var (
 		updateErr error
-		payment   *pymtpkg.MPPayment
+		payment   *MPPayment
 	)
-	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(s.db, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -595,8 +746,8 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
-		if errors.Is(err, pymtpkg.ErrPaymentNotInitiated) {
-			updateErr = pymtpkg.ErrPaymentNotInitiated
+		if errors.Is(err, ErrPaymentNotInitiated) {
+			updateErr = ErrPaymentNotInitiated
 			return nil
 		} else if err != nil {
 			return err
@@ -607,8 +758,8 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 		// failure to the KVPaymentsDB without synchronizing with
 		// other attempts.
 		_, err = fetchPaymentStatus(bucket)
-		if errors.Is(err, pymtpkg.ErrPaymentNotInitiated) {
-			updateErr = pymtpkg.ErrPaymentNotInitiated
+		if errors.Is(err, ErrPaymentNotInitiated) {
+			updateErr = ErrPaymentNotInitiated
 			return nil
 		} else if err != nil {
 			return err
@@ -637,11 +788,11 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 }
 
 // FetchPayment returns information about a payment from the database.
-func (p *KVPaymentsDB) FetchPayment(paymentHash lntypes.Hash) (
-	*pymtpkg.MPPayment, error) {
+func (s *KVStore) FetchPayment(paymentHash lntypes.Hash) (
+	*MPPayment, error) {
 
-	var payment *pymtpkg.MPPayment
-	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
+	var payment *MPPayment
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucket(tx, paymentHash)
 		if err != nil {
@@ -701,12 +852,12 @@ func fetchPaymentBucket(tx kvdb.RTx, paymentHash lntypes.Hash) (
 
 	payments := tx.ReadBucket(paymentsRootBucket)
 	if payments == nil {
-		return nil, pymtpkg.ErrPaymentNotInitiated
+		return nil, ErrPaymentNotInitiated
 	}
 
 	bucket := payments.NestedReadBucket(paymentHash[:])
 	if bucket == nil {
-		return nil, pymtpkg.ErrPaymentNotInitiated
+		return nil, ErrPaymentNotInitiated
 	}
 
 	return bucket, nil
@@ -719,69 +870,24 @@ func fetchPaymentBucketUpdate(tx kvdb.RwTx, paymentHash lntypes.Hash) (
 
 	payments := tx.ReadWriteBucket(paymentsRootBucket)
 	if payments == nil {
-		return nil, pymtpkg.ErrPaymentNotInitiated
+		return nil, ErrPaymentNotInitiated
 	}
 
 	bucket := payments.NestedReadWriteBucket(paymentHash[:])
 	if bucket == nil {
-		return nil, pymtpkg.ErrPaymentNotInitiated
+		return nil, ErrPaymentNotInitiated
 	}
 
 	return bucket, nil
 }
 
-// nextPaymentSequence returns the next sequence number to store for a new
-// payment.
-func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
-	p.paymentSeqMx.Lock()
-	defer p.paymentSeqMx.Unlock()
-
-	// Set a new upper bound in the DB every 1000 payments to avoid
-	// conflicts on the sequence when using etcd.
-	if p.currPaymentSeq == p.storedPaymentSeq {
-		var currPaymentSeq, newUpperBound uint64
-		if err := kvdb.Update(p.db.Backend, func(tx kvdb.RwTx) error {
-			paymentsBucket, err := tx.CreateTopLevelBucket(
-				paymentsRootBucket,
-			)
-			if err != nil {
-				return err
-			}
-
-			currPaymentSeq = paymentsBucket.Sequence()
-			newUpperBound = currPaymentSeq + paymentSeqBlockSize
-
-			return paymentsBucket.SetSequence(newUpperBound)
-		}, func() {}); err != nil {
-			return nil, err
-		}
-
-		// We lazy initialize the cached currPaymentSeq here using the
-		// first nextPaymentSequence() call. This if statement will auto
-		// initialize our stored currPaymentSeq, since by default both
-		// this variable and storedPaymentSeq are zero which in turn
-		// will have us fetch the current values from the DB.
-		if p.currPaymentSeq == 0 {
-			p.currPaymentSeq = currPaymentSeq
-		}
-
-		p.storedPaymentSeq = newUpperBound
-	}
-
-	p.currPaymentSeq++
-	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, p.currPaymentSeq)
-
-	return b, nil
-}
-
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
 // isn't found, it will return error `ErrPaymentNotInitiated`.
-func fetchPaymentStatus(bucket kvdb.RBucket) (pymtpkg.PaymentStatus, error) {
+func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 	// Creation info should be set for all payments, regardless of state.
 	// If not, it is unknown.
 	if bucket.Get(paymentCreationInfoKey) == nil {
-		return 0, pymtpkg.ErrPaymentNotInitiated
+		return 0, ErrPaymentNotInitiated
 	}
 
 	payment, err := fetchPayment(bucket)
@@ -793,15 +899,15 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (pymtpkg.PaymentStatus, error) {
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *KVPaymentsDB) FetchInFlightPayments() ([]*pymtpkg.MPPayment, error) {
+func (s *KVStore) FetchInFlightPayments() ([]*MPPayment, error) {
 	var (
-		inFlights      []*pymtpkg.MPPayment
+		inFlights      []*MPPayment
 		start          = time.Now()
 		lastLogTime    = time.Now()
 		processedCount int
 	)
 
-	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		payments := tx.ReadBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
@@ -813,29 +919,29 @@ func (p *KVPaymentsDB) FetchInFlightPayments() ([]*pymtpkg.MPPayment, error) {
 				return fmt.Errorf("non bucket element")
 			}
 
-			p, err := fetchPayment(bucket)
+			payment, err := fetchPayment(bucket)
 			if err != nil {
 				return err
 			}
 
 			processedCount++
 			if time.Since(lastLogTime) >=
-				paymentProgressLogInterval {
+				paymentProgrespLogInterval {
 
 				log.Debugf("Scanning inflight payments "+
-					"(in progress), processed %d, last "+
+					"(in progresp), processed %d, last "+
 					"processed payment: %v", processedCount,
-					p.Info)
+					payment.Info)
 
 				lastLogTime = time.Now()
 			}
 
 			// Skip the payment if it's terminated.
-			if p.Terminated() {
+			if payment.Terminated() {
 				return nil
 			}
 
-			inFlights = append(inFlights, p)
+			inFlights = append(inFlights, payment)
 
 			return nil
 		})
@@ -867,10 +973,10 @@ func htlcBucketKey(prefix, id []byte) []byte {
 // FetchPayments returns all sent payments found in the DB.
 //
 // nolint: dupl
-func (p *KVPaymentsDB) FetchPayments() ([]*pymtpkg.MPPayment, error) {
-	var payments []*pymtpkg.MPPayment
+func (s *KVStore) FetchPayments() ([]*MPPayment, error) {
+	var payments []*MPPayment
 
-	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil
@@ -919,7 +1025,7 @@ func (p *KVPaymentsDB) FetchPayments() ([]*pymtpkg.MPPayment, error) {
 	return payments, nil
 }
 
-func fetchCreationInfo(bucket kvdb.RBucket) (*pymtpkg.PaymentCreationInfo,
+func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo,
 	error) {
 
 	b := bucket.Get(paymentCreationInfoKey)
@@ -931,7 +1037,7 @@ func fetchCreationInfo(bucket kvdb.RBucket) (*pymtpkg.PaymentCreationInfo,
 	return deserializePaymentCreationInfo(r)
 }
 
-func fetchPayment(bucket kvdb.RBucket) (*pymtpkg.MPPayment, error) {
+func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
 		return nil, fmt.Errorf("sequence number not found")
@@ -945,7 +1051,7 @@ func fetchPayment(bucket kvdb.RBucket) (*pymtpkg.MPPayment, error) {
 		return nil, err
 	}
 
-	var htlcs []pymtpkg.HTLCAttempt
+	var htlcs []HTLCAttempt
 	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 	if htlcsBucket != nil {
 		// Get the payment attempts. This can be empty.
@@ -956,15 +1062,15 @@ func fetchPayment(bucket kvdb.RBucket) (*pymtpkg.MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *pymtpkg.FailureReason
+	var failureReason *FailureReason
 	b := bucket.Get(paymentFailInfoKey)
 	if b != nil {
-		reason := pymtpkg.FailureReason(b[0])
+		reason := FailureReason(b[0])
 		failureReason = &reason
 	}
 
 	// Create a new payment.
-	payment := &pymtpkg.MPPayment{
+	payment := &MPPayment{
 		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		HTLCs:         htlcs,
@@ -981,15 +1087,15 @@ func fetchPayment(bucket kvdb.RBucket) (*pymtpkg.MPPayment, error) {
 
 // fetchHtlcAttempts retrieves all htlc attempts made for the payment found in
 // the given bucket.
-func fetchHtlcAttempts(bucket kvdb.RBucket) ([]pymtpkg.HTLCAttempt, error) {
-	htlcsMap := make(map[uint64]*pymtpkg.HTLCAttempt)
+func fetchHtlcAttempts(bucket kvdb.RBucket) ([]HTLCAttempt, error) {
+	htlcsMap := make(map[uint64]*HTLCAttempt)
 
 	attemptInfoCount := 0
 	err := bucket.ForEach(func(k, v []byte) error {
 		aid := byteOrder.Uint64(k[len(k)-8:])
 
 		if _, ok := htlcsMap[aid]; !ok {
-			htlcsMap[aid] = &pymtpkg.HTLCAttempt{}
+			htlcsMap[aid] = &HTLCAttempt{}
 		}
 
 		var err error
@@ -1028,7 +1134,7 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]pymtpkg.HTLCAttempt, error) {
 
 	// Sanity check that all htlcs have an attempt info.
 	if attemptInfoCount != len(htlcsMap) {
-		return nil, pymtpkg.ErrNoAttemptInfo
+		return nil, ErrNoAttemptInfo
 	}
 
 	keys := make([]uint64, len(htlcsMap))
@@ -1045,7 +1151,7 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]pymtpkg.HTLCAttempt, error) {
 		return keys[i] < keys[j]
 	})
 
-	htlcs := make([]pymtpkg.HTLCAttempt, len(htlcsMap))
+	htlcs := make([]HTLCAttempt, len(htlcsMap))
 	for i, key := range keys {
 		htlcs[i] = *htlcsMap[key]
 	}
@@ -1054,21 +1160,21 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]pymtpkg.HTLCAttempt, error) {
 }
 
 // readHtlcAttemptInfo reads the payment attempt info for this htlc.
-func readHtlcAttemptInfo(b []byte) (*pymtpkg.HTLCAttemptInfo, error) {
+func readHtlcAttemptInfo(b []byte) (*HTLCAttemptInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCAttemptInfo(r)
 }
 
 // readHtlcSettleInfo reads the settle info for the htlc. If the htlc isn't
 // settled, nil is returned.
-func readHtlcSettleInfo(b []byte) (*pymtpkg.HTLCSettleInfo, error) {
+func readHtlcSettleInfo(b []byte) (*HTLCSettleInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCSettleInfo(r)
 }
 
 // readHtlcFailInfo reads the failure info for the htlc. If the htlc hasn't
 // failed, nil is returned.
-func readHtlcFailInfo(b []byte) (*pymtpkg.HTLCFailInfo, error) {
+func readHtlcFailInfo(b []byte) (*HTLCFailInfo, error) {
 	r := bytes.NewReader(b)
 	return deserializeHTLCFailInfo(r)
 }
@@ -1078,7 +1184,7 @@ func readHtlcFailInfo(b []byte) (*pymtpkg.HTLCFailInfo, error) {
 func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 	htlcsBucket := bucket.NestedReadBucket(paymentHtlcsBucket)
 
-	var htlcs []pymtpkg.HTLCAttempt
+	var htlcs []HTLCAttempt
 	var err error
 	if htlcsBucket != nil {
 		htlcs, err = fetchHtlcAttempts(htlcsBucket)
@@ -1107,12 +1213,12 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (p *KVPaymentsDB) QueryPayments(_ context.Context,
-	query pymtpkg.Query) (pymtpkg.Response, error) {
+func (s *KVStore) QueryPayments(_ context.Context,
+	query Query) (Response, error) {
 
-	var resp pymtpkg.Response
+	var resp Response
 
-	if err := kvdb.View(p.db, func(tx kvdb.RTx) error {
+	if err := kvdb.View(s.db, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
@@ -1149,7 +1255,7 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 
 			// To keep compatibility with the old API, we only
 			// return non-succeeded payments if requested.
-			if payment.Status != pymtpkg.StatusSucceeded &&
+			if payment.Status != StatusSucceeded &&
 				!query.IncludeIncomplete {
 
 				return false, err
@@ -1181,13 +1287,13 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 
 		// Create a paginator which reads from our sequence index bucket
 		// with the parameters provided by the payments query.
-		paginator := newPaginator(
+		paginator := channeldb.NewPaginator(
 			indexes.ReadCursor(), query.Reversed, query.IndexOffset,
 			query.MaxPayments,
 		)
 
 		// Run a paginated query, adding payments to our response.
-		if err := paginator.query(accumulatePayments); err != nil {
+		if err := paginator.Query(accumulatePayments); err != nil {
 			return err
 		}
 
@@ -1222,7 +1328,7 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 
 		return nil
 	}, func() {
-		resp = pymtpkg.Response{}
+		resp = Response{}
 	}); err != nil {
 		return resp, err
 	}
@@ -1251,7 +1357,7 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 // we previously had more than one payment per hash, so we have multiple indexes
 // pointing to a single payment; we want to retrieve the correct one.
 func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
-	sequenceNumber []byte) (*pymtpkg.MPPayment, error) {
+	sequenceNumber []byte) (*MPPayment, error) {
 
 	// We can now lookup the payment keyed by its hash in
 	// the payments root bucket.
@@ -1283,7 +1389,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 		return nil, ErrNoDuplicateBucket
 	}
 
-	var duplicatePayment *pymtpkg.MPPayment
+	var duplicatePayment *MPPayment
 	err = dup.ForEach(func(k, v []byte) error {
 		subBucket := dup.NestedReadBucket(k)
 		if subBucket == nil {
@@ -1326,10 +1432,10 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (p *KVPaymentsDB) DeletePayment(paymentHash lntypes.Hash,
+func (s *KVStore) DeletePayment(paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
 
-	return kvdb.Update(p.db, func(tx kvdb.RwTx) error {
+	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
@@ -1418,11 +1524,11 @@ func (p *KVPaymentsDB) DeletePayment(paymentHash lntypes.Hash,
 // failedHtlcsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts. The method returns the number of deleted payments, which is always
 // 0 if failedHtlcsOnly is set.
-func (p *KVPaymentsDB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
+func (s *KVStore) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
 	error) {
 
 	var numPayments int
-	err := kvdb.Update(p.db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
@@ -1466,7 +1572,7 @@ func (p *KVPaymentsDB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
 
 			// If we requested to only delete failed payments, we
 			// can return if this one is not.
-			if failedOnly && paymentStatus != pymtpkg.StatusFailed {
+			if failedOnly && paymentStatus != StatusFailed {
 				return nil
 			}
 
@@ -1592,7 +1698,7 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 
 // nolint: dupl
 func serializePaymentCreationInfo(w io.Writer,
-	c *pymtpkg.PaymentCreationInfo) error {
+	c *PaymentCreationInfo) error {
 
 	var scratch [8]byte
 
@@ -1620,7 +1726,7 @@ func serializePaymentCreationInfo(w io.Writer,
 
 	// Any remaining bytes are TLV encoded records. Currently, these are
 	// only the custom records provided by the user to be sent to the first
-	// hop. But this can easily be extended with further records by merging
+	// hos. But this can easily be extended with further records by merging
 	// the records into a single TLV stream.
 	err := c.FirstHopCustomRecords.SerializeTo(w)
 	if err != nil {
@@ -1630,12 +1736,12 @@ func serializePaymentCreationInfo(w io.Writer,
 	return nil
 }
 
-func deserializePaymentCreationInfo(r io.Reader) (*pymtpkg.PaymentCreationInfo,
+func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
 	error) {
 
 	var scratch [8]byte
 
-	c := &pymtpkg.PaymentCreationInfo{}
+	c := &PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
@@ -1667,7 +1773,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*pymtpkg.PaymentCreationInfo,
 
 	// Any remaining bytes are TLV encoded records. Currently, these are
 	// only the custom records provided by the user to be sent to the first
-	// hop. But this can easily be extended with further records by merging
+	// hos. But this can easily be extended with further records by merging
 	// the records into a single TLV stream.
 	c.FirstHopCustomRecords, err = lnwire.ParseCustomRecordsFrom(r)
 	if err != nil {
@@ -1677,7 +1783,7 @@ func deserializePaymentCreationInfo(r io.Reader) (*pymtpkg.PaymentCreationInfo,
 	return c, nil
 }
 
-func serializeHTLCAttemptInfo(w io.Writer, a *pymtpkg.HTLCAttemptInfo) error {
+func serializeHTLCAttemptInfo(w io.Writer, a *HTLCAttemptInfo) error {
 	// We nned to make sure the session key is 32 bytes, so we copy the
 	// session key into a 32 byte array.
 	sessionKeySlice := a.SessionKey().Serialize()
@@ -1726,8 +1832,8 @@ func serializeHTLCAttemptInfo(w io.Writer, a *pymtpkg.HTLCAttemptInfo) error {
 	return nil
 }
 
-func deserializeHTLCAttemptInfo(r io.Reader) (*pymtpkg.HTLCAttemptInfo, error) {
-	a := &pymtpkg.HTLCAttemptInfo{}
+func deserializeHTLCAttemptInfo(r io.Reader) (*HTLCAttemptInfo, error) {
+	a := &HTLCAttemptInfo{}
 	var sessionKey [btcec.PrivKeyBytesLen]byte
 	err := ReadElements(r, &sessionKey)
 	if err != nil {
@@ -1992,7 +2098,7 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 	}
 
 	// If the metadata type is present, remove it from the tlv map and
-	// populate directly on the hop.
+	// populate directly on the hos.
 	metadataType := uint64(record.MetadataOnionType)
 	if metadata, ok := tlvMap[metadataType]; ok {
 		delete(tlvMap, metadataType)
@@ -2081,4 +2187,330 @@ func DeserializeRoute(r io.Reader) (route.Route, error) {
 	// Any new/extra TLV data is decoded in deserializeHTLCAttemptInfo!
 
 	return rt, nil
+}
+
+// serializeHTLCSettleInfo serializes the details of a settled htlc.
+func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
+	if _, err := w.Write(s.Preimage[:]); err != nil {
+		return err
+	}
+
+	if err := serializeTime(w, s.SettleTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deserializeHTLCSettleInfo deserializes the details of a settled htlc.
+func deserializeHTLCSettleInfo(r io.Reader) (*HTLCSettleInfo, error) {
+	s := &HTLCSettleInfo{}
+	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
+		return nil, err
+	}
+
+	var err error
+	s.SettleTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
+// serializeHTLCFailInfo serializes the details of a failed htlc including the
+// wire failure.
+func serializeHTLCFailInfo(w io.Writer, f *HTLCFailInfo) error {
+	if err := serializeTime(w, f.FailTime); err != nil {
+		return err
+	}
+
+	// Write failure. If there is no failure message, write an empty
+	// byte slice.
+	var messageBytes bytes.Buffer
+	if f.Message != nil {
+		err := lnwire.EncodeFailureMessage(&messageBytes, f.Message, 0)
+		if err != nil {
+			return err
+		}
+	}
+	if err := wire.WriteVarBytes(w, 0, messageBytes.Bytes()); err != nil {
+		return err
+	}
+
+	return WriteElements(w, byte(f.Reason), f.FailureSourceIndex)
+}
+
+// deserializeHTLCFailInfo deserializes the details of a failed htlc including
+// the wire failure.
+func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
+	f := &HTLCFailInfo{}
+	var err error
+	f.FailTime, err = deserializeTime(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read failure.
+	failureBytes, err := wire.ReadVarBytes(
+		r, 0, math.MaxUint16, "failure",
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(failureBytes) > 0 {
+		f.Message, err = lnwire.DecodeFailureMessage(
+			bytes.NewReader(failureBytes), 0,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var reason byte
+	err = ReadElements(r, &reason, &f.FailureSourceIndex)
+	if err != nil {
+		return nil, err
+	}
+	f.Reason = HTLCFailReason(reason)
+
+	return f, nil
+}
+
+// deserializeTime deserializes time as unix nanoseconds.
+func deserializeTime(r io.Reader) (time.Time, error) {
+	var scratch [8]byte
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return time.Time{}, err
+	}
+
+	// Convert to time.Time. Interpret unix nano time zero as a zero
+	// time.Time value.
+	unixNano := byteOrder.Uint64(scratch[:])
+	if unixNano == 0 {
+		return time.Time{}, nil
+	}
+
+	return time.Unix(0, int64(unixNano)), nil
+}
+
+// serializeTime serializes time as unix nanoseconds.
+func serializeTime(w io.Writer, t time.Time) error {
+	var scratch [8]byte
+
+	// Convert to unix nano seconds, but only if time is non-zero. Calling
+	// UnixNano() on a zero time yields an undefined result.
+	var unixNano int64
+	if !t.IsZero() {
+		unixNano = t.UnixNano()
+	}
+
+	byteOrder.PutUint64(scratch[:], uint64(unixNano))
+	_, err := w.Write(scratch[:])
+	return err
+}
+
+// duplicateHTLCAttemptInfo contains static information about a specific HTLC
+// attempt for a payment. This information is used by the router to handle any
+// errors coming back after an attempt is made, and to query the switch about
+// the status of the attempt.
+type duplicateHTLCAttemptInfo struct {
+	// attemptID is the unique ID used for this attempt.
+	attemptID uint64
+
+	// sessionKey is the ephemeral key used for this attempt.
+	sessionKey [btcec.PrivKeyBytesLen]byte
+
+	// route is the route attempted to send the HTLC.
+	route route.Route
+}
+
+// fetchDuplicatePaymentStatus fetches the payment status of the payment. If
+// the payment isn't found, it will return error `ErrPaymentNotInitiated`.
+func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (PaymentStatus,
+	error) {
+
+	if bucket.Get(duplicatePaymentSettleInfoKey) != nil {
+		return StatusSucceeded, nil
+	}
+
+	if bucket.Get(duplicatePaymentFailInfoKey) != nil {
+		return StatusFailed, nil
+	}
+
+	if bucket.Get(duplicatePaymentCreationInfoKey) != nil {
+		return StatusInFlight, nil
+	}
+
+	return 0, ErrPaymentNotInitiated
+}
+
+func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
+	*duplicateHTLCAttemptInfo, error) {
+
+	a := &duplicateHTLCAttemptInfo{}
+	err := ReadElements(r, &a.attemptID, &a.sessionKey)
+	if err != nil {
+		return nil, err
+	}
+	a.route, err = DeserializeRoute(r)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
+	*PaymentCreationInfo, error) {
+
+	var scratch [8]byte
+
+	c := &PaymentCreationInfo{}
+
+	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return nil, err
+	}
+	c.Value = lnwire.MilliSatoshi(byteOrder.Uint64(scratch[:]))
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return nil, err
+	}
+	c.CreationTime = time.Unix(int64(byteOrder.Uint64(scratch[:])), 0)
+
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
+		return nil, err
+	}
+
+	reqLen := byteOrder.Uint32(scratch[:4])
+	payReq := make([]byte, reqLen)
+	if reqLen > 0 {
+		if _, err := io.ReadFull(r, payReq); err != nil {
+			return nil, err
+		}
+	}
+	c.PaymentRequest = payReq
+
+	return c, nil
+}
+
+func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
+	seqBytes := bucket.Get(duplicatePaymentSequenceKey)
+	if seqBytes == nil {
+		return nil, fmt.Errorf("sequence number not found")
+	}
+
+	sequenceNum := binary.BigEndian.Uint64(seqBytes)
+
+	// Get the payment status.
+	paymentStatus, err := fetchDuplicatePaymentStatus(bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the PaymentCreationInfo.
+	b := bucket.Get(duplicatePaymentCreationInfoKey)
+	if b == nil {
+		return nil, fmt.Errorf("creation info not found")
+	}
+
+	r := bytes.NewReader(b)
+	creationInfo, err := deserializeDuplicatePaymentCreationInfo(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get failure reason if available.
+	var failureReason *FailureReason
+	b = bucket.Get(duplicatePaymentFailInfoKey)
+	if b != nil {
+		reason := FailureReason(b[0])
+		failureReason = &reason
+	}
+
+	payment := &MPPayment{
+		SequenceNum:   sequenceNum,
+		Info:          creationInfo,
+		FailureReason: failureReason,
+		Status:        paymentStatus,
+	}
+
+	// Get the HTLCAttemptInfo. It can be absent.
+	b = bucket.Get(duplicatePaymentAttemptInfoKey)
+	if b != nil {
+		r = bytes.NewReader(b)
+		attempt, err := deserializeDuplicateHTLCAttemptInfo(r)
+		if err != nil {
+			return nil, err
+		}
+
+		htlc := HTLCAttempt{
+			HTLCAttemptInfo: HTLCAttemptInfo{
+				AttemptID: attempt.attemptID,
+				Route:     attempt.route,
+			},
+		}
+		htlc.SetSessionKey(attempt.sessionKey)
+
+		// Get the payment preimage. This is only found for
+		// successful payments.
+		b = bucket.Get(duplicatePaymentSettleInfoKey)
+		if b != nil {
+			var preimg lntypes.Preimage
+			copy(preimg[:], b)
+
+			htlc.Settle = &HTLCSettleInfo{
+				Preimage:   preimg,
+				SettleTime: time.Time{},
+			}
+		} else {
+			// Otherwise the payment must have failed.
+			htlc.Failure = &HTLCFailInfo{
+				FailTime: time.Time{},
+			}
+		}
+
+		payment.HTLCs = []HTLCAttempt{htlc}
+	}
+
+	return payment, nil
+}
+
+func fetchDuplicatePayments(
+	paymentHashBucket kvdb.RBucket) ([]*MPPayment, error) {
+
+	var payments []*MPPayment
+
+	// For older versions of lnd, duplicate payments to a payment has was
+	// possible. These will be found in a sub-bucket indexed by their
+	// sequence number if available.
+	dup := paymentHashBucket.NestedReadBucket(duplicatePaymentsBucket)
+	if dup == nil {
+		return nil, nil
+	}
+
+	err := dup.ForEach(func(k, v []byte) error {
+		subBucket := dup.NestedReadBucket(k)
+		if subBucket == nil {
+			// We one bucket for each duplicate to be found.
+			return fmt.Errorf("non bucket element" +
+				"in duplicate bucket")
+		}
+
+		p, err := fetchDuplicatePayment(subBucket)
+		if err != nil {
+			return err
+		}
+
+		payments = append(payments, p)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return payments, nil
 }

@@ -5008,7 +5008,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
 	switch err {
 	// If the store does not know about the channel, we just log it.
-	case chanfitness.ErrChannelNotFound:
+	case chanfitness.ErrChannelNotFound, chanfitness.ErrPeerNotFound:
 		rpcsLog.Infof("channel: %v not found by channel event store",
 			outpoint)
 

@@ -199,11 +199,13 @@ var (
 			migration: mig.CreateTLB(payAddrIndexBucket),
 		},
 		{
-			// Initialize payment index bucket which will be used
-			// to index payments by sequence number. This index will
-			// be used to allow more efficient ListPayments queries.
-			number:    15,
-			migration: mig.CreateTLB(paymentsIndexBucket),
+			// This used to be create payment related top-level
+			// buckets, however this is now done by the payment
+			// package.
+			number: 15,
+			migration: func(tx kvdb.RwTx) error {
+				return nil
+			},
 		},
 		{
 			// Add our existing payments to the index bucket created
@@ -338,7 +340,6 @@ type DB struct {
 	dbPath                    string
 	clock                     clock.Clock
 	dryRun                    bool
-	keepFailedPaymentAttempts bool
 	storeFinalHtlcResolutions bool
 
 	// noRevLogAmtData if true, means that commitment transaction amount
@@ -399,7 +400,6 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		},
 		clock:                     opts.clock,
 		dryRun:                    opts.dryRun,
-		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
 		noRevLogAmtData:           opts.NoRevLogAmtData,
 	}
@@ -438,7 +438,6 @@ var dbTopLevelBuckets = [][]byte{
 	invoiceBucket,
 	payAddrIndexBucket,
 	setIDIndexBucket,
-	paymentsIndexBucket,
 	peersBucket,
 	nodeInfoBucket,
 	metaBucket,

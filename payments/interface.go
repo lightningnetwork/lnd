@@ -63,4 +63,14 @@ type PaymentDB interface {
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments() ([]*MPPayment, error)
+
+	Sequencer
+}
+
+// Sequencer emits sequence numbers for locally initiated HTLCs. These are
+// only used internally for tracking pending payments, however they must be
+// unique in order to avoid circuit key collision in the circuit map.
+type Sequencer interface {
+	// NextID returns a unique sequence number for each invocation.
+	NextID() (uint64, error)
 }

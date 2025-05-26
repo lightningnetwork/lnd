@@ -47,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
@@ -462,6 +463,10 @@ type Config struct {
 	// implementations to inject and process custom records over channel
 	// related wire messages.
 	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
+	// OnionMessageServer is an instance of a message server that dispatches
+	// onion messages to subscribers.
+	OnionMessageServer *subscribe.Server
 
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
@@ -896,6 +901,21 @@ func (p *Brontide) Start() error {
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
 		return fmt.Errorf("unable to load channels: %w", err)
+	}
+
+	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
+		p.cfg.OnionMessageServer,
+	)
+
+	// We register the onion message endpoint with the message router.
+	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+
+		return r.RegisterEndpoint(onionMessageEndpoint)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to register endpoint for onion "+
+			"messaging: %w", err)
 	}
 
 	p.startTime = time.Now()

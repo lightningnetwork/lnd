@@ -134,9 +134,7 @@ manpages:
 #? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
 install: install-binaries
 
-#? install-all: Performs all the same tasks as the install command along with generating and
-# installing the man pages for the lnd and lncli binaries. This command is useful in an
-# environment where a user has root access and so has write access to the man page directory.
+#? install-all: Performs all the same tasks as the install command along with generating and installing the man pages for the lnd and lncli binaries. This command is useful in an environment where a user has root access and so has write access to the man page directory.
 install-all: install manpages
 
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
@@ -161,9 +159,7 @@ cross-release-install:
 		echo; \
 	done
 
-#? release: Build the full set of reproducible release binaries for all supported platforms
-# Make sure the generated mobile RPC stubs don't influence our vendor package
-# by removing them first in the clean-mobile target.
+#? release: Build the full set of reproducible release binaries for all supported platforms. Make sure the generated mobile RPC stubs don't influence our vendor package by removing them first in the clean-mobile target.
 release: clean-mobile
 	@$(call print, "Releasing lnd and lncli binaries.")
 	$(VERSION_CHECK)

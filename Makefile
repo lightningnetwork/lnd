@@ -134,9 +134,7 @@ manpages:
 #? install: Build and install lnd and lncli binaries and place them in $GOPATH/bin.
 install: install-binaries
 
-#? install-all: Performs all the same tasks as the install command along with generating and
-# installing the man pages for the lnd and lncli binaries. This command is useful in an
-# environment where a user has root access and so has write access to the man page directory.
+#? install-all: Performs all the same tasks as the install command along with generating and installing the man pages for the lnd and lncli binaries. This command is useful in an environment where a user has root access and so has write access to the man page directory.
 install-all: install manpages
 
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
@@ -145,9 +143,23 @@ release-install:
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd
 	env CGO_ENABLED=0 $(GOINSTALL) -v -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lncli
 
-#? release: Build the full set of reproducible release binaries for all supported platforms
-# Make sure the generated mobile RPC stubs don't influence our vendor package
-# by removing them first in the clean-mobile target.
+#? cross-release-install: Build lnd and lncli release binaries for single/all supported platforms to /tmp (useful for checking cross compilation or priming release build cache).
+cross-release-install:
+	@$(call print, "Cross compiling release lnd and lncli.")
+	for sys in $(BUILD_SYSTEM); do \
+		echo "Building lnd and lncli for $$sys"; \
+		export CGO_ENABLED=0 GOOS=$$(echo $$sys | cut -d- -f1) GOARCH=$$(echo $$sys | cut -d- -f2); \
+		if [ "$$GOARCH" = "armv6" ]; then \
+			export GOARCH=arm; GOARM=6; \
+		elif [ "$$GOARCH" = "armv7" ]; then \
+			export GOARCH=arm; GOARM=7; \
+		fi; \
+		$(GOBUILD) -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" -o /tmp/lnd-$$sys $(PKG)/cmd/lnd; \
+		$(GOBUILD) -trimpath -ldflags="$(RELEASE_LDFLAGS)" -tags="$(RELEASE_TAGS)" -o /tmp/lncli-$$sys $(PKG)/cmd/lncli; \
+		echo; \
+	done
+
+#? release: Build the full set of reproducible release binaries for all supported platforms. Make sure the generated mobile RPC stubs don't influence our vendor package by removing them first in the clean-mobile target.
 release: clean-mobile
 	@$(call print, "Releasing lnd and lncli binaries.")
 	$(VERSION_CHECK)

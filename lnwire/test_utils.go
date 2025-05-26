@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -157,7 +158,7 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 
 	addresses := make([]net.Addr, numAddresses)
 	for i := 0; i < numAddresses; i++ {
-		addressType := rapid.IntRange(0, 1).Draw(
+		addressType := rapid.IntRange(0, 3).Draw(
 			t, fmt.Sprintf("addressType-%d", i),
 		)
 
@@ -186,6 +187,40 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 			addresses[i] = &net.TCPAddr{
 				IP:   ipBytes,
 				Port: port,
+			}
+
+		// OnionAddr v2.
+		case 2:
+			// V2 onion address (16 chars + .onion).
+			v2Bytes := rapid.SliceOfN(rapid.Byte(), 10, 10).Draw(
+				t, fmt.Sprintf("onion-service-v2-%d", i),
+			)
+			encoded := tor.Base32Encoding.EncodeToString(v2Bytes)
+			onionService := encoded[:16] + ".onion"
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &tor.OnionAddr{
+				OnionService: onionService,
+				Port:         port,
+			}
+
+		// OnionAddr v3.
+		case 3:
+			// V3 onion address (56 chars + .onion).
+			v3Bytes := rapid.SliceOfN(rapid.Byte(), 35, 35).Draw(
+				t, fmt.Sprintf("v3Bytes-%d", i),
+			)
+			encoded := tor.Base32Encoding.EncodeToString(v3Bytes)
+			onionService := encoded[:56] + ".onion"
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &tor.OnionAddr{
+				OnionService: onionService,
+				Port:         port,
 			}
 		}
 	}

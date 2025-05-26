@@ -4290,7 +4290,8 @@ func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
 	remotePub *btcec.PublicKey) error {
 
 	// Call newOpenChan to update the access manager's maps for this peer.
-	if err := s.peerAccessMan.newOpenChan(remotePub); err != nil {
+	err := s.peerAccessMan.newOpenChan(remotePub)
+	if err != nil && !errors.Is(err, ErrNoPeerScore) {
 		return err
 	}
 
@@ -4307,7 +4308,8 @@ func (s *server) notifyPendingOpenChannelPeerEvent(op wire.OutPoint,
 
 	// Call newPendingOpenChan to update the access manager's maps for this
 	// peer.
-	if err := s.peerAccessMan.newPendingOpenChan(remotePub); err != nil {
+	err := s.peerAccessMan.newPendingOpenChan(remotePub)
+	if err != nil && !errors.Is(err, ErrNoPeerScore) {
 		return err
 	}
 

@@ -28,6 +28,10 @@
 
 ## lncli Additions
 
+* [`lncli sendpayment` and `lncli queryroutes` now support the
+  `--route_hints` flag](https://github.com/lightningnetwork/lnd/pull/9721) to
+  support routing through private channels.
+
 # Improvements
 ## Functional Updates
 

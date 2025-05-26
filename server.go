@@ -5314,7 +5314,7 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 	data []byte) error {
 
-	peer, err := s.FindPeerByPubStr(hex.EncodeToString(peerPub[:]))
+	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
 		return err
 	}
@@ -5344,7 +5344,7 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 func (s *server) SendOnionMessage(peerPub [33]byte,
 	blindingPoint *btcec.PublicKey, onion []byte) error {
 
-	peer, err := s.FindPeerByPubStr(hex.EncodeToString(peerPub[:]))
+	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
 		return err
 	}

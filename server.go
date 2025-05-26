@@ -399,6 +399,8 @@ type server struct {
 
 	customMessageServer *subscribe.Server
 
+	onionMessageServer *subscribe.Server
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -702,6 +704,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		invoiceHtlcModifier: invoiceHtlcModifier,
 
 		customMessageServer: subscribe.NewServer(),
+
+		onionMessageServer: subscribe.NewServer(),
 
 		tlsManager: tlsManager,
 
@@ -2234,6 +2238,12 @@ func (s *server) Start() error {
 	s.start.Do(func() {
 		cleanup = cleanup.add(s.customMessageServer.Stop)
 		if err := s.customMessageServer.Start(); err != nil {
+			startErr = err
+			return
+		}
+
+		cleanup = cleanup.add(s.onionMessageServer.Stop)
+		if err := s.onionMessageServer.Start(); err != nil {
 			startErr = err
 			return
 		}
@@ -4300,6 +4310,11 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
 }
 
+// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+func (s *server) SubscribeOnionMessages() (*subscribe.Client, error) {
+	return s.onionMessageServer.Subscribe()
+}
+
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
@@ -4446,6 +4461,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
+		OnionMessageServer:      s.onionMessageServer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement, error) {
 
@@ -5298,7 +5314,7 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 	data []byte) error {
 
-	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
+	peer, err := s.FindPeerByPubStr(hex.EncodeToString(peerPub[:]))
 	if err != nil {
 		return err
 	}
@@ -5316,6 +5332,33 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 	if err != nil {
 		return err
 	}
+
+	// Send the message as low-priority. For now we assume that all
+	// application-defined message are low priority.
+	return peer.SendMessageLazy(true, msg)
+}
+
+// SendOnionMessage sends a custom message to the peer with the specified
+// pubkey.
+// TODO(gijs): change this message to include path finding.
+func (s *server) SendOnionMessage(peerPub [33]byte,
+	blindingPoint *btcec.PublicKey, onion []byte) error {
+
+	peer, err := s.FindPeerByPubStr(hex.EncodeToString(peerPub[:]))
+	if err != nil {
+		return err
+	}
+
+	// We'll wait until the peer is active.
+	select {
+	case <-peer.ActiveSignal():
+	case <-peer.QuitSignal():
+		return fmt.Errorf("peer %x disconnected", peerPub)
+	case <-s.quit:
+		return ErrServerShuttingDown
+	}
+
+	msg := lnwire.NewOnionMessage(blindingPoint, onion)
 
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.

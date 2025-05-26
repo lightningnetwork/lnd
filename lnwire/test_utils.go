@@ -151,14 +151,23 @@ func RandNodeAlias(t *rapid.T) NodeAlias {
 
 // RandNetAddrs generates random network addresses.
 func RandNetAddrs(t *rapid.T) []net.Addr {
-	numAddresses := rapid.IntRange(0, 5).Draw(t, "numAddresses")
+	numAddresses := rapid.IntRange(0, 7).Draw(t, "numAddresses")
 	if numAddresses == 0 {
 		return nil
 	}
 
 	addresses := make([]net.Addr, numAddresses)
+	var dnsAddrIncluded bool
 	for i := 0; i < numAddresses; i++ {
-		addressType := rapid.IntRange(0, 3).Draw(
+		var maxType int
+		if dnsAddrIncluded {
+			// Only allow address types 0-3 (exclude DNSAddr).
+			maxType = 3
+		} else {
+			// Allow all types including DNSAddr.
+			maxType = 4
+		}
+		addressType := rapid.IntRange(0, maxType).Draw(
 			t, fmt.Sprintf("addressType-%d", i),
 		)
 
@@ -221,6 +230,26 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 			addresses[i] = &tor.OnionAddr{
 				OnionService: onionService,
 				Port:         port,
+			}
+
+		// DNSAddr.
+		case 4:
+			// Ensure DNS address is included once in the
+			// random net addresses to ensure compliance with
+			// Bolt-07 requirements.
+			dnsAddrIncluded = true
+
+			// Simple domain name like example.com.
+			hostname := rapid.StringMatching(
+				`[a-z][a-z0-9]{3,28}\.(com|net|org)`,
+			).Draw(t, fmt.Sprintf("hostname-%d", i))
+
+			port := rapid.IntRange(1, 65535).Draw(
+				t, fmt.Sprintf("port-%d", i),
+			)
+			addresses[i] = &DNSAddr{
+				Hostname: hostname,
+				Port:     port,
 			}
 		}
 	}

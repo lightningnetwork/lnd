@@ -790,8 +790,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 		// series, using the first byte to denote how to decode the
 		// address itself.
 		var (
-			addresses     []net.Addr
-			addrBytesRead uint16
+			addresses       []net.Addr
+			addrBytesRead   uint16
+			dnsAddrIncluded bool
 		)
 
 		for addrBytesRead < addrsLen {
@@ -883,6 +884,49 @@ func ReadElement(r io.Reader, element interface{}) error {
 					Port:         port,
 				}
 				addrBytesRead += aType.AddrLen()
+
+			case dnsHostnameAddr:
+				if dnsAddrIncluded {
+					return errors.New("cannot advertise " +
+						"multiple DNS addresses. See " +
+						"Bolt 07")
+				}
+				dnsAddrIncluded = true
+
+				// Read hostname length byte.
+				var hostnameLen byte
+				err := binary.Read(
+					addrBuf, binary.BigEndian, &hostnameLen,
+				)
+				if err != nil {
+					return err
+				}
+
+				// Read hostname of variable size.
+				hostname := make([]byte, hostnameLen)
+				_, err = io.ReadFull(addrBuf, hostname)
+				if err != nil {
+					return err
+				}
+
+				// Read port.
+				const portLen = 2
+				var port [portLen]byte
+				_, err = io.ReadFull(addrBuf, port[:])
+				if err != nil {
+					return err
+				}
+
+				address, err = NewDNSAddr(
+					string(hostname),
+					int(binary.BigEndian.Uint16(port[:])),
+				)
+				if err != nil {
+					return err
+				}
+
+				length := 1 + uint16(hostnameLen) + portLen
+				addrBytesRead += length
 
 			default:
 				// If we don't understand this address type,

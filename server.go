@@ -550,6 +550,26 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 	return addr, nil
 }
 
+// parseDNSAddr parses a raw DNS address and returns a properly
+// formatted lnwire.DNSHostnameAddress or an error.
+func parseDNSAddr(rawAddress string,
+	netCfg tor.Net) (*lnwire.DNSAddr, error) {
+
+	addr, err := parseAddr(rawAddress, netCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the parsed address is a DNS address.
+	dnsAddr, ok := addr.(*lnwire.DNSAddr)
+	if !ok {
+		return nil, fmt.Errorf("expected DNS hostname address, "+
+			"got %T", addr)
+	}
+
+	return dnsAddr, nil
+}
+
 // isIP checks if the provided host is an IP address (IPv4 or IPv6).
 func isIP(host string) bool {
 	// Try parsing the host as an IP address.
@@ -926,8 +946,17 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	addrsLen := len(externalIPs)
+	if cfg.ExternalDNSAddress != nil {
+		addrsLen++
+	}
+
+	selfAddrs := make([]net.Addr, 0, addrsLen)
 	selfAddrs = append(selfAddrs, externalIPs...)
+
+	if cfg.ExternalDNSAddress != nil {
+		selfAddrs = append(selfAddrs, cfg.ExternalDNSAddress)
+	}
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within

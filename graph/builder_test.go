@@ -892,15 +892,21 @@ func TestPruneChannelGraphDoubleDisabled(t *testing.T) {
 }
 
 func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
+	timestamp := time.Now()
+	nextTimeStamp := func() time.Time {
+		timestamp = timestamp.Add(time.Second)
+
+		return timestamp
+	}
+
 	// We'll create the following test graph so that only the last channel
 	// is pruned. We'll use a fresh timestamp to ensure they're not pruned
 	// according to that heuristic.
-	timestamp := time.Now()
 	testChannels := []*testChannel{
 		// Channel from self shouldn't be pruned.
 		symmetricTestChannel(
 			"self", "a", 100000, &testChannelPolicy{
-				LastUpdate: timestamp,
+				LastUpdate: nextTimeStamp(),
 				Disabled:   true,
 			}, 99,
 		),
@@ -918,7 +924,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 			Node1: &testChannelEnd{
 				Alias: "a",
 				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
+					LastUpdate: nextTimeStamp(),
 					Disabled:   true,
 				},
 			},
@@ -932,7 +938,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 			Node1: &testChannelEnd{
 				Alias: "a",
 				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
+					LastUpdate: nextTimeStamp(),
 					Disabled:   false,
 				},
 			},
@@ -946,14 +952,14 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 			Node1: &testChannelEnd{
 				Alias: "a",
 				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
+					LastUpdate: nextTimeStamp(),
 					Disabled:   true,
 				},
 			},
 			Node2: &testChannelEnd{
 				Alias: "b",
 				testChannelPolicy: &testChannelPolicy{
-					LastUpdate: timestamp,
+					LastUpdate: nextTimeStamp(),
 					Disabled:   false,
 				},
 			},
@@ -963,13 +969,13 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 
 		// Both edges enabled.
 		symmetricTestChannel("c", "d", 100000, &testChannelPolicy{
-			LastUpdate: timestamp,
+			LastUpdate: nextTimeStamp(),
 			Disabled:   false,
 		}, 2),
 
 		// Both edges disabled, only one pruned.
 		symmetricTestChannel("e", "f", 100000, &testChannelPolicy{
-			LastUpdate: timestamp,
+			LastUpdate: nextTimeStamp(),
 			Disabled:   true,
 		}, 3),
 	}
@@ -1363,7 +1369,9 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph := graphdb.MakeTestGraph(t, graphdb.WithUseGraphCache(useCache))
+	graph := graphdb.MakeTestGraphNew(
+		t, graphdb.WithUseGraphCache(useCache),
+	)
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
@@ -1441,18 +1449,18 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			}
 
 			source = dbNode
+
+			// Set the selected source node
+			if err := graph.SetSourceNode(ctx, source); err != nil {
+				return nil, err
+			}
+
+			continue
 		}
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
 		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
-			return nil, err
-		}
-	}
-
-	if source != nil {
-		// Set the selected source node
-		if err := graph.SetSourceNode(ctx, source); err != nil {
 			return nil, err
 		}
 	}
@@ -1739,14 +1747,16 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph := graphdb.MakeTestGraph(t, graphdb.WithUseGraphCache(useCache))
+	graph := graphdb.MakeTestGraphNew(
+		t, graphdb.WithUseGraphCache(useCache),
+	)
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 
 	nodeIndex := byte(0)
-	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
-		*models.LightningNode, error) {
+	addNodeWithAlias := func(alias string,
+		features *lnwire.FeatureVector) error {
 
 		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -1776,23 +1786,23 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
-			return nil, err
+		if alias == source {
+			err = graph.SetSourceNode(ctx, dbNode)
+			require.NoError(t, err)
+		} else {
+			err := graph.AddLightningNode(ctx, dbNode)
+			require.NoError(t, err)
 		}
 
 		aliasMap[alias] = dbNode.PubKeyBytes
 		nodeIndex++
 
-		return dbNode, nil
+		return nil
 	}
 
 	// Add the source node.
-	dbNode, err := addNodeWithAlias(source, lnwire.EmptyFeatureVector())
+	err = addNodeWithAlias(source, lnwire.EmptyFeatureVector())
 	if err != nil {
-		return nil, err
-	}
-
-	if err = graph.SetSourceNode(ctx, dbNode); err != nil {
 		return nil, err
 	}
 
@@ -1813,7 +1823,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 					features =
 						node.testChannelPolicy.Features
 				}
-				_, err := addNodeWithAlias(
+				err := addNodeWithAlias(
 					node.Alias, features,
 				)
 				if err != nil {

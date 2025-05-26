@@ -763,7 +763,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// then it should trigger a new notification.
 	// TODO(roasbeef): assume monotonic time.
 	nodeUpdateAnn := *node1
-	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(300 * time.Millisecond)
+	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(time.Second)
 
 	// Add new node topology update to the channel router.
 	if err := ctx.builder.AddNode(ctxb, &nodeUpdateAnn); err != nil {
@@ -1059,7 +1059,7 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph := graphdb.MakeTestGraph(t)
+	graph := graphdb.MakeTestGraphNew(t)
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,

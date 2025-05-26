@@ -31,6 +31,9 @@ const (
 	// opaqueAddrs denotes an address (or a set of addresses) that LND was
 	// not able to parse since LND is not yet aware of the address type.
 	opaqueAddrs addressType = 4
+
+	// dnsAddr denotes a DNS hostname address.
+	dnsAddr addressType = 5
 )
 
 // encodeTCPAddr serializes a TCP address into its compact raw bytes

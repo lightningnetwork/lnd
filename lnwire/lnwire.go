@@ -52,6 +52,9 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 4
+
+	// dnsHostnameAddr denotes a DNS hostname address.
+	dnsHostnameAddr addressType = 5
 )
 
 // AddrLen returns the number of bytes that it takes to encode the target

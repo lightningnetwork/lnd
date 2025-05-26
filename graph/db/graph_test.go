@@ -3122,7 +3122,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// The update index only applies to the bbolt graph.
 	boltStore, ok := graph.V1Store.(*KVStore)
@@ -3650,7 +3650,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// This test currently directly edits the bytes stored in the bbolt DB.
 	boltStore, ok := graph.V1Store.(*KVStore)

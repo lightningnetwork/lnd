@@ -225,6 +225,14 @@ type paymentDescriptor struct {
 	// into the log to the HTLC being modified.
 	EntryType updateType
 
+	// noOpSettle is a flag indicating whether a chain of entries resulted
+	// in an effective no-op settle. That means that the amount was credited
+	// back to the sender. This is useful as we need a way to mark whether
+	// the noop add was effective, which can be useful at later stages,
+	// where we might not be able to re-run the criteria for the
+	// effectiveness of the noop-add.
+	noOpSettle bool
+
 	// isForwarded denotes if an incoming HTLC has been forwarded to any
 	// possible upstream peers in the route.
 	isForwarded bool
@@ -319,4 +327,9 @@ func (pd *paymentDescriptor) setCommitHeight(
 			whoseCommitChain, nextHeight,
 		)
 	}
+}
+
+// isAdd returns true if the paymentDescriptor is of type Add.
+func (pd *paymentDescriptor) isAdd() bool {
+	return pd.EntryType == Add || pd.EntryType == NoOpAdd
 }

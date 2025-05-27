@@ -319,3 +319,8 @@ func (pd *paymentDescriptor) setCommitHeight(
 		)
 	}
 }
+
+// isAdd returns true if the paymentDescriptor is of type Add.
+func (pd *paymentDescriptor) isAdd() bool {
+	return pd.EntryType == Add || pd.EntryType == NoOpAdd
+}

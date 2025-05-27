@@ -148,6 +148,7 @@ type InvoiceQuery struct {
 	// CreationDateEnd, if set, filters out all invoices with a creation
 	// date less than or equal to it.
 	CreationDateEnd int64
+	CountOnly         bool 
 }
 
 // InvoiceSlice is the response to a invoice query. It includes the original
@@ -173,6 +174,7 @@ type InvoiceSlice struct {
 	// in the event that the slice has too many events to fit into a single
 	// response.
 	LastIndexOffset uint64
+	TotalInvoices    uint64
 }
 
 // CircuitKey is a tuple of channel ID and HTLC ID, used to uniquely identify

@@ -6412,6 +6412,29 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 func (r *rpcServer) ListInvoices(ctx context.Context,
 	req *lnrpc.ListInvoiceRequest) (*lnrpc.ListInvoiceResponse, error) {
 
+	// If count_total_invoices is set, we'll only return the total count
+	// without retrieving all invoice data.
+	if req.CountTotalInvoices {
+		// Create a query to count all invoices with the provided filters
+		q := invoices.InvoiceQuery{
+				PendingOnly:       req.PendingOnly,
+				CreationDateStart: int64(req.CreationDateStart),
+				CreationDateEnd:   int64(req.CreationDateEnd),
+				CountOnly:         true, // This flag tells the DB to only count
+		}
+		
+		// Query the database for the count
+		invoiceSlice, err := r.server.invoicesDB.QueryInvoices(ctx, q)
+		if err != nil {
+				return nil, fmt.Errorf("unable to count invoices: %w", err)
+		}
+
+		// Return just the count in the response
+		return &lnrpc.ListInvoiceResponse{
+				TotalNumInvoices: invoiceSlice.TotalInvoices,
+		}, nil
+	}
+
 	// If the number of invoices was not specified, then we'll default to
 	// returning the latest 100 invoices.
 	if req.NumMaxInvoices == 0 {
@@ -6450,6 +6473,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		Invoices:         make([]*lnrpc.Invoice, len(invoiceSlice.Invoices)),
 		FirstIndexOffset: invoiceSlice.FirstIndexOffset,
 		LastIndexOffset:  invoiceSlice.LastIndexOffset,
+		TotalNumInvoices: invoiceSlice.TotalInvoices,
 	}
 	for i, invoice := range invoiceSlice.Invoices {
 		invoice := invoice

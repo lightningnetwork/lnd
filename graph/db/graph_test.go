@@ -82,7 +82,6 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
 		Addresses:            testAddrs,
-		ExtraOpaqueData:      make([]byte, 0),
 	}
 	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
 

@@ -151,27 +151,6 @@ type SQLInvoiceQueries interface { //nolint:interfacebloat
 
 var _ InvoiceDB = (*SQLStore)(nil)
 
-// SQLInvoiceQueriesTxOptions defines the set of db txn options the
-// SQLInvoiceQueries understands.
-type SQLInvoiceQueriesTxOptions struct {
-	// readOnly governs if a read only transaction is needed or not.
-	readOnly bool
-}
-
-// ReadOnly returns true if the transaction should be read only.
-//
-// NOTE: This implements the TxOptions.
-func (a *SQLInvoiceQueriesTxOptions) ReadOnly() bool {
-	return a.readOnly
-}
-
-// NewSQLInvoiceQueryReadTx creates a new read transaction option set.
-func NewSQLInvoiceQueryReadTx() SQLInvoiceQueriesTxOptions {
-	return SQLInvoiceQueriesTxOptions{
-		readOnly: true,
-	}
-}
-
 // BatchedSQLInvoiceQueries is a version of the SQLInvoiceQueries that's capable
 // of batched database operations.
 type BatchedSQLInvoiceQueries interface {
@@ -304,7 +283,7 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 	}
 
 	var (
-		writeTxOpts SQLInvoiceQueriesTxOptions
+		writeTxOpts = sqldb.WriteTxOpt()
 		invoiceID   int64
 	)
 
@@ -315,7 +294,7 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 		return 0, err
 	}
 
-	err = i.db.ExecTx(ctx, &writeTxOpts, func(db SQLInvoiceQueries) error {
+	err = i.db.ExecTx(ctx, writeTxOpts, func(db SQLInvoiceQueries) error {
 		var err error
 		invoiceID, err = db.InsertInvoice(ctx, insertInvoiceParams)
 		if err != nil {
@@ -718,8 +697,8 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 		err     error
 	)
 
-	readTxOpt := NewSQLInvoiceQueryReadTx()
-	txErr := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+	readTxOpt := sqldb.ReadTxOpt()
+	txErr := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		invoice, err = fetchInvoice(ctx, db, ref)
 
 		return err
@@ -739,8 +718,8 @@ func (i *SQLStore) FetchPendingInvoices(ctx context.Context) (
 
 	var invoices map[lntypes.Hash]Invoice
 
-	readTxOpt := NewSQLInvoiceQueryReadTx()
-	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+	readTxOpt := sqldb.ReadTxOpt()
+	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
 				PendingOnly: true,
@@ -800,8 +779,8 @@ func (i *SQLStore) InvoicesSettledSince(ctx context.Context, idx uint64) (
 		return invoices, nil
 	}
 
-	readTxOpt := NewSQLInvoiceQueryReadTx()
-	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+	readTxOpt := sqldb.ReadTxOpt()
+	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		err := queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
 				SettleIndexGet: sqldb.SQLInt64(idx + 1),
@@ -946,8 +925,8 @@ func (i *SQLStore) InvoicesAddedSince(ctx context.Context, idx uint64) (
 		return result, nil
 	}
 
-	readTxOpt := NewSQLInvoiceQueryReadTx()
-	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+	readTxOpt := sqldb.ReadTxOpt()
+	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
 				AddIndexGet: sqldb.SQLInt64(idx + 1),
@@ -1017,8 +996,8 @@ func (i *SQLStore) QueryInvoices(ctx context.Context,
 			"be non-zero")
 	}
 
-	readTxOpt := NewSQLInvoiceQueryReadTx()
-	err := i.db.ExecTx(ctx, &readTxOpt, func(db SQLInvoiceQueries) error {
+	readTxOpt := sqldb.ReadTxOpt()
+	err := i.db.ExecTx(ctx, readTxOpt, func(db SQLInvoiceQueries) error {
 		return queryWithLimit(func(offset int) (int, error) {
 			params := sqlc.FilterInvoicesParams{
 				NumOffset:   int32(offset),
@@ -1465,8 +1444,8 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 
 	var updatedInvoice *Invoice
 
-	txOpt := SQLInvoiceQueriesTxOptions{readOnly: false}
-	txErr := i.db.ExecTx(ctx, &txOpt, func(db SQLInvoiceQueries) error {
+	txOpt := sqldb.WriteTxOpt()
+	txErr := i.db.ExecTx(ctx, txOpt, func(db SQLInvoiceQueries) error {
 		switch {
 		// For the default case we fetch all HTLCs.
 		case setID == nil:
@@ -1539,8 +1518,8 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 		}
 	}
 
-	var writeTxOpt SQLInvoiceQueriesTxOptions
-	err := i.db.ExecTx(ctx, &writeTxOpt, func(db SQLInvoiceQueries) error {
+	writeTxOpt := sqldb.WriteTxOpt()
+	err := i.db.ExecTx(ctx, writeTxOpt, func(db SQLInvoiceQueries) error {
 		for _, ref := range invoicesToDelete {
 			params := sqlc.DeleteInvoiceParams{
 				AddIndex: sqldb.SQLInt64(ref.AddIndex),
@@ -1584,8 +1563,8 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 
 // DeleteCanceledInvoices removes all canceled invoices from the database.
 func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
-	var writeTxOpt SQLInvoiceQueriesTxOptions
-	err := i.db.ExecTx(ctx, &writeTxOpt, func(db SQLInvoiceQueries) error {
+	writeTxOpt := sqldb.WriteTxOpt()
+	err := i.db.ExecTx(ctx, writeTxOpt, func(db SQLInvoiceQueries) error {
 		_, err := db.DeleteCanceledInvoices(ctx)
 		if err != nil {
 			return fmt.Errorf("unable to delete canceled "+

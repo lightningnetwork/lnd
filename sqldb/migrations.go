@@ -330,17 +330,6 @@ func (t *replacerFile) Close() error {
 	return nil
 }
 
-// MigrationTxOptions is the implementation of the TxOptions interface for
-// migration transactions.
-type MigrationTxOptions struct {
-}
-
-// ReadOnly returns false to indicate that migration transactions are not read
-// only.
-func (m *MigrationTxOptions) ReadOnly() bool {
-	return false
-}
-
 // ApplyMigrations applies the provided migrations to the database in sequence.
 // It ensures migrations are executed in the correct order, applying both custom
 // migration functions and SQL migrations as needed.
@@ -433,12 +422,12 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 				migration.SchemaVersion, err)
 		}
 
-		var opts MigrationTxOptions
+		opts := WriteTxOpt()
 
 		// Run the custom migration as a transaction to ensure
 		// atomicity. If successful, mark the migration as complete in
 		// the migration tracker table.
-		err = executor.ExecTx(ctx, &opts, func(tx *sqlc.Queries) error {
+		err = executor.ExecTx(ctx, opts, func(tx *sqlc.Queries) error {
 			// Apply the migration function if one is provided.
 			if migration.MigrationFn != nil {
 				log.Infof("Applying custom migration '%v' "+

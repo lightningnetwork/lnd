@@ -70,9 +70,8 @@ func TestMigrationWithChannelDB(t *testing.T) {
 		ctxb := context.Background()
 
 		const batchSize = 11
-		var opts sqldb.MigrationTxOptions
 		err := sqlStore.ExecTx(
-			ctxb, &opts, func(tx *sqlc.Queries) error {
+			ctxb, sqldb.WriteTxOpt(), func(tx *sqlc.Queries) error {
 				return invpkg.MigrateInvoicesToSQL(
 					ctxb, kvStore.Backend, kvStore, tx,
 					batchSize,

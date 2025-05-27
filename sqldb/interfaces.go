@@ -39,6 +39,35 @@ type TxOptions interface {
 	ReadOnly() bool
 }
 
+// txOptions is a concrete implementation of the TxOptions interface.
+type txOptions struct {
+	// readOnly indicates if the transaction should be read-only.
+	readOnly bool
+}
+
+// ReadOnly returns true if the transaction should be read only.
+//
+// NOTE: This is part of the TxOptions interface.
+func (t *txOptions) ReadOnly() bool {
+	return t.readOnly
+}
+
+// WriteTxOpt returns a TxOptions that indicates that the transaction
+// should be a write transaction.
+func WriteTxOpt() TxOptions {
+	return &txOptions{
+		readOnly: false,
+	}
+}
+
+// ReadTxOpt returns a TxOptions that indicates that the transaction
+// should be a read-only transaction.
+func ReadTxOpt() TxOptions {
+	return &txOptions{
+		readOnly: true,
+	}
+}
+
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
 // transaction. Typically, Q here will be some subset of the main sqlc.Querier

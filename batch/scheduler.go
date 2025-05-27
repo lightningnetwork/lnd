@@ -65,9 +65,7 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 			// By default, we assume that the batch is read-only,
 			// and we only upgrade it to read-write if a request
 			// is added that is not read-only.
-			txOpts: txOpts{
-				readOnly: true,
-			},
+			txOpts: sqldb.ReadTxOpt(),
 		}
 		trigger := s.b.trigger
 		time.AfterFunc(s.duration, func() {
@@ -78,8 +76,8 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 
 	// We only upgrade the batch to read-write if the new request is not
 	// read-only. If it is already read-write, we don't need to do anything.
-	if s.b.txOpts.readOnly && !r.Opts.ReadOnly {
-		s.b.txOpts.readOnly = false
+	if s.b.txOpts.ReadOnly() && !r.Opts.ReadOnly {
+		s.b.txOpts = sqldb.WriteTxOpt()
 	}
 
 	// If this is a non-lazy request, we'll execute the batch immediately.
@@ -109,7 +107,7 @@ func (s *TimeScheduler[Q]) Execute(ctx context.Context, r *Request[Q]) error {
 	}
 
 	// Otherwise, run the request on its own.
-	commitErr := s.db.ExecTx(ctx, &txOpts, func(tx Q) error {
+	commitErr := s.db.ExecTx(ctx, txOpts, func(tx Q) error {
 		return req.Do(tx)
 	}, func() {
 		if req.Reset != nil {

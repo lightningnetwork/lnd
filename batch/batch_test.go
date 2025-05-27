@@ -550,7 +550,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 	}
 
 	ctx := context.Background()
-	var opts txOpts
+	opts := sqldb.WriteTxOpt()
 
 	// writeRecord is a helper that adds a single new invoice to the
 	// database. It uses the 'i' argument to create a unique hash for the
@@ -578,13 +578,12 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		var hash [8]byte
 		binary.BigEndian.PutUint64(hash[:], uint64(N-1))
 
-		err := tx.ExecTx(
-			ctx, &txOpts{}, func(queries *sqlc.Queries) error {
-				_, err := queries.GetInvoiceByHash(ctx, hash[:])
-				require.NoError(b, err)
+		err := tx.ExecTx(ctx, opts, func(queries *sqlc.Queries) error {
+			_, err := queries.GetInvoiceByHash(ctx, hash[:])
+			require.NoError(b, err)
 
-				return nil
-			}, func() {},
+			return nil
+		}, func() {},
 		)
 		require.NoError(b, err)
 	}
@@ -602,7 +601,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 				defer wg.Done()
 
 				err := db.ExecTx(
-					ctx, &opts,
+					ctx, opts,
 					func(tx *sqlc.Queries) error {
 						writeRecord(b, tx, int64(j))
 						return nil
@@ -624,7 +623,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		b.ResetTimer()
 
 		err := db.ExecTx(
-			ctx, &opts,
+			ctx, opts,
 			func(tx *sqlc.Queries) error {
 				for i := 0; i < b.N; i++ {
 					writeRecord(b, tx, int64(i))

@@ -116,6 +116,18 @@ func (a *AuxHtlcDescriptor) AddHeight(
 	return a.addCommitHeightLocal
 }
 
+// IsAdd checks if the entry type of the Aux HTLC Descriptor is an add type.
+func (a *AuxHtlcDescriptor) IsAdd() bool {
+	switch a.EntryType {
+	case Add:
+		fallthrough
+	case NoOpAdd:
+		return true
+	default:
+		return false
+	}
+}
+
 // RemoveHeight returns the height at which the HTLC was removed from the
 // commitment chain. The height is returned based on the chain the HTLC is being
 // removed from (local or remote chain).

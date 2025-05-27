@@ -494,10 +494,9 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.Node) (
 	copy(pub[:], dbNode.PubKey)
 
 	node := &models.LightningNode{
-		PubKeyBytes:     pub,
-		Features:        lnwire.EmptyFeatureVector(),
-		LastUpdate:      time.Unix(0, 0),
-		ExtraOpaqueData: make([]byte, 0),
+		PubKeyBytes: pub,
+		Features:    lnwire.EmptyFeatureVector(),
+		LastUpdate:  time.Unix(0, 0),
 	}
 
 	if len(dbNode.Signature) == 0 {

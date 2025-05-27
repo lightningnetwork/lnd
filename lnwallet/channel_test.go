@@ -11339,3 +11339,143 @@ func TestCreateCooperativeCloseTx(t *testing.T) {
 		})
 	}
 }
+
+// TestNoopAddSettle tests that adding and settling an HTLC with no-op, no
+// balances are actually affected.
+func TestNoopAddSettle(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, chanType,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	const htlcAmt = 10_000
+	htlc, preimage := createHTLC(0, htlcAmt)
+	noopRecord := tlv.NewPrimitiveRecord[tlv.TlvType65544, bool](true)
+
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+	htlc.CustomRecords = records
+
+	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	bobBalance := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// Have Alice add the HTLC, then lock it in with a new state transition.
+	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err, "alice unable to add htlc")
+	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err, "bob unable to receive htlc")
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// We'll have Bob settle the HTLC, then force another state transition.
+	err = bobChannel.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
+	require.NoError(t, err, "bob unable to settle inbound htlc")
+	err = aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	aliceBalanceFinal := aliceChannel.channelState.LocalCommitment.LocalBalance //nolint:ll
+	bobBalanceFinal := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// The balances of Alice and Bob should be the exact same and shouldn't
+	// have changed.
+	require.Equal(t, aliceBalance, aliceBalanceFinal)
+	require.Equal(t, bobBalance, bobBalanceFinal)
+}
+
+// TestNoopAddBelowReserve tests that the noop HTLCs behave as expected when
+// added over a channel where a party is below their reserve.
+func TestNoopAddBelowReserve(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChan, bobChan, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	aliceBalance := aliceChan.channelState.LocalCommitment.LocalBalance
+	bobBalance := bobChan.channelState.LocalCommitment.LocalBalance
+
+	const (
+		// htlcAmt is the default HTLC amount to be used, epxressed in
+		// milli-satoshis.
+		htlcAmt = lnwire.MilliSatoshi(500_000)
+
+		// numHtlc is the total number of HTLCs to be added/settled over
+		// the channel.
+		numHtlc = 20
+	)
+
+	// Let's create the noop add TLV record to be used in all added HTLCs
+	// over the channel.
+	noopRecord := tlv.NewPrimitiveRecord[NoOpHtlcTLVType, bool](true)
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+
+	// Let's set Bob's reserve to whatever his local balance is, plus half
+	// of the total amount to be added by the total HTLCs. This way we can
+	// also verify that the noop-adds will start the nullification only once
+	// Bob is above reserve.
+	reserveTarget := (numHtlc / 2) * htlcAmt
+	bobReserve := bobBalance + reserveTarget
+
+	bobChan.channelState.LocalChanCfg.ChanReserve =
+		bobReserve.ToSatoshis()
+
+	aliceChan.channelState.RemoteChanCfg.ChanReserve =
+		bobReserve.ToSatoshis()
+
+	// Add and settle all the HTLCs over the channel.
+	for i := range numHtlc {
+		htlc, preimage := createHTLC(i, htlcAmt)
+		htlc.CustomRecords = records
+
+		aliceHtlcIndex, err := aliceChan.AddHTLC(htlc, nil)
+		require.NoError(t, err, "alice unable to add htlc")
+		bobHtlcIndex, err := bobChan.ReceiveHTLC(htlc)
+		require.NoError(t, err, "bob unable to receive htlc")
+
+		require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+
+		// We'll have Bob settle the HTLC, then force another state
+		// transition.
+		err = bobChan.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
+		require.NoError(t, err, "bob unable to settle inbound htlc")
+		err = aliceChan.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
+		require.NoError(t, err)
+		require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+	}
+
+	// We need to kick the state transition one last time for the balances
+	// to be updated on both commitments.
+	require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+
+	aliceBalanceFinal := aliceChan.channelState.LocalCommitment.LocalBalance
+	bobBalanceFinal := bobChan.channelState.LocalCommitment.LocalBalance
+
+	// The balances of Alice and Bob must have changed exactly by half the
+	// total number of HTLCs we added over the channel, plus one to get Bob
+	// above the reserve. Bob's final balance should be as much as his
+	// reserve plus one extra default HTLC amount.
+	require.Equal(t, aliceBalance-htlcAmt*(numHtlc/2+1), aliceBalanceFinal)
+	require.Equal(t, bobBalance+htlcAmt*(numHtlc/2+1), bobBalanceFinal)
+	require.Equal(
+		t, bobBalanceFinal.ToSatoshis(),
+		bobChan.LocalChanReserve()+htlcAmt.ToSatoshis(),
+	)
+}

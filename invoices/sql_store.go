@@ -322,7 +322,7 @@ func (i *SQLStore) AddInvoice(ctx context.Context,
 			AddedAt:   newInvoice.CreationDate.UTC(),
 			InvoiceID: invoiceID,
 		})
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		mappedSQLErr := sqldb.MapSQLError(err)
 		var uniqueConstraintErr *sqldb.ErrSQLUniqueConstraintViolation
@@ -702,7 +702,7 @@ func (i *SQLStore) LookupInvoice(ctx context.Context,
 		invoice, err = fetchInvoice(ctx, db, ref)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		return Invoice{}, txErr
 	}
@@ -1488,7 +1488,7 @@ func (i *SQLStore) UpdateInvoice(ctx context.Context, ref InvoiceRef,
 		)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if txErr != nil {
 		// If the invoice is already settled, we'll return the
 		// (unchanged) invoice and the ErrInvoiceAlreadySettled error.
@@ -1552,7 +1552,7 @@ func (i *SQLStore) DeleteInvoice(ctx context.Context,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 
 	if err != nil {
 		return fmt.Errorf("unable to delete invoices: %w", err)
@@ -1572,7 +1572,7 @@ func (i *SQLStore) DeleteCanceledInvoices(ctx context.Context) error {
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete invoices: %w", err)
 	}

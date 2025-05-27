@@ -325,7 +325,7 @@ func testMigrateSingleInvoiceRapid(t *rapid.T, store *SQLStore, mpp bool,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	require.NoError(t, err)
 
 	// Fetch and compare each migrated invoice from the store with the

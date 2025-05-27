@@ -7,6 +7,10 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
+// NoOpReset is a no-op function that can be used as a default
+// reset function ExecTx calls.
+var NoOpReset = func() {}
+
 // SQLInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //

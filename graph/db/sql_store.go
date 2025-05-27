@@ -177,7 +177,7 @@ func (s *SQLStore) FetchLightningNode(pubKey route.Vertex) (
 		_, node, err = getNodeByPubKey(ctx, db, pubKey)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node: %w", err)
 	}
@@ -221,7 +221,7 @@ func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return time.Time{}, false,
 			fmt.Errorf("unable to fetch node: %w", err)
@@ -255,7 +255,7 @@ func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return false, nil, fmt.Errorf("unable to get addresses for "+
 			"node(%x): %w", nodePub.SerializeCompressed(), err)
@@ -294,7 +294,7 @@ func (s *SQLStore) DeleteLightningNode(pubKey route.Vertex) error {
 		}
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
 	}
@@ -342,7 +342,7 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 		alias = dbNode.Alias.String
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return "", fmt.Errorf("unable to look up alias: %w", err)
 	}
@@ -370,7 +370,7 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 		_, node, err = getNodeByPubKey(ctx, db, nodePub)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch source node: %w", err)
 	}
@@ -410,7 +410,7 @@ func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
 		}
 
 		return db.AddSourceNode(ctx, id)
-	}, func() {})
+	}, sqldb.NoOpReset)
 }
 
 // NodeUpdatesInHorizon returns all the known lightning node which have an
@@ -447,7 +447,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
 	}

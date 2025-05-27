@@ -76,7 +76,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 					ctxb, kvStore.Backend, kvStore, tx,
 					batchSize,
 				)
-			}, func() {},
+			}, sqldb.NoOpReset,
 		)
 		require.NoError(t, err)
 

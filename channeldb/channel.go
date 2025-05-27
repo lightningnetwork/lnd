@@ -2127,6 +2127,28 @@ func (c *OpenChannel) clearChanStatus(status ChannelStatus) error {
 	return nil
 }
 
+// BalanceAboveReserve checks if the balance for the provided party is above the
+// configured reserve.
+func (c *OpenChannel) BalanceAboveReserve(
+	party lntypes.ChannelParty) bool {
+
+	c.Lock()
+	defer c.Unlock()
+
+	switch {
+	case party.IsLocal():
+		return c.LocalCommitment.LocalBalance.ToSatoshis() >
+			c.LocalChanCfg.ChanReserve
+
+	case party.IsRemote():
+		return c.RemoteCommitment.RemoteBalance.ToSatoshis() >
+			c.RemoteChanCfg.ChanReserve
+
+	}
+
+	return false
+}
+
 // putOpenChannel serializes, and stores the current state of the channel in its
 // entirety.
 func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {

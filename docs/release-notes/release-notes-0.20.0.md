@@ -70,5 +70,6 @@
 ## Code Health
 
 ## Tooling and Documentation
+[Add usage and desc to wtclient session cmd](https://github.com/lightningnetwork/lnd/pull/9765): Enhance documentation for various watchtower commands
 
 # Contributors (Alphabetical Order)

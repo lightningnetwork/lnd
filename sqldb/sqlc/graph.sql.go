@@ -26,6 +26,81 @@ func (q *Queries) AddSourceNode(ctx context.Context, nodeID int64) error {
 	return err
 }
 
+const createChannel = `-- name: CreateChannel :one
+/* ─────────────────────────────────────────────
+   channels table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+)
+RETURNING id
+`
+
+type CreateChannelParams struct {
+	Version           int16
+	Scid              []byte
+	NodeID1           int64
+	NodeID2           int64
+	Outpoint          string
+	Capacity          sql.NullInt64
+	BitcoinKey1       []byte
+	BitcoinKey2       []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+}
+
+func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, createChannel,
+		arg.Version,
+		arg.Scid,
+		arg.NodeID1,
+		arg.NodeID2,
+		arg.Outpoint,
+		arg.Capacity,
+		arg.BitcoinKey1,
+		arg.BitcoinKey2,
+		arg.Node1Signature,
+		arg.Node2Signature,
+		arg.Bitcoin1Signature,
+		arg.Bitcoin2Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const createChannelExtraType = `-- name: CreateChannelExtraType :exec
+/* ─────────────────────────────────────────────
+   channel_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO channel_extra_types (
+    channel_id, type, value
+)
+VALUES ($1, $2, $3)
+`
+
+type CreateChannelExtraTypeParams struct {
+	ChannelID int64
+	Type      int64
+	Value     []byte
+}
+
+func (q *Queries) CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error {
+	_, err := q.db.ExecContext(ctx, createChannelExtraType, arg.ChannelID, arg.Type, arg.Value)
+	return err
+}
+
 const deleteExtraNodeType = `-- name: DeleteExtraNodeType :exec
 DELETE FROM node_extra_types
 WHERE node_id = $1
@@ -81,6 +156,37 @@ type DeleteNodeFeatureParams struct {
 func (q *Queries) DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, deleteNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const getChannelBySCID = `-- name: GetChannelBySCID :one
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM channels
+WHERE scid = $1 AND version = $2
+`
+
+type GetChannelBySCIDParams struct {
+	Scid    []byte
+	Version int16
+}
+
+func (q *Queries) GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (Channel, error) {
+	row := q.db.QueryRowContext(ctx, getChannelBySCID, arg.Scid, arg.Version)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Scid,
+		&i.NodeID1,
+		&i.NodeID2,
+		&i.Outpoint,
+		&i.Capacity,
+		&i.BitcoinKey1,
+		&i.BitcoinKey2,
+		&i.Node1Signature,
+		&i.Node2Signature,
+		&i.Bitcoin1Signature,
+		&i.Bitcoin2Signature,
+	)
+	return i, err
 }
 
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
@@ -321,6 +427,44 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const highestSCID = `-- name: HighestSCID :one
+SELECT scid
+FROM channels
+WHERE version = $1
+ORDER BY scid DESC
+LIMIT 1
+`
+
+func (q *Queries) HighestSCID(ctx context.Context, version int16) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, highestSCID, version)
+	var scid []byte
+	err := row.Scan(&scid)
+	return scid, err
+}
+
+const insertChannelFeature = `-- name: InsertChannelFeature :exec
+/* ─────────────────────────────────────────────
+   channel_features table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO channel_features (
+    channel_id, feature_bit
+) VALUES (
+    $1, $2
+)
+`
+
+type InsertChannelFeatureParams struct {
+	ChannelID  int64
+	FeatureBit int32
+}
+
+func (q *Queries) InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error {
+	_, err := q.db.ExecContext(ctx, insertChannelFeature, arg.ChannelID, arg.FeatureBit)
+	return err
 }
 
 const insertNodeAddress = `-- name: InsertNodeAddress :exec

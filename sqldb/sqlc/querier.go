@@ -13,6 +13,8 @@ import (
 type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	ClearKVInvoiceHashIndex(ctx context.Context) error
+	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
+	CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
@@ -24,6 +26,7 @@ type Querier interface {
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
+	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (Channel, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields
@@ -43,8 +46,10 @@ type Querier interface {
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
+	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
+	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)

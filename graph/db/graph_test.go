@@ -82,7 +82,6 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
 		Addresses:            testAddrs,
-		ExtraOpaqueData:      make([]byte, 0),
 	}
 	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
 
@@ -262,7 +261,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
@@ -1862,7 +1861,7 @@ func TestGraphPruning(t *testing.T) {
 func TestHighestChanID(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.
@@ -3333,34 +3332,33 @@ func TestPruneGraphNodes(t *testing.T) {
 func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.SetSourceNode(node1))
 	node2 := createTestVertex(t)
 
 	// We'll now create an edge between the two nodes, as a result, node2
 	// should be inserted into the database as a shell node.
 	edgeInfo, _ := createEdge(100, 0, 0, 0, node1, node2)
-	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
-		t.Fatalf("unable to add edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(&edgeInfo))
 
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
 	node1, err := graph.FetchLightningNode(node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
-	if !node1.HaveNodeAnnouncement {
-		t.Fatalf("have shell announcement for node1, shouldn't")
-	}
+	require.True(t, node1.HaveNodeAnnouncement)
 
 	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
 	require.False(t, node2.HaveNodeAnnouncement)
+
+	// Show that attempting to add the channel again will result in an
+	// error.
+	err = graph.AddChannelEdge(&edgeInfo)
+	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed

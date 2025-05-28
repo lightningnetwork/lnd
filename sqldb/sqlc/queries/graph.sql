@@ -132,3 +132,53 @@ SELECT sn.node_id, n.pub_key
 FROM source_nodes sn
     JOIN nodes n ON sn.node_id = n.id
 WHERE n.version = $1;
+
+/* ─────────────────────────────────────────────
+   channels table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: CreateChannel :one
+INSERT INTO channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+)
+RETURNING id;
+
+-- name: GetChannelBySCID :one
+SELECT * FROM channels
+WHERE scid = $1 AND version = $2;
+
+-- name: HighestSCID :one
+SELECT scid
+FROM channels
+WHERE version = $1
+ORDER BY scid DESC
+LIMIT 1;
+
+/* ─────────────────────────────────────────────
+   channel_features table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: InsertChannelFeature :exec
+INSERT INTO channel_features (
+    channel_id, feature_bit
+) VALUES (
+    $1, $2
+);
+
+/* ─────────────────────────────────────────────
+   channel_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: CreateChannelExtraType :exec
+INSERT INTO channel_extra_types (
+    channel_id, type, value
+)
+VALUES ($1, $2, $3);

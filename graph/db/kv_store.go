@@ -4122,7 +4122,7 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 
 	// We'll try and see if there are any opaque bytes left, if not, then
 	// we'll ignore the EOF error and return the node as is.
-	node.ExtraOpaqueData, err = wire.ReadVarBytes(
+	extraBytes, err := wire.ReadVarBytes(
 		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
 	)
 	switch {
@@ -4130,6 +4130,10 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	case errors.Is(err, io.EOF):
 	case err != nil:
 		return models.LightningNode{}, err
+	}
+
+	if len(extraBytes) > 0 {
+		node.ExtraOpaqueData = extraBytes
 	}
 
 	return node, nil

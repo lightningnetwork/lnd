@@ -1995,9 +1995,32 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// so that a parent context can be passed in here.
 		ctx := context.TODO()
 
-		// TODO(yy): `ProcessRemoteAnnouncement` returns an error chan
-		// and we need to process it.
-		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
+		p.log.Debugf("Processing remote msg %T", msg)
+
+		errChan := p.cfg.AuthGossiper.ProcessRemoteAnnouncement(
+			ctx, msg, p,
+		)
+
+		// Start a goroutine to process the error channel for logging
+		// purposes.
+		//
+		// TODO(ziggie): Maybe use the error to potentially punish the
+		// peer depending on the error ?
+		go func() {
+			select {
+			case <-p.cg.Done():
+				return
+
+			case err := <-errChan:
+				if err != nil {
+					p.log.Warnf("Error processing remote "+
+						"msg %T: %v", msg,
+						err)
+				}
+			}
+
+			p.log.Debugf("Processed remote msg %T", msg)
+		}()
 	}
 
 	return newMsgStream(

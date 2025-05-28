@@ -119,7 +119,7 @@ func (h *HTLCAttemptInfo) Circuit() (*sphinx.Circuit, error) {
 // attachOnionBlobAndCircuit creates a sphinx packet and caches the onion blob
 // and circuit for this attempt.
 func (h *HTLCAttemptInfo) attachOnionBlobAndCircuit() error {
-	onionBlob, circuit, err := generateSphinxPacket(
+	onionBlob, circuit, err := GenerateSphinxPacket(
 		&h.Route, h.Hash[:], h.SessionKey(),
 	)
 	if err != nil {
@@ -687,7 +687,7 @@ func serializeTime(w io.Writer, t time.Time) error {
 // the onion route specified by the passed layer 3 route. The blob returned
 // from this function can immediately be included within an HTLC add packet to
 // be sent to the first hop within the route.
-func generateSphinxPacket(rt *route.Route, paymentHash []byte,
+func GenerateSphinxPacket(rt *route.Route, paymentHash []byte,
 	sessionKey *btcec.PrivateKey) ([]byte, *sphinx.Circuit, error) {
 
 	// Now that we know we have an actual route, we'll map the route into a

@@ -143,6 +143,12 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 		Port:         9065,
 	}
 
+	// Add a DNS hostname address.
+	dnsAddr := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
 	// Now add an address with an unknown type.
 	var newAddrType addressType = math.MaxUint8
 	data := make([]byte, 0, 16)
@@ -153,7 +159,7 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 
 	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
 	err := WriteNetAddrs(
-		buffer, []net.Addr{tcpAddr, onionAddr, opaqueAddrs},
+		buffer, []net.Addr{tcpAddr, onionAddr, dnsAddr, opaqueAddrs},
 	)
 	require.NoError(t, err)
 
@@ -161,10 +167,61 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 	var addrs []net.Addr
 	err = ReadElement(buffer, &addrs)
 	require.NoError(t, err)
-	require.Len(t, addrs, 3)
+	require.Len(t, addrs, 4)
 	require.Equal(t, tcpAddr.String(), addrs[0].String())
 	require.Equal(t, onionAddr.String(), addrs[1].String())
-	require.Equal(t, hex.EncodeToString(data), addrs[2].String())
+	require.Equal(t, dnsAddr.String(), addrs[2].String())
+	require.Equal(t, hex.EncodeToString(data), addrs[3].String())
+}
+
+// TestEncodeMultipleDNSAddressesOnWrite ensures that attempting to
+// encode (write) more than one DNS address using WriteNetAddrs results
+// in an error. Advertising multiple DNS addresses is disallowed to maintain
+// Bolt-07 protocol constraints.
+func TestEncodeMultipleDNSAddresses(t *testing.T) {
+	dnsAddr1 := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	dnsAddr2 := &DNSAddr{
+		Hostname: "example.org",
+		Port:     8080,
+	}
+
+	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+	err := WriteNetAddrs(
+		buffer, []net.Addr{dnsAddr1, dnsAddr2},
+	)
+	require.ErrorContains(t, err, "cannot advertise multiple DNS addresses")
+}
+
+// TestDecodeMultipleDNSAddressesOnWrite ensures that attempting to
+// decode (read) a buffer containing more than one DNS address results
+// in an error. This test confirms enforcement of the single DNS address
+// constraint during decoding.
+func TestDecodeMultipleDNSAddresses(t *testing.T) {
+	dnsAddr1 := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	dnsAddr2 := &DNSAddr{
+		Hostname: "example.org",
+		Port:     8080,
+	}
+
+	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+	addrBuf := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+
+	require.NoError(t, WriteDNSAddr(addrBuf, dnsAddr1))
+	require.NoError(t, WriteDNSAddr(addrBuf, dnsAddr2))
+	require.NoError(t, writeDataWithLength(buffer, addrBuf.Bytes()))
+
+	var addrs []net.Addr
+	err := ReadElement(buffer, &addrs)
+	require.ErrorContains(t, err, "cannot advertise multiple DNS addresses")
+
 }
 
 func TestMaxOutPointIndex(t *testing.T) {

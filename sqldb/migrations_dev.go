@@ -2,4 +2,10 @@
 
 package sqldb
 
-var migrationAdditions = []MigrationConfig{}
+var migrationAdditions = []MigrationConfig{
+	{
+		Name:          "000007_graph",
+		Version:       8,
+		SchemaVersion: 7,
+	},
+}

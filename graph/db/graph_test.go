@@ -101,15 +101,17 @@ func createTestVertex(t testing.TB) *models.LightningNode {
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
+	timeStamp := int64(1232342)
 	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+		timeStamp++
 		return &models.LightningNode{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Unix(1232342, 0),
+			LastUpdate:           time.Unix(timeStamp, 0),
 			Color:                color.RGBA{1, 2, 3, 0},
 			Alias:                "kek",
 			Features:             testFeatures,
@@ -323,10 +325,11 @@ func TestPartialNode(t *testing.T) {
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
+// TestAliasLookup tests the alias lookup functionality of the graph store.
 func TestAliasLookup(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the alias index within the database, so first
 	// create a new test node.
@@ -334,9 +337,7 @@ func TestAliasLookup(t *testing.T) {
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
-	if err := graph.AddLightningNode(testNode); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.AddLightningNode(testNode))
 
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
@@ -344,10 +345,7 @@ func TestAliasLookup(t *testing.T) {
 	require.NoError(t, err, "unable to generate pubkey")
 	dbAlias, err := graph.LookupAlias(nodePub)
 	require.NoError(t, err, "unable to find alias")
-	if dbAlias != testNode.Alias {
-		t.Fatalf("aliases don't match, expected %v got %v",
-			testNode.Alias, dbAlias)
-	}
+	require.Equal(t, testNode.Alias, dbAlias)
 
 	// Ensure that looking up a non-existent alias results in an error.
 	node := createTestVertex(t)
@@ -357,10 +355,11 @@ func TestAliasLookup(t *testing.T) {
 	require.ErrorIs(t, err, ErrNodeAliasNotFound)
 }
 
+// TestSourceNode tests the source node functionality of the graph store.
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
@@ -371,11 +370,9 @@ func TestSourceNode(t *testing.T) {
 	_, err := graph.SourceNode()
 	require.ErrorIs(t, err, ErrSourceNodeNotSet)
 
-	// Set the source the source node, this should insert the node into the
+	// Set the source node, this should insert the node into the
 	// database in a special way indicating it's the source node.
-	if err := graph.SetSourceNode(testNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
+	require.NoError(t, graph.SetSourceNode(testNode))
 
 	// Retrieve the source node from the database, it should exactly match
 	// the one we set above.
@@ -2082,7 +2079,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 func TestNodeUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	startTime := time.Unix(1234, 0)
 	endTime := startTime
@@ -2093,10 +2090,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
 	require.NoError(t, err, "unable to query for node updates")
-	if len(nodeUpdates) != 0 {
-		t.Fatalf("expected 0 node updates, instead got %v",
-			len(nodeUpdates))
-	}
+	require.Len(t, nodeUpdates, 0)
 
 	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
@@ -2115,9 +2109,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 		nodeAnns = append(nodeAnns, *nodeAnn)
 
-		if err := graph.AddLightningNode(nodeAnn); err != nil {
-			t.Fatalf("unable to add lightning node: %v", err)
-		}
+		require.NoError(t, graph.AddLightningNode(nodeAnn))
 	}
 
 	queryCases := []struct {
@@ -2171,15 +2163,8 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		resp, err := graph.NodeUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
-		if err != nil {
-			t.Fatalf("unable to query for nodes: %v", err)
-		}
-
-		if len(resp) != len(queryCase.resp) {
-			t.Fatalf("expected %v nodes, got %v nodes",
-				len(queryCase.resp), len(resp))
-
-		}
+		require.NoError(t, err)
+		require.Len(t, resp, len(queryCase.resp))
 
 		for i := 0; i < len(resp); i++ {
 			compareNodes(t, &queryCase.resp[i], &resp[i])
@@ -3384,7 +3369,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
@@ -4315,7 +4300,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	t.Parallel()
 
 	// Create a new test graph instance.
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	nodeAnnBytes, err := hex.DecodeString(testNodeAnn)
 	require.NoError(t, err)

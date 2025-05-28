@@ -42,6 +42,8 @@
     byte blobs at the end of gossip messages are valid TLV streams.
   * Various [preparations](https://github.com/lightningnetwork/lnd/pull/9692) 
     of the graph code before the SQL implementation is added.
+  * Add graph schemas, queries and CRUD:
+    * [1](https://github.com/lightningnetwork/lnd/pull/9866)
 
 ## RPC Updates
 

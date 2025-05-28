@@ -77,6 +77,9 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* [Required invoices to include a payment address or blinded paths](https://github.com/lightningnetwork/lnd/pull/9752) 
+  to comply with updated BOLT specifications before accepting payments.
+
 ## Testing
 
 ## Database
@@ -86,3 +89,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+Erick Cestari

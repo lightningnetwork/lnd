@@ -151,3 +151,246 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	err = a.newPendingCloseChan(peerKey4)
 	require.ErrorIs(t, err, ErrNoMoreRestrictedAccessSlots)
 }
+
+// TestAssignPeerPerms asserts that the peer's access status is correctly
+// assigned.
+func TestAssignPeerPerms(t *testing.T) {
+	t.Parallel()
+
+	// genPeerPub is a helper closure that generates a random public key.
+	genPeerPub := func() *btcec.PublicKey {
+		peerPriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		return peerPriv.PubKey()
+	}
+
+	disconnect := func(_ *btcec.PublicKey) (bool, error) {
+		return true, nil
+	}
+
+	noDisconnect := func(_ *btcec.PublicKey) (bool, error) {
+		return false, nil
+	}
+
+	var testCases = []struct {
+		name             string
+		peerPub          *btcec.PublicKey
+		chanCount        channeldb.ChanCount
+		shouldDisconnect func(*btcec.PublicKey) (bool, error)
+		numRestricted    int
+
+		expectedStatus peerAccessStatus
+		expectedErr    error
+	}{
+		// peer1 has a channel with us, and we expect it to have a
+		// protected status.
+		{
+			name:    "peer with channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: true,
+			},
+			shouldDisconnect: noDisconnect,
+			expectedStatus:   peerStatusProtected,
+			expectedErr:      nil,
+		},
+		// peer2 has a channel open and a pending channel with us, we
+		// expect it to have a protected status.
+		{
+			name:    "peer with channels and pending channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: true,
+				PendingOpenCount:    1,
+			},
+			shouldDisconnect: noDisconnect,
+			expectedStatus:   peerStatusProtected,
+			expectedErr:      nil,
+		},
+		// peer3 has a pending channel with us, and we expect it to have
+		// a temporary status.
+		{
+			name:    "peer with pending channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    1,
+			},
+			shouldDisconnect: noDisconnect,
+			expectedStatus:   peerStatusTemporary,
+			expectedErr:      nil,
+		},
+		// peer4 has no channel with us, and we expect it to have a
+		// restricted status.
+		{
+			name:    "peer with no channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    0,
+			},
+			shouldDisconnect: noDisconnect,
+			expectedStatus:   peerStatusRestricted,
+			expectedErr:      nil,
+		},
+		// peer5 has no channel with us, and we expect it to have a
+		// restricted status. We also expect the error `ErrGossiperBan`
+		// to be returned given we will use a mocked `shouldDisconnect`
+		// in this test to disconnect on peer5 only.
+		{
+			name:    "peer with no channels and banned",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    0,
+			},
+			shouldDisconnect: disconnect,
+			expectedStatus:   peerStatusRestricted,
+			expectedErr:      ErrGossiperBan,
+		},
+		// peer6 has no channel with us, and we expect it to have a
+		// restricted status. We also expect the error
+		// `ErrNoMoreRestrictedAccessSlots` to be returned given
+		// we only allow 1 restricted peer in this test.
+		{
+			name:    "peer with no channels and restricted",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    0,
+			},
+			shouldDisconnect: noDisconnect,
+			numRestricted:    1,
+
+			expectedStatus: peerStatusRestricted,
+			expectedErr:    ErrNoMoreRestrictedAccessSlots,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			peerStr := string(tc.peerPub.SerializeCompressed())
+
+			initPerms := func() (map[string]channeldb.ChanCount,
+				error) {
+
+				return map[string]channeldb.ChanCount{
+					peerStr: tc.chanCount,
+				}, nil
+			}
+
+			cfg := &accessManConfig{
+				initAccessPerms:    initPerms,
+				shouldDisconnect:   tc.shouldDisconnect,
+				maxRestrictedSlots: 1,
+			}
+
+			a, err := newAccessMan(cfg)
+			require.NoError(t, err)
+
+			// Initialize the internal state of the accessman.
+			a.numRestricted = int64(tc.numRestricted)
+
+			status, err := a.assignPeerPerms(tc.peerPub)
+			require.Equal(t, tc.expectedStatus, status)
+			require.ErrorIs(t, tc.expectedErr, err)
+		})
+	}
+}
+
+// TestAssignPeerPermsBypassRestriction asserts that when a peer has a channel
+// with us, either it being open, pending, or closed, no restriction is placed
+// on this peer.
+func TestAssignPeerPermsBypassRestriction(t *testing.T) {
+	t.Parallel()
+
+	// genPeerPub is a helper closure that generates a random public key.
+	genPeerPub := func() *btcec.PublicKey {
+		peerPriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		return peerPriv.PubKey()
+	}
+
+	// Mock shouldDisconnect to always return true and assert that it has no
+	// effect on the peer.
+	disconnect := func(_ *btcec.PublicKey) (bool, error) {
+		return true, nil
+	}
+
+	var testCases = []struct {
+		name           string
+		peerPub        *btcec.PublicKey
+		chanCount      channeldb.ChanCount
+		expectedStatus peerAccessStatus
+	}{
+		// peer1 has a channel with us, and we expect it to have a
+		// protected status.
+		{
+			name:    "peer with channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: true,
+			},
+			expectedStatus: peerStatusProtected,
+		},
+		// peer2 has a channel open and a pending channel with us, we
+		// expect it to have a protected status.
+		{
+			name:    "peer with channels and pending channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: true,
+				PendingOpenCount:    1,
+			},
+			expectedStatus: peerStatusProtected,
+		},
+		// peer3 has a pending channel with us, and we expect it to have
+		// a temporary status.
+		{
+			name:    "peer with pending channels",
+			peerPub: genPeerPub(),
+			chanCount: channeldb.ChanCount{
+				HasOpenOrClosedChan: false,
+				PendingOpenCount:    1,
+			},
+			expectedStatus: peerStatusTemporary,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			peerStr := string(tc.peerPub.SerializeCompressed())
+
+			initPerms := func() (map[string]channeldb.ChanCount,
+				error) {
+
+				return map[string]channeldb.ChanCount{
+					peerStr: tc.chanCount,
+				}, nil
+			}
+
+			// Config the accessman such that it has zero max slots
+			// and always return true on `shouldDisconnect`. We
+			// should see the peers in this test are not affected by
+			// these checks.
+			cfg := &accessManConfig{
+				initAccessPerms:    initPerms,
+				shouldDisconnect:   disconnect,
+				maxRestrictedSlots: 0,
+			}
+
+			a, err := newAccessMan(cfg)
+			require.NoError(t, err)
+
+			status, err := a.assignPeerPerms(tc.peerPub)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedStatus, status)
+		})
+	}
+}

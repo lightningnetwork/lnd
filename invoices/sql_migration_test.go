@@ -317,15 +317,15 @@ func testMigrateSingleInvoiceRapid(t *rapid.T, store *SQLStore, mpp bool,
 		invoices[hash] = invoice
 	}
 
-	var ops SQLInvoiceQueriesTxOptions
-	err := store.db.ExecTx(ctxb, &ops, func(tx SQLInvoiceQueries) error {
+	ops := sqldb.WriteTxOpt()
+	err := store.db.ExecTx(ctxb, ops, func(tx SQLInvoiceQueries) error {
 		for hash, invoice := range invoices {
 			err := MigrateSingleInvoice(ctxb, tx, invoice, hash)
 			require.NoError(t, err)
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	require.NoError(t, err)
 
 	// Fetch and compare each migrated invoice from the store with the

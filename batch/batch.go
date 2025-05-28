@@ -14,19 +14,6 @@ var errSolo = errors.New(
 	"batch function returned an error and should be re-run solo",
 )
 
-// txOpts implements the sqldb.TxOptions interface. It is used to indicate that
-// the transaction can be read-only or not transaction.
-type txOpts struct {
-	readOnly bool
-}
-
-// ReadOnly returns true if the transaction should be read only.
-//
-// NOTE: This is part of the sqldb.TxOptions interface.
-func (t *txOpts) ReadOnly() bool {
-	return t.readOnly
-}
-
 type request[Q any] struct {
 	*Request[Q]
 	errChan chan error
@@ -38,7 +25,7 @@ type batch[Q any] struct {
 	reqs   []*request[Q]
 	clear  func(b *batch[Q])
 	locker sync.Locker
-	txOpts txOpts
+	txOpts sqldb.TxOptions
 }
 
 // trigger is the entry point for the batch and ensures that run is started at
@@ -68,7 +55,7 @@ func (b *batch[Q]) run(ctx context.Context) {
 	// that fail will be retried individually.
 	for len(b.reqs) > 0 {
 		var failIdx = -1
-		err := b.db.ExecTx(ctx, &b.txOpts, func(tx Q) error {
+		err := b.db.ExecTx(ctx, b.txOpts, func(tx Q) error {
 			for i, req := range b.reqs {
 				err := req.Do(tx)
 				if err != nil {

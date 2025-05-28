@@ -139,27 +139,6 @@ func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
 	return s, nil
 }
 
-// TxOptions defines the set of db txn options the SQLQueries
-// understands.
-type TxOptions struct {
-	// readOnly governs if a read only transaction is needed or not.
-	readOnly bool
-}
-
-// ReadOnly returns true if the transaction should be read only.
-//
-// NOTE: This implements the TxOptions.
-func (a *TxOptions) ReadOnly() bool {
-	return a.readOnly
-}
-
-// NewReadTx creates a new read transaction option set.
-func NewReadTx() *TxOptions {
-	return &TxOptions{
-		readOnly: true,
-	}
-}
-
 // AddLightningNode adds a vertex/node to the graph database. If the node is not
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
@@ -192,16 +171,13 @@ func (s *SQLStore) FetchLightningNode(pubKey route.Vertex) (
 
 	ctx := context.TODO()
 
-	var (
-		readTx = NewReadTx()
-		node   *models.LightningNode
-	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	var node *models.LightningNode
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		_, node, err = getNodeByPubKey(ctx, db, pubKey)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node: %w", err)
 	}
@@ -222,11 +198,10 @@ func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
 	ctx := context.TODO()
 
 	var (
-		readTx     = NewReadTx()
 		exists     bool
 		lastUpdate time.Time
 	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
 				Version: int16(ProtocolV1),
@@ -246,7 +221,7 @@ func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return time.Time{}, false,
 			fmt.Errorf("unable to fetch node: %w", err)
@@ -266,11 +241,10 @@ func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 	ctx := context.TODO()
 
 	var (
-		readTx    = NewReadTx()
 		addresses []net.Addr
 		known     bool
 	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		known, addresses, err = getNodeAddresses(
 			ctx, db, nodePub.SerializeCompressed(),
@@ -281,7 +255,7 @@ func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return false, nil, fmt.Errorf("unable to get addresses for "+
 			"node(%x): %w", nodePub.SerializeCompressed(), err)
@@ -297,8 +271,7 @@ func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 func (s *SQLStore) DeleteLightningNode(pubKey route.Vertex) error {
 	ctx := context.TODO()
 
-	var writeTxOpts TxOptions
-	err := s.db.ExecTx(ctx, &writeTxOpts, func(db SQLQueries) error {
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteNodeByPubKey(
 			ctx, sqlc.DeleteNodeByPubKeyParams{
 				Version: int16(ProtocolV1),
@@ -321,7 +294,7 @@ func (s *SQLStore) DeleteLightningNode(pubKey route.Vertex) error {
 		}
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("unable to delete node: %w", err)
 	}
@@ -346,11 +319,10 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 	var (
-		ctx    = context.TODO()
-		readTx = NewReadTx()
-		alias  string
+		ctx   = context.TODO()
+		alias string
 	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
 				Version: int16(ProtocolV1),
@@ -370,7 +342,7 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 		alias = dbNode.Alias.String
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return "", fmt.Errorf("unable to look up alias: %w", err)
 	}
@@ -387,11 +359,8 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 	ctx := context.TODO()
 
-	var (
-		readTx = NewReadTx()
-		node   *models.LightningNode
-	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	var node *models.LightningNode
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		_, nodePub, err := getSourceNode(ctx, db, ProtocolV1)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
@@ -401,7 +370,7 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 		_, node, err = getNodeByPubKey(ctx, db, nodePub)
 
 		return err
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch source node: %w", err)
 	}
@@ -416,9 +385,8 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
 	ctx := context.TODO()
-	var writeTxOpts TxOptions
 
-	return s.db.ExecTx(ctx, &writeTxOpts, func(db SQLQueries) error {
+	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		id, err := upsertNode(ctx, db, node)
 		if err != nil {
 			return fmt.Errorf("unable to upsert source node: %w",
@@ -442,7 +410,7 @@ func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
 		}
 
 		return db.AddSourceNode(ctx, id)
-	}, func() {})
+	}, sqldb.NoOpReset)
 }
 
 // NodeUpdatesInHorizon returns all the known lightning node which have an
@@ -456,11 +424,8 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 
 	ctx := context.TODO()
 
-	var (
-		readTx = NewReadTx()
-		nodes  []models.LightningNode
-	)
-	err := s.db.ExecTx(ctx, readTx, func(db SQLQueries) error {
+	var nodes []models.LightningNode
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNodes, err := db.GetNodesByLastUpdateRange(
 			ctx, sqlc.GetNodesByLastUpdateRangeParams{
 				StartTime: sqldb.SQLInt64(startTime.Unix()),
@@ -482,7 +447,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 		}
 
 		return nil
-	}, func() {})
+	}, sqldb.NoOpReset)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
 	}

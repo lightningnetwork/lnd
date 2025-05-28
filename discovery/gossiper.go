@@ -860,8 +860,6 @@ func (d *AuthenticatedGossiper) stop() {
 func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(ctx context.Context,
 	msg lnwire.Message, peer lnpeer.Peer) chan error {
 
-	log.Debugf("Processing remote msg %T from peer=%x", msg, peer.PubKey())
-
 	errChan := make(chan error, 1)
 
 	// For messages in the known set of channel series queries, we'll

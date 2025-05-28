@@ -18,29 +18,33 @@ import (
 // network.
 type TCPResolver = func(network, addr string) (*net.TCPAddr, error)
 
+// HostLookuper is a function signature that resolves addresses on a given host
+type HostLookuper = func(host string) ([]string, error)
+
 // NormalizeAddresses returns a new slice with all the passed addresses
 // normalized with the given default port and all duplicates removed.
 func NormalizeAddresses(addrs []string, defaultPort string,
-	tcpResolver TCPResolver) ([]net.Addr, error) {
+	tcpResolver TCPResolver, lookUpHost HostLookuper) ([]net.Addr, error) {
 
 	result := make([]net.Addr, 0, len(addrs))
 	seen := map[string]struct{}{}
 
 	for _, addr := range addrs {
-		parsedAddr, err := ParseAddressString(
-			addr, defaultPort, tcpResolver,
-		)
+		parsedAddrs, err := ParseAddressString(
+			addr, defaultPort, tcpResolver, lookUpHost)
 		if err != nil {
 			return nil, fmt.Errorf("parse address %s failed: %w",
 				addr, err)
 		}
 
-		if _, ok := seen[parsedAddr.String()]; !ok {
-			result = append(result, parsedAddr)
-			seen[parsedAddr.String()] = struct{}{}
+		for _, parsedAddr := range parsedAddrs {
+			if _, ok := seen[parsedAddr.String()]; !ok {
+				result = append(result, parsedAddr)
+				seen[parsedAddr.String()] = struct{}{}
+			}
 		}
-	}
 
+	}
 	return result, nil
 }
 
@@ -186,11 +190,14 @@ func IsPrivate(addr net.Addr) bool {
 // ParseAddressString converts an address in string format to a net.Addr that is
 // compatible with lnd. UDP is not supported because lnd needs reliable
 // connections. We accept a custom function to resolve any TCP addresses so
-// that caller is able control exactly how resolution is performed.
+// that caller is able to control exactly how resolution is performed.
 func ParseAddressString(strAddress string, defaultPort string,
-	tcpResolver TCPResolver) (net.Addr, error) {
+	tcpResolver TCPResolver, lookUpHost HostLookuper) ([]net.Addr, error) {
 
 	var parsedNetwork, parsedAddr string
+	addrToArray := func(addr net.Addr, err error) ([]net.Addr, error) {
+		return []net.Addr{addr}, err
+	}
 
 	// Addresses can either be in network://address:port format,
 	// network:address:port, address:port, or just port. We want to support
@@ -208,12 +215,24 @@ func ParseAddressString(strAddress string, defaultPort string,
 	// UDP only connections for anything we do in lnd.
 	switch parsedNetwork {
 	case "unix", "unixpacket":
-		return net.ResolveUnixAddr(parsedNetwork, parsedAddr)
+		return addrToArray(
+			net.ResolveUnixAddr(parsedNetwork, parsedAddr))
 
 	case "tcp", "tcp4", "tcp6":
-		return tcpResolver(
-			parsedNetwork, verifyPort(parsedAddr, defaultPort),
-		)
+		addressesStr, err := lookUpHost(parsedAddr)
+		if err != nil {
+			return nil, err
+		}
+		addresses := make([]net.Addr, 0, len(addressesStr))
+		for _, addrStr := range addressesStr {
+			addr, err := tcpResolver(parsedNetwork,
+				verifyPort(addrStr, defaultPort))
+			if err != nil {
+				return nil, err
+			}
+			addresses = append(addresses, addr)
+		}
+		return addresses, nil
 
 	case "ip", "ip4", "ip6", "udp", "udp4", "udp6", "unixgram":
 		return nil, fmt.Errorf("only TCP or unix socket "+
@@ -234,10 +253,10 @@ func ParseAddressString(strAddress string, defaultPort string,
 				return nil, err
 			}
 
-			return &tor.OnionAddr{
+			return addrToArray(&tor.OnionAddr{
 				OnionService: rawHost,
 				Port:         portNum,
-			}, nil
+			}, nil)
 		}
 
 		// Otherwise, we'll attempt the resolve the host. The Tor
@@ -247,7 +266,8 @@ func ParseAddressString(strAddress string, defaultPort string,
 		if rawHost == "" || IsLoopback(rawHost) ||
 			isIPv6Host(rawHost) || isUnspecifiedHost(rawHost) {
 
-			return net.ResolveTCPAddr("tcp", addrWithPort)
+			return addrToArray(net.ResolveTCPAddr("tcp",
+				addrWithPort))
 		}
 
 		// If we've reached this point, then it's possible that this
@@ -256,17 +276,28 @@ func ParseAddressString(strAddress string, defaultPort string,
 		// be resolved by Tor. In order to handle this case, we'll fall
 		// back to the normal system resolver if we fail with an
 		// identifiable error.
-		addr, err := tcpResolver("tcp", addrWithPort)
+		addressesStr, err := lookUpHost(addrWithPort)
 		if err != nil {
-			torErrStr := "tor host is unreachable"
-			if strings.Contains(err.Error(), torErrStr) {
-				return net.ResolveTCPAddr("tcp", addrWithPort)
-			}
-
 			return nil, err
 		}
+		addresses := make([]net.Addr, 0, len(addressesStr))
+		for _, addrStr := range addressesStr {
+			addr, err := tcpResolver("tcp", addrStr)
+			if err != nil {
+				torErrStr := "tor host is unreachable"
+				if strings.Contains(err.Error(), torErrStr) {
+					addr, err = net.ResolveTCPAddr(
+						"tcp", addrStr)
+				}
+				if err != nil {
+					return nil, err
+				}
+				addresses = append(addresses, addr)
+			}
 
-		return addr, nil
+		}
+
+		return addresses, nil
 	}
 }
 
@@ -277,7 +308,8 @@ func ParseAddressString(strAddress string, defaultPort string,
 // the defaultPort will be used. Any tcp addresses that need resolving will be
 // resolved using the custom TCPResolver.
 func ParseLNAddressString(strAddress string, defaultPort string,
-	tcpResolver TCPResolver) (*lnwire.NetAddress, error) {
+	tcpResolver TCPResolver, lookUpHost HostLookuper) (*lnwire.NetAddress,
+	error) {
 
 	pubKey, parsedAddr, err := ParseLNAddressPubkey(strAddress)
 	if err != nil {
@@ -285,7 +317,8 @@ func ParseLNAddressString(strAddress string, defaultPort string,
 	}
 
 	// Finally, parse the address string using our generic address parser.
-	addr, err := ParseAddressString(parsedAddr, defaultPort, tcpResolver)
+	addr, err := ParseAddressString(parsedAddr, defaultPort, tcpResolver,
+		lookUpHost)
 	if err != nil {
 		return nil, fmt.Errorf("invalid lightning address address: %w",
 			err)
@@ -293,7 +326,9 @@ func ParseLNAddressString(strAddress string, defaultPort string,
 
 	return &lnwire.NetAddress{
 		IdentityKey: pubKey,
-		Address:     addr,
+		Address:     addr[0],
+		//TODO(gustavostingelin): is needed to return raw DNS instead of
+		//ip? related to issue #6337
 	}, nil
 }
 
@@ -379,7 +414,7 @@ func ClientAddressDialer(defaultPort string) func(context.Context,
 
 	return func(ctx context.Context, addr string) (net.Conn, error) {
 		parsedAddr, err := ParseAddressString(
-			addr, defaultPort, net.ResolveTCPAddr,
+			addr, defaultPort, net.ResolveTCPAddr, net.LookupAddr,
 		)
 		if err != nil {
 			return nil, err
@@ -387,7 +422,7 @@ func ClientAddressDialer(defaultPort string) func(context.Context,
 
 		d := net.Dialer{}
 		return d.DialContext(
-			ctx, parsedAddr.Network(), parsedAddr.String(),
+			ctx, parsedAddr[0].Network(), parsedAddr[0].String(),
 		)
 	}
 }

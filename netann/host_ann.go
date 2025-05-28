@@ -19,7 +19,7 @@ type HostAnnouncerConfig struct {
 
 	// LookupHost performs DNS resolution on a given host and returns its
 	// addresses.
-	LookupHost func(string) (net.Addr, error)
+	LookupHost func(string) ([]net.Addr, error)
 
 	// AdvertisedIPs is the set of IPs that we've already announced with
 	// our current NodeAnnouncement. This set will be constructed to avoid

@@ -84,5 +84,5 @@
 ## Code Health
 
 ## Tooling and Documentation
-
+[Add usage and desc to wtclient session cmd](https://github.com/lightningnetwork/lnd/pull/9765): Enhanced documentation for the `session` and `terminate` commands in `lncli wtclient`. The `session` command now includes a comprehensive explanation of its role in managing watchtower client sessions. The `terminate` command offers clear instructions for ending an active session using its unique session ID.
 # Contributors (Alphabetical Order)

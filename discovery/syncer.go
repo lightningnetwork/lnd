@@ -175,7 +175,7 @@ const (
 	requestBatchSize = 500
 
 	// syncerBufferSize is the size of the syncer's buffers.
-	syncerBufferSize = 5
+	syncerBufferSize = 50
 )
 
 var (

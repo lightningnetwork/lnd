@@ -83,11 +83,15 @@ type ForwardingEvent struct {
 	AmtOut lnwire.MilliSatoshi
 
 	// IncomingHtlcID is the ID of the incoming HTLC in the payment circuit.
-	// If the HTLC ID is not set, the value will be nil.
+	// If this is not set, the value will be nil. This field is added in
+	// v0.20 and is made optional to make it backward compatible with
+	// existing forwarding events created before it's introduction.
 	IncomingHtlcID fn.Option[uint64]
 
 	// OutgoingHtlcID is the ID of the outgoing HTLC in the payment circuit.
-	// If the HTLC ID is not set, the value will be nil.
+	// If this is not set, the value will be nil. This field is added in
+	// v0.20 and is made optional to make it backward compatible with
+	// existing forwarding events created before it's introduction.
 	OutgoingHtlcID fn.Option[uint64]
 }
 
@@ -95,29 +99,27 @@ type ForwardingEvent struct {
 // io.Writer, using the expected DB format. Note that the timestamp isn't
 // serialized as this will be the key value within the bucket.
 func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
-	// First we write the required fields.
-	err := WriteElements(
+	// We check for the HTLC IDs if they are set. If they are not,
+	// from v0.20 upward, we return an error to make it clear they are
+	// required.
+	incomingID, err := f.IncomingHtlcID.SomeToOk(
+		errors.New("incoming HTLC ID must be set"),
+	).Unpack()
+	if err != nil {
+		return err
+	}
+
+	outgoingID, err := f.OutgoingHtlcID.SomeToOk(
+		errors.New("outgoing HTLC ID must be set"),
+	).Unpack()
+	if err != nil {
+		return err
+	}
+
+	return WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
+		incomingID, outgoingID,
 	)
-	if err != nil {
-		return err
-	}
-
-	// Then we write the optional HTLC IDs if they are set.
-	f.IncomingHtlcID.WhenSome(func(id uint64) {
-		err = WriteElement(w, id)
-	})
-	if err != nil {
-		return err
-	}
-	f.OutgoingHtlcID.WhenSome(func(id uint64) {
-		err = WriteElement(w, id)
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // decodeForwardingEvent attempts to decode the raw bytes of a serialized
@@ -133,10 +135,9 @@ func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
 		return err
 	}
 
-	// Decode the incoming and outgoing htlc IDs. For backward
-	// compatibility with older records that don't have these fields, we
-	// handle EOF by setting the ID to nil. Any other error is treated as
-	// a read failure.
+	// Decode the incoming and outgoing htlc IDs. For backward compatibility
+	// with older records that don't have these fields, we handle EOF by
+	// setting the ID to nil. Any other error is treated as a read failure.
 	var incomingHtlcID uint64
 	if err := ReadElement(r, &incomingHtlcID); err != nil {
 		if !errors.Is(err, io.EOF) {

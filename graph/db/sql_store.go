@@ -120,6 +120,10 @@ type SQLStore struct {
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
 
+	srcNodeID  int64
+	srcNodePub route.Vertex
+	srcNodeMu  sync.Mutex
+
 	// Temporary fall-back to the KVStore so that we can implement the
 	// interface incrementally.
 	*KVStore
@@ -391,7 +395,7 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		_, nodePub, err := getSourceNode(ctx, db, ProtocolV1)
+		_, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
 				err)
@@ -425,7 +429,7 @@ func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
 
 		// Make sure that if a source node for this version is already
 		// set, then the ID is the same as the one we are about to set.
-		dbSourceNodeID, _, err := getSourceNode(ctx, db, ProtocolV1)
+		dbSourceNodeID, _, err := s.getSourceNode(ctx, db, ProtocolV1)
 		if err != nil && !errors.Is(err, ErrSourceNodeNotSet) {
 			return fmt.Errorf("unable to fetch source node: %w",
 				err)
@@ -1265,8 +1269,17 @@ func upsertNodeExtraSignedFields(ctx context.Context, db SQLQueries,
 
 // getSourceNode returns the DB node ID and pub key of the source node for the
 // specified protocol version.
-func getSourceNode(ctx context.Context, db SQLQueries,
+func (s *SQLStore) getSourceNode(ctx context.Context, db SQLQueries,
 	version ProtocolVersion) (int64, route.Vertex, error) {
+
+	s.srcNodeMu.Lock()
+	defer s.srcNodeMu.Unlock()
+
+	// If we already have the source node ID and pub key cached, then
+	// return them.
+	if s.srcNodeID != 0 {
+		return s.srcNodeID, s.srcNodePub, nil
+	}
 
 	var pubKey route.Vertex
 
@@ -1284,6 +1297,9 @@ func getSourceNode(ctx context.Context, db SQLQueries,
 	}
 
 	copy(pubKey[:], nodes[0].PubKey)
+
+	s.srcNodeID = nodes[0].NodeID
+	s.srcNodePub = pubKey
 
 	return nodes[0].NodeID, pubKey, nil
 }

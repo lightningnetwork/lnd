@@ -27,6 +27,10 @@
 - Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9854) where the
   `BumpFee` doesn't give an error response.
 
+- Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9872) where a
+  peer would not disconnect properly when both peers supported the new
+  "rbf-coop-close" feature leaving the peer connection in a borked state.
+
 # New Features
 
 ## Functional Enhancements
@@ -83,3 +87,4 @@
 
 * Elle Mouton
 * Yong Yu
+* Ziggie

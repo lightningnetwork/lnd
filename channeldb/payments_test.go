@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -97,13 +98,15 @@ var (
 	}
 )
 
-func makeFakeInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo) {
+func makeFakeInfo(t *testing.T) (*pymtpkg.PaymentCreationInfo,
+	*pymtpkg.HTLCAttemptInfo) {
+
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
 
 	hash := preimg.Hash()
 
-	c := &PaymentCreationInfo{
+	c := &pymtpkg.PaymentCreationInfo{
 		PaymentIdentifier: hash,
 		Value:             1000,
 		// Use single second precision to avoid false positive test
@@ -112,7 +115,7 @@ func makeFakeInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		PaymentRequest: []byte("test"),
 	}
 
-	a, err := NewHtlcAttempt(
+	a, err := pymtpkg.NewHtlcAttempt(
 		44, priv, testRoute, time.Unix(100, 0), &hash,
 	)
 	require.NoError(t, err)
@@ -174,7 +177,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 	require.NoError(t, err, "deserialize")
 	require.Equal(t, s.Route, newWireInfo.Route)
 
-	err = newWireInfo.attachOnionBlobAndCircuit()
+	err = newWireInfo.AttachOnionBlobAndCircuit()
 	require.NoError(t, err)
 
 	// Clear routes to allow DeepEqual to compare the remaining fields.
@@ -184,7 +187,7 @@ func TestSentPaymentSerialization(t *testing.T) {
 
 	// Call session key method to set our cached session key so we can use
 	// DeepEqual, and assert that our key equals the original key.
-	require.Equal(t, s.cachedSessionKey, newWireInfo.SessionKey())
+	require.Equal(t, s.SessionKey(), newWireInfo.SessionKey())
 
 	require.Equal(t, s, newWireInfo)
 }
@@ -258,7 +261,7 @@ func TestQueryPayments(t *testing.T) {
 	// of legacy payments.
 	tests := []struct {
 		name       string
-		query      PaymentsQuery
+		query      pymtpkg.Query
 		firstIndex uint64
 		lastIndex  uint64
 
@@ -268,7 +271,7 @@ func TestQueryPayments(t *testing.T) {
 	}{
 		{
 			name: "IndexOffset at the end of the payments range",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       7,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -280,7 +283,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in forwards order, start at beginning",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -292,7 +295,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in forwards order, start at end, overflow",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       6,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -304,7 +307,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "start at offset index outside of payments",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       20,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -316,7 +319,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "overflow in forwards order",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       4,
 				MaxPayments:       math.MaxUint64,
 				Reversed:          false,
@@ -329,7 +332,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "start at offset index outside of payments, " +
 				"reversed order",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       9,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -341,7 +344,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in reverse order, start at end",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -353,7 +356,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query in reverse order, starting in middle",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       4,
 				MaxPayments:       2,
 				Reversed:          true,
@@ -366,7 +369,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in reverse order, starting in middle, " +
 				"with underflow",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       4,
 				MaxPayments:       5,
 				Reversed:          true,
@@ -378,7 +381,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "all payments in reverse, order maintained",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -390,7 +393,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "exclude incomplete payments",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -402,7 +405,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments at index gap",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       1,
 				MaxPayments:       7,
 				Reversed:          false,
@@ -414,7 +417,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments reverse before index gap",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       3,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -426,7 +429,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments reverse on index gap",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       2,
 				MaxPayments:       7,
 				Reversed:          true,
@@ -438,7 +441,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query payments forward on index gap",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       2,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -451,7 +454,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in forwards order, with start creation " +
 				"time",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -465,7 +468,7 @@ func TestQueryPayments(t *testing.T) {
 		{
 			name: "query in forwards order, with start creation " +
 				"time at end, overflow",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       0,
 				MaxPayments:       2,
 				Reversed:          false,
@@ -478,7 +481,7 @@ func TestQueryPayments(t *testing.T) {
 		},
 		{
 			name: "query with start and end creation time",
-			query: PaymentsQuery{
+			query: pymtpkg.Query{
 				IndexOffset:       9,
 				MaxPayments:       math.MaxUint64,
 				Reversed:          true,
@@ -516,7 +519,7 @@ func TestQueryPayments(t *testing.T) {
 			// where we have duplicates in the nested duplicates
 			// bucket.
 			nonDuplicatePayments := 6
-			pControl := NewPaymentControl(db)
+			pControl := NewKVPaymentDB(db)
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
@@ -618,7 +621,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentDB(db)
 
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, _, err := genInfo(t)
@@ -697,13 +700,13 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 			name:           "lookup non-existent duplicate",
 			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: 999999,
-			expectedErr:    ErrDuplicateNotFound,
+			expectedErr:    pymtpkg.ErrDuplicateNotFound,
 		},
 		{
 			name:           "lookup duplicate, no duplicates bucket",
 			paymentHash:    noDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateTwoSeqNr,
-			expectedErr:    ErrNoDuplicateBucket,
+			expectedErr:    pymtpkg.ErrNoDuplicateBucket,
 		},
 	}
 

@@ -700,6 +700,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testCoopCloseRbf,
 	},
 	{
+		Name:     "rbf coop close disconnect",
+		TestFunc: testRBFCoopCloseDisconnect,
+	},
+	{
 		Name:     "bump fee low budget",
 		TestFunc: testBumpFeeLowBudget,
 	},

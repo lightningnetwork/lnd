@@ -131,3 +131,25 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	aliceClosingTxid := ht.WaitForChannelCloseEvent(aliceCloseStream)
 	ht.AssertTxInBlock(block, aliceClosingTxid)
 }
+
+// testRBFCoopCloseDisconnect tests that when a node disconnects that the node
+// is properly disconnected.
+func testRBFCoopCloseDisconnect(ht *lntest.HarnessTest) {
+	rbfCoopFlags := []string{"--protocol.rbf-coop-close"}
+
+	// To kick things off, we'll create two new nodes, then fund them with
+	// enough coins to make a 50/50 channel.
+	cfgs := [][]string{rbfCoopFlags, rbfCoopFlags}
+	params := lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(1000000),
+		PushAmt: btcutil.Amount(1000000 / 2),
+	}
+	_, nodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob := nodes[0], nodes[1]
+
+	// Make sure the nodes are connected.
+	ht.AssertConnected(alice, bob)
+
+	// Disconnect Bob from Alice.
+	ht.DisconnectNodes(alice, bob)
+}

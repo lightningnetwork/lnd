@@ -3804,18 +3804,28 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 	// We'll wait until the channel enters the ChannelFlushing state. We
 	// exit after a success loop. As after the first RBF iteration, the
 	// channel will always be flushed.
-	for newState := range newStateChan {
-		if _, ok := newState.(*chancloser.ChannelFlushing); ok {
-			peerLog.Infof("ChannelPoint(%v): rbf coop "+
-				"close is awaiting a flushed state, "+
-				"registering with link..., ",
-				channel.ChannelPoint())
+	for {
+		select {
+		case newState, ok := <-newStateChan:
+			if !ok {
+				return
+			}
 
-			// Request the link to send the event once the channel
-			// is flushed. We only need this event sent once, so we
-			// can exit now.
-			link.OnFlushedOnce(sendChanFlushed)
+			if _, ok := newState.(*chancloser.ChannelFlushing); ok {
+				peerLog.Infof("ChannelPoint(%v): rbf coop "+
+					"close is awaiting a flushed state, "+
+					"registering with link..., ",
+					channel.ChannelPoint())
 
+				// Request the link to send the event once the
+				// channel is flushed. We only need this event
+				// sent once, so we can exit now.
+				link.OnFlushedOnce(sendChanFlushed)
+
+				return
+			}
+
+		case <-p.cg.Done():
 			return
 		}
 	}

@@ -240,7 +240,7 @@ const (
 
 	// DefaultNumRestrictedSlots is the default number of restricted slots
 	// we'll allocate in the server.
-	DefaultNumRestrictedSlots = 30
+	DefaultNumRestrictedSlots = 100
 
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"

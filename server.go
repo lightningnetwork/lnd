@@ -4316,25 +4316,37 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	// If the remote node's public key is banned, drop the connection.
+	// By default give the peer the temporary access. If this is an inbound
+	// connection, we will overwrite this value after checking its perm from
+	// accessman. For outbound connection, we will use this perm so it
+	// doesn't use the restricted slots.
+	peerPerm := peerStatusTemporary
+
+	// For inbound connection, if the remote node's public key is banned,
+	// drop the connection.
 	//
 	// TODO(yy): Consider perform this check in
 	// `peerAccessMan.addPeerAccess`.
-	access, err := s.peerAccessMan.assignPeerPerms(pubKey)
-	if err != nil {
-		pubSer := pubKey.SerializeCompressed()
+	if inbound {
+		access, err := s.peerAccessMan.assignPeerPerms(pubKey)
+		if err != nil {
+			pubSer := pubKey.SerializeCompressed()
 
-		// Clean up the persistent peer maps if we're dropping this
-		// connection.
-		s.bannedPersistentPeerConnection(string(pubSer))
+			// Clean up the persistent peer maps if we're dropping
+			// this connection.
+			s.bannedPersistentPeerConnection(string(pubSer))
 
-		srvrLog.Debugf("Dropping connection for %x since we are out "+
-			"of restricted-access connection slots: %v.", pubSer,
-			err)
+			srvrLog.Debugf("Dropping connection for %x since we "+
+				"are out of restricted-access connection "+
+				"slots: %v.", pubSer, err)
 
-		conn.Close()
+			conn.Close()
 
-		return
+			return
+		}
+
+		// Overwrite the assigned access.
+		peerPerm = access
 	}
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
@@ -4474,7 +4486,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p := peer.NewBrontide(pCfg)
 
 	// Update the access manager with the access permission for this peer.
-	s.peerAccessMan.addPeerAccess(pubKey, access)
+	s.peerAccessMan.addPeerAccess(pubKey, peerPerm)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?

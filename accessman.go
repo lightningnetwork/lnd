@@ -35,6 +35,10 @@ type accessMan struct {
 	// is the string-version of the serialized public key.
 	//
 	// NOTE: This MUST be accessed with the banScoreMtx held.
+	//
+	// TODO(yy): unify `peerScores` and `peerCounts` - there's no need to
+	// create two maps tracking essentially the same info. `numRestricted`
+	// can also be derived from `peerCounts`.
 	peerScores map[string]peerSlotStatus
 
 	// numRestricted tracks the number of peers with restricted access in
@@ -77,6 +81,48 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	return a, nil
 }
 
+// hasPeer checks whether a given peer already exists in the internal maps.
+func (a *accessMan) hasPeer(ctx context.Context,
+	pub string) (peerAccessStatus, bool) {
+
+	// Lock banScoreMtx for reading so that we can read the banning maps
+	// below.
+	a.banScoreMtx.RLock()
+	defer a.banScoreMtx.RUnlock()
+
+	count, found := a.peerCounts[pub]
+	if found {
+		if count.HasOpenOrClosedChan {
+			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
+				"assigning protected access")
+
+			// Exit early if the peer is no longer restricted.
+			return peerStatusProtected, true
+		}
+
+		if count.PendingOpenCount != 0 {
+			acsmLog.DebugS(ctx, "Peer has pending channel(s), "+
+				"assigning temporary access")
+
+			// Exit early if the peer is no longer restricted.
+			return peerStatusTemporary, true
+		}
+
+		return peerStatusRestricted, true
+	}
+
+	// Check if the peer is found in the scores map.
+	status, found := a.peerScores[pub]
+	if found {
+		acsmLog.DebugS(ctx, "Peer already has access", "access",
+			status.state)
+
+		return status.state, true
+	}
+
+	return peerStatusRestricted, false
+}
+
 // assignPeerPerms assigns a new peer its permissions. This does not track the
 // access in the maps. This is intentional.
 func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
@@ -91,31 +137,15 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 	acsmLog.DebugS(ctx, "Assigning permissions")
 
 	// Default is restricted unless the below filters say otherwise.
-	access := peerStatusRestricted
+	access, peerExist := a.hasPeer(ctx, peerMapKey)
 
-	// Lock banScoreMtx for reading so that we can update the banning maps
-	// below.
-	a.banScoreMtx.RLock()
-	if count, found := a.peerCounts[peerMapKey]; found {
-		if count.HasOpenOrClosedChan {
-			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
-				"assigning protected access")
-
-			access = peerStatusProtected
-		} else if count.PendingOpenCount != 0 {
-			acsmLog.DebugS(ctx, "Peer has pending channel(s), "+
-				"assigning temporary access")
-
-			access = peerStatusTemporary
-		}
-	}
-	a.banScoreMtx.RUnlock()
-
-	// Exit early if the peer status is no longer restricted.
+	// Exit early if the peer is not restricted.
 	if access != peerStatusRestricted {
 		return access, nil
 	}
 
+	// If we are here, it means the peer has peerStatusRestricted.
+	//
 	// Check whether this peer is banned.
 	shouldDisconnect, err := a.cfg.shouldDisconnect(remotePub)
 	if err != nil {
@@ -137,6 +167,12 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 	// restricted, then we need to check if we even have a slot for this
 	// peer.
 	acsmLog.DebugS(ctx, "Peer has no channels, assigning restricted access")
+
+	// If this is an existing peer, there's no need to check for slot limit.
+	if peerExist {
+		acsmLog.DebugS(ctx, "Skipped slot check for existing peer")
+		return access, nil
+	}
 
 	a.banScoreMtx.RLock()
 	defer a.banScoreMtx.RUnlock()

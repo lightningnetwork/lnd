@@ -3359,6 +3359,9 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// error.
 	err = graph.AddChannelEdge(&edgeInfo)
 	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
+
+	// Show that updating the shell node to a full node record works.
+	require.NoError(t, graph.AddLightningNode(node2))
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed

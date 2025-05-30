@@ -46,6 +46,12 @@
     * [1](https://github.com/lightningnetwork/lnd/pull/9866)
 
 ## RPC Updates
+* Previously the `RoutingPolicy` would return the inbound fee record in its
+  `CustomRecords` field, which is duplicated info as it's already presented in
+  fields `InboundFeeBaseMsat` and `InboundFeeRateMilliMsat`. This is now
+  [fixed](https://github.com/lightningnetwork/lnd/pull/9572), the affected RPCs
+  are `SubscribeChannelGraph`, `GetChanInfo`, `GetNodeInfo` and `DescribeGraph`.
+
 
 ## lncli Updates
 

@@ -250,9 +250,8 @@ func TestAssignPeerPerms(t *testing.T) {
 			expectedErr:      ErrGossiperBan,
 		},
 		// peer6 has no channel with us, and we expect it to have a
-		// restricted status. We also expect the error
-		// `ErrNoMoreRestrictedAccessSlots` to be returned given
-		// we only allow 1 restricted peer in this test.
+		// restricted status. Since this peer is seen, we don't expect
+		// the error `ErrNoMoreRestrictedAccessSlots` to be returned.
 		{
 			name:    "peer with no channels and restricted",
 			peerPub: genPeerPub(),
@@ -264,7 +263,7 @@ func TestAssignPeerPerms(t *testing.T) {
 			numRestricted:    1,
 
 			expectedStatus: peerStatusRestricted,
-			expectedErr:    ErrNoMoreRestrictedAccessSlots,
+			expectedErr:    nil,
 		},
 	}
 
@@ -393,4 +392,74 @@ func TestAssignPeerPermsBypassRestriction(t *testing.T) {
 			require.Equal(t, tc.expectedStatus, status)
 		})
 	}
+}
+
+// TestAssignPeerPermsBypassExisting asserts that when the peer is a
+// pre-existing peer, it won't be restricted.
+func TestAssignPeerPermsBypassExisting(t *testing.T) {
+	t.Parallel()
+
+	// genPeerPub is a helper closure that generates a random public key.
+	genPeerPub := func() *btcec.PublicKey {
+		peerPriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		return peerPriv.PubKey()
+	}
+
+	// peer1 exists in `peerCounts` map.
+	peer1 := genPeerPub()
+	peer1Str := string(peer1.SerializeCompressed())
+
+	// peer2 exists in `peerScores` map.
+	peer2 := genPeerPub()
+	peer2Str := string(peer2.SerializeCompressed())
+
+	// peer3 is a new peer.
+	peer3 := genPeerPub()
+
+	// Create params to init the accessman.
+	initPerms := func() (map[string]channeldb.ChanCount, error) {
+		return map[string]channeldb.ChanCount{
+			peer1Str: {},
+		}, nil
+	}
+
+	disconnect := func(*btcec.PublicKey) (bool, error) {
+		return false, nil
+	}
+
+	cfg := &accessManConfig{
+		initAccessPerms:    initPerms,
+		shouldDisconnect:   disconnect,
+		maxRestrictedSlots: 0,
+	}
+
+	a, err := newAccessMan(cfg)
+	require.NoError(t, err)
+
+	// Add peer2 to the `peerScores`.
+	a.peerScores[peer2Str] = peerSlotStatus{
+		state: peerStatusTemporary,
+	}
+
+	// Assigning to peer1 should not return an error.
+	status, err := a.assignPeerPerms(peer1)
+	require.NoError(t, err)
+	require.Equal(t, peerStatusRestricted, status)
+
+	// Assigning to peer2 should not return an error.
+	status, err = a.assignPeerPerms(peer2)
+	require.NoError(t, err)
+	require.Equal(t, peerStatusTemporary, status)
+
+	// Assigning to peer3 should return an error.
+	status, err = a.assignPeerPerms(peer3)
+	require.ErrorIs(t, err, ErrNoMoreRestrictedAccessSlots)
+	require.Equal(t, peerStatusRestricted, status)
+}
+
+func TestPeerExisted(t *testing.T) {
+	// TODO(yy): add.
+
 }

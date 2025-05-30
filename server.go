@@ -1889,6 +1889,8 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 		// connection requests when we call NewListener.
 		listeners[i], err = brontide.NewListener(
 			nodeKeyECDH, listenAddr.String(),
+			// TODO(yy): remove this check and unify the inbound
+			// connection check inside `InboundPeerConnected`.
 			s.peerAccessMan.checkIncomingConnBanScore,
 		)
 		if err != nil {
@@ -3992,22 +3994,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If the remote node's public key is banned, drop the connection.
-	access, err := s.peerAccessMan.assignPeerPerms(nodePub)
-	if err != nil {
-		// Clean up the persistent peer maps if we're dropping this
-		// connection.
-		s.bannedPersistentPeerConnection(pubStr)
-
-		srvrLog.Debugf("Dropping connection for %x since we are out "+
-			"of restricted-access connection slots: %v.", pubSer,
-			err)
-
-		conn.Close()
-
-		return
-	}
-
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
 	if p, ok := s.outboundPeers[pubStr]; ok {
@@ -4042,7 +4028,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true, access)
+		s.peerConnected(conn, nil, true)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -4074,7 +4060,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true, access)
+			s.peerConnected(conn, nil, true)
 		}
 	}
 }
@@ -4098,25 +4084,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	access, err := s.peerAccessMan.assignPeerPerms(nodePub)
-	if err != nil {
-		// Clean up the persistent peer maps if we're dropping this
-		// connection.
-		s.bannedPersistentPeerConnection(pubStr)
-
-		srvrLog.Debugf("Dropping connection for %x since we are out "+
-			"of restricted-access connection slots: %v.", pubSer,
-			err)
-
-		if connReq != nil {
-			s.connMgr.Remove(connReq.ID())
-		}
-
-		conn.Close()
-
-		return
-	}
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
@@ -4152,7 +4119,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		return
 	}
 
-	srvrLog.Infof("Established connection to: %x@%v", pubStr,
+	srvrLog.Infof("Established outbound connection to: %x@%v", pubStr,
 		conn.RemoteAddr())
 
 	if connReq != nil {
@@ -4176,7 +4143,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false, access)
+		s.peerConnected(conn, connReq, false)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -4210,7 +4177,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false, access)
+			s.peerConnected(conn, connReq, false)
 		}
 	}
 }
@@ -4343,11 +4310,44 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
-	inbound bool, access peerAccessStatus) {
+	inbound bool) {
 
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+
+	// By default give the peer the temporary access. If this is an inbound
+	// connection, we will overwrite this value after checking its perm from
+	// accessman. For outbound connection, we will use this perm so it
+	// doesn't use the restricted slots.
+	peerPerm := peerStatusTemporary
+
+	// For inbound connection, if the remote node's public key is banned,
+	// drop the connection.
+	//
+	// TODO(yy): Consider perform this check in
+	// `peerAccessMan.addPeerAccess`.
+	if inbound {
+		access, err := s.peerAccessMan.assignPeerPerms(pubKey)
+		if err != nil {
+			pubSer := pubKey.SerializeCompressed()
+
+			// Clean up the persistent peer maps if we're dropping
+			// this connection.
+			s.bannedPersistentPeerConnection(string(pubSer))
+
+			srvrLog.Debugf("Dropping connection for %x since we "+
+				"are out of restricted-access connection "+
+				"slots: %v.", pubSer, err)
+
+			conn.Close()
+
+			return
+		}
+
+		// Overwrite the assigned access.
+		peerPerm = access
+	}
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)
@@ -4486,7 +4486,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p := peer.NewBrontide(pCfg)
 
 	// Update the access manager with the access permission for this peer.
-	s.peerAccessMan.addPeerAccess(pubKey, access)
+	s.peerAccessMan.addPeerAccess(pubKey, peerPerm)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
@@ -4980,7 +4980,11 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 
 	// Ensure we're not already connected to this peer.
 	peer, err := s.findPeerByPubStr(targetPub)
-	if err == nil {
+
+	// When there's no error it means we already have a connection with this
+	// peer. If this is a dev environment with the `--unsafeconnect` flag
+	// set, we will ignore the existing connection and continue.
+	if err == nil && !s.cfg.Dev.GetUnsafeConnect() {
 		s.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
 	}

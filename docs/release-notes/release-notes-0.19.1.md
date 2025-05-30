@@ -27,6 +27,10 @@
 - Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9854) where the
   `BumpFee` doesn't give an error response.
 
+- Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9876) where a peer
+  may be treated as restricted peer although it used to have a channel with the
+  node.
+
 # New Features
 
 ## Functional Enhancements

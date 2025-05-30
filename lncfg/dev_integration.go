@@ -26,6 +26,7 @@ type DevConfig struct {
 	ZombieSweeperInterval       time.Duration `long:"zombiesweeperinterval" description:"The time interval at which channel opening flows are evaluated for zombie status."`
 	UnsafeDisconnect            bool          `long:"unsafedisconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels."`
 	MaxWaitNumBlocksFundingConf uint32        `long:"maxwaitnumblocksfundingconf" description:"Maximum blocks to wait for funding confirmation before discarding non-initiated channels."`
+	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -51,7 +52,7 @@ func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
 	return d.ZombieSweeperInterval
 }
 
-// ChannelReadyWait returns the config value `UnsafeDisconnect`.
+// GetUnsafeDisconnect returns the config value `UnsafeDisconnect`.
 func (d *DevConfig) GetUnsafeDisconnect() bool {
 	return d.UnsafeDisconnect
 }
@@ -64,4 +65,9 @@ func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 	}
 
 	return d.MaxWaitNumBlocksFundingConf
+}
+
+// GetUnsafeConnect returns the config value `UnsafeConnect`.
+func (d *DevConfig) GetUnsafeConnect() bool {
+	return d.UnsafeConnect
 }

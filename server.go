@@ -4980,7 +4980,11 @@ func (s *server) ConnectToPeer(addr *lnwire.NetAddress,
 
 	// Ensure we're not already connected to this peer.
 	peer, err := s.findPeerByPubStr(targetPub)
-	if err == nil {
+
+	// When there's no error it means we already have a connection with this
+	// peer. If this is a dev environment with the `--unsafeconnect` flag
+	// set, we will ignore the existing connection and continue.
+	if err == nil && !s.cfg.Dev.GetUnsafeConnect() {
 		s.mu.Unlock()
 		return &errPeerAlreadyConnected{peer: peer}
 	}

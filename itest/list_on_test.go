@@ -692,10 +692,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundingManagerFundingTimeout,
 	},
 	{
-		Name:     "access perm",
-		TestFunc: testAccessPerm,
-	},
-	{
 		Name:     "rbf coop close",
 		TestFunc: testCoopCloseRbf,
 	},
@@ -781,6 +777,9 @@ func init() {
 	allTestCases = appendPrefixed(
 		"coop close with external delivery", allTestCases,
 		coopCloseWithExternalTestCases,
+	)
+	allTestCases = appendPrefixed(
+		"peer conn", allTestCases, peerConnTestCases,
 	)
 
 	// Prepare the test cases for windows to exclude some of the flaky

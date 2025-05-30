@@ -1889,6 +1889,8 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 		// connection requests when we call NewListener.
 		listeners[i], err = brontide.NewListener(
 			nodeKeyECDH, listenAddr.String(),
+			// TODO(yy): remove this check and unify the inbound
+			// connection check inside `InboundPeerConnected`.
 			s.peerAccessMan.checkIncomingConnBanScore,
 		)
 		if err != nil {

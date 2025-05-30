@@ -51,7 +51,7 @@ func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
 	return d.ZombieSweeperInterval
 }
 
-// ChannelReadyWait returns the config value `UnsafeDisconnect`.
+// GetUnsafeDisconnect returns the config value `UnsafeDisconnect`.
 func (d *DevConfig) GetUnsafeDisconnect() bool {
 	return d.UnsafeDisconnect
 }

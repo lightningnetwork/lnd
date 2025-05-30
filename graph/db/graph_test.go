@@ -3359,6 +3359,20 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// error.
 	err = graph.AddChannelEdge(&edgeInfo)
 	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
+
+	// Show that updating the shell node to a full node record works.
+	err = graph.AddLightningNode(node2)
+	_, ok := graph.V1Store.(*KVStore)
+	if ok {
+		require.NoError(t, err)
+	} else {
+		// Currently the SQL UpsertNode query prevents us from updating
+		// the node record if the current record's last_update field
+		// is null (which is the case for node2). This is a bug that
+		// will be fixed in the following commit.
+		require.ErrorContains(t, graph.AddLightningNode(node2),
+			"sql: no rows in result set")
+	}
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed

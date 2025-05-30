@@ -483,6 +483,10 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 // encoded key, we should not accept this incoming connection or immediately
 // disconnect. This does not assign to the server's peerScores maps. This is
 // just an inbound filter that the brontide listeners use.
+//
+// TODO(yy): We should also consider removing this `checkIncomingConnBanScore`
+// check as a) it doesn't check for ban score; and b) we should, and already
+// have this check when we handle incoming connection in `InboundPeerConnected`.
 func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
 	bool, error) {
 
@@ -497,36 +501,45 @@ func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
 	a.banScoreMtx.RLock()
 	defer a.banScoreMtx.RUnlock()
 
-	if _, found := a.peerCounts[peerMapKey]; !found {
-		acsmLog.DebugS(ctx, "Peer not found in counts, "+
-			"checking restricted slots")
+	_, found := a.peerCounts[peerMapKey]
 
-		// Check numRestricted to see if there is an available slot. In
-		// the future, it's possible to add better heuristics.
-		if a.numRestricted < a.cfg.maxRestrictedSlots {
-			// There is an available slot.
-			acsmLog.DebugS(ctx, "Restricted slot available, "+
-				"accepting",
-				"num_restricted", a.numRestricted,
-				"max_restricted", a.cfg.maxRestrictedSlots)
+	// Exit early if found.
+	if found {
+		acsmLog.DebugS(ctx, "Peer found (protected/temporary), "+
+			"accepting")
 
-			return true, nil
-		}
-
-		// If there are no slots left, then we reject this connection.
-		acsmLog.WarnS(ctx, "No restricted slots available, "+
-			"rejecting",
-			ErrNoMoreRestrictedAccessSlots,
-			"num_restricted", a.numRestricted,
-			"max_restricted", a.cfg.maxRestrictedSlots)
-
-		return false, ErrNoMoreRestrictedAccessSlots
+		return true, nil
 	}
 
-	// Else, the peer is either protected or temporary.
-	acsmLog.DebugS(ctx, "Peer found (protected/temporary), accepting")
+	_, found = a.peerScores[peerMapKey]
 
-	return true, nil
+	// Exit early if found.
+	if found {
+		acsmLog.DebugS(ctx, "Found existing peer, accepting")
+
+		return true, nil
+	}
+
+	acsmLog.DebugS(ctx, "Peer not found in counts, checking restricted "+
+		"slots")
+
+	// Check numRestricted to see if there is an available slot. In
+	// the future, it's possible to add better heuristics.
+	if a.numRestricted < a.cfg.maxRestrictedSlots {
+		// There is an available slot.
+		acsmLog.DebugS(ctx, "Restricted slot available, accepting ",
+			"num_restricted", a.numRestricted, "max_restricted",
+			a.cfg.maxRestrictedSlots)
+
+		return true, nil
+	}
+
+	// If there are no slots left, then we reject this connection.
+	acsmLog.WarnS(ctx, "No restricted slots available, rejecting ",
+		ErrNoMoreRestrictedAccessSlots, "num_restricted",
+		a.numRestricted, "max_restricted", a.cfg.maxRestrictedSlots)
+
+	return false, ErrNoMoreRestrictedAccessSlots
 }
 
 // addPeerAccess tracks a peer's access in the maps. This should be called when

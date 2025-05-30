@@ -542,7 +542,8 @@ ON CONFLICT (pub_key, version)
         last_update = EXCLUDED.last_update,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE EXCLUDED.last_update > nodes.last_update
+WHERE nodes.last_update IS NULL
+    OR EXCLUDED.last_update > nodes.last_update
 RETURNING id
 `
 

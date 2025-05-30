@@ -4002,22 +4002,6 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If the remote node's public key is banned, drop the connection.
-	access, err := s.peerAccessMan.assignPeerPerms(nodePub)
-	if err != nil {
-		// Clean up the persistent peer maps if we're dropping this
-		// connection.
-		s.bannedPersistentPeerConnection(pubStr)
-
-		srvrLog.Debugf("Dropping connection for %x since we are out "+
-			"of restricted-access connection slots: %v.", pubSer,
-			err)
-
-		conn.Close()
-
-		return
-	}
-
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
 	if p, ok := s.outboundPeers[pubStr]; ok {
@@ -4052,7 +4036,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true, access)
+		s.peerConnected(conn, nil, true)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -4084,7 +4068,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true, access)
+			s.peerConnected(conn, nil, true)
 		}
 	}
 }
@@ -4108,25 +4092,6 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	access, err := s.peerAccessMan.assignPeerPerms(nodePub)
-	if err != nil {
-		// Clean up the persistent peer maps if we're dropping this
-		// connection.
-		s.bannedPersistentPeerConnection(pubStr)
-
-		srvrLog.Debugf("Dropping connection for %x since we are out "+
-			"of restricted-access connection slots: %v.", pubSer,
-			err)
-
-		if connReq != nil {
-			s.connMgr.Remove(connReq.ID())
-		}
-
-		conn.Close()
-
-		return
-	}
 
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
@@ -4162,7 +4127,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		return
 	}
 
-	srvrLog.Infof("Established connection to: %x@%v", pubStr,
+	srvrLog.Infof("Established outbound connection to: %x@%v", pubStr,
 		conn.RemoteAddr())
 
 	if connReq != nil {
@@ -4186,7 +4151,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false, access)
+		s.peerConnected(conn, connReq, false)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -4220,7 +4185,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.removePeer(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false, access)
+			s.peerConnected(conn, connReq, false)
 		}
 	}
 }
@@ -4353,11 +4318,32 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
 func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
-	inbound bool, access peerAccessStatus) {
+	inbound bool) {
 
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+
+	// If the remote node's public key is banned, drop the connection.
+	//
+	// TODO(yy): Consider perform this check in
+	// `peerAccessMan.addPeerAccess`.
+	access, err := s.peerAccessMan.assignPeerPerms(pubKey)
+	if err != nil {
+		pubSer := pubKey.SerializeCompressed()
+
+		// Clean up the persistent peer maps if we're dropping this
+		// connection.
+		s.bannedPersistentPeerConnection(string(pubSer))
+
+		srvrLog.Debugf("Dropping connection for %x since we are out "+
+			"of restricted-access connection slots: %v.", pubSer,
+			err)
+
+		conn.Close()
+
+		return
+	}
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)

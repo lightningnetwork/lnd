@@ -69,6 +69,16 @@ type SQLQueries interface {
 	*/
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]sqlc.GetSourceNodesByVersionRow, error)
+
+	/*
+		Channel queries.
+	*/
+	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
+	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	HighestSCID(ctx context.Context, version int16) ([]byte, error)
+
+	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
+	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -455,6 +465,83 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 	return nodes, nil
 }
 
+// AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
+// undirected edge from the two target nodes are created. The information stored
+// denotes the static attributes of the channel, such as the channelID, the keys
+// involved in creation of the channel, and the set of features that the channel
+// supports. The chanPoint and chanID are used to uniquely identify the edge
+// globally within the database.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
+	opts ...batch.SchedulerOption) error {
+
+	ctx := context.TODO()
+
+	var alreadyExists bool
+	r := &batch.Request[SQLQueries]{
+		Opts: batch.NewSchedulerOptions(opts...),
+		Reset: func() {
+			alreadyExists = false
+		},
+		Do: func(tx SQLQueries) error {
+			err := insertChannel(ctx, tx, edge)
+
+			// Silence ErrEdgeAlreadyExist so that the batch can
+			// succeed, but propagate the error via local state.
+			if errors.Is(err, ErrEdgeAlreadyExist) {
+				alreadyExists = true
+				return nil
+			}
+
+			return err
+		},
+		OnCommit: func(err error) error {
+			switch {
+			case err != nil:
+				return err
+			case alreadyExists:
+				return ErrEdgeAlreadyExist
+			default:
+				s.rejectCache.remove(edge.ChannelID)
+				s.chanCache.remove(edge.ChannelID)
+				return nil
+			}
+		},
+	}
+
+	return s.chanScheduler.Execute(ctx, r)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+// This represents the "newest" channel from the PoV of the chain. This method
+// can be used by peers to quickly determine if their graphs are in sync.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) HighestChanID() (uint64, error) {
+	ctx := context.TODO()
+
+	var highestChanID uint64
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		chanID, err := db.HighestSCID(ctx, int16(ProtocolV1))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch highest chan ID: %w",
+				err)
+		}
+
+		highestChanID = byteOrder.Uint64(chanID)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch highest chan ID: %w", err)
+	}
+
+	return highestChanID, nil
+}
+
 // getNodeByPubKey attempts to look up a target node by its public key.
 func getNodeByPubKey(ctx context.Context, db SQLQueries,
 	pubKey route.Vertex) (int64, *models.LightningNode, error) {
@@ -494,10 +581,9 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.Node) (
 	copy(pub[:], dbNode.PubKey)
 
 	node := &models.LightningNode{
-		PubKeyBytes:     pub,
-		Features:        lnwire.EmptyFeatureVector(),
-		LastUpdate:      time.Unix(0, 0),
-		ExtraOpaqueData: make([]byte, 0),
+		PubKeyBytes: pub,
+		Features:    lnwire.EmptyFeatureVector(),
+		LastUpdate:  time.Unix(0, 0),
 	}
 
 	if len(dbNode.Signature) == 0 {
@@ -1022,4 +1108,152 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 	}
 
 	return records, nil
+}
+
+// insertChannel inserts a new channel record into the database.
+func insertChannel(ctx context.Context, db SQLQueries,
+	edge *models.ChannelEdgeInfo) error {
+
+	var chanIDB [8]byte
+	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
+
+	// Make sure that the channel doesn't already exist. We do this
+	// explicitly instead of relying on catching a unique constraint error
+	// because relying on SQL to throw that error would abort the entire
+	// batch of transactions.
+	_, err := db.GetChannelBySCID(
+		ctx, sqlc.GetChannelBySCIDParams{
+			Scid:    chanIDB[:],
+			Version: int16(ProtocolV1),
+		},
+	)
+	if err == nil {
+		return ErrEdgeAlreadyExist
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	// Make sure that at least a "shell" entry for each node is present in
+	// the nodes table.
+	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
+	if err != nil {
+		return fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
+	if err != nil {
+		return fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	var capacity sql.NullInt64
+	if edge.Capacity != 0 {
+		capacity = sqldb.SQLInt64(int64(edge.Capacity))
+	}
+
+	createParams := sqlc.CreateChannelParams{
+		Version:     int16(ProtocolV1),
+		Scid:        chanIDB[:],
+		NodeID1:     node1DBID,
+		NodeID2:     node2DBID,
+		Outpoint:    edge.ChannelPoint.String(),
+		Capacity:    capacity,
+		BitcoinKey1: edge.BitcoinKey1Bytes[:],
+		BitcoinKey2: edge.BitcoinKey2Bytes[:],
+	}
+
+	if edge.AuthProof != nil {
+		proof := edge.AuthProof
+
+		createParams.Node1Signature = proof.NodeSig1Bytes
+		createParams.Node2Signature = proof.NodeSig2Bytes
+		createParams.Bitcoin1Signature = proof.BitcoinSig1Bytes
+		createParams.Bitcoin2Signature = proof.BitcoinSig2Bytes
+	}
+
+	// Insert the new channel record.
+	dbChanID, err := db.CreateChannel(ctx, createParams)
+	if err != nil {
+		return err
+	}
+
+	// Insert any channel features.
+	if len(edge.Features) != 0 {
+		chanFeatures := lnwire.NewRawFeatureVector()
+		err := chanFeatures.Decode(bytes.NewReader(edge.Features))
+		if err != nil {
+			return err
+		}
+
+		fv := lnwire.NewFeatureVector(chanFeatures, lnwire.Features)
+		for feature := range fv.Features() {
+			err = db.InsertChannelFeature(
+				ctx, sqlc.InsertChannelFeatureParams{
+					ChannelID:  dbChanID,
+					FeatureBit: int32(feature),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert "+
+					"channel(%d) feature(%v): %w", dbChanID,
+					feature, err)
+			}
+		}
+	}
+
+	// Finally, insert any extra TLV fields in the channel announcement.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
+	}
+
+	for tlvType, value := range extra {
+		err := db.CreateChannelExtraType(
+			ctx, sqlc.CreateChannelExtraTypeParams{
+				ChannelID: dbChanID,
+				Type:      int64(tlvType),
+				Value:     value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert channel(%d) extra "+
+				"signed field(%v): %w", edge.ChannelID,
+				tlvType, err)
+		}
+	}
+
+	return nil
+}
+
+// maybeCreateShellNode checks if a shell node entry exists for the
+// given public key. If it does not exist, then a new shell node entry is
+// created. The ID of the node is returned. A shell node only has a protocol
+// version and public key persisted.
+func maybeCreateShellNode(ctx context.Context, db SQLQueries,
+	pubKey route.Vertex) (int64, error) {
+
+	dbNode, err := db.GetNodeByPubKey(
+		ctx, sqlc.GetNodeByPubKeyParams{
+			PubKey:  pubKey[:],
+			Version: int16(ProtocolV1),
+		},
+	)
+	// The node exists. Return the ID.
+	if err == nil {
+		return dbNode.ID, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+
+	// Otherwise, the node does not exist, so we create a shell entry for
+	// it.
+	id, err := db.UpsertNode(ctx, sqlc.UpsertNodeParams{
+		Version: int16(ProtocolV1),
+		PubKey:  pubKey[:],
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	return id, nil
 }

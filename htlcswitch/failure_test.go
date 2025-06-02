@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -52,13 +53,13 @@ func TestLongFailureMessage(t *testing.T) {
 	}
 
 	errorDecryptor := &SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(
-			circuit, nil,
+		decrypter: sphinx.NewOnionErrorDecrypter(
+			circuit, hop.AttrErrorStruct,
 		),
 	}
 
 	// Assert that the failure message can still be extracted.
-	failure, err := errorDecryptor.DecryptError(reason)
+	failure, err := errorDecryptor.DecryptError(reason, nil)
 	require.NoError(t, err)
 
 	incorrectDetails, ok := failure.msg.(*lnwire.FailIncorrectDetails)

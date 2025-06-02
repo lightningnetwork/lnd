@@ -7649,7 +7649,8 @@ func TestDuplicateFailRejection(t *testing.T) {
 	// Alice.
 	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil, nil)
 	require.NoError(t, err, "unable to cancel HTLC")
-	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil); err != nil {
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil)
+	if err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 
@@ -7659,7 +7660,9 @@ func TestDuplicateFailRejection(t *testing.T) {
 	if err == nil {
 		t.Fatalf("duplicate HTLC failure attempt should have failed")
 	}
-	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil); err == nil {
+
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil)
+	if err == nil {
 		t.Fatalf("duplicate HTLC failure attempt should have failed")
 	}
 
@@ -7683,7 +7686,8 @@ func TestDuplicateFailRejection(t *testing.T) {
 
 	// Alice on the other hand should accept the failure again, as she
 	// dropped all items in the logs which weren't committed.
-	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil); err != nil {
+	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"), nil)
+	if err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
 	}
 }
@@ -9371,7 +9375,9 @@ func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
 
 	// Now Alice should fail the htlc back to Bob.
 	// -----fail--->
-	err = aliceChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil, nil)
+	err = aliceChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil, nil,
+	)
 	require.NoError(t, err)
 	err = bobChannel.ReceiveFailHTLC(0, []byte("bad"), nil)
 	require.NoError(t, err)

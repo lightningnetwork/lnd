@@ -3575,13 +3575,20 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	sourceRef channeldb.AddRef, failure *LinkError,
 	e hop.ErrorEncrypter, isReceive bool) {
 
-	reason, _, err := e.EncryptFirstHop(failure.WireMessage())
+	reason, attrData, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return
 	}
 
-	err = l.channel.FailHTLC(add.ID, reason, nil, &sourceRef, nil, nil)
+	extraData, err := lnwire.AttrDataToExtraData(attrData)
+	if err != nil {
+		return
+	}
+
+	err = l.channel.FailHTLC(
+		add.ID, reason, extraData, &sourceRef, nil, nil,
+	)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -3590,7 +3597,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	// Send the appropriate failure message depending on whether we're
 	// in a blinded route or not.
 	if err := l.sendIncomingHTLCFailureMsg(
-		add.ID, e, reason, nil,
+		add.ID, e, reason, extraData,
 	); err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 		return

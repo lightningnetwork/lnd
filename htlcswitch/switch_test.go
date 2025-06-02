@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -3234,9 +3235,9 @@ func TestInvalidFailure(t *testing.T) {
 	// Get payment result from switch. We expect an unreadable failure
 	// message error.
 	deobfuscator := SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
-			err: ErrUnreadableFailureMessage,
-		},
+		decrypter: sphinx.NewOnionErrorDecrypter(
+			nil, hop.AttrErrorStruct,
+		),
 	}
 
 	resultChan, err := s.GetAttemptResult(
@@ -3259,10 +3260,9 @@ func TestInvalidFailure(t *testing.T) {
 	// Modify the decryption to simulate that decryption went alright, but
 	// the failure cannot be decoded.
 	deobfuscator = SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
-			sourceIdx: 2,
-			message:   []byte{200},
-		},
+		decrypter: sphinx.NewOnionErrorDecrypter(
+			nil, hop.AttrErrorStruct,
+		),
 	}
 
 	resultChan, err = s.GetAttemptResult(
@@ -4069,7 +4069,9 @@ func TestSwitchHoldForward(t *testing.T) {
 		OnionSHA256: shaOnionBlob,
 	}
 
-	fwdErr, err := newMockDeobfuscator().DecryptError(failPacket.Reason)
+	fwdErr, err := newMockDeobfuscator().DecryptError(
+		failPacket.Reason, nil,
+	)
 	require.NoError(t, err)
 	require.Equal(t, expectedFailure, fwdErr.WireMessage())
 
@@ -5535,7 +5537,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		require.True(t, ok)
 
 		fwdErr, err := newMockDeobfuscator().DecryptError(
-			failHtlc.Reason,
+			failHtlc.Reason, nil,
 		)
 		require.NoError(t, err)
 

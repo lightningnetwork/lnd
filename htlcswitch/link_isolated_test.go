@@ -280,7 +280,7 @@ func (l *linkTestContext) receiveFailAliceToBobMsg() *lnwire.UpdateFailHTLC {
 		l.t.Fatalf("expected UpdateFailHTLC, got %T", msg)
 	}
 
-	err := l.bobChannel.ReceiveFailHTLC(failMsg.ID, failMsg.Reason)
+	err := l.bobChannel.ReceiveFailHTLC(failMsg.ID, failMsg.Reason, nil)
 	if err != nil {
 		l.t.Fatalf("unable to apply received fail htlc: %v", err)
 	}

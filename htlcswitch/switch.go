@@ -166,10 +166,10 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
-	// ExtractErrorEncrypter is an interface allowing switch to reextract
+	// ExtractSharedSecret is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractSharedSecret hop.SharedSecretGenerator
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -361,11 +361,11 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	resStore := newResolutionStore(cfg.DB)
 
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
-		DB:                    cfg.DB,
-		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
-		FetchClosedChannels:   cfg.FetchClosedChannels,
-		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
-		CheckResolutionMsg:    resStore.checkResolutionMsg,
+		DB:                   cfg.DB,
+		FetchAllOpenChannels: cfg.FetchAllOpenChannels,
+		FetchClosedChannels:  cfg.FetchClosedChannels,
+		ExtractSharedSecret:  cfg.ExtractSharedSecret,
+		CheckResolutionMsg:   resStore.checkResolutionMsg,
 	})
 	if err != nil {
 		return nil, err

@@ -2678,7 +2678,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	reason := make([]byte, 292)
 	copy(reason, []byte("nop"))
 
-	err = harness.bobChannel.FailHTLC(bobIndex, reason, nil, nil, nil)
+	err = harness.bobChannel.FailHTLC(bobIndex, reason, nil, nil, nil, nil)
 	require.NoError(t, err, "unable to fail htlc")
 	failMsg := &lnwire.UpdateFailHTLC{
 		ID:     1,
@@ -2925,7 +2925,9 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected UpdateFailHTLC, got %T", msg)
 	}
-	err = harness.bobChannel.ReceiveFailHTLC(failMsg.ID, []byte("fail"))
+	err = harness.bobChannel.ReceiveFailHTLC(
+		failMsg.ID, []byte("fail"), nil,
+	)
 	require.NoError(t, err, "failed receiving fail htlc")
 
 	// After failing an HTLC, the link will automatically trigger
@@ -7310,7 +7312,7 @@ func TestChannelLinkShortFailureRelay(t *testing.T) {
 	// Return a short htlc failure from Bob to Alice and lock in.
 	shortReason := make([]byte, 260)
 
-	err = harness.bobChannel.FailHTLC(0, shortReason, nil, nil, nil)
+	err = harness.bobChannel.FailHTLC(0, shortReason, nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	harness.aliceLink.HandleChannelUpdate(&lnwire.UpdateFailHTLC{

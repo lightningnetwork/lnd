@@ -125,6 +125,9 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   record](https://github.com/lightningnetwork/lnd/pull/9897) on the 
   `channel_update` message and handle it explicitly throughout the code base 
   instead of extracting it from the TLV stream at various call-sites.
+* [Don't error out](https://github.com/lightningnetwork/lnd/pull/9884) if an 
+  invoice's feature vector contain both the required and optional versions of a 
+  feature bit. In those cases, just treat the feature as mandatory. 
 
 ## Testing
 

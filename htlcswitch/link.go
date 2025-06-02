@@ -3611,7 +3611,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 		return
 	}
 
-	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
+	err = l.channel.FailHTLC(add.ID, reason, nil, &sourceRef, nil, nil)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -3620,7 +3620,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	// Send the appropriate failure message depending on whether we're
 	// in a blinded route or not.
 	if err := l.sendIncomingHTLCFailureMsg(
-		add.ID, e, reason,
+		add.ID, e, reason, nil,
 	); err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 		return
@@ -3664,8 +3664,8 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 // used if we are the introduction node and need to present an error as if
 // we're the failing party.
 func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
-	e hop.ErrorEncrypter,
-	originalFailure lnwire.OpaqueReason) error {
+	e hop.ErrorEncrypter, originalFailure lnwire.OpaqueReason,
+	extraData lnwire.ExtraOpaqueData) error {
 
 	var msg lnwire.Message
 	switch {
@@ -3678,9 +3678,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 	// code.
 	case e == nil:
 		msg = &lnwire.UpdateFailHTLC{
-			ChanID: l.ChanID(),
-			ID:     htlcIndex,
-			Reason: originalFailure,
+			ChanID:    l.ChanID(),
+			ID:        htlcIndex,
+			Reason:    originalFailure,
+			ExtraData: extraData,
 		}
 
 		l.log.Errorf("Unexpected blinded failure when "+
@@ -3691,9 +3692,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 	// transformation on the error message and can just send the original.
 	case !e.Type().IsBlinded():
 		msg = &lnwire.UpdateFailHTLC{
-			ChanID: l.ChanID(),
-			ID:     htlcIndex,
-			Reason: originalFailure,
+			ChanID:    l.ChanID(),
+			ID:        htlcIndex,
+			Reason:    originalFailure,
+			ExtraData: extraData,
 		}
 
 	// When we're the introduction node, we need to convert the error to
@@ -4228,7 +4230,7 @@ func (l *channelLink) processRemoteUpdateFailMalformedHTLC(
 	// If remote side have been unable to parse the onion blob we have sent
 	// to it, than we should transform the malformed HTLC message to the
 	// usual HTLC fail message.
-	err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
+	err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes(), msg.ExtraData)
 	if err != nil {
 		l.failf(LinkFailureError{code: ErrInvalidUpdate},
 			"unable to handle upstream fail HTLC: %v", err)
@@ -4269,7 +4271,7 @@ func (l *channelLink) processRemoteUpdateFailHTLC(
 
 	// Add fail to the update log.
 	idx := msg.ID
-	err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
+	err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:], msg.ExtraData)
 	if err != nil {
 		l.failf(LinkFailureError{code: ErrInvalidUpdate},
 			"unable to handle upstream fail HTLC: %v", err)
@@ -4709,8 +4711,8 @@ func (l *channelLink) processLocalUpdateFailHTLC(ctx context.Context,
 	// remove then HTLC from our local state machine.
 	inKey := pkt.inKey()
 	err := l.channel.FailHTLC(
-		pkt.incomingHTLCID, htlc.Reason, pkt.sourceRef, pkt.destRef,
-		&inKey,
+		pkt.incomingHTLCID, htlc.Reason, htlc.ExtraData, pkt.sourceRef,
+		pkt.destRef, &inKey,
 	)
 	if err != nil {
 		l.log.Errorf("unable to cancel incoming HTLC for "+
@@ -4746,7 +4748,9 @@ func (l *channelLink) processLocalUpdateFailHTLC(ctx context.Context,
 	// HTLC. If the incoming blinding point is non-nil, we know that we are
 	// a relaying node in a blinded path. Otherwise, we're either an
 	// introduction node or not part of a blinded path at all.
-	err = l.sendIncomingHTLCFailureMsg(htlc.ID, pkt.obfuscator, htlc.Reason)
+	err = l.sendIncomingHTLCFailureMsg(
+		htlc.ID, pkt.obfuscator, htlc.Reason, htlc.ExtraData,
+	)
 	if err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 

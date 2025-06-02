@@ -360,10 +360,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		}
 
 		// Parse destination feature bits.
-		destinationFeatures, err = UnmarshalFeatures(in.DestFeatures)
-		if err != nil {
-			return nil, err
-		}
+		destinationFeatures = UnmarshalFeatures(in.DestFeatures)
 	}
 
 	// We need to subtract the final delta before passing it into path
@@ -495,10 +492,7 @@ func unmarshalBlindedPayment(rpcPayment *lnrpc.BlindedPaymentPath) (
 		return nil, err
 	}
 
-	features, err := UnmarshalFeatures(rpcPayment.Features)
-	if err != nil {
-		return nil, err
-	}
+	features := UnmarshalFeatures(rpcPayment.Features)
 
 	return &routing.BlindedPayment{
 		BlindedPath:         path,
@@ -1124,10 +1118,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.Amount = reqAmt
 
 		// Parse destination feature bits.
-		features, err := UnmarshalFeatures(rpcPayReq.DestFeatures)
-		if err != nil {
-			return nil, err
-		}
+		features := UnmarshalFeatures(rpcPayReq.DestFeatures)
 
 		// Validate the features if any was specified.
 		if features != nil {
@@ -1149,10 +1140,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 					lnrpc.FeatureBit_AMP_OPT,
 				}
 
-				features, err = UnmarshalFeatures(ampFeatures)
-				if err != nil {
-					return nil, err
-				}
+				features = UnmarshalFeatures(ampFeatures)
 			}
 
 			// First make sure the destination supports AMP.
@@ -1348,24 +1336,26 @@ func MarshalFeatures(feats *lnwire.FeatureVector) []lnrpc.FeatureBit {
 // UnmarshalFeatures converts a list of uint32's into a valid feature vector.
 // This method checks that feature bit pairs aren't assigned together, and
 // validates transitive dependencies.
-func UnmarshalFeatures(
-	rpcFeatures []lnrpc.FeatureBit) (*lnwire.FeatureVector, error) {
-
+func UnmarshalFeatures(rpcFeatures []lnrpc.FeatureBit) *lnwire.FeatureVector {
 	// If no destination features are specified we'll return nil to signal
 	// that the router should try to use the graph as a fallback.
 	if rpcFeatures == nil {
-		return nil, nil
+		return nil
 	}
 
 	raw := lnwire.NewRawFeatureVector()
 	for _, bit := range rpcFeatures {
-		err := raw.SafeSet(lnwire.FeatureBit(bit))
-		if err != nil {
-			return nil, err
-		}
+		// Even though the spec says that the writer of a feature vector
+		// should never set both the required and optional bits of a
+		// feature, it also says that if we receive a vector with both
+		// bits set, then we should just treat the feature as required.
+		// Therefore, we don't use SafeSet here when parsing a peer's
+		// feature bits and just set the feature no matter what so that
+		// if both are set then IsRequired returns true.
+		raw.Set(lnwire.FeatureBit(bit))
 	}
 
-	return lnwire.NewFeatureVector(raw, lnwire.Features), nil
+	return lnwire.NewFeatureVector(raw, lnwire.Features)
 }
 
 // ValidatePayReqExpiry checks if the passed payment request has expired. In

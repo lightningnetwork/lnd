@@ -828,8 +828,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 					lnrpc.FeatureBit_GOSSIP_QUERIES_REQ,
 				},
 			},
-			valid:            false,
-			expectedErrorMsg: "feature pair exists",
+			valid: true,
 		},
 		{
 			name: "Valid send req parameters, payment settled",

@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -1530,9 +1531,30 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                   p,
-		DecodeHopIterators:     p.cfg.SphinxPayment.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.SphinxPayment.ExtractErrorEncrypter,
+		Peer:                p,
+		DecodeHopIterators:  p.cfg.SphinxPayment.DecodeHopIterators,
+		ExtractSharedSecret: p.cfg.SphinxPayment.ExtractSharedSecret,
+		CreateErrorEncrypter: func(ephemeralKey *btcec.PublicKey,
+			sharedSecret sphinx.Hash256, isIntroduction,
+			hasBlindingPoint bool) hop.ErrorEncrypter {
+
+			switch {
+			case isIntroduction:
+				return hop.NewIntroductionErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+
+			case hasBlindingPoint:
+				return hop.NewRelayingErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+
+			default:
+				return hop.NewSphinxErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+			}
+		},
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,

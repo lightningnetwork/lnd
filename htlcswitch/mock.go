@@ -465,8 +465,8 @@ func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (
-	*ForwardingError, error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason,
+	attrData []byte) (*ForwardingError, error) {
 
 	if !bytes.Equal(reason[:32], fakeHmac) {
 		return nil, errors.New("fake decryption error")
@@ -479,7 +479,7 @@ func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (
 		return nil, err
 	}
 
-	return NewForwardingError(failure, 1), nil
+	return NewForwardingError(failure, 1, nil), nil
 }
 
 var _ ErrorDecrypter = (*mockDeobfuscator)(nil)
@@ -1149,8 +1149,8 @@ type mockOnionErrorDecryptor struct {
 	err       error
 }
 
-func (m *mockOnionErrorDecryptor) DecryptError(encryptedData, _ []byte,
-	_ bool) (*sphinx.DecryptedError, error) {
+func (m *mockOnionErrorDecryptor) DecryptError(encryptedData, attrdata []byte) (
+	*sphinx.DecryptedError, error) {
 
 	return &sphinx.DecryptedError{
 		SenderIdx: m.sourceIdx,

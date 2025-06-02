@@ -252,7 +252,7 @@ func (l *linkTestContext) receiveFailAliceToBobWithCode(
 	l.t.Helper()
 
 	failMsg := l.receiveFailAliceToBobMsg()
-	failure, err := newMockDeobfuscator().DecryptError(failMsg.Reason)
+	failure, err := newMockDeobfuscator().DecryptError(failMsg.Reason, nil)
 	if err != nil {
 		l.t.Fatalf("unable to decrypt failure: %v", err)
 	}

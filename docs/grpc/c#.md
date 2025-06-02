@@ -91,6 +91,7 @@ var channel = GrpcChannel.ForAddress(
         HttpHandler = httpClientHandler,
     });
 var client = new Lnrpc.Lightning.LightningClient(channel);
+var routerClient = new Routerrpc.Router.RouterClient(channel);
 ```
 
 ### Examples
@@ -132,45 +133,41 @@ $  lncli sendpayment --pay_req=<PAY_REQ>
 
 Your console should now display the details of the recently satisfied invoice.
 
-#### Bidirectional-streaming RPC
+#### Server-streaming RPC
 
 ```cs
-using (var call = client.SendPayment())
+string destHex = "<THE_RECEIVER_NODE_IDENTITY_PUBLIC_KEY_IN_HEX>";
+byte[] destBytes = Convert.FromHexString(destHex);
+
+int amount = 100;
+
+string paymentHashHex = "<THE_PAYMENT_HASH_IN_HEX>";
+byte[] paymentHashBytes = Convert.FromHexString(paymentHashHex);
+
+int finalCltvDelta = <THE_FINAL_CLTV_DELTA_AS_INTEGER>;
+
+string paymentAddressHex = "<THE_PAYMENT_ADDRESS_IN_HEX>";
+byte[] paymentAddressBytes = Convert.FromHexString(paymentAddressHex);
+
+var request = new SendPaymentRequest
 {
-    var responseReaderTask = Task.Run(async () =>
-    {
-        while (await call.ResponseStream.MoveNext())
-        {
-            var payment = call.ResponseStream.Current;
-            Console.WriteLine(payment.ToString());
-        }
-    });
+    Dest = Google.Protobuf.ByteString.CopyFrom(destBytes),
+    Amt = amount,
+    PaymentHash = Google.Protobuf.ByteString.CopyFrom(paymentHashBytes),
+    FinalCltvDelta = finalCltvDelta,
+    PaymentAddr = Google.Protobuf.ByteString.CopyFrom(paymentAddressBytes)
+};
 
-    foreach (SendRequest sendRequest in SendPayment())
-    {
-        await call.RequestStream.WriteAsync(sendRequest);
-    }
-    await call.RequestStream.CompleteAsync();
-    await responseReaderTask;
-}
-
-
-IEnumerable<SendRequest> SendPayment()
+using (var call = routerClient.SendPayment(request))
 {
-    while (true)
+    while (await call.ResponseStream.MoveNext())
     {
-        SendRequest req = new SendRequest() {
-            DestString = <DEST_PUB_KEY>,
-            Amt = 100,
-            PaymentHashString = <R_HASH>,
-            FinalCltvDelta = 144
-        };
-        yield return req;
-        System.Threading.Thread.Sleep(2000);
+        var payment = call.ResponseStream.Current;
+        Console.WriteLine(payment.ToString());
     }
 }
 ```
-This example will send a payment of 100 satoshis every 2 seconds.
+This example will send a payment of 100 satoshis.
 
 #### Using Macaroons
 

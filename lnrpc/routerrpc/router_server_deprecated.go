@@ -3,7 +3,6 @@ package routerrpc
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -77,48 +76,6 @@ func (s *Server) TrackPayment(request *TrackPaymentRequest,
 		Router_TrackPaymentServer: stream,
 	}
 	return s.TrackPaymentV2(request, &legacyStream)
-}
-
-// SendPayment attempts to route a payment described by the passed
-// PaymentRequest to the final destination. If we are unable to route the
-// payment, or cannot find a route that satisfies the constraints in the
-// PaymentRequest, then an error will be returned. Otherwise, the payment
-// pre-image, along with the final route will be returned.
-func (s *Server) SendPayment(request *SendPaymentRequest,
-	stream Router_SendPaymentServer) error {
-
-	if request.MaxParts > 1 {
-		return errors.New("for multi-part payments, use SendPaymentV2")
-	}
-
-	legacyStream := legacyTrackPaymentServer{
-		Router_TrackPaymentServer: stream,
-	}
-	return s.SendPaymentV2(request, &legacyStream)
-}
-
-// SendToRoute sends a payment through a predefined route. The response of this
-// call contains structured error information.
-func (s *Server) SendToRoute(ctx context.Context,
-	req *SendToRouteRequest) (*SendToRouteResponse, error) {
-
-	resp, err := s.SendToRouteV2(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp == nil {
-		return nil, nil
-	}
-
-	// Need to convert to legacy response message because proto identifiers
-	// don't line up.
-	legacyResp := &SendToRouteResponse{
-		Preimage: resp.Preimage,
-		Failure:  resp.Failure,
-	}
-
-	return legacyResp, nil
 }
 
 // QueryProbability returns the current success probability estimate for a

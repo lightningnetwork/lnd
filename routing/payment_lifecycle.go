@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -533,9 +532,7 @@ func (p *paymentLifecycle) collectResult(
 	// Using the created circuit, initialize the error decrypter, so we can
 	// parse+decode any failures incurred by this payment within the
 	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit, nil),
-	}
+	errorDecryptor := htlcswitch.NewSphinxErrorDecrypter(circuit)
 
 	// Now ask the switch to return the result of the payment when
 	// available.

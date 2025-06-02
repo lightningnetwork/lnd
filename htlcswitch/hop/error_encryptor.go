@@ -2,12 +2,15 @@ package hop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // EncrypterType establishes an enum used in serialization to indicate how to
@@ -37,6 +40,24 @@ const (
 	// the same functionality as a EncrypterTypeSphinx, but is used to mark
 	// our special-case error handling.
 	EncrypterTypeRelaying = 4
+
+	// A set of tlv type definitions used to serialize the encrypter to the
+	// database.
+	//
+	// NOTE: A migration should be added whenever this list changes. This
+	// prevents against the database being rolled back to an older
+	// format where the surrounding logic might assume a different set of
+	// fields are known.
+	creationTimeType tlv.Type = 0
+)
+
+// AttrErrorStruct defines the message structure for an attributable error. Use
+// a maximum route length of 20, a fixed payload length of 4 bytes to
+// accommodate the a 32-bit hold time in milliseconds and use 4 byte hmacs.
+// Total size including a 256 byte message from the error source works out to
+// 1200 bytes.
+var (
+	AttrErrorStruct = sphinx.NewAttrErrorStructure(20, 4, 4)
 )
 
 // IsBlinded returns a boolean indicating whether the error encrypter belongs
@@ -58,8 +79,8 @@ type ErrorEncrypter interface {
 	// encrypted opaque failure reason. This method will be used at the
 	// source that the error occurs. It differs from IntermediateEncrypt
 	// slightly, in that it computes a proper MAC over the error.
-	EncryptFirstHop(lnwire.FailureMessage) (lnwire.OpaqueReason, []byte,
-		error)
+	EncryptFirstHop(lnwire.FailureMessage) (lnwire.OpaqueReason,
+		[]byte, error)
 
 	// EncryptMalformedError is similar to EncryptFirstHop (it adds the
 	// MAC), but it accepts an opaque failure reason rather than a failure
@@ -104,6 +125,7 @@ type SphinxErrorEncrypter struct {
 	*sphinx.OnionErrorEncrypter
 
 	EphemeralKey *btcec.PublicKey
+	CreatedAt    time.Time
 }
 
 // NewSphinxErrorEncrypterUninitialized initializes a blank sphinx error
@@ -115,8 +137,7 @@ type SphinxErrorEncrypter struct {
 //     OnionProcessor.
 func NewSphinxErrorEncrypterUninitialized() *SphinxErrorEncrypter {
 	return &SphinxErrorEncrypter{
-		OnionErrorEncrypter: nil,
-		EphemeralKey:        &btcec.PublicKey{},
+		EphemeralKey: &btcec.PublicKey{},
 	}
 }
 
@@ -131,15 +152,35 @@ func NewSphinxErrorEncrypter(ephemeralKey *btcec.PublicKey,
 		EphemeralKey: ephemeralKey,
 	}
 
+	// Set creation time rounded to nanosecond to avoid differences after
+	// serialization.
+	encrypter.CreatedAt = time.Now().Truncate(time.Nanosecond)
+
 	encrypter.initialize(sharedSecret)
 
 	return encrypter
 }
 
+// getHoldTime returns the hold time in decaseconds since the first
+// instantiation of this sphinx error encrypter.
+func (s *SphinxErrorEncrypter) getHoldTime() uint32 {
+	return uint32(time.Since(s.CreatedAt).Milliseconds() / 100)
+}
+
+// encrypt is a thin wrapper around the main encryption method, mainly used to
+// automatically derive the hold time to encode in the attribution structure.
+func (s *SphinxErrorEncrypter) encrypt(initial bool,
+	data, attrData []byte) (lnwire.OpaqueReason, []byte, error) {
+
+	holdTime := s.getHoldTime()
+
+	return s.EncryptError(initial, data, attrData, holdTime)
+}
+
 // initialize creates the underlying instance of the sphinx error encrypter.
 func (s *SphinxErrorEncrypter) initialize(sharedSecret sphinx.Hash256) {
 	s.OnionErrorEncrypter = sphinx.NewOnionErrorEncrypter(
-		sharedSecret, nil,
+		sharedSecret, AttrErrorStruct,
 	)
 }
 
@@ -157,9 +198,7 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(
 		return nil, nil, err
 	}
 
-	// We pass a true as the first parameter to indicate that a MAC should
-	// be added.
-	return s.EncryptError(true, b.Bytes(), nil, 0)
+	return s.encrypt(true, b.Bytes(), nil)
 }
 
 // EncryptMalformedError is similar to EncryptFirstHop (it adds the MAC), but
@@ -172,7 +211,7 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(
 func (s *SphinxErrorEncrypter) EncryptMalformedError(
 	reason lnwire.OpaqueReason) (lnwire.OpaqueReason, []byte, error) {
 
-	return s.EncryptError(true, reason, nil, 0)
+	return s.encrypt(true, reason, nil)
 }
 
 // IntermediateEncrypt wraps an already encrypted opaque reason error in an
@@ -183,10 +222,25 @@ func (s *SphinxErrorEncrypter) EncryptMalformedError(
 //
 // NOTE: Part of the ErrorEncrypter interface.
 func (s *SphinxErrorEncrypter) IntermediateEncrypt(
-	reason lnwire.OpaqueReason, _ []byte) (lnwire.OpaqueReason, []byte,
-	error) {
+	reason lnwire.OpaqueReason, attrData []byte) (lnwire.OpaqueReason,
+	[]byte, error) {
 
-	return s.EncryptError(false, reason, nil, 0)
+	encrypted, attrData, err := s.encrypt(false, reason, attrData)
+
+	switch {
+	// If the structure of the error received from downstream is invalid,
+	// then generate a new attribution structure so that the sender is able
+	// to penalize the offending node.
+	case errors.Is(err, sphinx.ErrInvalidAttrStructure):
+		// Preserve the error message and initialize fresh attribution
+		// data.
+		return s.encrypt(true, reason, nil)
+
+	case err != nil:
+		return lnwire.OpaqueReason{}, nil, err
+	}
+
+	return encrypted, attrData, nil
 }
 
 // Type returns the identifier for a sphinx error encrypter.
@@ -199,7 +253,20 @@ func (s *SphinxErrorEncrypter) Type() EncrypterType {
 func (s *SphinxErrorEncrypter) Encode(w io.Writer) error {
 	ephemeral := s.EphemeralKey.SerializeCompressed()
 	_, err := w.Write(ephemeral)
-	return err
+	if err != nil {
+		return err
+	}
+
+	var creationTime = uint64(s.CreatedAt.UnixNano())
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(creationTimeType, &creationTime),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
 }
 
 // Decode reconstructs the error encrypter's ephemeral public key from the
@@ -215,6 +282,29 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+
+	// Try decode attributable error structure.
+	var creationTime uint64
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(creationTimeType, &creationTime),
+	)
+	if err != nil {
+		return err
+	}
+
+	typeMap, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	// Return early if this encrypter is not for attributable errors.
+	if len(typeMap) == 0 {
+		return nil
+	}
+
+	// Set attributable error creation time.
+	s.CreatedAt = time.Unix(0, int64(creationTime))
 
 	return nil
 }

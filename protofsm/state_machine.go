@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -150,8 +151,14 @@ type StateMachine[Event any, Env Environment] struct {
 	gm   fn.GoroutineManager
 	quit chan struct{}
 
+	// startOnce and stopOnce are used to ensure that the state machine is
+	// only started and stopped once.
 	startOnce sync.Once
 	stopOnce  sync.Once
+
+	// running is a flag that indicates if the state machine is currently
+	// running.
+	running atomic.Bool
 }
 
 // ErrorReporter is an interface that's used to report errors that occur during
@@ -221,6 +228,8 @@ func (s *StateMachine[Event, Env]) Start(ctx context.Context) {
 		_ = s.gm.Go(ctx, func(ctx context.Context) {
 			s.driveMachine(ctx)
 		})
+
+		s.running.Store(true)
 	})
 }
 
@@ -230,6 +239,8 @@ func (s *StateMachine[Event, Env]) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.quit)
 		s.gm.Stop()
+
+		s.running.Store(false)
 	})
 }
 
@@ -331,6 +342,11 @@ func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[
 	Event, Env]) {
 
 	_ = s.newStateEvents.RemoveSubscriber(sub)
+}
+
+// IsRunning returns true if the state machine is currently running.
+func (s *StateMachine[Event, Env]) IsRunning() bool {
+	return s.running.Load()
 }
 
 // executeDaemonEvent executes a daemon event, which is a special type of event

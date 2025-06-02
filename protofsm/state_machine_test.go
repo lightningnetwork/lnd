@@ -357,13 +357,26 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 	}
 	stateMachine := NewStateMachine(cfg)
 
+	// Before we start up the state machine, we'll assert that the machine
+	// is not running.
+	require.False(t, stateMachine.IsRunning())
+
 	// As we're triggering internal events, we'll also subscribe to the set
 	// of new states so we can assert as we go.
 	stateSub := stateMachine.RegisterStateEvents()
 	defer stateMachine.RemoveStateSub(stateSub)
 
 	stateMachine.Start(ctx)
-	defer stateMachine.Stop()
+	defer func() {
+		stateMachine.Stop()
+
+		// After we stop the state machine, we expect it to no longer be
+		// running.
+		require.False(t, stateMachine.IsRunning())
+	}()
+
+	// The state machine should now be running.
+	require.True(t, stateMachine.IsRunning())
 
 	// As soon as we send in the daemon event, we expect the
 	// disable+broadcast events to be processed, as they are unconditional.

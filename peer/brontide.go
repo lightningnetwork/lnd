@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -1438,25 +1439,45 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                   p,
-		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
-		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
-		HodlMask:               p.cfg.Hodl.Mask(),
-		Registry:               p.cfg.Invoices,
-		BestHeight:             p.cfg.Switch.BestHeight,
-		Circuits:               p.cfg.Switch.CircuitModifier(),
-		ForwardPackets:         p.cfg.InterceptSwitch.ForwardPackets,
-		FwrdingPolicy:          *forwardingPolicy,
-		FeeEstimator:           p.cfg.FeeEstimator,
-		PreimageCache:          p.cfg.WitnessBeacon,
-		ChainEvents:            chainEvents,
-		UpdateContractSignals:  updateContractSignals,
-		NotifyContractUpdate:   notifyContractUpdate,
-		OnChannelFailure:       onChannelFailure,
-		SyncStates:             syncStates,
-		BatchTicker:            ticker.New(p.cfg.ChannelCommitInterval),
-		FwdPkgGCTicker:         ticker.New(time.Hour),
+		Peer:                p,
+		DecodeHopIterators:  p.cfg.Sphinx.DecodeHopIterators,
+		ExtractSharedSecret: p.cfg.Sphinx.ExtractSharedSecret,
+		CreateErrorEncrypter: func(ephemeralKey *btcec.PublicKey,
+			sharedSecret sphinx.Hash256, isIntroduction,
+			hasBlindingPoint bool) hop.ErrorEncrypter {
+
+			switch {
+			case isIntroduction:
+				return hop.NewIntroductionErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+
+			case hasBlindingPoint:
+				return hop.NewRelayingErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+
+			default:
+				return hop.NewSphinxErrorEncrypter(
+					ephemeralKey, sharedSecret,
+				)
+			}
+		}, FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
+		HodlMask:              p.cfg.Hodl.Mask(),
+		Registry:              p.cfg.Invoices,
+		BestHeight:            p.cfg.Switch.BestHeight,
+		Circuits:              p.cfg.Switch.CircuitModifier(),
+		ForwardPackets:        p.cfg.InterceptSwitch.ForwardPackets,
+		FwrdingPolicy:         *forwardingPolicy,
+		FeeEstimator:          p.cfg.FeeEstimator,
+		PreimageCache:         p.cfg.WitnessBeacon,
+		ChainEvents:           chainEvents,
+		UpdateContractSignals: updateContractSignals,
+		NotifyContractUpdate:  notifyContractUpdate,
+		OnChannelFailure:      onChannelFailure,
+		SyncStates:            syncStates,
+		BatchTicker:           ticker.New(p.cfg.ChannelCommitInterval),
+		FwdPkgGCTicker:        ticker.New(time.Hour),
 		PendingCommitTicker: ticker.New(
 			p.cfg.PendingCommitInterval,
 		),

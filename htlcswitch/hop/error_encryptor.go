@@ -45,9 +45,9 @@ func (e EncrypterType) IsBlinded() bool {
 	return e == EncrypterTypeIntroduction || e == EncrypterTypeRelaying
 }
 
-// ErrorEncrypterExtracter defines a function signature that extracts an
-// ErrorEncrypter from an sphinx OnionPacket.
-type ErrorEncrypterExtracter func(*btcec.PublicKey) (ErrorEncrypter,
+// SharedSecretGenerator defines a function signature that extracts a shared
+// secret from an sphinx OnionPacket.
+type SharedSecretGenerator func(*btcec.PublicKey) (sphinx.Hash256,
 	lnwire.FailCode)
 
 // ErrorEncrypter is an interface that is used to encrypt HTLC related errors
@@ -87,12 +87,13 @@ type ErrorEncrypter interface {
 	// given io.Reader.
 	Decode(io.Reader) error
 
-	// Reextract rederives the encrypter using the extracter, performing an
-	// ECDH with the sphinx router's key and the ephemeral public key.
+	// Reextract rederives the encrypter using the shared secret generator,
+	// performing an ECDH with the sphinx router's key and the ephemeral
+	// public key.
 	//
 	// NOTE: This should be called shortly after Decode to properly
 	// reinitialize the error encrypter.
-	Reextract(ErrorEncrypterExtracter) error
+	Reextract(SharedSecretGenerator) error
 }
 
 // SphinxErrorEncrypter is a concrete implementation of both the ErrorEncrypter
@@ -105,18 +106,41 @@ type SphinxErrorEncrypter struct {
 	EphemeralKey *btcec.PublicKey
 }
 
-// NewSphinxErrorEncrypter initializes a blank sphinx error encrypter, that
-// should be used to deserialize an encoded SphinxErrorEncrypter. Since the
-// actual encrypter is not stored in plaintext while at rest, reconstructing the
-// error encrypter requires:
+// NewSphinxErrorEncrypterUninitialized initializes a blank sphinx error
+// encrypter, that should be used to deserialize an encoded
+// SphinxErrorEncrypter. Since the actual encrypter is not stored in plaintext
+// while at rest, reconstructing the error encrypter requires:
 //  1. Decode: to deserialize the ephemeral public key.
 //  2. Reextract: to "unlock" the actual error encrypter using an active
 //     OnionProcessor.
-func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
+func NewSphinxErrorEncrypterUninitialized() *SphinxErrorEncrypter {
 	return &SphinxErrorEncrypter{
 		OnionErrorEncrypter: nil,
 		EphemeralKey:        &btcec.PublicKey{},
 	}
+}
+
+// NewSphinxErrorEncrypter creates a new instance of a SphinxErrorEncrypter,
+// initialized with the provided shared secret. To deserialize an encoded
+// SphinxErrorEncrypter, use the NewSphinxErrorEncrypterUninitialized
+// constructor.
+func NewSphinxErrorEncrypter(ephemeralKey *btcec.PublicKey,
+	sharedSecret sphinx.Hash256) *SphinxErrorEncrypter {
+
+	encrypter := &SphinxErrorEncrypter{
+		EphemeralKey: ephemeralKey,
+	}
+
+	encrypter.initialize(sharedSecret)
+
+	return encrypter
+}
+
+// initialize creates the underlying instance of the sphinx error encrypter.
+func (s *SphinxErrorEncrypter) initialize(sharedSecret sphinx.Hash256) {
+	s.OnionErrorEncrypter = sphinx.NewOnionErrorEncrypter(
+		sharedSecret, nil,
+	)
 }
 
 // EncryptFirstHop transforms a concrete failure message into an encrypted
@@ -198,10 +222,8 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 // Reextract rederives the error encrypter from the currently held EphemeralKey.
 // This intended to be used shortly after Decode, to fully initialize a
 // SphinxErrorEncrypter.
-func (s *SphinxErrorEncrypter) Reextract(
-	extract ErrorEncrypterExtracter) error {
-
-	obfuscator, failcode := extract(s.EphemeralKey)
+func (s *SphinxErrorEncrypter) Reextract(extract SharedSecretGenerator) error {
+	sharedSecret, failcode := extract(s.EphemeralKey)
 	if failcode != lnwire.CodeNone {
 		// This should never happen, since we already validated that
 		// this obfuscator can be extracted when it was received in the
@@ -210,13 +232,7 @@ func (s *SphinxErrorEncrypter) Reextract(
 			"obfuscator, got failcode: %d", failcode)
 	}
 
-	sphinxEncrypter, ok := obfuscator.(*SphinxErrorEncrypter)
-	if !ok {
-		return fmt.Errorf("incorrect onion error extracter")
-	}
-
-	// Copy the freshly extracted encrypter.
-	s.OnionErrorEncrypter = sphinxEncrypter.OnionErrorEncrypter
+	s.initialize(sharedSecret)
 
 	return nil
 }
@@ -239,9 +255,25 @@ type IntroductionErrorEncrypter struct {
 }
 
 // NewIntroductionErrorEncrypter returns a blank IntroductionErrorEncrypter.
-func NewIntroductionErrorEncrypter() *IntroductionErrorEncrypter {
+func NewIntroductionErrorEncrypter(ephemeralKey *btcec.PublicKey,
+	sharedSecret sphinx.Hash256) *IntroductionErrorEncrypter {
+
 	return &IntroductionErrorEncrypter{
-		ErrorEncrypter: NewSphinxErrorEncrypter(),
+		ErrorEncrypter: NewSphinxErrorEncrypter(
+			ephemeralKey, sharedSecret,
+		),
+	}
+}
+
+// NewIntroductionErrorEncrypter returns a blank IntroductionErrorEncrypter.
+// Since the actual encrypter is not stored in plaintext
+// while at rest, reconstructing the error encrypter requires:
+//  1. Decode: to deserialize the ephemeral public key.
+//  2. Reextract: to "unlock" the actual error encrypter using an active
+//     OnionProcessor.
+func NewIntroductionErrorEncrypterUninitialized() *IntroductionErrorEncrypter {
+	return &IntroductionErrorEncrypter{
+		ErrorEncrypter: NewSphinxErrorEncrypterUninitialized(),
 	}
 }
 
@@ -253,7 +285,7 @@ func (i *IntroductionErrorEncrypter) Type() EncrypterType {
 // Reextract rederives the error encrypter from the currently held EphemeralKey,
 // relying on the logic in the underlying SphinxErrorEncrypter.
 func (i *IntroductionErrorEncrypter) Reextract(
-	extract ErrorEncrypterExtracter) error {
+	extract SharedSecretGenerator) error {
 
 	return i.ErrorEncrypter.Reextract(extract)
 }
@@ -270,9 +302,26 @@ type RelayingErrorEncrypter struct {
 
 // NewRelayingErrorEncrypter returns a blank RelayingErrorEncrypter with
 // an underlying SphinxErrorEncrypter.
-func NewRelayingErrorEncrypter() *RelayingErrorEncrypter {
+func NewRelayingErrorEncrypter(ephemeralKey *btcec.PublicKey,
+	sharedSecret sphinx.Hash256) *RelayingErrorEncrypter {
+
 	return &RelayingErrorEncrypter{
-		ErrorEncrypter: NewSphinxErrorEncrypter(),
+		ErrorEncrypter: NewSphinxErrorEncrypter(
+			ephemeralKey, sharedSecret,
+		),
+	}
+}
+
+// NewRelayingErrorEncrypterUninitialized returns a blank RelayingErrorEncrypter
+// with an underlying SphinxErrorEncrypter.
+// Since the actual encrypter is not stored in plaintext
+// while at rest, reconstructing the error encrypter requires:
+//  1. Decode: to deserialize the ephemeral public key.
+//  2. Reextract: to "unlock" the actual error encrypter using an active
+//     OnionProcessor.
+func NewRelayingErrorEncrypterUninitialized() *RelayingErrorEncrypter {
+	return &RelayingErrorEncrypter{
+		ErrorEncrypter: NewSphinxErrorEncrypterUninitialized(),
 	}
 }
 
@@ -284,7 +333,7 @@ func (r *RelayingErrorEncrypter) Type() EncrypterType {
 // Reextract rederives the error encrypter from the currently held EphemeralKey,
 // relying on the logic in the underlying SphinxErrorEncrypter.
 func (r *RelayingErrorEncrypter) Reextract(
-	extract ErrorEncrypterExtracter) error {
+	extract SharedSecretGenerator) error {
 
 	return r.ErrorEncrypter.Reextract(extract)
 }

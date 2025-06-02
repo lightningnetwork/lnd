@@ -809,13 +809,19 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 	// Encrypt the failure for the first hop. This node will be the origin
 	// of the failure.
-	reason, _, err := f.packet.obfuscator.EncryptFirstHop(failureMsg)
+	reason, attrData, err := f.packet.obfuscator.EncryptFirstHop(failureMsg)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt failure reason %w", err)
 	}
 
+	extraData, err := lnwire.AttrDataToExtraData(attrData)
+	if err != nil {
+		return err
+	}
+
 	return f.resolve(&lnwire.UpdateFailHTLC{
-		Reason: reason,
+		Reason:    reason,
+		ExtraData: extraData,
 	})
 }
 

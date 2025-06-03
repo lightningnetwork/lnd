@@ -127,6 +127,10 @@ func WithTimeoutCG() ContextGuardOption {
 
 // Create is used to derive a cancellable context from the parent. Various
 // options can be provided to configure the behaviour of the derived context.
+//
+// NOTE: When creating a new context make sure that either the global context
+// is quit or the returned cancel function is called to remove the cancel
+// function form the internal map of the context guard so avoid a memory leak.
 func (g *ContextGuard) Create(ctx context.Context,
 	options ...ContextGuardOption) (context.Context, context.CancelFunc) {
 

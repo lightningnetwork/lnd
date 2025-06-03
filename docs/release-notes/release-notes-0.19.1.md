@@ -41,6 +41,9 @@
 
 ## Functional Enhancements
 
+- [Increase](https://github.com/lightningnetwork/lnd/pull/9875) gossip sync
+  buffer to take the pressure of the read handler.
+
 ## RPC Additions
 
 ## lncli Additions

@@ -24,7 +24,7 @@ func assertInboundConnection(t *testing.T, a *accessMan,
 	require.NoError(t, err)
 	require.Equal(t, status, peerAccess)
 
-	a.addPeerAccess(remotePub, peerAccess)
+	a.addPeerAccess(remotePub, peerAccess, true)
 	peerScore, ok := a.peerScores[remotePubSer]
 	require.True(t, ok)
 	require.Equal(t, status, peerScore.state)

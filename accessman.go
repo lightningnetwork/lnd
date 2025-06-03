@@ -545,7 +545,7 @@ func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
 // addPeerAccess tracks a peer's access in the maps. This should be called when
 // the peer has fully connected.
 func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
-	access peerAccessStatus) {
+	access peerAccessStatus, inbound bool) {
 
 	ctx := btclog.WithCtx(
 		context.TODO(), lnutils.LogPubKey("peer", remotePub),
@@ -561,15 +561,37 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 
 	a.peerScores[peerMapKey] = peerSlotStatus{state: access}
 
-	// Increment numRestricted.
-	if access == peerStatusRestricted {
+	// Exit early if this is not a restricted peer.
+	if access != peerStatusRestricted {
+		return
+	}
+
+	// Increment numRestricted if this is an inbound connection.
+	if inbound {
 		oldRestricted := a.numRestricted
 		a.numRestricted++
 
 		acsmLog.DebugS(ctx, "Incremented restricted slots",
 			"old_restricted", oldRestricted,
 			"new_restricted", a.numRestricted)
+
+		return
 	}
+
+	// Otherwise, this is a newly created outbound connection. We won't
+	// place any restriction on it, instead, we will do a hot upgrade here
+	// to move it from restricted to temporary.
+	peerCount := channeldb.ChanCount{
+		HasOpenOrClosedChan: false,
+		PendingOpenCount:    0,
+	}
+
+	a.peerCounts[peerMapKey] = peerCount
+	a.peerScores[peerMapKey] = peerSlotStatus{
+		state: peerStatusTemporary,
+	}
+
+	acsmLog.InfoS(ctx, "Upgraded outbound peer: restricted -> temporary")
 }
 
 // removePeerAccess removes the peer's access from the maps. This should be

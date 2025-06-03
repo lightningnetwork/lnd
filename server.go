@@ -4316,12 +4316,14 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	// If the remote node's public key is banned, drop the connection.
+	// Only restrict access for inbound connections, which means if the
+	// remote node's public key is banned or the restricted slots are used
+	// up, we will drop the connection.
 	//
 	// TODO(yy): Consider perform this check in
 	// `peerAccessMan.addPeerAccess`.
 	access, err := s.peerAccessMan.assignPeerPerms(pubKey)
-	if err != nil {
+	if inbound && err != nil {
 		pubSer := pubKey.SerializeCompressed()
 
 		// Clean up the persistent peer maps if we're dropping this
@@ -4474,7 +4476,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	p := peer.NewBrontide(pCfg)
 
 	// Update the access manager with the access permission for this peer.
-	s.peerAccessMan.addPeerAccess(pubKey, access)
+	s.peerAccessMan.addPeerAccess(pubKey, access, inbound)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?

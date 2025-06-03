@@ -193,6 +193,23 @@ const (
 	peerStatusProtected
 )
 
+// String returns a human-readable representation of the status code.
+func (p peerAccessStatus) String() string {
+	switch p {
+	case peerStatusRestricted:
+		return "restricted"
+
+	case peerStatusTemporary:
+		return "temporary"
+
+	case peerStatusProtected:
+		return "protected"
+
+	default:
+		return "unknown"
+	}
+}
+
 // peerSlotStatus determines whether a peer gets access to one of our free
 // slots or gets to bypass this safety mechanism.
 type peerSlotStatus struct {

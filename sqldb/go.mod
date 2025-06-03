@@ -1,7 +1,7 @@
 module github.com/lightningnetwork/lnd/sqldb
 
 require (
-	github.com/btcsuite/btclog/v2 v2.0.0-20241017175713-3428138b75c7
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/golang-migrate/migrate/v4 v4.17.0
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438

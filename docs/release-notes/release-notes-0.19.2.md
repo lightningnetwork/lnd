@@ -20,6 +20,9 @@
 
 # Bug Fixes
 
+- [Use](https://github.com/lightningnetwork/lnd/pull/9889) `BigSizeT` instead of
+  `uint16` for the htlc index that's used in the revocation log.
+
 # New Features
 
 ## Functional Enhancements
@@ -63,3 +66,4 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 # Contributors (Alphabetical Order)
 * Abdulkbk
+* Yong Yu

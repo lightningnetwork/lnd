@@ -64,18 +64,25 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	peerKey3 := peerPriv3.PubKey()
 	peerKeySer3 := string(peerKey3.SerializeCompressed())
 
+	var (
+		peer1PendingCount = 0
+		peer2PendingCount = 1
+		peer3PendingCount = 1
+	)
+
 	initPerms := func() (map[string]channeldb.ChanCount, error) {
 		return map[string]channeldb.ChanCount{
 			peerKeySer1: {
 				HasOpenOrClosedChan: true,
+				PendingOpenCount:    uint64(peer1PendingCount),
 			},
 			peerKeySer2: {
 				HasOpenOrClosedChan: true,
-				PendingOpenCount:    1,
+				PendingOpenCount:    uint64(peer2PendingCount),
 			},
 			peerKeySer3: {
 				HasOpenOrClosedChan: false,
-				PendingOpenCount:    1,
+				PendingOpenCount:    uint64(peer3PendingCount),
 			},
 		}, nil
 	}
@@ -101,17 +108,17 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	peerCount1, ok := a.peerCounts[peerKeySer1]
 	require.True(t, ok)
 	require.True(t, peerCount1.HasOpenOrClosedChan)
-	require.Equal(t, 0, int(peerCount1.PendingOpenCount))
+	require.Equal(t, peer1PendingCount, int(peerCount1.PendingOpenCount))
 
 	peerCount2, ok := a.peerCounts[peerKeySer2]
 	require.True(t, ok)
 	require.True(t, peerCount2.HasOpenOrClosedChan)
-	require.Equal(t, 1, int(peerCount2.PendingOpenCount))
+	require.Equal(t, peer2PendingCount, int(peerCount2.PendingOpenCount))
 
 	peerCount3, ok := a.peerCounts[peerKeySer3]
 	require.True(t, ok)
 	require.False(t, peerCount3.HasOpenOrClosedChan)
-	require.Equal(t, 1, int(peerCount3.PendingOpenCount))
+	require.Equal(t, peer3PendingCount, int(peerCount3.PendingOpenCount))
 
 	// We'll now start to connect the peers. We'll add a new fourth peer
 	// that will take up the restricted slot. The first three peers should
@@ -135,10 +142,25 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	require.NoError(t, err)
 	assertAccessState(t, a, peerKey4, peerStatusTemporary)
 
+	// Assert that accessman's internal state is updated with peer4. We
+	// expect this new peer to have 1 pending open count.
+	peerCount4, ok := a.peerCounts[string(peerKey4.SerializeCompressed())]
+	require.True(t, ok)
+	require.False(t, peerCount4.HasOpenOrClosedChan)
+	require.Equal(t, 1, int(peerCount4.PendingOpenCount))
+
 	// Check that an open channel promotes the temporary peer.
 	err = a.newOpenChan(peerKey3)
 	require.NoError(t, err)
 	assertAccessState(t, a, peerKey3, peerStatusProtected)
+
+	// Assert that accessman's internal state is updated with peer3. We
+	// expect this existing peer to decrement its pending open count and the
+	// flag `HasOpenOrClosedChan` should be true.
+	peerCount3, ok = a.peerCounts[peerKeySer3]
+	require.True(t, ok)
+	require.True(t, peerCount3.HasOpenOrClosedChan)
+	require.Equal(t, peer3PendingCount-1, int(peerCount3.PendingOpenCount))
 
 	// We should be able to accommodate a new peer.
 	peerPriv5, err := btcec.NewPrivateKey()
@@ -151,6 +173,10 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	// peer.
 	err = a.newPendingCloseChan(peerKey4)
 	require.ErrorIs(t, err, ErrNoMoreRestrictedAccessSlots)
+
+	// Assert that peer4 is removed.
+	_, ok = a.peerCounts[string(peerKey4.SerializeCompressed())]
+	require.False(t, ok)
 }
 
 // TestAssignPeerPerms asserts that the peer's access status is correctly

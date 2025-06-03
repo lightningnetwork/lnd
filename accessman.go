@@ -440,6 +440,8 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 		}
 
 		peerCount.HasOpenOrClosedChan = true
+		peerCount.PendingOpenCount -= 1
+
 		a.peerCounts[peerMapKey] = peerCount
 
 		newStatus := peerSlotStatus{

@@ -910,6 +910,20 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("could not start ping manager %w", err)
 	}
 
+	// Initialize our negotiated gossip sync method before reading messages
+	// off the wire. When using gossip queries, this ensures a gossip
+	// syncer is active by the time query messages arrive.
+	//
+	// NOTE: We need to do this synchronously to make sure a gossip peer
+	// is registered before we signal that the peer is active because
+	// otherwise the is a race which can happen that we try to remove the
+	// gossip syncer before the gossiper was registered with the sync
+	// manager.
+	//
+	// TODO(conner): have peer store gossip syncer directly and bypass
+	// gossiper?
+	p.initGossipSync()
+
 	p.cg.WgAdd(4)
 	go p.queueHandler()
 	go p.writeHandler()
@@ -2023,14 +2037,6 @@ func (p *Brontide) readHandler() {
 			p, idleTimeout)
 		p.Disconnect(err)
 	})
-
-	// Initialize our negotiated gossip sync method before reading messages
-	// off the wire. When using gossip queries, this ensures a gossip
-	// syncer is active by the time query messages arrive.
-	//
-	// TODO(conner): have peer store gossip syncer directly and bypass
-	// gossiper?
-	p.initGossipSync()
 
 	discStream := newDiscMsgStream(p)
 	discStream.Start()

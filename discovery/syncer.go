@@ -409,6 +409,8 @@ func (g *GossipSyncer) Start() {
 	g.started.Do(func() {
 		log.Debugf("Starting GossipSyncer(%x)", g.cfg.peerPub[:])
 
+		// We do not call the cancel function here, because the global
+		// context quit method is enough to clean up the context guard.
 		ctx, _ := g.cg.Create(context.Background())
 
 		// TODO(conner): only spawn channelGraphSyncer if remote

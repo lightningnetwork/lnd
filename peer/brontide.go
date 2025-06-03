@@ -4127,6 +4127,8 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 			defer rbfCloser.RemoveStateSub(coopCloseStates)
 		}
 
+		// We do not call the cancel function here, because the global
+		// context quit method is enough to clean up the context guard.
 		ctx, _ := p.cg.Create(context.Background())
 		feeRate := defaultFeePerKw.FeePerVByte()
 

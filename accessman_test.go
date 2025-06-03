@@ -526,3 +526,154 @@ func TestHasPeer(t *testing.T) {
 	require.False(t, found)
 	require.Equal(t, peerStatusRestricted, access)
 }
+
+// TestAddPeerAccessInbound asserts the num of slots is correctly incremented
+// only for a new inbound peer with restricted access.
+func TestAddPeerAccessInbound(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing accessMan.
+	a := &accessMan{
+		peerCounts: make(map[string]channeldb.ChanCount),
+		peerScores: make(map[string]peerSlotStatus),
+	}
+
+	// Create a testing key.
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pub := priv.PubKey()
+	pubStr := string(pub.SerializeCompressed())
+
+	// Add this peer as an inbound peer with peerStatusRestricted.
+	a.addPeerAccess(pub, peerStatusRestricted, true)
+
+	// Assert the accessMan's internal state.
+	//
+	// We expect to see one peer found in the score map, and one slot is
+	// taken, and this peer is not found in the counts map.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(1), a.numRestricted)
+	require.NotContains(t, a.peerCounts, pubStr)
+
+	// The peer should be found in the score map.
+	score, ok := a.peerScores[pubStr]
+	require.True(t, ok)
+
+	expecedScore := peerSlotStatus{state: peerStatusRestricted}
+	require.Equal(t, expecedScore, score)
+
+	// Add this peer again, we expect the available slots to stay unchanged.
+	a.addPeerAccess(pub, peerStatusRestricted, true)
+
+	// Assert the internal state is not changed.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(1), a.numRestricted)
+	require.NotContains(t, a.peerCounts, pubStr)
+
+	// Reset the accessMan.
+	a = &accessMan{
+		peerCounts: make(map[string]channeldb.ChanCount),
+		peerScores: make(map[string]peerSlotStatus),
+	}
+
+	// Add this peer as an inbound peer with peerStatusTemporary.
+	a.addPeerAccess(pub, peerStatusTemporary, true)
+
+	// Assert the accessMan's internal state.
+	//
+	// We expect to see one peer found in the score map, and no slot is
+	// taken since this peer is not restricted.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(0), a.numRestricted)
+
+	// NOTE: in reality this is not possible as the peer must have been put
+	// into the map `peerCounts` before its perm can be upgraded.
+	require.NotContains(t, a.peerCounts, pubStr)
+
+	// The peer should be found in the score map.
+	score, ok = a.peerScores[pubStr]
+	require.True(t, ok)
+
+	expecedScore = peerSlotStatus{state: peerStatusTemporary}
+	require.Equal(t, expecedScore, score)
+}
+
+// TestAddPeerAccessOutbound asserts that outbound peer is not restricted and
+// its perm is upgraded when it has peerStatusRestricted.
+func TestAddPeerAccessOutbound(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing accessMan.
+	a := &accessMan{
+		peerCounts: make(map[string]channeldb.ChanCount),
+		peerScores: make(map[string]peerSlotStatus),
+	}
+
+	// Create a testing key.
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pub := priv.PubKey()
+	pubStr := string(pub.SerializeCompressed())
+
+	// Add this peer as an outbound peer with peerStatusRestricted.
+	a.addPeerAccess(pub, peerStatusRestricted, false)
+
+	// Assert the accessMan's internal state.
+	//
+	// We expect to see one peer found in the score map, and no slot is
+	// taken, and this peer is found in the counts map.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(0), a.numRestricted)
+	require.Contains(t, a.peerCounts, pubStr)
+
+	// The peer should be found in the score map.
+	score, ok := a.peerScores[pubStr]
+	require.True(t, ok)
+
+	// Its perm should be upgraded to temporary.
+	expecedScore := peerSlotStatus{state: peerStatusTemporary}
+	require.Equal(t, expecedScore, score)
+
+	// The peer should be found in the peer counts map.
+	count, ok := a.peerCounts[pubStr]
+	require.True(t, ok)
+
+	// The peer's count should be initialized correctly.
+	require.Zero(t, count.PendingOpenCount)
+	require.False(t, count.HasOpenOrClosedChan)
+
+	// Add this peer again, we expect the available slots to stay unchanged.
+	a.addPeerAccess(pub, peerStatusRestricted, true)
+
+	// Assert the internal state is not changed.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(0), a.numRestricted)
+	require.Contains(t, a.peerCounts, pubStr)
+
+	// Reset the accessMan.
+	a = &accessMan{
+		peerCounts: make(map[string]channeldb.ChanCount),
+		peerScores: make(map[string]peerSlotStatus),
+	}
+
+	// Add this peer as an inbound peer with peerStatusTemporary.
+	a.addPeerAccess(pub, peerStatusTemporary, true)
+
+	// Assert the accessMan's internal state.
+	//
+	// We expect to see one peer found in the score map, and no slot is
+	// taken since this peer is not restricted.
+	require.Len(t, a.peerScores, 1)
+	require.Equal(t, int64(0), a.numRestricted)
+
+	// NOTE: in reality this is not possible as the peer must have been put
+	// into the map `peerCounts` before its perm can be upgraded.
+	require.NotContains(t, a.peerCounts, pubStr)
+
+	// The peer should be found in the score map.
+	score, ok = a.peerScores[pubStr]
+	require.True(t, ok)
+
+	expecedScore = peerSlotStatus{state: peerStatusTemporary}
+	require.Equal(t, expecedScore, score)
+}

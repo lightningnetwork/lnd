@@ -559,10 +559,23 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 
 	peerMapKey := string(remotePub.SerializeCompressed())
 
+	// Exit early if this is an existing peer, which means it won't take
+	// another slot.
+	_, found := a.peerScores[peerMapKey]
+	if found {
+		acsmLog.DebugS(ctx, "Skipped taking restricted slot for "+
+			"existing peer")
+
+		return
+	}
+
 	a.peerScores[peerMapKey] = peerSlotStatus{state: access}
 
 	// Exit early if this is not a restricted peer.
 	if access != peerStatusRestricted {
+		acsmLog.DebugS(ctx, "Skipped taking restricted slot as peer "+
+			"already has access", "access", access)
+
 		return
 	}
 

@@ -464,6 +464,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBumpFee,
 	},
 	{
+		Name:     "bumpfee external input",
+		TestFunc: testBumpFeeExternalInput,
+	},
+	{
 		Name:     "bumpforceclosefee",
 		TestFunc: testBumpForceCloseFee,
 	},
@@ -694,6 +698,10 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "rbf coop close",
 		TestFunc: testCoopCloseRbf,
+	},
+	{
+		Name:     "rbf coop close disconnect",
+		TestFunc: testRBFCoopCloseDisconnect,
 	},
 	{
 		Name:     "bump fee low budget",

@@ -975,11 +975,13 @@ func (p *Brontide) taprootShutdownAllowed() bool {
 // rbfCoopCloseAllowed returns true if both parties have negotiated the new RBF
 // coop close feature.
 func (p *Brontide) rbfCoopCloseAllowed() bool {
-	return p.RemoteFeatures().HasFeature(
-		lnwire.RbfCoopCloseOptionalStaging,
-	) && p.LocalFeatures().HasFeature(
-		lnwire.RbfCoopCloseOptionalStaging,
-	)
+	bothHaveBit := func(bit lnwire.FeatureBit) bool {
+		return p.RemoteFeatures().HasFeature(bit) &&
+			p.LocalFeatures().HasFeature(bit)
+	}
+
+	return bothHaveBit(lnwire.RbfCoopCloseOptional) ||
+		bothHaveBit(lnwire.RbfCoopCloseOptionalStaging)
 }
 
 // QuitSignal is a method that should return a channel which will be sent upon
@@ -1993,9 +1995,32 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// so that a parent context can be passed in here.
 		ctx := context.TODO()
 
-		// TODO(yy): `ProcessRemoteAnnouncement` returns an error chan
-		// and we need to process it.
-		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
+		p.log.Debugf("Processing remote msg %T", msg)
+
+		errChan := p.cfg.AuthGossiper.ProcessRemoteAnnouncement(
+			ctx, msg, p,
+		)
+
+		// Start a goroutine to process the error channel for logging
+		// purposes.
+		//
+		// TODO(ziggie): Maybe use the error to potentially punish the
+		// peer depending on the error ?
+		go func() {
+			select {
+			case <-p.cg.Done():
+				return
+
+			case err := <-errChan:
+				if err != nil {
+					p.log.Warnf("Error processing remote "+
+						"msg %T: %v", msg,
+						err)
+				}
+			}
+
+			p.log.Debugf("Processed remote msg %T", msg)
+		}()
 	}
 
 	return newMsgStream(
@@ -3804,18 +3829,28 @@ func (p *Brontide) chanFlushEventSentinel(chanCloser *chancloser.RbfChanCloser,
 	// We'll wait until the channel enters the ChannelFlushing state. We
 	// exit after a success loop. As after the first RBF iteration, the
 	// channel will always be flushed.
-	for newState := range newStateChan {
-		if _, ok := newState.(*chancloser.ChannelFlushing); ok {
-			peerLog.Infof("ChannelPoint(%v): rbf coop "+
-				"close is awaiting a flushed state, "+
-				"registering with link..., ",
-				channel.ChannelPoint())
+	for {
+		select {
+		case newState, ok := <-newStateChan:
+			if !ok {
+				return
+			}
 
-			// Request the link to send the event once the channel
-			// is flushed. We only need this event sent once, so we
-			// can exit now.
-			link.OnFlushedOnce(sendChanFlushed)
+			if _, ok := newState.(*chancloser.ChannelFlushing); ok {
+				peerLog.Infof("ChannelPoint(%v): rbf coop "+
+					"close is awaiting a flushed state, "+
+					"registering with link..., ",
+					channel.ChannelPoint())
 
+				// Request the link to send the event once the
+				// channel is flushed. We only need this event
+				// sent once, so we can exit now.
+				link.OnFlushedOnce(sendChanFlushed)
+
+				return
+			}
+
+		case <-p.cg.Done():
 			return
 		}
 	}

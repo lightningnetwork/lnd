@@ -2,7 +2,7 @@ module github.com/lightningnetwork/lnd/tor
 
 require (
 	github.com/btcsuite/btcd v0.23.3
-	github.com/btcsuite/btclog/v2 v2.0.0-20241017175713-3428138b75c7
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/miekg/dns v1.1.43
 	github.com/stretchr/testify v1.8.2
 	golang.org/x/net v0.17.0

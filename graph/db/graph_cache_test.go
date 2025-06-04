@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -37,11 +38,17 @@ func TestGraphCacheAddNode(t *testing.T) {
 			channelFlagA, channelFlagB = 1, 0
 		}
 
+		inboundFee := lnwire.Fee{
+			BaseFee: 10,
+			FeeRate: 20,
+		}
+
 		outPolicy1 := &models.ChannelEdgePolicy{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
 			ToNode:       nodeB,
 			// Define an inbound fee.
+			InboundFee: fn.Some(inboundFee),
 			ExtraOpaqueData: []byte{
 				253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
 			},

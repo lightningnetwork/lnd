@@ -4546,6 +4546,12 @@ func serializeChanEdgePolicy(w io.Writer, edge *models.ChannelEdgePolicy,
 		}
 	}
 
+	// Validate that the ExtraOpaqueData is in fact a valid TLV stream.
+	err = edge.ExtraOpaqueData.ValidateTLV()
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrParsingExtraTLVBytes, err)
+	}
+
 	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
 		return ErrTooManyExtraOpaqueBytes(len(edge.ExtraOpaqueData))
 	}

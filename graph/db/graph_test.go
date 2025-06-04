@@ -4200,14 +4200,22 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		FeeRate: 20,
 	})
 
-	// Set an invalid inbound fee and check that the edge is no longer
-	// returned.
+	// Set an invalid inbound fee and check that persistence fails.
 	edge1.ExtraOpaqueData = []byte{
 		253, 217, 3, 8, 0,
 	}
-	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+	require.ErrorIs(
+		t, graph.UpdateEdgePolicy(edge1), ErrParsingExtraTLVBytes,
+	)
 
-	require.Nil(t, getSingleChannel())
+	// Since persistence of the last update failed, we should still bet
+	// the previous result when we query the channel again.
+	directedChan = getSingleChannel()
+	require.NotNil(t, directedChan)
+	require.Equal(t, directedChan.InboundFee, lnwire.Fee{
+		BaseFee: 10,
+		FeeRate: 20,
+	})
 }
 
 // TestGraphLoading asserts that the cache is properly reconstructed after a

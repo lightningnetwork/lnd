@@ -77,6 +77,11 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* Explicitly define the [inbound fee TLV 
+  record](https://github.com/lightningnetwork/lnd/pull/9897) on the 
+  `channel_update` message and handle it explicitly throughout the code base 
+  instead of extracting it from the TLV stream at various call-sites.
+
 ## Testing
 
 ## Database

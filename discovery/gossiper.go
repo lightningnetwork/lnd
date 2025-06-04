@@ -3257,27 +3257,8 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		MaxHTLC:                   upd.HtlcMaximumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
+		InboundFee:                upd.InboundFee.ValOpt(),
 		ExtraOpaqueData:           upd.ExtraOpaqueData,
-	}
-
-	// Extract the inbound fee from the ExtraOpaqueData, if present.
-	//
-	// TODO(elle): this can be removed once we define the optional TLV
-	// field on the lnwire.ChannelUpdate itself.
-	var inboundFee lnwire.Fee
-	typeMap, err := upd.ExtraOpaqueData.ExtractRecords(&inboundFee)
-	if err != nil {
-		rErr := fmt.Errorf("%w: %w", graphdb.ErrParsingExtraTLVBytes,
-			err)
-
-		log.Error(rErr)
-		nMsg.err <- rErr
-		return nil, false
-	}
-
-	val, ok := typeMap[lnwire.FeeRecordType]
-	if ok && val == nil {
-		update.InboundFee = fn.Some(inboundFee)
 	}
 
 	if err := d.cfg.Graph.UpdateEdge(update, ops...); err != nil {

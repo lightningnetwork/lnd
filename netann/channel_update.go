@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/pkg/errors"
 )
 
@@ -138,7 +139,7 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 	policy *models.ChannelEdgePolicy) *lnwire.ChannelUpdate1 {
 
-	return &lnwire.ChannelUpdate1{
+	update := &lnwire.ChannelUpdate1{
 		ChainHash:       info.ChainHash,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
 		Timestamp:       uint32(policy.LastUpdate.Unix()),
@@ -151,6 +152,13 @@ func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo,
 		FeeRate:         uint32(policy.FeeProportionalMillionths),
 		ExtraOpaqueData: policy.ExtraOpaqueData,
 	}
+	policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
+		update.InboundFee = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType55555, lnwire.Fee](fee),
+		)
+	})
+
+	return update
 }
 
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge

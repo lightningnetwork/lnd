@@ -6842,7 +6842,7 @@ func marshalDBRoutingPolicy(
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
 	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
-	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
+	inboundFee := policy.InboundFee.UnwrapOr(lnwire.Fee{})
 
 	return &lnrpc.RoutingPolicy{
 		TimeLockDelta:    uint32(policy.TimeLockDelta),
@@ -7698,14 +7698,9 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 				edgePolicy.FeeProportionalMillionths
 			feeRate := float64(feeRateFixedPoint) / feeBase
 
-			// Decode inbound fee from extra data.
-			var inboundFee lnwire.Fee
-			_, err := edgePolicy.ExtraOpaqueData.ExtractRecords(
-				&inboundFee,
+			inboundFee := edgePolicy.InboundFee.UnwrapOr(
+				lnwire.Fee{},
 			)
-			if err != nil {
-				return err
-			}
 
 			// TODO(roasbeef): also add stats for revenue for each
 			// channel

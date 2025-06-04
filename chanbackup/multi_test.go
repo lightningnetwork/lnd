@@ -22,7 +22,9 @@ func TestMultiPackUnpack(t *testing.T) {
 			t.Fatalf("unable to gen channel: %v", err)
 		}
 
-		single := NewSingle(channel, []net.Addr{addr1, addr2})
+		single := NewSingle(
+			channel, []net.Addr{addr1, addr2, addr3, addr4},
+		)
 
 		originalSingles = append(originalSingles, single)
 		multi.StaticBackups = append(multi.StaticBackups, single)

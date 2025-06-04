@@ -11,6 +11,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -943,7 +944,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = b.UpdateEdge(&models.ChannelEdgePolicy{
+	update := &models.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
@@ -955,7 +956,25 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
 		ExtraOpaqueData:           msg.ExtraOpaqueData,
-	})
+	}
+
+	// Extract the inbound fee from the ExtraOpaqueData, if present.
+	//
+	// TODO(elle): this can be removed once we define the optional TLV
+	// field on the lnwire.ChannelUpdate itself.
+	var inboundFee lnwire.Fee
+	typeMap, err := update.ExtraOpaqueData.ExtractRecords(&inboundFee)
+	if err != nil {
+		log.Errorf("%v: %v", graphdb.ErrParsingExtraTLVBytes, err)
+		return false
+	}
+
+	val, ok := typeMap[lnwire.FeeRecordType]
+	if ok && val == nil {
+		update.InboundFee = fn.Some(inboundFee)
+	}
+
+	err = b.UpdateEdge(update)
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
 		return false

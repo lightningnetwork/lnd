@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -282,6 +283,13 @@ func (c *KVStore) getChannelMap(edges kvdb.RBucket) (
 		// If the db policy was missing an expected optional field, we
 		// return nil as if the policy was unknown.
 		case errors.Is(err, ErrEdgePolicyOptionalFieldNotFound):
+			return nil
+
+		// We don't want a single policy with bad TLV data to stop us
+		// from loading the rest of the data, so we just skip this
+		// policy. This is for backwards compatibility since we did not
+		// use to validate TLV data in the past before persisting it.
+		case errors.Is(err, ErrParsingExtraTLVBytes):
 			return nil
 
 		case err != nil:
@@ -2342,7 +2350,7 @@ func (c *KVStore) FilterChannelRange(startHeight,
 				edge, err := deserializeChanEdgePolicyRaw(r)
 				if err != nil && !errors.Is(
 					err, ErrEdgePolicyOptionalFieldNotFound,
-				) {
+				) && !errors.Is(err, ErrParsingExtraTLVBytes) {
 
 					return err
 				}
@@ -2357,7 +2365,7 @@ func (c *KVStore) FilterChannelRange(startHeight,
 				edge, err := deserializeChanEdgePolicyRaw(r)
 				if err != nil && !errors.Is(
 					err, ErrEdgePolicyOptionalFieldNotFound,
-				) {
+				) && !errors.Is(err, ErrParsingExtraTLVBytes) {
 
 					return err
 				}
@@ -4334,15 +4342,20 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy,
 		// need to deserialize the existing policy within the database
 		// (now outdated by the new one), and delete its corresponding
 		// entry within the update index. We'll ignore any
-		// ErrEdgePolicyOptionalFieldNotFound error, as we only need
-		// the channel ID and update time to delete the entry.
+		// ErrEdgePolicyOptionalFieldNotFound or ErrParsingExtraTLVBytes
+		// errors, as we only need the channel ID and update time to
+		// delete the entry.
+		//
 		// TODO(halseth): get rid of these invalid policies in a
 		// migration.
+		// TODO(elle): complete the above TODO in migration from kvdb
+		// to SQL.
 		oldEdgePolicy, err := deserializeChanEdgePolicy(
 			bytes.NewReader(edgeBytes),
 		)
 		if err != nil &&
-			!errors.Is(err, ErrEdgePolicyOptionalFieldNotFound) {
+			!errors.Is(err, ErrEdgePolicyOptionalFieldNotFound) &&
+			!errors.Is(err, ErrParsingExtraTLVBytes) {
 
 			return err
 		}
@@ -4447,6 +4460,11 @@ func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
 	// If the db policy was missing an expected optional field, we return
 	// nil as if the policy was unknown.
 	case errors.Is(err, ErrEdgePolicyOptionalFieldNotFound):
+		return nil, nil
+
+	// If the policy contains invalid TLV bytes, we return nil as if
+	// the policy was unknown.
+	case errors.Is(err, ErrParsingExtraTLVBytes):
 		return nil, nil
 
 	case err != nil:
@@ -4568,15 +4586,18 @@ func serializeChanEdgePolicy(w io.Writer, edge *models.ChannelEdgePolicy,
 
 func deserializeChanEdgePolicy(r io.Reader) (*models.ChannelEdgePolicy, error) {
 	// Deserialize the policy. Note that in case an optional field is not
-	// found, both an error and a populated policy object are returned.
-	edge, deserializeErr := deserializeChanEdgePolicyRaw(r)
-	if deserializeErr != nil &&
-		!errors.Is(deserializeErr, ErrEdgePolicyOptionalFieldNotFound) {
+	// found or if the edge has invalid TLV data, then both an error and a
+	// populated policy object are returned so that the caller can decide
+	// if it still wants to use the edge or not.
+	edge, err := deserializeChanEdgePolicyRaw(r)
+	if err != nil &&
+		!errors.Is(err, ErrEdgePolicyOptionalFieldNotFound) &&
+		!errors.Is(err, ErrParsingExtraTLVBytes) {
 
-		return nil, deserializeErr
+		return nil, err
 	}
 
-	return edge, deserializeErr
+	return edge, err
 }
 
 func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
@@ -4661,6 +4682,22 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 
 		// Exclude the parsed field from the rest of the opaque data.
 		edge.ExtraOpaqueData = opq[8:]
+	}
+
+	// Attempt to extract the inbound fee from the opaque data. If we fail
+	// to parse the TLV here, we return an error we also return the edge
+	// so that the caller can still use it. This is for backwards
+	// compatibility in case we have already persisted some policies that
+	// have invalid TLV data.
+	var inboundFee lnwire.Fee
+	typeMap, err := edge.ExtraOpaqueData.ExtractRecords(&inboundFee)
+	if err != nil {
+		return edge, fmt.Errorf("%w: %w", ErrParsingExtraTLVBytes, err)
+	}
+
+	val, ok := typeMap[lnwire.FeeRecordType]
+	if ok && val == nil {
+		edge.InboundFee = fn.Some(inboundFee)
 	}
 
 	return edge, nil

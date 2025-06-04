@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestReliableSender creates a new reliable sender instance used for
@@ -32,7 +34,7 @@ func newTestReliableSender(t *testing.T) *reliableSender {
 			return c
 		},
 		MessageStore: newMockMessageStore(),
-		IsMsgStale: func(lnwire.Message) bool {
+		IsMsgStale: func(context.Context, lnwire.Message) bool {
 			return false
 		},
 	}
@@ -69,6 +71,7 @@ func assertMsgsSent(t *testing.T, msgChan chan lnwire.Message,
 // a peer while taking into account its connection lifecycle works as expected.
 func TestReliableSenderFlow(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	reliableSender := newTestReliableSender(t)
 
@@ -98,9 +101,8 @@ func TestReliableSenderFlow(t *testing.T) {
 	msg1 := randChannelUpdate()
 	var peerPubKey [33]byte
 	copy(peerPubKey[:], pubKey.SerializeCompressed())
-	if err := reliableSender.sendMessage(msg1, peerPubKey); err != nil {
-		t.Fatalf("unable to reliably send message: %v", err)
-	}
+	err := reliableSender.sendMessage(ctx, msg1, peerPubKey)
+	require.NoError(t, err)
 
 	// Since there isn't a peerHandler for this peer currently active due to
 	// this being the first message being sent reliably, we should expect to
@@ -114,9 +116,8 @@ func TestReliableSenderFlow(t *testing.T) {
 
 	// We'll then attempt to send another additional message reliably.
 	msg2 := randAnnounceSignatures()
-	if err := reliableSender.sendMessage(msg2, peerPubKey); err != nil {
-		t.Fatalf("unable to reliably send message: %v", err)
-	}
+	err = reliableSender.sendMessage(ctx, msg2, peerPubKey)
+	require.NoError(t, err)
 
 	// This should not however request another peer online notification as
 	// the peerHandler has already been started and is waiting for the
@@ -145,9 +146,8 @@ func TestReliableSenderFlow(t *testing.T) {
 
 	// Then, we'll send one more message reliably.
 	msg3 := randChannelUpdate()
-	if err := reliableSender.sendMessage(msg3, peerPubKey); err != nil {
-		t.Fatalf("unable to reliably send message: %v", err)
-	}
+	err = reliableSender.sendMessage(ctx, msg3, peerPubKey)
+	require.NoError(t, err)
 
 	// Again, this should not request another peer online notification
 	// request since we are currently waiting for the peer to be offline.
@@ -188,6 +188,7 @@ func TestReliableSenderFlow(t *testing.T) {
 // them as stale.
 func TestReliableSenderStaleMessages(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	reliableSender := newTestReliableSender(t)
 
@@ -206,7 +207,9 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 
 	// We'll also override IsMsgStale to mark all messages as stale as we're
 	// interested in testing the stale message behavior.
-	reliableSender.cfg.IsMsgStale = func(_ lnwire.Message) bool {
+	reliableSender.cfg.IsMsgStale = func(_ context.Context,
+		_ lnwire.Message) bool {
+
 		return true
 	}
 
@@ -215,9 +218,8 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	msg1 := randAnnounceSignatures()
 	var peerPubKey [33]byte
 	copy(peerPubKey[:], pubKey.SerializeCompressed())
-	if err := reliableSender.sendMessage(msg1, peerPubKey); err != nil {
-		t.Fatalf("unable to reliably send message: %v", err)
-	}
+	err := reliableSender.sendMessage(ctx, msg1, peerPubKey)
+	require.NoError(t, err)
 
 	// Since there isn't a peerHandler for this peer currently active due to
 	// this being the first message being sent reliably, we should expect to
@@ -245,7 +247,7 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	// message store since it is seen as stale and has been sent at least
 	// once. Once the message is removed, the peerHandler should be torn
 	// down as there are no longer any pending messages within the store.
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		msgs, err := reliableSender.cfg.MessageStore.MessagesForPeer(
 			peerPubKey,
 		)
@@ -265,14 +267,15 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	}
 
 	// Override IsMsgStale to no longer mark messages as stale.
-	reliableSender.cfg.IsMsgStale = func(_ lnwire.Message) bool {
+	reliableSender.cfg.IsMsgStale = func(_ context.Context,
+		_ lnwire.Message) bool {
+
 		return false
 	}
 
 	// We'll request the message to be sent reliably.
-	if err := reliableSender.sendMessage(msg2, peerPubKey); err != nil {
-		t.Fatalf("unable to reliably send message: %v", err)
-	}
+	err = reliableSender.sendMessage(ctx, msg2, peerPubKey)
+	require.NoError(t, err)
 
 	// We should see an online notification request indicating that a new
 	// peerHandler has been spawned since it was previously torn down.

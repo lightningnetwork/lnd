@@ -56,7 +56,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -6857,7 +6856,7 @@ func (r *rpcServer) GetNodeMetrics(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	if err := centralityMetric.Refresh(channelGraph); err != nil {
+	if err := centralityMetric.Refresh(ctx, channelGraph); err != nil {
 		return nil, err
 	}
 
@@ -6959,7 +6958,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	)
 
 	err = graph.ForEachNodeChannel(node.PubKeyBytes,
-		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
+		func(edge *models.ChannelEdgeInfo,
 			c1, c2 *models.ChannelEdgePolicy) error {
 
 			numChannels++
@@ -7140,7 +7139,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 
 	// Graph diameter.
 	channelGraph := autopilot.ChannelGraphFromCachedDatabase(graph)
-	simpleGraph, err := autopilot.NewSimpleGraph(channelGraph)
+	simpleGraph, err := autopilot.NewSimpleGraph(ctx, channelGraph)
 	if err != nil {
 		return nil, err
 	}
@@ -7641,7 +7640,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	var feeReports []*lnrpc.ChannelFeeReport
 	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
-		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo,
+		func(chanInfo *models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy) error {
 
 			// Self node should always have policies for its

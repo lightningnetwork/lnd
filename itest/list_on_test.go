@@ -167,6 +167,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateNodeAnnouncement,
 	},
 	{
+		Name:     "node announcement persistence",
+		TestFunc: testNodeAnnouncementPersistence,
+	},
+	{
 		Name:     "list payments",
 		TestFunc: testListPayments,
 	},

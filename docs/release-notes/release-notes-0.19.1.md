@@ -53,7 +53,11 @@
 ## lncli Additions
 
 # Improvements
+
 ## Functional Updates
+
+- [The correct production feature bit for RBF coop close is now
+  signaled](https://github.com/lightningnetwork/lnd/pull/9858).
 
 ## RPC Updates
 
@@ -99,5 +103,7 @@
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
+* ffranr
+* Oliver Gugger
 * Yong Yu
 * Ziggie

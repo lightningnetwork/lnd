@@ -6312,6 +6312,25 @@
         }
       }
     },
+    "lnrpcOnionMessage": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "format": "byte",
+          "title": "Peer from which the message originates"
+        },
+        "blinding_point": {
+          "type": "string",
+          "description": "BlindingPoint is the route blinding ephemeral pubkey to be used for the\nonion message."
+        },
+        "onion": {
+          "type": "string",
+          "format": "byte",
+          "description": "Onion is the raw serialized mix header used to relay messages in a\nprivacy-preserving manner."
+        }
+      }
+    },
     "lnrpcOpenChannelRequest": {
       "type": "object",
       "properties": {
@@ -7424,6 +7443,15 @@
         "txid": {
           "type": "string",
           "title": "The id of the transaction"
+        }
+      }
+    },
+    "lnrpcSendOnionMessageResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the onion message send operation."
         }
       }
     },

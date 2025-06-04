@@ -6737,23 +6737,6 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
-// extractInboundFeeSafe tries to extract the inbound fee from the given extra
-// opaque data tlv block. If parsing fails, a zero inbound fee is returned. This
-// function is typically used on unvalidated data coming stored in the database.
-// There is not much we can do other than ignoring errors here.
-func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
-	var inboundFee lnwire.Fee
-
-	_, err := data.ExtractRecords(&inboundFee)
-	if err != nil {
-		// Return zero fee. Do not return the inboundFee variable
-		// because it may be undefined.
-		return lnwire.Fee{}
-	}
-
-	return inboundFee
-}
-
 func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -7317,9 +7300,14 @@ func marshallTopologyChange(
 		customRecords := marshalExtraOpaqueData(
 			channelUpdate.ExtraOpaqueData,
 		)
-		inboundFee := extractInboundFeeSafe(
-			channelUpdate.ExtraOpaqueData,
+		var (
+			inboundFeeBase int32
+			inboundFeeRate int32
 		)
+		channelUpdate.InboundFee.WhenSome(func(fee lnwire.Fee) {
+			inboundFeeBase = fee.BaseFee
+			inboundFeeRate = fee.FeeRate
+		})
 
 		channelUpdates[i] = &lnrpc.ChannelEdgeUpdate{
 			ChanId: channelUpdate.ChanID,
@@ -7347,8 +7335,8 @@ func marshallTopologyChange(
 					channelUpdate.FeeRate,
 				),
 				Disabled:                channelUpdate.Disabled,
-				InboundFeeBaseMsat:      inboundFee.BaseFee,
-				InboundFeeRateMilliMsat: inboundFee.FeeRate,
+				InboundFeeBaseMsat:      inboundFeeBase,
+				InboundFeeRateMilliMsat: inboundFeeRate,
 				CustomRecords:           customRecords,
 			},
 			AdvertisingNode: encodeKey(channelUpdate.AdvertisingNode),

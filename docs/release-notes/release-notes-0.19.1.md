@@ -34,6 +34,9 @@
   peer would not disconnect properly when both peers supported the new
   "rbf-coop-close" feature leaving the peer connection in a borked state.
 
+- Fixed [a case](https://github.com/lightningnetwork/lnd/pull/9890) where LND
+  would crash because of misaligned of a data struct on 32 bit systems.
+
 # New Features
 
 ## Functional Enhancements

@@ -1,7 +1,7 @@
 module github.com/lightningnetwork/lnd/healthcheck
 
 require (
-	github.com/btcsuite/btclog/v2 v2.0.0-20241017175713-3428138b75c7
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tor v1.0.0
 	github.com/stretchr/testify v1.8.2

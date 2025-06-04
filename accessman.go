@@ -93,6 +93,30 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 	// Default is restricted unless the below filters say otherwise.
 	access := peerStatusRestricted
 
+	// Lock banScoreMtx for reading so that we can update the banning maps
+	// below.
+	a.banScoreMtx.RLock()
+	if count, found := a.peerCounts[peerMapKey]; found {
+		if count.HasOpenOrClosedChan {
+			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
+				"assigning protected access")
+
+			access = peerStatusProtected
+		} else if count.PendingOpenCount != 0 {
+			acsmLog.DebugS(ctx, "Peer has pending channel(s), "+
+				"assigning temporary access")
+
+			access = peerStatusTemporary
+		}
+	}
+	a.banScoreMtx.RUnlock()
+
+	// Exit early if the peer status is no longer restricted.
+	if access != peerStatusRestricted {
+		return access, nil
+	}
+
+	// Check whether this peer is banned.
 	shouldDisconnect, err := a.cfg.shouldDisconnect(remotePub)
 	if err != nil {
 		acsmLog.ErrorS(ctx, "Error checking disconnect status", err)
@@ -109,41 +133,21 @@ func (a *accessMan) assignPeerPerms(remotePub *btcec.PublicKey) (
 		return access, ErrGossiperBan
 	}
 
-	// Lock banScoreMtx for reading so that we can update the banning maps
-	// below.
-	a.banScoreMtx.RLock()
-	defer a.banScoreMtx.RUnlock()
-
-	if count, found := a.peerCounts[peerMapKey]; found {
-		if count.HasOpenOrClosedChan {
-			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
-				"assigning protected access")
-
-			access = peerStatusProtected
-		} else if count.PendingOpenCount != 0 {
-			acsmLog.DebugS(ctx, "Peer has pending channel(s), "+
-				"assigning temporary access")
-
-			access = peerStatusTemporary
-		}
-	}
-
 	// If we've reached this point and access hasn't changed from
 	// restricted, then we need to check if we even have a slot for this
 	// peer.
-	if access == peerStatusRestricted {
-		acsmLog.DebugS(ctx, "Peer has no channels, assigning "+
-			"restricted access")
+	acsmLog.DebugS(ctx, "Peer has no channels, assigning restricted access")
 
-		if a.numRestricted >= a.cfg.maxRestrictedSlots {
-			acsmLog.WarnS(ctx, "No more restricted slots "+
-				"available, denying peer",
-				ErrNoMoreRestrictedAccessSlots,
-				"num_restricted", a.numRestricted,
-				"max_restricted", a.cfg.maxRestrictedSlots)
+	a.banScoreMtx.RLock()
+	defer a.banScoreMtx.RUnlock()
 
-			return access, ErrNoMoreRestrictedAccessSlots
-		}
+	if a.numRestricted >= a.cfg.maxRestrictedSlots {
+		acsmLog.WarnS(ctx, "No more restricted slots available, "+
+			"denying peer", ErrNoMoreRestrictedAccessSlots,
+			"num_restricted", a.numRestricted, "max_restricted",
+			a.cfg.maxRestrictedSlots)
+
+		return access, ErrNoMoreRestrictedAccessSlots
 	}
 
 	return access, nil

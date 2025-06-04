@@ -180,17 +180,6 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 	toNode route.Vertex, edge1 bool) {
 
-	// Extract inbound fee if possible and available. If there is a decoding
-	// error, ignore this policy.
-	var inboundFee lnwire.Fee
-	_, err := policy.ExtraOpaqueData.ExtractRecords(&inboundFee)
-	if err != nil {
-		log.Errorf("Failed to extract records from edge policy %v: %v",
-			policy.ChannelID, err)
-
-		return
-	}
-
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -216,13 +205,17 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 		// policy for node 1.
 		case channel.IsNode1 && edge1:
 			channel.OutPolicySet = true
-			channel.InboundFee = inboundFee
+			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
+				channel.InboundFee = fee
+			})
 
 		// This is node 2, and it is edge 2, so this is the outgoing
 		// policy for node 2.
 		case !channel.IsNode1 && !edge1:
 			channel.OutPolicySet = true
-			channel.InboundFee = inboundFee
+			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
+				channel.InboundFee = fee
+			})
 
 		// The other two cases left mean it's the inbound policy for the
 		// node.

@@ -96,6 +96,8 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 			t.Fatalf("mismatched tx indexes: expected %v, got %v",
 				txid, specifiedTxHash)
 		}
+
+		require.EqualValues(t, 0, confInfo.NumConfsLeft)
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
@@ -120,31 +122,70 @@ func testMultiConfirmationNotification(miner *rpctest.Harness,
 
 	numConfs := uint32(6)
 	var confIntent *chainntnfs.ConfirmationEvent
+
+	// We wish to receive all confirmations for the target transaction.
 	if scriptDispatch {
 		confIntent, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript, numConfs, uint32(currentHeight),
+			chainntnfs.WithAllConfirmations(),
 		)
 	} else {
 		confIntent, err = notifier.RegisterConfirmationsNtfn(
 			txid, pkScript, numConfs, uint32(currentHeight),
+			chainntnfs.WithAllConfirmations(),
 		)
 	}
 	require.NoError(t, err, "unable to register ntfn")
 
 	// Now generate a six blocks. The transaction should be included in the
 	// first block, which will be built upon by the other 5 blocks.
-	if _, err := miner.Client.Generate(6); err != nil {
+	blockHash, err := miner.Client.Generate(6)
+	if err != nil {
 		t.Fatalf("unable to generate single block: %v", err)
 	}
 
 	// TODO(roasbeef): reduce all timeouts after neutrino sync tightended
 	// up
 
-	select {
-	case <-confIntent.Confirmed:
-		break
-	case <-time.After(20 * time.Second):
-		t.Fatalf("confirmation notification never received")
+	// Since we have registered for all confirmation events, we should
+	// receive a confirmation notification for every confirmation of the
+	// targeted transaction.
+	for i := uint32(1); i <= numConfs; i++ {
+		select {
+		case txConf := <-confIntent.Confirmed:
+			// we'll verify that the tx index returned is the exact
+			// same as the tx index of the transaction within the
+			// block itself.
+			msgBlock, err := miner.Client.GetBlock(blockHash[0])
+			if err != nil {
+				t.Fatalf("unable to fetch block: %v", err)
+			}
+			block := btcutil.NewBlock(msgBlock)
+			specifiedTxHash, err := block.TxHash(
+				int(txConf.TxIndex),
+			)
+			if err != nil {
+				t.Fatalf("unable to index into block: %v", err)
+			}
+			if !specifiedTxHash.IsEqual(txid) {
+				t.Fatalf("mismatched tx indexes: expected "+
+					"%v, got %v", txid, specifiedTxHash)
+			}
+
+			// We'll also ensure that the block height has been set
+			// properly.
+			if txConf.BlockHeight != uint32(currentHeight+1) {
+				t.Fatalf("incorrect block height: expected "+
+					"%v, got %v", txConf.BlockHeight,
+					currentHeight)
+			}
+
+			require.Equal(t, numConfs-i, txConf.NumConfsLeft)
+
+			continue
+		case <-time.After(20 * time.Second):
+			t.Fatalf("confirmation notification never received")
+		}
 	}
 }
 
@@ -238,6 +279,7 @@ func testBatchConfirmationNotification(miner *rpctest.Harness,
 			// empty.
 			expectBlock := i%2 == 0
 			require.Equal(t, expectBlock, conf.Block != nil)
+			require.EqualValues(t, 0, conf.NumConfsLeft)
 			continue
 		case <-time.After(20 * time.Second):
 			t.Fatalf("confirmation notification never received: %v", numConfs)
@@ -607,6 +649,8 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 			require.NotNil(t, confInfo.Block)
 		}
 
+		require.EqualValues(t, 0, confInfo.NumConfsLeft)
+
 		break
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
@@ -616,14 +660,17 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	// This transaction is only partially confirmed, so the notification should
 	// not fire yet.
 	var ntfn2 *chainntnfs.ConfirmationEvent
+	// We wish to receive all confirmations for tx2.
 	if scriptDispatch {
 		ntfn2, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript2, 3, uint32(currentHeight),
 			chainntnfs.WithIncludeBlock(),
+			chainntnfs.WithAllConfirmations(),
 		)
 	} else {
 		ntfn2, err = notifier.RegisterConfirmationsNtfn(
 			txid2, pkScript2, 3, uint32(currentHeight),
+			chainntnfs.WithAllConfirmations(),
 		)
 	}
 	require.NoError(t, err, "unable to register ntfn")
@@ -632,10 +679,50 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 	_, err = miner.Client.Generate(2)
 	require.NoError(t, err, "unable to generate block")
 
-	select {
-	case <-ntfn2.Confirmed:
-	case <-time.After(10 * time.Second):
-		t.Fatalf("confirmation notification never received")
+	// Since we have registered for all confirmation events, we should
+	// receive a confirmation notification for every confirmation of tx2.
+	for i := uint32(1); i <= 3; i++ {
+		select {
+		case txConf := <-ntfn2.Confirmed:
+			// we'll verify that the tx index returned is the exact
+			// same as the tx index of the transaction within the
+			// block itself.
+			msgBlock, err := miner.Client.GetBlock(blockHash[0])
+			if err != nil {
+				t.Fatalf("unable to fetch block: %v", err)
+			}
+			block := btcutil.NewBlock(msgBlock)
+			specifiedTxHash, err := block.TxHash(
+				int(txConf.TxIndex),
+			)
+			if err != nil {
+				t.Fatalf("unable to index into block: %v", err)
+			}
+			if !specifiedTxHash.IsEqual(txid2) {
+				t.Fatalf("mismatched tx indexes: expected "+
+					"%v, got %v", txid2, specifiedTxHash)
+			}
+
+			// We'll also ensure that the block height has been set
+			// properly.
+			if txConf.BlockHeight != uint32(currentHeight+1) {
+				t.Fatalf("incorrect block height: expected "+
+					"%v, got %v", txConf.BlockHeight,
+					currentHeight)
+			}
+
+			// Ensure that if this was a script dispatch, the block
+			// is set as well.
+			if scriptDispatch {
+				require.NotNil(t, txConf.Block)
+			}
+
+			require.Equal(t, 3-i, txConf.NumConfsLeft)
+
+			continue
+		case <-time.After(10 * time.Second):
+			t.Fatalf("confirmation notification never received")
+		}
 	}
 
 	select {
@@ -674,6 +761,7 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 		if scriptDispatch {
 			require.NotNil(t, confInfo.Block)
 		}
+		require.EqualValues(t, 0, confInfo.NumConfsLeft)
 	case <-time.After(10 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
@@ -725,13 +813,16 @@ func testLazyNtfnConsumer(miner *rpctest.Harness,
 	}
 
 	var firstConfIntent *chainntnfs.ConfirmationEvent
+	// We wish to receive all confirmations.
 	if scriptDispatch {
 		firstConfIntent, err = notifier.RegisterConfirmationsNtfn(
 			nil, pkScript, numConfs, uint32(currentHeight),
+			chainntnfs.WithAllConfirmations(),
 		)
 	} else {
 		firstConfIntent, err = notifier.RegisterConfirmationsNtfn(
 			txid, pkScript, numConfs, uint32(currentHeight),
+			chainntnfs.WithAllConfirmations(),
 		)
 	}
 	require.NoError(t, err, "unable to register ntfn")
@@ -771,19 +862,27 @@ func testLazyNtfnConsumer(miner *rpctest.Harness,
 	}
 
 	select {
-	case <-secondConfIntent.Confirmed:
+	case txConf := <-secondConfIntent.Confirmed:
 		// Successfully receive the second notification
+		require.EqualValues(t, 0, txConf.NumConfsLeft)
 		break
 	case <-time.After(30 * time.Second):
 		t.Fatalf("Second confirmation notification never received")
 	}
 
 	// Make sure the first tx confirmed successfully
-	select {
-	case <-firstConfIntent.Confirmed:
-		break
-	case <-time.After(30 * time.Second):
-		t.Fatalf("First confirmation notification never received")
+	// Since we have registered for all confirmation events in
+	// firstConfIntent, we should receive a confirmation notification for
+	// every confirmation.
+	for i := uint32(1); i <= 3; i++ {
+		select {
+		case txConf := <-firstConfIntent.Confirmed:
+			require.EqualValues(t, 3-i, txConf.NumConfsLeft)
+			break
+		case <-time.After(30 * time.Second):
+			t.Fatalf("First confirmation notification never " +
+				"received")
+		}
 	}
 }
 
@@ -1172,8 +1271,12 @@ func testReorgConf(miner *rpctest.Harness,
 	_, err = miner.Client.Generate(3)
 	require.NoError(t, err, "unable to generate single block")
 
+	// Since confIntent did not request all confirmations, make sure that
+	// it only receives the final confirmation with num confs left as 0.
 	select {
-	case <-confIntent.Confirmed:
+	case txConf := <-confIntent.Confirmed:
+		require.EqualValues(t, 0, txConf.NumConfsLeft)
+
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}

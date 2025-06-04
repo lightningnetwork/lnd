@@ -22,6 +22,11 @@
 
 # New Features
 
+* The `RegisterConfirmationsNtfn` call of the `ChainNotifier` now optionally
+  [supports returning a confirmation notification for each confirmation
+  received](https://github.com/lightningnetwork/lnd/pull/9878) for the target
+  transaction/output script.
+
 ## Functional Enhancements
 
 ## RPC Additions
@@ -86,3 +91,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Nishant Bansal

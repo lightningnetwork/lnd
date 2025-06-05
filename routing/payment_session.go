@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -155,6 +156,11 @@ type PaymentSession interface {
 	// if nothing found.
 	GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
 		channelID uint64) *models.CachedEdgePolicy
+
+	// MissionControl returns the MissionControlQuerier instance associated
+	// with this payment session, if any. This allows the payment lifecycle
+	// to use a potentially namespaced mission control instance.
+	MissionControl() fn.Option[MissionControlQuerier]
 }
 
 // paymentSession is used during an HTLC routings session to prune the local
@@ -194,6 +200,17 @@ type paymentSession struct {
 
 	// log is a payment session-specific logger.
 	log btclog.Logger
+}
+
+// MissionControl returns the MissionControlQuerier instance associated with this
+// payment session.
+//
+// NOTE: Part of the PaymentSession interface.
+func (p *paymentSession) MissionControl() fn.Option[MissionControlQuerier] {
+	if p.missionControl == nil {
+		return fn.None[MissionControlQuerier]()
+	}
+	return fn.Some(p.missionControl)
 }
 
 // newPaymentSession instantiates a new payment session.

@@ -3855,4 +3855,94 @@ func TestFindBlindedPaths(t *testing.T) {
 	assertPaths(paths, []string{
 		"dave",
 	})
+
+	// 6) Restrict the min & max path length such that we only include paths
+	// with one being only the intro-node and the others with one hop other
+	// than the destination hop.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 0,
+		maxNumHops: 1,
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- D
+	//	- B, D
+	// 	- C, D
+	// The (A, D) path is not chosen since A does not advertise the route
+	// blinding feature bit. The (G, D) path is not chosen since G does not
+	// have any other known channels.
+	assertPaths(paths, []string{
+		"dave",
+		"bob,dave",
+		"charlie,dave",
+	})
+
+	// 7) Restrict the min & max path length such that we only include paths
+	// with one hop other than the destination hop. Now with bob-dave as the
+	// incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              1,
+		maxNumHops:              1,
+		incomingChainedChannels: []uint64{2},
+	})
+	require.NoError(t, err)
+
+	// Expect only B->D path.
+	assertPaths(paths, []string{
+		"bob,dave",
+	})
+
+	// 8) Extend the search to include 2 hops other than the destination,
+	// with bob-dave as the incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              1,
+		maxNumHops:              2,
+		incomingChainedChannels: []uint64{2},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- F, B, D
+	// 	- E, B, D
+	assertPaths(paths, []string{
+		"frank,bob,dave",
+		"eve,bob,dave",
+	})
+
+	// 9) Extend the search even further and also increase the minimum path
+	// length, but this time with charlie-dave as the incoming channel.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              2,
+		maxNumHops:              3,
+		incomingChainedChannels: []uint64{3},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- E, C, D
+	// 	- B, E, C, D
+	assertPaths(paths, []string{
+		"eve,charlie,dave",
+		"bob,eve,charlie,dave",
+	})
+
+	// 10) Repeat the above test but instruct the function to never use
+	// charlie.
+	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              2,
+		maxNumHops:              3,
+		nodeOmissionSet:         fn.NewSet(ctx.keyFromAlias("charlie")),
+		incomingChainedChannels: []uint64{3},
+	})
+	require.ErrorContains(t, err, "cannot simultaneously be included in "+
+		"the omission set and in the partially specified path")
+
+	// 11) Test the circular route error.
+	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:              2,
+		maxNumHops:              3,
+		incomingChainedChannels: []uint64{2, 7, 6, 3},
+	})
+	require.ErrorContains(t, err, "a circular route cannot be specified")
 }

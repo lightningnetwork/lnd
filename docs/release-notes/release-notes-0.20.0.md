@@ -51,6 +51,8 @@
     of the graph code before the SQL implementation is added.
   * Add graph schemas, queries and CRUD:
     * [1](https://github.com/lightningnetwork/lnd/pull/9866)
+    * [2](https://github.com/lightningnetwork/lnd/pull/9869)
+    * [3](https://github.com/lightningnetwork/lnd/pull/9887)
 
 ## RPC Updates
 

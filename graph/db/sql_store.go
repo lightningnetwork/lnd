@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -74,11 +75,20 @@ type SQLQueries interface {
 		Channel queries.
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
-	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GetChannelBySCIDRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
+
+	/*
+		Channel Policy table queries.
+	*/
+	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
+
+	UpsertChanPolicyExtraType(ctx context.Context, arg sqlc.UpsertChanPolicyExtraTypeParams) error
+	GetChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) ([]sqlc.ChannelPolicyExtraType, error)
+	DeleteChannelPolicyExtraType(ctx context.Context, arg sqlc.DeleteChannelPolicyExtraTypeParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -96,7 +106,8 @@ type BatchedSQLQueries interface {
 // implemented,  things will fall back to the KVStore. This is ONLY the case
 // for the time being while this struct is purely used in unit tests only.
 type SQLStore struct {
-	db BatchedSQLQueries
+	cfg *SQLStoreConfig
+	db  BatchedSQLQueries
 
 	// cacheMu guards all caches (rejectCache and chanCache). If
 	// this mutex will be acquired at the same time as the DB mutex then
@@ -117,9 +128,16 @@ type SQLStore struct {
 // interface.
 var _ V1Store = (*SQLStore)(nil)
 
+// SQLStoreConfig holds the configuration for the SQLStore.
+type SQLStoreConfig struct {
+	// ChainHash is the genesis hash for the chain that all the gossip
+	// messages in this store are aimed at.
+	ChainHash chainhash.Hash
+}
+
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
 // storage backend.
-func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
+func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 	options ...StoreOptionModifier) (*SQLStore, error) {
 
 	opts := DefaultOptions()
@@ -133,6 +151,7 @@ func NewSQLStore(db BatchedSQLQueries, kvStore *KVStore,
 	}
 
 	s := &SQLStore{
+		cfg:         cfg,
 		db:          db,
 		KVStore:     kvStore,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
@@ -540,6 +559,182 @@ func (s *SQLStore) HighestChanID() (uint64, error) {
 	}
 
 	return highestChanID, nil
+}
+
+// UpdateEdgePolicy updates the edge routing policy for a single directed edge
+// within the database for the referenced channel. The `flags` attribute within
+// the ChannelEdgePolicy determines which of the directed edges are being
+// updated. If the flag is 1, then the first node's information is being
+// updated, otherwise it's the second node's information. The node ordering is
+// determined by the lexicographical ordering of the identity public keys of the
+// nodes on either side of the channel.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
+
+	ctx := context.TODO()
+
+	var (
+		isUpdate1    bool
+		edgeNotFound bool
+		from, to     route.Vertex
+	)
+
+	r := &batch.Request[SQLQueries]{
+		Opts: batch.NewSchedulerOptions(opts...),
+		Reset: func() {
+			isUpdate1 = false
+			edgeNotFound = false
+		},
+		Do: func(tx SQLQueries) error {
+			var err error
+			from, to, isUpdate1, err = updateChanEdgePolicy(
+				ctx, tx, edge,
+			)
+			if err != nil {
+				log.Errorf("UpdateEdgePolicy faild: %v", err)
+			}
+
+			// Silence ErrEdgeNotFound so that the batch can
+			// succeed, but propagate the error via local state.
+			if errors.Is(err, ErrEdgeNotFound) {
+				edgeNotFound = true
+				return nil
+			}
+
+			return err
+		},
+		OnCommit: func(err error) error {
+			switch {
+			case err != nil:
+				return err
+			case edgeNotFound:
+				return ErrEdgeNotFound
+			default:
+				s.updateEdgeCache(edge, isUpdate1)
+				return nil
+			}
+		},
+	}
+
+	err := s.chanScheduler.Execute(ctx, r)
+
+	return from, to, err
+}
+
+// updateChanEdgePolicy upserts the channel policy info we have stored for
+// a channel we already know of.
+func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
+	edge *models.ChannelEdgePolicy) (route.Vertex, route.Vertex, bool,
+	error) {
+
+	var (
+		node1Pub, node2Pub route.Vertex
+		isNode1            bool
+	)
+
+	var chanIDB [8]byte
+	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
+
+	// Check that this edge policy refers to a channel that we already
+	// know of. We also need to get the DB level ID of the channel since
+	// we'll need it to insert the edge policy.
+	dbChan, err := tx.GetChannelBySCID(
+		ctx, sqlc.GetChannelBySCIDParams{
+			Scid:    chanIDB[:],
+			Version: int16(ProtocolV1),
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return node1Pub, node2Pub, false, ErrEdgeNotFound
+	} else if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
+			"fetch channel(%v): %w", edge.ChannelID, err)
+	}
+
+	copy(node1Pub[:], dbChan.Node1PubKey)
+	copy(node2Pub[:], dbChan.Node2PubKey)
+
+	// Figure out which node this edge is from.
+	isNode1 = edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	nodeID := dbChan.NodeID1
+	if !isNode1 {
+		nodeID = dbChan.NodeID2
+	}
+
+	id, err := tx.UpsertEdgePolicy(ctx, sqlc.UpsertEdgePolicyParams{
+		Version:     int16(ProtocolV1),
+		ChannelID:   dbChan.ID,
+		NodeID:      nodeID,
+		Timelock:    int32(edge.TimeLockDelta),
+		FeePpm:      int64(edge.FeeProportionalMillionths),
+		BaseFeeMsat: int64(edge.FeeBaseMSat),
+		MinHtlcMsat: int64(edge.MinHTLC),
+		LastUpdate:  sqldb.SQLInt64(edge.LastUpdate.Unix()),
+		Disabled: sql.NullBool{
+			Valid: true,
+			Bool:  edge.IsDisabled(),
+		},
+		MaxHtlcMsat: sql.NullInt64{
+			Valid: edge.MessageFlags.HasMaxHtlc(),
+			Int64: int64(edge.MaxHTLC),
+		},
+		Signature: edge.SigBytes,
+	})
+	if err != nil {
+		return node1Pub, node2Pub, isNode1,
+			fmt.Errorf("unable to upsert edge policy: %w", err)
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
+			"marshal extra opaque data: %w", err)
+	}
+
+	// Update the channel policy's extra signed fields.
+	err = upsertChanPolicyExtraSignedFields(ctx, tx, id, extra)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("inserting chan "+
+			"policy extra TLVs: %w", err)
+	}
+
+	return node1Pub, node2Pub, isNode1, nil
+}
+
+// updateEdgeCache updates our reject and channel caches with the new
+// edge policy information.
+func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
+	isUpdate1 bool) {
+
+	// If an entry for this channel is found in reject cache, we'll modify
+	// the entry with the updated timestamp for the direction that was just
+	// written. If the edge doesn't exist, we'll load the cache entry lazily
+	// during the next query for this edge.
+	if entry, ok := s.rejectCache.get(e.ChannelID); ok {
+		if isUpdate1 {
+			entry.upd1Time = e.LastUpdate.Unix()
+		} else {
+			entry.upd2Time = e.LastUpdate.Unix()
+		}
+		s.rejectCache.insert(e.ChannelID, entry)
+	}
+
+	// If an entry for this channel is found in channel cache, we'll modify
+	// the entry with the updated policy for the direction that was just
+	// written. If the edge doesn't exist, we'll defer loading the info and
+	// policies and lazily read from disk during the next query.
+	if channel, ok := s.chanCache.get(e.ChannelID); ok {
+		if isUpdate1 {
+			channel.Policy1 = e
+		} else {
+			channel.Policy2 = e
+		}
+		s.chanCache.insert(e.ChannelID, channel)
+	}
 }
 
 // getNodeByPubKey attempts to look up a target node by its public key.
@@ -1050,6 +1245,65 @@ func upsertNodeExtraSignedFields(ctx context.Context, db SQLQueries,
 		if err != nil {
 			return fmt.Errorf("unable to delete node(%d) extra "+
 				"signed field(%v): %w", nodeID, tlvType, err)
+		}
+	}
+
+	return nil
+}
+
+// upsertChanPolicyExtraSignedFields updates the policy's extra signed fields in
+// the database. This includes updating any existing types, inserting any new
+// types, and deleting any types that are no longer present.
+func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
+	chanPolicyID int64, extraFields map[uint64][]byte) error {
+
+	// Get any existing extra signed fields for the channel policy.
+	existingFields, err := db.GetChannelPolicyExtraTypes(ctx, chanPolicyID)
+	if err != nil {
+		return err
+	}
+
+	// Make a lookup map of the existing field types so that we can use it
+	// to keep track of any fields we should delete.
+	m := make(map[uint64]bool)
+	for _, field := range existingFields {
+		m[uint64(field.Type)] = true
+	}
+
+	// For all the new fields, we'll upsert them and remove them from the
+	// map of existing fields.
+	for tlvType, value := range extraFields {
+		err = db.UpsertChanPolicyExtraType(
+			ctx, sqlc.UpsertChanPolicyExtraTypeParams{
+				ChannelPolicyID: chanPolicyID,
+				Type:            int64(tlvType),
+				Value:           value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert "+
+				"channel_policy(%d) extra signed field(%v): %w",
+				chanPolicyID, tlvType, err)
+		}
+
+		// Remove the field from the map of existing fields if it was
+		// present.
+		delete(m, tlvType)
+	}
+
+	// For all the fields that are left in the map of existing fields, we'll
+	// delete them as they are no longer present in the new set of fields.
+	for tlvType := range m {
+		err = db.DeleteChannelPolicyExtraType(
+			ctx, sqlc.DeleteChannelPolicyExtraTypeParams{
+				ChannelPolicyID: chanPolicyID,
+				Type:            int64(tlvType),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to delete "+
+				"channel_policy(%d) extra signed field(%v): %w",
+				chanPolicyID, tlvType, err)
 		}
 	}
 

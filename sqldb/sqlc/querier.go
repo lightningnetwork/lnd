@@ -16,6 +16,7 @@ type Querier interface {
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
 	CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error
 	DeleteCanceledInvoices(ctx context.Context) (sql.Result, error)
+	DeleteChannelPolicyExtraType(ctx context.Context, arg DeleteChannelPolicyExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
@@ -26,7 +27,8 @@ type Querier interface {
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
-	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (Channel, error)
+	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (GetChannelBySCIDRow, error)
+	GetChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) ([]ChannelPolicyExtraType, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields
@@ -74,6 +76,8 @@ type Querier interface {
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
+	UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error
+	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 }

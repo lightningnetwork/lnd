@@ -52,3 +52,9 @@ func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
 func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 	return DefaultMaxWaitNumBlocksFundingConf
 }
+
+// GetUnsafeConnect returns the config value `UnsafeConnect`, which is always
+// false for production build.
+func (d *DevConfig) GetUnsafeConnect() bool {
+	return false
+}

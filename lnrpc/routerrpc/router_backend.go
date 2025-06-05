@@ -936,6 +936,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)
 
+	// Set the mission control namespace if specified.
+	payIntent.MissionControlNamespace = rpcPayReq.MissionControlNamespace
+
 	// Route hints.
 	routeHints, err := unmarshallRouteHints(
 		rpcPayReq.RouteHints,

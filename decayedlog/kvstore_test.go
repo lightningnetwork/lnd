@@ -1,4 +1,4 @@
-package htlcswitch
+package decayedlog
 
 import (
 	"crypto/rand"
@@ -42,10 +42,16 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 		}
 
 		// Initialize the DecayedLog object
-		log = NewDecayedLog(backend, chainNotifier)
+		log, err = NewDecayedLog(backend, chainNotifier)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 	} else {
 		// Initialize the DecayedLog object
-		log = NewDecayedLog(backend, nil)
+		log, err = NewDecayedLog(backend, nil)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 
 	// Open the channeldb (start the garbage collector)

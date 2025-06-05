@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/decayedlog"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/graph"
@@ -156,6 +157,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "DISC", interceptor, discovery.UseLogger)
 	AddSubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
 	AddSubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
+	AddSubLogger(root, "DECA", interceptor, decayedlog.UseLogger)
 	AddSubLogger(root, "SQLB", interceptor, sqlbase.UseLogger)
 	AddSubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
 	AddSubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)

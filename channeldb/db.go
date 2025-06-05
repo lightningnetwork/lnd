@@ -297,6 +297,13 @@ var (
 			number:    33,
 			migration: migration33.MigrateMCStoreNameSpacedResults,
 		},
+		{
+			// This is a placeholder for the decayed log migration
+			// which we started to track now in its own db from
+			// migration 34 on.
+			number:    34,
+			migration: nil,
+		},
 	}
 
 	// optionalVersions stores all optional migrations that are applied

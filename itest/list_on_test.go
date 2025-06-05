@@ -536,6 +536,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOnionMessage,
 	},
 	{
+		Name:     "onion message forwarding",
+		TestFunc: testOnionMessageForwarding,
+	},
+	{
 		Name:     "sign verify message with addr",
 		TestFunc: testSignVerifyMessageWithAddr,
 	},

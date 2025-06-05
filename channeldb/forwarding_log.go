@@ -227,7 +227,9 @@ type ForwardingLogTimeSlice struct {
 // the number of events to be returned.
 //
 // TODO(roasbeef): rename?
-func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, error) {
+func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice,
+	error) {
+
 	var resp ForwardingLogTimeSlice
 
 	// If the user provided an index offset, then we'll not know how many
@@ -256,8 +258,9 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 		// We'll continue until either we reach the end of the range,
 		// or reach our max number of events.
 		logCursor := logBucket.ReadCursor()
-		timestamp, events := logCursor.Seek(startTime[:])
-		for ; timestamp != nil && bytes.Compare(timestamp, endTime[:]) <= 0; timestamp, events = logCursor.Next() {
+		timestamp, eventBytes := logCursor.Seek(startTime[:])
+		//nolint:ll
+		for ; timestamp != nil && bytes.Compare(timestamp, endTime[:]) <= 0; timestamp, eventBytes = logCursor.Next() {
 			// If our current return payload exceeds the max number
 			// of events, then we'll exit now.
 			if uint32(len(resp.ForwardingEvents)) >= q.NumMaxEvents {
@@ -271,27 +274,31 @@ func (f *ForwardingLog) Query(q ForwardingEventQuery) (ForwardingLogTimeSlice, e
 				continue
 			}
 
-			currentTime := time.Unix(
-				0, int64(byteOrder.Uint64(timestamp)),
-			)
-
 			// At this point, we've skipped enough records to start
 			// to collate our query. For each record, we'll
 			// increment the final record offset so the querier can
 			// utilize pagination to seek further.
-			readBuf := bytes.NewReader(events)
-			for readBuf.Len() != 0 {
-				var event ForwardingEvent
-				err := decodeForwardingEvent(readBuf, &event)
-				if err != nil {
-					return err
-				}
-
-				event.Timestamp = currentTime
-				resp.ForwardingEvents = append(resp.ForwardingEvents, event)
-
-				recordOffset++
+			readBuf := bytes.NewReader(eventBytes)
+			if readBuf.Len() == 0 {
+				continue
 			}
+
+			currentTime := time.Unix(
+				0, int64(byteOrder.Uint64(timestamp)),
+			)
+
+			var event ForwardingEvent
+			err := decodeForwardingEvent(readBuf, &event)
+			if err != nil {
+				return err
+			}
+
+			event.Timestamp = currentTime
+			resp.ForwardingEvents = append(
+				resp.ForwardingEvents, event,
+			)
+
+			recordOffset++
 		}
 
 		return nil

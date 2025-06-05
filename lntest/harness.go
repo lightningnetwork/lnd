@@ -38,10 +38,6 @@ const (
 	// outputs from the miner.
 	defaultMinerFeeRate = 7500
 
-	// numBlocksSendOutput specifies the number of blocks to mine after
-	// sending outputs from the miner.
-	numBlocksSendOutput = 2
-
 	// numBlocksOpenChannel specifies the number of blocks mined when
 	// opening a channel.
 	numBlocksOpenChannel = 6
@@ -213,39 +209,6 @@ func (h *HarnessTest) ChainBackendName() string {
 // controlled.
 func (h *HarnessTest) Context() context.Context {
 	return h.runCtx
-}
-
-// setupWatchOnlyNode initializes a node with the watch-only accounts of an
-// associated remote signing instance.
-func (h *HarnessTest) setupWatchOnlyNode(name string,
-	signerNode *node.HarnessNode, password []byte) *node.HarnessNode {
-
-	// Prepare arguments for watch-only node connected to the remote signer.
-	remoteSignerArgs := []string{
-		"--remotesigner.enable",
-		fmt.Sprintf("--remotesigner.rpchost=localhost:%d",
-			signerNode.Cfg.RPCPort),
-		fmt.Sprintf("--remotesigner.tlscertpath=%s",
-			signerNode.Cfg.TLSCertPath),
-		fmt.Sprintf("--remotesigner.macaroonpath=%s",
-			signerNode.Cfg.AdminMacPath),
-	}
-
-	// Fetch watch-only accounts from the signer node.
-	resp := signerNode.RPC.ListAccounts(&walletrpc.ListAccountsRequest{})
-	watchOnlyAccounts, err := walletrpc.AccountsToWatchOnly(resp.Accounts)
-	require.NoErrorf(h, err, "unable to find watch only accounts for %s",
-		name)
-
-	// Create a new watch-only node with remote signer configuration.
-	return h.NewNodeRemoteSigner(
-		name, remoteSignerArgs, password,
-		&lnrpc.WatchOnly{
-			MasterKeyBirthdayTimestamp: 0,
-			MasterKeyFingerprint:       nil,
-			Accounts:                   watchOnlyAccounts,
-		},
-	)
 }
 
 // createAndSendOutput send amt satoshis from the internal mining node to the
@@ -437,31 +400,6 @@ func (h *HarnessTest) shutdownAllNodes() {
 	}
 
 	require.NoError(h, err, "failed to shutdown all nodes")
-}
-
-// cleanupStandbyNode is a function should be called with defer whenever a
-// subtest is created. It will reset the standby nodes configs, snapshot the
-// states, and validate the node has a clean state.
-func (h *HarnessTest) cleanupStandbyNode(hn *node.HarnessNode) {
-	// Remove connections made from this test.
-	h.removeConnectionns(hn)
-
-	// Delete all payments made from this test.
-	hn.RPC.DeleteAllPayments()
-
-	// Check the node's current state with timeout.
-	//
-	// NOTE: we need to do this in a `wait` because it takes some time for
-	// the node to update its internal state. Once the RPCs are synced we
-	// can then remove this wait.
-	err := wait.NoError(func() error {
-		// Update the node's internal state.
-		hn.UpdateState()
-
-		// Check the node is in a clean state for the following tests.
-		return h.validateNodeState(hn)
-	}, wait.DefaultTimeout)
-	require.NoError(h, err, "timeout checking node's state")
 }
 
 // removeConnectionns will remove all connections made on the standby nodes
@@ -806,59 +744,6 @@ func (h *HarnessTest) SetFeeEstimateWithConf(
 // estimator.
 func (h *HarnessTest) SetMinRelayFeerate(fee chainfee.SatPerKVByte) {
 	h.feeService.SetMinRelayFeerate(fee)
-}
-
-// validateNodeState checks that the node doesn't have any uncleaned states
-// which will affect its following tests.
-func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) error {
-	errStr := func(subject string) error {
-		return fmt.Errorf("%s: found %s channels, please close "+
-			"them properly", hn.Name(), subject)
-	}
-	// If the node still has open channels, it's most likely that the
-	// current test didn't close it properly.
-	if hn.State.OpenChannel.Active != 0 {
-		return errStr("active")
-	}
-	if hn.State.OpenChannel.Public != 0 {
-		return errStr("public")
-	}
-	if hn.State.OpenChannel.Private != 0 {
-		return errStr("private")
-	}
-	if hn.State.OpenChannel.Pending != 0 {
-		return errStr("pending open")
-	}
-
-	// The number of pending force close channels should be zero.
-	if hn.State.CloseChannel.PendingForceClose != 0 {
-		return errStr("pending force")
-	}
-
-	// The number of waiting close channels should be zero.
-	if hn.State.CloseChannel.WaitingClose != 0 {
-		return errStr("waiting close")
-	}
-
-	// Ths number of payments should be zero.
-	if hn.State.Payment.Total != 0 {
-		return fmt.Errorf("%s: found uncleaned payments, please "+
-			"delete all of them properly", hn.Name())
-	}
-
-	// The number of public edges should be zero.
-	if hn.State.Edge.Public != 0 {
-		return fmt.Errorf("%s: found active public egdes, please "+
-			"clean them properly", hn.Name())
-	}
-
-	// The number of edges should be zero.
-	if hn.State.Edge.Total != 0 {
-		return fmt.Errorf("%s: found active edges, please "+
-			"clean them properly", hn.Name())
-	}
-
-	return nil
 }
 
 // GetChanPointFundingTxid takes a channel point and converts it into a chain

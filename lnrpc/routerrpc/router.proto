@@ -368,6 +368,12 @@ message SendPaymentRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 25;
+
+    /*
+    An optional mission control namespace that should be used for this payment.
+    If not specified, the default mission control namespace will be used.
+    */
+    string mission_control_namespace = 26;
 }
 
 message TrackPaymentRequest {

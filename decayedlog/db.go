@@ -1,4 +1,4 @@
-package htlcswitch
+package decayedlog
 
 import (
 	"bytes"
@@ -92,13 +92,19 @@ type DecayedLog struct {
 // shared secrets. Entries are evicted as their cltv expires using block epochs
 // from the given notifier.
 func NewDecayedLog(db kvdb.Backend,
-	notifier chainntnfs.ChainNotifier) *DecayedLog {
+	notifier chainntnfs.ChainNotifier) (*DecayedLog, error) {
 
-	return &DecayedLog{
+	d := &DecayedLog{
 		db:       db,
 		notifier: notifier,
 		quit:     make(chan struct{}),
 	}
+
+	if err := d.syncVersions(dbVersions); err != nil {
+		return nil, err
+	}
+
+	return d, nil
 }
 
 // Start opens the database we will be using to store hashed shared secrets.

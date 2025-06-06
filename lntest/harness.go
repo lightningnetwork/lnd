@@ -1588,7 +1588,8 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 		h.AssertPaymentStatusFromStream(stream, status)
 
 	case <-timer:
-		require.Fail(h, "timeout", "waiting payment results timeout")
+		require.Failf(h, "timeout", "%s: waiting payment results "+
+			"timeout", hn.Name())
 	}
 }
 

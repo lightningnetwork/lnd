@@ -1037,6 +1037,66 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 	return resp, nil
 }
 
+// createEstimatorFromConfig creates a routing.Estimator based on the provided
+// RPC MissionControlConfig and a global estimator to use as a base for default
+// values.
+func createEstimatorFromConfig(rpcCfg *MissionControlConfig,
+	globalEstimator routing.Estimator) (routing.Estimator, error) {
+
+	if rpcCfg == nil || rpcCfg.EstimatorConfig == nil {
+		return nil, nil
+	}
+
+	var (
+		estimator routing.Estimator
+		err       error
+	)
+
+	switch estCfg := rpcCfg.EstimatorConfig.(type) {
+	case *MissionControlConfig_Apriori:
+		if estCfg.Apriori == nil {
+			return nil, fmt.Errorf("apriori config not provided")
+		}
+
+		baseCfg := routing.DefaultAprioriConfig()
+		if globalApriori, ok := globalEstimator.(*routing.AprioriEstimator); ok {
+			baseCfg = globalApriori.Config().(routing.AprioriConfig)
+		}
+
+		baseCfg.PenaltyHalfLife = time.Duration(estCfg.Apriori.HalfLifeSeconds) * time.Second
+		baseCfg.AprioriHopProbability = estCfg.Apriori.HopProbability
+		baseCfg.AprioriWeight = estCfg.Apriori.Weight
+		baseCfg.CapacityFraction = estCfg.Apriori.CapacityFraction
+		estimator, err = routing.NewAprioriEstimator(baseCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create apriori estimator: %w", err)
+		}
+
+	case *MissionControlConfig_Bimodal:
+		if estCfg.Bimodal == nil {
+			return nil, fmt.Errorf("bimodal config not provided")
+		}
+
+		baseCfg := routing.DefaultBimodalConfig()
+		if globalBimodal, ok := globalEstimator.(*routing.BimodalEstimator); ok {
+			baseCfg = globalBimodal.Config().(routing.BimodalConfig)
+		}
+
+		baseCfg.BimodalNodeWeight = estCfg.Bimodal.NodeWeight
+		baseCfg.BimodalScaleMsat = lnwire.MilliSatoshi(estCfg.Bimodal.ScaleMsat)
+		baseCfg.BimodalDecayTime = time.Duration(estCfg.Bimodal.DecayTime) * time.Second
+		estimator, err = routing.NewBimodalEstimator(baseCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create bimodal estimator: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown estimator type in config")
+	}
+
+	return estimator, nil
+}
+
 // SetMissionControlConfig sets parameters in the mission control config.
 func (s *Server) SetMissionControlConfig(ctx context.Context,
 	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
@@ -1049,74 +1109,16 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 		) * time.Second,
 	}
 
-	switch req.Config.Model {
-	case MissionControlConfig_APRIORI:
-		var aprioriConfig routing.AprioriConfig
-
-		// Determine the apriori config with backward compatibility
-		// should the api use deprecated fields.
-		switch v := req.Config.EstimatorConfig.(type) {
-		case *MissionControlConfig_Bimodal:
-			return nil, fmt.Errorf("bimodal config " +
-				"provided, but apriori model requested")
-
-		case *MissionControlConfig_Apriori:
-			aprioriConfig = routing.AprioriConfig{
-				PenaltyHalfLife: time.Duration(
-					v.Apriori.HalfLifeSeconds,
-				) * time.Second,
-				AprioriHopProbability: v.Apriori.HopProbability,
-				AprioriWeight:         v.Apriori.Weight,
-				CapacityFraction: v.Apriori.
-					CapacityFraction,
-			}
-
-		default:
-			aprioriConfig = routing.AprioriConfig{
-				PenaltyHalfLife: time.Duration(
-					int64(req.Config.HalfLifeSeconds),
-				) * time.Second,
-				AprioriHopProbability: float64(
-					req.Config.HopProbability,
-				),
-				AprioriWeight:    float64(req.Config.Weight),
-				CapacityFraction: routing.DefaultCapacityFraction, //nolint:ll
-			}
-		}
-
-		estimator, err := routing.NewAprioriEstimator(aprioriConfig)
-		if err != nil {
-			return nil, err
-		}
-		mcCfg.Estimator = estimator
-
-	case MissionControlConfig_BIMODAL:
-		cfg, ok := req.Config.
-			EstimatorConfig.(*MissionControlConfig_Bimodal)
-		if !ok {
-			return nil, fmt.Errorf("bimodal estimator requested " +
-				"but corresponding config not set")
-		}
-		bCfg := cfg.Bimodal
-
-		bimodalConfig := routing.BimodalConfig{
-			BimodalDecayTime: time.Duration(
-				bCfg.DecayTime,
-			) * time.Second,
-			BimodalScaleMsat:  lnwire.MilliSatoshi(bCfg.ScaleMsat),
-			BimodalNodeWeight: bCfg.NodeWeight,
-		}
-
-		estimator, err := routing.NewBimodalEstimator(bimodalConfig)
-		if err != nil {
-			return nil, err
-		}
-		mcCfg.Estimator = estimator
-
-	default:
-		return nil, fmt.Errorf("unknown estimator type %v",
-			req.Config.Model)
+	// Use the new helper to create the estimator based on the request config.
+	// We pass the current global estimator from MissionControl to serve as a
+	// base for default values if some fields are not set in the request.
+	estimator, err := createEstimatorFromConfig(
+		req.Config, s.cfg.RouterBackend.MissionControl.GetConfig().Estimator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create estimator from config: %w", err)
 	}
+	mcCfg.Estimator = estimator
 
 	return &SetMissionControlConfigResponse{},
 		s.cfg.RouterBackend.MissionControl.SetConfig(mcCfg)

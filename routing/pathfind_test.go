@@ -108,8 +108,8 @@ var (
 
 // noProbabilitySource is used in testing to return the same probability 1 for
 // all edges.
-func noProbabilitySource(route.Vertex, route.Vertex, lnwire.MilliSatoshi,
-	btcutil.Amount) float64 {
+func noProbabilitySource(_ route.Vertex, _ route.Vertex,
+	_ lnwire.MilliSatoshi, _ btcutil.Amount, _ ...EstimatorOption) float64 {
 
 	return 1
 }
@@ -2766,7 +2766,7 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 	// Configure a probability source with the test parameters.
 	ctx.restrictParams.ProbabilitySource = func(fromNode,
 		toNode route.Vertex, amt lnwire.MilliSatoshi,
-		capacity btcutil.Amount) float64 {
+		capacity btcutil.Amount, opts ...EstimatorOption) float64 {
 
 		if amt == 0 {
 			t.Fatal("expected non-zero amount")
@@ -2849,7 +2849,7 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 
 	ctx.restrictParams.ProbabilitySource = func(fromNode,
 		toNode route.Vertex, amt lnwire.MilliSatoshi,
-		capacity btcutil.Amount) float64 {
+		capacity btcutil.Amount, opts ...EstimatorOption) float64 {
 
 		switch {
 		case fromNode == alias["source"] && toNode == alias["a"]:

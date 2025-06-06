@@ -2032,6 +2032,10 @@
         "mission_control_namespace": {
           "type": "string",
           "description": "An optional mission control namespace that should be used for this payment.\nIf not specified, the default mission control namespace will be used."
+        },
+        "payment_attempt_mc_cfg": {
+          "$ref": "#/definitions/routerrpcMissionControlConfig",
+          "description": "An optional mission control configuration to use for this payment attempt.\nIf not specified, the global mission control config will be used."
         }
       }
     },

@@ -135,7 +135,8 @@ type MissionControl interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode to toNode.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+		opts ...routing.EstimatorOption) float64
 
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
@@ -390,7 +391,8 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
 			amt lnwire.MilliSatoshi,
-			capacity btcutil.Amount) float64 {
+			capacity btcutil.Amount,
+			opts ...routing.EstimatorOption) float64 {
 
 			if _, ok := ignoredNodes[fromNode]; ok {
 				return 0
@@ -948,6 +950,18 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	// Set the mission control namespace if specified.
 	payIntent.MissionControlNamespace = rpcPayReq.MissionControlNamespace
+
+	// If a per-payment mission control config is provided, create the
+	// specified estimator.
+	if rpcCfg := rpcPayReq.PaymentAttemptMcCfg; rpcCfg != nil {
+		estimator, err := createEstimatorFromConfig(
+			rpcCfg, r.MissionControl.GetConfig().Estimator,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create payment attempt estimator: %w", err)
+		}
+		payIntent.PaymentAttemptMcConfig = estimator
+	}
 
 	// Route hints.
 	routeHints, err := unmarshallRouteHints(

@@ -374,6 +374,12 @@ message SendPaymentRequest {
     If not specified, the default mission control namespace will be used.
     */
     string mission_control_namespace = 26;
+
+    /*
+    An optional mission control configuration to use for this payment attempt.
+    If not specified, the global mission control config will be used.
+    */
+    MissionControlConfig payment_attempt_mc_cfg = 27;
 }
 
 message TrackPaymentRequest {

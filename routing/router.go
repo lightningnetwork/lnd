@@ -183,7 +183,8 @@ type MissionControlQuerier interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+		opts ...EstimatorOption) float64
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
@@ -853,6 +854,10 @@ type LightningPayment struct {
 	// default mission control namespace for this payment. If empty, the
 	// default namespace will be used.
 	MissionControlNamespace string
+
+	// PaymentAttemptMcConfig is an optional mission control configuration to
+	// use for this payment attempt.
+	PaymentAttemptMcConfig Estimator
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

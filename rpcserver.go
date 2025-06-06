@@ -6322,7 +6322,14 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 			return r.server.chanRouter.FindBlindedPaths(
 				r.selfNode, amt,
-				r.server.defaultMC.GetProbability,
+				func(fromNode, toNode route.Vertex,
+					amt lnwire.MilliSatoshi,
+					capacity btcutil.Amount) float64 {
+
+					return r.server.defaultMC.GetProbability( //nolint:ll
+						fromNode, toNode, amt, capacity,
+					)
+				},
 				blindingRestrictions,
 			)
 		},

@@ -229,6 +229,26 @@ var (
 		"remove --no-macaroons flag to enable")
 )
 
+// missionControllerAdapter wraps a *routing.MissionController to implement
+// the routerrpc.MissionController interface.
+type missionControllerAdapter struct {
+	controller *routing.MissionController
+}
+
+// GetNamespacedStore implements the routerrpc.MissionController interface.
+// It calls the underlying controller's GetNamespacedStore and since
+// *routing.MissionControl implements routerrpc.MissionControl, the return
+// type is compatible.
+func (a *missionControllerAdapter) GetNamespacedStore(namespace string) (routerrpc.MissionControl, error) {
+	// The underlying GetNamespacedStore returns *routing.MissionControl.
+	// Since *routing.MissionControl implements routerrpc.MissionControl,
+	// this direct return is valid.
+	return a.controller.GetNamespacedStore(namespace)
+}
+
+// Ensure missionControllerAdapter implements the interface.
+var _ routerrpc.MissionController = (*missionControllerAdapter)(nil)
+
 // stringInSlice returns true if a string is contained in the given slice.
 func stringInSlice(a string, slice []string) bool {
 	for _, b := range slice {
@@ -730,10 +750,11 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		},
 		FindRoute:              s.chanRouter.FindRoute,
 		MissionControl:         s.defaultMC,
-		ActiveNetParams:        r.cfg.ActiveNetParams.Params,
+		MissionController:      &missionControllerAdapter{controller: s.missionController},
+		ActiveNetParams:        s.cfg.ActiveNetParams.Params,
 		Tower:                  s.controlTower,
-		MaxTotalTimelock:       r.cfg.MaxOutgoingCltvExpiry,
-		DefaultFinalCltvDelta:  uint16(r.cfg.Bitcoin.TimeLockDelta),
+		MaxTotalTimelock:       s.cfg.MaxOutgoingCltvExpiry,
+		DefaultFinalCltvDelta:  uint16(s.cfg.Bitcoin.TimeLockDelta),
 		SubscribeHtlcEvents:    s.htlcNotifier.SubscribeHtlcEvents,
 		InterceptableForwarder: s.interceptableSwitch,
 		SetChannelEnabled: func(outpoint wire.OutPoint) error {

@@ -962,7 +962,18 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 func (s *Server) ResetMissionControl(ctx context.Context,
 	req *ResetMissionControlRequest) (*ResetMissionControlResponse, error) {
 
-	err := s.cfg.RouterBackend.MissionControl.ResetHistory()
+	namespace := req.MissionControlNamespace
+	if namespace == "" {
+		namespace = routing.DefaultMissionControlNamespace
+	}
+
+	mc, err := s.cfg.RouterBackend.MissionController.GetNamespacedStore(namespace)
+	if err != nil {
+		return nil, fmt.Errorf("could not get namespaced mission "+
+			"control for %s: %w", namespace, err)
+	}
+
+	err = mc.ResetHistory()
 	if err != nil {
 		return nil, err
 	}
@@ -975,7 +986,6 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 	req *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse,
 	error) {
 
-	// Query the current mission control config.
 	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
 	resp := &GetMissionControlConfigResponse{
 		Config: &MissionControlConfig{
@@ -1115,9 +1125,20 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 // QueryMissionControl exposes the internal mission control state to callers. It
 // is a development feature.
 func (s *Server) QueryMissionControl(_ context.Context,
-	_ *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
+	req *QueryMissionControlRequest) (*QueryMissionControlResponse, error) {
 
-	snapshot := s.cfg.RouterBackend.MissionControl.GetHistorySnapshot()
+	namespace := req.MissionControlNamespace
+	if namespace == "" {
+		namespace = routing.DefaultMissionControlNamespace
+	}
+
+	mc, err := s.cfg.RouterBackend.MissionController.GetNamespacedStore(namespace)
+	if err != nil {
+		return nil, fmt.Errorf("could not get namespaced mission "+
+			"control for %s: %w", namespace, err)
+	}
+
+	snapshot := mc.GetHistorySnapshot()
 
 	rpcPairs := make([]*PairHistory, 0, len(snapshot.Pairs))
 	for _, p := range snapshot.Pairs {
@@ -1188,6 +1209,22 @@ func (s *Server) XImportMissionControl(_ context.Context,
 	err := s.cfg.RouterBackend.MissionControl.ImportHistory(
 		snapshot, req.Force,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	namespace := req.MissionControlNamespace
+	if namespace == "" {
+		namespace = routing.DefaultMissionControlNamespace
+	}
+
+	mc, err := s.cfg.RouterBackend.MissionController.GetNamespacedStore(namespace)
+	if err != nil {
+		return nil, fmt.Errorf("could not get namespaced mission "+
+			"control for %s: %w", namespace, err)
+	}
+
+	err = mc.ImportHistory(snapshot, req.Force)
 	if err != nil {
 		return nil, err
 	}

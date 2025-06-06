@@ -2368,7 +2368,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 	// If this is an incoming HTLC, then this means that they were the
 	// sender of the HTLC (relative to us). So we'll re-generate the sender
-	// HTLC script. Otherwise, is this was an outgoing HTLC that we sent,
+	// HTLC script. Otherwise, if this was an outgoing HTLC that we sent,
 	// then from the PoV of the remote commitment state, they're the
 	// receiver of this HTLC.
 	//nolint:ll

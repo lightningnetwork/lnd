@@ -2270,6 +2270,9 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 		// forwardingIndex.
 		link, ok := s.forwardingIndex[baseScid]
 		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"baseScid=%v", baseScid)
+
 			// Link not found, bail.
 			return nil, ErrChannelLinkNotFound
 		}
@@ -2291,6 +2294,9 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 		// negotiated. We'll fetch the link and return it.
 		link, ok := s.forwardingIndex[chanID]
 		if !ok {
+			log.Debugf("Forwarding index not found using "+
+				"chanID=%v", chanID)
+
 			// The link wasn't found, bail out.
 			return nil, ErrChannelLinkNotFound
 		}
@@ -2301,6 +2307,9 @@ func (s *Switch) getLinkByMapping(pkt *htlcPacket) (ChannelLink, error) {
 	// Fetch the link whose internal SCID is baseScid.
 	link, ok := s.forwardingIndex[baseScid]
 	if !ok {
+		log.Debugf("Forwarding index not found using baseScid=%v",
+			baseScid)
+
 		// Link wasn't found, bail out.
 		return nil, ErrChannelLinkNotFound
 	}

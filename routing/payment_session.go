@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -198,6 +199,10 @@ type paymentSession struct {
 	// will happen and this value remains unused.
 	minShardAmt lnwire.MilliSatoshi
 
+	// paymentAttemptMcConfig is an optional mission control configuration to
+	// use for this payment attempt.
+	paymentAttemptMcConfig Estimator
+
 	// log is a payment session-specific logger.
 	log btclog.Logger
 }
@@ -214,7 +219,8 @@ func (p *paymentSession) MissionControl() fn.Option[MissionControlQuerier] {
 }
 
 // newPaymentSession instantiates a new payment session.
-func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
+func newPaymentSession(p *LightningPayment,
+	selfNode route.Vertex,
 	getBandwidthHints func(Graph) (bandwidthHints, error),
 	graphSessFactory GraphSessionFactory,
 	missionControl MissionControlQuerier,
@@ -240,16 +246,17 @@ func newPaymentSession(p *LightningPayment, selfNode route.Vertex,
 	logPrefix := fmt.Sprintf("PaymentSession(%x):", p.Identifier())
 
 	return &paymentSession{
-		selfNode:          selfNode,
-		additionalEdges:   edges,
-		getBandwidthHints: getBandwidthHints,
-		payment:           p,
-		pathFinder:        findPath,
-		graphSessFactory:  graphSessFactory,
-		pathFindingConfig: pathFindingConfig,
-		missionControl:    missionControl,
-		minShardAmt:       DefaultShardMinAmt,
-		log:               log.WithPrefix(logPrefix),
+		selfNode:               selfNode,
+		additionalEdges:        edges,
+		getBandwidthHints:      getBandwidthHints,
+		payment:                p,
+		pathFinder:             findPath,
+		graphSessFactory:       graphSessFactory,
+		pathFindingConfig:      pathFindingConfig,
+		missionControl:         missionControl,
+		paymentAttemptMcConfig: p.PaymentAttemptMcConfig,
+		minShardAmt:            DefaultShardMinAmt,
+		log:                    log.WithPrefix(logPrefix),
 	}, nil
 }
 
@@ -296,8 +303,25 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	// Taking into account this prune view, we'll attempt to locate a path
 	// to our destination, respecting the recommendations from
 	// MissionController.
+
+	var estimatorOpts []EstimatorOption
+	if p.paymentAttemptMcConfig != nil {
+		estimatorOpts = append(
+			estimatorOpts, WithEstimator(p.paymentAttemptMcConfig),
+		)
+	}
+
+	probabilitySource := func(fromNode, toNode route.Vertex,
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+		opts ...EstimatorOption) float64 {
+
+		return p.missionControl.GetProbability(
+			fromNode, toNode, amt, capacity, estimatorOpts...,
+		)
+	}
+
 	restrictions := &RestrictParams{
-		ProbabilitySource:     p.missionControl.GetProbability,
+		ProbabilitySource:     probabilitySource,
 		FeeLimit:              feeLimit,
 		OutgoingChannelIDs:    p.payment.OutgoingChannelIDs,
 		LastHop:               p.payment.LastHop,

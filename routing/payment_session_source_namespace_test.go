@@ -32,9 +32,10 @@ func TestSessionSourceNamespace(t *testing.T) {
 
 	// Create mission control instances with tracking.
 	defaultMC := &mockMissionControl{}
-	defaultMC.On("GetProbability", 
-		route.Vertex{1}, route.Vertex{2}, 
-		lnwire.MilliSatoshi(1000), btcutil.Amount(10000)).
+	defaultMC.On("GetProbability",
+		route.Vertex{1}, route.Vertex{2},
+		lnwire.MilliSatoshi(1000), btcutil.Amount(10000),
+		mock.AnythingOfType("[]routing.EstimatorOption")).
 		Return(0.5).
 		Run(func(args mock.Arguments) {
 			defaultMCUsed = true
@@ -43,7 +44,8 @@ func TestSessionSourceNamespace(t *testing.T) {
 	customMC := &mockMissionControl{}
 	customMC.On("GetProbability",
 		route.Vertex{1}, route.Vertex{2},
-		lnwire.MilliSatoshi(1000), btcutil.Amount(10000)).
+		lnwire.MilliSatoshi(1000), btcutil.Amount(10000),
+		mock.AnythingOfType("[]routing.EstimatorOption")).
 		Return(0.6).
 		Run(func(args mock.Arguments) {
 			customMCUsed = true
@@ -51,7 +53,9 @@ func TestSessionSourceNamespace(t *testing.T) {
 
 	// Create the GetMissionControl function that returns different
 	// MC instances based on namespace.
-	getMissionControl := func(namespace string) (MissionControlQuerier, error) {
+	getMissionControl := func(namespace string) (
+		MissionControlQuerier, error) {
+
 		switch namespace {
 		case "custom":
 			return customMC, nil
@@ -86,12 +90,12 @@ func TestSessionSourceNamespace(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name               string
-		namespace          string
-		expectDefaultMC    bool
-		expectCustomMC     bool
-		getMissionControl  func(string) (MissionControlQuerier, error)
-		expectError        bool
+		name              string
+		namespace         string
+		expectDefaultMC   bool
+		expectCustomMC    bool
+		getMissionControl func(string) (MissionControlQuerier, error)
+		expectError       bool
 	}{
 		{
 			name:              "default namespace uses default MC",
@@ -148,7 +152,8 @@ func TestSessionSourceNamespace(t *testing.T) {
 
 			// Create a payment session.
 			session, err := sessionSource.NewPaymentSession(
-				payment, fn.None[tlv.Blob](), fn.None[htlcswitch.AuxTrafficShaper](),
+				payment, fn.None[tlv.Blob](),
+				fn.None[htlcswitch.AuxTrafficShaper](),
 			)
 
 			if tc.expectError {

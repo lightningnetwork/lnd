@@ -435,7 +435,8 @@ type RestrictParams struct {
 	// ProbabilitySource is a callback that is expected to return the
 	// success probability of traversing the channel from the node.
 	ProbabilitySource func(route.Vertex, route.Vertex,
-		lnwire.MilliSatoshi, btcutil.Amount) float64
+		lnwire.MilliSatoshi, btcutil.Amount,
+		...EstimatorOption) float64
 
 	// FeeLimit is a maximum fee amount allowed to be used on the path from
 	// the source to the target.

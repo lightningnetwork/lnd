@@ -152,7 +152,7 @@ func (m *mockMissionControlOld) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControlOld) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount, _ ...EstimatorOption) float64 {
 
 	return 0
 }
@@ -687,9 +687,10 @@ func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+	opts ...EstimatorOption) float64 {
 
-	args := m.Called(fromNode, toNode, amt, capacity)
+	args := m.Called(fromNode, toNode, amt, capacity, opts)
 	return args.Get(0).(float64)
 }
 

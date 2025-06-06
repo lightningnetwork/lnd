@@ -535,10 +535,32 @@ func (m *MissionControl) ResetHistory() error {
 	return nil
 }
 
-// GetProbability is expected to return the success probability of a payment
-// from fromNode along edge.
+// EstimatorOption defines a functional option for the GetProbability method.
+type EstimatorOption func(*estimatorOverride)
+
+type estimatorOverride struct {
+	estimator Estimator
+}
+
+// WithEstimator is a functional option that allows specifying a custom
+// estimator for a GetProbability call.
+func WithEstimator(estimator Estimator) EstimatorOption {
+	return func(eo *estimatorOverride) {
+		eo.estimator = estimator
+	}
+}
+
+// GetProbability is expected to return the success probability of a
+// payment from fromNode along edge. Optional EstimatorOption can be
+// passed to override the default estimator for this specific call.
 func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+	opts ...EstimatorOption) float64 {
+
+	override := &estimatorOverride{}
+	for _, opt := range opts {
+		opt(override)
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -546,12 +568,17 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 	now := m.cfg.clock.Now()
 	results, _ := m.state.getLastPairResult(fromNode)
 
-	// Use a distinct probability estimation function for local channels.
-	if fromNode == m.cfg.selfNode {
-		return m.estimator.LocalPairProbability(now, results, toNode)
+	estimatorToUse := m.estimator
+	if override.estimator != nil {
+		estimatorToUse = override.estimator
 	}
 
-	return m.estimator.PairProbability(
+	// Use a distinct probability estimation function for local channels.
+	if fromNode == m.cfg.selfNode {
+		return estimatorToUse.LocalPairProbability(now, results, toNode)
+	}
+
+	return estimatorToUse.PairProbability(
 		now, results, toNode, amt, capacity,
 	)
 }

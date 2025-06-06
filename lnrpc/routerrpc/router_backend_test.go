@@ -248,7 +248,8 @@ type mockMissionControl struct {
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+	_ ...routing.EstimatorOption) float64 {
 
 	return testMissionControlProb
 }

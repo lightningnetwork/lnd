@@ -1205,27 +1205,17 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// routing policy into a forwarding policy.
 		var forwardingPolicy *models.ForwardingPolicy
 		if selfPolicy != nil {
-			var inboundWireFee lnwire.Fee
-			_, err := selfPolicy.ExtraOpaqueData.ExtractRecords(
-				&inboundWireFee,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			inboundFee := models.NewInboundFeeFromWire(
-				inboundWireFee,
-			)
-
 			forwardingPolicy = &models.ForwardingPolicy{
 				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
 				FeeRate:       selfPolicy.FeeProportionalMillionths,
 				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
-
-				InboundFee: inboundFee,
 			}
+			selfPolicy.InboundFee.WhenSome(func(fee lnwire.Fee) {
+				inboundFee := models.NewInboundFeeFromWire(fee)
+				forwardingPolicy.InboundFee = inboundFee
+			})
 		} else {
 			p.log.Warnf("Unable to find our forwarding policy "+
 				"for channel %v, using default values",

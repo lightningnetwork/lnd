@@ -3012,6 +3012,16 @@ func (t *tlvType300) tlv() {}
 
 type TlvType300 = *tlvType300
 
+type tlvType55555 struct{}
+
+func (t *tlvType55555) TypeVal() Type {
+	return 55555
+}
+
+func (t *tlvType55555) tlv() {}
+
+type TlvType55555 = *tlvType55555
+
 type tlvType65536 struct{}
 
 func (t *tlvType65536) TypeVal() Type {

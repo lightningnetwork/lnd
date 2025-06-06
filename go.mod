@@ -203,6 +203,9 @@ require (
 // store have been included in a tagged sqldb version.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
+// TODO(elle): replace once the updated tlv package has been tagged.
+replace github.com/lightningnetwork/lnd/tlv => ./tlv
+
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 

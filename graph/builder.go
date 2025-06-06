@@ -943,7 +943,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = b.UpdateEdge(&models.ChannelEdgePolicy{
+	update := &models.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
@@ -954,8 +954,11 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		MaxHTLC:                   msg.HtlcMaximumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
+		InboundFee:                msg.InboundFee.ValOpt(),
 		ExtraOpaqueData:           msg.ExtraOpaqueData,
-	})
+	}
+
+	err = b.UpdateEdge(update)
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
 		return false

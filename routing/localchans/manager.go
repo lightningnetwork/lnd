@@ -127,12 +127,10 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			Edge: edge,
 		})
 
-		// Extract inbound fees from the ExtraOpaqueData.
 		var inboundWireFee lnwire.Fee
-		_, err = edge.ExtraOpaqueData.ExtractRecords(&inboundWireFee)
-		if err != nil {
-			return err
-		}
+		edge.InboundFee.WhenSome(func(fee lnwire.Fee) {
+			inboundWireFee = fee
+		})
 		inboundFee := models.NewInboundFeeFromWire(inboundWireFee)
 
 		// Add updated policy to list of policies to send to switch.
@@ -372,6 +370,8 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	err = fn.MapOptionZ(newSchema.InboundFee,
 		func(f models.InboundFee) error {
 			inboundWireFee := f.ToWire()
+			edge.InboundFee = fn.Some(inboundWireFee)
+
 			return edge.ExtraOpaqueData.PackRecords(
 				&inboundWireFee,
 			)

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -360,6 +361,9 @@ type ChannelEdgeUpdate struct {
 	// payments.
 	Disabled bool
 
+	// InboundFee is the fee that must be paid for incoming HTLCs.
+	InboundFee fn.Option[lnwire.Fee]
+
 	// ExtraOpaqueData is the set of data that was appended to this message
 	// to fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -442,6 +446,7 @@ func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
 			Disabled:        m.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
+			InboundFee:      m.InboundFee,
 			ExtraOpaqueData: m.ExtraOpaqueData,
 		}
 

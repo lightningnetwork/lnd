@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
@@ -406,6 +407,45 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 		maxHtlc = 0
 	}
 
+	// Randomly decide if an inbound fee should be included.
+	// By default, our extra opaque data will just be random TLV but if we
+	// include an inbound fee, then we will also set the record in the
+	// extra opaque data.
+	var (
+		customRecords, _ = RandCustomRecords(t, nil, false)
+		inboundFee       tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+	)
+	includeInboundFee := rapid.Bool().Draw(t, "includeInboundFee")
+	if includeInboundFee {
+		if customRecords == nil {
+			customRecords = make(CustomRecords)
+		}
+
+		inFeeBase := int32(
+			rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase"),
+		)
+		inFeeProp := int32(
+			rapid.IntRange(-1000, 1000).Draw(t, "inFeeProp"),
+		)
+		fee := Fee{
+			BaseFee: inFeeBase,
+			FeeRate: inFeeProp,
+		}
+		inboundFee = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType55555, Fee](fee),
+		)
+
+		var b bytes.Buffer
+		feeRecord := fee.Record()
+		err := feeRecord.Encode(&b)
+		require.NoError(t, err)
+
+		customRecords[uint64(FeeRecordType)] = b.Bytes()
+	}
+
+	extraBytes, err := customRecords.Serialize()
+	require.NoError(t, err)
+
 	return &ChannelUpdate1{
 		Signature:      RandSignature(t),
 		ChainHash:      hash,
@@ -428,7 +468,8 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 			t, "feeRate"),
 		),
 		HtlcMaximumMsat: maxHtlc,
-		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
+		InboundFee:      inboundFee,
+		ExtraOpaqueData: extraBytes,
 	}
 }
 

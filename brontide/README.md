@@ -9,8 +9,8 @@ The brontide package implements a secure crypto messaging protocol based off of
 the [Noise Protocol Framework](http://noiseprotocol.org/noise.html). The
 package exposes the raw state machine that handles the handshake and subsequent
 message encryption/decryption scheme. Additionally, the package exposes a
-[net.Conn](https://golang.org/pkg/net/#Conn) and a
-[net.Listener](https://golang.org/pkg/net/#Listener) interface implementation
+[net.Conn](https://go.dev/pkg/net/#Conn) and a
+[net.Listener](https://go.dev/pkg/net/#Listener) interface implementation
 which allows the encrypted transport to be seamlessly integrated into a
 codebase.
 

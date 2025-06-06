@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/cluster"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/decayedlog"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -580,10 +581,14 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	netParams := cfg.ActiveNetParams.Params
 
-	// Initialize the sphinx router.
-	replayLog := htlcswitch.NewDecayedLog(
+	// Initialize and migrate the decayed log database.
+	replayLog, err := decayedlog.NewDecayedLog(
 		dbs.DecayedLogDB, cc.ChainNotifier,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
 	writeBufferPool := pool.NewWriteBuffer(

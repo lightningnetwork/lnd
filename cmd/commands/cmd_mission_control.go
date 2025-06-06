@@ -273,7 +273,15 @@ var queryMissionControlCommand = cli.Command{
 	Name:     "querymc",
 	Category: "Mission Control",
 	Usage:    "Query the internal mission control state.",
-	Action:   actionDecorator(queryMissionControl),
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name: "mission_control_namespace",
+			Usage: "an optional mission control namespace to query. " +
+				"If not specified, the default mission control " +
+				"namespace will be used.",
+		},
+	},
+	Action: actionDecorator(queryMissionControl),
 }
 
 func queryMissionControl(ctx *cli.Context) error {
@@ -283,7 +291,9 @@ func queryMissionControl(ctx *cli.Context) error {
 
 	client := routerrpc.NewRouterClient(conn)
 
-	req := &routerrpc.QueryMissionControlRequest{}
+	req := &routerrpc.QueryMissionControlRequest{
+		MissionControlNamespace: ctx.String("mission_control_namespace"),
+	}
 	snapshot, err := client.QueryMissionControl(ctxc, req)
 	if err != nil {
 		return err
@@ -299,8 +309,16 @@ var queryProbCommand = cli.Command{
 	Category:  "Mission Control",
 	Usage:     "Deprecated. Estimate a success probability.",
 	ArgsUsage: "from-node to-node amt",
-	Action:    actionDecorator(queryProb),
-	Hidden:    true,
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name: "mission_control_namespace",
+			Usage: "an optional mission control namespace to query. " +
+				"If not specified, the default mission control " +
+				"namespace will be used.",
+		},
+	},
+	Action: actionDecorator(queryProb),
+	Hidden: true,
 }
 
 func queryProb(ctx *cli.Context) error {
@@ -336,9 +354,10 @@ func queryProb(ctx *cli.Context) error {
 	client := routerrpc.NewRouterClient(conn)
 
 	req := &routerrpc.QueryProbabilityRequest{
-		FromNode: fromNode[:],
-		ToNode:   toNode[:],
-		AmtMsat:  int64(amtMsat),
+		FromNode:                fromNode[:],
+		ToNode:                  toNode[:],
+		AmtMsat:                 int64(amtMsat),
+		MissionControlNamespace: ctx.String("mission_control_namespace"),
 	}
 
 	response, err := client.QueryProbability(ctxc, req)
@@ -355,7 +374,15 @@ var resetMissionControlCommand = cli.Command{
 	Name:     "resetmc",
 	Category: "Mission Control",
 	Usage:    "Reset internal mission control state.",
-	Action:   actionDecorator(resetMissionControl),
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name: "mission_control_namespace",
+			Usage: "an optional mission control namespace to reset. " +
+				"If not specified, the default mission control " +
+				"namespace will be used.",
+		},
+	},
+	Action: actionDecorator(resetMissionControl),
 }
 
 func resetMissionControl(ctx *cli.Context) error {
@@ -365,7 +392,9 @@ func resetMissionControl(ctx *cli.Context) error {
 
 	client := routerrpc.NewRouterClient(conn)
 
-	req := &routerrpc.ResetMissionControlRequest{}
+	req := &routerrpc.ResetMissionControlRequest{
+		MissionControlNamespace: ctx.String("mission_control_namespace"),
+	}
 	_, err := client.ResetMissionControl(ctxc, req)
 
 	return err

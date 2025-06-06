@@ -4,6 +4,8 @@ package sqlbase
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcwallet/walletdb"
 )
@@ -184,34 +186,21 @@ func (c *readWriteCursor) Seek(seek []byte) ([]byte, []byte) {
 }
 
 // Delete removes the current key/value pair the cursor is at without
-// invalidating the cursor.  Returns ErrIncompatibleValue if attempted
-// when the cursor points to a nested bucket.
+// invalidating the cursor. Returns ErrIncompatibleValue if attempted when the
+// cursor points to a nested bucket.
 func (c *readWriteCursor) Delete() error {
-	// Get first record at or after cursor.
-	var key []byte
-	row, cancel := c.bucket.tx.QueryRow(
-		"SELECT key FROM "+c.bucket.table+" WHERE "+
-			parentSelector(c.bucket.id)+
-			" AND key>=$1 ORDER BY key LIMIT 1",
-		c.currKey,
-	)
-	defer cancel()
-	err := row.Scan(&key)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return nil
-
-	case err != nil:
-		panic(err)
+	if c.currKey == nil {
+		// Cursor might not be positioned on a valid key.
+		return errors.New("cursor not positioned on a key")
 	}
 
-	// Delete record.
+	// Attempt to delete the key the cursor is pointing at, but only if it's
+	// a value.
 	result, err := c.bucket.tx.Exec(
 		"DELETE FROM "+c.bucket.table+" WHERE "+
 			parentSelector(c.bucket.id)+
 			" AND key=$1 AND value IS NOT NULL",
-		key,
+		c.currKey,
 	)
 	if err != nil {
 		panic(err)
@@ -219,14 +208,38 @@ func (c *readWriteCursor) Delete() error {
 
 	rows, err := result.RowsAffected()
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting rows affected "+
+			"for cursor key %x: %w", c.currKey, err)
 	}
 
-	// The key exists but nothing has been deleted. This means that the key
-	// must have been a bucket key.
-	if rows != 1 {
+	// If deletion succeeded, we are done.
+	if rows == 1 {
+		return nil
+	}
+
+	// If rows == 0, the key either didn't exist anymore (concurrent
+	// delete?) or it was a bucket. Check if it's a bucket.
+	var existsAsBucket int
+	rowCheck, cancelCheck := c.bucket.tx.QueryRow(
+		"SELECT 1 FROM "+c.bucket.table+" WHERE "+
+			parentSelector(c.bucket.id)+
+			" AND key=$1 AND value IS NULL", c.currKey,
+	)
+	defer cancelCheck()
+
+	errCheck := rowCheck.Scan(&existsAsBucket)
+	if errCheck == nil {
+		// Found it, and value IS NULL -> It's a bucket.
 		return walletdb.ErrIncompatibleValue
 	}
 
-	return err
+	if errCheck == sql.ErrNoRows {
+		return nil
+	}
+
+	// Some other error during the check.
+	//
+	// TODO(roasbeef): panic here like above/
+	return fmt.Errorf("error checking if cursor key %x is "+
+		"bucket: %w", c.currKey, errCheck)
 }

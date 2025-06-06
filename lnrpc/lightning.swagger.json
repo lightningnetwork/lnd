@@ -5075,6 +5075,16 @@
         "peer_alias_out": {
           "type": "string",
           "description": "The peer alias of the outgoing channel."
+        },
+        "incoming_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The ID of the incoming HTLC in the payment circuit. This field is\noptional and is unset for forwarding events happened before v0.20."
+        },
+        "outgoing_htlc_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The ID of the outgoing HTLC in the payment circuit. This field is\noptional and may be unset for legacy forwarding events."
         }
       }
     },

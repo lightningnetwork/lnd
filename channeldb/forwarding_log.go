@@ -2,11 +2,13 @@ package channeldb
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"sort"
 	"time"
 
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -25,11 +27,12 @@ const (
 	// is as follows:
 	//
 	//  * 8 byte incoming chan ID || 8 byte outgoing chan ID || 8 byte value in
-	//    || 8 byte value out
+	//    || 8 byte value out || 8 byte incoming htlc id || 8 byte
+	//    outgoing htlc id
 	//
 	// From the value in and value out, callers can easily compute the
 	// total fee extract from a forwarding event.
-	forwardingEventSize = 32
+	forwardingEventSize = 48
 
 	// MaxResponseEvents is the max number of forwarding events that will
 	// be returned by a single query response. This size was selected to
@@ -78,14 +81,44 @@ type ForwardingEvent struct {
 	// AmtOut is the amount of the outgoing HTLC. Subtracting the incoming
 	// amount from this gives the total fees for this payment circuit.
 	AmtOut lnwire.MilliSatoshi
+
+	// IncomingHtlcID is the ID of the incoming HTLC in the payment circuit.
+	// If this is not set, the value will be nil. This field is added in
+	// v0.20 and is made optional to make it backward compatible with
+	// existing forwarding events created before it's introduction.
+	IncomingHtlcID fn.Option[uint64]
+
+	// OutgoingHtlcID is the ID of the outgoing HTLC in the payment circuit.
+	// If this is not set, the value will be nil. This field is added in
+	// v0.20 and is made optional to make it backward compatible with
+	// existing forwarding events created before it's introduction.
+	OutgoingHtlcID fn.Option[uint64]
 }
 
 // encodeForwardingEvent writes out the target forwarding event to the passed
 // io.Writer, using the expected DB format. Note that the timestamp isn't
 // serialized as this will be the key value within the bucket.
 func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
+	// We check for the HTLC IDs if they are set. If they are not,
+	// from v0.20 upward, we return an error to make it clear they are
+	// required.
+	incomingID, err := f.IncomingHtlcID.UnwrapOrErr(
+		errors.New("incoming HTLC ID must be set"),
+	)
+	if err != nil {
+		return err
+	}
+
+	outgoingID, err := f.OutgoingHtlcID.UnwrapOrErr(
+		errors.New("outgoing HTLC ID must be set"),
+	)
+	if err != nil {
+		return err
+	}
+
 	return WriteElements(
 		w, f.IncomingChanID, f.OutgoingChanID, f.AmtIn, f.AmtOut,
+		incomingID, outgoingID,
 	)
 }
 
@@ -94,9 +127,32 @@ func encodeForwardingEvent(w io.Writer, f *ForwardingEvent) error {
 // won't be decoded, as the caller is expected to set this due to the bucket
 // structure of the forwarding log.
 func decodeForwardingEvent(r io.Reader, f *ForwardingEvent) error {
-	return ReadElements(
+	// Decode the original fields of the forwarding event.
+	err := ReadElements(
 		r, &f.IncomingChanID, &f.OutgoingChanID, &f.AmtIn, &f.AmtOut,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Decode the incoming and outgoing htlc IDs. For backward compatibility
+	// with older records that don't have these fields, we handle EOF by
+	// setting the ID to nil. Any other error is treated as a read failure.
+	var incomingHtlcID, outgoingHtlcID uint64
+	err = ReadElements(r, &incomingHtlcID, &outgoingHtlcID)
+	switch {
+	case err == nil:
+		f.IncomingHtlcID = fn.Some(incomingHtlcID)
+		f.OutgoingHtlcID = fn.Some(outgoingHtlcID)
+
+		return nil
+
+	case errors.Is(err, io.EOF):
+		return nil
+
+	default:
+		return err
+	}
 }
 
 // AddForwardingEvents adds a series of forwarding events to the database.

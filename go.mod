@@ -219,4 +219,7 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // well).
 go 1.23.6
 
+// Temporary replace until dependent PR is merged in lightning-onion.
+replace github.com/lightningnetwork/lightning-onion => github.com/joostjager/lightning-onion v0.0.0-20250602131918-4a9e89869b51
+
 retract v0.0.2

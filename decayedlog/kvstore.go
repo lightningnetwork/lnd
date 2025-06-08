@@ -21,13 +21,37 @@ const (
 
 var (
 	// sharedHashBucket is a bucket which houses the first HashPrefixSize
-	// bytes of a received HTLC's hashed shared secret as the key and the HTLC's
-	// CLTV expiry as the value.
+	// bytes of a received HTLC's hashed shared secret as the key and the
+	// HTLC's CLTV expiry as the value.
 	sharedHashBucket = []byte("shared-hash")
 
-	// batchReplayBucket is a bucket that maps batch identifiers to
-	// serialized ReplaySets. This is used to give idempotency in the event
+	// batchReplayBucket is a bucket that maps incoming batched HTLCs to
+	// a serialized ReplaySet. This is used to give idempotency in the event
 	// that a batch is processed more than once.
+	//
+	// NOTE: This can happen if the fwd package of incoming HTLCs is
+	// reforwared when the link for incoming HTLC restarts while the HTLC
+	// is still not resolved. In that case we need to make sure that this
+	// HTLC is not flagged as a replay because it was already processed
+	// before.
+	//
+	//
+	// The bucket is structured as follows:
+	//
+	// batchReplayBucket
+	// 	|
+	// 	|-- <batch id (short channel ID | remote commitment height)>
+	// 	|       |       |-- <serialized ReplaySet>
+	// 	|       |       |       |-- type ReplaySet struct {
+	// 	|       |       |       |       |-- replays map[uint16]struct{}
+	// 	|       |       |       |       |-- max CLTV
+	//  ...
+	// 	|-- <batch id (short channel ID | remote commitment height)>
+	// 	|       |       |-- <serialized ReplaySet>
+	// 	|       |       |       |-- type ReplaySet struct {
+	// 	|       |       |       |       |-- replays map[uint16]struct{}
+	// 	|       |       |       |       |-- max CLTV
+	//  ...
 	batchReplayBucket = []byte("batch-replay")
 )
 
@@ -189,16 +213,24 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 			// Perform a bout of garbage collection using the
 			// epoch's block height.
 			height := uint32(epoch.Height)
-			numExpired, err := d.gcExpiredHashes(height)
+
+			//nolint:ll
+			expiredHashes, expiredReplaySets, err := d.gcExpiredHashes(height)
 			if err != nil {
 				log.Errorf("unable to expire hashes at "+
 					"height=%d", height)
 			}
 
-			if numExpired > 0 {
+			if expiredHashes > 0 {
 				log.Infof("Garbage collected %v shared "+
 					"secret hashes at height=%v",
-					numExpired, height)
+					expiredHashes, height)
+			}
+
+			if expiredReplaySets > 0 {
+				log.Infof("Garbage collected %v batch replay "+
+					"sets at height=%v",
+					expiredReplaySets, height)
 			}
 
 		case <-d.quit:
@@ -212,12 +244,13 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 
 // gcExpiredHashes purges the decaying log of all entries whose CLTV expires
 // below the provided height.
-func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
-	var numExpiredHashes uint32
+func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, uint32, error) {
+	var (
+		expiredSharedHashes    [][]byte
+		expiredBatchReplaySets [][]byte
+	)
 
 	err := kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
-		numExpiredHashes = 0
-
 		// Grab the shared hash bucket
 		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
@@ -225,7 +258,6 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 				"is nil")
 		}
 
-		var expiredCltv [][]byte
 		if err := sharedHashes.ForEach(func(k, v []byte) error {
 			// Deserialize the CLTV value for this entry.
 			cltv := uint32(binary.BigEndian.Uint32(v))
@@ -234,8 +266,9 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 				// This CLTV is expired. We must add it to an
 				// array which we'll loop over and delete every
 				// hash contained from the db.
-				expiredCltv = append(expiredCltv, k)
-				numExpiredHashes++
+				expiredSharedHashes = append(
+					expiredSharedHashes, k,
+				)
 			}
 
 			return nil
@@ -246,8 +279,40 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 		// Delete every item in the array. This must
 		// be done explicitly outside of the ForEach
 		// function for safety reasons.
-		for _, hash := range expiredCltv {
+		for _, hash := range expiredSharedHashes {
 			err := sharedHashes.Delete(hash)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Garbage collect the batch replay bucket as well. Depending
+		// on the max CLTV. Normally when reforwarding a batch HTLCs
+		// which are already expired should be already resolved.
+		// Otherwise if not the replay set will still be able to
+		// to distinguish between replayed and normal HTLCs.
+		batchReplayBkt := tx.ReadWriteBucket(batchReplayBucket)
+		if batchReplayBkt == nil {
+			return ErrDecayedLogCorrupted
+		}
+
+		batchReplayBkt.ForEach(func(k, v []byte) error {
+			replaySet := sphinx.NewReplaySet()
+			if err := replaySet.Decode(bytes.NewReader(v)); err != nil {
+				return err
+			}
+
+			if replaySet.MaxCLTV() < height {
+				expiredBatchReplaySets = append(
+					expiredBatchReplaySets, k,
+				)
+			}
+
+			return nil
+		})
+
+		for _, batchID := range expiredBatchReplaySets {
+			err := batchReplayBkt.Delete(batchID)
 			if err != nil {
 				return err
 			}
@@ -256,10 +321,11 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
-	return numExpiredHashes, nil
+	return uint32(len(expiredSharedHashes)),
+		uint32(len(expiredBatchReplaySets)), nil
 }
 
 // Delete removes a <shared secret hash, CLTV> key-pair from the
@@ -370,7 +436,9 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		replayBytes := batchReplayBkt.Get(b.ID)
 		if replayBytes != nil {
 			replays = sphinx.NewReplaySet()
-			return replays.Decode(bytes.NewReader(replayBytes))
+			return replays.Decode(
+				bytes.NewReader(replayBytes),
+			)
 		}
 
 		// The CLTV will be stored into scratch and then stored into the
@@ -378,12 +446,20 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		var scratch [4]byte
 
 		replays = sphinx.NewReplaySet()
-		err := b.ForEach(func(seqNum uint16, hashPrefix *sphinx.HashPrefix, cltv uint32) error {
+		err := b.ForEach(func(seqNum uint16,
+			hashPrefix *sphinx.HashPrefix, cltv uint32) error {
+
 			// Retrieve the bytes which represents the CLTV
 			valueBytes := sharedHashes.Get(hashPrefix[:])
 			if valueBytes != nil {
-				replays.Add(seqNum)
+				replays.Add(seqNum, cltv)
 				return nil
+			} else {
+				// If it is not a replay, we still need to
+				// update the max CLTV to keep this batch around
+				// so that in case the fwd package is reforwared
+				// we do not flag a non-replay HTLC as a replay.
+				replays.SetMaxCLTV(cltv)
 			}
 
 			// Serialize the cltv value and write an entry keyed by

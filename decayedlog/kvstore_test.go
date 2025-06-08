@@ -1,7 +1,9 @@
 package decayedlog
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"testing"
 	"time"
@@ -18,7 +20,7 @@ const (
 )
 
 // startup sets up the DecayedLog and possibly the garbage collector.
-func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
+func startup(dbPath string, notifier bool) (sphinx.ReplayLog, kvdb.Backend,
 	*mock.ChainNotifier, *sphinx.HashPrefix, func(), error) {
 
 	cfg := &kvdb.BoltConfig{
@@ -26,8 +28,8 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 	}
 	backend, err := NewBoltBackendCreator(dbPath, "sphinxreplay.db")(cfg)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("unable to create temporary "+
-			"decayed log db: %v", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("unable to create "+
+			"temporary decayed log db: %v", err)
 	}
 
 	var log sphinx.ReplayLog
@@ -44,20 +46,20 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 		// Initialize the DecayedLog object
 		log, err = NewDecayedLog(backend, chainNotifier)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 	} else {
 		// Initialize the DecayedLog object
 		log, err = NewDecayedLog(backend, nil)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, nil, nil, err
 		}
 	}
 
 	// Open the channeldb (start the garbage collector)
 	err = log.Start()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	// Create a HashPrefix identifier for a packet. Instead of actually
@@ -66,7 +68,7 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 	var hashedSecret sphinx.HashPrefix
 	_, err = rand.Read(hashedSecret[:])
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
 	stop := func() {
@@ -74,7 +76,7 @@ func startup(dbPath string, notifier bool) (sphinx.ReplayLog,
 		backend.Close()
 	}
 
-	return log, chainNotifier, &hashedSecret, stop, nil
+	return log, backend, chainNotifier, &hashedSecret, stop, nil
 }
 
 // TestDecayedLogGarbageCollector tests the ability of the garbage collector
@@ -85,7 +87,7 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 
 	dbPath := t.TempDir()
 
-	d, notifier, hashedSecret, _, err := startup(dbPath, true)
+	d, backend, notifier, hashedSecret, _, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to start up DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d.Stop())
@@ -94,6 +96,16 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 	// Store <hashedSecret, cltv> in the sharedHashBucket.
 	err = d.Put(hashedSecret, cltv)
 	require.NoError(t, err, "Unable to store in channeldb")
+
+	// Also add a batch replay set to the batchReplayBucket.
+	batchReplaySet := sphinx.NewReplaySet()
+	batchReplaySet.Add(0, cltv)
+	batchID := make([]byte, 8)
+	binary.BigEndian.PutUint64(batchID, 0)
+	batch := sphinx.NewBatch(batchID)
+	batch.Put(0, hashedSecret, cltv)
+	_, err = d.PutBatch(batch)
+	require.NoError(t, err, "Unable to store batch in channeldb")
 
 	// Wait for database write (GC is in a goroutine)
 	time.Sleep(500 * time.Millisecond)
@@ -114,6 +126,26 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 		t.Fatalf("GC incorrectly deleted CLTV")
 	}
 
+	// Assert that the batch replay set is still in the batchReplayBucket.
+	replaySets := []*sphinx.ReplaySet{}
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		batchReplaySetBytes := tx.ReadBucket(batchReplayBucket)
+		batchReplaySetBytes.ForEach(func(k, v []byte) error {
+			replaySet := sphinx.NewReplaySet()
+			err := replaySet.Decode(bytes.NewReader(v))
+			if err != nil {
+				return err
+			}
+			replaySets = append(replaySets, replaySet)
+			return nil
+		})
+		return nil
+	}, func() {})
+	require.NoError(t, err, "Unable to get batch from channeldb")
+
+	require.Equal(t, len(replaySets), 1)
+	require.Equal(t, replaySets[0], batchReplaySet)
+
 	// Send block 100001 (expiry block)
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: 100001,
@@ -128,8 +160,28 @@ func TestDecayedLogGarbageCollector(t *testing.T) {
 		t.Fatalf("CLTV was not deleted")
 	}
 	if err != sphinx.ErrLogEntryNotFound {
-		t.Fatalf("Get failed - received unexpected error upon Get: %v", err)
+		t.Fatalf("Get failed - received unexpected error upon Get: %v",
+			err)
 	}
+
+	// Assert that the batch replay set is not in the batchReplayBucket.
+	replaySets = []*sphinx.ReplaySet{}
+	err = kvdb.Update(backend, func(tx kvdb.RwTx) error {
+		batchReplaySetBytes := tx.ReadBucket(batchReplayBucket)
+		batchReplaySetBytes.ForEach(func(k, v []byte) error {
+			replaySet := sphinx.NewReplaySet()
+			err := replaySet.Decode(bytes.NewReader(v))
+			if err != nil {
+				return err
+			}
+			replaySets = append(replaySets, replaySet)
+			return nil
+		})
+		return nil
+	}, func() {})
+	require.NoError(t, err, "Unable to get batch from channeldb")
+
+	require.Equal(t, len(replaySets), 0)
 }
 
 // TestDecayedLogPersistentGarbageCollector tests the persistence property of
@@ -142,7 +194,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 
 	dbPath := t.TempDir()
 
-	d, _, hashedSecret, stop, err := startup(dbPath, true)
+	d, _, _, hashedSecret, stop, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to start up DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d.Stop())
@@ -162,7 +214,7 @@ func TestDecayedLogPersistentGarbageCollector(t *testing.T) {
 	// Shut down DecayedLog and the garbage collector along with it.
 	stop()
 
-	d2, notifier2, _, _, err := startup(dbPath, true)
+	d2, _, notifier2, _, _, err := startup(dbPath, true)
 	require.NoError(t, err, "Unable to restart DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d2.Stop())
@@ -198,7 +250,7 @@ func TestDecayedLogInsertionAndDeletion(t *testing.T) {
 
 	dbPath := t.TempDir()
 
-	d, _, hashedSecret, _, err := startup(dbPath, false)
+	d, _, _, hashedSecret, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d.Stop())
@@ -232,7 +284,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 
 	dbPath := t.TempDir()
 
-	d, _, hashedSecret, stop, err := startup(dbPath, false)
+	d, _, _, hashedSecret, stop, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d.Stop())
@@ -245,7 +297,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	stop()
 
-	d2, _, hashedSecret2, stop, err := startup(dbPath, false)
+	d2, _, _, hashedSecret2, stop, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to restart DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d2.Stop())
@@ -268,7 +320,7 @@ func TestDecayedLogStartAndStop(t *testing.T) {
 	// Shutdown the DecayedLog's channeldb
 	stop()
 
-	d3, _, hashedSecret3, _, err := startup(dbPath, false)
+	d3, _, _, hashedSecret3, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to restart DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d3.Stop())
@@ -292,7 +344,7 @@ func TestDecayedLogStorageAndRetrieval(t *testing.T) {
 
 	dbPath := t.TempDir()
 
-	d, _, hashedSecret, _, err := startup(dbPath, false)
+	d, _, _, hashedSecret, _, err := startup(dbPath, false)
 	require.NoError(t, err, "Unable to start up DecayedLog")
 	t.Cleanup(func() {
 		require.NoError(t, d.Stop())

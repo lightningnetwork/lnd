@@ -220,3 +220,5 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.23.6
 
 retract v0.0.2
+
+replace github.com/lightningnetwork/lightning-onion => github.com/ziggie1984/lightning-onion v0.0.0-20250608065421-fdfdad27ffe8

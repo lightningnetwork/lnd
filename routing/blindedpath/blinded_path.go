@@ -288,7 +288,7 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		return nil, err
 	}
 
-	if len(blindedPath.BlindedHops) < 1 {
+	if len(blindedPath.Path.BlindedHops) < 1 {
 		return nil, fmt.Errorf("blinded path must have at least one " +
 			"hop")
 	}
@@ -297,8 +297,8 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	// pub key since then we can use this more compact format in the
 	// invoice without needing to encode the un-used blinded node pub key of
 	// the intro node.
-	blindedPath.BlindedHops[0].BlindedNodePub =
-		blindedPath.IntroductionPoint
+	blindedPath.Path.BlindedHops[0].BlindedNodePub =
+		blindedPath.Path.IntroductionPoint
 
 	// Now construct a z32 blinded path.
 	return &zpay32.BlindedPaymentPath{
@@ -308,8 +308,8 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 		HTLCMinMsat:                 uint64(minHTLC),
 		HTLCMaxMsat:                 uint64(maxHTLC),
 		Features:                    lnwire.EmptyFeatureVector(),
-		FirstEphemeralBlindingPoint: blindedPath.BlindingPoint,
-		Hops:                        blindedPath.BlindedHops,
+		FirstEphemeralBlindingPoint: blindedPath.Path.BlindingPoint,
+		Hops:                        blindedPath.Path.BlindedHops,
 	}, nil
 }
 

@@ -566,7 +566,9 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	}
 
 	if c.graphCache != nil {
-		c.graphCache.UpdatePolicy(edge, from, to)
+		c.graphCache.UpdatePolicy(
+			models.NewCachedPolicy(edge), from, to,
+		)
 	}
 
 	select {

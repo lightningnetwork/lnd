@@ -150,14 +150,18 @@ func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
 		if policy1.ToNode != info.NodeKey2Bytes {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(policy1, fromNode, toNode)
+		c.UpdatePolicy(
+			models.NewCachedPolicy(policy1), fromNode, toNode,
+		)
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
 		if policy2.ToNode != info.NodeKey1Bytes {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(policy2, fromNode, toNode)
+		c.UpdatePolicy(
+			models.NewCachedPolicy(policy2), fromNode, toNode,
+		)
 	}
 }
 
@@ -175,7 +179,7 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
-func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
+func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 	toNode route.Vertex) {
 
 	c.mtx.Lock()
@@ -220,7 +224,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 		// The other two cases left mean it's the inbound policy for the
 		// node.
 		default:
-			channel.InPolicy = models.NewCachedPolicy(policy)
+			channel.InPolicy = policy
 		}
 	}
 

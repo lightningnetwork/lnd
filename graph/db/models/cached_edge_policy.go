@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -48,6 +49,9 @@ type CachedEdgePolicy struct {
 	// HTLCs for each millionth of a satoshi forwarded.
 	FeeProportionalMillionths lnwire.MilliSatoshi
 
+	// InboundFee is the fee that the node will charge for incoming HTLCs.
+	InboundFee fn.Option[lnwire.Fee]
+
 	// ToNodePubKey is a function that returns the to node of a policy.
 	// Since we only ever store the inbound policy, this is always the node
 	// that we query the channels for in ForEachChannel(). Therefore, we can
@@ -82,5 +86,6 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		MaxHTLC:                   policy.MaxHTLC,
 		FeeBaseMSat:               policy.FeeBaseMSat,
 		FeeProportionalMillionths: policy.FeeProportionalMillionths,
+		InboundFee:                policy.InboundFee,
 	}
 }

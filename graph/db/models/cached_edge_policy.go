@@ -75,6 +75,18 @@ func (c *CachedEdgePolicy) ComputeFee(
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 
+// IsDisabled returns true if the channel is disabled in the direction from  the
+// advertising node.
+func (c *CachedEdgePolicy) IsDisabled() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+}
+
+// IsNode1 returns true if this policy was announced by the channel's node_1
+// node.
+func (c *CachedEdgePolicy) IsNode1() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+}
+
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
 func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 	return &CachedEdgePolicy{

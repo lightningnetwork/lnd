@@ -360,9 +360,7 @@ func (u *edgeUnifier) getEdgeNetwork(netAmtReceived lnwire.MilliSatoshi,
 		}
 
 		// For network channels, skip the disabled ones.
-		edgeFlags := edge.policy.ChannelFlags
-		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
-		if isDisabled {
+		if edge.policy.IsDisabled() {
 			log.Debugf("Skipped edge %v due to it being disabled",
 				edge.policy.ChannelID)
 			continue

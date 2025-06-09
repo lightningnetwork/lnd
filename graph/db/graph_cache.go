@@ -185,8 +185,6 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	isEdge1 := policy.ChannelFlags&lnwire.ChanUpdateDirection == 0
-
 	updatePolicy := func(nodeKey route.Vertex) {
 		if len(c.nodeChannels[nodeKey]) == 0 {
 			log.Warnf("Node=%v not found in graph cache", nodeKey)
@@ -207,7 +205,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 		switch {
 		// This is node 1, and it is edge 1, so this is the outgoing
 		// policy for node 1.
-		case channel.IsNode1 && isEdge1:
+		case channel.IsNode1 && policy.IsNode1():
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee
@@ -215,7 +213,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
 
 		// This is node 2, and it is edge 2, so this is the outgoing
 		// policy for node 2.
-		case !channel.IsNode1 && !isEdge1:
+		case !channel.IsNode1 && !policy.IsNode1():
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee

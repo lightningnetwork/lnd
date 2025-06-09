@@ -566,12 +566,7 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	}
 
 	if c.graphCache != nil {
-		var isUpdate1 bool
-		if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-			isUpdate1 = true
-		}
-
-		c.graphCache.UpdatePolicy(edge, from, to, isUpdate1)
+		c.graphCache.UpdatePolicy(edge, from, to)
 	}
 
 	select {

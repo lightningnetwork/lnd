@@ -53,6 +53,9 @@ circuit. The indices are only available for forwarding events saved after v0.20.
     byte blobs at the end of gossip messages are valid TLV streams.
   * Various [preparations](https://github.com/lightningnetwork/lnd/pull/9692) 
     of the graph code before the SQL implementation is added.
+  * Only [fetch required 
+    fields](https://github.com/lightningnetwork/lnd/pull/9923) during graph 
+    cache population. 
   * Add graph schemas, queries and CRUD:
     * [1](https://github.com/lightningnetwork/lnd/pull/9866)
 

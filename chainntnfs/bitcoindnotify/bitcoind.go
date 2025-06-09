@@ -837,7 +837,11 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		chainntnfs.Log.Debugf("Outpoint(%v) has spent at height %v",
 			outpoint, spentHeight)
 
-		if spentHeight > ntfn.HistoricalDispatch.StartHeight {
+		// Since the tx has already been spent at spentHeight, the
+		// heightHint specified by the caller is no longer relevant. We
+		// now update the starting height to be the spent height to make
+		// sure we won't miss it in the rescan.
+		if spentHeight != ntfn.HistoricalDispatch.StartHeight {
 			ntfn.HistoricalDispatch.StartHeight = spentHeight
 		}
 	}

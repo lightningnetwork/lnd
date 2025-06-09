@@ -264,34 +264,6 @@ func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 	delete(c.nodeChannels[node], chanID)
 }
 
-// UpdateChannel updates the channel edge information for a specific edge. We
-// expect the edge to already exist and be known. If it does not yet exist, this
-// call is a no-op.
-func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo) {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-
-	if len(c.nodeChannels[info.NodeKey1Bytes]) == 0 ||
-		len(c.nodeChannels[info.NodeKey2Bytes]) == 0 {
-
-		return
-	}
-
-	channel, ok := c.nodeChannels[info.NodeKey1Bytes][info.ChannelID]
-	if ok {
-		// We only expect to be called when the channel is already
-		// known.
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey2Bytes
-	}
-
-	channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
-	if ok {
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey1Bytes
-	}
-}
-
 // getChannels returns a copy of the passed node's channels or nil if there
 // isn't any.
 func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {

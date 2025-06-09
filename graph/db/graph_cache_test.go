@@ -43,20 +43,21 @@ func TestGraphCacheAddNode(t *testing.T) {
 			FeeRate: 20,
 		}
 
-		outPolicy1 := &models.ChannelEdgePolicy{
+		outPolicy1 := &models.CachedEdgePolicy{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
-			ToNode:       nodeB,
+			ToNodePubKey: func() route.Vertex {
+				return nodeB
+			},
 			// Define an inbound fee.
 			InboundFee: fn.Some(inboundFee),
-			ExtraOpaqueData: []byte{
-				253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
-			},
 		}
-		inPolicy1 := &models.ChannelEdgePolicy{
+		inPolicy1 := &models.CachedEdgePolicy{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
-			ToNode:       nodeA,
+			ToNodePubKey: func() route.Vertex {
+				return nodeA
+			},
 		}
 		cache := NewGraphCache(10)
 		cache.AddNodeFeatures(nodeA, lnwire.EmptyFeatureVector())
@@ -120,7 +121,7 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest(pubKey2, pubKey1)
 }
 
-func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy,
+func assertCachedPolicyEqual(t *testing.T, original,
 	cached *models.CachedEdgePolicy) {
 
 	require.Equal(t, original.ChannelID, cached.ChannelID)
@@ -134,7 +135,7 @@ func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy,
 		t, original.FeeProportionalMillionths,
 		cached.FeeProportionalMillionths,
 	)
-	require.Equal(
-		t, route.Vertex(original.ToNode), cached.ToNodePubKey(),
-	)
+	if original.ToNodePubKey != nil {
+		require.Equal(t, original.ToNodePubKey(), cached.ToNodePubKey())
+	}
 }

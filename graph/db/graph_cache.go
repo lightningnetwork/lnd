@@ -115,7 +115,7 @@ func (c *GraphCache) AddNodeFeatures(node route.Vertex,
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
 func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
-	policy1 *models.ChannelEdgePolicy, policy2 *models.ChannelEdgePolicy) {
+	policy1, policy2 *models.CachedEdgePolicy) {
 
 	if info == nil {
 		return
@@ -147,21 +147,17 @@ func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
 	// of node 2 then we have the policy 1 as seen from node 1.
 	if policy1 != nil {
 		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
-		if policy1.ToNode != info.NodeKey2Bytes {
+		if !policy1.IsNode1() {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(
-			models.NewCachedPolicy(policy1), fromNode, toNode,
-		)
+		c.UpdatePolicy(policy1, fromNode, toNode)
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
-		if policy2.ToNode != info.NodeKey1Bytes {
+		if policy2.IsNode1() {
 			fromNode, toNode = toNode, fromNode
 		}
-		c.UpdatePolicy(
-			models.NewCachedPolicy(policy2), fromNode, toNode,
-		)
+		c.UpdatePolicy(policy2, fromNode, toNode)
 	}
 }
 

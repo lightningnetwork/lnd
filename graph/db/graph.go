@@ -177,7 +177,11 @@ func (c *ChannelGraph) populateCache() error {
 	err = c.V1Store.ForEachChannel(func(info *models.ChannelEdgeInfo,
 		policy1, policy2 *models.ChannelEdgePolicy) error {
 
-		c.graphCache.AddChannel(info, policy1, policy2)
+		c.graphCache.AddChannel(
+			info,
+			models.NewCachedPolicy(policy1),
+			models.NewCachedPolicy(policy2),
+		)
 
 		return nil
 	})
@@ -347,7 +351,11 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 
 		info := infos[0]
 
-		c.graphCache.AddChannel(info.Info, info.Policy1, info.Policy2)
+		c.graphCache.AddChannel(
+			info.Info,
+			models.NewCachedPolicy(info.Policy1),
+			models.NewCachedPolicy(info.Policy2),
+		)
 	}
 
 	return nil

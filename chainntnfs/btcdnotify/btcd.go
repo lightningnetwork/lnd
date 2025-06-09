@@ -933,15 +933,21 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 				"block %v: %v", blockHash, err)
 		}
 
-		if uint32(blockHeader.Height) > ntfn.HistoricalDispatch.StartHeight {
+		spentHeight := uint32(blockHeader.Height)
+		chainntnfs.Log.Debugf("Outpoint(%v) has spent at height %v",
+			outpoint, spentHeight)
+
+		if spentHeight > ntfn.HistoricalDispatch.StartHeight {
 			startHash, err = b.chainConn.GetBlockHash(
-				int64(blockHeader.Height),
+				int64(spentHeight),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to get block "+
 					"hash for height %d: %v",
 					blockHeader.Height, err)
 			}
+
+			ntfn.HistoricalDispatch.StartHeight = spentHeight
 		}
 	}
 

@@ -178,7 +178,7 @@ func (c *ChannelGraph) populateCache() error {
 		policy1, policy2 *models.ChannelEdgePolicy) error {
 
 		c.graphCache.AddChannel(
-			info,
+			models.NewCachedEdge(info),
 			models.NewCachedPolicy(policy1),
 			models.NewCachedPolicy(policy2),
 		)
@@ -316,7 +316,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	}
 
 	if c.graphCache != nil {
-		c.graphCache.AddChannel(edge, nil, nil)
+		c.graphCache.AddChannel(models.NewCachedEdge(edge), nil, nil)
 	}
 
 	select {
@@ -352,7 +352,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 		info := infos[0]
 
 		c.graphCache.AddChannel(
-			info.Info,
+			models.NewCachedEdge(info.Info),
 			models.NewCachedPolicy(info.Policy1),
 			models.NewCachedPolicy(info.Policy2),
 		)

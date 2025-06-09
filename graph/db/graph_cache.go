@@ -114,7 +114,7 @@ func (c *GraphCache) AddNodeFeatures(node route.Vertex,
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
-func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
+func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 	policy1, policy2 *models.CachedEdgePolicy) {
 
 	if info == nil {

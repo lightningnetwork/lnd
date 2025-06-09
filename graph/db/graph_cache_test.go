@@ -61,7 +61,7 @@ func TestGraphCacheAddNode(t *testing.T) {
 		}
 		cache := NewGraphCache(10)
 		cache.AddNodeFeatures(nodeA, lnwire.EmptyFeatureVector())
-		cache.AddChannel(&models.ChannelEdgeInfo{
+		cache.AddChannel(&models.CachedEdgeInfo{
 			ChannelID: 1000,
 			// Those are direction independent!
 			NodeKey1Bytes: pubKey1,

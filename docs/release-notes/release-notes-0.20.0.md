@@ -88,6 +88,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* [Don't error out](https://github.com/lightningnetwork/lnd/pull/9884) if an 
+  invoice's feature vector contain both the required and optional versions of a 
+  feature bit. In those cases, just treat the feature as mandatory. 
+
 ## Testing
 
 ## Database

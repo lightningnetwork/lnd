@@ -174,17 +174,14 @@ func (c *ChannelGraph) populateCache() error {
 		return err
 	}
 
-	err = c.V1Store.ForEachChannel(func(info *models.ChannelEdgeInfo,
-		policy1, policy2 *models.ChannelEdgePolicy) error {
+	err = c.V1Store.ForEachChannelCacheable(
+		func(info *models.CachedEdgeInfo,
+			policy1, policy2 *models.CachedEdgePolicy) error {
 
-		c.graphCache.AddChannel(
-			models.NewCachedEdge(info),
-			models.NewCachedPolicy(policy1),
-			models.NewCachedPolicy(policy2),
-		)
+			c.graphCache.AddChannel(info, policy1, policy2)
 
-		return nil
-	})
+			return nil
+		})
 	if err != nil {
 		return err
 	}

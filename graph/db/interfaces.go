@@ -159,6 +159,22 @@ type V1Store interface { //nolint:interfacebloat
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error
 
+	// ForEachChannelCacheable iterates through all the channel edges stored
+	// within the graph and invokes the passed callback for each edge. The
+	// callback takes two edges as since this is a directed graph, both the
+	// in/out edges are visited. If the callback returns an error, then the
+	// transaction is aborted and the iteration stops early.
+	//
+	// NOTE: If an edge can't be found, or wasn't advertised, then a nil
+	// pointer for that particular channel edge routing policy will be
+	// passed into the callback.
+	//
+	// NOTE: this method is like ForEachChannel but fetches only the data
+	// required for the graph cache.
+	ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
+		*models.CachedEdgePolicy,
+		*models.CachedEdgePolicy) error) error
+
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
 	// have their disabled bit on.

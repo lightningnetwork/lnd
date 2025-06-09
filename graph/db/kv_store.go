@@ -453,6 +453,74 @@ func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	}, func() {})
 }
 
+// ForEachChannelCacheable iterates through all the channel edges stored within
+// the graph and invokes the passed callback for each edge. The callback takes
+// two edges as since this is a directed graph, both the in/out edges are
+// visited. If the callback returns an error, then the transaction is aborted
+// and the iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
+// for that particular channel edge routing policy will be passed into the
+// callback.
+//
+// NOTE: this method is like ForEachChannel but fetches only the data required
+// for the graph cache.
+func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
+	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error) error {
+
+	return c.db.View(func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// First, load all edges in memory indexed by node and channel
+		// id.
+		channelMap, err := c.getChannelMap(edges)
+		if err != nil {
+			return err
+		}
+
+		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
+		if edgeIndex == nil {
+			return ErrGraphNoEdgesFound
+		}
+
+		// Load edge index, recombine each channel with the policies
+		// loaded above and invoke the callback.
+		return kvdb.ForAll(
+			edgeIndex, func(k, edgeInfoBytes []byte) error {
+				var chanID [8]byte
+				copy(chanID[:], k)
+
+				edgeInfoReader := bytes.NewReader(edgeInfoBytes)
+				info, err := deserializeChanEdgeInfo(
+					edgeInfoReader,
+				)
+				if err != nil {
+					return err
+				}
+
+				policy1 := channelMap[channelMapKey{
+					nodeKey: info.NodeKey1Bytes,
+					chanID:  chanID,
+				}]
+
+				policy2 := channelMap[channelMapKey{
+					nodeKey: info.NodeKey2Bytes,
+					chanID:  chanID,
+				}]
+
+				return cb(
+					models.NewCachedEdge(&info),
+					models.NewCachedPolicy(policy1),
+					models.NewCachedPolicy(policy2),
+				)
+			},
+		)
+	}, func() {})
+}
+
 // forEachNodeDirectedChannel iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration

@@ -3941,9 +3941,11 @@ func TestFindBlindedPaths(t *testing.T) {
 	require.NoError(t, err)
 
 	// We expect the following paths:
+	//	- B, D
 	//	- F, B, D
 	// 	- E, B, D
 	assertPaths(paths, []string{
+		"bob,dave",
 		"frank,bob,dave",
 		"eve,bob,dave",
 	})

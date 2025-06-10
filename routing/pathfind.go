@@ -1339,31 +1339,35 @@ func findBlindedPaths(g Graph, target route.Vertex,
 		return nil, err
 	}
 
-	orderedPaths := make([][]blindedHop, len(paths))
+	// Reverse each path so that the order is correct (from introduction
+	// node to last hop node) and then append the incoming path (if any was
+	// specified) to the end of the path.
+	orderedPaths := make([][]blindedHop, 0, len(paths))
+	for _, path := range paths {
+		sort.Slice(path, func(i, j int) bool {
+			return j < i
+		})
 
-	// When there is no path to add, but incomingChainedChannels can be
-	// used.
-	if len(paths) == 0 && haveIncomingPath {
-		orderedPaths = [][]blindedHop{incomingPath}
-	} else {
-		// Reverse each path so that the order is correct (from
-		// introduction node to last hop node) and then append this node
-		// on as the destination of each path.
-		for i, path := range paths {
-			sort.Slice(path, func(i, j int) bool {
-				return j < i
-			})
+		orderedPaths = append(
+			orderedPaths, append(path, incomingPath...),
+		)
+	}
 
-			orderedPaths[i] = append(path, incomingPath...)
-		}
+	// There is a chance we have an incoming path that by itself satisfies
+	// the minimum hop restriction. In that case, we add it as its own path.
+	if haveIncomingPath &&
+		len(incomingPath) > int(restrictions.minNumHops) {
+
+		orderedPaths = append(orderedPaths, incomingPath)
 	}
 
 	// Handle the special case that allows a blinded path with the
-	// introduction node as the destination node.
+	// introduction node as the destination node. This only applies if no
+	// incoming path was specified since in that case, by definition, the
+	// caller wants a non-zero length blinded path.
 	if restrictions.minNumHops == 0 && !haveIncomingPath {
 		singleHopPath := [][]blindedHop{{{vertex: target}}}
 
-		//nolint:makezero
 		orderedPaths = append(
 			orderedPaths, singleHopPath...,
 		)

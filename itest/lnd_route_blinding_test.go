@@ -1589,9 +1589,10 @@ func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
 		},
 	})
 
-	// Assert that it contains one path with 3 hops, with eve as the
-	// introduction node.
-	assertPathDetails(invoice, 3, eve.PubKey[:])
+	// Assert that it contains two paths: one 3 hop one starting at Eve and
+	// a 3 hop one starting at Dave (this one will be padded with a dummy
+	// hop) in order to keep all the paths equidistant.
+	assertPathDetails(invoice, 3, eve.PubKey[:], dave.PubKey[:])
 
 	// Check that Frank can pay the invoice.
 	ht.CompletePaymentRequests(frank, []string{invoice.PaymentRequest})

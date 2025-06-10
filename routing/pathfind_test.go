@@ -666,15 +666,25 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			return nil, err
 		}
 
-		getExtraData := func(
-			end *testChannelEnd) lnwire.ExtraOpaqueData {
+		getInboundFees := func(
+			end *testChannelEnd) fn.Option[lnwire.Fee] {
 
-			var extraData lnwire.ExtraOpaqueData
 			inboundFee := lnwire.Fee{
 				BaseFee: int32(end.InboundFeeBaseMsat),
 				FeeRate: int32(end.InboundFeeRate),
 			}
-			require.NoError(t, extraData.PackRecords(&inboundFee))
+
+			return fn.Some(inboundFee)
+		}
+		getExtraData := func(
+			end *testChannelEnd) lnwire.ExtraOpaqueData {
+
+			var extraData lnwire.ExtraOpaqueData
+
+			inboundFee := getInboundFees(end)
+			inboundFee.WhenSome(func(fee lnwire.Fee) {
+				require.NoError(t, extraData.PackRecords(&fee))
+			})
 
 			return extraData
 		}
@@ -701,6 +711,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				FeeBaseMSat:               node1.FeeBaseMsat,
 				FeeProportionalMillionths: node1.FeeRate,
 				ToNode:                    node2Vertex,
+				InboundFee:                getInboundFees(node1), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node1),
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
@@ -731,6 +742,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				FeeBaseMSat:               node2.FeeBaseMsat,
 				FeeProportionalMillionths: node2.FeeRate,
 				ToNode:                    node1Vertex,
+				InboundFee:                getInboundFees(node2), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node2),
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {

@@ -88,6 +88,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* Explicitly define the [inbound fee TLV 
+  record](https://github.com/lightningnetwork/lnd/pull/9897) on the 
+  `channel_update` message and handle it explicitly throughout the code base 
+  instead of extracting it from the TLV stream at various call-sites.
+
 ## Testing
 
 ## Database
@@ -99,4 +104,5 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 # Contributors (Alphabetical Order)
 
 * Abdulkbk
-Pins
+* Elle Mouton
+* Pins

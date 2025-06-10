@@ -3257,6 +3257,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		MaxHTLC:                   upd.HtlcMaximumMsat,
 		FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
+		InboundFee:                upd.InboundFee.ValOpt(),
 		ExtraOpaqueData:           upd.ExtraOpaqueData,
 	}
 

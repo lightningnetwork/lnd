@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
@@ -114,6 +115,10 @@ type ChannelUpdate1 struct {
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
 	HtlcMaximumMsat MilliSatoshi
 
+	// InboundFee is an optional TLV record that contains the fee
+	// information for incoming HTLCs.
+	InboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -156,12 +161,27 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 		}
 	}
 
-	err = a.ExtraOpaqueData.Decode(r)
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var inboundFee = a.InboundFee.Zero()
+	typeMap, err := tlvRecords.ExtractRecords(&inboundFee)
 	if err != nil {
 		return err
 	}
 
-	return a.ExtraOpaqueData.ValidateTLV()
+	val, ok := typeMap[a.InboundFee.TlvType()]
+	if ok && val == nil {
+		a.InboundFee = tlv.SomeRecordT(inboundFee)
+	}
+
+	if len(tlvRecords) != 0 {
+		a.ExtraOpaqueData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer
@@ -216,6 +236,16 @@ func (a *ChannelUpdate1) Encode(w *bytes.Buffer, pver uint32) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	a.InboundFee.WhenSome(func(fee tlv.RecordT[tlv.TlvType55555, Fee]) {
+		recordProducers = append(recordProducers, &fee)
+	})
+
+	err := EncodeMessageExtraData(&a.ExtraOpaqueData, recordProducers...)
+	if err != nil {
+		return err
 	}
 
 	// Finally, append any extra opaque data.

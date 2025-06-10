@@ -12,6 +12,10 @@ var (
 	ErrEdgePolicyOptionalFieldNotFound = fmt.Errorf("optional field not " +
 		"present")
 
+	// ErrParsingExtraTLVBytes is returned when we attempt to parse
+	// extra opaque bytes as a TLV stream, but the parsing fails.
+	ErrParsingExtraTLVBytes = fmt.Errorf("error parsing extra TLV bytes")
+
 	// ErrGraphNotFound is returned when at least one of the components of
 	// graph doesn't exist.
 	ErrGraphNotFound = fmt.Errorf("graph bucket not initialized")

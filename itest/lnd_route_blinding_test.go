@@ -1428,25 +1428,55 @@ func testBlindedPaymentHTLCReForward(ht *lntest.HarnessTest) {
 //     pre-specified.
 func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
 	// Create a six hop network:
-	// Alice -> Bob -> Carol -> Dave -> Eve -> Frank.
-	chanAmt := btcutil.Amount(100000)
-	cfgs := [][]string{nil, nil, nil, nil, nil, nil}
+	// 	Alice -> Bob -> Carol -> Dave -> Eve -> Frank.
+	// Carol will be the node generating invoices containing blinded paths.
 	chanPoints, nodes := ht.CreateSimpleNetwork(
-		cfgs, lntest.OpenChannelParams{Amt: chanAmt},
+		[][]string{nil, nil, nil, nil, nil, nil},
+		lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
 	)
 
-	alice, bob, carol, dave, eve := nodes[0], nodes[1], nodes[2], nodes[3],
-		nodes[4]
-
-	chanPointAliceBob, chanPointBobCarol, chanPointCarolDave :=
-		chanPoints[0], chanPoints[1], chanPoints[2]
+	var (
+		alice = nodes[0]
+		bob   = nodes[1]
+		carol = nodes[2]
+		dave  = nodes[3]
+		eve   = nodes[4]
+		frank = nodes[5]
+	)
 
 	// Lookup full channel info so that we have channel ids for our route.
-	aliceBobChan := ht.GetChannelByChanPoint(alice, chanPointAliceBob)
-	bobCarolChan := ht.GetChannelByChanPoint(bob, chanPointBobCarol)
-	carolDaveChan := ht.GetChannelByChanPoint(carol, chanPointCarolDave)
+	aliceBobChan := ht.GetChannelByChanPoint(alice, chanPoints[0])
+	bobCarolChan := ht.GetChannelByChanPoint(bob, chanPoints[1])
+	carolDaveChan := ht.GetChannelByChanPoint(carol, chanPoints[2])
 
-	// Let carol set no incoming channel restrictions.
+	// assertPathDetails is a helper function that asserts the details of
+	// the blinded paths returned in the invoice.
+	assertPathDetails := func(invoice *lnrpc.AddInvoiceResponse,
+		expPathLengths int, expIntroNodes ...[]byte) {
+
+		payReq := carol.RPC.DecodePayReq(invoice.PaymentRequest)
+		paths := payReq.BlindedPaths
+
+		introNodes := make([][]byte, 0, len(paths))
+		for _, p := range paths {
+			require.Len(
+				ht, p.BlindedPath.BlindedHops, expPathLengths,
+			)
+
+			introNodes = append(
+				introNodes, p.BlindedPath.IntroductionNode,
+			)
+		}
+		require.ElementsMatch(ht, introNodes, expIntroNodes)
+	}
+
+	// Let carol set no incoming channel restrictions. With a min of 1 hop,
+	// we expect the following blinded paths to be included:
+	//  1) Bob->Carol
+	//  2) Dave->Carol
 	var (
 		minNumRealHops uint32 = 1
 		numHops        uint32 = 1
@@ -1460,122 +1490,94 @@ func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
 			NumHops:        &numHops,
 		},
 	})
+	assertPathDetails(invoice, 2, bob.PubKey[:], dave.PubKey[:])
 
-	introNodesFound := make([][]byte, 0)
-	introNodesExpected := [][]byte{bob.PubKey[:], dave.PubKey[:]}
-
-	// Assert that it contains two blinded path with only 2 hops each one.
-	payReq := carol.RPC.DecodePayReq(invoice.PaymentRequest)
-	require.Len(ht, payReq.BlindedPaths, 2)
-	path := payReq.BlindedPaths[0].BlindedPath
-	require.Len(ht, path.BlindedHops, 2)
-	introNodesFound = append(introNodesFound, path.IntroductionNode)
-	path = payReq.BlindedPaths[1].BlindedPath
-	require.Len(ht, path.BlindedHops, 2)
-	introNodesFound = append(introNodesFound, path.IntroductionNode)
-
-	// Assert the introduction nodes without caring about the routes order.
-	require.ElementsMatch(ht, introNodesExpected, introNodesFound)
-
-	// Let carol choose the wrong incoming channel.
-	var (
-		incomingChannelList = []uint64{aliceBobChan.ChanId}
-	)
-
-	err := fmt.Sprintf("incoming channel %v is not seen as owned by node",
-		aliceBobChan.ChanId)
-
+	// Let carol choose an invalid incoming channel list for the blinded
+	// path. It is invalid since it does not connect to her node.
+	// Assert that the expected error is returned.
 	carol.RPC.AddInvoiceAssertErr(
 		&lnrpc.Invoice{
 			Memo:      "test",
 			ValueMsat: 10_000_000,
 			IsBlinded: true,
 			BlindedPathConfig: &lnrpc.BlindedPathConfig{
-				MinNumRealHops:      &minNumRealHops,
-				NumHops:             &numHops,
-				IncomingChannelList: incomingChannelList,
+				MinNumRealHops: &minNumRealHops,
+				NumHops:        &numHops,
+				IncomingChannelList: []uint64{
+					aliceBobChan.ChanId,
+				},
 			},
 		},
-		err,
+		fmt.Sprintf("incoming channel %v is not seen as owned by node",
+			aliceBobChan.ChanId),
 	)
 
 	// Let Carol set the incoming channel list greater than minimum number
 	// of real hops.
-	incomingChannelList = []uint64{aliceBobChan.ChanId, bobCarolChan.ChanId}
-	err = fmt.Sprintf("minimum number of blinded path hops (%d) must be "+
-		"greater than or equal to the number of hops specified on "+
-		"the chained channels (%d)", minNumRealHops,
-		len(incomingChannelList),
-	)
-
+	// Assert that the expected error is returned.
 	carol.RPC.AddInvoiceAssertErr(
 		&lnrpc.Invoice{
 			Memo:      "test",
 			ValueMsat: 10_000_000,
 			IsBlinded: true,
 			BlindedPathConfig: &lnrpc.BlindedPathConfig{
-				MinNumRealHops:      &minNumRealHops,
-				NumHops:             &numHops,
-				IncomingChannelList: incomingChannelList,
+				MinNumRealHops: &minNumRealHops,
+				NumHops:        &numHops,
+				IncomingChannelList: []uint64{
+					aliceBobChan.ChanId,
+					bobCarolChan.ChanId,
+				},
 			},
 		},
-		err,
+		"must be greater than or equal to the number of hops "+
+			"specified on the chained channels",
 	)
 
 	// Let Carol choose an incoming channel that points to a node in the
 	// omission set.
-	incomingChannelList = []uint64{bobCarolChan.ChanId}
-	var nodeOmissionList [][]byte
-	nodeOmissionList = append(nodeOmissionList, bob.PubKey[:])
-
-	err = fmt.Sprintf("cannot simultaneously be included in the omission " +
-		"set and in the partially specified path",
-	)
-
 	carol.RPC.AddInvoiceAssertErr(
 		&lnrpc.Invoice{
 			Memo:      "test",
 			ValueMsat: 10_000_000,
 			IsBlinded: true,
 			BlindedPathConfig: &lnrpc.BlindedPathConfig{
-				MinNumRealHops:      &minNumRealHops,
-				NumHops:             &numHops,
-				IncomingChannelList: incomingChannelList,
-				NodeOmissionList:    nodeOmissionList,
+				MinNumRealHops: &minNumRealHops,
+				NumHops:        &numHops,
+				IncomingChannelList: []uint64{
+					bobCarolChan.ChanId,
+				},
+				NodeOmissionList: [][]byte{
+					bob.PubKey[:],
+				},
 			},
 		},
-		err,
+		"cannot simultaneously be included in the omission set and "+
+			"in the partially specified path",
 	)
 
 	// Let carol restrict bob as incoming channel.
-	incomingChannelList = []uint64{bobCarolChan.ChanId}
-
 	invoice = carol.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
 		IsBlinded: true,
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
-			MinNumRealHops:      &minNumRealHops,
-			NumHops:             &numHops,
-			IncomingChannelList: incomingChannelList,
+			MinNumRealHops: &minNumRealHops,
+			NumHops:        &numHops,
+			IncomingChannelList: []uint64{
+				bobCarolChan.ChanId,
+			},
 		},
 	})
 
 	// Assert that it contains a single blinded path with only
 	// 2 hops, with bob as the introduction node.
-	payReq = carol.RPC.DecodePayReq(invoice.PaymentRequest)
-	require.Len(ht, payReq.BlindedPaths, 1)
-	path = payReq.BlindedPaths[0].BlindedPath
-	require.Len(ht, path.BlindedHops, 2)
-	require.EqualValues(ht, path.IntroductionNode, bob.PubKey[:])
+	assertPathDetails(invoice, 2, bob.PubKey[:])
 
-	// Now let alice pay the invoice.
+	// Check that Alice can pay the invoice.
 	ht.CompletePaymentRequests(alice, []string{invoice.PaymentRequest})
 
-	// Let carol restrict dave as incoming channel and max Hops as 2
+	// Let carol restrict dave as incoming channel and max hops as 2.
 	numHops = 2
-	incomingChannelList = []uint64{carolDaveChan.ChanId}
-
 	invoice = carol.RPC.AddInvoice(&lnrpc.Invoice{
 		Memo:      "test",
 		ValueMsat: 10_000_000,
@@ -1583,16 +1585,14 @@ func testPartiallySpecifiedBlindedPath(ht *lntest.HarnessTest) {
 		BlindedPathConfig: &lnrpc.BlindedPathConfig{
 			MinNumRealHops:      &minNumRealHops,
 			NumHops:             &numHops,
-			IncomingChannelList: incomingChannelList,
+			IncomingChannelList: []uint64{carolDaveChan.ChanId},
 		},
 	})
 
-	// Assert that it contains one path with 3 hops, with dave as the
-	// introduction node. The path alice -> bob -> carol is discarded
-	// because alice is a dead-end.
-	payReq = carol.RPC.DecodePayReq(invoice.PaymentRequest)
-	require.Len(ht, payReq.BlindedPaths, 1)
-	path = payReq.BlindedPaths[0].BlindedPath
-	require.Len(ht, path.BlindedHops, 3)
-	require.EqualValues(ht, path.IntroductionNode, eve.PubKey[:])
+	// Assert that it contains one path with 3 hops, with eve as the
+	// introduction node.
+	assertPathDetails(invoice, 3, eve.PubKey[:])
+
+	// Check that Frank can pay the invoice.
+	ht.CompletePaymentRequests(frank, []string{invoice.PaymentRequest})
 }

@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/hex"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -509,6 +511,9 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 	target, err := route.NewVertexFromBytes(destNodeBytes)
 	require.NoError(t, err)
 
+	mockClock := &lnmock.MockClock{}
+	mockClock.On("Now").Return(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC))
+
 	testCases := []extractIntentTestCase{
 		{
 			name:    "Time preference out of range",
@@ -706,6 +711,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 					return false
 				},
 				ActiveNetParams: &chaincfg.RegressionNetParams,
+				Clock:           mockClock,
 			},
 			sendReq: &SendPaymentRequest{
 				Amt:            int64(paymentAmount),

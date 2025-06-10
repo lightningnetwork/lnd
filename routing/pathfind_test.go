@@ -3898,7 +3898,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,dave",
 	})
 
-	// 5) Finally, we will test the special case where the destination node
+	// 5) We will also test the special case where the destination node
 	// is also the recipient.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 0,
@@ -3910,31 +3910,11 @@ func TestFindBlindedPaths(t *testing.T) {
 		"dave",
 	})
 
-	// 6) Restrict the min & max path length such that we only include paths
-	// with one being only the intro-node and the others with one hop other
-	// than the destination hop.
-	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops: 0,
-		maxNumHops: 1,
-	})
-	require.NoError(t, err)
-
-	// We expect the following paths:
-	//	- D
-	//	- B, D
-	// 	- C, D
-	// The (A, D) path is not chosen since A does not advertise the route
-	// blinding feature bit. The (G, D) path is not chosen since G does not
-	// have any other known channels.
-	assertPaths(paths, []string{
-		"dave",
-		"bob,dave",
-		"charlie,dave",
-	})
-
-	// 7) Restrict the min & max path length such that we only include paths
-	// with one hop other than the destination hop. Now with bob-dave as the
-	// incoming channel.
+	// 6) Now, we will test some cases where the user manually specifies
+	// the first few incoming channels of a route.
+	//
+	// 6.1) Let the user specify the B-D channel as the last hop with a
+	// max of 1 hop.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 1,
 		maxNumHops: 1,
@@ -3944,13 +3924,13 @@ func TestFindBlindedPaths(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Expect only B->D path.
+	// If the max number of hops is 1, then only the B->D path is chosen
 	assertPaths(paths, []string{
 		"bob,dave",
 	})
 
-	// 8) Extend the search to include 2 hops other than the destination,
-	// with bob-dave as the incoming channel.
+	// 6.2) Extend the search to include 2 hops along with the B-D channel
+	// restriction.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 1,
 		maxNumHops: 2,
@@ -3968,7 +3948,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,dave",
 	})
 
-	// 9) Extend the search even further and also increase the minimum path
+	// 6.3) Extend the search even further and also increase the minimum path
 	// length, but this time with charlie-dave as the incoming channel.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 2,
@@ -3987,7 +3967,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"bob,eve,charlie,dave",
 	})
 
-	// 10) Repeat the above test but instruct the function to never use
+	// 6.4) Repeat the above test but instruct the function to never use
 	// charlie.
 	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops:      2,
@@ -4000,7 +3980,7 @@ func TestFindBlindedPaths(t *testing.T) {
 	require.ErrorContains(t, err, "cannot simultaneously be included in "+
 		"the omission set and in the partially specified path")
 
-	// 11) Assert that an error is returned if a user accidentally tries
+	// 6.5) Assert that an error is returned if a user accidentally tries
 	// to force a circular path.
 	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 2,

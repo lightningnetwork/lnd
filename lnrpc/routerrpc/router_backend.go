@@ -990,6 +990,15 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			return nil, err
 		}
 
+		// An invoice must include either a payment address or
+		// blinded paths.
+		if payReq.PaymentAddr.IsNone() &&
+			len(payReq.BlindedPaymentPaths) == 0 {
+
+			return nil, errors.New("payment request must contain " +
+				"either a payment address or blinded paths")
+		}
+
 		// If the amount was not included in the invoice, then we let
 		// the payer specify the amount of satoshis they wish to send.
 		// We override the amount to pay with the amount provided from
@@ -1006,7 +1015,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			if reqAmt != 0 {
 				return nil, errors.New("amount must not be " +
 					"specified when paying a non-zero " +
-					" amount invoice")
+					"amount invoice")
 			}
 
 			payIntent.Amount = *payReq.MilliSat

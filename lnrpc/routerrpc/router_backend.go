@@ -14,13 +14,13 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -1464,7 +1464,7 @@ func UnmarshalAMP(reqAMP *lnrpc.AMPRecord) (*record.AMP, error) {
 
 // MarshalHTLCAttempt constructs an RPC HTLCAttempt from the db representation.
 func (r *RouterBackend) MarshalHTLCAttempt(
-	htlc channeldb.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
+	htlc pymtpkg.HTLCAttempt) (*lnrpc.HTLCAttempt, error) {
 
 	route, err := r.MarshallRoute(&htlc.Route)
 	if err != nil {
@@ -1505,7 +1505,7 @@ func (r *RouterBackend) MarshalHTLCAttempt(
 
 // marshallHtlcFailure marshalls htlc fail info from the database to its rpc
 // representation.
-func marshallHtlcFailure(failure *channeldb.HTLCFailInfo) (*lnrpc.Failure,
+func marshallHtlcFailure(failure *pymtpkg.HTLCFailInfo) (*lnrpc.Failure,
 	error) {
 
 	rpcFailure := &lnrpc.Failure{
@@ -1513,16 +1513,16 @@ func marshallHtlcFailure(failure *channeldb.HTLCFailInfo) (*lnrpc.Failure,
 	}
 
 	switch failure.Reason {
-	case channeldb.HTLCFailUnknown:
+	case pymtpkg.HTLCFailUnknown:
 		rpcFailure.Code = lnrpc.Failure_UNKNOWN_FAILURE
 
-	case channeldb.HTLCFailUnreadable:
+	case pymtpkg.HTLCFailUnreadable:
 		rpcFailure.Code = lnrpc.Failure_UNREADABLE_FAILURE
 
-	case channeldb.HTLCFailInternal:
+	case pymtpkg.HTLCFailInternal:
 		rpcFailure.Code = lnrpc.Failure_INTERNAL_FAILURE
 
-	case channeldb.HTLCFailMessage:
+	case pymtpkg.HTLCFailMessage:
 		err := marshallWireError(failure.Message, rpcFailure)
 		if err != nil {
 			return nil, err
@@ -1719,7 +1719,7 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate1) *lnrpc.ChannelUpdate {
 }
 
 // MarshallPayment marshall a payment to its rpc representation.
-func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
+func (r *RouterBackend) MarshallPayment(payment *pymtpkg.MPPayment) (
 	*lnrpc.Payment, error) {
 
 	// Fetch the payment's preimage and the total paid in fees.
@@ -1789,11 +1789,11 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 
 // convertPaymentStatus converts a channeldb.PaymentStatus to the type expected
 // by the RPC.
-func convertPaymentStatus(dbStatus channeldb.PaymentStatus, useInit bool) (
+func convertPaymentStatus(dbStatus pymtpkg.PaymentStatus, useInit bool) (
 	lnrpc.Payment_PaymentStatus, error) {
 
 	switch dbStatus {
-	case channeldb.StatusInitiated:
+	case pymtpkg.StatusInitiated:
 		// If the client understands the new status, return it.
 		if useInit {
 			return lnrpc.Payment_INITIATED, nil
@@ -1802,13 +1802,13 @@ func convertPaymentStatus(dbStatus channeldb.PaymentStatus, useInit bool) (
 		// Otherwise remain the old behavior.
 		return lnrpc.Payment_IN_FLIGHT, nil
 
-	case channeldb.StatusInFlight:
+	case pymtpkg.StatusInFlight:
 		return lnrpc.Payment_IN_FLIGHT, nil
 
-	case channeldb.StatusSucceeded:
+	case pymtpkg.StatusSucceeded:
 		return lnrpc.Payment_SUCCEEDED, nil
 
-	case channeldb.StatusFailed:
+	case pymtpkg.StatusFailed:
 		return lnrpc.Payment_FAILED, nil
 
 	default:
@@ -1818,7 +1818,7 @@ func convertPaymentStatus(dbStatus channeldb.PaymentStatus, useInit bool) (
 
 // marshallPaymentFailureReason marshalls the failure reason to the corresponding rpc
 // type.
-func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
+func marshallPaymentFailureReason(reason *pymtpkg.FailureReason) (
 	lnrpc.PaymentFailureReason, error) {
 
 	if reason == nil {
@@ -1826,22 +1826,22 @@ func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
 	}
 
 	switch *reason {
-	case channeldb.FailureReasonTimeout:
+	case pymtpkg.FailureReasonTimeout:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT, nil
 
-	case channeldb.FailureReasonNoRoute:
+	case pymtpkg.FailureReasonNoRoute:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE, nil
 
-	case channeldb.FailureReasonError:
+	case pymtpkg.FailureReasonError:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_ERROR, nil
 
-	case channeldb.FailureReasonPaymentDetails:
+	case pymtpkg.FailureReasonPaymentDetails:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, nil
 
-	case channeldb.FailureReasonInsufficientBalance:
+	case pymtpkg.FailureReasonInsufficientBalance:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE, nil
 
-	case channeldb.FailureReasonCanceled:
+	case pymtpkg.FailureReasonCanceled:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_CANCELED, nil
 	}
 

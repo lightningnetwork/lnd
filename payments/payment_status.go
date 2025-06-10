@@ -1,4 +1,4 @@
-package channeldb
+package payments
 
 import "fmt"
 
@@ -49,10 +49,10 @@ func (ps PaymentStatus) String() string {
 	}
 }
 
-// initializable returns an error to specify whether initiating the payment
+// Initializable returns an error to specify whether initiating the payment
 // with its current status is allowed. A payment can only be initialized if it
 // hasn't been created yet or already failed.
-func (ps PaymentStatus) initializable() error {
+func (ps PaymentStatus) Initializable() error {
 	switch ps {
 	// The payment has been created already. We will disallow creating it
 	// again in case other goroutines have already been creating HTLCs for
@@ -79,10 +79,10 @@ func (ps PaymentStatus) initializable() error {
 	}
 }
 
-// removable returns an error to specify whether deleting the payment with its
+// Removable returns an error to specify whether deleting the payment with its
 // current status is allowed. A payment cannot be safely deleted if it has
 // inflight HTLCs.
-func (ps PaymentStatus) removable() error {
+func (ps PaymentStatus) Removable() error {
 	switch ps {
 	// The payment has been created but has no HTLCs and can be removed.
 	case StatusInitiated:
@@ -107,9 +107,9 @@ func (ps PaymentStatus) removable() error {
 	}
 }
 
-// updatable returns an error to specify whether the payment's HTLCs can be
+// Updatable returns an error to specify whether the payment's HTLCs can be
 // updated. A payment can update its HTLCs when it has inflight HTLCs.
-func (ps PaymentStatus) updatable() error {
+func (ps PaymentStatus) Updatable() error {
 	switch ps {
 	// Newly created payments can be updated.
 	case StatusInitiated:

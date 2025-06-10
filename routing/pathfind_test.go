@@ -538,6 +538,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
+	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
@@ -652,6 +653,16 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			node1Vertex, node2Vertex = node2Vertex, node1Vertex
 		}
 
+		if _, ok := channelIDs[node1Vertex]; !ok {
+			channelIDs[node1Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node1Vertex][node2Vertex] = channelID
+
+		if _, ok := channelIDs[node2Vertex]; !ok {
+			channelIDs[node2Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node2Vertex][node1Vertex] = channelID
+
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := models.ChannelEdgeInfo{
@@ -765,6 +776,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		mcBackend:  graphBackend,
 		aliasMap:   aliasMap,
 		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
 		links:      links,
 	}, nil
 }
@@ -3192,6 +3204,16 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	return ctx
 }
 
+func (c *pathFindingTestContext) nodePairChannel(alias1, alias2 string) uint64 {
+	node1 := c.keyFromAlias(alias1)
+	node2 := c.keyFromAlias(alias2)
+
+	channel, ok := c.testGraphInstance.channelIDs[node1][node2]
+	require.True(c.t, ok)
+
+	return channel
+}
+
 func (c *pathFindingTestContext) keyFromAlias(alias string) route.Vertex {
 	return c.testGraphInstance.aliasMap[alias]
 }
@@ -3914,9 +3936,11 @@ func TestFindBlindedPaths(t *testing.T) {
 	// with one hop other than the destination hop. Now with bob-dave as the
 	// incoming channel.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              1,
-		maxNumHops:              1,
-		incomingChainedChannels: []uint64{2},
+		minNumHops: 1,
+		maxNumHops: 1,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
 	require.NoError(t, err)
 
@@ -3928,9 +3952,11 @@ func TestFindBlindedPaths(t *testing.T) {
 	// 8) Extend the search to include 2 hops other than the destination,
 	// with bob-dave as the incoming channel.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              1,
-		maxNumHops:              2,
-		incomingChainedChannels: []uint64{2},
+		minNumHops: 1,
+		maxNumHops: 2,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
 	require.NoError(t, err)
 
@@ -3945,9 +3971,11 @@ func TestFindBlindedPaths(t *testing.T) {
 	// 9) Extend the search even further and also increase the minimum path
 	// length, but this time with charlie-dave as the incoming channel.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		incomingChainedChannels: []uint64{3},
+		minNumHops: 2,
+		maxNumHops: 3,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("charlie", "dave"),
+		},
 	})
 	require.NoError(t, err)
 
@@ -3962,19 +3990,27 @@ func TestFindBlindedPaths(t *testing.T) {
 	// 10) Repeat the above test but instruct the function to never use
 	// charlie.
 	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		nodeOmissionSet:         fn.NewSet(ctx.keyFromAlias("charlie")),
-		incomingChainedChannels: []uint64{3},
+		minNumHops:      2,
+		maxNumHops:      3,
+		nodeOmissionSet: fn.NewSet(ctx.keyFromAlias("charlie")),
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("charlie", "dave"),
+		},
 	})
 	require.ErrorContains(t, err, "cannot simultaneously be included in "+
 		"the omission set and in the partially specified path")
 
-	// 11) Test the circular route error.
+	// 11) Assert that an error is returned if a user accidentally tries
+	// to force a circular path.
 	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		incomingChainedChannels: []uint64{2, 7, 6, 3},
+		minNumHops: 2,
+		maxNumHops: 3,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("dave", "alice"),
+			ctx.nodePairChannel("alice", "frank"),
+			ctx.nodePairChannel("frank", "bob"),
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
-	require.ErrorContains(t, err, "a circular route cannot be specified")
+	require.ErrorContains(t, err, "circular route")
 }

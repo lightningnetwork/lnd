@@ -10,8 +10,12 @@ DROP INDEX IF EXISTS channels_unique;
 DROP INDEX IF EXISTS channels_version_outpoint_idx;
 DROP INDEX IF EXISTS channel_features_unique;
 DROP INDEX IF EXISTS channel_extra_types_unique;
+DROP INDEX IF EXISTS channel_policies_unique;
+DROP INDEX IF EXISTS channel_policy_extra_types_unique;
 
 -- Drop tables in order of reverse dependencies.
+DROP TABLE IF EXISTS channel_policy_extra_types;
+DROP TABLE IF EXISTS channel_policies;
 DROP TABLE IF EXISTS channel_features;
 DROP TABLE IF EXISTS channel_extra_types;
 DROP TABLE IF EXISTS channels;

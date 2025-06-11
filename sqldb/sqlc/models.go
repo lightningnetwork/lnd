@@ -55,6 +55,29 @@ type ChannelFeature struct {
 	FeatureBit int32
 }
 
+type ChannelPolicy struct {
+	ID                      int64
+	Version                 int16
+	ChannelID               int64
+	NodeID                  int64
+	Timelock                int32
+	FeePpm                  int64
+	BaseFeeMsat             int64
+	MinHtlcMsat             int64
+	MaxHtlcMsat             sql.NullInt64
+	LastUpdate              sql.NullInt64
+	Disabled                sql.NullBool
+	InboundBaseFeeMsat      sql.NullInt64
+	InboundFeeRateMilliMsat sql.NullInt64
+	Signature               []byte
+}
+
+type ChannelPolicyExtraType struct {
+	ChannelPolicyID int64
+	Type            int64
+	Value           []byte
+}
+
 type Invoice struct {
 	ID                 int64
 	Hash               []byte

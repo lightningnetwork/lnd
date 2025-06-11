@@ -146,14 +146,10 @@ func assertUnknownEventFail(t *testing.T, startingState ProtocolState) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		closeHarness.expectFailure(ErrInvalidStateTransition)
-
-		closeHarness.chanCloser.SendEvent(
+		closeHarness.sendEventAndExpectFailure(
 			context.Background(), &unknownEvent{},
+			ErrInvalidStateTransition,
 		)
-
-		// There should be no further state transitions.
-		closeHarness.assertNoStateTransitions()
 	})
 }
 
@@ -239,6 +235,31 @@ func (r *rbfCloserTestHarness) assertExpectations() {
 	r.signer.AssertExpectations(r.T)
 }
 
+// sendEventAndExpectFailure is a helper to expect a failure, send an event,
+// and wait for the error report.
+func (r *rbfCloserTestHarness) sendEventAndExpectFailure(
+	ctx context.Context, event ProtocolEvent, expectedErr error) {
+
+	r.T.Helper()
+
+	r.expectFailure(expectedErr)
+
+	r.chanCloser.SendEvent(ctx, event)
+
+	select {
+	case reportedErr := <-r.errReporter.errorReported:
+		r.T.Logf("Test received error report: %v", reportedErr)
+
+		if !errors.Is(reportedErr, expectedErr) {
+			r.T.Fatalf("reported error (%v) is not the "+
+				"expected error (%v)", reportedErr, expectedErr)
+		}
+
+	case <-time.After(1 * time.Second):
+		r.T.Fatalf("timed out waiting for error to be "+
+			"reported by mockErrorReporter for event %T", event)
+	}
+}
 func (r *rbfCloserTestHarness) stopAndAssert() {
 	r.T.Helper()
 
@@ -508,7 +529,7 @@ func (d dustExpectation) String() string {
 // message to the remote party, and all the other intermediate steps.
 func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation) {
+	dustExpect dustExpectation, iteration bool) {
 
 	ctx := context.Background()
 	numFeeCalls := 2
@@ -569,8 +590,16 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 		}
 
 	case *SendOfferEvent:
-
 		expectedStates = []RbfState{&ClosingNegotiation{}}
+
+		// If we're in the middle of an iteration, then we expect a
+		// transition from ClosePending -> LocalCloseStart.
+		if iteration {
+			expectedStates = append(
+				expectedStates, &ClosingNegotiation{},
+			)
+		}
+
 	case *ChannelFlushed:
 		// If we're sending a flush event here, then this means that we
 		// also have enough balance to cover the fee so we'll have
@@ -585,10 +614,6 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 
 	// We should transition from the negotiation state back to
 	// itself.
-	//
-	// TODO(roasbeef): take in expected set of transitions!!!
-	//  * or base off of event, if shutdown recv'd know we're doing a full
-	//  loop
 	r.assertStateTransitions(expectedStates...)
 
 	// If we examine the final resting state, we should see that
@@ -610,7 +635,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 
 func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
-	dustExpect dustExpectation) {
+	dustExpect dustExpectation, iteration bool) {
 
 	ctx := context.Background()
 
@@ -618,6 +643,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
 		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		iteration,
 	)
 
 	// Now that we're in the local offer sent state, we'll send the
@@ -723,7 +749,7 @@ func newRbfCloserTestHarness(t *testing.T,
 
 	feeEstimator := &mockFeeEstimator{}
 	mockObserver := &mockChanObserver{}
-	errReporter := &mockErrorReporter{}
+	errReporter := newMockErrorReporter(t)
 	mockSigner := &mockCloseSigner{}
 
 	harness := &rbfCloserTestHarness{
@@ -833,14 +859,13 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 		defer closeHarness.stopAndAssert()
 
 		closeHarness.failNewAddrFunc()
-		closeHarness.expectFailure(errfailAddr)
 
 		// We don't specify an upfront shutdown addr, and don't specify
 		// on here in the vent, so we should call new addr, but then
 		// fail.
-		closeHarness.chanCloser.SendEvent(ctx, &SendShutdown{})
-
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, &SendShutdown{}, errfailAddr,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -897,16 +922,13 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 
 		// Next, we'll emit the recv event, with the addr of the remote
 		// party.
-		closeHarness.chanCloser.SendEvent(
-			ctx, &ShutdownReceived{
-				ShutdownScript: remoteAddr,
-				BlockHeight:    1,
-			},
+		event := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+			BlockHeight:    1,
+		}
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrThawHeightNotReached,
 		)
-
-		// We expect a failure as the block height is less than the
-		// start height.
-		closeHarness.expectFailure(ErrThawHeightNotReached)
 	})
 
 	// When we receive a shutdown, we should transition to the shutdown
@@ -993,18 +1015,16 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		// We should fail as the shutdown script isn't what we
-		// expected.
-		closeHarness.expectFailure(ErrUpfrontShutdownScriptMismatch)
-
 		// We'll now send in a ShutdownReceived event, but with a
 		// different address provided in the shutdown message. This
 		// should result in an error.
-		closeHarness.chanCloser.SendEvent(ctx, &ShutdownReceived{
+		event := &ShutdownReceived{
 			ShutdownScript: localAddr,
-		})
+		}
 
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrUpfrontShutdownScriptMismatch,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -1299,7 +1319,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 			// flow.
 			closeHarness.expectHalfSignerIteration(
 				&flushEvent, balanceAfterClose, absoluteFee,
-				noDustExpect,
+				noDustExpect, false,
 			)
 		})
 	}
@@ -1418,7 +1438,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// pending state.
 		closeHarness.assertSingleRbfIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 	})
 
@@ -1434,7 +1454,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// event to advance the state machine.
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// We'll now craft the local sig received event, but this time
@@ -1454,13 +1474,9 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 			},
 		}
 
-		// We expect that the state machine fails as we received more
-		// than one error.
-		closeHarness.expectFailure(ErrTooManySigs)
-
-		// We should fail as the remote party sent us more than one
-		// signature.
-		closeHarness.chanCloser.SendEvent(ctx, localSigEvent)
+		closeHarness.sendEventAndExpectFailure(
+			ctx, localSigEvent, ErrTooManySigs,
+		)
 	})
 
 	// Next, we'll verify that if the balance of the remote party is dust,
@@ -1489,7 +1505,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// proper field is set.
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			remoteDustExpect,
+			remoteDustExpect, false,
 		)
 	})
 
@@ -1516,7 +1532,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		dustBalance := btcutil.Amount(100)
 		closeHarness.expectHalfSignerIteration(
 			sendOfferEvent, dustBalance, absoluteFee,
-			localDustExpect,
+			localDustExpect, false,
 		)
 	})
 
@@ -1540,8 +1556,6 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 
 		// The remote party will send a ClosingSig message, but with the
 		// wrong local script. We should expect an error.
-		closeHarness.expectFailure(ErrWrongLocalScript)
-
 		// We'll send this message in directly, as we shouldn't get any
 		// further in the process.
 		// assuming we start in this negotiation state.
@@ -1556,7 +1570,9 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(ctx, localSigEvent)
+		closeHarness.sendEventAndExpectFailure(
+			ctx, localSigEvent, ErrWrongLocalScript,
+		)
 	})
 
 	// In this test, we'll assert that we're able to restart the RBF loop
@@ -1581,7 +1597,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// assuming we start in this negotiation state.
 		closeHarness.assertSingleRbfIteration(
 			sendOfferEvent, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// Next, we'll send in a new SendOfferEvent event which
@@ -1596,12 +1612,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect,
-		)
-
-		// We should terminate in the negotiation state.
-		closeHarness.assertStateTransitions(
-			&ClosingNegotiation{},
+			noDustExpect, true,
 		)
 	})
 
@@ -1705,21 +1716,19 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		// We should fail as they sent a sig, but can't pay for fees.
-		closeHarness.expectFailure(ErrRemoteCannotPay)
-
 		// We'll send in a new fee proposal, but the proposed fee will
 		// be higher than the remote party's balance.
-		feeOffer := &OfferReceivedEvent{
+		event := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				FeeSatoshis:  absoluteFee * 10,
 			},
 		}
-		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
 
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrRemoteCannotPay,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -1747,12 +1756,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		// We should fail as they included the wrong sig.
-		closeHarness.expectFailure(ErrCloserNoClosee)
-
 		// Our balance is dust, so we should reject this signature that
 		// includes our output.
-		feeOffer := &OfferReceivedEvent{
+		event := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				FeeSatoshis:  absoluteFee,
 				CloserScript: remoteAddr,
@@ -1764,9 +1770,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
-
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrCloserNoClosee,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -1778,12 +1784,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		// We should fail as they included the wrong sig.
-		closeHarness.expectFailure(ErrCloserAndClosee)
-
 		// Both balances are above dust, we should reject this
 		// signature as it excludes an output.
-		feeOffer := &OfferReceivedEvent{
+		event := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				FeeSatoshis:  absoluteFee,
 				CloserScript: remoteAddr,
@@ -1795,9 +1798,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
-
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrCloserAndClosee,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -1875,11 +1878,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 
 		// The remote party will send a ClosingComplete message, but
 		// with the wrong local script. We should expect an error.
-		closeHarness.expectFailure(ErrWrongLocalScript)
-
 		// We'll send our remote addr as the Closee script, which should
 		// trigger an error.
-		feeOffer := &OfferReceivedEvent{
+		event := &OfferReceivedEvent{
 			SigMsg: lnwire.ClosingComplete{
 				FeeSatoshis:  absoluteFee,
 				CloserScript: remoteAddr,
@@ -1891,9 +1892,9 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				},
 			},
 		}
-		closeHarness.chanCloser.SendEvent(ctx, feeOffer)
-
-		// We shouldn't have transitioned to a new state.
+		closeHarness.sendEventAndExpectFailure(
+			ctx, event, ErrWrongLocalScript,
+		)
 		closeHarness.assertNoStateTransitions()
 	})
 
@@ -2004,7 +2005,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect,
+			noDustExpect, false,
 		)
 
 		// We should terminate in the negotiation state.

@@ -2,6 +2,7 @@ package chancloser
 
 import (
 	"sync/atomic"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -140,10 +141,32 @@ func (m *mockChanObserver) DisableChannel() error {
 
 type mockErrorReporter struct {
 	mock.Mock
+	errorReported chan error
+}
+
+// newMockErrorReporter creates a new mockErrorReporter.
+func newMockErrorReporter(t *testing.T) *mockErrorReporter {
+	return &mockErrorReporter{
+		// Buffer of 1 allows ReportError to send without blocking
+		// if the test isn't immediately ready to receive.
+		errorReported: make(chan error, 1),
+	}
 }
 
 func (m *mockErrorReporter) ReportError(err error) {
+	// Keep existing behavior of forwarding to mock.Mock
 	m.Called(err)
+
+	// Non-blockingly send the error to the channel.
+	select {
+	case m.errorReported <- err:
+
+	// If the channel is full or no one is listening, this prevents
+	// ReportError from blocking. This might happen if ReportError is called
+	// multiple times and the test only waits for the first, or if the test
+	// times out waiting.
+	default:
+	}
 }
 
 type mockCloseSigner struct {

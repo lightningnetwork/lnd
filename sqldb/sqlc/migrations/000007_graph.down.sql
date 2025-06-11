@@ -12,11 +12,11 @@ DROP INDEX IF EXISTS channel_features_unique;
 DROP INDEX IF EXISTS channel_extra_types_unique;
 
 -- Drop tables in order of reverse dependencies.
+DROP TABLE IF EXISTS channel_features;
+DROP TABLE IF EXISTS channel_extra_types;
+DROP TABLE IF EXISTS channels;
 DROP TABLE IF EXISTS source_nodes;
 DROP TABLE IF EXISTS node_addresses;
 DROP TABLE IF EXISTS node_features;
 DROP TABLE IF EXISTS node_extra_types;
 DROP TABLE IF EXISTS nodes;
-DROP TABLE IF EXISTS channels;
-DROP TABLE IF EXISTS channel_features;
-DROP TABLE IF EXISTS channel_extra_types;

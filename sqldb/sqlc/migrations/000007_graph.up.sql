@@ -332,3 +332,8 @@ CREATE TABLE IF NOT EXISTS prune_log (
     -- The block hash that the prune was performed at.
     block_hash BLOB NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS closed_scids (
+    -- The short channel id of the channel.
+    scid BLOB PRIMARY KEY
+);

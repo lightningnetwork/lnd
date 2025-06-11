@@ -473,6 +473,11 @@ func EncodeHexColor(color color.RGBA) string {
 // DecodeHexColor takes a hex color string like "#rrggbb" and returns a
 // color.RGBA.
 func DecodeHexColor(hex string) (color.RGBA, error) {
+	if len(hex) != 7 || hex[0] != '#' {
+		return color.RGBA{}, fmt.Errorf("invalid hex color string: %s",
+			hex)
+	}
+
 	r, err := strconv.ParseUint(hex[1:3], 16, 8)
 	if err != nil {
 		return color.RGBA{}, fmt.Errorf("invalid red component: %w",

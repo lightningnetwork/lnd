@@ -108,6 +108,14 @@ type SQLQueries interface {
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
+
+	/*
+		Zombie index queries.
+	*/
+	UpsertZombieChannel(ctx context.Context, arg sqlc.UpsertZombieChannelParams) error
+	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.ZombieChannel, error)
+	CountZombieChannels(ctx context.Context, version int16) (int64, error)
+	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -1388,6 +1396,160 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 			Channels: channelsPerBlock[block],
 		}
 	}), nil
+}
+
+// MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
+// zombie. This method is used on an ad-hoc basis, when channels need to be
+// marked as zombies outside the normal pruning cycle.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) MarkEdgeZombie(chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	ctx := context.TODO()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	chanIDB := channelIDToBytes(chanID)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		return db.UpsertZombieChannel(
+			ctx, sqlc.UpsertZombieChannelParams{
+				Version:  int16(ProtocolV1),
+				Scid:     chanIDB[:],
+				NodeKey1: pubKey1[:],
+				NodeKey2: pubKey2[:],
+			},
+		)
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("unable to upsert zombie channel "+
+			"(channel_id=%d): %w", chanID, err)
+	}
+
+	s.rejectCache.remove(chanID)
+	s.chanCache.remove(chanID)
+
+	return nil
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		ctx     = context.TODO()
+		chanIDB = channelIDToBytes(chanID)
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		res, err := db.DeleteZombieChannel(
+			ctx, sqlc.DeleteZombieChannelParams{
+				Scid:    chanIDB[:],
+				Version: int16(ProtocolV1),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to delete zombie channel: %w",
+				err)
+		}
+
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		if rows == 0 {
+			return ErrZombieEdgeNotFound
+		} else if rows > 1 {
+			return fmt.Errorf("deleted %d zombie rows, "+
+				"expected 1", rows)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("unable to mark edge live "+
+			"(channel_id=%d): %w", chanID, err)
+	}
+
+	s.rejectCache.remove(chanID)
+	s.chanCache.remove(chanID)
+
+	return err
+}
+
+// IsZombieEdge returns whether the edge is considered zombie. If it is a
+// zombie, then the two node public keys corresponding to this edge are also
+// returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
+	var (
+		ctx              = context.TODO()
+		isZombie         bool
+		pubKey1, pubKey2 route.Vertex
+		chanIDB          = channelIDToBytes(chanID)
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		zombie, err := db.GetZombieChannel(
+			ctx, sqlc.GetZombieChannelParams{
+				Scid:    chanIDB[:],
+				Version: int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("unable to fetch zombie channel: %w",
+				err)
+		}
+
+		copy(pubKey1[:], zombie.NodeKey1)
+		copy(pubKey2[:], zombie.NodeKey2)
+		isZombie = true
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		// TODO(elle): update the IsZombieEdge method to return an
+		// error.
+		return false, route.Vertex{}, route.Vertex{}
+	}
+
+	return isZombie, pubKey1, pubKey2
+}
+
+// NumZombies returns the current number of zombie channels in the graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) NumZombies() (uint64, error) {
+	var (
+		ctx        = context.TODO()
+		numZombies uint64
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		count, err := db.CountZombieChannels(ctx, int16(ProtocolV1))
+		if err != nil {
+			return fmt.Errorf("unable to count zombie channels: %w",
+				err)
+		}
+
+		numZombies = uint64(count)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return 0, fmt.Errorf("unable to count zombies: %w", err)
+	}
+
+	return numZombies, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

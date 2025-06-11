@@ -56,6 +56,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 ## Performance Improvements
 
+- The replay protection is
+[optimized](https://github.com/lightningnetwork/lnd/pull/9929) to use less disk
+space such that the `sphinxreplay.db` or the `decayedlogdb_kv` table will grow
+much more slowly.
+
 ## Deprecations
 
 # Technical and Architectural Updates

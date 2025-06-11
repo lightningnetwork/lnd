@@ -460,3 +460,34 @@ WHERE cp.id = $1 OR cp.id = $2;
 -- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM channel_policy_extra_types
 WHERE channel_policy_id = $1;
+
+/* ─────────────────────────────────────────────
+   zombie_channels table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: UpsertZombieChannel :exec
+INSERT INTO zombie_channels (scid, version, node_key_1, node_key_2)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (scid, version)
+DO UPDATE SET
+    -- If a conflict exists for the SCID and version pair, then we
+    -- update the node keys.
+    node_key_1 = COALESCE(EXCLUDED.node_key_1, zombie_channels.node_key_1),
+    node_key_2 = COALESCE(EXCLUDED.node_key_2, zombie_channels.node_key_2);
+
+-- name: DeleteZombieChannel :execresult
+DELETE FROM zombie_channels
+WHERE scid = $1
+AND version = $2;
+
+-- name: CountZombieChannels :one
+SELECT COUNT(*)
+FROM zombie_channels
+WHERE version = $1;
+
+-- name: GetZombieChannel :one
+SELECT *
+FROM zombie_channels
+WHERE scid = $1
+AND version = $2;

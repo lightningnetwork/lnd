@@ -90,6 +90,7 @@ type SQLQueries interface {
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
+	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -924,6 +925,125 @@ func (s *SQLStore) ForEachNodeChannel(nodePub route.Vertex,
 	}, sqldb.NoOpReset)
 }
 
+// ChanUpdatesInHorizon returns all the known channel edges which have at least
+// one edge that has an update timestamp within the specified horizon.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) ChanUpdatesInHorizon(startTime,
+	endTime time.Time) ([]ChannelEdge, error) {
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		ctx = context.TODO()
+		// To ensure we don't return duplicate ChannelEdges, we'll use
+		// an additional map to keep track of the edges already seen to
+		// prevent re-adding it.
+		edgesSeen    = make(map[uint64]struct{})
+		edgesToCache = make(map[uint64]ChannelEdge)
+		edges        []ChannelEdge
+		hits         int
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		rows, err := db.GetChannelsByPolicyLastUpdateRange(
+			ctx, sqlc.GetChannelsByPolicyLastUpdateRangeParams{
+				Version:   int16(ProtocolV1),
+				StartTime: sqldb.SQLInt64(startTime.Unix()),
+				EndTime:   sqldb.SQLInt64(endTime.Unix()),
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			// If we've already retrieved the info and policies for
+			// this edge, then we can skip it as we don't need to do
+			// so again.
+			chanIDInt := byteOrder.Uint64(row.Channel.Scid)
+			if _, ok := edgesSeen[chanIDInt]; ok {
+				continue
+			}
+
+			if channel, ok := s.chanCache.get(chanIDInt); ok {
+				hits++
+				edgesSeen[chanIDInt] = struct{}{}
+				edges = append(edges, channel)
+
+				continue
+			}
+
+			node1, node2, err := buildNodes(
+				ctx, db, row.Node, row.Node_2,
+			)
+			if err != nil {
+				return err
+			}
+
+			channel, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1.PubKeyBytes,
+				node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build channel "+
+					"info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return fmt.Errorf("unable to extract channel "+
+					"policies: %w", err)
+			}
+
+			p1, p2, err := getAndBuildChanPolicies(
+				ctx, db, dbPol1, dbPol2, channel.ChannelID,
+				node1.PubKeyBytes, node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build channel "+
+					"policies: %w", err)
+			}
+
+			edgesSeen[chanIDInt] = struct{}{}
+			chanEdge := ChannelEdge{
+				Info:    channel,
+				Policy1: p1,
+				Policy2: p2,
+				Node1:   node1,
+				Node2:   node2,
+			}
+			edges = append(edges, chanEdge)
+			edgesToCache[chanIDInt] = chanEdge
+		}
+
+		return nil
+	}, func() {
+		edgesSeen = make(map[uint64]struct{})
+		edgesToCache = make(map[uint64]ChannelEdge)
+		edges = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	// Insert any edges loaded from disk into the cache.
+	for chanid, channel := range edgesToCache {
+		s.chanCache.insert(chanid, channel)
+	}
+
+	if len(edges) > 0 {
+		log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
+			float64(hits)/float64(len(edges)), hits, len(edges))
+	} else {
+		log.Debugf("ChanUpdatesInHorizon returned no edges in "+
+			"horizon (%s, %s)", startTime, endTime)
+	}
+
+	return edges, nil
+}
+
 // forEachNodeDirectedChannel iterates through all channels of a given
 // node, executing the passed callback on the directed edge representing the
 // channel and its incoming policy. If the node is not found, no error is
@@ -977,12 +1097,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 				err)
 		}
 
-		edge, err := buildCacheableChannelInfo(
-			row.Channel, node1, node2,
-		)
-		if err != nil {
-			return err
-		}
+		edge := buildCacheableChannelInfo(row.Channel, node1, node2)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
 		if err != nil {
@@ -1286,14 +1401,14 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 // provided database channel row and the public keys of the two nodes
 // involved in the channel.
 func buildCacheableChannelInfo(dbChan sqlc.Channel, node1Pub,
-	node2Pub route.Vertex) (*models.CachedEdgeInfo, error) {
+	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
 		ChannelID:     byteOrder.Uint64(dbChan.Scid),
 		NodeKey1Bytes: node1Pub,
 		NodeKey2Bytes: node2Pub,
 		Capacity:      btcutil.Amount(dbChan.Capacity.Int64),
-	}, nil
+	}
 }
 
 // buildNode constructs a LightningNode instance from the given database node
@@ -2302,17 +2417,76 @@ func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
 	}, nil
 }
 
+// buildNodes builds the models.LightningNode instances for the
+// given row which is expected to be a sqlc type that contains node information.
+func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
+	dbNode2 sqlc.Node) (*models.LightningNode, *models.LightningNode,
+	error) {
+
+	node1, err := buildNode(ctx, db, &dbNode1)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	node2, err := buildNode(ctx, db, &dbNode2)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return node1, node2, nil
+}
+
 // extractChannelPolicies extracts the sqlc.ChannelPolicy records from the give
 // row which is expected to be a sqlc type that contains channel policy
 // information. It returns two policies, which may be nil if the policy
 // information is not present in the row.
 //
-//nolint:ll
+//nolint:ll,dupl
 func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 	error) {
 
 	var policy1, policy2 *sqlc.ChannelPolicy
 	switch r := row.(type) {
+	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.ListChannelsByNodeIDRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.ChannelPolicy{

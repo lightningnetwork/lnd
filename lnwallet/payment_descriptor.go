@@ -42,6 +42,13 @@ const (
 	// FeeUpdate is an update type sent by the channel initiator that
 	// updates the fee rate used when signing the commitment transaction.
 	FeeUpdate
+
+	// NoOpAdd is an update type that adds a new HTLC entry into the log.
+	// This differs from the normal Add type, in that when settled the
+	// balance may go back to the sender, rather than be credited for the
+	// receiver. The criteria about whether the balance will go back to the
+	// sender is whether the receiver is sitting above the channel reserve.
+	NoOpAdd
 )
 
 // String returns a human readable string that uniquely identifies the target
@@ -58,6 +65,8 @@ func (u updateType) String() string {
 		return "Settle"
 	case FeeUpdate:
 		return "FeeUpdate"
+	case NoOpAdd:
+		return "NoOpAdd"
 	default:
 		return "<unknown type>"
 	}
@@ -238,7 +247,7 @@ type paymentDescriptor struct {
 func (pd *paymentDescriptor) toLogUpdate() channeldb.LogUpdate {
 	var msg lnwire.Message
 	switch pd.EntryType {
-	case Add:
+	case Add, NoOpAdd:
 		msg = &lnwire.UpdateAddHTLC{
 			ChanID:        pd.ChanID,
 			ID:            pd.HtlcIndex,
@@ -290,7 +299,7 @@ func (pd *paymentDescriptor) setCommitHeight(
 	whoseCommitChain lntypes.ChannelParty, nextHeight uint64) {
 
 	switch pd.EntryType {
-	case Add:
+	case Add, NoOpAdd:
 		pd.addCommitHeights.SetForParty(
 			whoseCommitChain, nextHeight,
 		)

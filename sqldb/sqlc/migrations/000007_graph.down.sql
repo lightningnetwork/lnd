@@ -28,3 +28,4 @@ DROP TABLE IF EXISTS node_extra_types;
 DROP TABLE IF EXISTS nodes;
 DROP TABLE IF EXISTS channel_policy_extra_types;
 DROP TABLE IF EXISTS zombie_channels;
+DROP TABLE IF EXISTS prune_log;

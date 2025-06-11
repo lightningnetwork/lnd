@@ -784,6 +784,8 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 				b.Val,
 			))
 		})
+
+		// TODO(yy): use `p.router.ProcessOnionPacket` instead.
 		err = tx.ProcessOnionPacket(
 			seqNum, onionPkt, req.RHash, req.IncomingCltv, opts...,
 		)

@@ -3781,7 +3781,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	t.Parallel()
 
 	// We'll start by creating our test graph along with a test edge.
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	node1 := createTestVertex(t)
 	node2 := createTestVertex(t)

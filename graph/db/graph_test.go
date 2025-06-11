@@ -1118,7 +1118,7 @@ func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 func TestAddEdgeProof(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Add an edge with no proof.
 	node1 := createTestVertex(t)

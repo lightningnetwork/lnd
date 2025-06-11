@@ -895,6 +895,41 @@ func (s *SQLStore) ForEachNodeCacheable(cb func(route.Vertex,
 	return nil
 }
 
+// ForEachNodeChannel iterates through all channels of the given node,
+// executing the passed callback with an edge info structure and the policies
+// of each end of the channel. The first edge policy is the outgoing edge *to*
+// the connecting node, while the second is the incoming edge *from* the
+// connecting node. If the callback returns an error, then the iteration is
+// halted with the error propagated back up to the caller.
+//
+// Unknown policies are passed into the callback as nil values.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ForEachNodeChannel(nodePub route.Vertex,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
+
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbNode, err := db.GetNodeByPubKey(
+			ctx, sqlc.GetNodeByPubKeyParams{
+				Version: int16(ProtocolV1),
+				PubKey:  nodePub[:],
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch node: %w", err)
+		}
+
+		return forEachNodeChannel(
+			ctx, db, s.cfg.ChainHash, dbNode.ID, cb,
+		)
+	}, sqldb.NoOpReset)
+}
+
 // forEachNodeDirectedChannel iterates through all channels of a given
 // node, executing the passed callback on the directed edge representing the
 // channel and its incoming policy. If the node is not found, no error is

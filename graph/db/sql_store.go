@@ -63,7 +63,9 @@ type SQLQueries interface {
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.Node, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
+	GetUnconnectedNodes(ctx context.Context) ([]sqlc.GetUnconnectedNodesRow, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
+	DeleteNode(ctx context.Context, id int64) error
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.NodeExtraType, error)
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
@@ -2203,6 +2205,70 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 	}
 
 	return newChanIDs, knownZombies, nil
+}
+
+// PruneGraphNodes is a garbage collection method which attempts to prune out
+// any nodes from the channel graph that are currently unconnected. This ensure
+// that we only maintain a graph of reachable nodes. In the event that a pruned
+// node gains more channels, it will be re-added back to the graph.
+//
+// NOTE: this prunes nodes across protocol versions. It will never prune the
+// source nodes.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PruneGraphNodes() ([]route.Vertex, error) {
+	var ctx = context.TODO()
+
+	var prunedNodes []route.Vertex
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		var err error
+		prunedNodes, err = s.pruneGraphNodes(ctx, db)
+
+		return err
+	}, func() {
+		prunedNodes = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to prune nodes: %w", err)
+	}
+
+	return prunedNodes, nil
+}
+
+// pruneGraphNodes deletes any node in the DB that doesn't have a channel.
+//
+// NOTE: this prunes nodes across protocol versions. It will never prune the
+// source nodes.
+func (s *SQLStore) pruneGraphNodes(ctx context.Context,
+	db SQLQueries) ([]route.Vertex, error) {
+
+	// Fetch all un-connected nodes from the database.
+	// NOTE: this will not include any nodes that are listed in the
+	// source table.
+	nodes, err := db.GetUnconnectedNodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch unconnected nodes: %w",
+			err)
+	}
+
+	prunedNodes := make([]route.Vertex, 0, len(nodes))
+	for _, node := range nodes {
+		// TODO(elle): update to use sqlc.slice() once that works.
+		if err = db.DeleteNode(ctx, node.ID); err != nil {
+			return nil, fmt.Errorf("unable to delete "+
+				"node(id=%d): %w", node.ID, err)
+		}
+
+		pubKey, err := route.NewVertexFromBytes(node.PubKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse pubkey "+
+				"for node(id=%d): %w", node.ID, err)
+		}
+
+		prunedNodes = append(prunedNodes, pubKey)
+	}
+
+	return prunedNodes, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

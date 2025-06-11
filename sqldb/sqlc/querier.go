@@ -21,6 +21,7 @@ type Querier interface {
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
+	DeleteNode(ctx context.Context, id int64) error
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
@@ -60,6 +61,9 @@ type Querier interface {
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]Channel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
+	// Select all nodes that do not have any channels.
+	// Ignore any of our source nodes.
+	GetUnconnectedNodes(ctx context.Context) ([]GetUnconnectedNodesRow, error)
 	// NOTE: this is V1 specific since for V1, disabled is a
 	// simple, single boolean. The proposed V2 policy
 	// structure will have a more complex disabled bit vector

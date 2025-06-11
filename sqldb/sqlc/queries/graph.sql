@@ -208,6 +208,16 @@ INSERT INTO channels (
 )
 RETURNING id;
 
+-- name: GetChannelsBySCIDRange :many
+SELECT sqlc.embed(c),
+    n1.pub_key AS node1_pub_key,
+    n2.pub_key AS node2_pub_key
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE scid >= @start_scid
+  AND scid < @end_scid;
+
 -- name: GetChannelBySCID :one
 SELECT * FROM channels
 WHERE scid = $1 AND version = $2;
@@ -685,3 +695,8 @@ SELECT block_height, block_hash
 FROM prune_log
 ORDER BY block_height DESC
 LIMIT 1;
+
+-- name: DeletePruneLogEntriesInRange :exec
+DELETE FROM prune_log
+WHERE block_height >= @start_height
+  AND block_height <= @end_height;

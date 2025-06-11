@@ -7,8 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -92,6 +94,7 @@ type SQLQueries interface {
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
+	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.Channel, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -100,6 +103,7 @@ type SQLQueries interface {
 		Channel Policy table queries.
 	*/
 	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
+	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.ChannelPolicy, error)
 
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
@@ -1260,6 +1264,133 @@ func (s *SQLStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 
 		return nil
 	}, sqldb.NoOpReset)
+}
+
+// FilterChannelRange returns the channel ID's of all known channels which were
+// mined in a block height within the passed range. The channel IDs are grouped
+// by their common block height. This method can be used to quickly share with a
+// peer the set of channels we know of within a particular range to catch them
+// up after a period of time offline. If withTimestamps is true then the
+// timestamp info of the latest received channel update messages of the channel
+// will be included in the response.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
+
+	var (
+		ctx       = context.TODO()
+		startSCID = &lnwire.ShortChannelID{
+			BlockHeight: startHeight,
+		}
+		endSCID = lnwire.ShortChannelID{
+			BlockHeight: endHeight,
+			TxIndex:     math.MaxUint32 & 0x00ffffff,
+			TxPosition:  math.MaxUint16,
+		}
+	)
+
+	var chanIDStart [8]byte
+	byteOrder.PutUint64(chanIDStart[:], startSCID.ToUint64())
+	var chanIDEnd [8]byte
+	byteOrder.PutUint64(chanIDEnd[:], endSCID.ToUint64())
+
+	// 1) get all channels where channelID is between start and end chan ID.
+	// 2) skip if not public (ie, no channel_proof)
+	// 3) collect that channel.
+	// 4) if timestamps are wanted, fetch both policies for node 1 and node2
+	//    and add those timestamps to the collected channel.
+	channelsPerBlock := make(map[uint32][]ChannelUpdateInfo)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbChans, err := db.GetPublicV1ChannelsBySCID(
+			ctx, sqlc.GetPublicV1ChannelsBySCIDParams{
+				StartScid: chanIDStart[:],
+				EndScid:   chanIDEnd[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channel range: %w",
+				err)
+		}
+
+		for _, dbChan := range dbChans {
+			cid := lnwire.NewShortChanIDFromInt(
+				byteOrder.Uint64(dbChan.Scid),
+			)
+			chanInfo := NewChannelUpdateInfo(
+				cid, time.Time{}, time.Time{},
+			)
+
+			if !withTimestamps {
+				channelsPerBlock[cid.BlockHeight] = append(
+					channelsPerBlock[cid.BlockHeight],
+					chanInfo,
+				)
+
+				continue
+			}
+
+			//nolint:ll
+			node1Policy, err := db.GetChannelPolicyByChannelAndNode(
+				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+					Version:   int16(ProtocolV1),
+					ChannelID: dbChan.ID,
+					NodeID:    dbChan.NodeID1,
+				},
+			)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch node1 "+
+					"policy: %w", err)
+			} else if err == nil {
+				chanInfo.Node1UpdateTimestamp = time.Unix(
+					node1Policy.LastUpdate.Int64, 0,
+				)
+			}
+
+			//nolint:ll
+			node2Policy, err := db.GetChannelPolicyByChannelAndNode(
+				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+					Version:   int16(ProtocolV1),
+					ChannelID: dbChan.ID,
+					NodeID:    dbChan.NodeID2,
+				},
+			)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch node2 "+
+					"policy: %w", err)
+			} else if err == nil {
+				chanInfo.Node2UpdateTimestamp = time.Unix(
+					node2Policy.LastUpdate.Int64, 0,
+				)
+			}
+
+			channelsPerBlock[cid.BlockHeight] = append(
+				channelsPerBlock[cid.BlockHeight], chanInfo,
+			)
+		}
+
+		return nil
+	}, func() {
+		channelsPerBlock = make(map[uint32][]ChannelUpdateInfo)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel range: %w", err)
+	}
+
+	if len(channelsPerBlock) == 0 {
+		return nil, nil
+	}
+
+	// Return the channel ranges in ascending block height order.
+	blocks := slices.Collect(maps.Keys(channelsPerBlock))
+	slices.Sort(blocks)
+
+	return fn.Map(blocks, func(block uint32) BlockChannelRange {
+		return BlockChannelRange{
+			Height:   block,
+			Channels: channelsPerBlock[block],
+		}
+	}), nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

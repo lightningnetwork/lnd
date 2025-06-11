@@ -1685,7 +1685,7 @@ func TestGraphPruning(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
@@ -4006,7 +4006,7 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	sourceNode := createTestVertex(t)
 	require.Nil(t, graph.SetSourceNode(ctx, sourceNode))

@@ -91,12 +91,14 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.Channel, error)
@@ -125,6 +127,12 @@ type SQLQueries interface {
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
 	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)
+
+	/*
+		Prune log table queries.
+	*/
+	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
+	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -2230,6 +2238,213 @@ func (s *SQLStore) PruneGraphNodes() ([]route.Vertex, error) {
 	return prunedNodes, nil
 }
 
+// PruneGraph prunes newly closed channels from the channel graph in response
+// to a new block being solved on the network. Any transactions which spend the
+// funding output of any known channels within he graph will be deleted.
+// Additionally, the "prune tip", or the last block which has been used to
+// prune the graph is stored so callers can ensure the graph is fully in sync
+// with the current UTXO state. A slice of channels that have been closed by
+// the target block along with any pruned nodes are returned if the function
+// succeeds without error.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
+	blockHash *chainhash.Hash, blockHeight uint32) (
+	[]*models.ChannelEdgeInfo, []route.Vertex, error) {
+
+	ctx := context.TODO()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		closedChans []*models.ChannelEdgeInfo
+		prunedNodes []route.Vertex
+	)
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		for _, outpoint := range spentOutputs {
+			// TODO(elle): potentially optimize this by using
+			//  sqlc.slice() once that works for both SQLite and
+			//  Postgres.
+			//
+			// NOTE: this fetches channels for all protocol
+			// versions.
+			row, err := db.GetChannelByOutpoint(
+				ctx, outpoint.String(),
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return err
+			}
+
+			info, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1, node2,
+			)
+			if err != nil {
+				return err
+			}
+
+			err = db.DeleteChannel(ctx, row.Channel.ID)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"channel: %w", err)
+			}
+
+			closedChans = append(closedChans, info)
+		}
+
+		err := db.UpsertPruneLogEntry(
+			ctx, sqlc.UpsertPruneLogEntryParams{
+				BlockHash:   blockHash[:],
+				BlockHeight: int64(blockHeight),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert prune log "+
+				"entry: %w", err)
+		}
+
+		// Now that we've pruned some channels, we'll also prune any
+		// nodes that no longer have any channels.
+		prunedNodes, err = s.pruneGraphNodes(ctx, db)
+		if err != nil {
+			return fmt.Errorf("unable to prune graph nodes: %w",
+				err)
+		}
+
+		return nil
+	}, func() {
+		prunedNodes = nil
+		closedChans = nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to prune graph: %w", err)
+	}
+
+	for _, channel := range closedChans {
+		s.rejectCache.remove(channel.ChannelID)
+		s.chanCache.remove(channel.ChannelID)
+	}
+
+	return closedChans, prunedNodes, nil
+}
+
+// ChannelView returns the verifiable edge information for each active channel
+// within the known channel graph. The set of UTXOs (along with their scripts)
+// returned are the ones that need to be watched on chain to detect channel
+// closes on the resident blockchain.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
+	var (
+		ctx        = context.TODO()
+		edgePoints []EdgePoint
+	)
+
+	handleChannel := func(db SQLQueries,
+		channel sqlc.ListChannelsPaginatedRow) error {
+
+		pkScript, err := genMultiSigP2WSH(
+			channel.BitcoinKey1, channel.BitcoinKey2,
+		)
+		if err != nil {
+			return err
+		}
+
+		op, err := wire.NewOutPointFromString(channel.Outpoint)
+		if err != nil {
+			return err
+		}
+
+		edgePoints = append(edgePoints, EdgePoint{
+			FundingPkScript: pkScript,
+			OutPoint:        *op,
+		})
+
+		return nil
+	}
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		lastID := int64(-1)
+		for {
+			rows, err := db.ListChannelsPaginated(
+				ctx, sqlc.ListChannelsPaginatedParams{
+					Version: int16(ProtocolV1),
+					ID:      lastID,
+					Limit:   pageSize,
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			if len(rows) == 0 {
+				break
+			}
+
+			for _, row := range rows {
+				err := handleChannel(db, row)
+				if err != nil {
+					return err
+				}
+
+				lastID = row.ID
+			}
+		}
+
+		return nil
+	}, func() {
+		edgePoints = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel view: %w", err)
+	}
+
+	return edgePoints, nil
+}
+
+// PruneTip returns the block height and hash of the latest block that has been
+// used to prune channels in the graph. Knowing the "prune tip" allows callers
+// to tell if the graph is currently in sync with the current best known UTXO
+// state.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PruneTip() (*chainhash.Hash, uint32, error) {
+	var (
+		ctx       = context.TODO()
+		tipHash   chainhash.Hash
+		tipHeight uint32
+	)
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		pruneTip, err := db.GetPruneTip(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrGraphNeverPruned
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch prune tip: %w", err)
+		}
+
+		tipHash = chainhash.Hash(pruneTip.BlockHash)
+		tipHeight = uint32(pruneTip.BlockHeight)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return &tipHash, tipHeight, nil
+}
+
 // pruneGraphNodes deletes any node in the DB that doesn't have a channel.
 //
 // NOTE: this prunes nodes across protocol versions. It will never prune the
@@ -3388,6 +3603,11 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
 	chain chainhash.Hash, dbChanID int64, dbChan sqlc.Channel, node1,
 	node2 route.Vertex) (*models.ChannelEdgeInfo, error) {
+
+	if dbChan.Version != int16(ProtocolV1) {
+		return nil, fmt.Errorf("unsupported channel version: %d",
+			dbChan.Version)
+	}
 
 	fv, extras, err := getChanFeaturesAndExtras(
 		ctx, db, dbChanID,

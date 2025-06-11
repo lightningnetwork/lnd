@@ -315,6 +315,13 @@ LEFT JOIN channel_policies cp2
 WHERE c.version = $1
   AND (c.node_id_1 = $2 OR c.node_id_2 = $2);
 
+-- name: GetPublicV1ChannelsBySCID :many
+SELECT *
+FROM channels
+WHERE node_1_signature IS NOT NULL
+  AND scid >= sqlc.arg(start_scid)
+  AND scid < sqlc.arg(end_scid);
+
 -- name: ListAllChannels :many
 SELECT
     c.*,
@@ -415,6 +422,13 @@ ON CONFLICT (channel_id, node_id, version)
         signature = EXCLUDED.signature
 WHERE EXCLUDED.last_update > channel_policies.last_update
 RETURNING id;
+
+-- name: GetChannelPolicyByChannelAndNode :one
+SELECT *
+FROM channel_policies
+WHERE channel_id = $1
+  AND node_id = $2
+  AND version = $3;
 
 /* ─────────────────────────────────────────────
    channel_policy_extra_types table queries

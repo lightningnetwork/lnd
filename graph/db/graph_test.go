@@ -2707,7 +2707,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.

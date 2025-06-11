@@ -102,6 +102,14 @@ type SQLQueries interface {
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
 	DeleteChannelPolicyExtraType(ctx context.Context, arg sqlc.DeleteChannelPolicyExtraTypeParams) error
 	UpsertChanPolicyExtraType(ctx context.Context, arg sqlc.UpsertChanPolicyExtraTypeParams) error
+
+	/*
+		Zombie index queries.
+	*/
+	UpsertZombieChannel(ctx context.Context, arg sqlc.UpsertZombieChannelParams) error
+	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.ZombieChannel, error)
+	CountZombieChannels(ctx context.Context, version int16) (int64, error)
+	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -1298,6 +1306,143 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 	}
 
 	return channelRanges, nil
+}
+
+// MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
+// zombie. This method is used on an ad-hoc basis, when channels need to be
+// marked as zombies outside the normal pruning cycle.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) MarkEdgeZombie(chanID uint64,
+	pubKey1, pubKey2 [33]byte) error {
+
+	ctx := context.TODO()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		return db.UpsertZombieChannel(
+			ctx, sqlc.UpsertZombieChannelParams{
+				Version:  int16(ProtocolV1),
+				Scid:     int64(chanID),
+				NodeKey1: pubKey1[:],
+				NodeKey2: pubKey2[:],
+			},
+		)
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	s.rejectCache.remove(chanID)
+	s.chanCache.remove(chanID)
+
+	return nil
+}
+
+// MarkEdgeLive clears an edge from our zombie index, deeming it as live.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var ctx = context.TODO()
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		_, err := db.GetZombieChannel(
+			ctx, sqlc.GetZombieChannelParams{
+				Scid:    int64(chanID),
+				Version: int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrZombieEdgeNotFound
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch zombie channel: %w",
+				err)
+		}
+
+		return db.DeleteZombieChannel(
+			ctx, sqlc.DeleteZombieChannelParams{
+				Scid:    int64(chanID),
+				Version: int16(ProtocolV1),
+			},
+		)
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	s.rejectCache.remove(chanID)
+	s.chanCache.remove(chanID)
+
+	return err
+}
+
+// IsZombieEdge returns whether the edge is considered zombie. If it is a
+// zombie, then the two node public keys corresponding to this edge are also
+// returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
+	var (
+		ctx              = context.TODO()
+		isZombie         bool
+		pubKey1, pubKey2 route.Vertex
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		zombie, err := db.GetZombieChannel(
+			ctx, sqlc.GetZombieChannelParams{
+				Scid:    int64(chanID),
+				Version: int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("unable to fetch zombie channel: %w",
+				err)
+		}
+
+		copy(pubKey1[:], zombie.NodeKey1)
+		copy(pubKey2[:], zombie.NodeKey2)
+		isZombie = true
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return false, route.Vertex{}, route.Vertex{}
+	}
+
+	return isZombie, pubKey1, pubKey2
+}
+
+// NumZombies returns the current number of zombie channels in the graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) NumZombies() (uint64, error) {
+	var (
+		ctx        = context.TODO()
+		numZombies uint64
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		count, err := db.CountZombieChannels(ctx, int16(ProtocolV1))
+		if err != nil {
+			return fmt.Errorf("unable to count zombie channels: %w",
+				err)
+		}
+
+		numZombies = uint64(count)
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return 0, fmt.Errorf("unable to count zombies: %w", err)
+	}
+
+	return numZombies, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

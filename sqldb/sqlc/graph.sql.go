@@ -26,6 +26,34 @@ func (q *Queries) AddSourceNode(ctx context.Context, nodeID int64) error {
 	return err
 }
 
+const addV1ChannelProof = `-- name: AddV1ChannelProof :exec
+UPDATE channels
+SET node_1_signature = $2,
+    node_2_signature = $3,
+    bitcoin_1_signature = $4,
+    bitcoin_2_signature = $5
+WHERE id = $1
+`
+
+type AddV1ChannelProofParams struct {
+	ID                int64
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+}
+
+func (q *Queries) AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) error {
+	_, err := q.db.ExecContext(ctx, addV1ChannelProof,
+		arg.ID,
+		arg.Node1Signature,
+		arg.Node2Signature,
+		arg.Bitcoin1Signature,
+		arg.Bitcoin2Signature,
+	)
+	return err
+}
+
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
 FROM zombie_channels

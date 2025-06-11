@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
@@ -16,14 +15,6 @@ import (
 // database for testing. At the moment, it embeds a KVStore but once the
 // SQLStore fully implements the V1Store interface, the KVStore will be removed.
 func NewTestDB(t testing.TB) V1Store {
-	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")
-	require.NoError(t, err)
-
-	t.Cleanup(backendCleanup)
-
-	graphStore, err := NewKVStore(backend)
-	require.NoError(t, err)
-
 	pgFixture := sqldb.NewTestPgFixture(
 		t, sqldb.DefaultPostgresFixtureLifetime,
 	)
@@ -42,7 +33,7 @@ func NewTestDB(t testing.TB) V1Store {
 	store, err := NewSQLStore(
 		&SQLStoreConfig{
 			ChainHash: *chaincfg.MainNetParams.GenesisHash,
-		}, executor, graphStore,
+		}, executor,
 	)
 	require.NoError(t, err)
 

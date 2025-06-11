@@ -60,6 +60,11 @@ type Querier interface {
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]Channel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
+	// NOTE: this is V1 specific since for V1, disabled is a
+	// simple, single boolean. The proposed V2 policy
+	// structure will have a more complex disabled bit vector
+	// and so the query for V2 may differ.
+	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (ZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error

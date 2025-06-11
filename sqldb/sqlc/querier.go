@@ -48,6 +48,7 @@ type Querier interface {
 	GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (Node, error)
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
+	GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
@@ -64,6 +65,7 @@ type Querier interface {
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)
+	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
 	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]Node, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error

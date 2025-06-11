@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1366,7 +1367,7 @@ func TestGraphTraversal(t *testing.T) {
 func TestGraphTraversalCacheable(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -4162,7 +4163,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Unset the channel graph cache to simulate the user running with the
 	// option turned off.
@@ -4212,21 +4213,25 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	edge1.ExtraOpaqueData = []byte{
 		253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
 	}
+	inboundFee := lnwire.Fee{
+		BaseFee: 10,
+		FeeRate: 20,
+	}
+	edge1.InboundFee = fn.Some(inboundFee)
 	require.NoError(t, graph.UpdateEdgePolicy(edge1))
 	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	directedChan := getSingleChannel()
 	require.NotNil(t, directedChan)
-	expectedInbound := lnwire.Fee{
-		BaseFee: 10,
-		FeeRate: 20,
-	}
-	require.Equal(t, expectedInbound, directedChan.InboundFee)
+	require.Equal(t, inboundFee, directedChan.InboundFee)
 
 	// Set an invalid inbound fee and check that persistence fails.
 	edge1.ExtraOpaqueData = []byte{
 		253, 217, 3, 8, 0,
 	}
+	// We need to update the timestamp so that we don't hit the DB conflict
+	// error when we try to update the edge policy.
+	edge1.LastUpdate = edge1.LastUpdate.Add(time.Second)
 	require.ErrorIs(
 		t, graph.UpdateEdgePolicy(edge1), ErrParsingExtraTLVBytes,
 	)
@@ -4235,7 +4240,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// the previous result when we query the channel again.
 	directedChan = getSingleChannel()
 	require.NotNil(t, directedChan)
-	require.Equal(t, expectedInbound, directedChan.InboundFee)
+	require.Equal(t, inboundFee, directedChan.InboundFee)
 }
 
 // TestGraphLoading asserts that the cache is properly reconstructed after a

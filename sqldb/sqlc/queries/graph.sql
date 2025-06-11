@@ -27,10 +27,23 @@ FROM nodes
 WHERE pub_key = $1
   AND version = $2;
 
+-- name: GetNodeIDByPubKey :one
+SELECT id
+FROM nodes
+WHERE pub_key = $1
+  AND version = $2;
+
 -- name: ListNodesPaginated :many
 SELECT *
 FROM nodes
 WHERE version = $1 AND id > $2
+ORDER BY id
+LIMIT $3;
+
+-- name: ListNodeIDsAndPubKeys :many
+SELECT id, pub_key
+FROM nodes
+WHERE version = $1  AND id > $2
 ORDER BY id
 LIMIT $3;
 

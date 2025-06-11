@@ -76,10 +76,19 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
+
+	/*
+		Channel Policy table queries.
+	*/
+	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
+
+	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
+	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -550,6 +559,193 @@ func (s *SQLStore) HighestChanID() (uint64, error) {
 	}
 
 	return highestChanID, nil
+}
+
+// UpdateEdgePolicy updates the edge routing policy for a single directed edge
+// within the database for the referenced channel. The `flags` attribute within
+// the ChannelEdgePolicy determines which of the directed edges are being
+// updated. If the flag is 1, then the first node's information is being
+// updated, otherwise it's the second node's information. The node ordering is
+// determined by the lexicographical ordering of the identity public keys of the
+// nodes on either side of the channel.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
+
+	ctx := context.TODO()
+
+	var (
+		isUpdate1    bool
+		edgeNotFound bool
+		from, to     route.Vertex
+	)
+
+	r := &batch.Request[SQLQueries]{
+		Opts: batch.NewSchedulerOptions(opts...),
+		Reset: func() {
+			isUpdate1 = false
+			edgeNotFound = false
+		},
+		Do: func(tx SQLQueries) error {
+			var err error
+			from, to, isUpdate1, err = updateChanEdgePolicy(
+				ctx, tx, edge,
+			)
+			if err != nil {
+				log.Errorf("UpdateEdgePolicy faild: %v", err)
+			}
+
+			// Silence ErrEdgeNotFound so that the batch can
+			// succeed, but propagate the error via local state.
+			if errors.Is(err, ErrEdgeNotFound) {
+				edgeNotFound = true
+				return nil
+			}
+
+			return err
+		},
+		OnCommit: func(err error) error {
+			switch {
+			case err != nil:
+				return err
+			case edgeNotFound:
+				return ErrEdgeNotFound
+			default:
+				s.updateEdgeCache(edge, isUpdate1)
+				return nil
+			}
+		},
+	}
+
+	err := s.chanScheduler.Execute(ctx, r)
+
+	return from, to, err
+}
+
+// updateEdgeCache updates our reject and channel caches with the new
+// edge policy information.
+func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
+	isUpdate1 bool) {
+
+	// If an entry for this channel is found in reject cache, we'll modify
+	// the entry with the updated timestamp for the direction that was just
+	// written. If the edge doesn't exist, we'll load the cache entry lazily
+	// during the next query for this edge.
+	if entry, ok := s.rejectCache.get(e.ChannelID); ok {
+		if isUpdate1 {
+			entry.upd1Time = e.LastUpdate.Unix()
+		} else {
+			entry.upd2Time = e.LastUpdate.Unix()
+		}
+		s.rejectCache.insert(e.ChannelID, entry)
+	}
+
+	// If an entry for this channel is found in channel cache, we'll modify
+	// the entry with the updated policy for the direction that was just
+	// written. If the edge doesn't exist, we'll defer loading the info and
+	// policies and lazily read from disk during the next query.
+	if channel, ok := s.chanCache.get(e.ChannelID); ok {
+		if isUpdate1 {
+			channel.Policy1 = e
+		} else {
+			channel.Policy2 = e
+		}
+		s.chanCache.insert(e.ChannelID, channel)
+	}
+}
+
+// updateChanEdgePolicy upserts the channel policy info we have stored for
+// a channel we already know of.
+func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
+	edge *models.ChannelEdgePolicy) (route.Vertex, route.Vertex, bool,
+	error) {
+
+	var (
+		node1Pub, node2Pub route.Vertex
+		isNode1            bool
+		chanIDB            [8]byte
+	)
+	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
+
+	// Check that this edge policy refers to a channel that we already
+	// know of. We do this explicitly so that we can return the appropriate
+	// ErrEdgeNotFound error if the channel doesn't exist, rather than
+	// abort the transaction which would abort the entire batch.
+	dbChan, err := tx.GetChannelAndNodesBySCID(
+		ctx, sqlc.GetChannelAndNodesBySCIDParams{
+			Scid:    chanIDB[:],
+			Version: int16(ProtocolV1),
+		},
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return node1Pub, node2Pub, false, ErrEdgeNotFound
+	} else if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
+			"fetch channel(%v): %w", edge.ChannelID, err)
+	}
+
+	copy(node1Pub[:], dbChan.Node1PubKey)
+	copy(node2Pub[:], dbChan.Node2PubKey)
+
+	// Figure out which node this edge is from.
+	isNode1 = edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	nodeID := dbChan.NodeID1
+	if !isNode1 {
+		nodeID = dbChan.NodeID2
+	}
+
+	var (
+		inboundBase sql.NullInt64
+		inboundRate sql.NullInt64
+	)
+	edge.InboundFee.WhenSome(func(fee lnwire.Fee) {
+		inboundRate = sqldb.SQLInt64(fee.FeeRate)
+		inboundBase = sqldb.SQLInt64(fee.BaseFee)
+	})
+
+	id, err := tx.UpsertEdgePolicy(ctx, sqlc.UpsertEdgePolicyParams{
+		Version:     int16(ProtocolV1),
+		ChannelID:   dbChan.ID,
+		NodeID:      nodeID,
+		Timelock:    int32(edge.TimeLockDelta),
+		FeePpm:      int64(edge.FeeProportionalMillionths),
+		BaseFeeMsat: int64(edge.FeeBaseMSat),
+		MinHtlcMsat: int64(edge.MinHTLC),
+		LastUpdate:  sqldb.SQLInt64(edge.LastUpdate.Unix()),
+		Disabled: sql.NullBool{
+			Valid: true,
+			Bool:  edge.IsDisabled(),
+		},
+		MaxHtlcMsat: sql.NullInt64{
+			Valid: edge.MessageFlags.HasMaxHtlc(),
+			Int64: int64(edge.MaxHTLC),
+		},
+		InboundBaseFeeMsat:      inboundBase,
+		InboundFeeRateMilliMsat: inboundRate,
+		Signature:               edge.SigBytes,
+	})
+	if err != nil {
+		return node1Pub, node2Pub, isNode1,
+			fmt.Errorf("unable to upsert edge policy: %w", err)
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
+			"marshal extra opaque data: %w", err)
+	}
+
+	// Update the channel policy's extra signed fields.
+	err = upsertChanPolicyExtraSignedFields(ctx, tx, id, extra)
+	if err != nil {
+		return node1Pub, node2Pub, false, fmt.Errorf("inserting chan "+
+			"policy extra TLVs: %w", err)
+	}
+
+	return node1Pub, node2Pub, isNode1, nil
 }
 
 // getNodeByPubKey attempts to look up a target node by its public key.
@@ -1266,4 +1462,37 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	}
 
 	return id, nil
+}
+
+// upsertChanPolicyExtraSignedFields updates the policy's extra signed fields in
+// the database. This includes deleting any existing types and then inserting
+// the new types.
+func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
+	chanPolicyID int64, extraFields map[uint64][]byte) error {
+
+	// Delete all existing extra signed fields for the channel policy.
+	err := db.DeleteChannelPolicyExtraTypes(ctx, chanPolicyID)
+	if err != nil {
+		return fmt.Errorf("unable to delete "+
+			"existing policy extra signed fields for policy %d: %w",
+			chanPolicyID, err)
+	}
+
+	// Insert all new extra signed fields for the channel policy.
+	for tlvType, value := range extraFields {
+		err = db.InsertChanPolicyExtraType(
+			ctx, sqlc.InsertChanPolicyExtraTypeParams{
+				ChannelPolicyID: chanPolicyID,
+				Type:            int64(tlvType),
+				Value:           value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert "+
+				"channel_policy(%d) extra signed field(%v): %w",
+				chanPolicyID, tlvType, err)
+		}
+	}
+
+	return nil
 }

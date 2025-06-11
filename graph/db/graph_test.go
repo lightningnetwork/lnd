@@ -73,13 +73,11 @@ var (
 )
 
 func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
-	updateTime := prand.Int63()
-
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(updateTime, 0),
+		LastUpdate:           time.Unix(nextUpdateTime(), 0),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
@@ -3439,6 +3437,20 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	}
 }
 
+var (
+	updateTime   = prand.Int63()
+	updateTimeMu sync.Mutex
+)
+
+func nextUpdateTime() int64 {
+	updateTimeMu.Lock()
+	defer updateTimeMu.Unlock()
+
+	updateTime++
+
+	return updateTime
+}
+
 // TestNodeIsPublic ensures that we properly detect nodes that are seen as
 // public within the network graph.
 func TestNodeIsPublic(t *testing.T) {
@@ -3453,19 +3465,19 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceGraph := MakeTestGraph(t)
+	aliceGraph := MakeTestGraphNew(t)
 	aliceNode := createTestVertex(t)
 	if err := aliceGraph.SetSourceNode(ctx, aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	bobGraph := MakeTestGraph(t)
+	bobGraph := MakeTestGraphNew(t)
 	bobNode := createTestVertex(t)
 	if err := bobGraph.SetSourceNode(ctx, bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	carolGraph := MakeTestGraph(t)
+	carolGraph := MakeTestGraphNew(t)
 	carolNode := createTestVertex(t)
 	if err := carolGraph.SetSourceNode(ctx, carolNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -3481,13 +3493,13 @@ func TestNodeIsPublic(t *testing.T) {
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
+			node.LastUpdate = time.Unix(nextUpdateTime(), 0)
 			err := graph.AddLightningNode(ctx, node)
 			require.NoError(t, err)
 		}
 		for _, edge := range edges {
-			if err := graph.AddChannelEdge(ctx, edge); err != nil {
-				t.Fatalf("unable to add edge: %v", err)
-			}
+			err := graph.AddChannelEdge(ctx, edge)
+			require.NoError(t, err)
 		}
 	}
 

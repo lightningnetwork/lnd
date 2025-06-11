@@ -26,6 +26,19 @@ func (q *Queries) AddSourceNode(ctx context.Context, nodeID int64) error {
 	return err
 }
 
+const countZombieChannels = `-- name: CountZombieChannels :one
+SELECT COUNT(*)
+FROM zombie_channels
+WHERE version = $1
+`
+
+func (q *Queries) CountZombieChannels(ctx context.Context, version int16) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countZombieChannels, version)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createChannel = `-- name: CreateChannel :one
 /* ─────────────────────────────────────────────
    channels table queries
@@ -166,6 +179,21 @@ type DeleteNodeFeatureParams struct {
 func (q *Queries) DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, deleteNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const deleteZombieChannel = `-- name: DeleteZombieChannel :execresult
+DELETE FROM zombie_channels
+WHERE scid = $1
+AND version = $2
+`
+
+type DeleteZombieChannelParams struct {
+	Scid    []byte
+	Version int16
+}
+
+func (q *Queries) DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteZombieChannel, arg.Scid, arg.Version)
 }
 
 const getChannelAndNodesBySCID = `-- name: GetChannelAndNodesBySCID :one
@@ -888,6 +916,30 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 	return items, nil
 }
 
+const getZombieChannel = `-- name: GetZombieChannel :one
+SELECT scid, version, node_key_1, node_key_2
+FROM zombie_channels
+WHERE scid = $1
+AND version = $2
+`
+
+type GetZombieChannelParams struct {
+	Scid    []byte
+	Version int16
+}
+
+func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (ZombieChannel, error) {
+	row := q.db.QueryRowContext(ctx, getZombieChannel, arg.Scid, arg.Version)
+	var i ZombieChannel
+	err := row.Scan(
+		&i.Scid,
+		&i.Version,
+		&i.NodeKey1,
+		&i.NodeKey2,
+	)
+	return i, err
+}
+
 const highestSCID = `-- name: HighestSCID :one
 SELECT scid
 FROM channels
@@ -1536,5 +1588,38 @@ type UpsertNodeExtraTypeParams struct {
 
 func (q *Queries) UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error {
 	_, err := q.db.ExecContext(ctx, upsertNodeExtraType, arg.NodeID, arg.Type, arg.Value)
+	return err
+}
+
+const upsertZombieChannel = `-- name: UpsertZombieChannel :exec
+/* ─────────────────────────────────────────────
+   zombie_channels table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO zombie_channels (scid, version, node_key_1, node_key_2)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (scid, version)
+DO UPDATE SET
+    -- If a conflict exists for the SCID and version pair, then we
+    -- update the node keys.
+    node_key_1 = COALESCE(EXCLUDED.node_key_1, zombie_channels.node_key_1),
+    node_key_2 = COALESCE(EXCLUDED.node_key_2, zombie_channels.node_key_2)
+`
+
+type UpsertZombieChannelParams struct {
+	Scid     []byte
+	Version  int16
+	NodeKey1 []byte
+	NodeKey2 []byte
+}
+
+func (q *Queries) UpsertZombieChannel(ctx context.Context, arg UpsertZombieChannelParams) error {
+	_, err := q.db.ExecContext(ctx, upsertZombieChannel,
+		arg.Scid,
+		arg.Version,
+		arg.NodeKey1,
+		arg.NodeKey2,
+	)
 	return err
 }

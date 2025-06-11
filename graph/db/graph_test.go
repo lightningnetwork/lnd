@@ -1436,7 +1436,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the

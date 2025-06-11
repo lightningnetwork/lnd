@@ -27,6 +27,13 @@ FROM nodes
 WHERE pub_key = $1
   AND version = $2;
 
+-- name: ListNodesPaginated :many
+SELECT *
+FROM nodes
+WHERE version = $1 AND id > $2
+ORDER BY id
+LIMIT $3;
+
 -- name: DeleteNodeByPubKey :execresult
 DELETE FROM nodes
 WHERE pub_key = $1
@@ -194,7 +201,6 @@ ORDER BY scid DESC
 LIMIT 1;
 
 -- name: ListChannelsByNodeID :many
-
 SELECT sqlc.embed(c),
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey,

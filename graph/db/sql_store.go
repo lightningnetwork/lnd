@@ -28,6 +28,10 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
+// pageSize is the limit for the number of records that can be returned
+// in a paginated query. This can be tuned after some benchmarks.
+const pageSize = 2000
+
 // ProtocolVersion is an enum that defines the gossip protocol version of a
 // message.
 type ProtocolVersion uint8
@@ -53,6 +57,7 @@ type SQLQueries interface {
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
 	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.Node, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.Node, error)
+	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.Node, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.NodeExtraType, error)
@@ -713,6 +718,130 @@ func (s *SQLStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 			},
 		)
 	}, sqldb.NoOpReset)
+}
+
+// ForEachNode iterates through all the stored vertices/nodes in the graph,
+// executing the passed callback with each node encountered. If the callback
+// returns an error, then the transaction is aborted and the iteration stops
+// early. Any operations performed on the NodeTx passed to the call-back are
+// executed under the same read transaction and so, methods on the NodeTx object
+// _MUST_ only be called from within the call-back.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ForEachNode(cb func(tx NodeRTx) error) error {
+	var (
+		ctx          = context.TODO()
+		lastID int64 = 0
+	)
+
+	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {
+		node, err := buildNode(ctx, db, &dbNode)
+		if err != nil {
+			return fmt.Errorf("unable to build node(id=%d): %w",
+				dbNode.ID, err)
+		}
+
+		err = cb(
+			newSQLGraphNodeTx(db, s.cfg.ChainHash, dbNode.ID, node),
+		)
+		if err != nil {
+			return fmt.Errorf("callback failed for node(id=%d): %w",
+				dbNode.ID, err)
+		}
+
+		return nil
+	}
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for {
+			nodes, err := db.ListNodesPaginated(
+				ctx, sqlc.ListNodesPaginatedParams{
+					Version: int16(ProtocolV1),
+					ID:      lastID,
+					Limit:   pageSize,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch nodes: %w",
+					err)
+			}
+
+			if len(nodes) == 0 {
+				break
+			}
+
+			for _, dbNode := range nodes {
+				err = handleNode(db, dbNode)
+				if err != nil {
+					return err
+				}
+
+				lastID = dbNode.ID
+			}
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+}
+
+// sqlGraphNodeTx is an implementation of the NodeRTx interface backed by the
+// SQLStore and a SQL transaction.
+type sqlGraphNodeTx struct {
+	db    SQLQueries
+	id    int64
+	node  *models.LightningNode
+	chain chainhash.Hash
+}
+
+// A compile-time constraint to ensure sqlGraphNodeTx implements the NodeRTx
+// interface.
+var _ NodeRTx = (*sqlGraphNodeTx)(nil)
+
+func newSQLGraphNodeTx(db SQLQueries, chain chainhash.Hash,
+	id int64, node *models.LightningNode) *sqlGraphNodeTx {
+
+	return &sqlGraphNodeTx{
+		db:    db,
+		chain: chain,
+		id:    id,
+		node:  node,
+	}
+}
+
+// Node returns the raw information of the node.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (s *sqlGraphNodeTx) Node() *models.LightningNode {
+	return s.node
+}
+
+// ForEachChannel can be used to iterate over the node's channels under the same
+// transaction used to fetch the node.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (s *sqlGraphNodeTx) ForEachChannel(cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	ctx := context.TODO()
+
+	return forEachNodeChannel(ctx, s.db, s.chain, s.id, cb)
+}
+
+// FetchNode fetches the node with the given pub key under the same transaction
+// used to fetch the current node. The returned node is also a NodeRTx and any
+// operations on that NodeRTx will also be done under the same transaction.
+//
+// NOTE: This is a part of the NodeRTx interface.
+func (s *sqlGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
+	ctx := context.TODO()
+
+	id, node, err := getNodeByPubKey(ctx, s.db, nodePub)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch V1 node(%x): %w",
+			nodePub, err)
+	}
+
+	return newSQLGraphNodeTx(s.db, s.chain, id, node), nil
 }
 
 // forEachNodeChannel iterates through all channels of a node, executing

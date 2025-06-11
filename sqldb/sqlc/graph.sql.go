@@ -1360,6 +1360,32 @@ func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeaturePa
 	return err
 }
 
+const isPublicV1Node = `-- name: IsPublicV1Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channels c
+    JOIN nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V1 gossip protocol. In V1, a node is public
+    -- if it has a public channel and a public channel is one
+    -- where we have the set of signatures of the channel
+    -- announcement. It is enough to just check that we have
+    -- one of the signatures since we only ever set them
+    -- together.
+    WHERE c.version = 1
+      AND c.bitcoin_1_signature IS NOT NULL
+      AND n.pub_key = $1
+)
+`
+
+func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isPublicV1Node, pubKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isZombieChannel = `-- name: IsZombieChannel :one
 SELECT EXISTS (
     SELECT 1

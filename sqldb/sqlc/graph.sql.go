@@ -1219,6 +1219,43 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 	return items, nil
 }
 
+const getV1DisabledSCIDs = `-- name: GetV1DisabledSCIDs :many
+SELECT c.scid
+FROM channels c
+    JOIN channel_policies cp ON cp.channel_id = c.id
+WHERE cp.disabled = true
+AND c.version = 1
+GROUP BY c.scid
+HAVING COUNT(*) > 1
+`
+
+// NOTE: this is V1 specific since for V1, disabled is a
+// simple, single boolean. The proposed V2 policy
+// structure will have a more complex disabled bit vector
+// and so the query for V2 may differ.
+func (q *Queries) GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, getV1DisabledSCIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getZombieChannel = `-- name: GetZombieChannel :one
 SELECT scid, version, node_key_1, node_key_2
 FROM zombie_channels

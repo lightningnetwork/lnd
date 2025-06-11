@@ -109,6 +109,7 @@ type SQLQueries interface {
 	*/
 	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.ChannelPolicy, error)
+	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
@@ -370,6 +371,35 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 	ctx := context.TODO()
 
 	return fetchNodeFeatures(ctx, s.db, nodePub)
+}
+
+// DisabledChannelIDs returns the channel ids of disabled channels.
+// A channel is disabled when two of the associated ChanelEdgePolicies
+// have their disabled bit on.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
+	var (
+		ctx     = context.TODO()
+		chanIDs []uint64
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbChanIDs, err := db.GetV1DisabledSCIDs(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch disabled "+
+				"channels: %w", err)
+		}
+
+		chanIDs = fn.Map(dbChanIDs, byteOrder.Uint64)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch disabled channels: %w",
+			err)
+	}
+
+	return chanIDs, nil
 }
 
 // LookupAlias attempts to return the alias as advertised by the target node.

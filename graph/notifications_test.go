@@ -1059,7 +1059,7 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph := graphdb.MakeTestGraphNew(t)
+	graph := graphdb.MakeTestGraph(t)
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,

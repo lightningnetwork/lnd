@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -92,6 +93,7 @@ type SQLQueries interface {
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
 	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
+	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
@@ -133,6 +135,7 @@ type SQLQueries interface {
 	*/
 	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
 	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
+	DeletePruneLogEntriesInRange(ctx context.Context, arg sqlc.DeletePruneLogEntriesInRangeParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -2482,6 +2485,97 @@ func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 	}
 
 	return prunedNodes, nil
+}
+
+// DisconnectBlockAtHeight is used to indicate that the block specified
+// by the passed height has been disconnected from the main chain. This
+// will "rewind" the graph back to the height below, deleting channels
+// that are no longer confirmed from the graph. The prune log will be
+// set to the last prune height valid for the remaining chain.
+// Channels that were removed from the graph resulting from the
+// disconnected block are returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
+	[]*models.ChannelEdgeInfo, error) {
+
+	ctx := context.TODO()
+
+	var (
+		// Every channel having a ShortChannelID starting at 'height'
+		// will no longer be confirmed.
+		startShortChanID = lnwire.ShortChannelID{
+			BlockHeight: height,
+		}
+
+		// Delete everything after this height from the db up until the
+		// SCID alias range.
+		endShortChanID = aliasmgr.StartingAlias
+
+		removedChans []*models.ChannelEdgeInfo
+	)
+
+	var chanIDStart [8]byte
+	byteOrder.PutUint64(chanIDStart[:], startShortChanID.ToUint64())
+	var chanIDEnd [8]byte
+	byteOrder.PutUint64(chanIDEnd[:], endShortChanID.ToUint64())
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		rows, err := db.GetChannelsBySCIDRange(
+			ctx, sqlc.GetChannelsBySCIDRangeParams{
+				StartScid: chanIDStart[:],
+				EndScid:   chanIDEnd[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channels: %w", err)
+		}
+
+		for _, row := range rows {
+			node1, node2, err := buildNodeVertices(
+				row.Node1PubKey, row.Node2PubKey,
+			)
+			if err != nil {
+				return err
+			}
+
+			channel, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1, node2,
+			)
+			if err != nil {
+				return err
+			}
+
+			err = db.DeleteChannel(ctx, row.Channel.ID)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"channel: %w", err)
+			}
+
+			removedChans = append(removedChans, channel)
+		}
+
+		return db.DeletePruneLogEntriesInRange(
+			ctx, sqlc.DeletePruneLogEntriesInRangeParams{
+				StartHeight: int64(height),
+				EndHeight:   int64(endShortChanID.BlockHeight),
+			},
+		)
+	}, func() {
+		removedChans = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to disconnect block at "+
+			"height: %w", err)
+	}
+
+	for _, channel := range removedChans {
+		s.rejectCache.remove(channel.ChannelID)
+		s.chanCache.remove(channel.ChannelID)
+	}
+
+	return removedChans, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

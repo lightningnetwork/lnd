@@ -200,6 +200,22 @@ func (q *Queries) DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeaturePa
 	return err
 }
 
+const deletePruneLogEntriesInRange = `-- name: DeletePruneLogEntriesInRange :exec
+DELETE FROM prune_log
+WHERE block_height >= $1
+  AND block_height <= $2
+`
+
+type DeletePruneLogEntriesInRangeParams struct {
+	StartHeight int64
+	EndHeight   int64
+}
+
+func (q *Queries) DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error {
+	_, err := q.db.ExecContext(ctx, deletePruneLogEntriesInRange, arg.StartHeight, arg.EndHeight)
+	return err
+}
+
 const deleteZombieChannel = `-- name: DeleteZombieChannel :execresult
 DELETE FROM zombie_channels
 WHERE scid = $1
@@ -929,6 +945,67 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy2InboundBaseFeeMsat,
 			&i.Policy2InboundFeeRateMilliMsat,
 			&i.Policy2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChannelsBySCIDRange = `-- name: GetChannelsBySCIDRange :many
+SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    n1.pub_key AS node1_pub_key,
+    n2.pub_key AS node2_pub_key
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE scid >= $1
+  AND scid < $2
+`
+
+type GetChannelsBySCIDRangeParams struct {
+	StartScid []byte
+	EndScid   []byte
+}
+
+type GetChannelsBySCIDRangeRow struct {
+	Channel     Channel
+	Node1PubKey []byte
+	Node2PubKey []byte
+}
+
+func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error) {
+	rows, err := q.db.QueryContext(ctx, getChannelsBySCIDRange, arg.StartScid, arg.EndScid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChannelsBySCIDRangeRow
+	for rows.Next() {
+		var i GetChannelsBySCIDRangeRow
+		if err := rows.Scan(
+			&i.Channel.ID,
+			&i.Channel.Version,
+			&i.Channel.Scid,
+			&i.Channel.NodeID1,
+			&i.Channel.NodeID2,
+			&i.Channel.Outpoint,
+			&i.Channel.Capacity,
+			&i.Channel.BitcoinKey1,
+			&i.Channel.BitcoinKey2,
+			&i.Channel.Node1Signature,
+			&i.Channel.Node2Signature,
+			&i.Channel.Bitcoin1Signature,
+			&i.Channel.Bitcoin2Signature,
+			&i.Node1PubKey,
+			&i.Node2PubKey,
 		); err != nil {
 			return nil, err
 		}

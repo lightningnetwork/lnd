@@ -991,7 +991,9 @@ func TestChannelCloseNotification(t *testing.T) {
 // TestEncodeHexColor tests that the string used to represent a node color is
 // correctly encoded.
 func TestEncodeHexColor(t *testing.T) {
-	var colorTestCases = []struct {
+	t.Parallel()
+
+	var tests = []struct {
 		R       uint8
 		G       uint8
 		B       uint8
@@ -1006,14 +1008,32 @@ func TestEncodeHexColor(t *testing.T) {
 		{1, 2, 3, "#", false},
 	}
 
-	for _, tc := range colorTestCases {
-		encoded := graphdb.EncodeHexColor(
-			color.RGBA{tc.R, tc.G, tc.B, 0},
+	for _, test := range tests {
+		t.Run(fmt.Sprintf("R:%d,G:%d,B:%d", test.R, test.G, test.B),
+			func(t *testing.T) {
+				expColor := color.RGBA{
+					R: test.R,
+					G: test.G,
+					B: test.B,
+				}
+
+				encoded := graphdb.EncodeHexColor(expColor)
+
+				if test.isValid {
+					require.Equal(t, test.encoded, encoded)
+				}
+
+				decoded, err := graphdb.DecodeHexColor(
+					test.encoded,
+				)
+				if test.isValid {
+					require.NoError(t, err)
+					require.Equal(t, expColor, decoded)
+				} else {
+					require.Error(t, err)
+				}
+			},
 		)
-		if (encoded == tc.encoded) != tc.isValid {
-			t.Fatalf("incorrect color encoding, "+
-				"want: %v, got: %v", tc.encoded, encoded)
-		}
 	}
 }
 

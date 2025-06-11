@@ -934,9 +934,12 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.Node) (
 	node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
 
 	var err error
-	node.Color, err = DecodeHexColor(dbNode.Color.String)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode color: %w", err)
+	if dbNode.Color.Valid {
+		node.Color, err = DecodeHexColor(dbNode.Color.String)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode color: %w",
+				err)
+		}
 	}
 
 	// Fetch the node's features.

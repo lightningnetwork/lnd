@@ -194,6 +194,10 @@ SELECT
 FROM channel_extra_types cet
 WHERE cet.channel_id = $1;
 
+-- name: GetSCIDByOutpoint :one
+SELECT scid from channels
+WHERE outpoint = $1 AND version = $2;
+
 -- name: GetChannelsByPolicyLastUpdateRange :many
 SELECT
     c.*,

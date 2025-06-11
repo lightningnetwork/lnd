@@ -1411,6 +1411,24 @@ func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeaturePa
 	return err
 }
 
+const isPublicV1Node = `-- name: IsPublicV1Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channels c
+    JOIN nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    WHERE c.version = 1
+      AND c.bitcoin_1_signature IS NOT NULL
+      AND n.pub_key = $1
+)
+`
+
+func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isPublicV1Node, pubKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isZombieChannel = `-- name: IsZombieChannel :one
 SELECT EXISTS (
     SELECT 1

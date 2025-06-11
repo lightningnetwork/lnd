@@ -91,6 +91,7 @@ type SQLQueries interface {
 		Channel queries.
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
+	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
 	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
@@ -2573,6 +2574,54 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	}
 
 	return removedChans, nil
+}
+
+// AddEdgeProof sets the proof of an existing edge in the graph database.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
+	proof *models.ChannelAuthProof) error {
+
+	var (
+		ctx       = context.TODO()
+		scidBytes = channelIDToBytes(scid.ToUint64())
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		res, err := db.AddV1ChannelProof(
+			ctx, sqlc.AddV1ChannelProofParams{
+				Scid:              scidBytes[:],
+				Node1Signature:    proof.NodeSig1Bytes,
+				Node2Signature:    proof.NodeSig2Bytes,
+				Bitcoin1Signature: proof.BitcoinSig1Bytes,
+				Bitcoin2Signature: proof.BitcoinSig2Bytes,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to add edge proof: %w", err)
+		}
+
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		if n == 0 {
+			return fmt.Errorf("no rows affected when adding edge "+
+				"proof for SCID %v", scid)
+		} else if n > 1 {
+			return fmt.Errorf("multiple rows affected when adding "+
+				"edge proof for SCID %v: %d rows affected",
+				scid, n)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("unable to add edge proof: %w", err)
+	}
+
+	return nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

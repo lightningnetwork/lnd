@@ -208,6 +208,15 @@ INSERT INTO channels (
 )
 RETURNING id;
 
+-- name: AddV1ChannelProof :execresult
+UPDATE channels
+SET node_1_signature = $2,
+    node_2_signature = $3,
+    bitcoin_1_signature = $4,
+    bitcoin_2_signature = $5
+WHERE scid = $1
+  AND version = 1;
+
 -- name: GetChannelsBySCIDRange :many
 SELECT sqlc.embed(c),
     n1.pub_key AS node1_pub_key,

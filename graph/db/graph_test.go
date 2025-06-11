@@ -1128,7 +1128,7 @@ func TestAddEdgeProof(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Add an edge with no proof.
 	node1 := createTestVertex(t)

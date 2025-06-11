@@ -693,3 +693,20 @@ LIMIT 1;
 DELETE FROM prune_log
 WHERE block_height >= sqlc.arg(start_height)
   AND block_height <= sqlc.arg(end_height);
+
+/* ─────────────────────────────────────────────
+   closed_scid table queries
+   ────────────────────────────────────────────-
+*/
+
+-- name: InsertClosedChannel :exec
+INSERT INTO closed_scids (scid)
+VALUES ($1)
+ON CONFLICT (scid) DO NOTHING;
+
+-- name: IsClosedChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM closed_scids
+    WHERE scid = $1
+);

@@ -88,6 +88,7 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
@@ -95,6 +96,7 @@ type SQLQueries interface {
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.Channel, error)
+	DeleteChannel(ctx context.Context, id int64) error
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -1554,6 +1556,124 @@ func (s *SQLStore) NumZombies() (uint64, error) {
 	}
 
 	return numZombies, nil
+}
+
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether to mark the channel as a zombie.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
+	chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error) {
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		ctx     = context.TODO()
+		deleted []*models.ChannelEdgeInfo
+	)
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		for _, chanID := range chanIDs {
+			var chanIDB [8]byte
+			byteOrder.PutUint64(chanIDB[:], chanID)
+
+			row, err := db.GetChannelBySCIDWithPolicies(
+				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrEdgeNotFound
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			node1, node2, err := buildNodeVertices(
+				row.Node.PubKey, row.Node_2.PubKey,
+			)
+			if err != nil {
+				return err
+			}
+
+			info, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1, node2,
+			)
+			if err != nil {
+				return err
+			}
+
+			err = db.DeleteChannel(ctx, row.Channel.ID)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"channel: %w", err)
+			}
+
+			deleted = append(deleted, info)
+
+			if !markZombie {
+				continue
+			}
+
+			nodeKey1, nodeKey2 := info.NodeKey1Bytes,
+				info.NodeKey2Bytes
+			if strictZombiePruning {
+				var e1UpdateTime, e2UpdateTime *time.Time
+				if row.Policy1LastUpdate.Valid {
+					e1Time := time.Unix(
+						row.Policy1LastUpdate.Int64, 0,
+					)
+					e1UpdateTime = &e1Time
+				}
+				if row.Policy2LastUpdate.Valid {
+					e2Time := time.Unix(
+						row.Policy2LastUpdate.Int64, 0,
+					)
+					e2UpdateTime = &e2Time
+				}
+
+				nodeKey1, nodeKey2 = makeZombiePubkeys(
+					info, e1UpdateTime, e2UpdateTime,
+				)
+			}
+
+			err = db.UpsertZombieChannel(
+				ctx, sqlc.UpsertZombieChannelParams{
+					Version:  int16(ProtocolV1),
+					Scid:     chanIDB[:],
+					NodeKey1: nodeKey1[:],
+					NodeKey2: nodeKey2[:],
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to mark channel as "+
+					"zombie: %w", err)
+			}
+		}
+
+		return nil
+	}, func() {
+		deleted = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to delete channel edges: %w",
+			err)
+	}
+
+	for _, chanID := range chanIDs {
+		s.rejectCache.remove(chanID)
+		s.chanCache.remove(chanID)
+	}
+
+	return deleted, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

@@ -3757,10 +3757,26 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 	l.log.Tracef("processing %d remote adds for height %d",
 		len(fwdPkg.Adds), fwdPkg.Height)
 
-	decodeReqs := make(
-		[]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds),
-	)
-	for _, update := range fwdPkg.Adds {
+	// decodeReqs is a list of requests sent to the onion decoder. We expect
+	// the same length of responses to be returned.
+	decodeReqs := make([]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds))
+
+	// unackedAdds is a list of ADDs that's waiting for the remote's
+	// settle/fail update.
+	unackedAdds := make([]*lnwire.UpdateAddHTLC, 0, len(fwdPkg.Adds))
+
+	for i, update := range fwdPkg.Adds {
+		// If this index is already found in the ack filter, the
+		// response to this forwarding decision has already been
+		// committed by one of our commitment txns. ADDs in this state
+		// are waiting for the rest of the fwding package to get acked
+		// before being garbage collected.
+		if fwdPkg.State == channeldb.FwdStateProcessed &&
+			fwdPkg.AckFilter.Contains(uint16(i)) {
+
+			continue
+		}
+
 		if msg, ok := update.UpdateMsg.(*lnwire.UpdateAddHTLC); ok {
 			// Before adding the new htlc to the state machine,
 			// parse the onion object in order to obtain the
@@ -3777,6 +3793,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			}
 
 			decodeReqs = append(decodeReqs, req)
+			unackedAdds = append(unackedAdds, msg)
 		}
 	}
 
@@ -3799,23 +3816,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 	var switchPackets []*htlcPacket
 
-	for i, update := range fwdPkg.Adds {
+	for i, update := range unackedAdds {
 		idx := uint16(i)
-
-		//nolint:forcetypeassert
-		add := *update.UpdateMsg.(*lnwire.UpdateAddHTLC)
 		sourceRef := fwdPkg.SourceRef(idx)
-
-		if fwdPkg.State == channeldb.FwdStateProcessed &&
-			fwdPkg.AckFilter.Contains(idx) {
-
-			// If this index is already found in the ack filter,
-			// the response to this forwarding decision has already
-			// been committed by one of our commitment txns. ADDs
-			// in this state are waiting for the rest of the fwding
-			// package to get acked before being garbage collected.
-			continue
-		}
+		add := *update
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can now examine the forwarding details of the HTLC, and the
@@ -3835,8 +3839,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				add.ID, failureCode, add.OnionBlob, &sourceRef,
 			)
 
-			l.log.Errorf("unable to decode onion hop "+
-				"iterator: %v", failureCode)
+			l.log.Errorf("unable to decode onion hop iterator "+
+				"for htlc(id=%v, hash=%x): %v", add.ID,
+				add.PaymentHash, failureCode)
+
 			continue
 		}
 

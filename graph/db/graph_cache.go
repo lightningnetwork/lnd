@@ -114,8 +114,8 @@ func (c *GraphCache) AddNodeFeatures(node route.Vertex,
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
-func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
-	policy1 *models.ChannelEdgePolicy, policy2 *models.ChannelEdgePolicy) {
+func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
+	policy1, policy2 *models.CachedEdgePolicy) {
 
 	if info == nil {
 		return
@@ -147,19 +147,17 @@ func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
 	// of node 2 then we have the policy 1 as seen from node 1.
 	if policy1 != nil {
 		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
-		if policy1.ToNode != info.NodeKey2Bytes {
+		if !policy1.IsNode1() {
 			fromNode, toNode = toNode, fromNode
 		}
-		isEdge1 := policy1.ChannelFlags&lnwire.ChanUpdateDirection == 0
-		c.UpdatePolicy(policy1, fromNode, toNode, isEdge1)
+		c.UpdatePolicy(policy1, fromNode, toNode)
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
-		if policy2.ToNode != info.NodeKey1Bytes {
+		if policy2.IsNode1() {
 			fromNode, toNode = toNode, fromNode
 		}
-		isEdge1 := policy2.ChannelFlags&lnwire.ChanUpdateDirection == 0
-		c.UpdatePolicy(policy2, fromNode, toNode, isEdge1)
+		c.UpdatePolicy(policy2, fromNode, toNode)
 	}
 }
 
@@ -177,8 +175,8 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
-func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
-	toNode route.Vertex, edge1 bool) {
+func (c *GraphCache) UpdatePolicy(policy *models.CachedEdgePolicy, fromNode,
+	toNode route.Vertex) {
 
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
@@ -203,7 +201,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 		switch {
 		// This is node 1, and it is edge 1, so this is the outgoing
 		// policy for node 1.
-		case channel.IsNode1 && edge1:
+		case channel.IsNode1 && policy.IsNode1():
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee
@@ -211,7 +209,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 
 		// This is node 2, and it is edge 2, so this is the outgoing
 		// policy for node 2.
-		case !channel.IsNode1 && !edge1:
+		case !channel.IsNode1 && !policy.IsNode1():
 			channel.OutPolicySet = true
 			policy.InboundFee.WhenSome(func(fee lnwire.Fee) {
 				channel.InboundFee = fee
@@ -220,7 +218,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 		// The other two cases left mean it's the inbound policy for the
 		// node.
 		default:
-			channel.InPolicy = models.NewCachedPolicy(policy)
+			channel.InPolicy = policy
 		}
 	}
 
@@ -262,34 +260,6 @@ func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 	}
 
 	delete(c.nodeChannels[node], chanID)
-}
-
-// UpdateChannel updates the channel edge information for a specific edge. We
-// expect the edge to already exist and be known. If it does not yet exist, this
-// call is a no-op.
-func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo) {
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-
-	if len(c.nodeChannels[info.NodeKey1Bytes]) == 0 ||
-		len(c.nodeChannels[info.NodeKey2Bytes]) == 0 {
-
-		return
-	}
-
-	channel, ok := c.nodeChannels[info.NodeKey1Bytes][info.ChannelID]
-	if ok {
-		// We only expect to be called when the channel is already
-		// known.
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey2Bytes
-	}
-
-	channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
-	if ok {
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey1Bytes
-	}
 }
 
 // getChannels returns a copy of the passed node's channels or nil if there

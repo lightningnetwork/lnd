@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -48,6 +49,9 @@ type CachedEdgePolicy struct {
 	// HTLCs for each millionth of a satoshi forwarded.
 	FeeProportionalMillionths lnwire.MilliSatoshi
 
+	// InboundFee is the fee that the node will charge for incoming HTLCs.
+	InboundFee fn.Option[lnwire.Fee]
+
 	// ToNodePubKey is a function that returns the to node of a policy.
 	// Since we only ever store the inbound policy, this is always the node
 	// that we query the channels for in ForEachChannel(). Therefore, we can
@@ -71,6 +75,18 @@ func (c *CachedEdgePolicy) ComputeFee(
 	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
 }
 
+// IsDisabled returns true if the channel is disabled in the direction from  the
+// advertising node.
+func (c *CachedEdgePolicy) IsDisabled() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDisabled != 0
+}
+
+// IsNode1 returns true if this policy was announced by the channel's node_1
+// node.
+func (c *CachedEdgePolicy) IsNode1() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+}
+
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
 func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 	return &CachedEdgePolicy{
@@ -82,5 +98,6 @@ func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
 		MaxHTLC:                   policy.MaxHTLC,
 		FeeBaseMSat:               policy.FeeBaseMSat,
 		FeeProportionalMillionths: policy.FeeProportionalMillionths,
+		InboundFee:                policy.InboundFee,
 	}
 }

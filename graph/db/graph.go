@@ -174,13 +174,14 @@ func (c *ChannelGraph) populateCache() error {
 		return err
 	}
 
-	err = c.V1Store.ForEachChannel(func(info *models.ChannelEdgeInfo,
-		policy1, policy2 *models.ChannelEdgePolicy) error {
+	err = c.V1Store.ForEachChannelCacheable(
+		func(info *models.CachedEdgeInfo,
+			policy1, policy2 *models.CachedEdgePolicy) error {
 
-		c.graphCache.AddChannel(info, policy1, policy2)
+			c.graphCache.AddChannel(info, policy1, policy2)
 
-		return nil
-	})
+			return nil
+		})
 	if err != nil {
 		return err
 	}
@@ -312,7 +313,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	}
 
 	if c.graphCache != nil {
-		c.graphCache.AddChannel(edge, nil, nil)
+		c.graphCache.AddChannel(models.NewCachedEdge(edge), nil, nil)
 	}
 
 	select {
@@ -347,7 +348,11 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 
 		info := infos[0]
 
-		c.graphCache.AddChannel(info.Info, info.Policy1, info.Policy2)
+		c.graphCache.AddChannel(
+			models.NewCachedEdge(info.Info),
+			models.NewCachedPolicy(info.Policy1),
+			models.NewCachedPolicy(info.Policy2),
+		)
 	}
 
 	return nil
@@ -566,12 +571,9 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	}
 
 	if c.graphCache != nil {
-		var isUpdate1 bool
-		if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
-			isUpdate1 = true
-		}
-
-		c.graphCache.UpdatePolicy(edge, from, to, isUpdate1)
+		c.graphCache.UpdatePolicy(
+			models.NewCachedPolicy(edge), from, to,
+		)
 	}
 
 	select {

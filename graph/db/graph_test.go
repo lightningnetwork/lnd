@@ -3562,7 +3562,7 @@ func TestNodeIsPublic(t *testing.T) {
 func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Create first node and add it to the graph.
 	node1 := createTestVertex(t)
@@ -3578,6 +3578,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	node2.LastUpdate = time.Unix(nextUpdateTime(), 0)
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}

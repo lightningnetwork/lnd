@@ -582,6 +582,14 @@ JOIN channel_policy_extra_types cpet
 ON cp.id = cpet.channel_policy_id
 WHERE cp.id = $1 OR cp.id = $2;
 
+-- name: GetV1DisabledSCIDs :many
+SELECT c.scid
+FROM channels c
+    JOIN channel_policies cp ON cp.channel_id = c.id
+WHERE cp.disabled = true
+GROUP BY c.scid
+HAVING COUNT(*) > 1;
+
 -- name: DeleteChannelPolicyExtraType :exec
 DELETE FROM channel_policy_extra_types
 WHERE channel_policy_id = $1

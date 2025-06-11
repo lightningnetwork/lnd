@@ -371,6 +371,178 @@ func (q *Queries) GetChannelPolicyExtraTypes(ctx context.Context, arg GetChannel
 	return items, nil
 }
 
+const getChannelsByPolicyLastUpdateRange = `-- name: GetChannelsByPolicyLastUpdateRange :many
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    n1.id, n1.version, n1.pub_key, n1.alias, n1.last_update, n1.color, n1.signature,
+    n2.id, n2.version, n2.pub_key, n2.alias, n2.last_update, n2.color, n2.signature,
+
+    -- Policy 1 (node_id_1)
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.signature AS policy1_signature,
+
+    -- Policy 2 (node_id_2)
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.signature AS policy2_signature
+
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.version = $1
+  AND (
+       (cp1.last_update >= $2 AND cp1.last_update < $3)
+       OR
+       (cp2.last_update >= $2 AND cp2.last_update < $3)
+  )
+ORDER BY
+    CASE
+        WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+            THEN COALESCE(cp1.last_update, 0)
+        ELSE COALESCE(cp2.last_update, 0)
+        END ASC
+`
+
+type GetChannelsByPolicyLastUpdateRangeParams struct {
+	Version   int16
+	StartTime sql.NullInt64
+	EndTime   sql.NullInt64
+}
+
+type GetChannelsByPolicyLastUpdateRangeRow struct {
+	Channel                        Channel
+	Node                           Node
+	Node_2                         Node
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1Signature               []byte
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2Signature               []byte
+}
+
+func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error) {
+	rows, err := q.db.QueryContext(ctx, getChannelsByPolicyLastUpdateRange, arg.Version, arg.StartTime, arg.EndTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChannelsByPolicyLastUpdateRangeRow
+	for rows.Next() {
+		var i GetChannelsByPolicyLastUpdateRangeRow
+		if err := rows.Scan(
+			&i.Channel.ID,
+			&i.Channel.Version,
+			&i.Channel.Scid,
+			&i.Channel.NodeID1,
+			&i.Channel.NodeID2,
+			&i.Channel.Outpoint,
+			&i.Channel.Capacity,
+			&i.Channel.BitcoinKey1,
+			&i.Channel.BitcoinKey2,
+			&i.Channel.Node1Signature,
+			&i.Channel.Node2Signature,
+			&i.Channel.Bitcoin1Signature,
+			&i.Channel.Bitcoin2Signature,
+			&i.Node.ID,
+			&i.Node.Version,
+			&i.Node.PubKey,
+			&i.Node.Alias,
+			&i.Node.LastUpdate,
+			&i.Node.Color,
+			&i.Node.Signature,
+			&i.Node_2.ID,
+			&i.Node_2.Version,
+			&i.Node_2.PubKey,
+			&i.Node_2.Alias,
+			&i.Node_2.LastUpdate,
+			&i.Node_2.Color,
+			&i.Node_2.Signature,
+			&i.Policy1ID,
+			&i.Policy1NodeID,
+			&i.Policy1Version,
+			&i.Policy1Timelock,
+			&i.Policy1FeePpm,
+			&i.Policy1BaseFeeMsat,
+			&i.Policy1MinHtlcMsat,
+			&i.Policy1MaxHtlcMsat,
+			&i.Policy1LastUpdate,
+			&i.Policy1Disabled,
+			&i.Policy1InboundBaseFeeMsat,
+			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1Signature,
+			&i.Policy2ID,
+			&i.Policy2NodeID,
+			&i.Policy2Version,
+			&i.Policy2Timelock,
+			&i.Policy2FeePpm,
+			&i.Policy2BaseFeeMsat,
+			&i.Policy2MinHtlcMsat,
+			&i.Policy2MaxHtlcMsat,
+			&i.Policy2LastUpdate,
+			&i.Policy2Disabled,
+			&i.Policy2InboundBaseFeeMsat,
+			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
 SELECT node_id, type, value
 FROM node_extra_types

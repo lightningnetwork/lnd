@@ -1181,6 +1181,83 @@ func (s *SQLStore) ForEachNodeCached(cb func(node route.Vertex,
 	}, sqldb.NoOpReset)
 }
 
+// ForEachChannelCacheable iterates through all the channel edges stored
+// within the graph and invokes the passed callback for each edge. The
+// callback takes two edges as since this is a directed graph, both the
+// in/out edges are visited. If the callback returns an error, then the
+// transaction is aborted and the iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil
+// pointer for that particular channel edge routing policy will be
+// passed into the callback.
+//
+// NOTE: this method is like ForEachChannel but fetches only the data
+// required for the graph cache.
+func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
+	*models.CachedEdgePolicy,
+	*models.CachedEdgePolicy) error) error {
+
+	ctx := context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		rows, err := db.ListAllChannels(ctx, int16(ProtocolV1))
+		if err != nil {
+			return fmt.Errorf("unable to fetch channels: %w", err)
+		}
+
+		for _, row := range rows {
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return err
+			}
+
+			edge, err := buildCacheableChannelInfo(
+				row, node1, node2,
+			)
+			if err != nil {
+				return err
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return err
+			}
+
+			var pol1, pol2 *models.CachedEdgePolicy
+			if dbPol1 != nil {
+				policy1, err := buildChanPolicy(
+					*dbPol1, edge.ChannelID, nil,
+					node2, true,
+				)
+				if err != nil {
+					return err
+				}
+
+				pol1 = models.NewCachedPolicy(policy1)
+			}
+			if dbPol2 != nil {
+				policy2, err := buildChanPolicy(
+					*dbPol2, edge.ChannelID, nil,
+					node1, false,
+				)
+				if err != nil {
+					return err
+				}
+
+				pol2 = models.NewCachedPolicy(policy2)
+			}
+
+			if err := cb(edge, pol1, pol2); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+}
+
 // ForEachChannel iterates through all the channel edges stored within the
 // graph and invokes the passed callback for each edge. The callback takes two
 // edges as since this is a directed graph, both the in/out edges are visited.

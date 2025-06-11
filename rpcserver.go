@@ -696,6 +696,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 
 	routerBackend := &routerrpc.RouterBackend{
 		SelfNode: selfNode.PubKeyBytes,
+		Clock:    clock.NewDefaultClock(),
 		FetchChannelCapacity: func(chanID uint64) (btcutil.Amount,
 			error) {
 
@@ -5609,7 +5610,8 @@ func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPayme
 		}
 
 		// Next, we'll ensure that this payreq hasn't already expired.
-		err = routerrpc.ValidatePayReqExpiry(payReq)
+		err = routerrpc.ValidatePayReqExpiry(payReq,
+			r.routerBackend.Clock)
 		if err != nil {
 			return payIntent, err
 		}

@@ -168,10 +168,6 @@ type SQLStore struct {
 	srcNodeID  int64
 	srcNodePub route.Vertex
 	srcNodeMu  sync.Mutex
-
-	// Temporary fall-back to the KVStore so that we can implement the
-	// interface incrementally.
-	*KVStore
 }
 
 // A compile-time assertion to ensure that SQLStore implements the V1Store
@@ -187,7 +183,7 @@ type SQLStoreConfig struct {
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
 // storage backend.
-func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
+func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	options ...StoreOptionModifier) (*SQLStore, error) {
 
 	opts := DefaultOptions()
@@ -203,7 +199,6 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 	s := &SQLStore{
 		cfg:         cfg,
 		db:          db,
-		KVStore:     kvStore,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
 	}

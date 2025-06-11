@@ -513,7 +513,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
@@ -2440,7 +2440,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	node1 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(ctx, node1))
@@ -2448,6 +2448,10 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	node2 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(ctx, node2))
 
+	// We need to update the node's timestamp since this call to
+	// SetSourceNode will trigger an upsert which will only be allowed if
+	// the newest LastUpdate time is greater than the current one.
+	node1.LastUpdate = node1.LastUpdate.Add(time.Second)
 	require.NoError(t, graph.SetSourceNode(ctx, node1))
 
 	type chanInfo struct {

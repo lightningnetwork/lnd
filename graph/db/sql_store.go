@@ -85,6 +85,7 @@ type SQLQueries interface {
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
+	ListAllChannels(ctx context.Context, version int16) ([]sqlc.ListAllChannelsRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
@@ -1007,6 +1008,158 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 		float64(hits)/float64(len(edges)), hits, len(edges))
 
 	return edges, nil
+}
+
+// ForEachNodeCached is similar to forEachNode, but it returns DirectedChannel
+// data to the call-back.
+//
+// NOTE: The callback contents MUST not be modified.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ForEachNodeCached(cb func(node route.Vertex,
+	chans map[uint64]*DirectedChannel) error) error {
+
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		return forEachNodeCacheable(ctx, db, func(nodeID int64,
+			nodePub route.Vertex) error {
+
+			features, err := getNodeFeatures(ctx, db, nodeID)
+			if err != nil {
+				return fmt.Errorf("unable to fetch "+
+					"node(id=%d) features: %w", nodeID, err)
+			}
+
+			toNodeCallback := func() route.Vertex {
+				return nodePub
+			}
+
+			rows, err := db.ListChannelsByNodeID(
+				ctx, sqlc.ListChannelsByNodeIDParams{
+					Version: int16(ProtocolV1),
+					NodeID1: nodeID,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch channels "+
+					"of node(id=%d): %w", nodeID, err)
+			}
+
+			channels := make(map[uint64]*DirectedChannel, len(rows))
+			for _, row := range rows {
+				node1, node2, err := buildNodeVertices(
+					row.Node1Pubkey, row.Node2Pubkey,
+				)
+				if err != nil {
+					return err
+				}
+
+				e, p1, p2, err := getAndBuildEdgeInfoAndPolicies( //nolint:ll
+					ctx, db, s.cfg.ChainHash, row.ID, row,
+					node1, node2,
+				)
+				if err != nil {
+					return err
+				}
+
+				// Determine the outgoing and incoming policy
+				// for this channel and node combo.
+				outPolicy, inPolicy := p1, p2
+				if p1 != nil && p1.ToNode == nodePub {
+					outPolicy, inPolicy = p2, p1
+				} else if p2 != nil && p2.ToNode != nodePub {
+					outPolicy, inPolicy = p2, p1
+				}
+
+				var cachedInPolicy *models.CachedEdgePolicy
+				if inPolicy != nil {
+					cachedInPolicy = models.NewCachedPolicy(
+						p2,
+					)
+					cachedInPolicy.ToNodePubKey =
+						toNodeCallback
+					cachedInPolicy.ToNodeFeatures =
+						features
+				}
+
+				var inboundFee lnwire.Fee
+				outPolicy.InboundFee.WhenSome(
+					func(fee lnwire.Fee) {
+						inboundFee = fee
+					},
+				)
+
+				directedChannel := &DirectedChannel{
+					ChannelID: e.ChannelID,
+					IsNode1: nodePub ==
+						e.NodeKey1Bytes,
+					OtherNode:    e.NodeKey2Bytes,
+					Capacity:     e.Capacity,
+					OutPolicySet: p1 != nil,
+					InPolicy:     cachedInPolicy,
+					InboundFee:   inboundFee,
+				}
+
+				if nodePub == e.NodeKey2Bytes {
+					directedChannel.OtherNode =
+						e.NodeKey1Bytes
+				}
+
+				channels[e.ChannelID] = directedChannel
+			}
+
+			return cb(nodePub, channels)
+		})
+	}, sqldb.NoOpReset)
+}
+
+// ForEachChannel iterates through all the channel edges stored within the
+// graph and invokes the passed callback for each edge. The callback takes two
+// edges as since this is a directed graph, both the in/out edges are visited.
+// If the callback returns an error, then the transaction is aborted and the
+// iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
+// for that particular channel edge routing policy will be passed into the
+// callback.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		rows, err := db.ListAllChannels(ctx, int16(ProtocolV1))
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return err
+			}
+
+			edge, p1, p2, err := getAndBuildEdgeInfoAndPolicies(
+				ctx, db, s.cfg.ChainHash, row.ID, row,
+				node1, node2,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build edge "+
+					"info and policies: %w", err)
+			}
+
+			if err := cb(edge, p1, p2); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -2518,6 +2671,46 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 		}
 
 		return policy1, policy2, nil
+
+	case sqlc.ListAllChannelsRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
 	default:
 		return nil, nil, fmt.Errorf("unexpected row type in "+
 			"extractChannelPolicies: %T", r)
@@ -2528,6 +2721,23 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 // which is expected to be a sqlc type that contains channel information.
 func extractChannel(row any) (sqlc.Channel, error) {
 	switch r := row.(type) {
+	case sqlc.ListAllChannelsRow:
+		return sqlc.Channel{
+			ID:                r.ID,
+			Version:           r.Version,
+			Scid:              r.Scid,
+			NodeID1:           r.NodeID1,
+			NodeID2:           r.NodeID2,
+			Outpoint:          r.Outpoint,
+			Capacity:          r.Capacity,
+			BitcoinKey1:       r.BitcoinKey1,
+			BitcoinKey2:       r.BitcoinKey2,
+			Node1Signature:    r.Node1Signature,
+			Node2Signature:    r.Node2Signature,
+			Bitcoin1Signature: r.Bitcoin1Signature,
+			Bitcoin2Signature: r.Bitcoin2Signature,
+		}, nil
+
 	case sqlc.ListChannelsByNodeIDRow:
 		return sqlc.Channel{
 			ID:                r.ID,

@@ -108,8 +108,10 @@ type ChannelLinkConfig struct {
 	// blobs, which are then used to inform how to forward an HTLC.
 	//
 	// NOTE: This function assumes the same set of readers and preimages
-	// are always presented for the same identifier.
-	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
+	// are always presented for the same identifier. The last boolean is
+	// used to decide whether this is a reforwarding or not - when it's
+	// reforwarding, we skip the replay check enforced in our decay log.
+	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest, bool) (
 		[]hop.DecodeHopIteratorResponse, error)
 
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
@@ -3764,12 +3766,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		}
 	}
 
+	reforward := fwdPkg.State != channeldb.FwdStateLockedIn
+
 	// Atomically decode the incoming htlcs, simultaneously checking for
 	// replay attempts. A particular index in the returned, spare list of
 	// channel iterators should only be used if the failure code at the
 	// same index is lnwire.FailCodeNone.
 	decodeResps, sphinxErr := l.cfg.DecodeHopIterators(
-		fwdPkg.ID(), decodeReqs,
+		fwdPkg.ID(), decodeReqs, reforward,
 	)
 	if sphinxErr != nil {
 		l.failf(LinkFailureError{code: ErrInternalError},
@@ -4120,17 +4124,15 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		return
 	}
 
-	replay := fwdPkg.State != channeldb.FwdStateLockedIn
-
-	l.log.Debugf("forwarding %d packets to switch: replay=%v",
-		len(switchPackets), replay)
+	l.log.Debugf("forwarding %d packets to switch: reforward=%v",
+		len(switchPackets), reforward)
 
 	// NOTE: This call is made synchronous so that we ensure all circuits
 	// are committed in the exact order that they are processed in the link.
 	// Failing to do this could cause reorderings/gaps in the range of
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
-	l.forwardBatch(replay, switchPackets...)
+	l.forwardBatch(reforward, switchPackets...)
 }
 
 // experimentalEndorsement returns the value to set for our outgoing

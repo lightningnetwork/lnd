@@ -3025,7 +3025,7 @@ func TestFetchChanInfos(t *testing.T) {
 func TestIncompleteChannelPolicies(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Create two nodes.
 	node1 := createTestVertex(t)
@@ -4088,7 +4088,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 // BenchmarkForEachChannel is a benchmark test that measures the number of
 // allocations and the total memory consumed by the full graph traversal.
 func BenchmarkForEachChannel(b *testing.B) {
-	graph := MakeTestGraph(b)
+	graph := MakeTestGraphNew(b)
 
 	const numNodes = 100
 	const numChannels = 4

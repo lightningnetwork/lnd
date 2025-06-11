@@ -3632,6 +3632,13 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 		return
 	}
 
+	// Exit early if the fwdPkg is already processed.
+	if fwdPkg.State == channeldb.FwdStateCompleted {
+		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
+
+		return
+	}
+
 	l.log.Debugf("settle-fail-filter: %v", fwdPkg.SettleFailFilter)
 
 	var switchPackets []*htlcPacket
@@ -3740,6 +3747,13 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		return
 	}
 
+	// Exit early if the fwdPkg is already processed.
+	if fwdPkg.State == channeldb.FwdStateCompleted {
+		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
+
+		return
+	}
+
 	l.log.Tracef("processing %d remote adds for height %d",
 		len(fwdPkg.Adds), fwdPkg.Height)
 
@@ -3766,7 +3780,9 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		}
 	}
 
-	reforward := fwdPkg.State != channeldb.FwdStateLockedIn
+	// If the fwdPkg has already been processed, it means we are
+	// reforwarding the packets again, which happens only on a restart.
+	reforward := fwdPkg.State == channeldb.FwdStateProcessed
 
 	// Atomically decode the incoming htlcs, simultaneously checking for
 	// replay attempts. A particular index in the returned, spare list of

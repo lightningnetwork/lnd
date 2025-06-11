@@ -2674,6 +2674,63 @@ func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 	return isClosed, nil
 }
 
+// GraphSession will provide the call-back with access to a NodeTraverser
+// instance which can be used to perform queries against the channel graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error) error {
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		return cb(newSQLNodeTraverser(db, s.cfg.ChainHash))
+	}, sqldb.NoOpReset)
+}
+
+// sqlNodeTraverser implements the NodeTraverser interface but with a backing
+// read only transaction for a consistent view of the graph.
+type sqlNodeTraverser struct {
+	db    SQLQueries
+	chain chainhash.Hash
+}
+
+// A compile-time assertion to ensure that sqlNodeTraverser implements the
+// NodeTraverser interface.
+var _ NodeTraverser = (*sqlNodeTraverser)(nil)
+
+// newSQLNodeTraverser creates a new instance of the sqlNodeTraverser.
+func newSQLNodeTraverser(db SQLQueries,
+	chain chainhash.Hash) *sqlNodeTraverser {
+
+	return &sqlNodeTraverser{
+		db:    db,
+		chain: chain,
+	}
+}
+
+// ForEachNodeDirectedChannel calls the callback for every channel of the given
+// node.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	ctx := context.TODO()
+
+	return forEachNodeDirectedChannel(ctx, s.db, nodePub, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If the node is
+// unknown, assume no additional features are supported.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	ctx := context.TODO()
+
+	return fetchNodeFeatures(ctx, s.db, nodePub)
+}
+
 // forEachNodeDirectedChannel iterates through all channels of a given
 // node, executing the passed callback on the directed edge representing the
 // channel and its incoming policy. If the node is not found, no error is

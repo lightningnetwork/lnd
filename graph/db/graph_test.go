@@ -2946,7 +2946,7 @@ func TestFetchChanInfos(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.

@@ -1990,6 +1990,92 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	return channelID, nil
 }
 
+// FetchChanInfos returns the set of channel edges that correspond to the passed
+// channel ID's. If an edge is the query is unknown to the database, it will
+// skipped and the result will contain only those edges that exist at the time
+// of the query. This can be used to respond to peer queries that are seeking to
+// fill in gaps in their view of the channel graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+	var (
+		ctx   = context.TODO()
+		edges []ChannelEdge
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, chanID := range chanIDs {
+			var chanIDB [8]byte
+			byteOrder.PutUint64(chanIDB[:], chanID)
+
+			// TODO(elle): potentially optimize this by using
+			//  sqlc.slice() once that works for both SQLite and
+			//  Postgres.
+			row, err := db.GetChannelBySCIDWithPolicies(
+				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			node1, node2, err := buildNodes(
+				ctx, db, row.Node, row.Node_2,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch nodes: %w",
+					err)
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1.PubKeyBytes,
+				node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build "+
+					"channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return fmt.Errorf("unable to extract channel "+
+					"policies: %w", err)
+			}
+
+			p1, p2, err := getAndBuildChanPolicies(
+				ctx, db, dbPol1, dbPol2, edge.ChannelID,
+				node1.PubKeyBytes, node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build channel "+
+					"policies: %w", err)
+			}
+
+			edges = append(edges, ChannelEdge{
+				Info:    edge,
+				Policy1: p1,
+				Policy2: p2,
+				Node1:   node1,
+				Node2:   node2,
+			})
+		}
+
+		return nil
+	}, func() {
+		edges = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	return edges, nil
+}
+
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
 // ID's that we don't know and are not known zombies of the passed set. In other
 // words, we perform a set difference of our set of chan ID's and the ones

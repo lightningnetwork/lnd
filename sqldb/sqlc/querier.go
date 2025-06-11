@@ -63,6 +63,7 @@ type Querier interface {
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)
+	ListNodeIDsAndPubKeys(ctx context.Context, version int16) ([]ListNodeIDsAndPubKeysRow, error)
 	ListNodes(ctx context.Context, version int16) ([]Node, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error

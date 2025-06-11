@@ -1921,7 +1921,7 @@ func TestHighestChanID(t *testing.T) {
 func TestChanUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.

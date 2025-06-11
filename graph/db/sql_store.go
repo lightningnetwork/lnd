@@ -85,6 +85,7 @@ type SQLQueries interface {
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
+	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -905,6 +906,107 @@ func (s *SQLStore) ForEachNodeChannel(nodePub route.Vertex,
 			ctx, db, s.cfg.ChainHash, dbNode.ID, cb,
 		)
 	}, func() {})
+}
+
+// ChanUpdatesInHorizon returns all the known channel edges which have at least
+// one edge that has an update timestamp within the specified horizon.
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) ChanUpdatesInHorizon(startTime,
+	endTime time.Time) ([]ChannelEdge, error) {
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		ctx = context.TODO()
+		// To ensure we don't return duplicate ChannelEdges, we'll use an
+		// additional map to keep track of the edges already seen to prevent
+		// re-adding it.
+		edgesSeen    = make(map[uint64]struct{})
+		edgesToCache = make(map[uint64]ChannelEdge)
+		edges        []ChannelEdge
+		hits         int
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		rows, err := db.GetChannelsByPolicyLastUpdateRange(
+			ctx, sqlc.GetChannelsByPolicyLastUpdateRangeParams{
+				Version: int16(ProtocolV1),
+				StartTime: sql.NullInt64{
+					Valid: true,
+					Int64: startTime.Unix(),
+				},
+				EndTime: sql.NullInt64{
+					Valid: true,
+					Int64: endTime.Unix(),
+				},
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		for _, row := range rows {
+			// If we've already retrieved the info and policies for
+			// this edge, then we can skip it as we don't need to do
+			// so again.
+			chanIDInt := byteOrder.Uint64(row.Scid)
+			if _, ok := edgesSeen[chanIDInt]; ok {
+				continue
+			}
+
+			if channel, ok := s.chanCache.get(chanIDInt); ok {
+				hits++
+				edgesSeen[chanIDInt] = struct{}{}
+				edges = append(edges, channel)
+
+				continue
+			}
+
+			node1, node2, err := getAndBuildNodes(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			channel, p1, p2, err := getAndBuildEdgeInfoAndPolicies(
+				ctx, db, s.cfg.ChainHash, row.ID, row,
+				node1.PubKeyBytes, node2.PubKeyBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			edgesSeen[chanIDInt] = struct{}{}
+			chanEdge := ChannelEdge{
+				Info:    channel,
+				Policy1: p1,
+				Policy2: p2,
+				Node1:   node1,
+				Node2:   node2,
+			}
+			edges = append(edges, chanEdge)
+			edgesToCache[chanIDInt] = chanEdge
+		}
+
+		return nil
+	}, func() {
+		edgesSeen = make(map[uint64]struct{})
+		edgesToCache = make(map[uint64]ChannelEdge)
+		edges = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	// Insert any edges loaded from disk into the cache.
+	for chanid, channel := range edgesToCache {
+		s.chanCache.insert(chanid, channel)
+	}
+
+	log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
+		float64(hits)/float64(len(edges)), hits, len(edges))
+
+	return edges, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -2304,6 +2406,29 @@ func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
 	}, nil
 }
 
+// getAndBuildNodes builds the models.LightningNode instances for the
+// given row which is expected to be a sqlc type that contains node information.
+func getAndBuildNodes(ctx context.Context, db SQLQueries,
+	row any) (*models.LightningNode, *models.LightningNode, error) {
+
+	dbNode1, dbNode2, err := extractNodes(row)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	node1, err := buildNode(ctx, db, &dbNode1)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	node2, err := buildNode(ctx, db, &dbNode2)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return node1, node2, nil
+}
+
 // extractChannelPolicies extracts the sqlc.ChannelPolicy records from the give
 // row which is expected to be a sqlc type that contains channel policy
 // information. It returns two policies, which may be nil if the policy
@@ -2315,6 +2440,45 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 
 	var policy1, policy2 *sqlc.ChannelPolicy
 	switch r := row.(type) {
+	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+		return policy1, policy2, nil
+
 	case sqlc.ListChannelsByNodeIDRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.ChannelPolicy{
@@ -2380,8 +2544,55 @@ func extractChannel(row any) (sqlc.Channel, error) {
 			Bitcoin1Signature: r.Bitcoin1Signature,
 			Bitcoin2Signature: r.Bitcoin2Signature,
 		}, nil
+
+	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
+		return sqlc.Channel{
+			ID:                r.ID,
+			Version:           r.Version,
+			Scid:              r.Scid,
+			NodeID1:           r.NodeID1,
+			NodeID2:           r.NodeID2,
+			Outpoint:          r.Outpoint,
+			Capacity:          r.Capacity,
+			BitcoinKey1:       r.BitcoinKey1,
+			BitcoinKey2:       r.BitcoinKey2,
+			Node1Signature:    r.Node1Signature,
+			Node2Signature:    r.Node2Signature,
+			Bitcoin1Signature: r.Bitcoin1Signature,
+			Bitcoin2Signature: r.Bitcoin2Signature,
+		}, nil
+
 	default:
 		return sqlc.Channel{}, fmt.Errorf("unexpected row type in "+
 			"extractChannel: %T", r)
+	}
+}
+
+// extractNodes extracts the sqlc.Node records from the given row
+// which is expected to be a sqlc type that contains node information.
+func extractNodes(row any) (sqlc.Node, sqlc.Node, error) {
+	switch r := row.(type) {
+	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
+		return sqlc.Node{
+				ID:         r.Node1ID,
+				Version:    r.Node1Version,
+				PubKey:     r.Node1PubKey,
+				Alias:      r.Node1Alias,
+				LastUpdate: r.Node1LastUpdate,
+				Color:      r.Node1Color,
+				Signature:  r.Node1AnnSignature,
+			}, sqlc.Node{
+				ID:         r.Node2ID,
+				Version:    r.Node2Version,
+				PubKey:     r.Node2PubKey,
+				Alias:      r.Node2Alias,
+				LastUpdate: r.Node2LastUpdate,
+				Color:      r.Node2Color,
+				Signature:  r.Node2AnnSignature,
+			}, nil
+
+	default:
+		return sqlc.Node{}, sqlc.Node{}, fmt.Errorf("unexpected row "+
+			"type in extractNodes: %T", r)
 	}
 }

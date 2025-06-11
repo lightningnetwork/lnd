@@ -42,9 +42,9 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v1.0.9
+	github.com/lightningnetwork/lnd/sqldb v1.0.10
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.3.1
+	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
@@ -198,13 +198,6 @@ require (
 	modernc.org/token v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-// TODO(elle): remove once all the schemas and queries for the graph
-// store have been included in a tagged sqldb version.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
-
-// TODO(elle): replace once the updated tlv package has been tagged.
-replace github.com/lightningnetwork/lnd/tlv => ./tlv
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11

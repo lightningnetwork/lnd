@@ -392,7 +392,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.

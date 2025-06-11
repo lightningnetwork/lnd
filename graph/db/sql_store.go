@@ -1995,6 +1995,76 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	return channelID, nil
 }
 
+// FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
+// ID's that we don't know and are not known zombies of the passed set. In other
+// words, we perform a set difference of our set of chan ID's and the ones
+// passed in. This method can be used by callers to determine the set of
+// channels another peer knows of that we don't. The ChannelUpdateInfos for the
+// known zombies is also returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
+	[]ChannelUpdateInfo, error) {
+
+	var (
+		ctx          = context.TODO()
+		newChanIDs   []uint64
+		knownZombies []ChannelUpdateInfo
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, chanInfo := range chansInfo {
+			channelID := chanInfo.ShortChannelID.ToUint64()
+			var chanIDB [8]byte
+			byteOrder.PutUint64(chanIDB[:], channelID)
+
+			// TODO(elle): potentially optimize this by using
+			//  sqlc.slice() once that works for both SQLite and
+			//  Postgres.
+			_, err := db.GetChannelBySCID(
+				ctx, sqlc.GetChannelBySCIDParams{
+					Version: int16(ProtocolV1),
+					Scid:    chanIDB[:],
+				},
+			)
+			if err == nil {
+				continue
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			isZombie, err := db.IsZombieChannel(
+				ctx, sqlc.IsZombieChannelParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch zombie "+
+					"channel: %w", err)
+			}
+
+			if isZombie {
+				knownZombies = append(knownZombies, chanInfo)
+
+				continue
+			}
+
+			newChanIDs = append(newChanIDs, channelID)
+		}
+
+		return nil
+	}, func() {
+		newChanIDs = nil
+		knownZombies = nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	return newChanIDs, knownZombies, nil
+}
+
 // forEachNodeDirectedChannel iterates through all channels of a given
 // node, executing the passed callback on the directed edge representing the
 // channel and its incoming policy. If the node is not found, no error is

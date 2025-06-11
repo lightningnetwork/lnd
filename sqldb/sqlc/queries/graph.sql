@@ -65,10 +65,30 @@ SELECT EXISTS (
       AND n.pub_key = $1
 );
 
+-- name: GetUnconnectedNodes :many
+SELECT n.id, n.pub_key
+FROM nodes n
+-- Select all nodes that do not have any channels.
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM channels c
+    WHERE c.node_id_1 = n.id OR c.node_id_2 = n.id
+)
+-- Ignore any of our source nodes.
+AND NOT EXISTS (
+    SELECT 1
+    FROM source_nodes sn
+    WHERE sn.node_id = n.id
+);
+
 -- name: DeleteNodeByPubKey :execresult
 DELETE FROM nodes
 WHERE pub_key = $1
   AND version = $2;
+
+-- name: DeleteNode :exec
+DELETE FROM nodes
+WHERE id = $1;
 
 /* ─────────────────────────────────────────────
    node_features table queries

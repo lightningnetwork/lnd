@@ -99,7 +99,7 @@ func createTestVertex(t testing.TB) *models.LightningNode {
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
@@ -260,7 +260,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
@@ -327,7 +327,7 @@ func TestPartialNode(t *testing.T) {
 func TestAliasLookup(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test the alias index within the database, so first
 	// create a new test node.
@@ -357,7 +357,7 @@ func TestAliasLookup(t *testing.T) {
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
@@ -383,7 +383,7 @@ func TestSourceNode(t *testing.T) {
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
@@ -505,7 +505,7 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(sourceNode); err != nil {
@@ -801,7 +801,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -1118,7 +1118,7 @@ func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 func TestAddEdgeProof(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// Add an edge with no proof.
 	node1 := createTestVertex(t)
@@ -1176,7 +1176,7 @@ func TestAddEdgeProof(t *testing.T) {
 func TestForEachSourceNodeChannel(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// Create a source node (A) and set it as such in the DB.
 	nodeA := createTestVertex(t)
@@ -1264,7 +1264,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1359,7 +1359,7 @@ func TestGraphTraversal(t *testing.T) {
 func TestGraphTraversalCacheable(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1429,7 +1429,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1671,7 +1671,7 @@ func assertChanViewEqualChanPoints(t *testing.T, a []EdgePoint,
 func TestGraphPruning(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(sourceNode); err != nil {
@@ -1860,7 +1860,7 @@ func TestGraphPruning(t *testing.T) {
 func TestHighestChanID(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.
@@ -1919,7 +1919,7 @@ func TestHighestChanID(t *testing.T) {
 func TestChanUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
@@ -2076,7 +2076,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 func TestNodeUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	startTime := time.Unix(1234, 0)
 	endTime := startTime
@@ -2179,7 +2179,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	var (
 		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
@@ -2244,7 +2244,7 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 func TestFilterKnownChanIDs(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	isZombieUpdate := func(updateTime1 time.Time,
 		updateTime2 time.Time) bool {
@@ -2421,7 +2421,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 func TestStressTestChannelGraphAPI(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	node1 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(node1))
@@ -2709,7 +2709,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
@@ -2925,7 +2925,7 @@ func TestFilterChannelRange(t *testing.T) {
 func TestFetchChanInfos(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
@@ -3027,7 +3027,7 @@ func TestFetchChanInfos(t *testing.T) {
 func TestIncompleteChannelPolicies(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// Create two nodes.
 	node1 := createTestVertex(t)
@@ -3122,7 +3122,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// The update index only applies to the bbolt graph.
 	boltStore, ok := graph.V1Store.(*KVStore)
@@ -3269,7 +3269,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 func TestPruneGraphNodes(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'll start off by inserting our source node, to ensure that it's
 	// the only node left after we prune the graph.
@@ -3334,7 +3334,7 @@ func TestPruneGraphNodes(t *testing.T) {
 func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
@@ -3372,7 +3372,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
@@ -3440,19 +3440,19 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceGraph := MakeTestGraphNew(t)
+	aliceGraph := MakeTestGraph(t)
 	aliceNode := createTestVertex(t)
 	if err := aliceGraph.SetSourceNode(aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	bobGraph := MakeTestGraphNew(t)
+	bobGraph := MakeTestGraph(t)
 	bobNode := createTestVertex(t)
 	if err := bobGraph.SetSourceNode(bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	carolGraph := MakeTestGraphNew(t)
+	carolGraph := MakeTestGraph(t)
 	carolNode := createTestVertex(t)
 	if err := carolGraph.SetSourceNode(carolNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -3566,7 +3566,7 @@ func TestNodeIsPublic(t *testing.T) {
 func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// Create first node and add it to the graph.
 	node1 := createTestVertex(t)
@@ -3650,7 +3650,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// This test currently directly edits the bytes stored in the bbolt DB.
 	boltStore, ok := graph.V1Store.(*KVStore)
@@ -3796,7 +3796,7 @@ func TestGraphZombieIndex(t *testing.T) {
 	t.Parallel()
 
 	// We'll start by creating our test graph along with a test edge.
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	node1 := createTestVertex(t)
 	node2 := createTestVertex(t)
@@ -3977,7 +3977,7 @@ func TestComputeFee(t *testing.T) {
 func TestBatchedAddChannelEdge(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
 	require.Nil(t, graph.SetSourceNode(sourceNode))
@@ -4053,7 +4053,7 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -4103,7 +4103,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 // BenchmarkForEachChannel is a benchmark test that measures the number of
 // allocations and the total memory consumed by the full graph traversal.
 func BenchmarkForEachChannel(b *testing.B) {
-	graph := MakeTestGraphNew(b)
+	graph := MakeTestGraph(b)
 
 	const numNodes = 100
 	const numChannels = 4
@@ -4155,7 +4155,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	// Unset the channel graph cache to simulate the user running with the
 	// option turned off.
@@ -4290,7 +4290,7 @@ func TestGraphLoading(t *testing.T) {
 func TestClosedScid(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	scid := lnwire.ShortChannelID{}
 
@@ -4326,7 +4326,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	t.Parallel()
 
 	// Create a new test graph instance.
-	graph := MakeTestGraphNew(t)
+	graph := MakeTestGraph(t)
 
 	nodeAnnBytes, err := hex.DecodeString(testNodeAnn)
 	require.NoError(t, err)

@@ -1358,7 +1358,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph := graphdb.MakeTestGraphNew(
+	graph := graphdb.MakeTestGraph(
 		t, graphdb.WithUseGraphCache(useCache),
 	)
 
@@ -1734,7 +1734,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testAddrs = append(testAddrs, testAddr)
 
 	// Next, create a temporary graph database for usage within the test.
-	graph := graphdb.MakeTestGraphNew(
+	graph := graphdb.MakeTestGraph(
 		t, graphdb.WithUseGraphCache(useCache),
 	)
 

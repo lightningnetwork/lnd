@@ -602,7 +602,7 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 
 	const chanActiveTimeout = time.Minute
 
-	dbAliceGraph := graphdb.MakeTestGraphNew(t)
+	dbAliceGraph := graphdb.MakeTestGraph(t)
 	require.NoError(t, dbAliceGraph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, dbAliceGraph.Stop())

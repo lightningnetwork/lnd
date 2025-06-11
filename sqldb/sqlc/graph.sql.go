@@ -1167,6 +1167,23 @@ func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1
 	return items, nil
 }
 
+const getSCIDByOutpoint = `-- name: GetSCIDByOutpoint :one
+SELECT scid from channels
+WHERE outpoint = $1 AND version = $2
+`
+
+type GetSCIDByOutpointParams struct {
+	Outpoint string
+	Version  int16
+}
+
+func (q *Queries) GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getSCIDByOutpoint, arg.Outpoint, arg.Version)
+	var scid []byte
+	err := row.Scan(&scid)
+	return scid, err
+}
+
 const getSourceNodesByVersion = `-- name: GetSourceNodesByVersion :many
 SELECT sn.node_id, n.pub_key
 FROM source_nodes sn

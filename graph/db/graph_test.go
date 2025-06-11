@@ -812,7 +812,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.

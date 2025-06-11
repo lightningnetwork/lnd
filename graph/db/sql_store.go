@@ -84,6 +84,7 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelByOutpoint(ctx context.Context, arg sqlc.GetChannelByOutpointParams) (sqlc.GetChannelByOutpointRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
@@ -118,6 +119,12 @@ type SQLQueries interface {
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) error
 	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)
+
+	/*
+		Prune log table queries.
+	*/
+	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
+	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -2053,6 +2060,185 @@ func (s *SQLStore) PruneGraphNodes() ([]route.Vertex, error) {
 	return prunedNodes, nil
 }
 
+// PruneGraph prunes newly closed channels from the channel graph in response
+// to a new block being solved on the network. Any transactions which spend the
+// funding output of any known channels within he graph will be deleted.
+// Additionally, the "prune tip", or the last block which has been used to
+// prune the graph is stored so callers can ensure the graph is fully in sync
+// with the current UTXO state. A slice of channels that have been closed by
+// the target block along with any pruned nodes are returned if the function
+// succeeds without error.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
+	blockHash *chainhash.Hash, blockHeight uint32) (
+	[]*models.ChannelEdgeInfo, []route.Vertex, error) {
+
+	ctx := context.TODO()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	var (
+		closedChans []*models.ChannelEdgeInfo
+		prunedNodes []route.Vertex
+	)
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		for _, outpoint := range spentOutputs {
+			row, err := db.GetChannelByOutpoint(
+				ctx, sqlc.GetChannelByOutpointParams{
+					Outpoint: outpoint.String(),
+					Version:  int16(ProtocolV1),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			node1, node2, err := buildNodeVertices(
+				row.Node1Pubkey, row.Node2Pubkey,
+			)
+			if err != nil {
+				return err
+			}
+
+			info, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.ID, row,
+				node1, node2,
+			)
+			if err != nil {
+				return err
+			}
+
+			err = db.DeleteChannel(ctx, row.ID)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"channel: %w", err)
+			}
+
+			closedChans = append(closedChans, info)
+		}
+
+		err := db.UpsertPruneLogEntry(
+			ctx, sqlc.UpsertPruneLogEntryParams{
+				BlockHash:   blockHash[:],
+				BlockHeight: int64(blockHeight),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert prune log "+
+				"entry: %w", err)
+		}
+
+		// Now that we've pruned some channels, we'll also prune any
+		// nodes that no longer have any channels.
+		prunedNodes, err = s.pruneGraphNodes(ctx, db)
+		if err != nil {
+			return fmt.Errorf("unable to prune graph nodes: %w",
+				err)
+		}
+
+		return nil
+	}, func() {
+		prunedNodes = nil
+		closedChans = nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to prune graph: %w", err)
+	}
+
+	for _, channel := range closedChans {
+		s.rejectCache.remove(channel.ChannelID)
+		s.chanCache.remove(channel.ChannelID)
+	}
+
+	return closedChans, prunedNodes, nil
+}
+
+// ChannelView returns the verifiable edge information for each active channel
+// within the known channel graph. The set of UTXO's (along with their scripts)
+// returned are the ones that need to be watched on chain to detect channel
+// closes on the resident blockchain.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
+	var (
+		ctx        = context.TODO()
+		edgePoints []EdgePoint
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbChannel, err := db.ListAllChannels(ctx, int16(ProtocolV1))
+		if err != nil {
+			return fmt.Errorf("unable to fetch channels: %w", err)
+		}
+
+		for _, dbChan := range dbChannel {
+			if dbChan.BitcoinKey1 == nil {
+				continue
+			}
+
+			pkScript, err := genMultiSigP2WSH(
+				dbChan.BitcoinKey1, dbChan.BitcoinKey2,
+			)
+			if err != nil {
+				return err
+			}
+
+			op, err := wire.NewOutPointFromString(dbChan.Outpoint)
+			if err != nil {
+				return err
+			}
+
+			edgePoints = append(edgePoints, EdgePoint{
+				FundingPkScript: pkScript,
+				OutPoint:        *op,
+			})
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel view: %w", err)
+	}
+
+	return edgePoints, nil
+}
+
+// PruneTip returns the block height and hash of the latest block that has been
+// used to prune channels in the graph. Knowing the "prune tip" allows callers
+// to tell if the graph is currently in sync with the current best known UTXO
+// state.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PruneTip() (*chainhash.Hash, uint32, error) {
+	var (
+		ctx       = context.TODO()
+		tipHash   chainhash.Hash
+		tipHeight uint32
+	)
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		pruneTip, err := db.GetPruneTip(ctx)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrGraphNeverPruned
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch prune tip: %w", err)
+		}
+
+		tipHash = chainhash.Hash(pruneTip.BlockHash)
+		tipHeight = uint32(pruneTip.BlockHeight)
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return &tipHash, tipHeight, nil
+}
+
 // pruneGraphNodes deletes any node in the DB that doesn't have a channel
 func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 	db SQLQueries) ([]route.Vertex, error) {
@@ -3730,6 +3916,23 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 // which is expected to be a sqlc type that contains channel information.
 func extractChannel(row any) (sqlc.Channel, error) {
 	switch r := row.(type) {
+	case sqlc.GetChannelByOutpointRow:
+		return sqlc.Channel{
+			ID:                r.ID,
+			Version:           r.Version,
+			Scid:              r.Scid,
+			NodeID1:           r.NodeID1,
+			NodeID2:           r.NodeID2,
+			Outpoint:          r.Outpoint,
+			Capacity:          r.Capacity,
+			BitcoinKey1:       r.BitcoinKey1,
+			BitcoinKey2:       r.BitcoinKey2,
+			Node1Signature:    r.Node1Signature,
+			Node2Signature:    r.Node2Signature,
+			Bitcoin1Signature: r.Bitcoin1Signature,
+			Bitcoin2Signature: r.Bitcoin2Signature,
+		}, nil
+
 	case sqlc.GetChannelByOutpointWithPoliciesRow:
 		return sqlc.Channel{
 			ID:                r.ID,

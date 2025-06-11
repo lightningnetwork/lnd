@@ -183,6 +183,16 @@ RETURNING id;
 SELECT * FROM channels
 WHERE scid = $1 AND version = $2;
 
+-- name: GetChannelByOutpoint :one
+SELECT
+    c.*,
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE c.outpoint = $1 AND c.version = $2;
+
 -- name: GetChannelAndNodesBySCID :one
 SELECT
     c.*,
@@ -640,3 +650,23 @@ SELECT EXISTS (
     WHERE scid = $1
     AND version = $2
 ) AS is_zombie;
+
+/* ─────────────────────────────────────────────
+    prune_log table queries
+    ─────────────────────────────────────────────
+*/
+
+-- name: UpsertPruneLogEntry :exec
+INSERT INTO prune_log (
+    block_height, block_hash
+) VALUES (
+    $1, $2
+)
+ON CONFLICT(block_height) DO UPDATE SET
+    block_hash = EXCLUDED.block_hash;
+
+-- name: GetPruneTip :one
+SELECT block_height, block_hash
+FROM prune_log
+ORDER BY block_height DESC
+LIMIT 1;

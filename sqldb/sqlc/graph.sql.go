@@ -270,6 +270,63 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 	return i, err
 }
 
+const getChannelByOutpoint = `-- name: GetChannelByOutpoint :one
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE c.outpoint = $1 AND c.version = $2
+`
+
+type GetChannelByOutpointParams struct {
+	Outpoint string
+	Version  int16
+}
+
+type GetChannelByOutpointRow struct {
+	ID                int64
+	Version           int16
+	Scid              []byte
+	NodeID1           int64
+	NodeID2           int64
+	Outpoint          string
+	Capacity          sql.NullInt64
+	BitcoinKey1       []byte
+	BitcoinKey2       []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+	Node1Pubkey       []byte
+	Node2Pubkey       []byte
+}
+
+func (q *Queries) GetChannelByOutpoint(ctx context.Context, arg GetChannelByOutpointParams) (GetChannelByOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, getChannelByOutpoint, arg.Outpoint, arg.Version)
+	var i GetChannelByOutpointRow
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Scid,
+		&i.NodeID1,
+		&i.NodeID2,
+		&i.Outpoint,
+		&i.Capacity,
+		&i.BitcoinKey1,
+		&i.BitcoinKey2,
+		&i.Node1Signature,
+		&i.Node2Signature,
+		&i.Bitcoin1Signature,
+		&i.Bitcoin2Signature,
+		&i.Node1Pubkey,
+		&i.Node2Pubkey,
+	)
+	return i, err
+}
+
 const getChannelByOutpointWithPolicies = `-- name: GetChannelByOutpointWithPolicies :one
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
@@ -1191,6 +1248,20 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 	return items, nil
 }
 
+const getPruneTip = `-- name: GetPruneTip :one
+SELECT block_height, block_hash
+FROM prune_log
+ORDER BY block_height DESC
+LIMIT 1
+`
+
+func (q *Queries) GetPruneTip(ctx context.Context) (PruneLog, error) {
+	row := q.db.QueryRowContext(ctx, getPruneTip)
+	var i PruneLog
+	err := row.Scan(&i.BlockHeight, &i.BlockHash)
+	return i, err
+}
+
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature
 FROM channels
@@ -2075,6 +2146,31 @@ type UpsertNodeExtraTypeParams struct {
 
 func (q *Queries) UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error {
 	_, err := q.db.ExecContext(ctx, upsertNodeExtraType, arg.NodeID, arg.Type, arg.Value)
+	return err
+}
+
+const upsertPruneLogEntry = `-- name: UpsertPruneLogEntry :exec
+/* ─────────────────────────────────────────────
+    prune_log table queries
+    ─────────────────────────────────────────────
+*/
+
+INSERT INTO prune_log (
+    block_height, block_hash
+) VALUES (
+    $1, $2
+)
+ON CONFLICT(block_height) DO UPDATE SET
+    block_hash = EXCLUDED.block_hash
+`
+
+type UpsertPruneLogEntryParams struct {
+	BlockHeight int64
+	BlockHash   []byte
+}
+
+func (q *Queries) UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPruneLogEntry, arg.BlockHeight, arg.BlockHash)
 	return err
 }
 

@@ -412,11 +412,6 @@ func NewTxPublisher(cfg TxPublisherConfig) *TxPublisher {
 	return tp
 }
 
-// isNeutrinoBackend checks if the wallet backend is neutrino.
-func (t *TxPublisher) isNeutrinoBackend() bool {
-	return t.cfg.Wallet.BackEnd() == "neutrino"
-}
-
 // Broadcast is used to publish the tx created from the given inputs. It will
 // register the broadcast request and return a chan to the caller to subscribe
 // the broadcast result. The initial broadcast is guaranteed to be

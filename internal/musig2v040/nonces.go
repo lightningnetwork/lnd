@@ -36,10 +36,6 @@ var (
 	byteOrder = binary.BigEndian
 )
 
-// zeroSecNonce is a secret nonce that's all zeroes. This is used to check that
-// we're not attempting to re-use a nonce, and also protect callers from it.
-var zeroSecNonce [SecNonceSize]byte
-
 // Nonces holds the public and secret nonces required for musig2.
 //
 // TODO(roasbeef): methods on this to help w/ parsing, etc?

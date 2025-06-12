@@ -20,6 +20,11 @@
 
 # Bug Fixes
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/9849) where due to
+a disconnected peer the `peerAccessMan` would prevent the channel notfier to
+send the OpenChannel notification to the Event Store which would cause the rpc
+call `listchannels` to error in some edge cases.
+
 # New Features
 
 ## Functional Enhancements

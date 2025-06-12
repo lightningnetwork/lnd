@@ -27,6 +27,16 @@ FROM nodes
 WHERE pub_key = $1
   AND version = $2;
 
+-- name: ListNodes :many
+SELECT *
+FROM nodes
+WHERE version = $1;
+
+-- name: ListNodeIDsAndPubKeys :many
+SELECT id, pub_key
+FROM nodes
+WHERE version = $1;
+
 -- name: DeleteNodeByPubKey :execresult
 DELETE FROM nodes
 WHERE pub_key = $1

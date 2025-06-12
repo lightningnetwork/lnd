@@ -12,7 +12,7 @@ import (
 // optional migration which defaults to true because the decayed log db is
 // separate from the channeldb and if we would have implemented it as a
 // required migration, then it would have required to way bigger changes to the
-// the codebase.
+// codebase.
 // Very likely most of the decayed log db will shrink significantly after this
 // migration because the other bucket called `shared-secrets` is garbage
 // collected continuously.

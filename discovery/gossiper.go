@@ -3475,7 +3475,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if err != nil {
 		_, err = d.cfg.FindChannel(nMsg.source, ann.ChannelID)
 		if err != nil {
-			err := fmt.Errorf("unable to store the proof for "+
+			err := fmt.Errorf("unable to find the channel for "+
 				"short_chan_id=%v: %v", shortChanID, err)
 			log.Error(err)
 			nMsg.err <- err

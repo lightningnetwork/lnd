@@ -699,8 +699,8 @@ func (r *ChannelRouter) FindBlindedPaths(destination route.Vertex,
 				"path since it resulted in an low "+
 				"probability path(%.3f)",
 				route.ChanIDString(routeWithProbability.route),
-				routeWithProbability.probability,
-			)
+				routeWithProbability.probability)
+
 			continue
 		}
 

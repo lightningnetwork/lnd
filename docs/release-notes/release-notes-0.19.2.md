@@ -23,6 +23,9 @@
 - [Use](https://github.com/lightningnetwork/lnd/pull/9889) `BigSizeT` instead of
   `uint16` for the htlc index that's used in the revocation log.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/9921) a case where the
+  spending notification of an output may be missed if wrong height hint is used.
+
 # New Features
 
 ## Functional Enhancements

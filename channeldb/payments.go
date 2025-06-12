@@ -151,6 +151,10 @@ const (
 	// user.
 	FailureReasonCanceled FailureReason = 5
 
+	// FailureReasonTracked indicates that the payment was tracked before
+	// it was initiated.
+	FailureReasonTracked FailureReason = 6
+
 	// TODO(joostjager): Add failure reasons for:
 	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
 )
@@ -175,6 +179,8 @@ func (r FailureReason) String() string {
 		return "insufficient_balance"
 	case FailureReasonCanceled:
 		return "canceled"
+	case FailureReasonTracked:
+		return "tracked"
 	}
 
 	return "unknown"
@@ -285,7 +291,7 @@ func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
 func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	seqBytes := bucket.Get(paymentSequenceKey)
 	if seqBytes == nil {
-		return nil, fmt.Errorf("sequence number not found")
+		return nil, ErrNoSequenceNumber
 	}
 
 	sequenceNum := binary.BigEndian.Uint64(seqBytes)

@@ -195,7 +195,7 @@ type WaitingProof struct {
 	isRemote bool
 }
 
-// NewWaitingProof constructs a new waiting prof instance.
+// NewWaitingProof constructs a new waiting proof instance.
 func NewWaitingProof(isRemote bool,
 	proof *lnwire.AnnounceSignatures1) *WaitingProof {
 

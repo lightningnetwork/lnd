@@ -208,3 +208,85 @@ CREATE TABLE IF NOT EXISTS channel_extra_types (
 CREATE UNIQUE INDEX IF NOT EXISTS channel_extra_types_unique ON channel_extra_types (
     type, channel_id
 );
+
+/* ─────────────────────────────────────────────
+   channel policy data tables
+   ─────────────────────────────────────────────
+*/
+
+CREATE TABLE IF NOT EXISTS channel_policies (
+    -- The db ID of the channel policy.
+    id INTEGER PRIMARY KEY,
+
+    -- The protocol version that this update was gossiped on.
+    version SMALLINT NOT NULL,
+
+    -- The DB ID of the channel that this policy is referencing.
+    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+
+    -- The DB ID of the node that created the policy update.
+    node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+
+    -- The number of blocks that the node will subtrace from the expiry
+    -- of an incoming HTLC.
+    timelock INTEGER NOT NULL,
+
+    -- The fee rate in parts per million (ppm) that the node will charge
+    -- HTLCs for each millionth of a satoshi forwarded.
+    fee_ppm BIGINT NOT NULL,
+
+    -- The base fee in millisatoshis that the node will charge for forwarding
+    -- any HTLC.
+    base_fee_msat BIGINT NOT NULL,
+
+    -- The smallest value HTLC this node will forward.
+    min_htlc_msat BIGINT NOT NULL,
+
+    -- The largest value HTLC this node will forward. NOTE: this is nullable
+    -- since the field was added later on for the v1 channel update message and
+    -- so is not necessarily present in all channel updates.
+    max_htlc_msat BIGINT,
+
+    -- The unix timestamp of the last time the policy was updated.
+    -- NOTE: this is nullable since in later versions, block-height will likely
+    -- be used instead.
+    last_update BIGINT,
+
+    -- A boolean indicating that forwards are disabled for this channel.
+    -- NOTE: this is nullable since for later protocol versions, this might be
+    -- split up into more fine-grained flags.
+    disabled bool,
+
+    -- The optional base fee in milli-satoshis that the node will charge
+    -- for incoming HTLCs.
+    inbound_base_fee_msat BIGINT,
+
+    -- The optional fee rate in parts per million (ppm) that the node will
+    -- charge for incoming HTLCs.
+    inbound_fee_rate_milli_msat BIGINT,
+
+    -- The signature of the channel update announcement.
+    signature BLOB
+);
+-- A node can only have a single live policy update for a channel on a
+-- given protocol at any given time.
+CREATE UNIQUE INDEX IF NOT EXISTS channel_policies_unique ON channel_policies (
+    channel_id, node_id, version
+);
+
+-- channel_policy_extra_types stores any extra TLV fields covered by a channel
+-- update that we do not have an explicit column for in the channel_policies
+-- table.
+CREATE TABLE IF NOT EXISTS channel_policy_extra_types (
+    -- The channel_policy id this TLV field belongs to.
+    channel_policy_id BIGINT NOT NULL REFERENCES channel_policies(id) ON DELETE CASCADE,
+
+    -- The Type field.
+    type BIGINT NOT NULL,
+
+    -- The value field.
+    value BLOB
+);
+CREATE UNIQUE INDEX IF NOT EXISTS channel_policy_extra_types_unique ON channel_policy_extra_types (
+    type, channel_policy_id
+);

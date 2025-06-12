@@ -58,6 +58,8 @@ circuit. The indices are only available for forwarding events saved after v0.20.
     cache population. 
   * Add graph schemas, queries and CRUD:
     * [1](https://github.com/lightningnetwork/lnd/pull/9866)
+    * [2](https://github.com/lightningnetwork/lnd/pull/9869)
+    * [3](https://github.com/lightningnetwork/lnd/pull/9887)
 
 ## RPC Updates
 

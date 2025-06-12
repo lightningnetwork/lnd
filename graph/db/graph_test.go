@@ -72,13 +72,11 @@ var (
 )
 
 func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
-	updateTime := prand.Int63()
-
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(updateTime, 0),
+		LastUpdate:           time.Unix(nextUpdateTime(), 0),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
@@ -385,7 +383,7 @@ func TestSourceNode(t *testing.T) {
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
@@ -803,7 +801,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -2181,7 +2179,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	var (
 		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
@@ -2246,7 +2244,7 @@ func TestFilterKnownChanIDsZombieRevival(t *testing.T) {
 func TestFilterKnownChanIDs(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	isZombieUpdate := func(updateTime1 time.Time,
 		updateTime2 time.Time) bool {
@@ -2923,7 +2921,7 @@ func TestFilterChannelRange(t *testing.T) {
 func TestFetchChanInfos(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
@@ -3412,6 +3410,19 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	}
 }
 
+var (
+	updateTime   = prand.Int63()
+	updateTimeMu sync.Mutex
+)
+
+func nextUpdateTime() int64 {
+	updateTimeMu.Lock()
+	defer updateTimeMu.Unlock()
+
+	updateTime++
+	return updateTime
+}
+
 // TestNodeIsPublic ensures that we properly detect nodes that are seen as
 // public within the network graph.
 func TestNodeIsPublic(t *testing.T) {
@@ -3425,19 +3436,19 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceGraph := MakeTestGraph(t)
+	aliceGraph := MakeTestGraphNew(t)
 	aliceNode := createTestVertex(t)
 	if err := aliceGraph.SetSourceNode(aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	bobGraph := MakeTestGraph(t)
+	bobGraph := MakeTestGraphNew(t)
 	bobNode := createTestVertex(t)
 	if err := bobGraph.SetSourceNode(bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	carolGraph := MakeTestGraph(t)
+	carolGraph := MakeTestGraphNew(t)
 	carolNode := createTestVertex(t)
 	if err := carolGraph.SetSourceNode(carolNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
@@ -3453,14 +3464,13 @@ func TestNodeIsPublic(t *testing.T) {
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
-			if err := graph.AddLightningNode(node); err != nil {
-				t.Fatalf("unable to add node: %v", err)
-			}
+			node.LastUpdate = time.Unix(nextUpdateTime(), 0)
+			err := graph.AddLightningNode(node)
+			require.NoError(t, err)
 		}
 		for _, edge := range edges {
-			if err := graph.AddChannelEdge(edge); err != nil {
-				t.Fatalf("unable to add edge: %v", err)
-			}
+			err := graph.AddChannelEdge(edge)
+			require.NoError(t, err)
 		}
 	}
 
@@ -3552,7 +3562,7 @@ func TestNodeIsPublic(t *testing.T) {
 func TestDisabledChannelIDs(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Create first node and add it to the graph.
 	node1 := createTestVertex(t)
@@ -3568,6 +3578,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+	node2.LastUpdate = time.Unix(nextUpdateTime(), 0)
 	if err := graph.AddLightningNode(node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}

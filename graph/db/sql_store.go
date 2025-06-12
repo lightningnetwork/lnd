@@ -14,8 +14,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -77,7 +80,9 @@ type SQLQueries interface {
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
+	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
+	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -119,6 +124,10 @@ type SQLStore struct {
 
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
+
+	srcNodeID  int64
+	srcNodePub route.Vertex
+	srcNodeMu  sync.Mutex
 
 	// Temporary fall-back to the KVStore so that we can implement the
 	// interface incrementally.
@@ -391,7 +400,7 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		_, nodePub, err := getSourceNode(ctx, db, ProtocolV1)
+		_, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
 				err)
@@ -425,7 +434,7 @@ func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
 
 		// Make sure that if a source node for this version is already
 		// set, then the ID is the same as the one we are about to set.
-		dbSourceNodeID, _, err := getSourceNode(ctx, db, ProtocolV1)
+		dbSourceNodeID, _, err := s.getSourceNode(ctx, db, ProtocolV1)
 		if err != nil && !errors.Is(err, ErrSourceNodeNotSet) {
 			return fmt.Errorf("unable to fetch source node: %w",
 				err)
@@ -654,6 +663,121 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 		}
 		s.chanCache.insert(e.ChannelID, channel)
 	}
+}
+
+// ForEachSourceNodeChannel iterates through all channels of the source node,
+// executing the passed callback on each. The call-back is provided with the
+// channel's outpoint, whether we have a policy for the channel and the channel
+// peer's node information.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
+	havePolicy bool, otherNode *models.LightningNode) error) error {
+
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
+		if err != nil {
+			return fmt.Errorf("unable to fetch source node: %w",
+				err)
+		}
+
+		return forEachNodeChannel(
+			ctx, db, s.cfg.ChainHash, nodeID,
+			func(info *models.ChannelEdgeInfo,
+				outPolicy *models.ChannelEdgePolicy,
+				_ *models.ChannelEdgePolicy) error {
+
+				// Fetch the other node.
+				var (
+					otherNodePub [33]byte
+					node1        = info.NodeKey1Bytes
+					node2        = info.NodeKey2Bytes
+				)
+				switch {
+				case bytes.Equal(node1[:], nodePub[:]):
+					otherNodePub = node2
+				case bytes.Equal(node2[:], nodePub[:]):
+					otherNodePub = node1
+				default:
+					return fmt.Errorf("node not " +
+						"participating in this channel")
+				}
+
+				_, otherNode, err := getNodeByPubKey(
+					ctx, db, otherNodePub,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to fetch "+
+						"other node(%x): %w",
+						otherNodePub, err)
+				}
+
+				return cb(
+					info.ChannelPoint, outPolicy != nil,
+					otherNode,
+				)
+			},
+		)
+	}, sqldb.NoOpReset)
+}
+
+// forEachNodeChannel iterates through all channels of a node, executing
+// the passed callback on each. The call-back is provided with the channel's
+// edge information, the outgoing policy and the incoming policy for the
+// channel and node combo.
+func forEachNodeChannel(ctx context.Context, db SQLQueries,
+	chain chainhash.Hash, id int64, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
+
+	// Get all the V1 channels for this node.
+	rows, err := db.ListChannelsByNodeID(
+		ctx, sqlc.ListChannelsByNodeIDParams{
+			Version: int16(ProtocolV1),
+			NodeID1: id,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	// Call the call-back for each channel and its known policies.
+	for _, row := range rows {
+		node1, node2, err := buildNodeVertices(
+			row.Node1Pubkey, row.Node2Pubkey,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build node vertices: %w",
+				err)
+		}
+
+		edge, p1, p2, err := getAndBuildEdgeInfoAndPolicies(
+			ctx, db, chain, row.ID, row, node1, node2,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel "+
+				"info and policies: %w", err)
+		}
+
+		// Determine the outgoing and incoming policy for this
+		// channel and node combo.
+		p1ToNode := row.NodeID2
+		p2ToNode := row.NodeID1
+		outPolicy, inPolicy := p1, p2
+		if (p1 != nil && p1ToNode == id) ||
+			(p2 != nil && p2ToNode != id) {
+
+			outPolicy, inPolicy = p2, p1
+		}
+
+		if err := cb(edge, outPolicy, inPolicy); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // updateChanEdgePolicy upserts the channel policy info we have stored for
@@ -1265,8 +1389,17 @@ func upsertNodeExtraSignedFields(ctx context.Context, db SQLQueries,
 
 // getSourceNode returns the DB node ID and pub key of the source node for the
 // specified protocol version.
-func getSourceNode(ctx context.Context, db SQLQueries,
+func (s *SQLStore) getSourceNode(ctx context.Context, db SQLQueries,
 	version ProtocolVersion) (int64, route.Vertex, error) {
+
+	s.srcNodeMu.Lock()
+	defer s.srcNodeMu.Unlock()
+
+	// If we already have the source node ID and pub key cached, then
+	// return them.
+	if s.srcNodeID != 0 {
+		return s.srcNodeID, s.srcNodePub, nil
+	}
 
 	var pubKey route.Vertex
 
@@ -1284,6 +1417,9 @@ func getSourceNode(ctx context.Context, db SQLQueries,
 	}
 
 	copy(pubKey[:], nodes[0].PubKey)
+
+	s.srcNodeID = nodes[0].NodeID
+	s.srcNodePub = pubKey
 
 	return nodes[0].NodeID, pubKey, nil
 }
@@ -1532,4 +1668,375 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 	}
 
 	return nil
+}
+
+// getAndBuildEdgeInfoAndPolicies fetches all the data from the DB required to
+// build complete models.ChannelEdgeInfo and  models.ChannelEdgePolicy instances
+// for a channel with the given DB ID.
+func getAndBuildEdgeInfoAndPolicies(ctx context.Context, db SQLQueries,
+	chain chainhash.Hash, dbChanID int64, dbChanRow any, node1,
+	node2 route.Vertex) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	edge, err := getAndBuildEdgeInfo(
+		ctx, db, chain, dbChanID, dbChanRow, node1, node2,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	dbPol1, dbPol2, err := extractChannelPolicies(dbChanRow)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	p1, p2, err := getAndBuildChanPolicies(
+		ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+	)
+
+	return edge, p1, p2, err
+}
+
+// getAndBuildEdgeInfo builds a models.ChannelEdgeInfo instance from the
+// provided dbChanRow and also fetches any other required information
+// to construct the edge info.
+func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
+	chain chainhash.Hash, dbChanID int64, dbChanRow any, node1,
+	node2 route.Vertex) (*models.ChannelEdgeInfo, error) {
+
+	dbChan, err := extractChannel(dbChanRow)
+	if err != nil {
+		return nil, err
+	}
+
+	fv, extras, err := getChanFeaturesAndExtras(
+		ctx, db, dbChanID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	op, err := wire.NewOutPointFromString(dbChan.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var featureBuf bytes.Buffer
+	if err := fv.Encode(&featureBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode features: %w", err)
+	}
+
+	recs, err := lnwire.CustomRecords(extras).Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize extra signed "+
+			"fields: %w", err)
+	}
+	if recs == nil {
+		recs = make([]byte, 0)
+	}
+
+	var btcKey1, btcKey2 route.Vertex
+	copy(btcKey1[:], dbChan.BitcoinKey1)
+	copy(btcKey2[:], dbChan.BitcoinKey2)
+
+	channel := &models.ChannelEdgeInfo{
+		ChainHash:        chain,
+		ChannelID:        byteOrder.Uint64(dbChan.Scid),
+		NodeKey1Bytes:    node1,
+		NodeKey2Bytes:    node2,
+		BitcoinKey1Bytes: btcKey1,
+		BitcoinKey2Bytes: btcKey2,
+		ChannelPoint:     *op,
+		Capacity:         btcutil.Amount(dbChan.Capacity.Int64),
+		Features:         featureBuf.Bytes(),
+		ExtraOpaqueData:  recs,
+	}
+
+	if dbChan.Bitcoin1Signature != nil {
+		channel.AuthProof = &models.ChannelAuthProof{
+			NodeSig1Bytes:    dbChan.Node1Signature,
+			NodeSig2Bytes:    dbChan.Node2Signature,
+			BitcoinSig1Bytes: dbChan.Bitcoin1Signature,
+			BitcoinSig2Bytes: dbChan.Bitcoin2Signature,
+		}
+	}
+
+	return channel, nil
+}
+
+// buildNodeVertices is a helper that converts raw node public keys
+// into route.Vertex instances.
+func buildNodeVertices(node1Pub, node2Pub []byte) (route.Vertex,
+	route.Vertex, error) {
+
+	node1Vertex, err := route.NewVertexFromBytes(node1Pub)
+	if err != nil {
+		return route.Vertex{}, route.Vertex{}, fmt.Errorf("unable to "+
+			"create vertex from node1 pubkey: %w", err)
+	}
+
+	node2Vertex, err := route.NewVertexFromBytes(node2Pub)
+	if err != nil {
+		return route.Vertex{}, route.Vertex{}, fmt.Errorf("unable to "+
+			"create vertex from node2 pubkey: %w", err)
+	}
+
+	return node1Vertex, node2Vertex, nil
+}
+
+// getChanFeaturesAndExtras fetches the channel features and extra TLV types
+// for a channel with the given ID.
+func getChanFeaturesAndExtras(ctx context.Context, db SQLQueries,
+	id int64) (*lnwire.FeatureVector, map[uint64][]byte, error) {
+
+	rows, err := db.GetChannelFeaturesAndExtras(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch channel "+
+			"features and extras: %w", err)
+	}
+
+	var (
+		fv     = lnwire.EmptyFeatureVector()
+		extras = make(map[uint64][]byte)
+	)
+	for _, row := range rows {
+		switch row.Kind {
+		case "feature":
+			featureBit, err := strconv.Atoi(row.Key)
+			if err != nil {
+				return nil, nil, err
+			}
+			fv.Set(lnwire.FeatureBit(featureBit))
+
+		case "extra":
+			tlvType, err := strconv.ParseInt(row.Key, 10, 64)
+			if err != nil {
+				return nil, nil, err
+			}
+			valueBytes, ok := row.Value.([]byte)
+			if !ok {
+				return nil, nil, fmt.Errorf("unexpected type "+
+					"for Value: %T", row.Value)
+			}
+			extras[uint64(tlvType)] = valueBytes
+
+		default:
+			return nil, nil, fmt.Errorf("unexpected row kind: %s",
+				row.Kind)
+		}
+	}
+
+	return fv, extras, nil
+}
+
+// getAndBuildChanPolicies uses the given sqlc.ChannelPolicy and also retrieves
+// all the extra info required to build the complete models.ChannelEdgePolicy
+// types. It returns two policies, which may be nil if the provided
+// sqlc.ChannelPolicy records are nil.
+func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
+	dbPol1, dbPol2 *sqlc.ChannelPolicy, channelID uint64, node1,
+	node2 route.Vertex) (*models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	if dbPol1 == nil && dbPol2 == nil {
+		return nil, nil, nil
+	}
+
+	var (
+		policy1ID int64
+		policy2ID int64
+	)
+	if dbPol1 != nil {
+		policy1ID = dbPol1.ID
+	}
+	if dbPol2 != nil {
+		policy2ID = dbPol2.ID
+	}
+	rows, err := db.GetChannelPolicyExtraTypes(
+		ctx, sqlc.GetChannelPolicyExtraTypesParams{
+			ID:   policy1ID,
+			ID_2: policy2ID,
+		},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var (
+		dbPol1Extras = make(map[uint64][]byte)
+		dbPol2Extras = make(map[uint64][]byte)
+	)
+	for _, row := range rows {
+		switch row.PolicyID {
+		case policy1ID:
+			dbPol1Extras[uint64(row.Type)] = row.Value
+		case policy2ID:
+			dbPol2Extras[uint64(row.Type)] = row.Value
+		default:
+			return nil, nil, fmt.Errorf("unexpected policy ID %d "+
+				"in row: %v", row.PolicyID, row)
+		}
+	}
+
+	var pol1, pol2 *models.ChannelEdgePolicy
+	if dbPol1 != nil {
+		pol1, err = buildChanPolicy(
+			*dbPol1, channelID, dbPol1Extras, node2, true,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if dbPol2 != nil {
+		pol2, err = buildChanPolicy(
+			*dbPol2, channelID, dbPol2Extras, node1, false,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return pol1, pol2, nil
+}
+
+// buildChanPolicy builds a models.ChannelEdgePolicy instance from the
+// provided sqlc.ChannelPolicy and other required information.
+func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
+	extras map[uint64][]byte, toNode route.Vertex,
+	isNode1 bool) (*models.ChannelEdgePolicy, error) {
+
+	recs, err := lnwire.CustomRecords(extras).Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize extra signed "+
+			"fields: %w", err)
+	}
+
+	var msgFlags lnwire.ChanUpdateMsgFlags
+	if dbPolicy.MaxHtlcMsat.Valid {
+		msgFlags |= lnwire.ChanUpdateRequiredMaxHtlc
+	}
+
+	var chanFlags lnwire.ChanUpdateChanFlags
+	if !isNode1 {
+		chanFlags |= lnwire.ChanUpdateDirection
+	}
+	if dbPolicy.Disabled.Bool {
+		chanFlags |= lnwire.ChanUpdateDisabled
+	}
+
+	var inboundFee fn.Option[lnwire.Fee]
+	if dbPolicy.InboundFeeRateMilliMsat.Valid ||
+		dbPolicy.InboundBaseFeeMsat.Valid {
+
+		inboundFee = fn.Some(lnwire.Fee{
+			BaseFee: int32(dbPolicy.InboundBaseFeeMsat.Int64),
+			FeeRate: int32(dbPolicy.InboundFeeRateMilliMsat.Int64),
+		})
+	}
+
+	return &models.ChannelEdgePolicy{
+		SigBytes:  dbPolicy.Signature,
+		ChannelID: channelID,
+		LastUpdate: time.Unix(
+			dbPolicy.LastUpdate.Int64, 0,
+		),
+		MessageFlags:  msgFlags,
+		ChannelFlags:  chanFlags,
+		TimeLockDelta: uint16(dbPolicy.Timelock),
+		MinHTLC: lnwire.MilliSatoshi(
+			dbPolicy.MinHtlcMsat,
+		),
+		MaxHTLC: lnwire.MilliSatoshi(
+			dbPolicy.MaxHtlcMsat.Int64,
+		),
+		FeeBaseMSat: lnwire.MilliSatoshi(
+			dbPolicy.BaseFeeMsat,
+		),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(dbPolicy.FeePpm),
+		ToNode:                    toNode,
+		InboundFee:                inboundFee,
+		ExtraOpaqueData:           recs,
+	}, nil
+}
+
+// extractChannelPolicies extracts the sqlc.ChannelPolicy records from the give
+// row which is expected to be a sqlc type that contains channel policy
+// information. It returns two policies, which may be nil if the policy
+// information is not present in the row.
+//
+//nolint:ll
+func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
+	error) {
+
+	var policy1, policy2 *sqlc.ChannelPolicy
+	switch r := row.(type) {
+	case sqlc.ListChannelsByNodeIDRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+	default:
+		return nil, nil, fmt.Errorf("unexpected row type in "+
+			"extractChannelPolicies: %T", r)
+	}
+}
+
+// extractChannel extracts the sqlc.Channel record from the given row
+// which is expected to be a sqlc type that contains channel information.
+func extractChannel(row any) (sqlc.Channel, error) {
+	switch r := row.(type) {
+	case sqlc.ListChannelsByNodeIDRow:
+		return sqlc.Channel{
+			ID:                r.ID,
+			Version:           r.Version,
+			Scid:              r.Scid,
+			NodeID1:           r.NodeID1,
+			NodeID2:           r.NodeID2,
+			Outpoint:          r.Outpoint,
+			Capacity:          r.Capacity,
+			BitcoinKey1:       r.BitcoinKey1,
+			BitcoinKey2:       r.BitcoinKey2,
+			Node1Signature:    r.Node1Signature,
+			Node2Signature:    r.Node2Signature,
+			Bitcoin1Signature: r.Bitcoin1Signature,
+			Bitcoin2Signature: r.Bitcoin2Signature,
+		}, nil
+	default:
+		return sqlc.Channel{}, fmt.Errorf("unexpected row type in "+
+			"extractChannel: %T", r)
+	}
 }

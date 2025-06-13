@@ -1171,6 +1171,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "include_auth_proof",
+            "description": "If true, will include announcements' signatures into ChannelEdge.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -1211,6 +1218,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "include_auth_proof",
+            "description": "If true, will include announcements' signatures into ChannelEdge.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -1270,6 +1284,13 @@
           {
             "name": "include_channels",
             "description": "If true, will include all known channels associated with the node.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "include_auth_proof",
+            "description": "If true, will include announcements' signatures into ChannelEdge.\nDepends on include_channels.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -4123,6 +4144,32 @@
         }
       }
     },
+    "lnrpcChannelAuthProof": {
+      "type": "object",
+      "properties": {
+        "node_sig1": {
+          "type": "string",
+          "format": "byte",
+          "description": "node_sig1 are the raw bytes of the first node signature encoded\nin DER format."
+        },
+        "bitcoin_sig1": {
+          "type": "string",
+          "format": "byte",
+          "description": "bitcoin_sig1 are the raw bytes of the first bitcoin signature of the\nMultiSigKey key of the channel encoded in DER format."
+        },
+        "node_sig2": {
+          "type": "string",
+          "format": "byte",
+          "description": "node_sig2 are the raw bytes of the second node signature encoded\nin DER format."
+        },
+        "bitcoin_sig2": {
+          "type": "string",
+          "format": "byte",
+          "description": "bitcoin_sig2 are the raw bytes of the second bitcoin signature of the\nMultiSigKey key of the channel encoded in DER format."
+        }
+      },
+      "description": "ChannelAuthProof is the authentication proof (the signature portion) for a\nchannel. Using the four signatures contained in the struct, and some\nauxiliary knowledge (the funding script, node identities, and outpoint) nodes\non the network are able to validate the authenticity and existence of a\nchannel."
+    },
     "lnrpcChannelBackup": {
       "type": "object",
       "properties": {
@@ -4378,6 +4425,10 @@
             "format": "byte"
           },
           "description": "Custom channel announcement tlv records."
+        },
+        "auth_proof": {
+          "$ref": "#/definitions/lnrpcChannelAuthProof",
+          "description": "Authentication proof for this channel. This proof contains a set of\nsignatures binding four identities, which attests to the legitimacy of\nthe advertised channel. This only is available for advertised channels.\nThis field is not filled by default. Pass include_auth_proof flag to\nDescribeGraph, GetNodeInfo or GetChanInfo to get this data."
         }
       },
       "description": "A fully authenticated channel along with all its unique attributes.\nOnce an authenticated channel announcement has been processed on the network,\nthen an instance of ChannelEdgeInfo encapsulating the channels attributes is\nstored. The other portions relevant to routing policy of a channel are stored\nwithin a ChannelEdgePolicy for each direction of the channel."

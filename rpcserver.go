@@ -6736,7 +6736,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			return nil
 		}
 
-		edge := marshalDBEdge(edgeInfo, c1, c2)
+		edge := marshalDBEdge(edgeInfo, c1, c2, req.IncludeAuthProof)
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
@@ -6782,7 +6782,8 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 }
 
 func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
-	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
+	c1, c2 *models.ChannelEdgePolicy,
+	includeAuthProof bool) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
@@ -6819,6 +6820,18 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 
 	if c2 != nil {
 		edge.Node2Policy = marshalDBRoutingPolicy(c2)
+	}
+
+	// We do not expect to have an AuthProof for private channels and for
+	// our own public channels for the time between channel funding and
+	// channel announcement.
+	if includeAuthProof && edgeInfo.AuthProof != nil {
+		edge.AuthProof = &lnrpc.ChannelAuthProof{
+			NodeSig1:    edgeInfo.AuthProof.NodeSig1Bytes,
+			BitcoinSig1: edgeInfo.AuthProof.BitcoinSig1Bytes,
+			NodeSig2:    edgeInfo.AuthProof.NodeSig2Bytes,
+			BitcoinSig2: edgeInfo.AuthProof.BitcoinSig2Bytes,
+		}
 	}
 
 	return edge
@@ -6946,7 +6959,9 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
-	channelEdge := marshalDBEdge(edgeInfo, edge1, edge2)
+	channelEdge := marshalDBEdge(
+		edgeInfo, edge1, edge2, in.IncludeAuthProof,
+	)
 
 	return channelEdge, nil
 }
@@ -6955,6 +6970,11 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 // channel information for the specified node identified by its public key.
 func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	in *lnrpc.NodeInfoRequest) (*lnrpc.NodeInfo, error) {
+
+	if in.IncludeAuthProof && !in.IncludeChannels {
+		return nil, fmt.Errorf("include_auth_proof depends on " +
+			"include_channels")
+	}
 
 	graph := r.server.graphDB
 
@@ -7003,7 +7023,9 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 				// Convert the database's edge format into the
 				// network/RPC edge format.
-				channelEdge := marshalDBEdge(edge, c1, c2)
+				channelEdge := marshalDBEdge(
+					edge, c1, c2, in.IncludeAuthProof,
+				)
 				channels = append(channels, channelEdge)
 			}
 

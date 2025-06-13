@@ -283,10 +283,11 @@ func buildBlindedPaymentPath(cfg *BuildBlindedPathCfg, path *candidatePath) (
 	}
 
 	// Encrypt the hop info.
-	blindedPath, err := sphinx.BuildBlindedPath(sessionKey, paymentPath)
+	blindedPathInfo, err := sphinx.BuildBlindedPath(sessionKey, paymentPath)
 	if err != nil {
 		return nil, err
 	}
+	blindedPath := blindedPathInfo.Path
 
 	if len(blindedPath.BlindedHops) < 1 {
 		return nil, fmt.Errorf("blinded path must have at least one " +

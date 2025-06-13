@@ -794,6 +794,13 @@ func (hn *HarnessNode) Shutdown() error {
 	if err := hn.Stop(); err != nil {
 		return err
 	}
+
+	// Exit if we want to skip the cleanup, which happens when a customized
+	// base dir is used.
+	if hn.Cfg.SkipCleanup {
+		return nil
+	}
+
 	if err := hn.cleanup(); err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/integration/rpctest"
@@ -28,6 +29,10 @@ const (
 )
 
 var (
+	// baseDirFlag is the default directory where all the node's data are
+	// saved. If not set, a temporary dir will be created.
+	baseDirFlag = flag.String("basedir", "", "default dir to save data")
+
 	// logOutput is a flag that can be set to append the output from the
 	// seed nodes to log files.
 	logOutput = flag.Bool("logoutput", false,
@@ -162,6 +167,11 @@ type BaseNodeConfig struct {
 	// compiled with all required itest flags.
 	LndBinary string
 
+	// SkipCleanup specifies whether the harness will remove the base dir or
+	// not when the test finishes. When using customized BaseDir, the
+	// cleanup will be skipped.
+	SkipCleanup bool
+
 	// backupDBDir is the path where a database backup is stored, if any.
 	backupDBDir string
 
@@ -225,17 +235,32 @@ func (cfg *BaseNodeConfig) BaseConfig() *BaseNodeConfig {
 
 // GenBaseDir creates a base dir that's used for the test.
 func (cfg *BaseNodeConfig) GenBaseDir() error {
-	if cfg.BaseDir == "" {
+	// Exit early if the BaseDir is already set.
+	if cfg.BaseDir != "" {
+		return nil
+	}
+
+	dirBaseName := fmt.Sprintf("itest-%v-%v-%v-%v", cfg.LogFilenamePrefix,
+		cfg.Name, cfg.NodeID, time.Now().Unix())
+
+	// Create a temporary directory for the node's data and logs. Use dash
+	// suffix as a separator between base name and node ID.
+	if *baseDirFlag == "" {
 		var err error
 
-		// Create a temporary directory for the node's data and logs.
-		// Use dash suffix as a separator between base name and random
-		// suffix.
-		dirBaseName := fmt.Sprintf("lndtest-node-%s-", cfg.Name)
 		cfg.BaseDir, err = os.MkdirTemp("", dirBaseName)
 
 		return err
 	}
+
+	// Create the customized base dir.
+	if err := os.MkdirAll(*baseDirFlag, 0700); err != nil {
+		return err
+	}
+
+	// Use customized base dir and skip the cleanups.
+	cfg.BaseDir = filepath.Join(*baseDirFlag, dirBaseName)
+	cfg.SkipCleanup = true
 
 	return nil
 }

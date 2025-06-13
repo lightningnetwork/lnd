@@ -48,6 +48,13 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   [`incoming_chan_ids` and `outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356). 
   This allows to retrieve forwarding events for specific channels.
 
+
+* `DescribeGraph`, `GetNodeInfo`, `GetChanInfo` and the corresponding lncli
+   commands [now have flag](https://github.com/lightningnetwork/lnd/pull/9950)
+  `include_auth_proof`. With the flag, these APIs add AuthProof (signatures from
+  the channel announcement) to the returned ChannelEdge.
+
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the
@@ -127,6 +134,7 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 # Contributors (Alphabetical Order)
 
 * Abdulkbk
+* Boris Nagaev
 * Elle Mouton
 * Funyug
 * Mohamed Awnallah

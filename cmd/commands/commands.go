@@ -1987,6 +1987,11 @@ var describeGraphCommand = cli.Command{
 				"graph. Unannounced channels are both private channels, and " +
 				"public channels that are not yet announced to the network.",
 		},
+		cli.BoolFlag{
+			Name: "include_auth_proof",
+			Usage: "If set, will include announcements' " +
+				"signatures into ChannelEdge.",
+		},
 	},
 	Action: actionDecorator(describeGraph),
 }
@@ -1998,6 +2003,7 @@ func describeGraph(ctx *cli.Context) error {
 
 	req := &lnrpc.ChannelGraphRequest{
 		IncludeUnannounced: ctx.Bool("include_unannounced"),
+		IncludeAuthProof:   ctx.Bool("include_auth_proof"),
 	}
 
 	graph, err := client.DescribeGraph(ctxc, req)
@@ -2055,6 +2061,11 @@ var getChanInfoCommand = cli.Command{
 				"the chan_id param is set this param is " +
 				"ignored.",
 		},
+		cli.BoolFlag{
+			Name: "include_auth_proof",
+			Usage: "If set, will include announcements' " +
+				"signatures into ChannelEdge.",
+		},
 	},
 	Action: actionDecorator(getChanInfo),
 }
@@ -2088,8 +2099,9 @@ func getChanInfo(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.ChanInfoRequest{
-		ChanId:    chanID,
-		ChanPoint: chanPoint,
+		ChanId:           chanID,
+		ChanPoint:        chanPoint,
+		IncludeAuthProof: ctx.Bool("include_auth_proof"),
 	}
 
 	chanInfo, err := client.GetChanInfo(ctxc, req)
@@ -2118,6 +2130,12 @@ var getNodeInfoCommand = cli.Command{
 			Usage: "if true, will return all known channels " +
 				"associated with the node",
 		},
+		cli.BoolFlag{
+			Name: "include_auth_proof",
+			Usage: "If set, will include announcements' " +
+				"signatures into ChannelEdge. Depends on " +
+				"include_channels",
+		},
 	},
 	Action: actionDecorator(getNodeInfo),
 }
@@ -2140,8 +2158,9 @@ func getNodeInfo(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.NodeInfoRequest{
-		PubKey:          pubKey,
-		IncludeChannels: ctx.Bool("include_channels"),
+		PubKey:           pubKey,
+		IncludeChannels:  ctx.Bool("include_channels"),
+		IncludeAuthProof: ctx.Bool("include_auth_proof"),
 	}
 
 	nodeInfo, err := client.GetNodeInfo(ctxc, req)

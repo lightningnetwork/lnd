@@ -223,6 +223,23 @@ func (cfg *BaseNodeConfig) BaseConfig() *BaseNodeConfig {
 	return cfg
 }
 
+// GenBaseDir creates a base dir that's used for the test.
+func (cfg *BaseNodeConfig) GenBaseDir() error {
+	if cfg.BaseDir == "" {
+		var err error
+
+		// Create a temporary directory for the node's data and logs.
+		// Use dash suffix as a separator between base name and random
+		// suffix.
+		dirBaseName := fmt.Sprintf("lndtest-node-%s-", cfg.Name)
+		cfg.BaseDir, err = os.MkdirTemp("", dirBaseName)
+
+		return err
+	}
+
+	return nil
+}
+
 // GenArgs generates a slice of command line arguments from the lightning node
 // config struct.
 func (cfg *BaseNodeConfig) GenArgs() []string {

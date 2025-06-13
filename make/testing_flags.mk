@@ -12,6 +12,7 @@ NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
 SHUFFLE_SEED = 0
+BASE_DIR = ""
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
@@ -32,6 +33,11 @@ endif
 # Set the seed for shuffling the test cases.
 ifneq ($(shuffleseed),)
 SHUFFLE_SEED = $(shuffleseed)
+endif
+
+# Set the base dir if specified.
+ifneq ($(basedir),)
+BASE_DIR = $(basedir)
 endif
 
 # Windows needs to append a .exe suffix to all executable files, otherwise it

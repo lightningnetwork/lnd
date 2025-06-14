@@ -42,6 +42,11 @@ type SessionSource struct {
 	// execution.
 	MissionControl MissionControlQuerier
 
+	// GetMissionControl is a function that can be used to retrieve a
+	// namespaced MissionControl instance. If nil, the default
+	// MissionControl will be used.
+	GetMissionControl func(namespace string) (MissionControlQuerier, error)
+
 	// PathFindingConfig defines global parameters that control the
 	// trade-off in path finding between fees and probability.
 	PathFindingConfig PathFindingConfig
@@ -63,9 +68,20 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment,
 		)
 	}
 
+	// Determine which mission control instance to use based on the
+	// payment's namespace.
+	mc := m.MissionControl
+	if p.MissionControlNamespace != "" && m.GetMissionControl != nil {
+		namespacedMC, err := m.GetMissionControl(p.MissionControlNamespace)
+		if err != nil {
+			return nil, err
+		}
+		mc = namespacedMC
+	}
+
 	session, err := newPaymentSession(
 		p, m.SourceNode.PubKeyBytes, getBandwidthHints,
-		m.GraphSessionFactory, m.MissionControl, m.PathFindingConfig,
+		m.GraphSessionFactory, mc, m.PathFindingConfig,
 	)
 	if err != nil {
 		return nil, err

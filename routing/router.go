@@ -848,6 +848,11 @@ type LightningPayment struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// MissionControlNamespace is an optional namespace that overrides the
+	// default mission control namespace for this payment. If empty, the
+	// default namespace will be used.
+	MissionControlNamespace string
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

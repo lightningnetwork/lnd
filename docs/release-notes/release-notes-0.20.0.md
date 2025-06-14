@@ -20,6 +20,12 @@
 
 # Bug Fixes
 
+- Fixed potential update inconsistencies in node announcements [by creating
+  a shallow copy before modifications](
+  https://github.com/lightningnetwork/lnd/pull/9815). This ensures the original
+  announcement remains unchanged until the new one is fully signed and
+  validated.
+
 # New Features
 
 ## Functional Enhancements
@@ -119,4 +125,5 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 * Abdulkbk
 * Elle Mouton
 * Funyug
+* Mohamed Awnallah
 * Pins

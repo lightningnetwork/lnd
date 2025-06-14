@@ -41,9 +41,17 @@
 
 ## Code Health
 
+- [Add Optional Migration](https://github.com/lightningnetwork/lnd/pull/9944)
+  which garbage collects the `decayed log` also known as `sphinxreplay.db`.
+
 ## Breaking Changes
 
 ## Performance Improvements
+
+- The replay protection is
+[optimized](https://github.com/lightningnetwork/lnd/pull/9929) to use less disk
+space such that the `sphinxreplay.db` or the `decayedlogdb_kv` table will grow
+much slower.
 
 ## Deprecations
 

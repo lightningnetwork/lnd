@@ -30,6 +30,10 @@ var (
 	// ErrMarkerNotPresent is the error that is returned if the queried
 	// marker is not present in the given database.
 	ErrMarkerNotPresent = errors.New("marker not present")
+
+	// ErrInvalidOptionalVersion is the error that is returned if the
+	// optional version persisted in the database is invalid.
+	ErrInvalidOptionalVersion = errors.New("invalid optional version")
 )
 
 // Meta structure holds the database meta information.
@@ -108,6 +112,9 @@ func (om *OptionalMeta) String() string {
 	s := ""
 	for index, name := range om.Versions {
 		s += fmt.Sprintf("%d: %s", index, name)
+		if index != uint64(len(om.Versions)-1) {
+			s += ", "
+		}
 	}
 	if s == "" {
 		s = "empty"
@@ -146,7 +153,12 @@ func (d *DB) fetchOptionalMeta() (*OptionalMeta, error) {
 			if err != nil {
 				return err
 			}
-			om.Versions[version] = optionalVersions[i].name
+
+			if version >= uint64(len(optionalVersions)) {
+				return ErrInvalidOptionalVersion
+			}
+
+			om.Versions[version] = optionalVersions[version].name
 		}
 
 		return nil
@@ -176,6 +188,10 @@ func (d *DB) putOptionalMeta(om *OptionalMeta) error {
 
 		// Write the version indexes.
 		for v := range om.Versions {
+			if v >= uint64(len(optionalVersions)) {
+				return ErrInvalidOptionalVersion
+			}
+
 			err := tlv.WriteVarInt(&b, v, &[8]byte{})
 			if err != nil {
 				return err

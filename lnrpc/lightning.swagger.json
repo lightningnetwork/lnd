@@ -5114,6 +5114,22 @@
         "peer_alias_lookup": {
           "type": "boolean",
           "description": "Informs the server if the peer alias should be looked up for each\nforwarding event."
+        },
+        "incoming_chan_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "title": "List of incoming channel ids to filter htlcs received from a\nparticular channel"
+        },
+        "outgoing_chan_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "title": "List of outgoing channel ids to filter htlcs being forwarded to a\nparticular channel"
         }
       }
     },

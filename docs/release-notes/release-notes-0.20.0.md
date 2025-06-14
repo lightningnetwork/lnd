@@ -37,11 +37,21 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   the option to specify multiple channels this control can be extended to
   multiple hops leading to the node.
 
+
+* The `lnrpc.ForwardingHistory` RPC method now supports filtering by 
+  [`incoming_chan_ids` and `outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356). 
+  This allows to retrieve forwarding events for specific channels.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the
   `--route_hints` flag](https://github.com/lightningnetwork/lnd/pull/9721) to
   support routing through private channels.
+
+
+* The `lncli fwdinghistory` command now supports two new flags:
+  [`--incoming_chan_ids` and `--outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356).
+  These filters allows to query forwarding events for specific channels.
 
 # Improvements
 ## Functional Updates
@@ -108,4 +118,5 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 * Abdulkbk
 * Elle Mouton
+* Funyug
 * Pins

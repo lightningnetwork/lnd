@@ -7990,13 +7990,20 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		numEvents = 100
 	}
 
+	// Create sets of incoming and outgoing channel IDs from the request
+	// for faster lookups for filtering.
+	incomingChanIDs := fn.NewSet(req.IncomingChanIds...)
+	outgoingChanIDs := fn.NewSet(req.OutgoingChanIds...)
+
 	// Next, we'll map the proto request into a format that is understood by
 	// the forwarding log.
 	eventQuery := channeldb.ForwardingEventQuery{
-		StartTime:    startTime,
-		EndTime:      endTime,
-		IndexOffset:  req.IndexOffset,
-		NumMaxEvents: numEvents,
+		StartTime:       startTime,
+		EndTime:         endTime,
+		IndexOffset:     req.IndexOffset,
+		NumMaxEvents:    numEvents,
+		IncomingChanIDs: incomingChanIDs,
+		OutgoingChanIDs: outgoingChanIDs,
 	}
 	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {

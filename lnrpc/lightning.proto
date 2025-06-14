@@ -4671,6 +4671,14 @@ message ForwardingHistoryRequest {
     // Informs the server if the peer alias should be looked up for each
     // forwarding event.
     bool peer_alias_lookup = 5;
+
+    // List of incoming channel ids to filter htlcs received from a
+    // particular channel
+    repeated uint64 incoming_chan_ids = 6;
+
+    // List of outgoing channel ids to filter htlcs being forwarded to a
+    // particular channel
+    repeated uint64 outgoing_chan_ids = 7;
 }
 message ForwardingEvent {
     // Timestamp is the time (unix epoch offset) that this circuit was

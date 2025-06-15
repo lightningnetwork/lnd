@@ -745,7 +745,8 @@ func (r *DecodeHopIteratorResponse) Result() (Iterator, lnwire.FailCode) {
 // the presented readers and rhashes *NEVER* deviate across invocations for the
 // same id.
 func (p *OnionProcessor) DecodeHopIterators(id []byte,
-	reqs []DecodeHopIteratorRequest) ([]DecodeHopIteratorResponse, error) {
+	reqs []DecodeHopIteratorRequest,
+	reforward bool) ([]DecodeHopIteratorResponse, error) {
 
 	var (
 		batchSize = len(reqs)
@@ -783,6 +784,8 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 				b.Val,
 			))
 		})
+
+		// TODO(yy): use `p.router.ProcessOnionPacket` instead.
 		err = tx.ProcessOnionPacket(
 			seqNum, onionPkt, req.RHash, req.IncomingCltv, opts...,
 		)
@@ -864,11 +867,12 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 			continue
 		}
 
-		// If this index is contained in the replay set, mark it with a
-		// temporary channel failure error code. We infer that the
-		// offending error was due to a replayed packet because this
-		// index was found in the replay set.
-		if replays.Contains(uint16(i)) {
+		// If this index is contained in the replay set, and it is not a
+		// reforwarding on startup, mark it with a permanent channel
+		// failure error code. We infer that the offending error was due
+		// to a replayed packet because this index was found in the
+		// replay set.
+		if !reforward && replays.Contains(uint16(i)) {
 			log.Errorf("unable to process onion packet: %v",
 				sphinx.ErrReplayedPacket)
 

@@ -522,7 +522,7 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
-	reqs []hop.DecodeHopIteratorRequest) (
+	reqs []hop.DecodeHopIteratorRequest, _ bool) (
 	[]hop.DecodeHopIteratorResponse, error) {
 
 	idHash := sha256.Sum256(id)

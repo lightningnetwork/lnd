@@ -103,6 +103,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testChannelFundingInputTypes,
 	},
 	{
+    		Name:     "bump_fee_until_max_reached",
+    		TestFunc: testBumpFeeUntilMaxReached,
+	},
+	{
 		Name:     "unconfirmed channel funding",
 		TestFunc: testUnconfirmedChannelFunding,
 	},

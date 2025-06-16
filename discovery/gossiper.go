@@ -481,6 +481,60 @@ func (c *cachedReject) Size() (uint64, error) {
 	return 1, nil
 }
 
+// sentAnnSigsTracker tracks which announcement signatures we've sent to which
+// peers.
+type sentAnnSigsTracker struct {
+	mu   sync.Mutex
+	sigs map[route.Vertex]map[lnwire.ChannelID]struct{}
+}
+
+// newSentAnnSigsTracker creates a new sentAnnSigsTracker.
+func newSentAnnSigsTracker() *sentAnnSigsTracker {
+	return &sentAnnSigsTracker{
+		sigs: make(map[route.Vertex]map[lnwire.ChannelID]struct{}),
+	}
+}
+
+// deletePeer deletes all records of sent announcement signatures for a given
+// peer.
+func (s *sentAnnSigsTracker) deletePeer(peer route.Vertex) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sigs, peer)
+}
+
+// sentToPeer returns true if we have already sent the announcement signature
+// for a given channel to a peer.
+func (s *sentAnnSigsTracker) sentToPeer(peer route.Vertex,
+	cid lnwire.ChannelID) bool {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sentChans, ok := s.sigs[peer]
+	if !ok {
+		return false
+	}
+
+	_, ok = sentChans[cid]
+
+	return ok
+}
+
+// addToPeer adds a record of sending an announcement signature for a given
+// channel to a peer.
+func (s *sentAnnSigsTracker) addToPeer(peer route.Vertex,
+	cid lnwire.ChannelID) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sigs[peer]; !ok {
+		s.sigs[peer] = make(map[lnwire.ChannelID]struct{})
+	}
+	s.sigs[peer][cid] = struct{}{}
+}
+
 // AuthenticatedGossiper is a subsystem which is responsible for receiving
 // announcements, validating them and applying the changes to router, syncing
 // lightning network with newly connected nodes, broadcasting announcements
@@ -576,6 +630,11 @@ type AuthenticatedGossiper struct {
 	// vb is used to enforce job dependency ordering of gossip messages.
 	vb *ValidationBarrier
 
+	// sentAnnSigs tracks which announcement signatures we've sent to which
+	// peers. We'll use this to ensure we don't re-send the same signatures
+	// to a peer during a single connection.
+	sentAnnSigs *sentAnnSigsTracker
+
 	sync.Mutex
 
 	cancel fn.Option[context.CancelFunc]
@@ -603,6 +662,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
 		banman:                newBanman(cfg.BanThreshold),
+		sentAnnSigs:           newSentAnnSigsTracker(),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
@@ -1786,6 +1846,14 @@ func (d *AuthenticatedGossiper) finalizeGossipProcessing(logCtx context.Context,
 // queries. We'll allocate a new gossip syncer for it, and start any goroutines
 // needed to handle new queries.
 func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer) {
+	peerVertex := route.NewVertex(syncPeer.IdentityKey())
+
+	// We keep track if we already have sent an announcement signature to
+	// each peer during a connection, so we don't send it twice. If a peer
+	// dis- and reconnects we clear the record. If the peer connects for the
+	// first time this is a no-op.
+	d.sentAnnSigs.deletePeer(peerVertex)
+
 	d.syncMgr.InitSyncState(syncPeer)
 }
 
@@ -3677,12 +3745,23 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if chanInfo.AuthProof != nil {
 		// If we already have the fully assembled proof, then the peer
 		// sending us their proof has probably not received our local
-		// proof yet. So be kind and send them our proof.
+		// proof yet. So be kind and send them our proof, but only if we
+		// haven't done so since (re)connecting.
 		if nMsg.isRemote {
-			peerID := nMsg.source.SerializeCompressed()
-			log.Debugf("Got AnnounceSignatures for channel with " +
-				"full proof.")
+			peerVertex := route.NewVertex(nMsg.source)
 
+			if d.sentAnnSigs.sentToPeer(peerVertex, ann.ChannelID) {
+				log.Debugf("Skipping sending " +
+					"announcement signatures " +
+					"since we already did during " +
+					"this connection.")
+
+				completeGossipResult(nMsg.errPromise, nil)
+
+				return nil, true
+			}
+
+			peerID := nMsg.source.SerializeCompressed()
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
@@ -3723,6 +3802,10 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 					return
 				}
 
+				// Send our half of the proof to the peer. If
+				// successful, we mark that we've sent the proof
+				// during this connection so we don't re-send it
+				// on subsequent half-proof messages.
 				err = nMsg.peer.SendMessage(false, sigAnn)
 				if err != nil {
 					log.Errorf("Failed sending signature "+
@@ -3730,6 +3813,13 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 						peerID, err)
 					return
 				}
+
+				// With the announcement sent, we'll now mark
+				// that we've sent the proof to the peer for
+				// this connection.
+				d.sentAnnSigs.addToPeer(
+					peerVertex, ann.ChannelID,
+				)
 
 				log.Debugf("Signature announcement sent to "+
 					"peer=%x for chanID=%v", peerID,

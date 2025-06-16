@@ -95,6 +95,8 @@ http:
       get: "/v1/invoice/{r_hash_str}"
     - selector: lnrpc.Lightning.SubscribeInvoices
       get: "/v1/invoices/subscribe"
+    - selector: lnrpc.Lightning.DeleteCanceledInvoices
+      delete: "/v1/invoice"
     - selector: lnrpc.Lightning.DecodePayReq
       get: "/v1/payreq/{pay_req}"
     - selector: lnrpc.Lightning.DeletePayment

@@ -1854,6 +1854,46 @@
           "Lightning"
         ]
       },
+      "delete": {
+        "summary": "lncli: `deletecanceledinvoices`\nDeleteCanceledInvoices deletes cancelled invoices from DB. Note that it will\nnot attempt to delete a non-cancelled invoice, since that would be unsafe.",
+        "operationId": "Lightning_DeleteCanceledInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteInvoicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoice_hashes",
+            "description": "List of Invoice payment hashes to delete.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "all_invoices",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      },
       "post": {
         "summary": "lncli: `addinvoice`\nAddInvoice attempts to add a new invoice to the invoice database. Any\nduplicated invoices are rejected, therefore all invoices *must* have a\nunique payment preimage.",
         "operationId": "Lightning_AddInvoice",
@@ -4832,6 +4872,21 @@
         "status": {
           "type": "string",
           "description": "The status of the delete operation."
+        }
+      }
+    },
+    "lnrpcDeleteInvoicesResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        },
+        "invoices_not_deleted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

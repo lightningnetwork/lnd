@@ -3677,7 +3677,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if chanInfo.AuthProof != nil {
 		// If we already have the fully assembled proof, then the peer
 		// sending us their proof has probably not received our local
-		// proof yet. So be kind and send them the full proof.
+		// proof yet. So be kind and send them our proof.
 		if nMsg.isRemote {
 			peerID := nMsg.source.SerializeCompressed()
 			log.Debugf("Got AnnounceSignatures for channel with " +
@@ -3688,28 +3688,52 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 				defer d.wg.Done()
 
 				log.Debugf("Received half proof for channel "+
-					"%v with existing full proof. Sending"+
-					" full proof to peer=%x",
+					"%v with existing full proof. Sending "+
+					"announcement signatures to peer=%x",
 					ann.ChannelID, peerID)
 
-				ca, _, _, err := netann.CreateChanAnnouncement(
-					chanInfo, e1, e2,
+				chanAP := chanInfo.AuthProof
+
+				// Pick the local signatures that the peer does
+				// NOT have yet. If the peer is node1, they sent
+				// us node1/bitcoin1 already, so we respond with
+				// node2/bitcoin2. Otherwise we respond with
+				// node1/bitcoin1.
+				var localNSB, localBSB []byte
+				if isFirstNode {
+					localNSB = chanAP.NodeSig2()
+					localBSB = chanAP.BitcoinSig2()
+				} else {
+					localNSB = chanAP.NodeSig1()
+					localBSB = chanAP.BitcoinSig1()
+				}
+
+				// Construct an AnnounceSignatures message from
+				// the raw signature material. This gives the
+				// peer our half of the proof so they can
+				// assemble the full ChannelAnnouncement.
+				sigAnn, err := lnwire.NewAnnSigFromWireECDSARaw(
+					ann.ChannelID, ann.ShortChannelID,
+					localNSB, localBSB, nil,
 				)
 				if err != nil {
-					log.Errorf("unable to gen ann: %v",
+					log.Errorf("Failed to generate "+
+						"announcement signature: %v",
 						err)
 					return
 				}
 
-				err = nMsg.peer.SendMessage(false, ca)
+				err = nMsg.peer.SendMessage(false, sigAnn)
 				if err != nil {
-					log.Errorf("Failed sending full proof"+
-						" to peer=%x: %v", peerID, err)
+					log.Errorf("Failed sending signature "+
+						"announcement to peer=%x: %v",
+						peerID, err)
 					return
 				}
 
-				log.Debugf("Full proof sent to peer=%x for "+
-					"chanID=%v", peerID, ann.ChannelID)
+				log.Debugf("Signature announcement sent to "+
+					"peer=%x for chanID=%v", peerID,
+					ann.ChannelID)
 			}()
 		}
 

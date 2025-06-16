@@ -1866,7 +1866,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	}
 
 	// Now give the gossiper the remote proof yet again. This should
-	// trigger a send of the full ChannelAnnouncement.
+	// trigger a send of the signature announcement.
 	err = mustProcess(t, tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
 	))
@@ -1875,9 +1875,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// We expect the gossiper to send this message to the remote peer.
 	select {
 	case msg := <-sentToPeer:
-		_, ok := msg.(*lnwire.ChannelAnnouncement1)
+		_, ok := msg.(*lnwire.AnnounceSignatures1)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement1, instead got "+
+			t.Fatalf("expected AnnounceSignatures1, instead got "+
 				"%T", msg)
 		}
 	case <-time.After(2 * time.Second):

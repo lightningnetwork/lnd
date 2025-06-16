@@ -1774,15 +1774,22 @@ out:
 	}
 }
 
-// TestSignatureAnnouncementFullProofWhenRemoteProof tests that if a remote
+// TestSignatureAnnouncementResendWhenRemoteProof tests that if a remote
 // proof is received when we already have the full proof, the gossiper will send
-// the full proof (ChannelAnnouncement) to the remote peer.
-func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
+// our signature announcement max once per connection to the remote peer.
+func TestSignatureAnnouncementResendWhenRemoteProof(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	tCtx, err := createTestCtx(t, proofMatureDelta, false)
 	require.NoError(t, err, "can't create context")
+
+	// We'll create our test sync manager to have one active syncer.
+	syncMgr := newTestSyncManager(1)
+	syncMgr.Start()
+	defer syncMgr.Stop()
+
+	tCtx.gossiper.syncMgr = syncMgr
 
 	batch, err := tCtx.createLocalAnnouncements(0)
 	require.NoError(t, err, "can't generate announcements")
@@ -1797,8 +1804,16 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 		remoteKey, sentToPeer, tCtx.gossiper.quit, atomic.Bool{},
 	}
 
+	// We create an active syncer for our remote peer.
+	err = syncMgr.InitSyncState(remotePeer)
+	require.NoError(t, err, "failed to init sync state")
+	remoteSyncer := assertSyncerExistence(t, syncMgr, remotePeer)
+	assertTransitionToChansSynced(t, remoteSyncer, remotePeer)
+	assertActiveGossipTimestampRange(t, remotePeer)
+	assertSyncerStatus(t, remoteSyncer, chansSynced, ActiveSync)
+
 	// Override NotifyWhenOnline to return the remote peer which we expect
-	// meesages to be sent to.
+	// messages to be sent to.
 	tCtx.gossiper.reliableSender.cfg.NotifyWhenOnline = func(_ [33]byte,
 		peerChan chan<- lnpeer.Peer) {
 
@@ -1940,7 +1955,7 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	}
 
 	// Now give the gossiper the remote proof yet again. This should
-	// trigger a send of the full ChannelAnnouncement.
+	// trigger a send of our signature announcement.
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.remoteProofAnn, remotePeer,
@@ -1953,9 +1968,70 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// We expect the gossiper to send this message to the remote peer.
 	select {
 	case msg := <-sentToPeer:
-		_, ok := msg.(*lnwire.ChannelAnnouncement1)
+		_, ok := msg.(*lnwire.AnnounceSignatures1)
 		if !ok {
-			t.Fatalf("expected ChannelAnnouncement1, instead got "+
+			t.Fatalf("expected AnnounceSignatures1, instead got "+
+				"%T", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not send local proof to peer")
+	}
+
+	// Now give the gossiper the remote proof a 2nd time. This should _not_
+	// trigger a send of our signature announcement, since we already sent
+	// it once and we only send it once per connection.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, batch.remoteProofAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+	require.NoError(t, err, "unable to process remote proof")
+
+	// We expect the gossiper to _not_ send this message to the remote peer.
+	select {
+	case msg := <-sentToPeer:
+		_, ok := msg.(*lnwire.AnnounceSignatures1)
+		if ok {
+			t.Fatalf("got an AnnounceSignatures1 when none was "+
+				"expected %T", msg)
+		}
+	case <-time.After(2 * time.Second):
+		break
+	}
+
+	// We prune the syncer, simulating the remote peer having disconnected.
+	syncMgr.PruneSyncState(remotePeer.PubKey())
+
+	// We simulate the remote peer coming back online.
+	err = syncMgr.InitSyncState(remotePeer)
+	require.NoError(t, err, "failed to init sync state")
+	remoteSyncer1 := assertSyncerExistence(t, syncMgr, remotePeer)
+	assertTransitionToChansSynced(t, remoteSyncer1, remotePeer)
+	assertActiveGossipTimestampRange(t, remotePeer)
+	assertSyncerStatus(t, remoteSyncer1, chansSynced, ActiveSync)
+
+	// Now give the gossiper the remote proof a 3rd time. This should
+	// trigger a send of our signature announcement, since the syncer
+	// was pruned and we now have a new syncer for the remote peer.
+	// This is to simulate the case where the remote peer disconnects and
+	// reconnects, and we have to send the signature announcement again.
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, batch.remoteProofAnn, remotePeer,
+	):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process local announcement")
+	}
+	require.NoError(t, err, "unable to process remote proof")
+
+	// We expect the gossiper to send this message to the remote peer.
+	select {
+	case msg := <-sentToPeer:
+		_, ok := msg.(*lnwire.AnnounceSignatures1)
+		if !ok {
+			t.Fatalf("expected AnnounceSignatures1, instead got "+
 				"%T", msg)
 		}
 	case <-time.After(2 * time.Second):

@@ -3489,6 +3489,30 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 			peerID := nMsg.source.SerializeCompressed()
 			log.Debugf("Got AnnounceSignatures for channel with " +
 				"full proof.")
+			syncer, ok := d.syncMgr.GossipSyncer(
+				route.Vertex(peerID),
+			)
+			if !ok {
+				log.Errorf("Failed to get gossip syncer for "+
+					"peer=%x", peerID)
+				return nil, false
+			}
+
+			// If we already sent our proof to this peer once since
+			// (re)connecting, then we can skip sending it again.
+			syncer.Lock()
+			alreadySent := syncer.proofSentToChan.Contains(
+				ann.ChannelID,
+			)
+			syncer.Unlock()
+			if alreadySent {
+				log.Debugf("Skipping sending announcement " +
+					"signatures since we already did " +
+					"during this connection.")
+				nMsg.err <- nil
+
+				return nil, true
+			}
 
 			d.wg.Add(1)
 			go func() {
@@ -3528,6 +3552,10 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 						" to peer=%x: %v", peerID, err)
 					return
 				}
+
+				syncer.Lock()
+				syncer.proofSentToChan.Add(ann.ChannelID)
+				syncer.Unlock()
 
 				log.Debugf("Full proof sent to peer=%x for "+
 					"chanID=%v", peerID, ann.ChannelID)

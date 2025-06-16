@@ -371,6 +371,13 @@ type GossipSyncer struct {
 	// state.
 	newChansToQuery []lnwire.ShortChannelID
 
+	// proofSentToChan is used when we already have the fully assembled
+	// proof for a channel and the peer sending us their proof has probably
+	// not received our local proof yet. So we are kind and send them our
+	// proof, but only if we haven't done so since (re)connecting. We keep
+	// track of sends with this map, so we don't send it twice.
+	proofSentToChan fn.Set[lnwire.ChannelID]
+
 	cfg gossipSyncerCfg
 
 	// syncedSignal is a channel that, if set, will be closed when the
@@ -399,6 +406,7 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 		gossipMsgs:         make(chan lnwire.Message, syncerBufferSize),
 		queryMsgs:          make(chan lnwire.Message, syncerBufferSize),
 		syncerSema:         sema,
+		proofSentToChan:    fn.NewSet[lnwire.ChannelID](),
 		cg:                 fn.NewContextGuard(),
 	}
 }

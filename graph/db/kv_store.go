@@ -241,6 +241,11 @@ type channelMapKey struct {
 	chanID  [8]byte
 }
 
+// String returns a human-readable representation of the key.
+func (c channelMapKey) String() string {
+	return fmt.Sprintf("node=%v, chanID=%x", c.nodeKey, c.chanID)
+}
+
 // getChannelMap loads all channel edge policies from the database and stores
 // them in a map.
 func (c *KVStore) getChannelMap(edges kvdb.RBucket) (
@@ -501,20 +506,47 @@ func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 					return err
 				}
 
-				policy1 := channelMap[channelMapKey{
+				key1 := channelMapKey{
 					nodeKey: info.NodeKey1Bytes,
 					chanID:  chanID,
-				}]
+				}
+				policy1 := channelMap[key1]
 
-				policy2 := channelMap[channelMapKey{
+				key2 := channelMapKey{
 					nodeKey: info.NodeKey2Bytes,
 					chanID:  chanID,
-				}]
+				}
+				policy2 := channelMap[key2]
+
+				// We now create the cached edge policies, but
+				// only when the above policies are found in the
+				// `channelMap`.
+				var (
+					cachedPolicy1 *models.CachedEdgePolicy
+					cachedPolicy2 *models.CachedEdgePolicy
+				)
+
+				if policy1 != nil {
+					cachedPolicy1 = models.NewCachedPolicy(
+						policy1,
+					)
+				} else {
+					log.Warnf("ChannelEdgePolicy not "+
+						"found using %v", key1)
+				}
+
+				if policy2 != nil {
+					cachedPolicy2 = models.NewCachedPolicy(
+						policy2,
+					)
+				} else {
+					log.Warnf("ChannelEdgePolicy not "+
+						"found using %v", key2)
+				}
 
 				return cb(
 					models.NewCachedEdge(&info),
-					models.NewCachedPolicy(policy1),
-					models.NewCachedPolicy(policy2),
+					cachedPolicy1, cachedPolicy2,
 				)
 			},
 		)

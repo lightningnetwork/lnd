@@ -2218,7 +2218,8 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 
 // DeleteCanceledInvoices deletes all canceled invoices from the database.
 func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+	numDeleted := 0
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		invoices := tx.ReadWriteBucket(invoiceBucket)
 		if invoices == nil {
 			return nil
@@ -2305,11 +2306,19 @@ func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 				return err
 			}
 
+			numDeleted++
+
 			// Finally remove the serialized invoice from the
 			// invoice bucket.
 			return invoices.Delete(k)
 		})
 	}, func() {})
+
+	if numDeleted == 0 {
+		log.Warnf("No canceled invoices found to delete")
+	}
+
+	return err
 }
 
 // DeleteInvoice attempts to delete the passed invoices from the database in

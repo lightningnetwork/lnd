@@ -2708,6 +2708,7 @@ type EstimateFeeRequest struct {
 	unknownFields protoimpl.UnknownFields
 
 	// The number of confirmations to shoot for when estimating the fee.
+	// Must be greater than 1.
 	ConfTarget int32 `protobuf:"varint,1,opt,name=conf_target,json=confTarget,proto3" json:"conf_target,omitempty"`
 }
 
@@ -3933,6 +3934,7 @@ type isFundPsbtRequest_Fees interface {
 
 type FundPsbtRequest_TargetConf struct {
 	// The target number of blocks that the transaction should be confirmed in.
+	// Must be greater than 1.
 	TargetConf uint32 `protobuf:"varint,3,opt,name=target_conf,json=targetConf,proto3,oneof"`
 }
 

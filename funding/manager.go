@@ -4634,15 +4634,9 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// Finally, we'll generate the announcement proof which we'll use to
 	// provide the other side with the necessary signatures required to
 	// allow them to reconstruct the full channel announcement.
-	proof := &lnwire.AnnounceSignatures1{
-		ChannelID:      chanID,
-		ShortChannelID: shortChanID,
-	}
-	proof.NodeSignature, err = lnwire.NewSigFromSignature(nodeSig)
-	if err != nil {
-		return nil, err
-	}
-	proof.BitcoinSignature, err = lnwire.NewSigFromSignature(bitcoinSig)
+	proof, err := lnwire.NewAnnSigFromSignature(
+		chanID, shortChanID, nodeSig, bitcoinSig, nil,
+	)
 	if err != nil {
 		return nil, err
 	}

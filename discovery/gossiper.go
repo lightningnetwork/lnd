@@ -564,6 +564,11 @@ type AuthenticatedGossiper struct {
 	// vb is used to enforce job dependency ordering of gossip messages.
 	vb *ValidationBarrier
 
+	// sentAnnSigs tracks which announcement signatures we've sent to which
+	// peers. We'll use this to ensure we don't re-send the same signatures
+	// to a peer during a single connection.
+	sentAnnSigs map[route.Vertex]map[lnwire.ChannelID]struct{}
+
 	sync.Mutex
 
 	cancel fn.Option[context.CancelFunc]
@@ -591,6 +596,9 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
 		banman:                newBanman(cfg.BanThreshold),
+		sentAnnSigs: make(
+			map[route.Vertex]map[lnwire.ChannelID]struct{},
+		),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
@@ -1672,6 +1680,16 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 // queries. We'll allocate a new gossip syncer for it, and start any goroutines
 // needed to handle new queries.
 func (d *AuthenticatedGossiper) InitSyncState(syncPeer lnpeer.Peer) {
+	peerVertex := route.NewVertex(syncPeer.IdentityKey())
+
+	// We keep track if we already have sent an announcement signature to
+	// each peer during a connection, so we don't send it twice. If a peer
+	// dis- and reconnects we clear the record. If the peer connects for the
+	// first time this is a no-op.
+	d.Lock()
+	delete(d.sentAnnSigs, peerVertex)
+	d.Unlock()
+
 	d.syncMgr.InitSyncState(syncPeer)
 }
 
@@ -3516,12 +3534,34 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if chanInfo.AuthProof != nil {
 		// If we already have the fully assembled proof, then the peer
 		// sending us their proof has probably not received our local
-		// proof yet. So be kind and send them our proof.
+		// proof yet. So be kind and send them our proof, but only if we
+		// haven't done so since (re)connecting.
 		if nMsg.isRemote {
-			peerID := nMsg.source.SerializeCompressed()
-			log.Debugf("Got AnnounceSignatures for channel with " +
-				"full proof.")
+			peerVertex := route.NewVertex(nMsg.source)
 
+			d.Lock()
+			// If we have an entry for this peer, then we'll check
+			// to see if we've already sent the announcement for
+			// this channel.
+			if sentChans, ok := d.sentAnnSigs[peerVertex]; ok {
+				if _, ok := sentChans[ann.ChannelID]; ok {
+					d.Unlock()
+					log.Debugf("Skipping sending " +
+						"announcement signatures " +
+						"since we already did during " +
+						"this connection.")
+
+					nMsg.err <- nil
+
+					return nil, true
+				}
+			}
+			d.Unlock()
+
+			peerID := nMsg.source.SerializeCompressed()
+			peerIsFirstNode := bytes.Equal(
+				peerID, chanInfo.NodeKey1Bytes[:],
+			)
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
@@ -3532,21 +3572,28 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 					ann.ChannelID, peerID)
 
 				chanAP := chanInfo.AuthProof
-				var remoteNSB []byte
-				var remoteBSB []byte
-				if isFirstNode {
-					remoteNSB = chanAP.NodeSig2Bytes
-					remoteBSB = chanAP.BitcoinSig2Bytes
+				// Pick the local signatures that the peer does
+				// NOT have yet. If the peer is node1, they sent
+				// us node1/bitcoin1 already, so we respond with
+				// node2/bitcoin2. Otherwise we respond with
+				// node1/bitcoin1.
+				var localNSB, localBSB []byte
+				if peerIsFirstNode {
+					localNSB = chanAP.NodeSig2Bytes
+					localBSB = chanAP.BitcoinSig2Bytes
 				} else {
-					remoteNSB = chanAP.NodeSig1Bytes
-					remoteBSB = chanAP.BitcoinSig1Bytes
+					localNSB = chanAP.NodeSig1Bytes
+					localBSB = chanAP.BitcoinSig1Bytes
 				}
 
+				// Construct an AnnounceSignatures message from
+				// the raw signature material. This gives the
+				// peer our half of the proof so they can
+				// assemble the full ChannelAnnouncement.
 				sigAnn, err := lnwire.NewAnnSigFromWireECDSARaw(
 					ann.ChannelID, ann.ShortChannelID,
-					remoteNSB, remoteBSB, nil,
+					localNSB, localBSB, nil,
 				)
-
 				if err != nil {
 					log.Errorf("Failed to generate "+
 						"announcement signature: %v",
@@ -3554,6 +3601,10 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 					return
 				}
 
+				// Send our half of the proof to the peer. If
+				// successful, we mark that we've sent the proof
+				// during this connection so we don't re-send it
+				// on subsequent half-proof messages.
 				err = nMsg.peer.SendMessage(false, sigAnn)
 				if err != nil {
 					log.Errorf("Failed sending signature "+
@@ -3561,6 +3612,19 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 						peerID, err)
 					return
 				}
+
+				// With the announcement sent, we'll now mark
+				// that we've sent the proof to the peer for
+				// this connection.
+				d.Lock()
+				if _, ok := d.sentAnnSigs[peerVertex]; !ok {
+					d.sentAnnSigs[peerVertex] = make(
+						map[lnwire.ChannelID]struct{},
+					)
+				}
+				v := d.sentAnnSigs[peerVertex]
+				v[ann.ChannelID] = struct{}{}
+				d.Unlock()
 
 				log.Debugf("Signature announcement sent to "+
 					"peer=%x for chanID=%v", peerID,

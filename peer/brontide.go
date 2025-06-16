@@ -606,6 +606,16 @@ type Brontide struct {
 	// peer's chansync message with its own over and over again.
 	resentChanSyncMsg map[lnwire.ChannelID]struct{}
 
+	// proofsSentMtx is a mutex that protects the proofSentToChan set.
+	proofsSentMtx sync.Mutex
+
+	// proofSentToChan is used when we already have the fully assembled
+	// proof for a channel and the peer sending us their proof has probably
+	// not received our local proof yet. So we are kind and send them our
+	// proof, but only if we haven't done so since (re)connecting. We keep
+	// track of sends with this map, so we don't send it twice.
+	proofSentToChan fn.Set[lnwire.ChannelID]
+
 	// channelEventClient is the channel event subscription client that's
 	// used to assist retry enabling the channels. This client is only
 	// created when the reenableTimeout is no greater than 1 minute. Once
@@ -675,6 +685,7 @@ func NewBrontide(cfg Config) *Brontide {
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
+		proofSentToChan:    fn.NewSet[lnwire.ChannelID](),
 		startReady:         make(chan struct{}),
 		log:                peerLog.WithPrefix(logPrefix),
 		msgRouter:          msgRouter,
@@ -4496,6 +4507,26 @@ func (p *Brontide) WipeChannel(chanPoint *wire.OutPoint) {
 	// Instruct the HtlcSwitch to close this link as the channel is no
 	// longer active.
 	p.cfg.Switch.RemoveLink(chanID)
+}
+
+// RecordProofSent should be called when a proof has been sent for a given
+// channel ID.
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *Brontide) RecordProofSent(chanID lnwire.ChannelID) {
+	p.proofsSentMtx.Lock()
+	defer p.proofsSentMtx.Unlock()
+	p.proofSentToChan.Add(chanID)
+}
+
+// HasSentProof should be called to check whether a proof has been sent for a
+// given channel ID.
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *Brontide) HasSentProof(chanID lnwire.ChannelID) bool {
+	p.proofsSentMtx.Lock()
+	defer p.proofsSentMtx.Unlock()
+	return p.proofSentToChan.Contains(chanID)
 }
 
 // handleInitMsg handles the incoming init message which contains global and

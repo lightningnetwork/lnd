@@ -3483,12 +3483,22 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if chanInfo.AuthProof != nil {
 		// If we already have the fully assembled proof, then the peer
 		// sending us their proof has probably not received our local
-		// proof yet. So be kind and send them our proof.
+		// proof yet. So be kind and send them our proof, but only if we
+		// haven't done so since (re)connecting.
 		if nMsg.isRemote {
-			peerID := nMsg.source.SerializeCompressed()
-			log.Debugf("Got AnnounceSignatures for channel with " +
-				"full proof.")
+			// If we already sent our proof to this peer once since
+			// (re)connecting, then we can skip sending it again.
+			if nMsg.peer.HasSentProof(ann.ChannelID) {
+				log.Debugf("Skipping sending announcement " +
+					"signatures since we already did " +
+					"during this connection.")
 
+				nMsg.err <- nil
+
+				return nil, true
+			}
+
+			peerID := nMsg.source.SerializeCompressed()
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
@@ -3514,7 +3524,6 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 					remoteNSB,
 					remoteBSB, nil,
 				)
-
 				if err != nil {
 					log.Errorf("Failed to generate "+
 						"announcement signature: %v",
@@ -3529,6 +3538,8 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 						peerID, err)
 					return
 				}
+
+				nMsg.peer.RecordProofSent(ann.ChannelID)
 
 				log.Debugf("Signature announcement sent to "+
 					"peer=%x for chanID=%v", peerID,

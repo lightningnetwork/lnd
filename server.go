@@ -3432,6 +3432,11 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Create a shallow copy of the current node announcement to work on.
+	// This ensures the original announcement remains unchanged
+	// until the new announcement is fully signed and valid.
+	newNodeAnn := *s.currentNodeAnn
+
 	// First, try to update our feature manager with the updated set of
 	// features.
 	if features != nil {
@@ -3457,16 +3462,19 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 
 	// Apply the requested changes to the node announcement.
 	for _, modifier := range modifiers {
-		modifier(s.currentNodeAnn)
+		modifier(&newNodeAnn)
 	}
 
 	// Sign a new update after applying all of the passed modifiers.
 	err := netann.SignNodeAnnouncement(
-		s.nodeSigner, s.identityKeyLoc, s.currentNodeAnn,
+		s.nodeSigner, s.identityKeyLoc, &newNodeAnn,
 	)
 	if err != nil {
 		return lnwire.NodeAnnouncement{}, err
 	}
+
+	// If signing succeeds, update the current announcement.
+	*s.currentNodeAnn = newNodeAnn
 
 	return *s.currentNodeAnn, nil
 }

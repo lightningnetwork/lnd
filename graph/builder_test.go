@@ -1445,7 +1445,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 	if source != nil {
 		// Set the selected source node
-		if err := graph.SetSourceNode(source); err != nil {
+		if err := graph.SetSourceNode(ctx, source); err != nil {
 			return nil, err
 		}
 	}
@@ -1785,7 +1785,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		return nil, err
 	}
 
-	if err = graph.SetSourceNode(dbNode); err != nil {
+	if err = graph.SetSourceNode(ctx, dbNode); err != nil {
 		return nil, err
 	}
 

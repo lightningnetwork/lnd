@@ -970,7 +970,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 	// Finally, we'll update the representation on disk, and update our
 	// cached in-memory version as well.
-	if err := dbs.GraphDB.SetSourceNode(selfNode); err != nil {
+	if err := dbs.GraphDB.SetSourceNode(ctx, selfNode); err != nil {
 		return nil, fmt.Errorf("can't set self node: %w", err)
 	}
 	s.currentNodeAnn = nodeAnn
@@ -2073,7 +2073,11 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 			func() error {
 				return healthcheck.CheckTorServiceStatus(
 					s.torController,
-					s.createNewHiddenService,
+					func() error {
+						return s.createNewHiddenService(
+							context.TODO(),
+						)
+					},
 				)
 			},
 			cfg.HealthChecks.TorConnection.Interval,
@@ -2467,7 +2471,7 @@ func (s *server) Start(ctx context.Context) error {
 
 		if s.torController != nil {
 			cleanup = cleanup.add(s.torController.Stop)
-			if err := s.createNewHiddenService(); err != nil {
+			if err := s.createNewHiddenService(ctx); err != nil {
 				startErr = err
 				return
 			}
@@ -3325,7 +3329,7 @@ func (s *server) initialPeerBootstrap(ctx context.Context,
 
 // createNewHiddenService automatically sets up a v2 or v3 onion service in
 // order to listen for inbound connections over Tor.
-func (s *server) createNewHiddenService() error {
+func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Determine the different ports the server is listening on. The onion
 	// service's virtual port will map to these ports and one will be picked
 	// at random when the onion service is being accessed.
@@ -3390,7 +3394,7 @@ func (s *server) createNewHiddenService() error {
 		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
 	}
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
-	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %w", err)
 	}
 
@@ -3485,7 +3489,8 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 // applying the giving modifiers and updating the time stamp
 // to ensure it propagates through the network. Then it broadcasts
 // it to the network.
-func (s *server) updateAndBroadcastSelfNode(features *lnwire.RawFeatureVector,
+func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
+	features *lnwire.RawFeatureVector,
 	modifiers ...netann.NodeAnnModifier) error {
 
 	newNodeAnn, err := s.genNodeAnnouncement(features, modifiers...)
@@ -3512,7 +3517,7 @@ func (s *server) updateAndBroadcastSelfNode(features *lnwire.RawFeatureVector,
 
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
 
-	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
+	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %w", err)
 	}
 

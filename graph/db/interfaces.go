@@ -344,7 +344,8 @@ type V1Store interface { //nolint:interfacebloat
 	// SetSourceNode sets the source node within the graph database. The
 	// source node is to be used as the center of a star-graph within path
 	// finding algorithms.
-	SetSourceNode(node *models.LightningNode) error
+	SetSourceNode(ctx context.Context,
+		node *models.LightningNode) error
 
 	// PruneTip returns the block height and hash of the latest block that
 	// has been used to prune channels in the graph. Knowing the "prune tip"

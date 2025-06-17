@@ -421,8 +421,8 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 // algorithms.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
-	ctx := context.TODO()
+func (s *SQLStore) SetSourceNode(ctx context.Context,
+	node *models.LightningNode) error {
 
 	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		id, err := upsertNode(ctx, db, node)

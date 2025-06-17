@@ -363,6 +363,7 @@ func TestAliasLookup(t *testing.T) {
 // TestSourceNode tests the source node functionality of the graph store.
 func TestSourceNode(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraphNew(t)
 
@@ -377,7 +378,7 @@ func TestSourceNode(t *testing.T) {
 
 	// Set the source node, this should insert the node into the
 	// database in a special way indicating it's the source node.
-	require.NoError(t, graph.SetSourceNode(testNode))
+	require.NoError(t, graph.SetSourceNode(ctx, testNode))
 
 	// Retrieve the source node from the database, it should exactly match
 	// the one we set above.
@@ -511,11 +512,12 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 // database is what we expect after calling DisconnectBlockAtHeight.
 func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
-	if err := graph.SetSourceNode(sourceNode); err != nil {
+	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
@@ -1183,12 +1185,13 @@ func TestAddEdgeProof(t *testing.T) {
 // correctly iterates through the channels of the set source node.
 func TestForEachSourceNodeChannel(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraphNew(t)
 
 	// Create a source node (A) and set it as such in the DB.
 	nodeA := createTestVertex(t)
-	require.NoError(t, graph.SetSourceNode(nodeA))
+	require.NoError(t, graph.SetSourceNode(ctx, nodeA))
 
 	// Now, create a few more nodes (B, C, D) along with some channels
 	// between them. We'll create the following graph:
@@ -1685,7 +1688,7 @@ func TestGraphPruning(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
-	if err := graph.SetSourceNode(sourceNode); err != nil {
+	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
@@ -2444,7 +2447,7 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	node2 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(ctx, node2))
 
-	require.NoError(t, graph.SetSourceNode(node1))
+	require.NoError(t, graph.SetSourceNode(ctx, node1))
 
 	type chanInfo struct {
 		info models.ChannelEdgeInfo
@@ -3146,7 +3149,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	}
 
 	sourceNode := createTestVertex(t)
-	if err := graph.SetSourceNode(sourceNode); err != nil {
+	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
@@ -3290,7 +3293,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	// We'll start off by inserting our source node, to ensure that it's
 	// the only node left after we prune the graph.
 	sourceNode := createTestVertex(t)
-	if err := graph.SetSourceNode(sourceNode); err != nil {
+	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
@@ -3356,7 +3359,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.SetSourceNode(node1))
+	require.NoError(t, graph.SetSourceNode(ctx, node1))
 	node2 := createTestVertex(t)
 
 	// We'll now create an edge between the two nodes, as a result, node2
@@ -3447,19 +3450,19 @@ func TestNodeIsPublic(t *testing.T) {
 	// some graphs but not others, etc.).
 	aliceGraph := MakeTestGraph(t)
 	aliceNode := createTestVertex(t)
-	if err := aliceGraph.SetSourceNode(aliceNode); err != nil {
+	if err := aliceGraph.SetSourceNode(ctx, aliceNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
 	bobGraph := MakeTestGraph(t)
 	bobNode := createTestVertex(t)
-	if err := bobGraph.SetSourceNode(bobNode); err != nil {
+	if err := bobGraph.SetSourceNode(ctx, bobNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
 	carolGraph := MakeTestGraph(t)
 	carolNode := createTestVertex(t)
-	if err := carolGraph.SetSourceNode(carolNode); err != nil {
+	if err := carolGraph.SetSourceNode(ctx, carolNode); err != nil {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
@@ -3982,11 +3985,12 @@ func TestComputeFee(t *testing.T) {
 // executes multiple AddChannelEdge requests in a single txn.
 func TestBatchedAddChannelEdge(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
 	sourceNode := createTestVertex(t)
-	require.Nil(t, graph.SetSourceNode(sourceNode))
+	require.Nil(t, graph.SetSourceNode(ctx, sourceNode))
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.

@@ -1061,7 +1061,8 @@ func createTestCtxSingleNode(t *testing.T,
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
-		graph.SetSourceNode(sourceNode), "failed to set source node",
+		graph.SetSourceNode(context.Background(), sourceNode),
+		"failed to set source node",
 	)
 
 	graphInstance := &testGraphInstance{

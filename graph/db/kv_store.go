@@ -926,7 +926,9 @@ func (c *KVStore) sourceNode(nodes kvdb.RBucket) (*models.LightningNode,
 // SetSourceNode sets the source node within the graph database. The source
 // node is to be used as the center of a star-graph within path finding
 // algorithms.
-func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
+func (c *KVStore) SetSourceNode(_ context.Context,
+	node *models.LightningNode) error {
+
 	nodePubBytes := node.PubKeyBytes[:]
 
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {

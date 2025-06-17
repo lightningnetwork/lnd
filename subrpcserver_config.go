@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"reflect"
@@ -122,7 +123,8 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	genInvoiceFeatures func() *lnwire.FeatureVector,
 	genAmpInvoiceFeatures func() *lnwire.FeatureVector,
 	getNodeAnnouncement func() lnwire.NodeAnnouncement,
-	updateNodeAnnouncement func(features *lnwire.RawFeatureVector,
+	updateNodeAnnouncement func(ctx context.Context,
+		features *lnwire.RawFeatureVector,
 		modifiers ...netann.NodeAnnModifier) error,
 	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager,

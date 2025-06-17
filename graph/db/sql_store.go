@@ -394,8 +394,8 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 // node based off the source node.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
-	ctx := context.TODO()
+func (s *SQLStore) SourceNode(ctx context.Context) (*models.LightningNode,
+	error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {

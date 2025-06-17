@@ -347,7 +347,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Give time to process new blocks.
 	time.Sleep(time.Millisecond * 500)
 
-	selfNode, err := ctx.graph.SourceNode()
+	selfNode, err := ctx.graph.SourceNode(context.Background())
 	require.NoError(t, err)
 
 	// Create new router with same graph database.

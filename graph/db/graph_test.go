@@ -373,7 +373,7 @@ func TestSourceNode(t *testing.T) {
 
 	// Attempt to fetch the source node, this should return an error as the
 	// source node hasn't yet been set.
-	_, err := graph.SourceNode()
+	_, err := graph.SourceNode(ctx)
 	require.ErrorIs(t, err, ErrSourceNodeNotSet)
 
 	// Set the source node, this should insert the node into the
@@ -382,7 +382,7 @@ func TestSourceNode(t *testing.T) {
 
 	// Retrieve the source node from the database, it should exactly match
 	// the one we set above.
-	sourceNode, err := graph.SourceNode()
+	sourceNode, err := graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 	compareNodes(t, testNode, sourceNode)
 }

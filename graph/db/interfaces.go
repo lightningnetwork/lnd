@@ -339,7 +339,7 @@ type V1Store interface { //nolint:interfacebloat
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode() (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.LightningNode, error)
 
 	// SetSourceNode sets the source node within the graph database. The
 	// source node is to be used as the center of a star-graph within path

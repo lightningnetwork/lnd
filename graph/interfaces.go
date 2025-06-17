@@ -134,7 +134,7 @@ type DB interface {
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode() (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.LightningNode, error)
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies

@@ -681,14 +681,15 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
-func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
+func (r *rpcServer) addDeps(ctx context.Context, s *server,
+	macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
 	chanPredicate chanacceptor.MultiplexAcceptor,
 	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
-	selfNode, err := s.graphDB.SourceNode()
+	selfNode, err := s.graphDB.SourceNode(ctx)
 	if err != nil {
 		return err
 	}
@@ -7653,7 +7654,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
 	channelGraph := r.server.graphDB
-	selfNode, err := channelGraph.SourceNode()
+	selfNode, err := channelGraph.SourceNode(ctx)
 	if err != nil {
 		return nil, err
 	}

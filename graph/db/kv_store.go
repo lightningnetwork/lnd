@@ -874,7 +874,9 @@ func (c *KVStore) ForEachNodeCacheable(cb func(route.Vertex,
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
-func (c *KVStore) SourceNode() (*models.LightningNode, error) {
+func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode,
+	error) {
+
 	var source *models.LightningNode
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from

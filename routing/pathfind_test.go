@@ -1067,11 +1067,12 @@ func runBasicGraphPathFinding(t *testing.T, useCache bool) {
 func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstance,
 	test *basicGraphPathFindingTestCase) {
 
+	ctx := context.Background()
 	aliases := graphInstance.aliasMap
 	expectedHops := test.expectedHops
 	expectedHopCount := len(expectedHops)
 
-	sourceNode, err := graphInstance.graph.SourceNode()
+	sourceNode, err := graphInstance.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
@@ -1211,7 +1212,9 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1294,7 +1297,9 @@ func runPathFindingWithBlindedPathDuplicateHop(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1779,7 +1784,9 @@ func runPathNotAvailable(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -1835,7 +1842,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 
 	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 
-	sourceNode, err := ctx.graph.SourceNode()
+	sourceNode, err := ctx.graph.SourceNode(context.Background())
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
@@ -2053,7 +2060,8 @@ func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// Next, test that attempting to find a path in which the current
@@ -2083,7 +2091,8 @@ func runRouteFailMinHTLC(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
@@ -2167,7 +2176,8 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -2232,7 +2242,8 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -3162,7 +3173,9 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := testGraphInstance.graph.SourceNode()
+	sourceNode, err := testGraphInstance.graph.SourceNode(
+		context.Background(),
+	)
 	require.NoError(t, err, "unable to fetch source node")
 
 	ctx := &pathFindingTestContext{
@@ -3233,7 +3246,8 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
 	finalHtlcExpiry int32) ([]*unifiedEdge, error) {
 
-	sourceNode, err := graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.SourceNode(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3264,7 +3278,7 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 func dbFindBlindedPaths(graph *graphdb.ChannelGraph,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
 
-	sourceNode, err := graph.SourceNode()
+	sourceNode, err := graph.SourceNode(context.Background())
 	if err != nil {
 		return nil, err
 	}

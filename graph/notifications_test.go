@@ -1077,7 +1077,7 @@ func createTestCtxSingleNode(t *testing.T,
 func (c *testCtx) RestartBuilder(t *testing.T) {
 	c.chainView.Reset()
 
-	selfNode, err := c.graph.SourceNode()
+	selfNode, err := c.graph.SourceNode(context.Background())
 	require.NoError(t, err)
 
 	// With the chainView reset, we'll now re-create the builder itself, and
@@ -1150,7 +1150,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
-	selfnode, err := graphInstance.graph.SourceNode()
+	selfnode, err := graphInstance.graph.SourceNode(context.Background())
 	require.NoError(t, err)
 
 	graphBuilder, err := NewBuilder(&Config{

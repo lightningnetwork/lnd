@@ -159,13 +159,14 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	require.NoError(t, graph.DeleteLightningNode(testPub))
+	require.NoError(t, graph.DeleteLightningNode(ctx, testPub))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Attempting to delete the node again should return an error since
 	// the node is no longer known.
 	require.ErrorIs(
-		t, graph.DeleteLightningNode(testPub), ErrGraphNodeNotFound,
+		t, graph.DeleteLightningNode(ctx, testPub),
+		ErrGraphNodeNotFound,
 	)
 
 	// Finally, attempt to fetch the node again. This should fail as the
@@ -318,7 +319,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	require.NoError(t, graph.DeleteLightningNode(pubKey1))
+	require.NoError(t, graph.DeleteLightningNode(ctx, pubKey1))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Finally, attempt to fetch the node again. This should fail as the
@@ -3416,9 +3417,8 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 
 	// We'll now delete the node from the graph, this should result in it
 	// being removed from the update index as well.
-	if err := graph.DeleteLightningNode(node1.PubKeyBytes); err != nil {
-		t.Fatalf("unable to delete node: %v", err)
-	}
+	err = graph.DeleteLightningNode(ctx, node1.PubKeyBytes)
+	require.NoError(t, err)
 
 	// Now that the node has been deleted, we'll again query the nodes in
 	// the horizon. This time we should have no nodes at all.

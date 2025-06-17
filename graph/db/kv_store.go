@@ -1032,7 +1032,9 @@ func (c *KVStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 
 // DeleteLightningNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *KVStore) DeleteLightningNode(nodePub route.Vertex) error {
+func (c *KVStore) DeleteLightningNode(_ context.Context,
+	nodePub route.Vertex) error {
+
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		nodes := tx.ReadWriteBucket(nodeBucket)

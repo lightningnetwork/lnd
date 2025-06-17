@@ -286,8 +286,10 @@ func (c *ChannelGraph) AddLightningNode(ctx context.Context,
 
 // DeleteLightningNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *ChannelGraph) DeleteLightningNode(nodePub route.Vertex) error {
-	err := c.V1Store.DeleteLightningNode(nodePub)
+func (c *ChannelGraph) DeleteLightningNode(ctx context.Context,
+	nodePub route.Vertex) error {
+
+	err := c.V1Store.DeleteLightningNode(ctx, nodePub)
 	if err != nil {
 		return err
 	}

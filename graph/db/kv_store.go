@@ -379,12 +379,14 @@ func initKVStore(db kvdb.Backend) error {
 func (c *KVStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 	error) {
 
+	ctx := context.TODO()
+
 	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
 	if err != nil {
 		return false, nil, err
 	}
 
-	node, err := c.FetchLightningNode(pubKey)
+	node, err := c.FetchLightningNode(ctx, pubKey)
 	// We don't consider it an error if the graph is unaware of the node.
 	switch {
 	case err != nil && !errors.Is(err, ErrGraphNodeNotFound):
@@ -2995,8 +2997,8 @@ func (c *KVStore) FetchLightningNodeTx(tx kvdb.RTx, nodePub route.Vertex) (
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *KVStore) FetchLightningNode(nodePub route.Vertex) (
-	*models.LightningNode, error) {
+func (c *KVStore) FetchLightningNode(_ context.Context,
+	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	return c.fetchLightningNode(nil, nodePub)
 }

@@ -193,10 +193,8 @@ func (s *SQLStore) AddLightningNode(ctx context.Context,
 // returned.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) FetchLightningNode(pubKey route.Vertex) (
-	*models.LightningNode, error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) FetchLightningNode(ctx context.Context,
+	pubKey route.Vertex) (*models.LightningNode, error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {

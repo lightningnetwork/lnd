@@ -132,7 +132,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(testPub)
+	dbNode, err := graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err, "unable to locate node")
 
 	_, exists, err := graph.HasLightningNode(dbNode.PubKeyBytes)
@@ -170,7 +170,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(testPub)
+	_, err = graph.FetchLightningNode(ctx, testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 
 	// Now, we'll specifically test the updating of addresses of a node
@@ -192,7 +192,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, graph.AddLightningNode(ctx, node))
 
 	// Fetch the node and assert the empty addresses.
-	dbNode, err = graph.FetchLightningNode(testPub)
+	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Empty(t, dbNode.Addresses)
 
@@ -219,7 +219,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, graph.AddLightningNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(testPub)
+	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
@@ -240,7 +240,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, graph.AddLightningNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(testPub)
+	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
@@ -253,7 +253,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, graph.AddLightningNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(testPub)
+	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 }
@@ -262,6 +262,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 // only the pubkey is known to the database.
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraphNew(t)
 
@@ -282,9 +283,9 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, fetch the node2 from the database to ensure everything was
 	// serialized properly.
-	dbNode1, err := graph.FetchLightningNode(pubKey1)
+	dbNode1, err := graph.FetchLightningNode(ctx, pubKey1)
 	require.NoError(t, err)
-	dbNode2, err := graph.FetchLightningNode(pubKey2)
+	dbNode2, err := graph.FetchLightningNode(ctx, pubKey2)
 	require.NoError(t, err)
 
 	_, exists, err := graph.HasLightningNode(dbNode1.PubKeyBytes)
@@ -322,7 +323,7 @@ func TestPartialNode(t *testing.T) {
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(testPub)
+	_, err = graph.FetchLightningNode(ctx, testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
@@ -3338,7 +3339,7 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
-	_, err := graph.FetchLightningNode(node3.PubKeyBytes)
+	_, err := graph.FetchLightningNode(ctx, node3.PubKeyBytes)
 	require.NotNil(t, err)
 }
 
@@ -3364,11 +3365,11 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
-	node1, err := graph.FetchLightningNode(node1.PubKeyBytes)
+	node1, err := graph.FetchLightningNode(ctx, node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
 	require.True(t, node1.HaveNodeAnnouncement)
 
-	node2, err = graph.FetchLightningNode(node2.PubKeyBytes)
+	node2, err = graph.FetchLightningNode(ctx, node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
 	require.False(t, node2.HaveNodeAnnouncement)
 
@@ -4350,7 +4351,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read the node from disk.
-	diskNode, err := graph.FetchLightningNode(node.PubKeyBytes)
+	diskNode, err := graph.FetchLightningNode(ctx, node.PubKeyBytes)
 	require.NoError(t, err)
 
 	// Convert it back to a wire message.

@@ -126,8 +126,8 @@ type V1Store interface { //nolint:interfacebloat
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(nodePub route.Vertex) (
-		*models.LightningNode, error)
+	FetchLightningNode(ctx context.Context,
+		nodePub route.Vertex) (*models.LightningNode, error)
 
 	// HasLightningNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -30,6 +32,10 @@ var (
 	// ErrMarkerNotPresent is the error that is returned if the queried
 	// marker is not present in the given database.
 	ErrMarkerNotPresent = errors.New("marker not present")
+
+	// ErrInvalidOptionalVersion is the error that is returned if the
+	// optional version persisted in the database is invalid.
+	ErrInvalidOptionalVersion = errors.New("invalid optional version")
 )
 
 // Meta structure holds the database meta information.
@@ -104,15 +110,28 @@ type OptionalMeta struct {
 	Versions map[uint64]string
 }
 
+// String returns a string representation of the optional meta.
 func (om *OptionalMeta) String() string {
-	s := ""
-	for index, name := range om.Versions {
-		s += fmt.Sprintf("%d: %s", index, name)
+	if len(om.Versions) == 0 {
+		return "empty"
 	}
-	if s == "" {
-		s = "empty"
+
+	// Create a slice of indices to sort
+	indices := make([]uint64, 0, len(om.Versions))
+	for index := range om.Versions {
+		indices = append(indices, index)
 	}
-	return s
+
+	// Sort the indices in ascending order.
+	slices.Sort(indices)
+
+	// Create the string parts in sorted order.
+	parts := make([]string, len(indices))
+	for i, index := range indices {
+		parts[i] = fmt.Sprintf("%d: %s", index, om.Versions[index])
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // fetchOptionalMeta reads the optional meta from the database.
@@ -146,7 +165,20 @@ func (d *DB) fetchOptionalMeta() (*OptionalMeta, error) {
 			if err != nil {
 				return err
 			}
-			om.Versions[version] = optionalVersions[i].name
+
+			// This check would not allow to downgrade LND software
+			// to a version with an optional migration when an
+			// optional migration not known to the current version
+			// has already been applied.
+			if version >= uint64(len(optionalVersions)) {
+				return fmt.Errorf("optional version read "+
+					"from db is %d, but only optional "+
+					"migrations up to %d are known: %w",
+					version, len(optionalVersions)-1,
+					ErrInvalidOptionalVersion)
+			}
+
+			om.Versions[version] = optionalVersions[version].name
 		}
 
 		return nil
@@ -174,8 +206,12 @@ func (d *DB) putOptionalMeta(om *OptionalMeta) error {
 			return err
 		}
 
-		// Write the version indexes.
+		// Write the version indexes of the single migrations.
 		for v := range om.Versions {
+			if v >= uint64(len(optionalVersions)) {
+				return ErrInvalidOptionalVersion
+			}
+
 			err := tlv.WriteVarInt(&b, v, &[8]byte{})
 			if err != nil {
 				return err

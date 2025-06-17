@@ -4271,43 +4271,48 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 // notifyOpenChannelPeerEvent updates the access manager's maps and then calls
 // the channelNotifier's NotifyOpenChannelEvent.
 func (s *server) notifyOpenChannelPeerEvent(op wire.OutPoint,
-	remotePub *btcec.PublicKey) error {
+	remotePub *btcec.PublicKey) {
 
 	// Call newOpenChan to update the access manager's maps for this peer.
 	if err := s.peerAccessMan.newOpenChan(remotePub); err != nil {
-		return err
+		srvrLog.Errorf("Failed to update peer[%x] access status after "+
+			"channel[%v] open", remotePub.SerializeCompressed(), op)
 	}
 
 	// Notify subscribers about this open channel event.
 	s.channelNotifier.NotifyOpenChannelEvent(op)
-
-	return nil
 }
 
 // notifyPendingOpenChannelPeerEvent updates the access manager's maps and then
 // calls the channelNotifier's NotifyPendingOpenChannelEvent.
 func (s *server) notifyPendingOpenChannelPeerEvent(op wire.OutPoint,
-	pendingChan *channeldb.OpenChannel, remotePub *btcec.PublicKey) error {
+	pendingChan *channeldb.OpenChannel, remotePub *btcec.PublicKey) {
 
 	// Call newPendingOpenChan to update the access manager's maps for this
 	// peer.
 	if err := s.peerAccessMan.newPendingOpenChan(remotePub); err != nil {
-		return err
+		srvrLog.Errorf("Failed to update peer[%x] access status after "+
+			"channel[%v] pending open",
+			remotePub.SerializeCompressed(), op)
 	}
 
 	// Notify subscribers about this event.
 	s.channelNotifier.NotifyPendingOpenChannelEvent(op, pendingChan)
-
-	return nil
 }
 
 // notifyFundingTimeoutPeerEvent updates the access manager's maps and then
 // calls the channelNotifier's NotifyFundingTimeout.
 func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
-	remotePub *btcec.PublicKey) error {
+	remotePub *btcec.PublicKey) {
 
 	// Call newPendingCloseChan to potentially demote the peer.
 	err := s.peerAccessMan.newPendingCloseChan(remotePub)
+	if err != nil {
+		srvrLog.Errorf("Failed to update peer[%x] access status after "+
+			"channel[%v] pending close",
+			remotePub.SerializeCompressed(), op)
+	}
+
 	if errors.Is(err, ErrNoMoreRestrictedAccessSlots) {
 		// If we encounter an error while attempting to disconnect the
 		// peer, log the error.
@@ -4318,8 +4323,6 @@ func (s *server) notifyFundingTimeoutPeerEvent(op wire.OutPoint,
 
 	// Notify subscribers about this event.
 	s.channelNotifier.NotifyFundingTimeout(op)
-
-	return nil
 }
 
 // peerConnected is a function that handles initialization a newly connected

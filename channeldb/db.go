@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration31"
 	"github.com/lightningnetwork/lnd/channeldb/migration32"
 	"github.com/lightningnetwork/lnd/channeldb/migration33"
+	"github.com/lightningnetwork/lnd/channeldb/migration34"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -74,12 +75,14 @@ type mandatoryVersion struct {
 // optional migrations.
 type MigrationConfig interface {
 	migration30.MigrateRevLogConfig
+	migration34.MigrationConfig
 }
 
 // MigrationConfigImpl is a super set of all the various migration configs and
 // an implementation of MigrationConfig.
 type MigrationConfigImpl struct {
 	migration30.MigrateRevLogConfigImpl
+	migration34.MigrationConfigImpl
 }
 
 // optionalMigration defines an optional migration function. When a migration
@@ -313,6 +316,16 @@ var (
 				cfg MigrationConfig) error {
 
 				return migration30.MigrateRevocationLog(db, cfg)
+			},
+		},
+		{
+			name: "gc_decayed_log",
+			migration: func(db kvdb.Backend,
+				cfg MigrationConfig) error {
+
+				return migration34.MigrateDecayedLog(
+					db, cfg,
+				)
 			},
 		},
 	}
@@ -1731,10 +1744,8 @@ func (d *DB) syncVersions(versions []mandatoryVersion) error {
 	}, func() {})
 }
 
-// applyOptionalVersions takes a config to determine whether the optional
-// migrations will be applied.
-//
-// NOTE: only support the prune_revocation_log optional migration atm.
+// applyOptionalVersions applies the optional migrations to the database if
+// specified in the config.
 func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	// TODO(yy): need to design the db to support dry run for optional
 	// migrations.
@@ -1761,6 +1772,9 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	migrationCfg := &MigrationConfigImpl{
 		migration30.MigrateRevLogConfigImpl{
 			NoAmountData: d.noRevLogAmtData,
+		},
+		migration34.MigrationConfigImpl{
+			DecayedLog: cfg.DecayedLog,
 		},
 	}
 

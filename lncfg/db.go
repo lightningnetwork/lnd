@@ -95,6 +95,8 @@ type DB struct {
 	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
 
 	NoRevLogAmtData bool `long:"no-rev-log-amt-data" description:"If set, the to-local and to-remote output amounts of revoked commitment transactions will not be stored in the revocation log. Note that once this data is lost, a watchtower client will not be able to back up the revoked state."`
+
+	NoGcDecayedLog bool `long:"no-gc-decayed-log" description:"Do not run the optional migration that garbage collects the decayed log to save disk space."`
 }
 
 // DefaultDB creates and returns a new default DB config.

@@ -481,15 +481,15 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 	}
 }
 
-// checkIncomingConnBanScore checks whether, given the remote's public hex-
+// checkAcceptIncomingConn checks whether, given the remote's public hex-
 // encoded key, we should not accept this incoming connection or immediately
 // disconnect. This does not assign to the server's peerScores maps. This is
 // just an inbound filter that the brontide listeners use.
 //
-// TODO(yy): We should also consider removing this `checkIncomingConnBanScore`
+// TODO(yy): We should also consider removing this `checkAcceptIncomingConn`
 // check as a) it doesn't check for ban score; and b) we should, and already
 // have this check when we handle incoming connection in `InboundPeerConnected`.
-func (a *accessMan) checkIncomingConnBanScore(remotePub *btcec.PublicKey) (
+func (a *accessMan) checkAcceptIncomingConn(remotePub *btcec.PublicKey) (
 	bool, error) {
 
 	ctx := btclog.WithCtx(

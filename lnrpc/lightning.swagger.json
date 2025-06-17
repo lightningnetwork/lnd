@@ -782,6 +782,7 @@
     "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}": {
       "delete": {
         "summary": "lncli: `closechannel`\nCloseChannel attempts to close an active channel identified by its channel\noutpoint (ChannelPoint). The actions of this method can additionally be\naugmented to attempt a force close after a timeout period in the case of an\ninactive peer. If a non-force close (cooperative closure) is requested,\nthen the user can specify either a target number of blocks until the\nclosure transaction is confirmed, or a manual fee rate. If neither are\nspecified, then a default lax, block confirmation target is used.",
+        "description": "Starting with v0.19.0, if the `--protocol.rbf-coop-close` config option is\nenabled, users can issue multiple CloseChannel calls with increasing fee\nrates to use RBF to bump an existing signed co-op close transaction.\nChannel peers must support option_simple_close for this to work.",
         "operationId": "Lightning_CloseChannel",
         "responses": {
           "200": {

@@ -395,6 +395,8 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	capacity btcutil.Amount) (*ChannelEdge, *ChannelEdge, error) {
 
+	ctx := context.Background()
+
 	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
 		if pub != nil {
 			vertex, err := route.NewVertexFromBytes(
@@ -404,7 +406,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(vertex)
+			dbNode, err := d.db.FetchLightningNode(ctx, vertex)
 			switch {
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
@@ -422,7 +424,9 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					AuthSigBytes: testSig.Serialize(),
 				}
 				graphNode.AddPubKey(pub)
-				err := d.db.AddLightningNode(graphNode)
+				err := d.db.AddLightningNode(
+					context.Background(), graphNode,
+				)
 				if err != nil {
 					return nil, err
 				}
@@ -450,7 +454,9 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			AuthSigBytes: testSig.Serialize(),
 		}
 		dbNode.AddPubKey(nodeKey)
-		if err := d.db.AddLightningNode(dbNode); err != nil {
+		if err := d.db.AddLightningNode(
+			context.Background(), dbNode,
+		); err != nil {
 			return nil, err
 		}
 
@@ -554,7 +560,8 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 		AuthSigBytes: testSig.Serialize(),
 	}
 	dbNode.AddPubKey(nodeKey)
-	if err := d.db.AddLightningNode(dbNode); err != nil {
+	err = d.db.AddLightningNode(context.Background(), dbNode)
+	if err != nil {
 		return nil, err
 	}
 
@@ -732,7 +739,7 @@ func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 }
 
 func (t *testNodeTx) FetchNode(pub route.Vertex) (graphdb.NodeRTx, error) {
-	node, err := t.db.db.FetchLightningNode(pub)
+	node, err := t.db.db.FetchLightningNode(context.Background(), pub)
 	if err != nil {
 		return nil, err
 	}

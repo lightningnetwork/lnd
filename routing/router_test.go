@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/color"
 	"math"
@@ -2706,6 +2707,7 @@ func TestNewRouteRequest(t *testing.T) {
 // announcements for the channel vertexes to be able to use the channel.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
@@ -2717,11 +2719,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(pub1)
+	_, exists1, err := ctx.graph.HasLightningNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists1)
 
-	_, exists2, err := ctx.graph.HasLightningNode(pub2)
+	_, exists2, err := ctx.graph.HasLightningNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists2)
 
@@ -2777,11 +2779,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(pub1)
+	_, exists1, err = ctx.graph.HasLightningNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists1)
 
-	_, exists2, err = ctx.graph.HasLightningNode(pub2)
+	_, exists2, err = ctx.graph.HasLightningNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists2)
 
@@ -2879,7 +2881,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(n1))
+	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n1))
 
 	n2 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
@@ -2892,7 +2894,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(n2))
+	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n2))
 
 	// Should still be able to find the route, and the info should be
 	// updated.
@@ -2905,12 +2907,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
-	copy1, err := ctx.graph.FetchLightningNode(pub1)
+	copy1, err := ctx.graph.FetchLightningNode(ctxb, pub1)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n1.Alias, copy1.Alias)
 
-	copy2, err := ctx.graph.FetchLightningNode(pub2)
+	copy2, err := ctx.graph.FetchLightningNode(ctxb, pub2)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n2.Alias, copy2.Alias)

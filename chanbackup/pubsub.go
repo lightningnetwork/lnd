@@ -2,6 +2,7 @@ package chanbackup
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -81,7 +82,8 @@ type ChannelNotifier interface {
 	// synchronization point to ensure that the chanbackup.SubSwapper does
 	// not miss any channel open or close events in the period between when
 	// it's created, and when it requests the channel subscription.
-	SubscribeChans(map[wire.OutPoint]struct{}) (*ChannelSubscription, error)
+	SubscribeChans(context.Context,
+		map[wire.OutPoint]struct{}) (*ChannelSubscription, error)
 }
 
 // SubSwapper subscribes to new updates to the open channel state, and then
@@ -119,8 +121,9 @@ type SubSwapper struct {
 // set of channels, and the required interfaces to be notified of new channel
 // updates, pack a multi backup, and swap the current best backup from its
 // storage location.
-func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
-	keyRing keychain.KeyRing, backupSwapper Swapper) (*SubSwapper, error) {
+func NewSubSwapper(ctx context.Context, startingChans []Single,
+	chanNotifier ChannelNotifier, keyRing keychain.KeyRing,
+	backupSwapper Swapper) (*SubSwapper, error) {
 
 	// First, we'll subscribe to the latest set of channel updates given
 	// the set of channels we already know of.
@@ -128,7 +131,7 @@ func NewSubSwapper(startingChans []Single, chanNotifier ChannelNotifier,
 	for _, chanBackup := range startingChans {
 		knownChans[chanBackup.FundingOutpoint] = struct{}{}
 	}
-	chanEvents, err := chanNotifier.SubscribeChans(knownChans)
+	chanEvents, err := chanNotifier.SubscribeChans(ctx, knownChans)
 	if err != nil {
 		return nil, err
 	}

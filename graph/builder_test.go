@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -106,7 +107,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	}
 	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
 
-	err := ctx.builder.AddNode(node)
+	err := ctx.builder.AddNode(context.Background(), node)
 	if !IsError(err, ErrIgnored) {
 		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
 	}
@@ -1012,6 +1013,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 // node announcements.
 func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1052,7 +1054,7 @@ func TestIsStaleNode(t *testing.T) {
 	// Before we add the node, if we query for staleness, we should get
 	// false, as we haven't added the full node.
 	updateTimeStamp := time.Unix(123, 0)
-	if ctx.builder.IsStaleNode(pub1, updateTimeStamp) {
+	if ctx.builder.IsStaleNode(ctxb, pub1, updateTimeStamp) {
 		t.Fatalf("incorrectly detected node as stale")
 	}
 
@@ -1068,20 +1070,20 @@ func TestIsStaleNode(t *testing.T) {
 		Features:             testFeatures,
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
-	if err := ctx.builder.AddNode(n1); err != nil {
+	if err := ctx.builder.AddNode(context.Background(), n1); err != nil {
 		t.Fatalf("could not add node: %v", err)
 	}
 
 	// If we use the same timestamp and query for staleness, we should get
 	// true.
-	if !ctx.builder.IsStaleNode(pub1, updateTimeStamp) {
+	if !ctx.builder.IsStaleNode(ctxb, pub1, updateTimeStamp) {
 		t.Fatalf("failure to detect stale node update")
 	}
 
 	// If we update the timestamp and once again query for staleness, it
 	// should report false.
 	newTimeStamp := time.Unix(1234, 0)
-	if ctx.builder.IsStaleNode(pub1, newTimeStamp) {
+	if ctx.builder.IsStaleNode(ctxb, pub1, newTimeStamp) {
 		t.Fatalf("incorrectly detected node as stale")
 	}
 }
@@ -1328,6 +1330,8 @@ func createTestCtxFromFile(t *testing.T,
 func parseTestGraph(t *testing.T, useCache bool, path string) (
 	*testGraphInstance, error) {
 
+	ctx := context.Background()
+
 	graphJSON, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -1434,7 +1438,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(dbNode); err != nil {
+		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 	}
@@ -1715,6 +1719,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testChannels []*testChannel, source string) (*testGraphInstance,
 	error) {
 
+	ctx := context.Background()
+
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
 	// need to be unique.
@@ -1763,7 +1769,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(dbNode); err != nil {
+		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 

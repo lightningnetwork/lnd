@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"context"
 	"net"
 	"time"
 
@@ -56,13 +57,14 @@ type V1Store interface { //nolint:interfacebloat
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *models.LightningNode,
+	AddLightningNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddrsForNode returns all known addresses for the target node public
 	// key that the graph DB is aware of. The returned boolean indicates if
 	// the given node is unknown to the graph DB or not.
-	AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr, error)
+	AddrsForNode(ctx context.Context,
+		nodePub *btcec.PublicKey) (bool, []net.Addr, error)
 
 	// ForEachSourceNodeChannel iterates through all channels of the source
 	// node, executing the passed callback on each. The call-back is
@@ -113,7 +115,7 @@ type V1Store interface { //nolint:interfacebloat
 
 	// DeleteLightningNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.
-	DeleteLightningNode(nodePub route.Vertex) error
+	DeleteLightningNode(ctx context.Context, nodePub route.Vertex) error
 
 	// NodeUpdatesInHorizon returns all the known lightning node which have
 	// an update timestamp within the passed range. This method can be used
@@ -125,16 +127,16 @@ type V1Store interface { //nolint:interfacebloat
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(nodePub route.Vertex) (
-		*models.LightningNode, error)
+	FetchLightningNode(ctx context.Context,
+		nodePub route.Vertex) (*models.LightningNode, error)
 
 	// HasLightningNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(nodePub [33]byte) (time.Time, bool,
-		error)
+	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
+		bool, error)
 
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the

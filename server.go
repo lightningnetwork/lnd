@@ -555,7 +555,7 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 // passed listener address.
 //
 //nolint:funlen
-func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
+func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	dbs *DatabaseInstances, cc *chainreg.ChainControl,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
@@ -1715,13 +1715,13 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 		cfg.BackupFilePath, cfg.NoBackupArchive,
 	)
 	startingChans, err := chanbackup.FetchStaticChanBackups(
-		s.chanStateDB, s.addrSource,
+		ctx, s.chanStateDB, s.addrSource,
 	)
 	if err != nil {
 		return nil, err
 	}
 	s.chanSubSwapper, err = chanbackup.NewSubSwapper(
-		startingChans, chanNotifier, s.cc.KeyRing, backupFile,
+		ctx, startingChans, chanNotifier, s.cc.KeyRing, backupFile,
 	)
 	if err != nil {
 		return nil, err
@@ -2664,6 +2664,8 @@ func (s *server) Stop() error {
 	s.stop.Do(func() {
 		atomic.StoreInt32(&s.stopping, 1)
 
+		ctx := context.Background()
+
 		close(s.quit)
 
 		// Shutdown connMgr first to prevent conns during shutdown.
@@ -2737,7 +2739,7 @@ func (s *server) Stop() error {
 		// Update channel.backup file. Make sure to do it before
 		// stopping chanSubSwapper.
 		singles, err := chanbackup.FetchStaticChanBackups(
-			s.chanStateDB, s.addrSource,
+			ctx, s.chanStateDB, s.addrSource,
 		)
 		if err != nil {
 			srvrLog.Warnf("failed to fetch channel states: %v",
@@ -4637,6 +4639,8 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	defer s.wg.Done()
 
+	ctx := context.TODO()
+
 	p.WaitForDisconnect(ready)
 
 	srvrLog.Debugf("Peer %v has been disconnected", p)
@@ -4723,7 +4727,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// We'll ensure that we locate all the peers advertised addresses for
 	// reconnection purposes.
-	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(pubKey)
+	advertisedAddrs, err := s.fetchNodeAdvertisedAddrs(ctx, pubKey)
 	switch {
 	// We found advertised addresses, so use them.
 	case err == nil:
@@ -5216,13 +5220,15 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 var errNoAdvertisedAddr = errors.New("no advertised address found")
 
 // fetchNodeAdvertisedAddrs attempts to fetch the advertised addresses of a node.
-func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, error) {
+func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
+	pub *btcec.PublicKey) ([]net.Addr, error) {
+
 	vertex, err := route.NewVertexFromBytes(pub.SerializeCompressed())
 	if err != nil {
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(vertex)
+	node, err := s.graphDB.FetchLightningNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}

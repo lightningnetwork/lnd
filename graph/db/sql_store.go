@@ -174,10 +174,8 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 // information.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddLightningNode(node *models.LightningNode,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddLightningNode(ctx context.Context,
+	node *models.LightningNode, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[SQLQueries]{
 		Opts: batch.NewSchedulerOptions(opts...),
@@ -195,10 +193,8 @@ func (s *SQLStore) AddLightningNode(node *models.LightningNode,
 // returned.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) FetchLightningNode(pubKey route.Vertex) (
-	*models.LightningNode, error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) FetchLightningNode(ctx context.Context,
+	pubKey route.Vertex) (*models.LightningNode, error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -221,10 +217,8 @@ func (s *SQLStore) FetchLightningNode(pubKey route.Vertex) (
 // boolean.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
-	error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) HasLightningNode(ctx context.Context,
+	pubKey [33]byte) (time.Time, bool, error) {
 
 	var (
 		exists     bool
@@ -264,10 +258,8 @@ func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
 // given node is unknown to the graph DB or not.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
-	error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	var (
 		addresses []net.Addr
@@ -297,8 +289,8 @@ func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
 // from the database according to the node's public key.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) DeleteLightningNode(pubKey route.Vertex) error {
-	ctx := context.TODO()
+func (s *SQLStore) DeleteLightningNode(ctx context.Context,
+	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteNodeByPubKey(

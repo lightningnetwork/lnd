@@ -2022,7 +2022,7 @@ func (d *AuthenticatedGossiper) fetchPKScript(chanID *lnwire.ShortChannelID) (
 
 // addNode processes the given node announcement, and adds it to our channel
 // graph.
-func (d *AuthenticatedGossiper) addNode(_ context.Context,
+func (d *AuthenticatedGossiper) addNode(ctx context.Context,
 	msg *lnwire.NodeAnnouncement, op ...batch.SchedulerOption) error {
 
 	if err := netann.ValidateNodeAnn(msg); err != nil {
@@ -2030,7 +2030,9 @@ func (d *AuthenticatedGossiper) addNode(_ context.Context,
 			err)
 	}
 
-	return d.cfg.Graph.AddNode(models.NodeFromWireAnnouncement(msg), op...)
+	return d.cfg.Graph.AddNode(
+		ctx, models.NodeFromWireAnnouncement(msg), op...,
+	)
 }
 
 // isPremature decides whether a given network message has a block height+delta
@@ -2204,10 +2206,10 @@ func (d *AuthenticatedGossiper) processZombieUpdate(_ context.Context,
 
 // fetchNodeAnn fetches the latest signed node announcement from our point of
 // view for the node with the given public key.
-func (d *AuthenticatedGossiper) fetchNodeAnn(_ context.Context,
+func (d *AuthenticatedGossiper) fetchNodeAnn(ctx context.Context,
 	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
 
-	node, err := d.cfg.Graph.FetchLightningNode(pubKey)
+	node, err := d.cfg.Graph.FetchLightningNode(ctx, pubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2441,7 +2443,7 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 
 	// We'll quickly ask the router if it already has a newer update for
 	// this node so we can skip validating signatures if not required.
-	if d.cfg.Graph.IsStaleNode(nodeAnn.NodeID, timestamp) {
+	if d.cfg.Graph.IsStaleNode(ctx, nodeAnn.NodeID, timestamp) {
 		log.Debugf("Skipped processing stale node: %x", nodeAnn.NodeID)
 		nMsg.err <- nil
 		return nil, true

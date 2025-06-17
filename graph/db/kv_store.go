@@ -376,15 +376,15 @@ func initKVStore(db kvdb.Backend) error {
 // unknown to the graph DB or not.
 //
 // NOTE: this is part of the channeldb.AddrSource interface.
-func (c *KVStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
-	error) {
+func (c *KVStore) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
 	if err != nil {
 		return false, nil, err
 	}
 
-	node, err := c.FetchLightningNode(pubKey)
+	node, err := c.FetchLightningNode(ctx, pubKey)
 	// We don't consider it an error if the graph is unaware of the node.
 	switch {
 	case err != nil && !errors.Is(err, ErrGraphNodeNotFound):
@@ -957,10 +957,8 @@ func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
 // channel update.
 //
 // TODO(roasbeef): also need sig of announcement.
-func (c *KVStore) AddLightningNode(node *models.LightningNode,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (c *KVStore) AddLightningNode(ctx context.Context,
+	node *models.LightningNode, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
@@ -1032,7 +1030,9 @@ func (c *KVStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 
 // DeleteLightningNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *KVStore) DeleteLightningNode(nodePub route.Vertex) error {
+func (c *KVStore) DeleteLightningNode(_ context.Context,
+	nodePub route.Vertex) error {
+
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		nodes := tx.ReadWriteBucket(nodeBucket)
@@ -2997,8 +2997,8 @@ func (c *KVStore) FetchLightningNodeTx(tx kvdb.RTx, nodePub route.Vertex) (
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *KVStore) FetchLightningNode(nodePub route.Vertex) (
-	*models.LightningNode, error) {
+func (c *KVStore) FetchLightningNode(_ context.Context,
+	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	return c.fetchLightningNode(nil, nodePub)
 }
@@ -3065,8 +3065,8 @@ func (c *KVStore) fetchLightningNode(tx kvdb.RTx,
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
 // boolean.
-func (c *KVStore) HasLightningNode(nodePub [33]byte) (time.Time, bool,
-	error) {
+func (c *KVStore) HasLightningNode(_ context.Context,
+	nodePub [33]byte) (time.Time, bool, error) {
 
 	var (
 		updateTime time.Time

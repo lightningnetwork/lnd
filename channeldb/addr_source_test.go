@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -19,6 +20,7 @@ var (
 // deduplicates the results of a set of AddrSource implementations.
 func TestMultiAddrSource(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	var pk1 = newTestPubKey(t)
 
@@ -35,12 +37,12 @@ func TestMultiAddrSource(t *testing.T) {
 		})
 
 		// Let source 1 know of 2 addresses (addr 1 and 2) for node 1.
-		src1.On("AddrsForNode", pk1).Return(
+		src1.On("AddrsForNode", ctx, pk1).Return(
 			true, []net.Addr{addr1, addr2}, nil,
 		).Once()
 
 		// Let source 2 know of 2 addresses (addr 2 and 3) for node 1.
-		src2.On("AddrsForNode", pk1).Return(
+		src2.On("AddrsForNode", ctx, pk1).Return(
 			true, []net.Addr{addr2, addr3}, nil,
 			[]net.Addr{addr2, addr3}, nil,
 		).Once()
@@ -51,7 +53,7 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Query it for the addresses known for node 1. The results
 		// should contain addr 1, 2 and 3.
-		known, addrs, err := multiSrc.AddrsForNode(pk1)
+		known, addrs, err := multiSrc.AddrsForNode(ctx, pk1)
 		require.NoError(t, err)
 		require.True(t, known)
 		require.ElementsMatch(t, addrs, []net.Addr{addr1, addr2, addr3})
@@ -70,10 +72,10 @@ func TestMultiAddrSource(t *testing.T) {
 		})
 
 		// Let source 1 know of address 1 for node 1.
-		src1.On("AddrsForNode", pk1).Return(
+		src1.On("AddrsForNode", ctx, pk1).Return(
 			true, []net.Addr{addr1}, nil,
 		).Once()
-		src2.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
+		src2.On("AddrsForNode", ctx, pk1).Return(false, nil, nil).Once()
 
 		// Create a multi-addr source that consists of both source 1
 		// and 2.
@@ -81,7 +83,7 @@ func TestMultiAddrSource(t *testing.T) {
 
 		// Query it for the addresses known for node 1. The results
 		// should contain addr 1.
-		known, addrs, err := multiSrc.AddrsForNode(pk1)
+		known, addrs, err := multiSrc.AddrsForNode(ctx, pk1)
 		require.NoError(t, err)
 		require.True(t, known)
 		require.ElementsMatch(t, addrs, []net.Addr{addr1})
@@ -103,13 +105,13 @@ func TestMultiAddrSource(t *testing.T) {
 		// and 2. Neither source known of node 1.
 		multiSrc := NewMultiAddrSource(src1, src2)
 
-		src1.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
-		src2.On("AddrsForNode", pk1).Return(false, nil, nil).Once()
+		src1.On("AddrsForNode", ctx, pk1).Return(false, nil, nil).Once()
+		src2.On("AddrsForNode", ctx, pk1).Return(false, nil, nil).Once()
 
 		// Query it for the addresses known for node 1. It should return
 		// false to indicate that the node is unknown to all backing
 		// sources.
-		known, addrs, err := multiSrc.AddrsForNode(pk1)
+		known, addrs, err := multiSrc.AddrsForNode(ctx, pk1)
 		require.NoError(t, err)
 		require.False(t, known)
 		require.Empty(t, addrs)
@@ -127,10 +129,10 @@ func newMockAddrSource(t *testing.T) *mockAddrSource {
 	return &mockAddrSource{t: t}
 }
 
-func (m *mockAddrSource) AddrsForNode(pub *btcec.PublicKey) (bool, []net.Addr,
-	error) {
+func (m *mockAddrSource) AddrsForNode(ctx context.Context,
+	pub *btcec.PublicKey) (bool, []net.Addr, error) {
 
-	args := m.Called(pub)
+	args := m.Called(ctx, pub)
 	if args.Get(1) == nil {
 		return args.Bool(0), nil, args.Error(2)
 	}

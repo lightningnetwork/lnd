@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"context"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -45,7 +46,8 @@ type ChannelGraphSource interface {
 	// for the target node with a more recent timestamp. This method will
 	// also return true if we don't have an active channel announcement for
 	// the target node.
-	IsStaleNode(node route.Vertex, timestamp time.Time) bool
+	IsStaleNode(ctx context.Context, node route.Vertex,
+		timestamp time.Time) bool
 
 	// IsPublicNode determines whether the given vertex is seen as a public
 	// node in the graph from the graph's source node's point of view.
@@ -83,7 +85,8 @@ type ChannelGraphSource interface {
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
-	FetchLightningNode(route.Vertex) (*models.LightningNode, error)
+	FetchLightningNode(context.Context,
+		route.Vertex) (*models.LightningNode, error)
 
 	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
 	MarkZombieEdge(chanID uint64) error
@@ -202,7 +205,7 @@ type DB interface {
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *models.LightningNode,
+	AddLightningNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
@@ -236,13 +239,14 @@ type DB interface {
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(nodePub [33]byte) (time.Time, bool, error)
+	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
+		bool, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(nodePub route.Vertex) (*models.LightningNode,
-		error)
+	FetchLightningNode(ctx context.Context,
+		nodePub route.Vertex) (*models.LightningNode, error)
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

@@ -109,7 +109,7 @@ func newMockRouter(t *testing.T, height uint32) *mockGraphSource {
 
 var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *models.LightningNode,
+func (r *mockGraphSource) AddNode(_ context.Context, node *models.LightningNode,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
@@ -294,7 +294,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return &chanInfo, edge1, edge2, nil
 }
 
-func (r *mockGraphSource) FetchLightningNode(
+func (r *mockGraphSource) FetchLightningNode(_ context.Context,
 	nodePub route.Vertex) (*models.LightningNode, error) {
 
 	for _, node := range r.nodes {
@@ -308,7 +308,9 @@ func (r *mockGraphSource) FetchLightningNode(
 
 // IsStaleNode returns true if the graph source has a node announcement for the
 // target node with a more recent timestamp.
-func (r *mockGraphSource) IsStaleNode(nodePub route.Vertex, timestamp time.Time) bool {
+func (r *mockGraphSource) IsStaleNode(_ context.Context,
+	nodePub route.Vertex, timestamp time.Time) bool {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

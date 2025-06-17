@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -608,6 +609,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 // attributes with new data.
 func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -665,10 +667,10 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Change network topology by adding the updated info for the two nodes
 	// to the channel router.
-	if err := ctx.builder.AddNode(node1); err != nil {
+	if err := ctx.builder.AddNode(ctxb, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
-	if err := ctx.builder.AddNode(node2); err != nil {
+	if err := ctx.builder.AddNode(ctxb, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -763,7 +765,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(300 * time.Millisecond)
 
 	// Add new node topology update to the channel router.
-	if err := ctx.builder.AddNode(&nodeUpdateAnn); err != nil {
+	if err := ctx.builder.AddNode(ctxb, &nodeUpdateAnn); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -790,6 +792,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 // when the client wishes to exit.
 func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -845,11 +848,11 @@ func TestNotificationCancellation(t *testing.T) {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
-	if err := ctx.builder.AddNode(node1); err != nil {
+	if err := ctx.builder.AddNode(ctxb, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
-	if err := ctx.builder.AddNode(node2); err != nil {
+	if err := ctx.builder.AddNode(ctxb, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 

@@ -95,6 +95,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   record](https://github.com/lightningnetwork/lnd/pull/9897) on the 
   `channel_update` message and handle it explicitly throughout the code base 
   instead of extracting it from the TLV stream at various call-sites.
+* Re-send the [AnnouncementSignature max 
+  once](https://github.com/lightningnetwork/lnd/pull/9957) per (re)connection 
+  when we already have the full proof and our peer sends us their signature 
+  announcement.
 
 ## Testing
 

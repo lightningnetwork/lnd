@@ -506,6 +506,7 @@ func TestOptionalMeta(t *testing.T) {
 	om = &OptionalMeta{
 		Versions: map[uint64]string{
 			0: optionalVersions[0].name,
+			1: optionalVersions[1].name,
 		},
 	}
 	err = db.putOptionalMeta(om)
@@ -514,7 +515,10 @@ func TestOptionalMeta(t *testing.T) {
 	om1, err := db.fetchOptionalMeta()
 	require.NoError(t, err, "error getting optional meta")
 	require.Equal(t, om, om1, "unexpected empty versions")
-	require.Equal(t, "0: prune_revocation_log", om.String())
+	require.Equal(
+		t, "0: prune_revocation_log, 1: gc_decayed_log",
+		om1.String(),
+	)
 }
 
 // TestApplyOptionalVersions checks that the optional migration is applied as
@@ -573,6 +577,7 @@ func TestApplyOptionalVersions(t *testing.T) {
 	omExpected := &OptionalMeta{
 		Versions: map[uint64]string{
 			0: optionalVersions[0].name,
+			1: optionalVersions[1].name,
 		},
 	}
 	require.Equal(t, omExpected, om, "unexpected empty versions")

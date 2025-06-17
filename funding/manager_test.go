@@ -232,29 +232,23 @@ type mockChanEvent struct {
 }
 
 func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint,
-	remotePub *btcec.PublicKey) error {
+	remotePub *btcec.PublicKey) {
 
 	m.openEvent <- outpoint
-
-	return nil
 }
 
 func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
 	pendingChannel *channeldb.OpenChannel,
-	remotePub *btcec.PublicKey) error {
+	remotePub *btcec.PublicKey) {
 
 	m.pendingOpenEvent <- channelnotifier.PendingOpenChannelEvent{
 		ChannelPoint:   &outpoint,
 		PendingChannel: pendingChannel,
 	}
-
-	return nil
 }
 
 func (m *mockChanEvent) NotifyFundingTimeout(outpoint wire.OutPoint,
-	remotePub *btcec.PublicKey) error {
-
-	return nil
+	remotePub *btcec.PublicKey) {
 }
 
 // mockZeroConfAcceptor always accepts the channel open request for zero-conf

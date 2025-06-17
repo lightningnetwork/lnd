@@ -46,7 +46,8 @@ type ChannelGraphSource interface {
 	// for the target node with a more recent timestamp. This method will
 	// also return true if we don't have an active channel announcement for
 	// the target node.
-	IsStaleNode(node route.Vertex, timestamp time.Time) bool
+	IsStaleNode(ctx context.Context, node route.Vertex,
+		timestamp time.Time) bool
 
 	// IsPublicNode determines whether the given vertex is seen as a public
 	// node in the graph from the graph's source node's point of view.
@@ -238,7 +239,8 @@ type DB interface {
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(nodePub [33]byte) (time.Time, bool, error)
+	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
+		bool, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then

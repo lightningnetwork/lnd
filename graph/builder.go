@@ -865,7 +865,7 @@ func (b *Builder) updateGraphWithClosedChannels(
 // timestamp. ErrIgnored will be returned if we already have the node, and
 // ErrOutdated will be returned if we have a timestamp that's after the new
 // timestamp.
-func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
+func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 	msgTimestamp time.Time) error {
 
 	// If we are not already aware of this node, it means that we don't
@@ -873,7 +873,7 @@ func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
 	// node announcements, we will ignore such nodes. If we do know about
 	// this node, check that this update brings info newer than what we
 	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasLightningNode(node)
+	lastUpdate, exists, err := b.cfg.Graph.HasLightningNode(ctx, node)
 	if err != nil {
 		return errors.Errorf("unable to query for the "+
 			"existence of node: %v", err)
@@ -996,7 +996,7 @@ func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
 	// Before we add the node to the database, we'll check to see if the
 	// announcement is "fresh" or not. If it isn't, then we'll return an
 	// error.
-	err := b.assertNodeAnnFreshness(node.PubKeyBytes, node.LastUpdate)
+	err := b.assertNodeAnnFreshness(ctx, node.PubKeyBytes, node.LastUpdate)
 	if err != nil {
 		return err
 	}
@@ -1306,12 +1306,12 @@ func (b *Builder) AddProof(chanID lnwire.ShortChannelID,
 // target node with a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) IsStaleNode(node route.Vertex,
+func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 	timestamp time.Time) bool {
 
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
-	err := b.assertNodeAnnFreshness(node, timestamp)
+	err := b.assertNodeAnnFreshness(ctx, node, timestamp)
 	if err != nil {
 		log.Debugf("Checking stale node %x got %v", node, err)
 		return true

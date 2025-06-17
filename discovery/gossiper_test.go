@@ -308,7 +308,9 @@ func (r *mockGraphSource) FetchLightningNode(_ context.Context,
 
 // IsStaleNode returns true if the graph source has a node announcement for the
 // target node with a more recent timestamp.
-func (r *mockGraphSource) IsStaleNode(nodePub route.Vertex, timestamp time.Time) bool {
+func (r *mockGraphSource) IsStaleNode(_ context.Context,
+	nodePub route.Vertex, timestamp time.Time) bool {
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

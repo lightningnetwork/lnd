@@ -217,10 +217,8 @@ func (s *SQLStore) FetchLightningNode(ctx context.Context,
 // boolean.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) HasLightningNode(pubKey [33]byte) (time.Time, bool,
-	error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) HasLightningNode(ctx context.Context,
+	pubKey [33]byte) (time.Time, bool, error) {
 
 	var (
 		exists     bool

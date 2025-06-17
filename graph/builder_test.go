@@ -1013,6 +1013,7 @@ func testPruneChannelGraphDoubleDisabled(t *testing.T, assumeValid bool) {
 // node announcements.
 func TestIsStaleNode(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1053,7 +1054,7 @@ func TestIsStaleNode(t *testing.T) {
 	// Before we add the node, if we query for staleness, we should get
 	// false, as we haven't added the full node.
 	updateTimeStamp := time.Unix(123, 0)
-	if ctx.builder.IsStaleNode(pub1, updateTimeStamp) {
+	if ctx.builder.IsStaleNode(ctxb, pub1, updateTimeStamp) {
 		t.Fatalf("incorrectly detected node as stale")
 	}
 
@@ -1075,14 +1076,14 @@ func TestIsStaleNode(t *testing.T) {
 
 	// If we use the same timestamp and query for staleness, we should get
 	// true.
-	if !ctx.builder.IsStaleNode(pub1, updateTimeStamp) {
+	if !ctx.builder.IsStaleNode(ctxb, pub1, updateTimeStamp) {
 		t.Fatalf("failure to detect stale node update")
 	}
 
 	// If we update the timestamp and once again query for staleness, it
 	// should report false.
 	newTimeStamp := time.Unix(1234, 0)
-	if ctx.builder.IsStaleNode(pub1, newTimeStamp) {
+	if ctx.builder.IsStaleNode(ctxb, pub1, newTimeStamp) {
 		t.Fatalf("incorrectly detected node as stale")
 	}
 }

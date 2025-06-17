@@ -3065,8 +3065,8 @@ func (c *KVStore) fetchLightningNode(tx kvdb.RTx,
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
 // boolean.
-func (c *KVStore) HasLightningNode(nodePub [33]byte) (time.Time, bool,
-	error) {
+func (c *KVStore) HasLightningNode(_ context.Context,
+	nodePub [33]byte) (time.Time, bool, error) {
 
 	var (
 		updateTime time.Time

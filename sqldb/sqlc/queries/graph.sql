@@ -154,6 +154,17 @@ RETURNING id;
 SELECT * FROM channels
 WHERE scid = $1 AND version = $2;
 
+-- name: GetChannelAndNodesBySCID :one
+SELECT
+    c.*,
+    n1.pub_key AS node1_pub_key,
+    n2.pub_key AS node2_pub_key
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE c.scid = $1
+  AND c.version = $2;
+
 -- name: HighestSCID :one
 SELECT scid
 FROM channels
@@ -183,3 +194,49 @@ INSERT INTO channel_extra_types (
     channel_id, type, value
 )
 VALUES ($1, $2, $3);
+
+/* ─────────────────────────────────────────────
+   channel_policies table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: UpsertEdgePolicy :one
+INSERT INTO channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- Update the following fields if a conflict occurs on channel_id,
+    -- node_id, and version.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        signature = EXCLUDED.signature
+WHERE EXCLUDED.last_update > channel_policies.last_update
+RETURNING id;
+
+/* ─────────────────────────────────────────────
+   channel_policy_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: InsertChanPolicyExtraType :exec
+INSERT INTO channel_policy_extra_types (
+    channel_policy_id, type, value
+)
+VALUES ($1, $2, $3);
+
+-- name: DeleteChannelPolicyExtraTypes :exec
+DELETE FROM channel_policy_extra_types
+WHERE channel_policy_id = $1;

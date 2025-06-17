@@ -101,6 +101,16 @@ func (q *Queries) CreateChannelExtraType(ctx context.Context, arg CreateChannelE
 	return err
 }
 
+const deleteChannelPolicyExtraTypes = `-- name: DeleteChannelPolicyExtraTypes :exec
+DELETE FROM channel_policy_extra_types
+WHERE channel_policy_id = $1
+`
+
+func (q *Queries) DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteChannelPolicyExtraTypes, channelPolicyID)
+	return err
+}
+
 const deleteExtraNodeType = `-- name: DeleteExtraNodeType :exec
 DELETE FROM node_extra_types
 WHERE node_id = $1
@@ -156,6 +166,64 @@ type DeleteNodeFeatureParams struct {
 func (q *Queries) DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, deleteNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const getChannelAndNodesBySCID = `-- name: GetChannelAndNodesBySCID :one
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    n1.pub_key AS node1_pub_key,
+    n2.pub_key AS node2_pub_key
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+WHERE c.scid = $1
+  AND c.version = $2
+`
+
+type GetChannelAndNodesBySCIDParams struct {
+	Scid    []byte
+	Version int16
+}
+
+type GetChannelAndNodesBySCIDRow struct {
+	ID                int64
+	Version           int16
+	Scid              []byte
+	NodeID1           int64
+	NodeID2           int64
+	Outpoint          string
+	Capacity          sql.NullInt64
+	BitcoinKey1       []byte
+	BitcoinKey2       []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+	Node1PubKey       []byte
+	Node2PubKey       []byte
+}
+
+func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getChannelAndNodesBySCID, arg.Scid, arg.Version)
+	var i GetChannelAndNodesBySCIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Version,
+		&i.Scid,
+		&i.NodeID1,
+		&i.NodeID2,
+		&i.Outpoint,
+		&i.Capacity,
+		&i.BitcoinKey1,
+		&i.BitcoinKey2,
+		&i.Node1Signature,
+		&i.Node2Signature,
+		&i.Bitcoin1Signature,
+		&i.Bitcoin2Signature,
+		&i.Node1PubKey,
+		&i.Node2PubKey,
+	)
+	return i, err
 }
 
 const getChannelBySCID = `-- name: GetChannelBySCID :one
@@ -444,6 +512,29 @@ func (q *Queries) HighestSCID(ctx context.Context, version int16) ([]byte, error
 	return scid, err
 }
 
+const insertChanPolicyExtraType = `-- name: InsertChanPolicyExtraType :exec
+/* ─────────────────────────────────────────────
+   channel_policy_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO channel_policy_extra_types (
+    channel_policy_id, type, value
+)
+VALUES ($1, $2, $3)
+`
+
+type InsertChanPolicyExtraTypeParams struct {
+	ChannelPolicyID int64
+	Type            int64
+	Value           []byte
+}
+
+func (q *Queries) InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error {
+	_, err := q.db.ExecContext(ctx, insertChanPolicyExtraType, arg.ChannelPolicyID, arg.Type, arg.Value)
+	return err
+}
+
 const insertChannelFeature = `-- name: InsertChannelFeature :exec
 /* ─────────────────────────────────────────────
    channel_features table queries
@@ -521,6 +612,75 @@ type InsertNodeFeatureParams struct {
 func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const upsertEdgePolicy = `-- name: UpsertEdgePolicy :one
+/* ─────────────────────────────────────────────
+   channel_policies table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- Update the following fields if a conflict occurs on channel_id,
+    -- node_id, and version.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        signature = EXCLUDED.signature
+WHERE EXCLUDED.last_update > channel_policies.last_update
+RETURNING id
+`
+
+type UpsertEdgePolicyParams struct {
+	Version                 int16
+	ChannelID               int64
+	NodeID                  int64
+	Timelock                int32
+	FeePpm                  int64
+	BaseFeeMsat             int64
+	MinHtlcMsat             int64
+	LastUpdate              sql.NullInt64
+	Disabled                sql.NullBool
+	MaxHtlcMsat             sql.NullInt64
+	InboundBaseFeeMsat      sql.NullInt64
+	InboundFeeRateMilliMsat sql.NullInt64
+	Signature               []byte
+}
+
+func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertEdgePolicy,
+		arg.Version,
+		arg.ChannelID,
+		arg.NodeID,
+		arg.Timelock,
+		arg.FeePpm,
+		arg.BaseFeeMsat,
+		arg.MinHtlcMsat,
+		arg.LastUpdate,
+		arg.Disabled,
+		arg.MaxHtlcMsat,
+		arg.InboundBaseFeeMsat,
+		arg.InboundFeeRateMilliMsat,
+		arg.Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertNode = `-- name: UpsertNode :one

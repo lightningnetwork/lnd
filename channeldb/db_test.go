@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"context"
 	"image/color"
 	"math"
 	"math/rand"
@@ -180,6 +181,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 // channel db and graph db.
 func TestMultiSourceAddrsForNode(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")
@@ -194,7 +196,7 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 	testNode := createTestVertex(t)
 	nodePub, err := testNode.PubKey()
 	require.NoError(t, err)
-	graph.On("AddrsForNode", nodePub).Return(
+	graph.On("AddrsForNode", ctx, nodePub).Return(
 		true, []net.Addr{testAddr}, nil,
 	).Once()
 
@@ -212,7 +214,7 @@ func TestMultiSourceAddrsForNode(t *testing.T) {
 
 	// Now that we've created a link node, as well as a vertex for the
 	// node, we'll query for all its addresses.
-	known, nodeAddrs, err := addrSource.AddrsForNode(nodePub)
+	known, nodeAddrs, err := addrSource.AddrsForNode(ctx, nodePub)
 	require.NoError(t, err, "unable to obtain node addrs")
 	require.True(t, known)
 

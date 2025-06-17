@@ -8136,7 +8136,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 	// the database. If this channel has been closed, or the outpoint is
 	// unknown, then we'll return an error
 	unpackedBackup, err := chanbackup.FetchBackupForChan(
-		chanPoint, r.server.chanStateDB, r.server.addrSource,
+		ctx, chanPoint, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, err
@@ -8316,7 +8316,7 @@ func (r *rpcServer) ExportAllChannelBackups(ctx context.Context,
 	// First, we'll attempt to read back ups for ALL currently opened
 	// channels from disk.
 	allUnpackedBackups, err := chanbackup.FetchStaticChanBackups(
-		r.server.chanStateDB, r.server.addrSource,
+		ctx, r.server.chanStateDB, r.server.addrSource,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch all static chan "+
@@ -8451,7 +8451,8 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			// we'll obtains the current set of single channel
 			// backups from disk.
 			chanBackups, err := chanbackup.FetchStaticChanBackups(
-				r.server.chanStateDB, r.server.addrSource,
+				updateStream.Context(), r.server.chanStateDB,
+				r.server.addrSource,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch all "+

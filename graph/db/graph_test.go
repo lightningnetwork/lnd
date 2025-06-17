@@ -183,7 +183,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Initially, the node is unknown to the graph and there should be no
 	// addresses for it.
-	known, addrs, err := graph.AddrsForNode(pub)
+	known, addrs, err := graph.AddrsForNode(ctx, pub)
 	require.NoError(t, err)
 	require.False(t, known)
 	require.Empty(t, addrs)
@@ -197,7 +197,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, dbNode.Addresses)
 
-	known, addrs, err = graph.AddrsForNode(pub)
+	known, addrs, err = graph.AddrsForNode(ctx, pub)
 	require.NoError(t, err)
 	require.True(t, known)
 	require.Empty(t, addrs)
@@ -224,7 +224,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
-	known, addrs, err = graph.AddrsForNode(pub)
+	known, addrs, err = graph.AddrsForNode(ctx, pub)
 	require.NoError(t, err)
 	require.True(t, known)
 	require.EqualValues(t, expAddrs, addrs)

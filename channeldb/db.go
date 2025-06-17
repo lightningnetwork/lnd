@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -1532,7 +1533,9 @@ func (c *ChannelStateDB) RestoreChannelShells(channelShells ...*ChannelShell) er
 // unknown to the channel DB or not.
 //
 // NOTE: this is part of the AddrSource interface.
-func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+func (d *DB) AddrsForNode(_ context.Context, nodePub *btcec.PublicKey) (bool,
+	[]net.Addr, error) {
+
 	linkNode, err := d.channelStateDB.linkNodeDB.FetchLinkNode(nodePub)
 	// Only if the error is something other than ErrNodeNotFound do we
 	// return it.

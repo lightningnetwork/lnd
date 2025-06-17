@@ -258,10 +258,8 @@ func (s *SQLStore) HasLightningNode(ctx context.Context,
 // given node is unknown to the graph DB or not.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddrsForNode(nodePub *btcec.PublicKey) (bool, []net.Addr,
-	error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	var (
 		addresses []net.Addr

@@ -308,7 +308,7 @@ var (
 	// to determine its state.
 	optionalVersions = []optionalVersion{
 		{
-			name: "prune revocation log",
+			name: "prune_revocation_log",
 			migration: func(db kvdb.Backend,
 				cfg MigrationConfig) error {
 
@@ -1751,50 +1751,68 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 				Versions: make(map[uint64]string),
 			}
 		} else {
-			return err
+			return fmt.Errorf("unable to fetch optional "+
+				"meta: %w", err)
 		}
 	}
 
-	log.Infof("Checking for optional update: prune_revocation_log=%v, "+
-		"db_version=%s", cfg.PruneRevocationLog, om)
-
-	// Exit early if the optional migration is not specified.
-	if !cfg.PruneRevocationLog {
-		return nil
-	}
-
-	// Exit early if the optional migration has already been applied.
-	if _, ok := om.Versions[0]; ok {
-		return nil
-	}
-
-	// Get the optional version.
-	version := optionalVersions[0]
-	log.Infof("Performing database optional migration: %s", version.name)
-
+	// migrationCfg is the parent configuration which implements the config
+	// interfaces of all the single optional migrations.
 	migrationCfg := &MigrationConfigImpl{
 		migration30.MigrateRevLogConfigImpl{
 			NoAmountData: d.noRevLogAmtData,
 		},
 	}
 
-	// Migrate the data.
-	if err := version.migration(d, migrationCfg); err != nil {
-		log.Errorf("Unable to apply optional migration: %s, error: %v",
-			version.name, err)
-		return err
-	}
+	log.Infof("Applying %d optional migrations", len(optionalVersions))
 
-	// Update the optional meta. Notice that unlike the mandatory db
-	// migrations where we perform the migration and updating meta in a
-	// single db transaction, we use different transactions here. Even when
-	// the following update is failed, we should be fine here as we would
-	// re-run the optional migration again, which is a noop, during next
-	// startup.
-	om.Versions[0] = version.name
-	if err := d.putOptionalMeta(om); err != nil {
-		log.Errorf("Unable to update optional meta: %v", err)
-		return err
+	// Apply the optional migrations if requested.
+	for number, version := range optionalVersions {
+		log.Infof("Checking for optional update: name=%v", version.name)
+
+		// Exit early if the optional migration is not specified.
+		if !cfg.MigrationFlags[number] {
+			log.Debugf("Skipping optional migration: name=%s as "+
+				"it is not specified in the config",
+				version.name)
+
+			continue
+		}
+
+		// Exit early if the optional migration has already been
+		// applied.
+		if _, ok := om.Versions[uint64(number)]; ok {
+			log.Debugf("Skipping optional migration: name=%s as "+
+				"it has already been applied", version.name)
+
+			continue
+		}
+
+		log.Infof("Performing database optional migration: %s",
+			version.name)
+
+		// Call the migration function for the specific optional
+		// migration.
+		if err := version.migration(d, migrationCfg); err != nil {
+			log.Errorf("Unable to apply optional migration: %s, "+
+				"error: %v", version.name, err)
+			return err
+		}
+
+		// Update the optional meta. Notice that unlike the mandatory db
+		// migrations where we perform the migration and updating meta
+		// in a single db transaction, we use different transactions
+		// here. Even when the following update is failed, we should be
+		// fine here as we would re-run the optional migration again,
+		// which is a noop, during next startup.
+		om.Versions[uint64(number)] = version.name
+		if err := d.putOptionalMeta(om); err != nil {
+			log.Errorf("Unable to update optional meta: %v", err)
+			return err
+		}
+
+		log.Infof("Successfully applied optional migration: %s",
+			version.name)
 	}
 
 	return nil

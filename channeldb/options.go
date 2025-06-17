@@ -25,9 +25,18 @@ const (
 // OptionalMiragtionConfig defines the flags used to signal whether a
 // particular migration needs to be applied.
 type OptionalMiragtionConfig struct {
-	// PruneRevocationLog specifies that the revocation log migration needs
-	// to be applied.
-	PruneRevocationLog bool
+	// MigrationFlags is an array of booleans indicating which optional
+	// migrations should be run. The index in the array corresponds to the
+	// migration number in optionalVersions.
+	MigrationFlags []bool
+}
+
+// NewOptionalMiragtionConfig creates a new OptionalMiragtionConfig with the
+// default migration flags.
+func NewOptionalMiragtionConfig() OptionalMiragtionConfig {
+	return OptionalMiragtionConfig{
+		MigrationFlags: make([]bool, len(optionalVersions)),
+	}
 }
 
 // Options holds parameters for tuning and customizing a channeldb.DB.
@@ -62,7 +71,7 @@ type Options struct {
 // DefaultOptions returns an Options populated with default values.
 func DefaultOptions() Options {
 	return Options{
-		OptionalMiragtionConfig: OptionalMiragtionConfig{},
+		OptionalMiragtionConfig: NewOptionalMiragtionConfig(),
 		NoMigration:             false,
 		clock:                   clock.NewDefaultClock(),
 	}
@@ -124,6 +133,6 @@ func OptionStoreFinalHtlcResolutions(
 // revocation logs needs to be applied or not.
 func OptionPruneRevocationLog(prune bool) OptionModifier {
 	return func(o *Options) {
-		o.OptionalMiragtionConfig.PruneRevocationLog = prune
+		o.OptionalMiragtionConfig.MigrationFlags[0] = prune
 	}
 }

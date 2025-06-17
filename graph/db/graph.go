@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -260,10 +261,10 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 // information. Note that this method is expected to only be called to update an
 // already present node from a node announcement, or to insert a node found in a
 // channel update.
-func (c *ChannelGraph) AddLightningNode(node *models.LightningNode,
-	op ...batch.SchedulerOption) error {
+func (c *ChannelGraph) AddLightningNode(ctx context.Context,
+	node *models.LightningNode, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddLightningNode(node, op...)
+	err := c.V1Store.AddLightningNode(ctx, node, op...)
 	if err != nil {
 		return err
 	}

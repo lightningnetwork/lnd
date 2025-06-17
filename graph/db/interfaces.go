@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"context"
 	"net"
 	"time"
 
@@ -56,7 +57,7 @@ type V1Store interface { //nolint:interfacebloat
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *models.LightningNode,
+	AddLightningNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddrsForNode returns all known addresses for the target node public

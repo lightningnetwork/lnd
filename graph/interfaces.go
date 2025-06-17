@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"context"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -202,7 +203,7 @@ type DB interface {
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(node *models.LightningNode,
+	AddLightningNode(ctx context.Context, node *models.LightningNode,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph

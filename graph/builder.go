@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -972,10 +973,10 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddNode(node *models.LightningNode,
+func (b *Builder) AddNode(ctx context.Context, node *models.LightningNode,
 	op ...batch.SchedulerOption) error {
 
-	err := b.addNode(node, op...)
+	err := b.addNode(ctx, node, op...)
 	if err != nil {
 		logNetworkMsgProcessError(err)
 
@@ -989,7 +990,7 @@ func (b *Builder) AddNode(node *models.LightningNode,
 // currently have persisted in the graph, and then adds it to the graph. If we
 // already know about the node, then we only update our DB if the new update
 // has a newer timestamp than the last one we received.
-func (b *Builder) addNode(node *models.LightningNode,
+func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
 	op ...batch.SchedulerOption) error {
 
 	// Before we add the node to the database, we'll check to see if the
@@ -1000,7 +1001,7 @@ func (b *Builder) addNode(node *models.LightningNode,
 		return err
 	}
 
-	if err := b.cfg.Graph.AddLightningNode(node, op...); err != nil {
+	if err := b.cfg.Graph.AddLightningNode(ctx, node, op...); err != nil {
 		return errors.Errorf("unable to add node %x to the "+
 			"graph: %v", node.PubKeyBytes, err)
 	}

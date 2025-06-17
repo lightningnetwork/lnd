@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -181,6 +182,8 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 func parseTestGraph(t *testing.T, useCache bool, path string) (
 	*testGraphInstance, error) {
 
+	ctx := context.Background()
+
 	graphJSON, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -290,7 +293,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(dbNode); err != nil {
+		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 	}
@@ -515,6 +518,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	testChannels []*testChannel, source string,
 	sourceFeatureBits ...lnwire.FeatureBit) (*testGraphInstance, error) {
 
+	ctx := context.Background()
+
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
 	// need to be unique.
@@ -566,7 +571,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(dbNode); err != nil {
+		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 

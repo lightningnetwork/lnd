@@ -109,7 +109,7 @@ func newMockRouter(t *testing.T, height uint32) *mockGraphSource {
 
 var _ graph.ChannelGraphSource = (*mockGraphSource)(nil)
 
-func (r *mockGraphSource) AddNode(node *models.LightningNode,
+func (r *mockGraphSource) AddNode(_ context.Context, node *models.LightningNode,
 	_ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()

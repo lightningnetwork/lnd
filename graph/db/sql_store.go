@@ -174,10 +174,8 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 // information.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddLightningNode(node *models.LightningNode,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddLightningNode(ctx context.Context,
+	node *models.LightningNode, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[SQLQueries]{
 		Opts: batch.NewSchedulerOptions(opts...),

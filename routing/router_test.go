@@ -2,6 +2,7 @@ package routing
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image/color"
 	"math"
@@ -2706,6 +2707,7 @@ func TestNewRouteRequest(t *testing.T) {
 // announcements for the channel vertexes to be able to use the channel.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
@@ -2879,7 +2881,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(n1))
+	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n1))
 
 	n2 := &models.LightningNode{
 		HaveNodeAnnouncement: true,
@@ -2892,7 +2894,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(n2))
+	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n2))
 
 	// Should still be able to find the route, and the info should be
 	// updated.

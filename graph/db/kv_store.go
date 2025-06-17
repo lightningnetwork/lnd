@@ -957,10 +957,8 @@ func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
 // channel update.
 //
 // TODO(roasbeef): also need sig of announcement.
-func (c *KVStore) AddLightningNode(node *models.LightningNode,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (c *KVStore) AddLightningNode(ctx context.Context,
+	node *models.LightningNode, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),

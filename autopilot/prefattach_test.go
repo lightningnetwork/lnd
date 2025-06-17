@@ -422,7 +422,9 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					AuthSigBytes: testSig.Serialize(),
 				}
 				graphNode.AddPubKey(pub)
-				err := d.db.AddLightningNode(graphNode)
+				err := d.db.AddLightningNode(
+					context.Background(), graphNode,
+				)
 				if err != nil {
 					return nil, err
 				}
@@ -450,7 +452,9 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			AuthSigBytes: testSig.Serialize(),
 		}
 		dbNode.AddPubKey(nodeKey)
-		if err := d.db.AddLightningNode(dbNode); err != nil {
+		if err := d.db.AddLightningNode(
+			context.Background(), dbNode,
+		); err != nil {
 			return nil, err
 		}
 
@@ -554,7 +558,8 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 		AuthSigBytes: testSig.Serialize(),
 	}
 	dbNode.AddPubKey(nodeKey)
-	if err := d.db.AddLightningNode(dbNode); err != nil {
+	err = d.db.AddLightningNode(context.Background(), dbNode)
+	if err != nil {
 		return nil, err
 	}
 

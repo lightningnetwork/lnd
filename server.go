@@ -1908,7 +1908,7 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 			nodeKeyECDH, listenAddr.String(),
 			// TODO(yy): remove this check and unify the inbound
 			// connection check inside `InboundPeerConnected`.
-			s.peerAccessMan.checkIncomingConnBanScore,
+			s.peerAccessMan.checkAcceptIncomingConn,
 		)
 		if err != nil {
 			return nil, err

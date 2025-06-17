@@ -16,7 +16,7 @@ func assertInboundConnection(t *testing.T, a *accessMan,
 
 	remotePubSer := string(remotePub.SerializeCompressed())
 
-	isSlotAvailable, err := a.checkIncomingConnBanScore(remotePub)
+	isSlotAvailable, err := a.checkAcceptIncomingConn(remotePub)
 	require.NoError(t, err)
 	require.True(t, isSlotAvailable)
 
@@ -121,7 +121,7 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	peerKey4 := peerPriv4.PubKey()
 
 	// Follow the normal process of an incoming connection. We check if we
-	// can accommodate this peer in checkIncomingConnBanScore and then we
+	// can accommodate this peer in checkAcceptIncomingConn and then we
 	// assign its access permissions and then insert into the map.
 	assertInboundConnection(t, a, peerKey4, peerStatusRestricted)
 

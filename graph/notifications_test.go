@@ -422,6 +422,7 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	ctx := createTestCtxSingleNode(t, 0)
 
@@ -464,7 +465,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -657,7 +658,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 
 	// Adding the edge will add the nodes to the graph, but with no info
 	// except the pubkey known.
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -844,7 +845,7 @@ func TestNotificationCancellation(t *testing.T) {
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -875,6 +876,7 @@ func TestNotificationCancellation(t *testing.T) {
 // properly dispatched to all registered clients.
 func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -918,7 +920,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 

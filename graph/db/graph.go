@@ -307,10 +307,10 @@ func (c *ChannelGraph) DeleteLightningNode(ctx context.Context,
 // involved in creation of the channel, and the set of features that the channel
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
-func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	op ...batch.SchedulerOption) error {
+func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
+	edge *models.ChannelEdgeInfo, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddChannelEdge(edge, op...)
+	err := c.V1Store.AddChannelEdge(ctx, edge, op...)
 	if err != nil {
 		return err
 	}

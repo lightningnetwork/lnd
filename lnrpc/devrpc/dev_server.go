@@ -293,7 +293,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 		}
 		edge.ChannelPoint = *channelPoint
 
-		if err := graphDB.AddChannelEdge(edge); err != nil {
+		if err := graphDB.AddChannelEdge(ctx, edge); err != nil {
 			return nil, fmt.Errorf("unable to add edge %v: %w",
 				rpcEdge.ChanPoint, err)
 		}

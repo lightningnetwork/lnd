@@ -2744,7 +2744,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
 	}
-	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
@@ -2824,7 +2824,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
 	edge.BitcoinKey2Bytes = node2Bytes
 
-	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),

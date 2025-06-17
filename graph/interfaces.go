@@ -29,7 +29,7 @@ type ChannelGraphSource interface {
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *models.ChannelEdgeInfo,
+	AddEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
@@ -215,7 +215,7 @@ type DB interface {
 	// and the set of features that the channel supports. The chanPoint and
 	// chanID are used to uniquely identify the edge globally within the
 	// database.
-	AddChannelEdge(edge *models.ChannelEdgeInfo,
+	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// MarkEdgeZombie attempts to mark a channel identified by its channel

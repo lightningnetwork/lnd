@@ -1098,10 +1098,8 @@ func (c *KVStore) deleteLightningNode(nodes kvdb.RwBucket,
 // involved in creation of the channel, and the set of features that the channel
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
-func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (c *KVStore) AddChannelEdge(ctx context.Context,
+	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
 	r := &batch.Request[kvdb.RwTx]{

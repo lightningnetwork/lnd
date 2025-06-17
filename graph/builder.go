@@ -1017,10 +1017,10 @@ func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
+func (b *Builder) AddEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
-	err := b.addEdge(edge, op...)
+	err := b.addEdge(ctx, edge, op...)
 	if err != nil {
 		logNetworkMsgProcessError(err)
 
@@ -1038,7 +1038,7 @@ func (b *Builder) AddEdge(edge *models.ChannelEdgeInfo,
 //
 // TODO(elle): this currently also does funding-transaction validation. But this
 // should be moved to the gossiper instead.
-func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
+func (b *Builder) addEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
 	log.Debugf("Received ChannelEdgeInfo for channel %v", edge.ChannelID)
@@ -1061,7 +1061,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 			edge.ChannelID)
 	}
 
-	if err := b.cfg.Graph.AddChannelEdge(edge, op...); err != nil {
+	if err := b.cfg.Graph.AddChannelEdge(ctx, edge, op...); err != nil {
 		return fmt.Errorf("unable to add edge: %w", err)
 	}
 

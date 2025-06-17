@@ -2808,7 +2808,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// We will add the edge to the channel router. If the nodes present in
 	// this channel are not present in the database, a partial node will be
 	// added to represent each node while we wait for a node announcement.
-	err = d.cfg.Graph.AddEdge(edge, ops...)
+	err = d.cfg.Graph.AddEdge(ctx, edge, ops...)
 	if err != nil {
 		log.Debugf("Graph rejected edge for short_chan_id(%v): %v",
 			scid.ToUint64(), err)

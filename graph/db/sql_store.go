@@ -501,10 +501,8 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 // globally within the database.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddChannelEdge(ctx context.Context,
+	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
 	r := &batch.Request[SQLQueries]{

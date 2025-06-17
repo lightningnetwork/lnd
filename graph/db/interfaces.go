@@ -189,7 +189,7 @@ type V1Store interface { //nolint:interfacebloat
 	// and the set of features that the channel supports. The chanPoint and
 	// chanID are used to uniquely identify the edge globally within the
 	// database.
-	AddChannelEdge(edge *models.ChannelEdgeInfo,
+	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// HasChannelEdge returns true if the database knows of a channel edge

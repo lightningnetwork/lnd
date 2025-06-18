@@ -713,7 +713,7 @@ func (m *Manager) BackupState(chanID *lnwire.ChannelID, stateNum uint64) error {
 	return client.backupState(chanID, stateNum)
 }
 
-// isChanClosed can be used to check if the channel with the given ID has been
+// isChannelClosed can be used to check if the channel with the given ID has been
 // closed. If it has been, the block height in which its closing transaction was
 // mined will also be returned.
 func (m *Manager) isChannelClosed(id lnwire.ChannelID) (bool, uint32,

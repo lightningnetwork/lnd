@@ -165,12 +165,82 @@ FROM channels c
 WHERE c.scid = $1
   AND c.version = $2;
 
+-- name: GetChannelFeaturesAndExtras :many
+SELECT
+    cf.channel_id,
+    true AS is_feature,
+    cf.feature_bit AS feature_bit,
+    NULL AS extra_key,
+    NULL AS value
+FROM channel_features cf
+WHERE cf.channel_id = $1
+
+UNION ALL
+
+SELECT
+    cet.channel_id,
+    false AS is_feature,
+    0 AS feature_bit,
+    cet.type AS extra_key,
+    cet.value AS value
+FROM channel_extra_types cet
+WHERE cet.channel_id = $1;
+
 -- name: HighestSCID :one
 SELECT scid
 FROM channels
 WHERE version = $1
 ORDER BY scid DESC
 LIMIT 1;
+
+-- name: ListChannelsByNodeID :many
+
+SELECT sqlc.embed(c),
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey,
+
+    -- Policy 1
+    -- TODO(elle): use sqlc.embed to embed policy structs
+    --  once this issue is resolved:
+    --  https://github.com/sqlc-dev/sqlc/issues/2997
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.signature AS policy1_signature,
+
+       -- Policy 2
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.signature AS policy2_signature
+
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN channel_policies cp1
+    ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN channel_policies cp2
+    ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.version = $1
+  AND (c.node_id_1 = $2 OR c.node_id_2 = $2);
 
 /* ─────────────────────────────────────────────
    channel_features table queries
@@ -236,6 +306,18 @@ INSERT INTO channel_policy_extra_types (
     channel_policy_id, type, value
 )
 VALUES ($1, $2, $3);
+
+-- name: GetChannelPolicyExtraTypes :many
+SELECT
+    cp.id AS policy_id,
+    cp.channel_id,
+    cp.node_id,
+    cpet.type,
+    cpet.value
+FROM channel_policies cp
+JOIN channel_policy_extra_types cpet
+ON cp.id = cpet.channel_policy_id
+WHERE cp.id = $1 OR cp.id = $2;
 
 -- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM channel_policy_extra_types

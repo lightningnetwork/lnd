@@ -1183,7 +1183,7 @@ func TestAddEdgeProof(t *testing.T) {
 func TestForEachSourceNodeChannel(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// Create a source node (A) and set it as such in the DB.
 	nodeA := createTestVertex(t)

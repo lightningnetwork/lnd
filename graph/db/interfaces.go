@@ -332,7 +332,7 @@ type V1Store interface { //nolint:interfacebloat
 	// node's information. The node ordering is determined by the
 	// lexicographical ordering of the identity public keys of the nodes on
 	// either side of the channel.
-	UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	UpdateEdgePolicy(ctx context.Context, edge *models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) (route.Vertex, route.Vertex, error)
 
 	// SourceNode returns the source node of the graph. The source node is

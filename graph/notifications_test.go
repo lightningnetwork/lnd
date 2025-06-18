@@ -484,10 +484,10 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	require.NoError(t, err, "unable to create a random chan policy")
 	edge2.ChannelFlags = 1
 
-	if err := ctx.builder.UpdateEdge(edge1); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edge1); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)
 	}
-	if err := ctx.builder.UpdateEdge(edge2); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edge2); err != nil {
 		t.Fatalf("unable to add edge update: %v", err)
 	}
 

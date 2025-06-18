@@ -161,8 +161,8 @@ func (r *mockGraphSource) queueValidationFail(chanID uint64) {
 	r.chansToReject[chanID] = struct{}{}
 }
 
-func (r *mockGraphSource) UpdateEdge(edge *models.ChannelEdgePolicy,
-	_ ...batch.SchedulerOption) error {
+func (r *mockGraphSource) UpdateEdge(_ context.Context,
+	edge *models.ChannelEdgePolicy, _ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
 	defer func() {

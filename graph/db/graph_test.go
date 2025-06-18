@@ -832,7 +832,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
-	err := graph.UpdateEdgePolicy(edge1)
+	err := graph.UpdateEdgePolicy(ctx, edge1)
 	require.ErrorIs(t, err, ErrEdgeNotFound)
 	require.Len(t, graph.graphCache.nodeChannels, 0)
 
@@ -847,11 +847,11 @@ func TestEdgeInfoUpdates(t *testing.T) {
 
 	// Next, insert both edge policies into the database, they should both
 	// be inserted without any issues.
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	assertEdgeWithPolicyInCache(t, graph, edgeInfo, edge1, true)
-	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	assertEdgeWithPolicyInCache(t, graph, edgeInfo, edge2, false)
@@ -1227,14 +1227,14 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	if !bytes.Equal(abPolicy1.ToNode[:], nodeB.PubKeyBytes[:]) {
 		abPolicyAOutgoing = abPolicy2
 	}
-	require.NoError(t, graph.UpdateEdgePolicy(abPolicyAOutgoing))
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, abPolicyAOutgoing))
 
 	// Now, set the incoming policy for the A-C channel.
 	acPolicyAIncoming := acPolicy1
 	if !bytes.Equal(acPolicy1.ToNode[:], nodeA.PubKeyBytes[:]) {
 		acPolicyAIncoming = acPolicy2
 	}
-	require.NoError(t, graph.UpdateEdgePolicy(acPolicyAIncoming))
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, acPolicyAIncoming))
 
 	type sourceNodeChan struct {
 		otherNode  route.Vertex
@@ -1566,7 +1566,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 			edge.ChannelFlags = 0
 			edge.ToNode = node2.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
-			require.NoError(t, graph.UpdateEdgePolicy(edge))
+			require.NoError(t, graph.UpdateEdgePolicy(ctx, edge))
 
 			// Create another random edge that points from
 			// node2 -> node1 this time.
@@ -1574,7 +1574,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 			edge.ChannelFlags = 1
 			edge.ToNode = node1.PubKeyBytes
 			edge.SigBytes = testSig.Serialize()
-			require.NoError(t, graph.UpdateEdgePolicy(edge))
+			require.NoError(t, graph.UpdateEdgePolicy(ctx, edge))
 
 			chanIndex[chanID] = struct{}{}
 		}
@@ -1764,7 +1764,7 @@ func TestGraphPruning(t *testing.T) {
 		edge.ChannelFlags = 0
 		edge.ToNode = graphNodes[i].PubKeyBytes
 		edge.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -1774,7 +1774,7 @@ func TestGraphPruning(t *testing.T) {
 		edge.ChannelFlags = 1
 		edge.ToNode = graphNodes[i].PubKeyBytes
 		edge.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 	}
@@ -1985,7 +1985,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
 		edge1.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -1995,7 +1995,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
 		edge2.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge2); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -2770,12 +2770,14 @@ func TestFilterChannelRange(t *testing.T) {
 		var updateTime = time.Unix(0, 0)
 		if rand.Int31n(2) == 0 {
 			updateTime = time.Unix(updateTimeSeed, 0)
-			err = graph.UpdateEdgePolicy(&models.ChannelEdgePolicy{
-				ToNode:       node.PubKeyBytes,
-				ChannelFlags: chanFlags,
-				ChannelID:    chanID,
-				LastUpdate:   updateTime,
-			})
+			err = graph.UpdateEdgePolicy(
+				ctx, &models.ChannelEdgePolicy{
+					ToNode:       node.PubKeyBytes,
+					ChannelFlags: chanFlags,
+					ChannelID:    chanID,
+					LastUpdate:   updateTime,
+				},
+			)
 			require.NoError(t, err)
 		}
 		updateTimeSeed++
@@ -2980,7 +2982,7 @@ func TestFetchChanInfos(t *testing.T) {
 		edge1.ChannelFlags = 0
 		edge1.ToNode = node2.PubKeyBytes
 		edge1.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge1); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -2988,7 +2990,7 @@ func TestFetchChanInfos(t *testing.T) {
 		edge2.ChannelFlags = 1
 		edge2.ToNode = node1.PubKeyBytes
 		edge2.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge2); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 			t.Fatalf("unable to update edge: %v", err)
 		}
 
@@ -3115,7 +3117,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	edgePolicy.ChannelFlags = 0
 	edgePolicy.ToNode = node2.PubKeyBytes
 	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3128,7 +3130,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	edgePolicy.ChannelFlags = 1
 	edgePolicy.ToNode = node1.PubKeyBytes
 	edgePolicy.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3178,7 +3180,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	edge1.ChannelFlags = 0
 	edge1.ToNode = node1.PubKeyBytes
 	edge1.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
@@ -3187,7 +3189,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	edge2.ChannelFlags = 1
 	edge2.ToNode = node2.PubKeyBytes
 	edge2.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	edge2 = copyEdgePolicy(edge2) // Avoid read/write race conditions.
@@ -3254,12 +3256,12 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	// removed from the update index.
 	edge1.ChannelFlags = 2
 	edge1.LastUpdate = time.Now()
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	edge2.ChannelFlags = 3
 	edge2.LastUpdate = edge1.LastUpdate.Add(time.Hour)
-	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3329,7 +3331,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	edge1.ChannelFlags = 0
 	edge1.ToNode = node1.PubKeyBytes
 	edge1.SigBytes = testSig.Serialize()
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3613,7 +3615,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 	// Add one disabled policy and ensure the channel is still not in the
 	// disabled list.
 	edge1.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
@@ -3626,7 +3628,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 	// Add second disabled policy and ensure the channel is now in the
 	// disabled list.
 	edge2.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	disabledChanIds, err = graph.DisabledChannelIDs()
@@ -3752,7 +3754,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	require.NoError(t, err, "error writing db")
 
 	// And add the second, unmodified edge.
-	if err := graph.UpdateEdgePolicy(edge2); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3774,7 +3776,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 	// Now add the original, unmodified edge policy, and make sure the edge
 	// policies then become fully populated.
-	if err := graph.UpdateEdgePolicy(edge1); err != nil {
+	if err := graph.UpdateEdgePolicy(ctx, edge1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -4082,7 +4084,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
-	require.Error(t, ErrEdgeNotFound, graph.UpdateEdgePolicy(edge1))
+	require.Error(t, ErrEdgeNotFound, graph.UpdateEdgePolicy(ctx, edge1))
 
 	// Add the edge info.
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
@@ -4101,7 +4103,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 			defer wg.Done()
 
 			select {
-			case errChan <- graph.UpdateEdgePolicy(update):
+			case errChan <- graph.UpdateEdgePolicy(ctx, update):
 			case <-time.After(2 * time.Second):
 				errChan <- errTimeout
 			}
@@ -4226,7 +4228,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 		FeeRate: 20,
 	}
 	edge1.InboundFee = fn.Some(inboundFee)
-	require.NoError(t, graph.UpdateEdgePolicy(edge1))
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 	edge1 = copyEdgePolicy(edge1) // Avoid read/write race conditions.
 
 	directedChan := getSingleChannel()
@@ -4241,7 +4243,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// error when we try to update the edge policy.
 	edge1.LastUpdate = edge1.LastUpdate.Add(time.Second)
 	require.ErrorIs(
-		t, graph.UpdateEdgePolicy(edge1), ErrParsingExtraTLVBytes,
+		t, graph.UpdateEdgePolicy(ctx, edge1), ErrParsingExtraTLVBytes,
 	)
 
 	// Since persistence of the last update failed, we should still bet

@@ -2760,7 +2760,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 0
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// Create edge in the other direction as well.
 	edgePolicy = &models.ChannelEdgePolicy{
@@ -2775,7 +2775,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 1
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
@@ -2838,7 +2838,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 0
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -2852,7 +2852,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 1
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// We should now be able to find a route to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -2943,7 +2943,9 @@ type mockGraphBuilder struct {
 func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
 	return &mockGraphBuilder{
 		updateEdge: func(update *models.ChannelEdgePolicy) error {
-			return graph.UpdateEdgePolicy(update)
+			return graph.UpdateEdgePolicy(
+				context.Background(), update,
+			)
 		},
 	}
 }

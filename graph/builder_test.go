@@ -172,7 +172,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 
 	// Attempt to update the edge. This should be ignored, since the edge
 	// is not yet added to the router.
-	err = ctx.builder.UpdateEdge(edgePolicy)
+	err = ctx.builder.UpdateEdge(ctxb, edgePolicy)
 	if !IsError(err, ErrIgnored) {
 		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 			"though the vertexes were unknown: %v.", err)
 
 	// Now updating the edge policy should succeed.
-	require.NoError(t, ctx.builder.UpdateEdge(edgePolicy))
+	require.NoError(t, ctx.builder.UpdateEdge(ctxb, edgePolicy))
 }
 
 // TestWakeUpOnStaleBranch tests that upon startup of the ChannelRouter, if the
@@ -1205,7 +1205,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.ChannelFlags = 0
-	if err := ctx.builder.UpdateEdge(edgePolicy); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
@@ -1219,7 +1219,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.ChannelFlags = 1
-	if err := ctx.builder.UpdateEdge(edgePolicy); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
@@ -1543,7 +1543,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			),
 			ToNode: targetNode,
 		}
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 			return nil, err
 		}
 
@@ -1912,7 +1912,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node2Vertex,
 				ExtraOpaqueData:           getExtraData(node1),
 			}
-			err := graph.UpdateEdgePolicy(edgePolicy)
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
 			if err != nil {
 				return nil, err
 			}
@@ -1943,7 +1943,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node1Vertex,
 				ExtraOpaqueData:           getExtraData(node2),
 			}
-			err := graph.UpdateEdgePolicy(edgePolicy)
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
 			if err != nil {
 				return nil, err
 			}

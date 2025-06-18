@@ -2801,11 +2801,11 @@ func makeZombiePubkeys(info *models.ChannelEdgeInfo,
 // updated, otherwise it's the second node's information. The node ordering is
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
-func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
+	edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
-		ctx          = context.TODO()
 		isUpdate1    bool
 		edgeNotFound bool
 		from, to     route.Vertex

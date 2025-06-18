@@ -2288,7 +2288,7 @@ func (d *AuthenticatedGossiper) isMsgStale(_ context.Context,
 
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
-func (d *AuthenticatedGossiper) updateChannel(_ context.Context,
+func (d *AuthenticatedGossiper) updateChannel(ctx context.Context,
 	info *models.ChannelEdgeInfo,
 	edge *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, error) {
@@ -2322,7 +2322,7 @@ func (d *AuthenticatedGossiper) updateChannel(_ context.Context,
 	}
 
 	// Finally, we'll write the new edge policy to disk.
-	if err := d.cfg.Graph.UpdateEdge(edge); err != nil {
+	if err := d.cfg.Graph.UpdateEdge(ctx, edge); err != nil {
 		return nil, nil, err
 	}
 
@@ -3263,7 +3263,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 		ExtraOpaqueData:           upd.ExtraOpaqueData,
 	}
 
-	if err := d.cfg.Graph.UpdateEdge(update, ops...); err != nil {
+	if err := d.cfg.Graph.UpdateEdge(ctx, update, ops...); err != nil {
 		if graph.IsError(
 			err, graph.ErrOutdated,
 			graph.ErrIgnored,

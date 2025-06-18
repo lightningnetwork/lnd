@@ -577,10 +577,9 @@ func (s *SQLStore) HighestChanID() (uint64, error) {
 // nodes on either side of the channel.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+func (s *SQLStore) UpdateEdgePolicy(ctx context.Context,
+	edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
-
-	ctx := context.TODO()
 
 	var (
 		isUpdate1    bool

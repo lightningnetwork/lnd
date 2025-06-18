@@ -915,6 +915,8 @@ func (b *Builder) MarkZombieEdge(chanID uint64) error {
 // ApplyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
 func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
+	ctx := context.TODO()
+
 	ch, _, _, err := b.GetChannelByID(msg.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)
@@ -959,7 +961,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		ExtraOpaqueData:           msg.ExtraOpaqueData,
 	}
 
-	err = b.UpdateEdge(update)
+	err = b.UpdateEdge(ctx, update)
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
 		return false
@@ -1118,10 +1120,10 @@ func (b *Builder) addEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy,
-	op ...batch.SchedulerOption) error {
+func (b *Builder) UpdateEdge(ctx context.Context,
+	update *models.ChannelEdgePolicy, op ...batch.SchedulerOption) error {
 
-	err := b.updateEdge(update, op...)
+	err := b.updateEdge(ctx, update, op...)
 	if err != nil {
 		logNetworkMsgProcessError(err)
 
@@ -1135,8 +1137,8 @@ func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy,
 // persisted in the graph, and then applies it to the graph if the update is
 // considered fresh enough and if we actually have a channel persisted for the
 // given update.
-func (b *Builder) updateEdge(policy *models.ChannelEdgePolicy,
-	op ...batch.SchedulerOption) error {
+func (b *Builder) updateEdge(ctx context.Context,
+	policy *models.ChannelEdgePolicy, op ...batch.SchedulerOption) error {
 
 	log.Debugf("Received ChannelEdgePolicy for channel %v",
 		policy.ChannelID)
@@ -1209,7 +1211,7 @@ func (b *Builder) updateEdge(policy *models.ChannelEdgePolicy,
 
 	// Now that we know this isn't a stale update, we'll apply the new edge
 	// policy to the proper directional edge within the channel graph.
-	if err = b.cfg.Graph.UpdateEdgePolicy(policy, op...); err != nil {
+	if err = b.cfg.Graph.UpdateEdgePolicy(ctx, policy, op...); err != nil {
 		err := errors.Errorf("unable to add channel: %v", err)
 		log.Error(err)
 		return err

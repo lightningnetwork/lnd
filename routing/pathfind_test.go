@@ -381,7 +381,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 			ToNode:                    targetNode,
 		}
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 			return nil, err
 		}
 
@@ -719,7 +719,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				InboundFee:                getInboundFees(node1), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node1),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -750,7 +751,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				InboundFee:                getInboundFees(node2), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node2),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -2155,9 +2157,8 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch channel edges by ID")
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
-	if err := graph.UpdateEdgePolicy(midEdge); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	err = graph.UpdateEdgePolicy(context.Background(), midEdge)
+	require.NoError(t, err)
 
 	// We'll now attempt to route through that edge with a payment above
 	// 100k msat, which should fail.
@@ -2198,11 +2199,11 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -2219,7 +2220,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
 	require.NoError(t, err, "unable to fetch edge")
 	e.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -2301,11 +2302,11 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 

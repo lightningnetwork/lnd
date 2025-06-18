@@ -1,6 +1,7 @@
 package localchans
 
 import (
+	"context"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -163,7 +164,7 @@ func TestManager(t *testing.T) {
 		}, nil
 	}
 
-	addEdge := func(edge *models.ChannelEdgeInfo) error {
+	addEdge := func(_ context.Context, _ *models.ChannelEdgeInfo) error {
 		return nil
 	}
 
@@ -314,7 +315,9 @@ func TestManager(t *testing.T) {
 			channelSet = test.channelSet
 			expectedNumUpdates = test.expectedNumUpdates
 
-			failedUpdates, err := manager.UpdatePolicy(test.newPolicy,
+			failedUpdates, err := manager.UpdatePolicy(
+				context.Background(),
+				test.newPolicy,
 				test.createMissingEdge,
 				test.specifiedChanPoints...)
 

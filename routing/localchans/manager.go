@@ -2,6 +2,7 @@ package localchans
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -48,7 +49,7 @@ type Manager struct {
 		error)
 
 	// AddEdge is used to add edge/channel to the topology of the router.
-	AddEdge func(edge *models.ChannelEdgeInfo) error
+	AddEdge func(ctx context.Context, edge *models.ChannelEdgeInfo) error
 
 	// policyUpdateLock ensures that the database and the link do not fall
 	// out of sync if there are concurrent fee update calls. Without it,
@@ -60,7 +61,8 @@ type Manager struct {
 
 // UpdatePolicy updates the policy for the specified channels on disk and in
 // the active links.
-func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
+func (r *Manager) UpdatePolicy(ctx context.Context,
+	newSchema routing.ChannelPolicy,
 	createMissingEdge bool, chanPoints ...wire.OutPoint) (
 	[]*lnrpc.FailedUpdate, error) {
 
@@ -192,7 +194,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 				channel.FundingOutpoint.String())
 
 			info, edge, failedUpdate := r.createMissingEdge(
-				channel, newSchema,
+				ctx, channel, newSchema,
 			)
 			if failedUpdate == nil {
 				err = processChan(info, edge)
@@ -234,7 +236,8 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	return failedUpdates, nil
 }
 
-func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
+func (r *Manager) createMissingEdge(ctx context.Context,
+	channel *channeldb.OpenChannel,
 	newSchema routing.ChannelPolicy) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *lnrpc.FailedUpdate) {
 
@@ -264,7 +267,7 @@ func (r *Manager) createMissingEdge(channel *channeldb.OpenChannel,
 
 	// Insert the edge into the database to avoid `edge not
 	// found` errors during policy update propagation.
-	err = r.AddEdge(info)
+	err = r.AddEdge(ctx, info)
 	if err != nil {
 		log.Errorf("Attempt to add missing edge for "+
 			"channel (%s) errored with: %v",

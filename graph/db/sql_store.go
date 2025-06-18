@@ -1702,7 +1702,10 @@ func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
 		ExtraOpaqueData:  recs,
 	}
 
-	if dbChan.Bitcoin1Signature != nil {
+	// We always set all the signatures at the same time, so we can
+	// safely check if one signature is present to determine if we have the
+	// rest of the signatures for the auth proof.
+	if len(dbChan.Bitcoin1Signature) > 0 {
 		channel.AuthProof = &models.ChannelAuthProof{
 			NodeSig1Bytes:    dbChan.Node1Signature,
 			NodeSig2Bytes:    dbChan.Node2Signature,

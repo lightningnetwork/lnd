@@ -235,22 +235,20 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 	tx2 := wire.MsgTx{Version: 2}
 	tx2.AddTxOut(&wire.TxOut{PkScript: testRawScript})
 	tx2Hash := tx2.TxHash()
-	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, tx2NumConfs, 1)
+	// We wish to receive all confirmations for tx2.
+	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, tx2NumConfs, 1,
+		chainntnfs.WithAllConfirmations())
 	require.NoError(t, err, "unable to register ntfn")
 
 	// We should not receive any notifications from both transactions
 	// since they have not been included in a block yet.
 	select {
-	case <-ntfn1.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx1")
 	case txConf := <-ntfn1.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx1: %v", txConf)
 	default:
 	}
 
 	select {
-	case <-ntfn2.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx2")
 	case txConf := <-ntfn2.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx2: %v", txConf)
 	default:
@@ -268,20 +266,6 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	// We should only receive one update for tx1 since it only requires
-	// one confirmation and it already met it.
-	select {
-	case numConfsLeft := <-ntfn1.Event.Updates:
-		const expected = 0
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx1 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx1")
-	}
-
 	// A confirmation notification for this transaction should be dispatched,
 	// as it only required one confirmation.
 	select {
@@ -297,26 +281,20 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 		t.Fatalf("Expected confirmation for tx1")
 	}
 
-	// We should only receive one update for tx2 since it only has one
-	// confirmation so far and it requires two.
-	select {
-	case numConfsLeft := <-ntfn2.Event.Updates:
-		const expected = 1
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx2 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx2")
-	}
-
-	// A confirmation notification for tx2 should not be dispatched yet, as
-	// it requires one more confirmation.
+	// A confirmation notification for tx2 should be dispatched, as we have
+	// registered for all confirmation events for tx2.
 	select {
 	case txConf := <-ntfn2.Event.Confirmed:
-		t.Fatalf("Received unexpected confirmation for tx2: %v", txConf)
+		expectedConf := chainntnfs.TxConfirmation{
+			BlockHash:    block1.Hash(),
+			BlockHeight:  11,
+			TxIndex:      1,
+			Tx:           &tx2,
+			NumConfsLeft: 1,
+		}
+		assertConfDetails(t, txConf, &expectedConf)
 	default:
+		t.Fatalf("Expected confirmation for tx2")
 	}
 
 	// Create a new block and add it to the TxNotifier at the next height.
@@ -331,25 +309,9 @@ func TestTxNotifierFutureConfDispatch(t *testing.T) {
 	// We should not receive any event notifications for tx1 since it has
 	// already been confirmed.
 	select {
-	case <-ntfn1.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx1")
 	case txConf := <-ntfn1.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx1: %v", txConf)
 	default:
-	}
-
-	// We should only receive one update since the last at the new height,
-	// indicating how many confirmations are still left.
-	select {
-	case numConfsLeft := <-ntfn2.Event.Updates:
-		const expected = 0
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx2 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx2")
 	}
 
 	// A confirmation notification for tx2 should be dispatched, since it
@@ -401,7 +363,8 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 	require.NoError(t, err, "unable to register ntfn")
 
 	// Update tx1 with its confirmation details. We should only receive one
-	// update since it only requires one confirmation and it already met it.
+	// confirmation notification since it only requires one confirmation and
+	// it already met it.
 	txConf1 := chainntnfs.TxConfirmation{
 		BlockHash:   &chainntnfs.ZeroHash,
 		BlockHeight: 9,
@@ -411,19 +374,6 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, &txConf1)
 	require.NoError(t, err, "unable to update conf details")
 	select {
-	case numConfsLeft := <-ntfn1.Event.Updates:
-		const expected = 0
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx1 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx1")
-	}
-
-	// A confirmation notification for tx1 should also be dispatched.
-	select {
 	case txConf := <-ntfn1.Event.Confirmed:
 		assertConfDetails(t, txConf, &txConf1)
 	default:
@@ -432,8 +382,8 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 
 	// Update tx2 with its confirmation details. This should not trigger a
 	// confirmation notification since it hasn't reached its required number
-	// of confirmations, but we should receive a confirmation update
-	// indicating how many confirmation are left.
+	// of confirmations, and we did not register for all confirmation events
+	// for tx2.
 	txConf2 := chainntnfs.TxConfirmation{
 		BlockHash:   &chainntnfs.ZeroHash,
 		BlockHeight: 9,
@@ -442,17 +392,6 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 	}
 	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, &txConf2)
 	require.NoError(t, err, "unable to update conf details")
-	select {
-	case numConfsLeft := <-ntfn2.Event.Updates:
-		const expected = 1
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx2 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx2")
-	}
 
 	select {
 	case txConf := <-ntfn2.Event.Confirmed:
@@ -475,25 +414,9 @@ func TestTxNotifierHistoricalConfDispatch(t *testing.T) {
 	// We should not receive any event notifications for tx1 since it has
 	// already been confirmed.
 	select {
-	case <-ntfn1.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx1")
 	case txConf := <-ntfn1.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx1: %v", txConf)
 	default:
-	}
-
-	// We should only receive one update for tx2 since the last one,
-	// indicating how many confirmations are still left.
-	select {
-	case numConfsLeft := <-ntfn2.Event.Updates:
-		const expected = 0
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx2 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx2")
 	}
 
 	// A confirmation notification for tx2 should be dispatched, as it met
@@ -621,15 +544,10 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	// Expect an update and confirmation of TX 1 at this point. We save the
-	// confirmation details because we expect to receive the same details
-	// for all further registrations.
+	// Expect a confirmation of TX 1 at this point. We save the confirmation
+	// details because we expect to receive the same details for all further
+	// registrations.
 	var confDetails *chainntnfs.TxConfirmation
-	select {
-	case <-ntfn1.Event.Updates:
-	default:
-		t.Fatal("expected update of TX 1")
-	}
 	select {
 	case confDetails = <-ntfn1.Event.Confirmed:
 		if confDetails.BlockHeight != currentBlock {
@@ -641,11 +559,6 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 
 	// The notification for the script should also have received a
 	// confirmation.
-	select {
-	case <-scriptNtfn1.Event.Updates:
-	default:
-		t.Fatal("expected update of script ntfn")
-	}
 	select {
 	case details := <-scriptNtfn1.Event.Confirmed:
 		assertConfDetails(t, details, confDetails)
@@ -678,11 +591,6 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 	// a different TXID we wouldn't get the cached details here but the TX
 	// should be confirmed right away still.
 	select {
-	case <-ntfn2.Event.Updates:
-	default:
-		t.Fatal("expected update of TX 2")
-	}
-	select {
 	case details := <-ntfn2.Event.Confirmed:
 		if details.BlockHeight != currentBlock {
 			t.Fatalf("expected TX to be confirmed in latest block")
@@ -696,11 +604,6 @@ func TestTxNotifierFutureConfDispatchReuseSafe(t *testing.T) {
 	// details from the first TX back immediately. Nothing should be
 	// registered at the notifier for the current block height for that
 	// script any more.
-	select {
-	case <-scriptNtfn2.Event.Updates:
-	default:
-		t.Fatal("expected update of script ntfn")
-	}
 	select {
 	case details := <-scriptNtfn2.Event.Confirmed:
 		assertConfDetails(t, details, confDetails)
@@ -1309,7 +1212,8 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	tx1 := wire.MsgTx{Version: 1}
 	tx1.AddTxOut(&wire.TxOut{PkScript: testRawScript})
 	tx1Hash := tx1.TxHash()
-	ntfn1, err := n.RegisterConf(&tx1Hash, testRawScript, tx1NumConfs, 1)
+	ntfn1, err := n.RegisterConf(&tx1Hash, testRawScript, tx1NumConfs, 1,
+		chainntnfs.WithAllConfirmations())
 	require.NoError(t, err, "unable to register ntfn")
 
 	err = n.UpdateConfDetails(ntfn1.HistoricalDispatch.ConfRequest, nil)
@@ -1319,7 +1223,8 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	tx2 := wire.MsgTx{Version: 2}
 	tx2.AddTxOut(&wire.TxOut{PkScript: testRawScript})
 	tx2Hash := tx2.TxHash()
-	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, tx2NumConfs, 1)
+	ntfn2, err := n.RegisterConf(&tx2Hash, testRawScript, tx2NumConfs, 1,
+		chainntnfs.WithAllConfirmations())
 	require.NoError(t, err, "unable to register ntfn")
 
 	err = n.UpdateConfDetails(ntfn2.HistoricalDispatch.ConfRequest, nil)
@@ -1362,30 +1267,24 @@ func TestTxNotifierConfReorg(t *testing.T) {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	// We should receive two updates for tx1 since it requires two
-	// confirmations and it has already met them.
-	for i := 0; i < 2; i++ {
+	// Since we have registered for all confirmation events, we should
+	// receive a confirmation notification for every confirmation of tx1.
+	for i := uint32(1); i <= tx1NumConfs; i++ {
 		select {
-		case <-ntfn1.Event.Updates:
+		case txConf := <-ntfn1.Event.Confirmed:
+			expectedConf := chainntnfs.TxConfirmation{
+				BlockHash:    block1.Hash(),
+				BlockHeight:  8,
+				TxIndex:      0,
+				Tx:           &tx1,
+				NumConfsLeft: tx1NumConfs - i,
+			}
+			assertConfDetails(t, txConf, &expectedConf)
+
+			continue
 		default:
-			t.Fatal("Expected confirmation update for tx1")
+			t.Fatalf("Expected confirmation for tx1")
 		}
-	}
-
-	// A confirmation notification for tx1 should be dispatched, as it met
-	// its required number of confirmations.
-	select {
-	case <-ntfn1.Event.Confirmed:
-	default:
-		t.Fatalf("Expected confirmation for tx1")
-	}
-
-	// We should only receive one update for tx2 since it only requires
-	// one confirmation and it already met it.
-	select {
-	case <-ntfn2.Event.Updates:
-	default:
-		t.Fatal("Expected confirmation update for tx2")
 	}
 
 	// A confirmation notification for tx2 should be dispatched, as it met
@@ -1394,14 +1293,6 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	case <-ntfn2.Event.Confirmed:
 	default:
 		t.Fatalf("Expected confirmation for tx2")
-	}
-
-	// We should only receive one update for tx3 since it only has one
-	// confirmation so far and it requires two.
-	select {
-	case <-ntfn3.Event.Updates:
-	default:
-		t.Fatal("Expected confirmation update for tx3")
 	}
 
 	// A confirmation notification for tx3 should not be dispatched yet, as
@@ -1446,24 +1337,18 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	// transactions because tx1 has already been confirmed and tx2 and tx3
 	// have not been included in the chain since the reorg.
 	select {
-	case <-ntfn1.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx1")
 	case txConf := <-ntfn1.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx1: %v", txConf)
 	default:
 	}
 
 	select {
-	case <-ntfn2.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx2")
 	case txConf := <-ntfn2.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx2: %v", txConf)
 	default:
 	}
 
 	select {
-	case <-ntfn3.Event.Updates:
-		t.Fatal("Received unexpected confirmation update for tx3")
 	case txConf := <-ntfn3.Event.Confirmed:
 		t.Fatalf("Received unexpected confirmation for tx3: %v", txConf)
 	default:
@@ -1487,20 +1372,6 @@ func TestTxNotifierConfReorg(t *testing.T) {
 		t.Fatalf("unable to dispatch notifications: %v", err)
 	}
 
-	// We should only receive one update for tx2 since it only requires
-	// one confirmation and it already met it.
-	select {
-	case numConfsLeft := <-ntfn2.Event.Updates:
-		const expected = 0
-		if numConfsLeft != expected {
-			t.Fatalf("Received incorrect confirmation update: tx2 "+
-				"expected %d confirmations left, got %d",
-				expected, numConfsLeft)
-		}
-	default:
-		t.Fatal("Expected confirmation update for tx2")
-	}
-
 	// A confirmation notification for tx2 should be dispatched, as it met
 	// its required number of confirmations.
 	select {
@@ -1514,22 +1385,6 @@ func TestTxNotifierConfReorg(t *testing.T) {
 		assertConfDetails(t, txConf, &expectedConf)
 	default:
 		t.Fatalf("Expected confirmation for tx2")
-	}
-
-	// We should receive two updates for tx3 since it requires two
-	// confirmations and it has already met them.
-	for i := uint32(1); i <= 2; i++ {
-		select {
-		case numConfsLeft := <-ntfn3.Event.Updates:
-			expected := tx3NumConfs - i
-			if numConfsLeft != expected {
-				t.Fatalf("Received incorrect confirmation update: tx3 "+
-					"expected %d confirmations left, got %d",
-					expected, numConfsLeft)
-			}
-		default:
-			t.Fatal("Expected confirmation update for tx2")
-		}
 	}
 
 	// A confirmation notification for tx3 should be dispatched, as it met
@@ -2496,10 +2351,6 @@ func TestTxNotifierTearDown(t *testing.T) {
 		if ok {
 			t.Fatal("expected closed Confirmed channel for conf ntfn")
 		}
-	case _, ok := <-confNtfn.Event.Updates:
-		if ok {
-			t.Fatal("expected closed Updates channel for conf ntfn")
-		}
 	case _, ok := <-confNtfn.Event.NegativeConf:
 		if ok {
 			t.Fatal("expected closed NegativeConf channel for conf ntfn")
@@ -2548,6 +2399,11 @@ func assertConfDetails(t *testing.T, result, expected *chainntnfs.TxConfirmation
 	if result.Tx.TxHash() != expected.Tx.TxHash() {
 		t.Fatalf("expected tx hash %v, got %v", expected.Tx.TxHash(),
 			result.Tx.TxHash())
+	}
+	if result.NumConfsLeft != expected.NumConfsLeft {
+		t.Fatalf("Incorrect confirmations left in confirmation "+
+			"details: expected %d, got %d", expected.NumConfsLeft,
+			result.NumConfsLeft)
 	}
 }
 

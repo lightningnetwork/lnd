@@ -79,9 +79,12 @@ func newMockChannelGraphTimeSeries(
 	}
 }
 
-func (m *mockChannelGraphTimeSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error) {
+func (m *mockChannelGraphTimeSeries) HighestChanID(_ context.Context,
+	_ chainhash.Hash) (*lnwire.ShortChannelID, error) {
+
 	return &m.highestID, nil
 }
+
 func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
 

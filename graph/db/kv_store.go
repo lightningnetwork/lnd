@@ -1948,7 +1948,7 @@ func getChanID(tx kvdb.RTx, chanPoint *wire.OutPoint) (uint64, error) {
 // HighestChanID returns the "highest" known channel ID in the channel graph.
 // This represents the "newest" channel from the PoV of the chain. This method
 // can be used by peers to quickly determine if they're graphs are in sync.
-func (c *KVStore) HighestChanID() (uint64, error) {
+func (c *KVStore) HighestChanID(_ context.Context) (uint64, error) {
 	var cid uint64
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {

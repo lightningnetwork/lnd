@@ -1881,7 +1881,7 @@ func TestHighestChanID(t *testing.T) {
 
 	// If we don't yet have any channels in the database, then we should
 	// get a channel ID of zero if we ask for the highest channel ID.
-	bestID, err := graph.HighestChanID()
+	bestID, err := graph.HighestChanID(ctx)
 	require.NoError(t, err, "unable to get highest ID")
 	if bestID != 0 {
 		t.Fatalf("best ID w/ no chan should be zero, is instead: %v",
@@ -1907,7 +1907,7 @@ func TestHighestChanID(t *testing.T) {
 
 	// Now that the edges has been inserted, we'll query for the highest
 	// known channel ID in the database.
-	bestID, err = graph.HighestChanID()
+	bestID, err = graph.HighestChanID(ctx)
 	require.NoError(t, err, "unable to get highest ID")
 
 	if bestID != chanID2.ToUint64() {
@@ -1921,7 +1921,7 @@ func TestHighestChanID(t *testing.T) {
 	if err := graph.AddChannelEdge(ctx, &edge3); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
-	bestID, err = graph.HighestChanID()
+	bestID, err = graph.HighestChanID(ctx)
 	require.NoError(t, err, "unable to get highest ID")
 
 	if bestID != chanID3.ToUint64() {

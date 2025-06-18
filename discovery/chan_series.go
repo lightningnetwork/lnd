@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,7 +23,8 @@ type ChannelGraphTimeSeries interface {
 	// height that's close to the current tip of the main chain as we
 	// know it.  We'll use this to start our QueryChannelRange dance with
 	// the remote node.
-	HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error)
+	HighestChanID(ctx context.Context,
+		chain chainhash.Hash) (*lnwire.ShortChannelID, error)
 
 	// UpdatesInHorizon returns all known channel and node updates with an
 	// update timestamp between the start time and end time. We'll use this
@@ -87,8 +89,10 @@ func NewChanSeries(graph *graphdb.ChannelGraph) *ChanSeries {
 // this to start our QueryChannelRange dance with the remote node.
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
-func (c *ChanSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error) {
-	chanID, err := c.graph.HighestChanID()
+func (c *ChanSeries) HighestChanID(ctx context.Context,
+	_ chainhash.Hash) (*lnwire.ShortChannelID, error) {
+
+	chanID, err := c.graph.HighestChanID(ctx)
 	if err != nil {
 		return nil, err
 	}

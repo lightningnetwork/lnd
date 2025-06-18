@@ -26,6 +26,9 @@
 - [Fixed](https://github.com/lightningnetwork/lnd/pull/9921) a case where the
   spending notification of an output may be missed if wrong height hint is used.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/9962) a case where the
+  node may panic if it's running in the remote signer mode.
+
 # New Features
 
 ## Functional Enhancements

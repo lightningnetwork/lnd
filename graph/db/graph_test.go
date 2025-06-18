@@ -348,7 +348,7 @@ func TestAliasLookup(t *testing.T) {
 	// the one which the test node was assigned.
 	nodePub, err := testNode.PubKey()
 	require.NoError(t, err, "unable to generate pubkey")
-	dbAlias, err := graph.LookupAlias(nodePub)
+	dbAlias, err := graph.LookupAlias(ctx, nodePub)
 	require.NoError(t, err, "unable to find alias")
 	require.Equal(t, testNode.Alias, dbAlias)
 
@@ -356,7 +356,7 @@ func TestAliasLookup(t *testing.T) {
 	node := createTestVertex(t)
 	nodePub, err = node.PubKey()
 	require.NoError(t, err, "unable to generate pubkey")
-	_, err = graph.LookupAlias(nodePub)
+	_, err = graph.LookupAlias(ctx, nodePub)
 	require.ErrorIs(t, err, ErrNodeAliasNotFound)
 }
 

@@ -111,7 +111,7 @@ type V1Store interface { //nolint:interfacebloat
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
-	LookupAlias(pub *btcec.PublicKey) (string, error)
+	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
 
 	// DeleteLightningNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.

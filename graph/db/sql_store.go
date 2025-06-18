@@ -355,11 +355,10 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 // LookupAlias attempts to return the alias as advertised by the target node.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
-	var (
-		ctx   = context.TODO()
-		alias string
-	)
+func (s *SQLStore) LookupAlias(ctx context.Context,
+	pub *btcec.PublicKey) (string, error) {
+
+	var alias string
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{

@@ -997,7 +997,9 @@ func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
 
 // LookupAlias attempts to return the alias as advertised by the target node.
 // TODO(roasbeef): currently assumes that aliases are unique...
-func (c *KVStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
+func (c *KVStore) LookupAlias(_ context.Context,
+	pub *btcec.PublicKey) (string, error) {
+
 	var alias string
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {

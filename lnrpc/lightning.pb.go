@@ -7031,13 +7031,44 @@ type CloseChannelRequest struct {
 	//
 	// NOTE: This field is only respected if we're the initiator of the channel.
 	MaxFeePerVbyte uint64 `protobuf:"varint,7,opt,name=max_fee_per_vbyte,json=maxFeePerVbyte,proto3" json:"max_fee_per_vbyte,omitempty"`
-	// If true, then the rpc call will not block while it awaits a closing txid
-	// to be broadcasted to the mempool. To obtain the closing tx one has to
-	// listen to the stream for the particular updates. Moreover if a coop close
-	// is specified and this flag is set to true the coop closing flow will be
-	// initiated even if HTLCs are active on the channel. The channel will wait
-	// until all HTLCs are resolved and then start the coop closing process. The
-	// channel will be disabled in the meantime and will disallow any new HTLCs.
+	// When force closing, `no_wait` has no effect.
+	// If `no_wait=true` (`wait=false`) when a coop close is attempted, then the
+	// rpc call will not initially block while it awaits a closing txid to be
+	// broadcasted to the mempool. Instead, a coop close will be initiated even
+	// if there are HTLCs active inflight on the channel and a `close_instant`
+	// message will be immediately returned over the stream which contains
+	// `num_pending_htlcs` if there are inflight HTLCs that still need to be
+	// resolved before a coop close can be initiated. After the `close_instant`
+	// is received, then the channel will be disabled to disallow any new HTLCs
+	// and the rpc will block while it waits for the exsting inflight HTLCs to
+	// be resolved and then start the coop closing process. To obtain the
+	// closing TXID one has to listen to the stream for a `close_pending`
+	// update. If the client disconnects the stream before this is received, LND
+	// will continue to wait for the inflight HTLCs to be resolved and then
+	// start the coop closing process. Note: `lncli closechannel` always sets
+	// `no_wait=true` and its `--block` option controls if `lncli` should wait
+	// for a `chan_close` update (indicating the channel close has been mined)
+	// before returning or if it should disconnect the stream and return
+	// immediately after `close_pending` is received when the TX is broadcast to
+	// the mempool. If `no_wait=false` (`wait=true`) when a coop close is
+	// attempted and there are inflight HTLCs on the channel, then the rpc call
+	// will fail and abort the closing process because it can't wait for a
+	// closing TXID to be broadcast to the mempool because it needs to
+	// immediately tell the user that there are inflight HTLCs that need to be
+	// resolved before that can happen. If a coop close is attempted with no
+	// inflight HTLCs on the channel with `no_wait=true`, it will still result
+	// in an immediate `close_instant` message being returned on the stream but
+	// `num_pending_htlcs` will be 0 and *nearly* immediately after that the
+	// `close_pending` message will be returned on the stream. If a coop close
+	// is attempted with no inflight HTLCs on the channel with `no_wait=false`,
+	// the `close_instant` message will be skipped and *nearly* immediately the
+	// `close_pending` message will be returned on the stream. In summary, the
+	// `no_wait` option controls if the user is willing to wait for the rpc call
+	// to send an initial immediate response message back indicating if there
+	// are inflight HTLCs on the channel and a coop close is attempted. It then
+	// indirectly controls if the rpc call later waits for inflight HTLCs to be
+	// resolved before attempting a coop close or if it will instantly fail.
+	// The default value is false.
 	NoWait bool `protobuf:"varint,8,opt,name=no_wait,json=noWait,proto3" json:"no_wait,omitempty"`
 }
 

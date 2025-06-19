@@ -611,18 +611,14 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 
 // removePeerAccess removes the peer's access from the maps. This should be
 // called when the peer has been disconnected.
-func (a *accessMan) removePeerAccess(remotePub *btcec.PublicKey) {
-	ctx := btclog.WithCtx(
-		context.TODO(), lnutils.LogPubKey("peer", remotePub),
-	)
-	acsmLog.DebugS(ctx, "Removing peer access")
+func (a *accessMan) removePeerAccess(peerPubKey string) {
+	ctx := btclog.WithCtx(context.TODO(), "peer", peerPubKey)
+	acsmLog.DebugS(ctx, "Removing access:")
 
 	a.banScoreMtx.Lock()
 	defer a.banScoreMtx.Unlock()
 
-	peerMapKey := string(remotePub.SerializeCompressed())
-
-	status, found := a.peerScores[peerMapKey]
+	status, found := a.peerScores[peerPubKey]
 	if !found {
 		acsmLog.InfoS(ctx, "Peer score not found during removal")
 		return
@@ -639,7 +635,31 @@ func (a *accessMan) removePeerAccess(remotePub *btcec.PublicKey) {
 			"new_restricted", a.numRestricted)
 	}
 
-	acsmLog.TraceS(ctx, "Deleting peer from peerScores")
+	acsmLog.TraceS(ctx, "Deleting from peerScores:")
 
-	delete(a.peerScores, peerMapKey)
+	delete(a.peerScores, peerPubKey)
+
+	// We now check whether this peer has channels with us or not.
+	info, found := a.peerChanInfo[peerPubKey]
+	if !found {
+		acsmLog.DebugS(ctx, "Chan info not found during removal:")
+		return
+	}
+
+	// Exit early if the peer has channel(s) with us.
+	if info.HasOpenOrClosedChan {
+		acsmLog.DebugS(ctx, "Skipped removing peer with channels:")
+		return
+	}
+
+	// Skip removing the peer if it has pending open/close with us.
+	if info.PendingOpenCount != 0 {
+		acsmLog.DebugS(ctx, "Skipped removing peer with pending "+
+			"channels:")
+		return
+	}
+
+	// Given this peer has no channels with us, we can now remove it.
+	delete(a.peerChanInfo, peerPubKey)
+	acsmLog.TraceS(ctx, "Removed peer from peerChanInfo:")
 }

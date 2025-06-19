@@ -1723,6 +1723,48 @@
         ]
       }
     },
+    "/v1/invoice": {
+      "delete": {
+        "summary": "lncli: `deletecanceledinvoices`\nDeleteCanceledInvoices deletes cancelled invoices from DB. Note that it will\nnot attempt to delete a non-cancelled invoice, since that would be unsafe.",
+        "operationId": "Lightning_DeleteCanceledInvoices",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDeleteInvoicesResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoice_hashes",
+            "description": "List of Invoice payment hashes to delete.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "all_invoices",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/invoice/{r_hash_str}": {
       "get": {
         "summary": "lncli: `lookupinvoice`\nLookupInvoice attempts to look up an invoice according to its payment hash.\nThe passed payment hash *must* be exactly 32 bytes, if not, an error is\nreturned.",
@@ -4781,6 +4823,21 @@
         "status": {
           "type": "string",
           "description": "The status of the delete operation."
+        }
+      }
+    },
+    "lnrpcDeleteInvoicesResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        },
+        "invoices_not_deleted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

@@ -48,6 +48,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   [`incoming_chan_ids` and `outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356). 
   This allows to retrieve forwarding events for specific channels.
 
+Added [`deleteinvoices`]((https://github.com/lightningnetwork/lnd/pull/9625))
+RPC to allow removal of cancelled invoices. Supports two arguments:
+`--all` deleting all cancelled invoices and `--invoice_hashes` deleting specific
+cancelled invoices by providing a list of hashes.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the

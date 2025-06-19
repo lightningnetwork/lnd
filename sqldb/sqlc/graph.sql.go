@@ -533,6 +533,25 @@ func (q *Queries) GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeatur
 	return items, nil
 }
 
+const getNodeIDByPubKey = `-- name: GetNodeIDByPubKey :one
+SELECT id
+FROM nodes
+WHERE pub_key = $1
+  AND version = $2
+`
+
+type GetNodeIDByPubKeyParams struct {
+	PubKey  []byte
+	Version int16
+}
+
+func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getNodeIDByPubKey, arg.PubKey, arg.Version)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature
 FROM nodes
@@ -729,7 +748,6 @@ func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeaturePa
 }
 
 const listChannelsByNodeID = `-- name: ListChannelsByNodeID :many
-
 SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey,
@@ -866,6 +884,93 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy2InboundBaseFeeMsat,
 			&i.Policy2InboundFeeRateMilliMsat,
 			&i.Policy2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodeIDsAndPubKeys = `-- name: ListNodeIDsAndPubKeys :many
+SELECT id, pub_key
+FROM nodes
+WHERE version = $1  AND id > $2
+ORDER BY id
+LIMIT $3
+`
+
+type ListNodeIDsAndPubKeysParams struct {
+	Version int16
+	ID      int64
+	Limit   int32
+}
+
+type ListNodeIDsAndPubKeysRow struct {
+	ID     int64
+	PubKey []byte
+}
+
+func (q *Queries) ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error) {
+	rows, err := q.db.QueryContext(ctx, listNodeIDsAndPubKeys, arg.Version, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListNodeIDsAndPubKeysRow
+	for rows.Next() {
+		var i ListNodeIDsAndPubKeysRow
+		if err := rows.Scan(&i.ID, &i.PubKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodesPaginated = `-- name: ListNodesPaginated :many
+SELECT id, version, pub_key, alias, last_update, color, signature
+FROM nodes
+WHERE version = $1 AND id > $2
+ORDER BY id
+LIMIT $3
+`
+
+type ListNodesPaginatedParams struct {
+	Version int16
+	ID      int64
+	Limit   int32
+}
+
+func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]Node, error) {
+	rows, err := q.db.QueryContext(ctx, listNodesPaginated, arg.Version, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
 		); err != nil {
 			return nil, err
 		}

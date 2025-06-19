@@ -77,6 +77,7 @@ circuit. The indices are only available for forwarding events saved after v0.20.
     * [2](https://github.com/lightningnetwork/lnd/pull/9869)
     * [3](https://github.com/lightningnetwork/lnd/pull/9887)
     * [4](https://github.com/lightningnetwork/lnd/pull/9931)
+    * [5](https://github.com/lightningnetwork/lnd/pull/9935)
 
 ## RPC Updates
 

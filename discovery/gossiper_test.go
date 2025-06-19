@@ -136,8 +136,8 @@ func (r *mockGraphSource) IsZombieEdge(chanID lnwire.ShortChannelID) (bool,
 	return ok, nil
 }
 
-func (r *mockGraphSource) AddEdge(info *models.ChannelEdgeInfo,
-	_ ...batch.SchedulerOption) error {
+func (r *mockGraphSource) AddEdge(_ context.Context,
+	info *models.ChannelEdgeInfo, _ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -161,8 +161,8 @@ func (r *mockGraphSource) queueValidationFail(chanID uint64) {
 	r.chansToReject[chanID] = struct{}{}
 }
 
-func (r *mockGraphSource) UpdateEdge(edge *models.ChannelEdgePolicy,
-	_ ...batch.SchedulerOption) error {
+func (r *mockGraphSource) UpdateEdge(_ context.Context,
+	edge *models.ChannelEdgePolicy, _ ...batch.SchedulerOption) error {
 
 	r.mu.Lock()
 	defer func() {

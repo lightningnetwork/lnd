@@ -133,7 +133,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	sourceNode, err := graphInstance.graph.SourceNode()
+	sourceNode, err := graphInstance.graph.SourceNode(context.Background())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
 		GraphSessionFactory: graphInstance.graph,
@@ -1203,7 +1203,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode, err := ctx.graph.SourceNode()
+	sourceNode, err := ctx.graph.SourceNode(context.Background())
 	require.NoError(t, err, "unable to fetch source node")
 
 	amt := lnwire.MilliSatoshi(100)
@@ -2744,7 +2744,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
 	}
-	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
@@ -2760,7 +2760,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 0
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// Create edge in the other direction as well.
 	edgePolicy = &models.ChannelEdgePolicy{
@@ -2775,7 +2775,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 1
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
@@ -2824,7 +2824,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
 	edge.BitcoinKey2Bytes = node2Bytes
 
-	require.NoError(t, ctx.graph.AddChannelEdge(edge))
+	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -2838,7 +2838,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 0
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -2852,7 +2852,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	edgePolicy.ChannelFlags = 1
 
-	require.NoError(t, ctx.graph.UpdateEdgePolicy(edgePolicy))
+	require.NoError(t, ctx.graph.UpdateEdgePolicy(ctxb, edgePolicy))
 
 	// We should now be able to find a route to node 2.
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -2943,7 +2943,9 @@ type mockGraphBuilder struct {
 func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
 	return &mockGraphBuilder{
 		updateEdge: func(update *models.ChannelEdgePolicy) error {
-			return graph.UpdateEdgePolicy(update)
+			return graph.UpdateEdgePolicy(
+				context.Background(), update,
+			)
 		},
 	}
 }

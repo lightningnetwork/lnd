@@ -44,6 +44,7 @@ const (
 // info was added to the database.
 func TestAddProof(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	ctx := createTestCtxSingleNode(t, 0)
 
@@ -75,7 +76,7 @@ func TestAddProof(t *testing.T) {
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	require.NoError(t, ctx.builder.AddEdge(edge))
+	require.NoError(t, ctx.builder.AddEdge(ctxb, edge))
 
 	// Now we'll attempt to update the proof and check that it has been
 	// properly updated.
@@ -117,6 +118,7 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 // ignore a channel policy for a channel not in the graph.
 func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 
@@ -170,18 +172,18 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 
 	// Attempt to update the edge. This should be ignored, since the edge
 	// is not yet added to the router.
-	err = ctx.builder.UpdateEdge(edgePolicy)
+	err = ctx.builder.UpdateEdge(ctxb, edgePolicy)
 	if !IsError(err, ErrIgnored) {
 		t.Fatalf("expected to get ErrIgnore, instead got: %v", err)
 	}
 
 	// Add the edge.
-	require.NoErrorf(t, ctx.builder.AddEdge(edge), "expected to be able "+
-		"to add edge to the channel graph, even though the vertexes "+
-		"were unknown: %v.", err)
+	require.NoErrorf(t, ctx.builder.AddEdge(ctxb, edge),
+		"expected to be able to add edge to the channel graph, even "+
+			"though the vertexes were unknown: %v.", err)
 
 	// Now updating the edge policy should succeed.
-	require.NoError(t, ctx.builder.UpdateEdge(edgePolicy))
+	require.NoError(t, ctx.builder.UpdateEdge(ctxb, edgePolicy))
 }
 
 // TestWakeUpOnStaleBranch tests that upon startup of the ChannelRouter, if the
@@ -190,6 +192,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 // confirmed on the stale chain, and resync to the main chain.
 func TestWakeUpOnStaleBranch(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -283,7 +286,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.builder.AddEdge(edge1); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -302,7 +305,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.builder.AddEdge(edge2); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge2); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -347,7 +350,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Give time to process new blocks.
 	time.Sleep(time.Millisecond * 500)
 
-	selfNode, err := ctx.graph.SourceNode()
+	selfNode, err := ctx.graph.SourceNode(context.Background())
 	require.NoError(t, err)
 
 	// Create new router with same graph database.
@@ -401,6 +404,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 // it is active.
 func TestDisconnectedBlocks(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -492,7 +496,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.builder.AddEdge(edge1); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -513,7 +517,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge2.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
 
-	if err := ctx.builder.AddEdge(edge2); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge2); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -599,6 +603,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 // ChannelRouter, then the channels are properly pruned.
 func TestChansClosedOfflinePruneGraph(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -644,7 +649,7 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
 	copy(edge1.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-	if err := ctx.builder.AddEdge(edge1); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge1); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -1047,7 +1052,7 @@ func TestIsStaleNode(t *testing.T) {
 		AuthProof:        nil,
 		FundingScript:    fn.Some(script),
 	}
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -1092,6 +1097,7 @@ func TestIsStaleNode(t *testing.T) {
 // channel announcements.
 func TestIsKnownEdge(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1125,7 +1131,7 @@ func TestIsKnownEdge(t *testing.T) {
 		AuthProof:        nil,
 		FundingScript:    fn.Some(script),
 	}
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -1140,6 +1146,7 @@ func TestIsKnownEdge(t *testing.T) {
 // stale channel edge update announcements.
 func TestIsStaleEdgePolicy(t *testing.T) {
 	t.Parallel()
+	ctxb := context.Background()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
@@ -1183,7 +1190,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		AuthProof:        nil,
 		FundingScript:    fn.Some(script),
 	}
-	if err := ctx.builder.AddEdge(edge); err != nil {
+	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
 
@@ -1198,7 +1205,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.ChannelFlags = 0
-	if err := ctx.builder.UpdateEdge(edgePolicy); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
@@ -1212,7 +1219,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		FeeProportionalMillionths: 10000,
 	}
 	edgePolicy.ChannelFlags = 1
-	if err := ctx.builder.UpdateEdge(edgePolicy); err != nil {
+	if err := ctx.builder.UpdateEdge(ctxb, edgePolicy); err != nil {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
@@ -1445,7 +1452,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 	if source != nil {
 		// Set the selected source node
-		if err := graph.SetSourceNode(source); err != nil {
+		if err := graph.SetSourceNode(ctx, source); err != nil {
 			return nil, err
 		}
 	}
@@ -1501,7 +1508,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			),
 		}
 
-		err = graph.AddChannelEdge(&edgeInfo)
+		err = graph.AddChannelEdge(ctx, &edgeInfo)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
@@ -1536,7 +1543,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			),
 			ToNode: targetNode,
 		}
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 			return nil, err
 		}
 
@@ -1785,7 +1792,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		return nil, err
 	}
 
-	if err = graph.SetSourceNode(dbNode); err != nil {
+	if err = graph.SetSourceNode(ctx, dbNode); err != nil {
 		return nil, err
 	}
 
@@ -1861,7 +1868,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			BitcoinKey2Bytes: node2Vertex,
 		}
 
-		err = graph.AddChannelEdge(&edgeInfo)
+		err = graph.AddChannelEdge(ctx, &edgeInfo)
 		if err != nil &&
 			!errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 
@@ -1905,7 +1912,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node2Vertex,
 				ExtraOpaqueData:           getExtraData(node1),
 			}
-			err := graph.UpdateEdgePolicy(edgePolicy)
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
 			if err != nil {
 				return nil, err
 			}
@@ -1936,7 +1943,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				ToNode:                    node1Vertex,
 				ExtraOpaqueData:           getExtraData(node2),
 			}
-			err := graph.UpdateEdgePolicy(edgePolicy)
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
 			if err != nil {
 				return nil, err
 			}

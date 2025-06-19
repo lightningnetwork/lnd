@@ -111,7 +111,7 @@ type V1Store interface { //nolint:interfacebloat
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
-	LookupAlias(pub *btcec.PublicKey) (string, error)
+	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
 
 	// DeleteLightningNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.
@@ -189,7 +189,7 @@ type V1Store interface { //nolint:interfacebloat
 	// and the set of features that the channel supports. The chanPoint and
 	// chanID are used to uniquely identify the edge globally within the
 	// database.
-	AddChannelEdge(edge *models.ChannelEdgeInfo,
+	AddChannelEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// HasChannelEdge returns true if the database knows of a channel edge
@@ -227,7 +227,7 @@ type V1Store interface { //nolint:interfacebloat
 	// graph. This represents the "newest" channel from the PoV of the
 	// chain. This method can be used by peers to quickly determine if
 	// they're graphs are in sync.
-	HighestChanID() (uint64, error)
+	HighestChanID(ctx context.Context) (uint64, error)
 
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
@@ -332,19 +332,20 @@ type V1Store interface { //nolint:interfacebloat
 	// node's information. The node ordering is determined by the
 	// lexicographical ordering of the identity public keys of the nodes on
 	// either side of the channel.
-	UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+	UpdateEdgePolicy(ctx context.Context, edge *models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) (route.Vertex, route.Vertex, error)
 
 	// SourceNode returns the source node of the graph. The source node is
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode() (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.LightningNode, error)
 
 	// SetSourceNode sets the source node within the graph database. The
 	// source node is to be used as the center of a star-graph within path
 	// finding algorithms.
-	SetSourceNode(node *models.LightningNode) error
+	SetSourceNode(ctx context.Context,
+		node *models.LightningNode) error
 
 	// PruneTip returns the block height and hash of the latest block that
 	// has been used to prune channels in the graph. Knowing the "prune tip"

@@ -300,7 +300,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 	if source != nil {
 		// Set the selected source node
-		if err := graph.SetSourceNode(source); err != nil {
+		if err := graph.SetSourceNode(ctx, source); err != nil {
 			return nil, err
 		}
 	}
@@ -356,7 +356,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			),
 		}
 
-		err = graph.AddChannelEdge(&edgeInfo)
+		err = graph.AddChannelEdge(ctx, &edgeInfo)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
@@ -381,7 +381,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
 			ToNode:                    targetNode,
 		}
-		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+		if err := graph.UpdateEdgePolicy(ctx, edgePolicy); err != nil {
 			return nil, err
 		}
 
@@ -590,7 +590,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	)
 	require.NoError(t, err)
 
-	if err = graph.SetSourceNode(dbNode); err != nil {
+	if err = graph.SetSourceNode(ctx, dbNode); err != nil {
 		return nil, err
 	}
 
@@ -666,7 +666,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			BitcoinKey2Bytes: node2Vertex,
 		}
 
-		err = graph.AddChannelEdge(&edgeInfo)
+		err = graph.AddChannelEdge(ctx, &edgeInfo)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
@@ -719,7 +719,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				InboundFee:                getInboundFees(node1), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node1),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -750,7 +751,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				InboundFee:                getInboundFees(node2), //nolint:ll
 				ExtraOpaqueData:           getExtraData(node2),
 			}
-			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
+			err := graph.UpdateEdgePolicy(ctx, edgePolicy)
+			if err != nil {
 				return nil, err
 			}
 		}
@@ -1067,11 +1069,12 @@ func runBasicGraphPathFinding(t *testing.T, useCache bool) {
 func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstance,
 	test *basicGraphPathFindingTestCase) {
 
+	ctx := context.Background()
 	aliases := graphInstance.aliasMap
 	expectedHops := test.expectedHops
 	expectedHopCount := len(expectedHops)
 
-	sourceNode, err := graphInstance.graph.SourceNode()
+	sourceNode, err := graphInstance.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
@@ -1211,7 +1214,9 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1294,7 +1299,9 @@ func runPathFindingWithBlindedPathDuplicateHop(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
@@ -1779,7 +1786,9 @@ func runPathNotAvailable(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// With the test graph loaded, we'll test that queries for target that
@@ -1835,7 +1844,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 
 	ctx := newPathFindingTestContext(t, useCache, testChannels, "roasbeef")
 
-	sourceNode, err := ctx.graph.SourceNode()
+	sourceNode, err := ctx.graph.SourceNode(context.Background())
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
@@ -2053,7 +2062,8 @@ func runPathInsufficientCapacity(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// Next, test that attempting to find a path in which the current
@@ -2083,7 +2093,8 @@ func runRouteFailMinHTLC(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// We'll not attempt to route an HTLC of 10 SAT from roasbeef to Son
@@ -2146,9 +2157,8 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch channel edges by ID")
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
-	if err := graph.UpdateEdgePolicy(midEdge); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	err = graph.UpdateEdgePolicy(context.Background(), midEdge)
+	require.NoError(t, err)
 
 	// We'll now attempt to route through that edge with a payment above
 	// 100k msat, which should fail.
@@ -2167,7 +2177,8 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -2188,11 +2199,11 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -2209,7 +2220,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
 	require.NoError(t, err, "unable to fetch edge")
 	e.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -2232,7 +2243,8 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := graph.graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 
 	// First, we'll try to route from roasbeef -> sophon. This should
@@ -2290,11 +2302,11 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
-	if err := graph.graph.UpdateEdgePolicy(e2); err != nil {
+	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -3162,7 +3174,9 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	)
 	require.NoError(t, err, "unable to create graph")
 
-	sourceNode, err := testGraphInstance.graph.SourceNode()
+	sourceNode, err := testGraphInstance.graph.SourceNode(
+		context.Background(),
+	)
 	require.NoError(t, err, "unable to fetch source node")
 
 	ctx := &pathFindingTestContext{
@@ -3233,7 +3247,8 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
 	finalHtlcExpiry int32) ([]*unifiedEdge, error) {
 
-	sourceNode, err := graph.SourceNode()
+	ctx := context.Background()
+	sourceNode, err := graph.SourceNode(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3264,7 +3279,7 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 func dbFindBlindedPaths(graph *graphdb.ChannelGraph,
 	restrictions *blindedPathRestrictions) ([][]blindedHop, error) {
 
-	sourceNode, err := graph.SourceNode()
+	sourceNode, err := graph.SourceNode(context.Background())
 	if err != nil {
 		return nil, err
 	}

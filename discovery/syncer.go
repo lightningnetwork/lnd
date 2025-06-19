@@ -965,12 +965,14 @@ func (g *GossipSyncer) processChanRangeReply(_ context.Context,
 // party when we're kicking off the channel graph synchronization upon
 // connection. The historicalQuery boolean can be used to generate a query from
 // the genesis block of the chain.
-func (g *GossipSyncer) genChanRangeQuery(_ context.Context,
+func (g *GossipSyncer) genChanRangeQuery(ctx context.Context,
 	historicalQuery bool) (*lnwire.QueryChannelRange, error) {
 
 	// First, we'll query our channel graph time series for its highest
 	// known channel ID.
-	newestChan, err := g.cfg.channelSeries.HighestChanID(g.cfg.chainHash)
+	newestChan, err := g.cfg.channelSeries.HighestChanID(
+		ctx, g.cfg.chainHash,
+	)
 	if err != nil {
 		return nil, err
 	}

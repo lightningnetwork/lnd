@@ -355,11 +355,10 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 // LookupAlias attempts to return the alias as advertised by the target node.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
-	var (
-		ctx   = context.TODO()
-		alias string
-	)
+func (s *SQLStore) LookupAlias(ctx context.Context,
+	pub *btcec.PublicKey) (string, error) {
+
+	var alias string
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
@@ -394,8 +393,8 @@ func (s *SQLStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
 // node based off the source node.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
-	ctx := context.TODO()
+func (s *SQLStore) SourceNode(ctx context.Context) (*models.LightningNode,
+	error) {
 
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -421,8 +420,8 @@ func (s *SQLStore) SourceNode() (*models.LightningNode, error) {
 // algorithms.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) SetSourceNode(node *models.LightningNode) error {
-	ctx := context.TODO()
+func (s *SQLStore) SetSourceNode(ctx context.Context,
+	node *models.LightningNode) error {
 
 	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		id, err := upsertNode(ctx, db, node)
@@ -501,10 +500,8 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 // globally within the database.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) AddChannelEdge(ctx context.Context,
+	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
 	r := &batch.Request[SQLQueries]{
@@ -546,9 +543,7 @@ func (s *SQLStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
 // can be used by peers to quickly determine if their graphs are in sync.
 //
 // NOTE: This is part of the V1Store interface.
-func (s *SQLStore) HighestChanID() (uint64, error) {
-	ctx := context.TODO()
-
+func (s *SQLStore) HighestChanID(ctx context.Context) (uint64, error) {
 	var highestChanID uint64
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		chanID, err := db.HighestSCID(ctx, int16(ProtocolV1))
@@ -579,10 +574,9 @@ func (s *SQLStore) HighestChanID() (uint64, error) {
 // nodes on either side of the channel.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+func (s *SQLStore) UpdateEdgePolicy(ctx context.Context,
+	edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
-
-	ctx := context.TODO()
 
 	var (
 		isUpdate1    bool

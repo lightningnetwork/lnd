@@ -874,7 +874,9 @@ func (c *KVStore) ForEachNodeCacheable(cb func(route.Vertex,
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
-func (c *KVStore) SourceNode() (*models.LightningNode, error) {
+func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode,
+	error) {
+
 	var source *models.LightningNode
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
@@ -926,7 +928,9 @@ func (c *KVStore) sourceNode(nodes kvdb.RBucket) (*models.LightningNode,
 // SetSourceNode sets the source node within the graph database. The source
 // node is to be used as the center of a star-graph within path finding
 // algorithms.
-func (c *KVStore) SetSourceNode(node *models.LightningNode) error {
+func (c *KVStore) SetSourceNode(_ context.Context,
+	node *models.LightningNode) error {
+
 	nodePubBytes := node.PubKeyBytes[:]
 
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
@@ -993,7 +997,9 @@ func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
 
 // LookupAlias attempts to return the alias as advertised by the target node.
 // TODO(roasbeef): currently assumes that aliases are unique...
-func (c *KVStore) LookupAlias(pub *btcec.PublicKey) (string, error) {
+func (c *KVStore) LookupAlias(_ context.Context,
+	pub *btcec.PublicKey) (string, error) {
+
 	var alias string
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -1094,10 +1100,8 @@ func (c *KVStore) deleteLightningNode(nodes kvdb.RwBucket,
 // involved in creation of the channel, and the set of features that the channel
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
-func (c *KVStore) AddChannelEdge(edge *models.ChannelEdgeInfo,
-	opts ...batch.SchedulerOption) error {
-
-	ctx := context.TODO()
+func (c *KVStore) AddChannelEdge(ctx context.Context,
+	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
 	r := &batch.Request[kvdb.RwTx]{
@@ -1944,7 +1948,7 @@ func getChanID(tx kvdb.RTx, chanPoint *wire.OutPoint) (uint64, error) {
 // HighestChanID returns the "highest" known channel ID in the channel graph.
 // This represents the "newest" channel from the PoV of the chain. This method
 // can be used by peers to quickly determine if they're graphs are in sync.
-func (c *KVStore) HighestChanID() (uint64, error) {
+func (c *KVStore) HighestChanID(_ context.Context) (uint64, error) {
 	var cid uint64
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -2799,11 +2803,11 @@ func makeZombiePubkeys(info *models.ChannelEdgeInfo,
 // updated, otherwise it's the second node's information. The node ordering is
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
-func (c *KVStore) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
+func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
+	edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
 
 	var (
-		ctx          = context.TODO()
 		isUpdate1    bool
 		edgeNotFound bool
 		from, to     route.Vertex

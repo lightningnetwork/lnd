@@ -681,14 +681,15 @@ func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 // addDeps populates all dependencies needed by the RPC server, and any
 // of the sub-servers that it maintains. When this is done, the RPC server can
 // be started, and start accepting RPC calls.
-func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
+func (r *rpcServer) addDeps(ctx context.Context, s *server,
+	macService *macaroons.Service,
 	subServerCgs *subRPCServerConfigs, atpl *autopilot.Manager,
 	invoiceRegistry *invoices.InvoiceRegistry, tower *watchtower.Standalone,
 	chanPredicate chanacceptor.MultiplexAcceptor,
 	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
-	selfNode, err := s.graphDB.SourceNode()
+	selfNode, err := s.graphDB.SourceNode(ctx)
 	if err != nil {
 		return err
 	}
@@ -4644,7 +4645,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
 		channel, err := createRPCOpenChannel(
-			r, dbChannel, isActive, in.PeerAliasLookup,
+			ctx, r, dbChannel, isActive, in.PeerAliasLookup,
 		)
 		if err != nil {
 			return nil, err
@@ -4760,7 +4761,10 @@ func encodeCustomChanData(lnChan *channeldb.OpenChannel) ([]byte, error) {
 }
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
-func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
+//
+//nolint:funlen
+func createRPCOpenChannel(ctx context.Context, r *rpcServer,
+	dbChannel *channeldb.OpenChannel,
 	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub
@@ -4862,7 +4866,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
-		peerAlias, err := r.server.graphDB.LookupAlias(nodePub)
+		peerAlias, err := r.server.graphDB.LookupAlias(ctx, nodePub)
 		if err != nil {
 			peerAlias = fmt.Sprintf("unable to lookup "+
 				"peer alias: %v", err)
@@ -5306,7 +5310,8 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 				}
 			case channelnotifier.OpenChannelEvent:
 				channel, err := createRPCOpenChannel(
-					r, event.Channel, true, false,
+					updateStream.Context(), r,
+					event.Channel, true, false,
 				)
 				if err != nil {
 					return err
@@ -7653,7 +7658,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
 	channelGraph := r.server.graphDB
-	selfNode, err := channelGraph.SourceNode()
+	selfNode, err := channelGraph.SourceNode(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -7931,8 +7936,9 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 
 	// With the scope resolved, we'll now send this to the local channel
 	// manager so it can propagate the new policy for our target channel(s).
-	failedUpdates, err := r.server.localChanMgr.UpdatePolicy(chanPolicy,
-		req.CreateMissingEdge, targetChans...)
+	failedUpdates, err := r.server.localChanMgr.UpdatePolicy(
+		ctx, chanPolicy, req.CreateMissingEdge, targetChans...,
+	)
 	if err != nil {
 		return nil, err
 	}

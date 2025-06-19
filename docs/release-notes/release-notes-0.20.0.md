@@ -37,7 +37,8 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 
 * The `lncli addinvoice --blind` command now has the option to include a
-  [chained channels](https://github.com/lightningnetwork/lnd/pull/9127)
+  chained channels [1](https://github.com/lightningnetwork/lnd/pull/9127)
+  [2](https://github.com/lightningnetwork/lnd/pull/9925)
   incoming list `--blinded_path_incoming_channel_list` which gives users the 
   control of specifying the channels they prefer to receive the payment on. With
   the option to specify multiple channels this control can be extended to

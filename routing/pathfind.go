@@ -1227,24 +1227,46 @@ func findBlindedPaths(g Graph, target route.Vertex,
 	}
 
 	var (
-		// The target node is always the last hop in the path.
-		incomingPath     = []blindedHop{{vertex: target}}
-		whiteListedNodes = map[route.Vertex]bool{target: true}
+		// The target node is always the last hop in the path, and so
+		// we add it to the incoming path from the get-go. Any additions
+		// to the slice should be prepended.
+		incomingPath = []blindedHop{{
+			vertex: target,
+		}}
+
+		// supportsRouteBlinding is a list of nodes that we can assume
+		// support route blinding without needing to rely on the feature
+		// bits announced in their node announcement. Since we are
+		// finding a path to the target node, we can assume it supports
+		// route blinding.
+		supportsRouteBlinding = map[route.Vertex]bool{
+			target: true,
+		}
+
 		visited          = make(map[route.Vertex]bool)
-		errChanFound     = errors.New("found incoming channel")
 		nextTarget       = target
+		haveIncomingPath = len(restrictions.incomingChainedChannels) > 0
+
+		// errChanFound is an error variable we return from the DB
+		// iteration call below when we have found the channel we are
+		// looking for. This lets us exit the iteration early.
+		errChanFound = errors.New("found incoming channel")
 	)
 	for _, chanID := range restrictions.incomingChainedChannels {
+		// Mark that we have visited this node so that we don't revisit
+		// it later on when we call "processNodeForBlindedPath".
 		visited[nextTarget] = true
 
 		err := g.ForEachNodeDirectedChannel(nextTarget,
 			func(channel *graphdb.DirectedChannel) error {
-				// Not the right channel, continue to the node's
-				// other channels.
+				// This is not the right channel, continue to
+				// the node's other channels.
 				if channel.ChannelID != chanID {
 					return nil
 				}
 
+				// We found the channel in question. Prepend it
+				// to the incoming path.
 				incomingPath = append([]blindedHop{
 					{
 						vertex:       channel.OtherNode,
@@ -1259,39 +1281,37 @@ func findBlindedPaths(g Graph, target route.Vertex,
 				return errChanFound
 			},
 		)
-		if err == nil {
+		// We expect errChanFound to be returned if the channel in
+		// question was found.
+		if !errors.Is(err, errChanFound) && err != nil {
+			return nil, err
+		} else if err == nil {
 			return nil, fmt.Errorf("incoming channel %d is not "+
 				"seen as owned by node %v", chanID, nextTarget)
 		}
-		if !errors.Is(err, errChanFound) {
-			return nil, err
-		}
 
 		// Check that the user didn't accidentally add a channel that
-		// is owned by a node in the node omission set
+		// is owned by a node in the node omission set.
 		if restrictions.nodeOmissionSet.Contains(nextTarget) {
 			return nil, fmt.Errorf("node %v cannot simultaneously "+
 				"be included in the omission set and in the "+
 				"partially specified path", nextTarget)
 		}
 
-		if whiteListedNodes[nextTarget] {
+		// Check that we have not already visited the next target node
+		// since this would mean a circular incoming path.
+		if visited[nextTarget] {
 			return nil, fmt.Errorf("a circular route cannot be " +
 				"specified for the incoming blinded path")
 		}
-		whiteListedNodes[nextTarget] = true
+
+		supportsRouteBlinding[nextTarget] = true
 	}
 
-	// If the node is not the destination node, then it is required that the
-	// node advertise the route blinding feature-bit in order for it to be
-	// chosen as a node on the blinded path.
-	// We skip checking the target node, as accepting blinded payments
-	// (via invoice) doesn't imply support for routing them (via node
-	// announcement).
-	// We skip checking incomingChainedChannels nodes, as we might not yet
-	// have an updated node announcement for them.
-	supportsRouteBlinding := func(node route.Vertex) (bool, error) {
-		if whiteListedNodes[node] {
+	// A helper closure which checks if the node in question has advertised
+	// that it supports route blinding.
+	nodeSupportsRouteBlinding := func(node route.Vertex) (bool, error) {
+		if supportsRouteBlinding[node] {
 			return true, nil
 		}
 
@@ -1308,39 +1328,46 @@ func findBlindedPaths(g Graph, target route.Vertex,
 	// conditions such as: The maxHops number being reached or reaching
 	// a node that doesn't have any other edges - in that final case, the
 	// whole path should be ignored.
+	//
+	// NOTE: any paths returned will end at the "nextTarget" node meaning
+	// that if we have a fixed list of incoming chained channels, then this
+	// fixed list must be appended to any of the returned paths.
 	paths, _, err := processNodeForBlindedPath(
-		g, nextTarget, supportsRouteBlinding, visited, restrictions,
+		g, nextTarget, nodeSupportsRouteBlinding, visited, restrictions,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	orderedPaths := make([][]blindedHop, len(paths))
+	// Reverse each path so that the order is correct (from introduction
+	// node to last hop node) and then append the incoming path (if any was
+	// specified) to the end of the path.
+	orderedPaths := make([][]blindedHop, 0, len(paths))
+	for _, path := range paths {
+		sort.Slice(path, func(i, j int) bool {
+			return j < i
+		})
 
-	// When there is no path to add, but incomingChainedChannels can be
-	// used.
-	lenChainedChannels := int8(len(restrictions.incomingChainedChannels))
-	if len(paths) == 0 && lenChainedChannels > 0 {
-		orderedPaths = [][]blindedHop{incomingPath}
-	} else {
-		// Reverse each path so that the order is correct (from
-		// introduction node to last hop node) and then append this node
-		// on as the destination of each path.
-		for i, path := range paths {
-			sort.Slice(path, func(i, j int) bool {
-				return j < i
-			})
+		orderedPaths = append(
+			orderedPaths, append(path, incomingPath...),
+		)
+	}
 
-			orderedPaths[i] = append(path, incomingPath...)
-		}
+	// There is a chance we have an incoming path that by itself satisfies
+	// the minimum hop restriction. In that case, we add it as its own path.
+	if haveIncomingPath &&
+		len(incomingPath) > int(restrictions.minNumHops) {
+
+		orderedPaths = append(orderedPaths, incomingPath)
 	}
 
 	// Handle the special case that allows a blinded path with the
-	// introduction node as the destination node.
-	if restrictions.minNumHops == 0 && lenChainedChannels == 0 {
+	// introduction node as the destination node. This only applies if no
+	// incoming path was specified since in that case, by definition, the
+	// caller wants a non-zero length blinded path.
+	if restrictions.minNumHops == 0 && !haveIncomingPath {
 		singleHopPath := [][]blindedHop{{{vertex: target}}}
 
-		//nolint:makezero
 		orderedPaths = append(
 			orderedPaths, singleHopPath...,
 		)

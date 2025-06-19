@@ -198,6 +198,10 @@ func (m *mockPaymentSessionOld) GetAdditionalEdgePolicy(_ *btcec.PublicKey,
 	return nil
 }
 
+func (m *mockPaymentSessionOld) MissionControl() fn.Option[MissionControlQuerier] {
+	return fn.None[MissionControlQuerier]()
+}
+
 type mockPayerOld struct {
 	sendResult    chan error
 	paymentResult chan *htlcswitch.PaymentResult
@@ -723,6 +727,12 @@ func (m *mockPaymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
 
 	args := m.Called(pubKey, channelID)
 	return args.Get(0).(*models.CachedEdgePolicy)
+}
+
+func (m *mockPaymentSession) MissionControl() fn.Option[MissionControlQuerier] {
+	args := m.Called()
+	// The mock should be configured in tests to return an fn.Option[MissionControlQuerier].
+	return args.Get(0).(fn.Option[MissionControlQuerier])
 }
 
 type mockControlTower struct {

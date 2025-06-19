@@ -68,6 +68,8 @@ type RouterBackend struct {
 
 	MissionControl MissionControl
 
+	MissionController MissionController
+
 	// ActiveNetParams are the network parameters of the primary network
 	// that the route is operating on. This is necessary so we can ensure
 	// that we receive payment requests that send to destinations on our
@@ -118,6 +120,14 @@ type RouterBackend struct {
 	// ShouldSetExpEndorsement returns a boolean indicating whether the
 	// experimental endorsement bit should be set.
 	ShouldSetExpEndorsement func() bool
+}
+
+// MissionController defines the interface for a mission control store that can
+// manage multiple namespaces.
+type MissionController interface {
+	// GetDefaultStore returns a MissionControl instance that is mapped to
+	// the target namespace.
+	GetNamespacedStore(namespace string) (MissionControl, error)
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -935,6 +945,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 
 	payIntent.PayAttemptTimeout = time.Second *
 		time.Duration(rpcPayReq.TimeoutSeconds)
+
+	// Set the mission control namespace if specified.
+	payIntent.MissionControlNamespace = rpcPayReq.MissionControlNamespace
 
 	// Route hints.
 	routeHints, err := unmarshallRouteHints(

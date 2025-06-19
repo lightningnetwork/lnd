@@ -100,22 +100,22 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	a, err := newAccessMan(cfg)
 	require.NoError(t, err)
 
-	// Check that the peerCounts map is correctly populated with three
+	// Check that the peerChanInfo map is correctly populated with three
 	// peers.
 	require.Equal(t, 0, int(a.numRestricted))
-	require.Equal(t, 3, len(a.peerCounts))
+	require.Equal(t, 3, len(a.peerChanInfo))
 
-	peerCount1, ok := a.peerCounts[peerKeySer1]
+	peerCount1, ok := a.peerChanInfo[peerKeySer1]
 	require.True(t, ok)
 	require.True(t, peerCount1.HasOpenOrClosedChan)
 	require.Equal(t, peer1PendingCount, int(peerCount1.PendingOpenCount))
 
-	peerCount2, ok := a.peerCounts[peerKeySer2]
+	peerCount2, ok := a.peerChanInfo[peerKeySer2]
 	require.True(t, ok)
 	require.True(t, peerCount2.HasOpenOrClosedChan)
 	require.Equal(t, peer2PendingCount, int(peerCount2.PendingOpenCount))
 
-	peerCount3, ok := a.peerCounts[peerKeySer3]
+	peerCount3, ok := a.peerChanInfo[peerKeySer3]
 	require.True(t, ok)
 	require.False(t, peerCount3.HasOpenOrClosedChan)
 	require.Equal(t, peer3PendingCount, int(peerCount3.PendingOpenCount))
@@ -144,7 +144,7 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 
 	// Assert that accessman's internal state is updated with peer4. We
 	// expect this new peer to have 1 pending open count.
-	peerCount4, ok := a.peerCounts[string(peerKey4.SerializeCompressed())]
+	peerCount4, ok := a.peerChanInfo[string(peerKey4.SerializeCompressed())]
 	require.True(t, ok)
 	require.False(t, peerCount4.HasOpenOrClosedChan)
 	require.Equal(t, 1, int(peerCount4.PendingOpenCount))
@@ -157,7 +157,7 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	// Assert that accessman's internal state is updated with peer3. We
 	// expect this existing peer to decrement its pending open count and the
 	// flag `HasOpenOrClosedChan` should be true.
-	peerCount3, ok = a.peerCounts[peerKeySer3]
+	peerCount3, ok = a.peerChanInfo[peerKeySer3]
 	require.True(t, ok)
 	require.True(t, peerCount3.HasOpenOrClosedChan)
 	require.Equal(t, peer3PendingCount-1, int(peerCount3.PendingOpenCount))
@@ -175,7 +175,7 @@ func TestAccessManRestrictedSlots(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoMoreRestrictedAccessSlots)
 
 	// Assert that peer4 is removed.
-	_, ok = a.peerCounts[string(peerKey4.SerializeCompressed())]
+	_, ok = a.peerChanInfo[string(peerKey4.SerializeCompressed())]
 	require.False(t, ok)
 }
 
@@ -434,7 +434,7 @@ func TestAssignPeerPermsBypassExisting(t *testing.T) {
 		return peerPriv.PubKey()
 	}
 
-	// peer1 exists in `peerCounts` map.
+	// peer1 exists in `peerChanInfo` map.
 	peer1 := genPeerPub()
 	peer1Str := string(peer1.SerializeCompressed())
 
@@ -494,27 +494,27 @@ func TestHasPeer(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// peer1 exists with an open channel.
 	peer1 := "peer1"
-	a.peerCounts[peer1] = channeldb.ChanCount{
+	a.peerChanInfo[peer1] = channeldb.ChanCount{
 		HasOpenOrClosedChan: true,
 	}
 	peer1Access := peerStatusProtected
 
 	// peer2 exists with a pending channel.
 	peer2 := "peer2"
-	a.peerCounts[peer2] = channeldb.ChanCount{
+	a.peerChanInfo[peer2] = channeldb.ChanCount{
 		PendingOpenCount: 1,
 	}
 	peer2Access := peerStatusTemporary
 
 	// peer3 exists without any channels.
 	peer3 := "peer3"
-	a.peerCounts[peer3] = channeldb.ChanCount{}
+	a.peerChanInfo[peer3] = channeldb.ChanCount{}
 	peer3Access := peerStatusRestricted
 
 	// peer4 exists with a score.
@@ -560,8 +560,8 @@ func TestAddPeerAccessInbound(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// Create a testing key.
@@ -579,7 +579,7 @@ func TestAddPeerAccessInbound(t *testing.T) {
 	// taken, and this peer is not found in the counts map.
 	require.Len(t, a.peerScores, 1)
 	require.Equal(t, int64(1), a.numRestricted)
-	require.NotContains(t, a.peerCounts, pubStr)
+	require.NotContains(t, a.peerChanInfo, pubStr)
 
 	// The peer should be found in the score map.
 	score, ok := a.peerScores[pubStr]
@@ -594,12 +594,12 @@ func TestAddPeerAccessInbound(t *testing.T) {
 	// Assert the internal state is not changed.
 	require.Len(t, a.peerScores, 1)
 	require.Equal(t, int64(1), a.numRestricted)
-	require.NotContains(t, a.peerCounts, pubStr)
+	require.NotContains(t, a.peerChanInfo, pubStr)
 
 	// Reset the accessMan.
 	a = &accessMan{
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// Add this peer as an inbound peer with peerStatusTemporary.
@@ -613,8 +613,8 @@ func TestAddPeerAccessInbound(t *testing.T) {
 	require.Equal(t, int64(0), a.numRestricted)
 
 	// NOTE: in reality this is not possible as the peer must have been put
-	// into the map `peerCounts` before its perm can be upgraded.
-	require.NotContains(t, a.peerCounts, pubStr)
+	// into the map `peerChanInfo` before its perm can be upgraded.
+	require.NotContains(t, a.peerChanInfo, pubStr)
 
 	// The peer should be found in the score map.
 	score, ok = a.peerScores[pubStr]
@@ -631,8 +631,8 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 
 	// Create a testing accessMan.
 	a := &accessMan{
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// Create a testing key.
@@ -650,7 +650,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 	// taken, and this peer is found in the counts map.
 	require.Len(t, a.peerScores, 1)
 	require.Equal(t, int64(0), a.numRestricted)
-	require.Contains(t, a.peerCounts, pubStr)
+	require.Contains(t, a.peerChanInfo, pubStr)
 
 	// The peer should be found in the score map.
 	score, ok := a.peerScores[pubStr]
@@ -661,7 +661,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 	require.Equal(t, expecedScore, score)
 
 	// The peer should be found in the peer counts map.
-	count, ok := a.peerCounts[pubStr]
+	count, ok := a.peerChanInfo[pubStr]
 	require.True(t, ok)
 
 	// The peer's count should be initialized correctly.
@@ -674,12 +674,12 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 	// Assert the internal state is not changed.
 	require.Len(t, a.peerScores, 1)
 	require.Equal(t, int64(0), a.numRestricted)
-	require.Contains(t, a.peerCounts, pubStr)
+	require.Contains(t, a.peerChanInfo, pubStr)
 
 	// Reset the accessMan.
 	a = &accessMan{
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	// Add this peer as an inbound peer with peerStatusTemporary.
@@ -693,8 +693,8 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 	require.Equal(t, int64(0), a.numRestricted)
 
 	// NOTE: in reality this is not possible as the peer must have been put
-	// into the map `peerCounts` before its perm can be upgraded.
-	require.NotContains(t, a.peerCounts, pubStr)
+	// into the map `peerChanInfo` before its perm can be upgraded.
+	require.NotContains(t, a.peerChanInfo, pubStr)
 
 	// The peer should be found in the score map.
 	score, ok = a.peerScores[pubStr]

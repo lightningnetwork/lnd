@@ -21,24 +21,24 @@ type accessMan struct {
 	// the server mutex.
 	banScoreMtx sync.RWMutex
 
-	// peerCounts is a mapping from remote public key to {bool, uint64}
-	// where the bool indicates that we have an open/closed channel with
-	// the peer and where the uint64 indicates the number of pending-open
+	// peerChanInfo is a mapping from remote public key to {bool, uint64}
+	// where the bool indicates that we have an open/closed channel with the
+	// peer and where the uint64 indicates the number of pending-open
 	// channels we currently have with them. This mapping will be used to
 	// determine access permissions for the peer. The map key is the
 	// string-version of the serialized public key.
 	//
 	// NOTE: This MUST be accessed with the banScoreMtx held.
-	peerCounts map[string]channeldb.ChanCount
+	peerChanInfo map[string]channeldb.ChanCount
 
 	// peerScores stores each connected peer's access status. The map key
 	// is the string-version of the serialized public key.
 	//
 	// NOTE: This MUST be accessed with the banScoreMtx held.
 	//
-	// TODO(yy): unify `peerScores` and `peerCounts` - there's no need to
+	// TODO(yy): unify `peerScores` and `peerChanInfo` - there's no need to
 	// create two maps tracking essentially the same info. `numRestricted`
-	// can also be derived from `peerCounts`.
+	// can also be derived from `peerChanInfo`.
 	peerScores map[string]peerSlotStatus
 
 	// numRestricted tracks the number of peers with restricted access in
@@ -48,7 +48,7 @@ type accessMan struct {
 
 type accessManConfig struct {
 	// initAccessPerms checks the channeldb for initial access permissions
-	// and then populates the peerCounts and peerScores maps.
+	// and then populates the peerChanInfo and peerScores maps.
 	initAccessPerms func() (map[string]channeldb.ChanCount, error)
 
 	// shouldDisconnect determines whether we should disconnect a peer or
@@ -61,9 +61,9 @@ type accessManConfig struct {
 
 func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 	a := &accessMan{
-		cfg:        cfg,
-		peerCounts: make(map[string]channeldb.ChanCount),
-		peerScores: make(map[string]peerSlotStatus),
+		cfg:          cfg,
+		peerChanInfo: make(map[string]channeldb.ChanCount),
+		peerScores:   make(map[string]peerSlotStatus),
 	}
 
 	counts, err := a.cfg.initAccessPerms()
@@ -71,10 +71,10 @@ func newAccessMan(cfg *accessManConfig) (*accessMan, error) {
 		return nil, err
 	}
 
-	// We'll populate the server's peerCounts map with the counts fetched
+	// We'll populate the server's peerChanInfo map with the counts fetched
 	// via initAccessPerms. Also note that we haven't yet connected to the
 	// peers.
-	maps.Copy(a.peerCounts, counts)
+	maps.Copy(a.peerChanInfo, counts)
 
 	acsmLog.Info("Access Manager initialized")
 
@@ -90,7 +90,7 @@ func (a *accessMan) hasPeer(ctx context.Context,
 	a.banScoreMtx.RLock()
 	defer a.banScoreMtx.RUnlock()
 
-	count, found := a.peerCounts[pub]
+	count, found := a.peerChanInfo[pub]
 	if found {
 		if count.HasOpenOrClosedChan {
 			acsmLog.DebugS(ctx, "Peer has open/closed channel, "+
@@ -223,11 +223,11 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 
 	case peerStatusTemporary:
 		// If this peer's access status is temporary, we'll need to
-		// update the peerCounts map. The peer's access status will stay
-		// temporary.
-		peerCount, found := a.peerCounts[peerMapKey]
+		// update the peerChanInfo map. The peer's access status will
+		// stay temporary.
+		peerCount, found := a.peerChanInfo[peerMapKey]
 		if !found {
-			// Error if we did not find any info in peerCounts.
+			// Error if we did not find any info in peerChanInfo.
 			acsmLog.ErrorS(ctx, "Pending peer info not found",
 				ErrNoPendingPeerInfo)
 
@@ -236,7 +236,7 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 
 		// Increment the pending channel amount.
 		peerCount.PendingOpenCount += 1
-		a.peerCounts[peerMapKey] = peerCount
+		a.peerChanInfo[peerMapKey] = peerCount
 
 		acsmLog.DebugS(ctx, "Peer is temporary, incremented "+
 			"pending count",
@@ -246,13 +246,13 @@ func (a *accessMan) newPendingOpenChan(remotePub *btcec.PublicKey) error {
 		// If the peer's access status is restricted, then we can
 		// transition it to a temporary-access peer. We'll need to
 		// update numRestricted and also peerScores. We'll also need to
-		// update peerCounts.
+		// update peerChanInfo.
 		peerCount := channeldb.ChanCount{
 			HasOpenOrClosedChan: false,
 			PendingOpenCount:    1,
 		}
 
-		a.peerCounts[peerMapKey] = peerCount
+		a.peerChanInfo[peerMapKey] = peerCount
 
 		// A restricted-access slot has opened up.
 		oldRestricted := a.numRestricted
@@ -313,12 +313,12 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 	case peerStatusTemporary:
 		// If this peer is temporary, we need to check if it will
 		// revert to a restricted-access peer.
-		peerCount, found := a.peerCounts[peerMapKey]
+		peerCount, found := a.peerChanInfo[peerMapKey]
 		if !found {
 			acsmLog.ErrorS(ctx, "Pending peer info not found",
 				ErrNoPendingPeerInfo)
 
-			// Error if we did not find any info in peerCounts.
+			// Error if we did not find any info in peerChanInfo.
 			return ErrNoPendingPeerInfo
 		}
 
@@ -329,8 +329,8 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 			"pending_count", currentNumPending)
 
 		if currentNumPending == 0 {
-			// Remove the entry from peerCounts.
-			delete(a.peerCounts, peerMapKey)
+			// Remove the entry from peerChanInfo.
+			delete(a.peerChanInfo, peerMapKey)
 
 			// If this is the only pending-open channel for this
 			// peer and it's getting removed, attempt to demote
@@ -370,7 +370,7 @@ func (a *accessMan) newPendingCloseChan(remotePub *btcec.PublicKey) error {
 		// Else, we don't need to demote this peer since it has other
 		// pending-open channels with us.
 		peerCount.PendingOpenCount = currentNumPending
-		a.peerCounts[peerMapKey] = peerCount
+		a.peerChanInfo[peerMapKey] = peerCount
 
 		acsmLog.DebugS(ctx, "Peer still has other pending channels",
 			"pending_count", currentNumPending)
@@ -430,9 +430,9 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 	case peerStatusTemporary:
 		// If the peer's state is temporary, we'll upgrade the peer to
 		// a protected peer.
-		peerCount, found := a.peerCounts[peerMapKey]
+		peerCount, found := a.peerChanInfo[peerMapKey]
 		if !found {
-			// Error if we did not find any info in peerCounts.
+			// Error if we did not find any info in peerChanInfo.
 			acsmLog.ErrorS(ctx, "Pending peer info not found",
 				ErrNoPendingPeerInfo)
 
@@ -442,7 +442,7 @@ func (a *accessMan) newOpenChan(remotePub *btcec.PublicKey) error {
 		peerCount.HasOpenOrClosedChan = true
 		peerCount.PendingOpenCount -= 1
 
-		a.peerCounts[peerMapKey] = peerCount
+		a.peerChanInfo[peerMapKey] = peerCount
 
 		newStatus := peerSlotStatus{
 			state: peerStatusProtected,
@@ -503,7 +503,7 @@ func (a *accessMan) checkAcceptIncomingConn(remotePub *btcec.PublicKey) (
 	a.banScoreMtx.RLock()
 	defer a.banScoreMtx.RUnlock()
 
-	_, found := a.peerCounts[peerMapKey]
+	_, found := a.peerChanInfo[peerMapKey]
 
 	// Exit early if found.
 	if found {
@@ -601,7 +601,7 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 		PendingOpenCount:    0,
 	}
 
-	a.peerCounts[peerMapKey] = peerCount
+	a.peerChanInfo[peerMapKey] = peerCount
 	a.peerScores[peerMapKey] = peerSlotStatus{
 		state: peerStatusTemporary,
 	}

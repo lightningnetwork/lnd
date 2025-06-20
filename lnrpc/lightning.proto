@@ -4710,6 +4710,14 @@ message ForwardingEvent {
     // The peer alias of the outgoing channel.
     string peer_alias_out = 13;
 
+    // The ID of the incoming HTLC in the payment circuit. This field is
+    // optional and is unset for forwarding events happened before v0.20.
+    optional uint64 incoming_htlc_id = 14;
+
+    // The ID of the outgoing HTLC in the payment circuit. This field is
+    // optional and may be unset for legacy forwarding events.
+    optional uint64 outgoing_htlc_id = 15;
+
     // TODO(roasbeef): add settlement latency?
     //  * use FPE on the chan id?
     //  * also list failures?

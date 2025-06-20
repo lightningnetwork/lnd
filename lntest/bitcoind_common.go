@@ -131,6 +131,8 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		"-debug",
 		"-debugexclude=libevent",
 		"-debuglogfile=" + logFile,
+		"-blockfilterindex",
+		"-peerblockfilters",
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
 	bitcoind := exec.Command("bitcoind", cmdArgs...)

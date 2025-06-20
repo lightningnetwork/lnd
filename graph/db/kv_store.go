@@ -530,18 +530,12 @@ func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 					cachedPolicy1 = models.NewCachedPolicy(
 						policy1,
 					)
-				} else {
-					log.Warnf("ChannelEdgePolicy not "+
-						"found using %v", key1)
 				}
 
 				if policy2 != nil {
 					cachedPolicy2 = models.NewCachedPolicy(
 						policy2,
 					)
-				} else {
-					log.Warnf("ChannelEdgePolicy not "+
-						"found using %v", key2)
 				}
 
 				return cb(

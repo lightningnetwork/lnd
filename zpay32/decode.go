@@ -528,6 +528,15 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 		if err != nil {
 			return nil, err
 		}
+	case 1:
+		witness, err := bech32.ConvertBits(data[1:], 5, 8, false)
+		if err != nil {
+			return nil, err
+		}
+		addr, err = btcutil.NewAddressTaproot(witness, net)
+		if err != nil {
+			return nil, err
+		}
 	case 17:
 		pubKeyHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
 		if err != nil {

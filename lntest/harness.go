@@ -479,9 +479,74 @@ func (h *HarnessTest) SetTestName(name string) {
 	h.manager.currentTestCase = cleanTestCaseName
 }
 
+// newNodeOpts contains options for creating a new node.
+type newNodeOpts struct {
+	// withCoins indicates whether the node should be funded with
+	// coins after creation.
+	withCoins bool
+
+	// seedEntropy contains the entropy bytes from which the node’s seed is
+	// deterministically derived. When non-nil, the node is initialised with
+	// a seed produced from this entropy instead of a random seed.
+	seedEntropy []byte
+
+	// walletPassword is an optional user provided passphrase that will be
+	// used to encrypt the generated aezeed cipher seed. When using REST,
+	// this field must be encoded as base64.
+	walletPassword []byte
+}
+
+// NewNodeOpt is a functional option for NewNode.
+type NewNodeOpt func(*newNodeOpts)
+
+// WithCoins is a functional option that funds the node with coins after
+// creation.
+func WithCoins() NewNodeOpt {
+	return func(opts *newNodeOpts) {
+		opts.withCoins = true
+	}
+}
+
+// WithSeedEntropy returns a functional option that injects explicit entropy
+// into the node, enabling deterministic control over mnemonic seed derivation.
+func WithSeedEntropy(seedEntropy []byte, walletPassword []byte) NewNodeOpt {
+	return func(opts *newNodeOpts) {
+		opts.seedEntropy = seedEntropy
+		opts.walletPassword = walletPassword
+	}
+}
+
 // NewNode creates a new node and asserts its creation. The node is guaranteed
 // to have finished its initialization and all its subservers are started.
-func (h *HarnessTest) NewNode(name string,
+func (h *HarnessTest) NewNode(name string, extraArgs []string,
+	nodeOpts ...NewNodeOpt) *node.HarnessNode {
+
+	// Apply functional options.
+	opts := &newNodeOpts{}
+	for _, opt := range nodeOpts {
+		opt(opts)
+	}
+
+	var hn *node.HarnessNode
+
+	// If a seed is provided, use the seed-based creation flow.
+	if len(opts.seedEntropy) > 0 {
+		hn = h.createNodeWithSeed(name, extraArgs, opts)
+	} else {
+		// Otherwise, use the regular node creation flow.
+		hn = h.createRegularNode(name, extraArgs)
+	}
+
+	// If withCoins option is set, fund the node with coins.
+	if opts.withCoins {
+		h.fundNodeWithCoins(hn)
+	}
+
+	return hn
+}
+
+// createRegularNode creates a node using the regular flow (no seed).
+func (h *HarnessTest) createRegularNode(name string,
 	extraArgs []string) *node.HarnessNode {
 
 	node, err := h.manager.newNode(h.T, name, extraArgs, nil, false)
@@ -502,14 +567,49 @@ func (h *HarnessTest) NewNode(name string,
 	return node
 }
 
-// NewNodeWithCoins creates a new node and asserts its creation. The node is
-// guaranteed to have finished its initialization and all its subservers are
-// started. In addition, 5 UTXO of 1 BTC each are sent to the node.
-func (h *HarnessTest) NewNodeWithCoins(name string,
-	extraArgs []string) *node.HarnessNode {
+// createNodeWithSeed creates a node using the seed-based flow.
+func (h *HarnessTest) createNodeWithSeed(name string, extraArgs []string,
+	opts *newNodeOpts) *node.HarnessNode {
 
-	node := h.NewNode(name, extraArgs)
+	hn, err := h.manager.newNode(
+		h.T, name, extraArgs, opts.seedEntropy, true,
+	)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
+	// Start the node with seed only, which will only create the `State`
+	// and `WalletUnlocker` clients.
+	err = hn.StartWithNoAuth(h.runCtx)
+	require.NoErrorf(h, err, "failed to start node %s", hn.Name())
+
+	// Generate a new seed using the provided seed entropy, if any.
+	genSeedResp := hn.RPC.GenSeed(&lnrpc.GenSeedRequest{
+		SeedEntropy: opts.seedEntropy,
+	})
+
+	// Create the wallet using the provided seed.
+	initReq := &lnrpc.InitWalletRequest{
+		CipherSeedMnemonic: genSeedResp.CipherSeedMnemonic,
+		WalletPassword:     opts.walletPassword,
+	}
+
+	// Pass the init request via rpc to finish unlocking the node.
+	_, err = h.manager.initWalletAndNode(hn, initReq)
+	require.NoErrorf(h, err, "failed to unlock and init node %s",
+		hn.Name())
+
+	// Get the miner's best block hash.
+	bestBlock, err := h.miner.Client.GetBestBlockHash()
+	require.NoError(h, err, "unable to get best block hash")
+
+	// Wait until the node's chain backend is synced to the miner's best
+	// block.
+	h.WaitForBlockchainSyncTo(hn, *bestBlock)
+
+	return hn
+}
+
+// fundNodeWithCoins funds a node with coins, similar to NewNodeWithCoins.
+func (h *HarnessTest) fundNodeWithCoins(node *node.HarnessNode) {
 	// Load up the wallets of the node with 5 outputs of 1 BTC each.
 	const (
 		numOutputs  = 5
@@ -529,8 +629,15 @@ func (h *HarnessTest) NewNodeWithCoins(name string,
 
 	// Now block until the wallet have fully synced up.
 	h.WaitForBalanceConfirmed(node, totalAmount)
+}
 
-	return node
+// NewNodeWithCoins creates a new node and asserts its creation. The node is
+// guaranteed to have finished its initialization and all its subservers are
+// started. In addition, 5 UTXO of 1 BTC each are sent to the node.
+func (h *HarnessTest) NewNodeWithCoins(name string,
+	extraArgs []string) *node.HarnessNode {
+
+	return h.NewNode(name, extraArgs, WithCoins())
 }
 
 // Shutdown shuts down the given node and asserts that no errors occur.

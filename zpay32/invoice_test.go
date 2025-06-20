@@ -70,6 +70,10 @@ var (
 	testAddrMainnetP2SH, _   = btcutil.DecodeAddress("3EktnHQD7RiAE6uzMj2ZifT9YgRrkSgzQX", &chaincfg.MainNetParams)
 	testAddrMainnetP2WPKH, _ = btcutil.DecodeAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", &chaincfg.MainNetParams)
 	testAddrMainnetP2WSH, _  = btcutil.DecodeAddress("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", &chaincfg.MainNetParams)
+	testAddrMainnetP2TR, _   = btcutil.DecodeAddress("bc1pptdvg0d2nj99568"+
+		"qn6ssdy4cygnwuxgw2ukmnwgwz7jpqjz2kszse2s3lm",
+		&chaincfg.MainNetParams,
+	)
 
 	testHopHintPubkeyBytes1, _ = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
 	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1)

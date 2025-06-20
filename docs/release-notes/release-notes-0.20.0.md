@@ -26,6 +26,9 @@
   announcement remains unchanged until the new one is fully signed and
   validated.
 
+- Fixed the lack of support for [P2TR Fallback Addresses](
+  https://github.com/lightningnetwork/lnd/pull/9975) in BOLT11 invoices.
+
 # New Features
 
 ## Functional Enhancements

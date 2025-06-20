@@ -3418,7 +3418,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if err != nil {
 		_, err = d.cfg.FindChannel(nMsg.source, ann.ChannelID)
 		if err != nil {
-			err := fmt.Errorf("unable to store the proof for "+
+			err := fmt.Errorf("unable find the channel for "+
 				"short_chan_id=%v: %v", shortChanID, err)
 			log.Error(err)
 			nMsg.err <- err
@@ -3485,36 +3485,79 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	if chanInfo.AuthProof != nil {
 		// If we already have the fully assembled proof, then the peer
 		// sending us their proof has probably not received our local
-		// proof yet. So be kind and send them the full proof.
+		// proof yet. So be kind and send them our proof, but only if we
+		// haven't done so since (re)connecting.
 		if nMsg.isRemote {
 			peerID := nMsg.source.SerializeCompressed()
 			log.Debugf("Got AnnounceSignatures for channel with " +
 				"full proof.")
+			syncer, ok := d.syncMgr.GossipSyncer(
+				route.Vertex(peerID),
+			)
+			if !ok {
+				log.Errorf("Failed to get gossip syncer for "+
+					"peer=%x", peerID)
+				return nil, false
+			}
+
+			// If we already sent our proof to this peer once since
+			// (re)connecting, then we can skip sending it again.
+			syncer.Lock()
+			alreadySent := syncer.proofSentToChan.Contains(
+				ann.ChannelID,
+			)
+			syncer.Unlock()
+			if alreadySent {
+				log.Debugf("Skipping sending announcement " +
+					"signatures since we already did " +
+					"during this connection.")
+				nMsg.err <- nil
+
+				return nil, true
+			}
 
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
 
 				log.Debugf("Received half proof for channel "+
-					"%v with existing full proof. Sending"+
-					" full proof to peer=%x",
+					"%v with existing full proof. Sending "+
+					"announcement signatures to peer=%x",
 					ann.ChannelID, peerID)
 
-				ca, _, _, err := netann.CreateChanAnnouncement(
-					chanInfo.AuthProof, chanInfo, e1, e2,
+				chanAP := chanInfo.AuthProof
+				var remoteNSB []byte
+				var remoteBSB []byte
+				if isFirstNode {
+					remoteNSB = chanAP.NodeSig2Bytes
+					remoteBSB = chanAP.BitcoinSig2Bytes
+				} else {
+					remoteNSB = chanAP.NodeSig1Bytes
+					remoteBSB = chanAP.BitcoinSig1Bytes
+				}
+
+				proof, err := lnwire.NewAnnSigFromWireECDSARaw(
+					ann.ChannelID, ann.ShortChannelID,
+					remoteNSB,
+					remoteBSB, nil,
 				)
+
 				if err != nil {
 					log.Errorf("unable to gen ann: %v",
 						err)
 					return
 				}
 
-				err = nMsg.peer.SendMessage(false, ca)
+				err = nMsg.peer.SendMessage(false, proof)
 				if err != nil {
 					log.Errorf("Failed sending full proof"+
 						" to peer=%x: %v", peerID, err)
 					return
 				}
+
+				syncer.Lock()
+				syncer.proofSentToChan.Add(ann.ChannelID)
+				syncer.Unlock()
 
 				log.Debugf("Full proof sent to peer=%x for "+
 					"chanID=%v", peerID, ann.ChannelID)

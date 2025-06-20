@@ -119,7 +119,7 @@ func (h *HarnessTest) ConnectNodes(a, b *node.HarnessNode) {
 		},
 	}
 	a.RPC.ConnectPeer(req)
-	h.AssertPeerConnected(a, b)
+	h.AssertConnected(a, b)
 }
 
 // ConnectNodesPerm creates a persistent connection between the two nodes and
@@ -238,6 +238,24 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 	// peers lists to reflect the connection.
 	h.AssertPeerConnected(a, b)
 	h.AssertPeerConnected(b, a)
+}
+
+// ConnectNodesNoAssert creates a connection from node A to node B.
+func (h *HarnessTest) ConnectNodesNoAssert(a, b *node.HarnessNode) (
+	*lnrpc.ConnectPeerResponse, error) {
+
+	bobInfo := b.RPC.GetInfo()
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.Cfg.P2PAddr(),
+		},
+	}
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	return a.RPC.LN.ConnectPeer(ctxt, req)
 }
 
 // AssertNumEdges checks that an expected number of edges can be found in the
@@ -1669,6 +1687,11 @@ func (h *HarnessTest) AssertPeerNotConnected(a, b *node.HarnessNode) {
 
 // AssertNotConnected asserts that two peers are not connected.
 func (h *HarnessTest) AssertNotConnected(a, b *node.HarnessNode) {
+	// Sleep one second before the assertion to make sure that when there's
+	// a RPC call to connect, that RPC call is finished before the
+	// assertion.
+	time.Sleep(1 * time.Second)
+
 	h.AssertPeerNotConnected(a, b)
 	h.AssertPeerNotConnected(b, a)
 }

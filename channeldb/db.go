@@ -742,7 +742,7 @@ type ChanCount struct {
 func (c *ChannelStateDB) FetchPermAndTempPeers(
 	chainHash []byte) (map[string]ChanCount, error) {
 
-	peerCounts := make(map[string]ChanCount)
+	peerChanInfo := make(map[string]ChanCount)
 
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		openChanBucket := tx.ReadBucket(openChannelBucket)
@@ -828,7 +828,7 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 				HasOpenOrClosedChan: isPermPeer,
 				PendingOpenCount:    pendingOpenCount,
 			}
-			peerCounts[string(nodePub)] = peerCount
+			peerChanInfo[string(nodePub)] = peerCount
 
 			return nil
 		})
@@ -892,15 +892,15 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 				remoteSer := remotePub.SerializeCompressed()
 				remoteKey := string(remoteSer)
 
-				count, exists := peerCounts[remoteKey]
+				count, exists := peerChanInfo[remoteKey]
 				if exists {
 					count.HasOpenOrClosedChan = true
-					peerCounts[remoteKey] = count
+					peerChanInfo[remoteKey] = count
 				} else {
 					peerCount := ChanCount{
 						HasOpenOrClosedChan: true,
 					}
-					peerCounts[remoteKey] = peerCount
+					peerChanInfo[remoteKey] = peerCount
 				}
 			}
 
@@ -912,10 +912,10 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 
 		return nil
 	}, func() {
-		clear(peerCounts)
+		clear(peerChanInfo)
 	})
 
-	return peerCounts, err
+	return peerChanInfo, err
 }
 
 // channelSelector describes a function that takes a chain-hash bucket from

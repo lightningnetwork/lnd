@@ -46,6 +46,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 ## Functional Updates
 
+- [Improved](https://github.com/lightningnetwork/lnd/pull/9880) the connection
+  restriction logic enforced by `accessman`. In addition, the restriction placed
+  on outbound connections is now lifted.
+
 ## RPC Updates
 
 ## lncli Updates

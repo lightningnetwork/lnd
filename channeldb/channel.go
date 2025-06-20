@@ -2127,6 +2127,32 @@ func (c *OpenChannel) clearChanStatus(status ChannelStatus) error {
 	return nil
 }
 
+// BalanceAboveReserve checks if the balance for the provided party is above the
+// configured reserve. It also uses the balance delta for the party, to account
+// for entry amounts that have been processed already.
+func (c *OpenChannel) BalanceAboveReserve(
+	party lntypes.ChannelParty, delta int64) bool {
+
+	c.Lock()
+	defer c.Unlock()
+
+	// We need to add the delta to the balance we're checking against the
+	// reserve.
+	deltaAmt := lnwire.MilliSatoshi(delta).ToSatoshis()
+
+	switch {
+	case party.IsLocal():
+		return c.LocalCommitment.LocalBalance.ToSatoshis()+deltaAmt >
+			c.LocalChanCfg.ChanReserve
+
+	case party.IsRemote():
+		return c.RemoteCommitment.RemoteBalance.ToSatoshis()+deltaAmt >
+			c.RemoteChanCfg.ChanReserve
+	}
+
+	return false
+}
+
 // putOpenChannel serializes, and stores the current state of the channel in its
 // entirety.
 func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {

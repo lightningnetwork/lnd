@@ -135,6 +135,14 @@ func (b *BlockbeatDispatcher) Stop() {
 }
 
 func (b *BlockbeatDispatcher) log() btclog.Logger {
+	// There's no guarantee that the `b.beat` is initialized when the
+	// dispatcher shuts down, especially in the case where the node is
+	// running as a remote signer, which doesn't have a chainbackend. In
+	// that case we will use the package logger.
+	if b.beat == nil {
+		return clog
+	}
+
 	return b.beat.logger()
 }
 

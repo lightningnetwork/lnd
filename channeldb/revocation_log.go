@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"math"
@@ -165,7 +166,7 @@ type HTLCEntry struct {
 	CustomBlob tlv.OptionalRecordT[tlv.TlvType5, tlv.Blob]
 
 	// HtlcIndex is the index of the HTLC in the channel.
-	HtlcIndex tlv.OptionalRecordT[tlv.TlvType6, uint16]
+	HtlcIndex tlv.OptionalRecordT[tlv.TlvType6, tlv.BigSizeT[uint64]]
 }
 
 // toTlvStream converts an HTLCEntry record into a tlv representation.
@@ -182,7 +183,9 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 		records = append(records, r.Record())
 	})
 
-	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6, uint16]) {
+	h.HtlcIndex.WhenSome(func(r tlv.RecordT[tlv.TlvType6,
+		tlv.BigSizeT[uint64]]) {
+
 		records = append(records, r.Record())
 	})
 
@@ -207,8 +210,8 @@ func NewHTLCEntryFromHTLC(htlc HTLC) (*HTLCEntry, error) {
 		Amt: tlv.NewRecordT[tlv.TlvType4](
 			tlv.NewBigSizeT(htlc.Amt.ToSatoshis()),
 		),
-		HtlcIndex: tlv.SomeRecordT(tlv.NewPrimitiveRecord[tlv.TlvType6](
-			uint16(htlc.HtlcIndex),
+		HtlcIndex: tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType6](
+			tlv.NewBigSizeT(htlc.HtlcIndex),
 		)),
 	}
 
@@ -510,13 +513,22 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 // deserializeHTLCEntries deserializes a list of HTLC entries based on tlv
 // format.
 func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
-	var htlcs []*HTLCEntry
+	var (
+		htlcs []*HTLCEntry
+
+		// htlcIndexBlob defines the tlv record type to be used when
+		// decoding from the disk. We use it instead of the one defined
+		// in `HTLCEntry.HtlcIndex` as previously this field was encoded
+		// using `uint16`, thus we will read it as raw bytes and
+		// deserialize it further below.
+		htlcIndexBlob tlv.OptionalRecordT[tlv.TlvType6, tlv.Blob]
+	)
 
 	for {
 		var htlc HTLCEntry
 
 		customBlob := htlc.CustomBlob.Zero()
-		htlcIndex := htlc.HtlcIndex.Zero()
+		htlcIndex := htlcIndexBlob.Zero()
 
 		// Create the tlv stream.
 		records := []tlv.Record{
@@ -549,7 +561,14 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 		}
 
 		if t, ok := parsedTypes[htlcIndex.TlvType()]; ok && t == nil {
-			htlc.HtlcIndex = tlv.SomeRecordT(htlcIndex)
+			record, err := deserializeHtlcIndexCompatible(
+				htlcIndex.Val,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			htlc.HtlcIndex = record
 		}
 
 		// Append the entry.
@@ -557,6 +576,55 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 	}
 
 	return htlcs, nil
+}
+
+// deserializeHtlcIndexCompatible takes raw bytes and decodes it into an
+// optional record that's assigned to the entry's HtlcIndex.
+//
+// NOTE: previously this `HtlcIndex` was a tlv record that used `uint16` to
+// encode its value. Given now its value is encoded using BigSizeT, and for any
+// BigSizeT, its possible length values are 1, 3, 5, and 8. This means if the
+// tlv record has a length of 2, we know for sure it must be an old record
+// whose value was encoded using uint16.
+func deserializeHtlcIndexCompatible(rawBytes []byte) (
+	tlv.OptionalRecordT[tlv.TlvType6, tlv.BigSizeT[uint64]], error) {
+
+	var (
+		// record defines the record that's used by the HtlcIndex in the
+		// entry.
+		record tlv.OptionalRecordT[
+			tlv.TlvType6, tlv.BigSizeT[uint64],
+		]
+
+		// htlcIndexVal is the decoded uint64 value.
+		htlcIndexVal uint64
+	)
+
+	// If the length of the tlv record is 2, it must be encoded using uint16
+	// as the BigSizeT encoding cannot have this length.
+	if len(rawBytes) == 2 {
+		// Decode the raw bytes into uint16 and convert it into uint64.
+		htlcIndexVal = uint64(binary.BigEndian.Uint16(rawBytes))
+	} else {
+		// This value is encoded using BigSizeT, we now use the decoder
+		// to deserialize the raw bytes.
+		r := bytes.NewBuffer(rawBytes)
+
+		// Create a buffer to be used in the decoding process.
+		buf := [8]byte{}
+
+		// Use the BigSizeT's decoder.
+		err := tlv.DBigSize(r, &htlcIndexVal, &buf, 8)
+		if err != nil {
+			return record, err
+		}
+	}
+
+	record = tlv.SomeRecordT(tlv.NewRecordT[tlv.TlvType6](
+		tlv.NewBigSizeT(htlcIndexVal),
+	))
+
+	return record, nil
 }
 
 // writeTlvStream is a helper function that encodes the tlv stream into the

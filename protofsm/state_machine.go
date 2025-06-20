@@ -510,10 +510,15 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 		s.log.DebugS(ctx, "Registering conf",
 			"txid", daemonEvent.Txid)
 
+		var opts []chainntnfs.NotifierOption
+		if daemonEvent.FullBlock {
+			opts = append(opts, chainntnfs.WithIncludeBlock())
+		}
+
 		numConfs := daemonEvent.NumConfs.UnwrapOr(1)
 		confEvent, err := s.cfg.Daemon.RegisterConfirmationsNtfn(
 			&daemonEvent.Txid, daemonEvent.PkScript,
-			numConfs, daemonEvent.HeightHint,
+			numConfs, daemonEvent.HeightHint, opts...,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to register conf: %w", err)
@@ -522,16 +527,19 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 		launched := s.gm.Go(ctx, func(ctx context.Context) {
 			for {
 				select {
-				case <-confEvent.Confirmed:
-					// If there's a post-conf event, then
+				//nolint:ll
+				case conf, ok := <-confEvent.Confirmed:
+					if !ok {
+						return
+					}
+
+					// If there's a post-conf mapper, then
 					// we'll send that into the current
 					// state now.
-					//
-					// TODO(roasbeef): refactor to
-					// dispatchAfterRecv w/ above
-					postConf := daemonEvent.PostConfEvent
-					postConf.WhenSome(func(e Event) {
-						s.SendEvent(ctx, e)
+					postConfMapper := daemonEvent.PostConfMapper
+					postConfMapper.WhenSome(func(f ConfMapper[Event]) {
+						customEvent := f(conf)
+						s.SendEvent(ctx, customEvent)
 					})
 
 					return

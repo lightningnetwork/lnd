@@ -40,6 +40,35 @@ type daemonEvents struct {
 func (s *daemonEvents) dummy() {
 }
 
+type confDetailsEvent struct {
+	blockHash   chainhash.Hash
+	blockHeight uint32
+}
+
+func (c *confDetailsEvent) dummy() {
+}
+
+type registerConf struct {
+	fullBlock bool
+}
+
+func (r *registerConf) dummy() {
+}
+
+type spendDetailsEvent struct {
+	spenderTxHash  chainhash.Hash
+	spendingHeight int32
+}
+
+func (s *spendDetailsEvent) dummy() {
+}
+
+type registerSpend struct {
+}
+
+func (r *registerSpend) dummy() {
+}
+
 type dummyEnv struct {
 	mock.Mock
 }
@@ -74,7 +103,7 @@ var (
 func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 ) (*StateTransition[dummyEvents, *dummyEnv], error) {
 
-	switch event.(type) {
+	switch newEvent := event.(type) {
 	case *goToFin:
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateFin{},
@@ -127,6 +156,101 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 				},
 			}),
 		}, nil
+
+	// This state will emit a RegisterConf event which uses a mapper to
+	// transition to the final state upon confirmation.
+	case *registerConf:
+		confMapper := func(
+			conf *chainntnfs.TxConfirmation) dummyEvents {
+
+			// Map the conf details into our custom event.
+			return &confDetailsEvent{
+				blockHash:   *conf.BlockHash,
+				blockHeight: conf.BlockHeight,
+			}
+		}
+
+		regConfEvent := &RegisterConf[dummyEvents]{
+			Txid:       chainhash.Hash{1},
+			PkScript:   []byte{0x01},
+			HeightHint: 100,
+			FullBlock:  newEvent.fullBlock,
+			PostConfMapper: fn.Some[ConfMapper[dummyEvents]](
+				confMapper,
+			),
+		}
+
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			// Stay in the start state until the conf event is
+			// received and mapped.
+			NextState: &dummyStateStart{
+				canSend: d.canSend,
+			},
+			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+				ExternalEvents: DaemonEventSet{
+					regConfEvent,
+				},
+			}),
+		}, nil
+
+	// This event contains details from the confirmation and signals us to
+	// transition to the final state.
+	case *confDetailsEvent:
+		// We received the mapped confirmation details, transition to
+		// the confirmed state.
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: &dummyStateConfirmed{
+				blockHash:   newEvent.blockHash,
+				blockHeight: newEvent.blockHeight,
+			},
+		}, nil
+
+	// This state will emit a RegisterSpend event which uses a mapper to
+	// transition to the spent state upon spend detection.
+	case *registerSpend:
+		spendMapper := func(
+			spend *chainntnfs.SpendDetail) dummyEvents {
+
+			// Map the spend details into our custom event.
+			return &spendDetailsEvent{
+				spenderTxHash:  *spend.SpenderTxHash,
+				spendingHeight: spend.SpendingHeight,
+			}
+		}
+
+		regSpendEvent := &RegisterSpend[dummyEvents]{
+			OutPoint:   wire.OutPoint{Hash: chainhash.Hash{3}},
+			PkScript:   []byte{0x03},
+			HeightHint: 300,
+			PostSpendEvent: fn.Some[SpendMapper[dummyEvents]](
+				spendMapper,
+			),
+		}
+
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			// Stay in the start state until the spend event is
+			// received and mapped.
+			NextState: &dummyStateStart{
+				canSend: d.canSend,
+			},
+			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+				ExternalEvents: DaemonEventSet{
+					regSpendEvent,
+				},
+			}),
+		}, nil
+
+	// This event contains details from the spend notification and signals
+	// us to transition to the spent state.
+	case *spendDetailsEvent:
+		// We received the mapped spend details, transition to the
+		// spent state.
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: &dummyStateSpent{
+				spenderTxHash:  newEvent.spenderTxHash,
+				spendingHeight: newEvent.spendingHeight,
+			},
+		}, nil
 	}
 
 	return nil, fmt.Errorf("unknown event: %T", event)
@@ -155,12 +279,64 @@ func (d *dummyStateFin) IsTerminal() bool {
 	return true
 }
 
-func assertState[Event any, Env Environment](t *testing.T,
-	m *StateMachine[Event, Env], expectedState State[Event, Env]) {
+type dummyStateConfirmed struct {
+	blockHash   chainhash.Hash
+	blockHeight uint32
+}
+
+func (d *dummyStateConfirmed) String() string {
+	return "dummyStateConfirmed"
+}
+
+func (d *dummyStateConfirmed) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	// This is a terminal state, no further transitions.
+	return &StateTransition[dummyEvents, *dummyEnv]{
+		NextState: d,
+	}, nil
+}
+
+func (d *dummyStateConfirmed) IsTerminal() bool {
+	return true
+}
+
+type dummyStateSpent struct {
+	spenderTxHash  chainhash.Hash
+	spendingHeight int32
+}
+
+func (d *dummyStateSpent) String() string {
+	return "dummyStateSpent"
+}
+
+func (d *dummyStateSpent) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	// This is a terminal state, no further transitions.
+	return &StateTransition[dummyEvents, *dummyEnv]{
+		NextState: d,
+	}, nil
+}
+
+func (d *dummyStateSpent) IsTerminal() bool {
+	return true
+}
+
+// assertState asserts that the state machine is currently in the expected
+// state type and returns the state cast to that type.
+func assertState[Event any, Env Environment, S State[Event, Env]](t *testing.T,
+	m *StateMachine[Event, Env], expectedState S) S {
 
 	state, err := m.CurrentState()
 	require.NoError(t, err)
 	require.IsType(t, expectedState, state)
+
+	// Perform the type assertion to return the concrete type.
+	concreteState, ok := state.(S)
+	require.True(t, ok, "state type assertion failed")
+
+	return concreteState
 }
 
 func assertStateTransitions[Event any, Env Environment](
@@ -209,7 +385,8 @@ func (d *dummyAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	opts ...chainntnfs.NotifierOption,
 ) (*chainntnfs.ConfirmationEvent, error) {
 
-	args := d.Called(txid, pkScript, numConfs)
+	// Pass opts as the last argument to the mock call checker.
+	args := d.Called(txid, pkScript, numConfs, heightHint, opts)
 
 	err := args.Error(0)
 
@@ -410,6 +587,208 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateFin{}}
 	assertStateTransitions(t, stateSub, expectedStates)
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// testStateMachineConfMapperImpl is a helper function that encapsulates the
+// core logic for testing the confirmation mapping functionality of the state
+// machine. It takes a boolean flag `fullBlock` to determine whether to test the
+// scenario where full block details are requested in the confirmation
+// notification.
+func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
+	ctx := context.Background()
+
+	// Create the state machine.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	// Define the expected arguments for the mock call.
+	expectedTxid := &chainhash.Hash{1}
+	expectedPkScript := []byte{0x01}
+	expectedNumConfs := uint32(1)
+	expectedHeightHint := uint32(100)
+
+	// Set up the mock expectation based on the FullBlock flag. We use
+	// mock.MatchedBy to assert the options passed.
+	if fullBlock {
+		// Expect WithIncludeBlock() option when FullBlock is true.
+		adapters.On(
+			"RegisterConfirmationsNtfn",
+			expectedTxid, expectedPkScript,
+			expectedNumConfs, expectedHeightHint,
+			mock.MatchedBy(
+				func(opts []chainntnfs.NotifierOption) bool {
+					// Check if exactly one option is passed
+					// and it's the correct type. Unless we
+					// use reflect, we can introspect into
+					// the private fields.
+					return len(opts) == 1
+				},
+			),
+		).Return(nil)
+	} else {
+		// Expect no options when FullBlock is false.
+		adapters.On(
+			"RegisterConfirmationsNtfn",
+			expectedTxid, expectedPkScript,
+			expectedNumConfs, expectedHeightHint,
+			mock.MatchedBy(func(opts []chainntnfs.NotifierOption) bool { //nolint:ll
+				return len(opts) == 0
+			}),
+		).Return(nil)
+	}
+
+	// Create the registerConf event with the specified FullBlock value.
+	regConfEvent := &registerConf{
+		fullBlock: fullBlock,
+	}
+
+	// Send the event that triggers RegisterConf emission.
+	stateMachine.SendEvent(ctx, regConfEvent)
+
+	// We should transition back to the starting state initially.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateStart{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Assert the registration call was made with the correct arguments
+	// (including options).
+	adapters.AssertExpectations(t)
+
+	// Now, simulate the confirmation event coming back from the notifier.
+	simulatedConf := &chainntnfs.TxConfirmation{
+		BlockHash:   &chainhash.Hash{2},
+		BlockHeight: 123,
+	}
+	adapters.confChan <- simulatedConf
+
+	// This should trigger the mapper and send the confDetailsEvent,
+	// transitioning us to the confirmed state.
+	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateConfirmed{}}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Final state assertion.
+	finalState := assertState(t, &stateMachine, &dummyStateConfirmed{})
+
+	// Assert that the details from the confirmation event were correctly
+	// propagated to the final state.
+	require.Equal(t,
+		*simulatedConf.BlockHash, finalState.blockHash,
+	)
+	require.Equal(t,
+		simulatedConf.BlockHeight, finalState.blockHeight,
+	)
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// TestStateMachineConfMapper tests the confirmation mapping functionality using
+// subtests driven by the testStateMachineConfMapperImpl helper function. It
+// covers scenarios both with and without requesting the full block details.
+func TestStateMachineConfMapper(t *testing.T) {
+	t.Parallel()
+
+	t.Run("full block false", func(t *testing.T) {
+		t.Parallel()
+		testStateMachineConfMapperImpl(t, false)
+	})
+
+	t.Run("full block true", func(t *testing.T) {
+		t.Parallel()
+		testStateMachineConfMapperImpl(t, true)
+	})
+}
+
+// TestStateMachineSpendMapper tests that the state machine is able to properly
+// map the spend event into a custom event that can be used to trigger a state
+// transition.
+func TestStateMachineSpendMapper(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	// Create the state machine.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	// Expect the RegisterSpendNtfn call when we send the event.
+	targetOutpoint := &wire.OutPoint{Hash: chainhash.Hash{3}}
+	targetPkScript := []byte{0x03}
+	targetHeightHint := uint32(300)
+	adapters.On(
+		"RegisterSpendNtfn", targetOutpoint, targetPkScript,
+		targetHeightHint,
+	).Return(nil)
+
+	// Send the event that triggers RegisterSpend emission.
+	stateMachine.SendEvent(ctx, &registerSpend{})
+
+	// We should transition back to the starting state initially.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateStart{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Assert the registration call was made.
+	adapters.AssertExpectations(t)
+
+	// Now, simulate the spend event coming back from the notifier. Populate
+	// it with some data to be mapped.
+	simulatedSpend := &chainntnfs.SpendDetail{
+		SpentOutPoint:  targetOutpoint,
+		SpenderTxHash:  &chainhash.Hash{4},
+		SpendingTx:     &wire.MsgTx{},
+		SpendingHeight: 456,
+	}
+	adapters.spendChan <- simulatedSpend
+
+	// This should trigger the mapper and send the spendDetailsEvent,
+	// transitioning us to the spent state.
+	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateSpent{}}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Final state assertion.
+	finalState := assertState(t, &stateMachine, &dummyStateSpent{})
+
+	// Assert that the details from the spend event were correctly
+	// propagated to the final state.
+	require.Equal(t,
+		*simulatedSpend.SpenderTxHash, finalState.spenderTxHash,
+	)
+	require.Equal(t,
+		simulatedSpend.SpendingHeight, finalState.spendingHeight,
+	)
 
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)

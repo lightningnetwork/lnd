@@ -1,12 +1,15 @@
 package channeldb
 
 import (
+	"bytes"
 	"math/rand"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +44,8 @@ func TestForwardingLogBasicStorageAndQuery(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
 		}
 
 		timestamp = timestamp.Add(time.Minute * 10)
@@ -109,6 +114,8 @@ func TestForwardingLogQueryOptions(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
 		}
 
 		endTime = endTime.Add(time.Minute * 10)
@@ -208,6 +215,8 @@ func TestForwardingLogQueryLimit(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
 		}
 
 		endTime = endTime.Add(time.Minute * 10)
@@ -317,6 +326,8 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 			OutgoingChanID: lnwire.NewShortChanIDFromInt(uint64(rand.Int63())),
 			AmtIn:          lnwire.MilliSatoshi(rand.Int63()),
 			AmtOut:         lnwire.MilliSatoshi(rand.Int63()),
+			IncomingHtlcID: fn.Some(uint64(i)),
+			OutgoingHtlcID: fn.Some(uint64(i)),
 		}
 	}
 
@@ -359,4 +370,108 @@ func TestForwardingLogStoreEvent(t *testing.T) {
 				"%d, got %d", i, ts+int64(i), eventTs)
 		}
 	}
+}
+
+// TestForwardingLogDecodeForwardingEvent tests that we're able to decode
+// forwarding events that don't have the new incoming and outgoing htlc
+// indices.
+func TestForwardingLogDecodeForwardingEvent(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll set up a test database, and use that to instantiate the
+	// forwarding event log that we'll be using for the duration of the
+	// test.
+	db, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	log := ForwardingLog{
+		db: db,
+	}
+
+	initialTime := time.Unix(1234, 0)
+	endTime := time.Unix(1234, 0)
+
+	// We'll create forwarding events that don't have the incoming and
+	// outgoing htlc indices.
+	numEvents := 10
+	events := make([]ForwardingEvent, numEvents)
+	for i := range numEvents {
+		events[i] = ForwardingEvent{
+			Timestamp: endTime,
+			IncomingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(rand.Int63()),
+			),
+			OutgoingChanID: lnwire.NewShortChanIDFromInt(
+				uint64(rand.Int63()),
+			),
+			AmtIn:  lnwire.MilliSatoshi(rand.Int63()),
+			AmtOut: lnwire.MilliSatoshi(rand.Int63()),
+		}
+
+		endTime = endTime.Add(time.Minute * 10)
+	}
+
+	// Now that all of our events are constructed, we'll add them to the
+	// database.
+	err = writeOldFormatEvents(db, events)
+	require.NoError(t, err)
+
+	// With all of our events added, we'll now query for them and ensure
+	// that the incoming and outgoing htlc indices are set to 0 (default
+	// value) for all events.
+	eventQuery := ForwardingEventQuery{
+		StartTime:    initialTime,
+		EndTime:      endTime,
+		IndexOffset:  0,
+		NumMaxEvents: uint32(numEvents * 3),
+	}
+	timeSlice, err := log.Query(eventQuery)
+	require.NoError(t, err)
+	require.Equal(t, numEvents, len(timeSlice.ForwardingEvents))
+
+	for _, event := range timeSlice.ForwardingEvents {
+		require.Equal(t, fn.None[uint64](), event.IncomingHtlcID)
+		require.Equal(t, fn.None[uint64](), event.OutgoingHtlcID)
+	}
+}
+
+// writeOldFormatEvents writes forwarding events to the database in the old
+// format (without incoming and outgoing htlc indices). This is used to test
+// backward compatibility.
+func writeOldFormatEvents(db *DB, events []ForwardingEvent) error {
+	return kvdb.Batch(db.Backend, func(tx kvdb.RwTx) error {
+		bucket, err := tx.CreateTopLevelBucket(forwardingLogBucket)
+		if err != nil {
+			return err
+		}
+
+		for _, event := range events {
+			var timestamp [8]byte
+			byteOrder.PutUint64(timestamp[:], uint64(
+				event.Timestamp.UnixNano(),
+			))
+
+			// Use the old event size (32 bytes) for writing old
+			// format events.
+			var eventBytes [32]byte
+			eventBuf := bytes.NewBuffer(eventBytes[0:0:32])
+
+			// Write only the original fields without incoming and
+			// outgoing htlc indices.
+			if err := WriteElements(
+				eventBuf, event.IncomingChanID,
+				event.OutgoingChanID, event.AmtIn, event.AmtOut,
+			); err != nil {
+				return err
+			}
+
+			if err := bucket.Put(
+				timestamp[:], eventBuf.Bytes(),
+			); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }

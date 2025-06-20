@@ -770,16 +770,16 @@ func TestFetchPermTempPeer(t *testing.T) {
 	)
 
 	// Fetch the ChanCount for our peers.
-	peerCounts, err := cdb.FetchPermAndTempPeers(key[:])
+	peerChanInfo, err := cdb.FetchPermAndTempPeers(key[:])
 	require.NoError(t, err, "unable to fetch perm and temp peers")
 
 	// There should only be three entries.
-	require.Len(t, peerCounts, 3)
+	require.Len(t, peerChanInfo, 3)
 
 	// The first entry should have OpenClosed set to true and Pending set
 	// to 0.
-	count1, found := peerCounts[string(pubKey1.SerializeCompressed())]
-	require.True(t, found, "unable to find peer 1 in peerCounts")
+	count1, found := peerChanInfo[string(pubKey1.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 1 in peerChanInfo")
 	require.True(
 		t, count1.HasOpenOrClosedChan,
 		"couldn't find peer 1's channels",
@@ -789,15 +789,15 @@ func TestFetchPermTempPeer(t *testing.T) {
 		"peer 1 doesn't have 0 pending-open",
 	)
 
-	count2, found := peerCounts[string(pubKey2.SerializeCompressed())]
-	require.True(t, found, "unable to find peer 2 in peerCounts")
+	count2, found := peerChanInfo[string(pubKey2.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 2 in peerChanInfo")
 	require.False(
 		t, count2.HasOpenOrClosedChan, "found erroneous channels",
 	)
 	require.Equal(t, uint64(1), count2.PendingOpenCount)
 
-	count3, found := peerCounts[string(pubKey3.SerializeCompressed())]
-	require.True(t, found, "unable to find peer 3 in peerCounts")
+	count3, found := peerChanInfo[string(pubKey3.SerializeCompressed())]
+	require.True(t, found, "unable to find peer 3 in peerChanInfo")
 	require.True(
 		t, count3.HasOpenOrClosedChan,
 		"couldn't find peer 3's channels",

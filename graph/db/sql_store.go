@@ -90,6 +90,7 @@ type SQLQueries interface {
 		Channel queries.
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
+	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) error
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
 	GetChannelByOutpoint(ctx context.Context, arg sqlc.GetChannelByOutpointParams) (sqlc.GetChannelByOutpointRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
@@ -135,6 +136,12 @@ type SQLQueries interface {
 	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
 	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg sqlc.DeletePruneLogEntriesInRangeParams) error
+
+	/*
+		Closed SCID table queries.
+	*/
+	InsertClosedChannel(ctx context.Context, scid []byte) error
+	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -1224,6 +1231,103 @@ func (s *SQLStore) ForEachNodeCached(cb func(node route.Vertex,
 
 			return cb(nodePub, channels)
 		})
+	}, sqldb.NoOpReset)
+}
+
+// ForEachChannelCacheable iterates through all the channel edges stored
+// within the graph and invokes the passed callback for each edge. The
+// callback takes two edges as since this is a directed graph, both the
+// in/out edges are visited. If the callback returns an error, then the
+// transaction is aborted and the iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil
+// pointer for that particular channel edge routing policy will be
+// passed into the callback.
+//
+// NOTE: this method is like ForEachChannel but fetches only the data
+// required for the graph cache.
+func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
+	*models.CachedEdgePolicy,
+	*models.CachedEdgePolicy) error) error {
+
+	ctx := context.TODO()
+
+	handleChannel := func(db SQLQueries,
+		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {
+
+		node1, node2, err := buildNodeVertices(
+			row.Node1Pubkey, row.Node2Pubkey,
+		)
+		if err != nil {
+			return err
+		}
+
+		edge := buildCacheableChannelInfo(row.Channel, node1, node2)
+
+		dbPol1, dbPol2, err := extractChannelPolicies(row)
+		if err != nil {
+			return err
+		}
+
+		var pol1, pol2 *models.CachedEdgePolicy
+		if dbPol1 != nil {
+			policy1, err := buildChanPolicy(
+				*dbPol1, edge.ChannelID, nil, node2, true,
+			)
+			if err != nil {
+				return err
+			}
+
+			pol1 = models.NewCachedPolicy(policy1)
+		}
+		if dbPol2 != nil {
+			policy2, err := buildChanPolicy(
+				*dbPol2, edge.ChannelID, nil, node1, false,
+			)
+			if err != nil {
+				return err
+			}
+
+			pol2 = models.NewCachedPolicy(policy2)
+		}
+
+		if err := cb(edge, pol1, pol2); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var lastID int64
+		for {
+			//nolint:ll
+			rows, err := db.ListChannelsWithPoliciesPaginated(
+				ctx, sqlc.ListChannelsWithPoliciesPaginatedParams{
+					Version: int16(ProtocolV1),
+					ID:      lastID,
+					Limit:   pageSize,
+				},
+			)
+			if err != nil {
+				return err
+			}
+
+			if len(rows) == 0 {
+				break
+			}
+
+			for _, row := range rows {
+				err := handleChannel(db, row)
+				if err != nil {
+					return err
+				}
+
+				lastID = row.Channel.ID
+			}
+		}
+
+		return nil
 	}, sqldb.NoOpReset)
 }
 
@@ -2555,6 +2659,148 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	}
 
 	return removedChans, nil
+}
+
+// AddEdgeProof sets the proof of an existing edge in the graph database.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
+	proof *models.ChannelAuthProof) error {
+
+	var (
+		ctx       = context.TODO()
+		scidBytes [8]byte
+	)
+	byteOrder.PutUint64(scidBytes[:], scid.ToUint64())
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbChan, err := db.GetChannelBySCID(
+			ctx, sqlc.GetChannelBySCIDParams{
+				Scid:    scidBytes[:],
+				Version: int16(ProtocolV1),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
+		}
+
+		return db.AddV1ChannelProof(
+			ctx, sqlc.AddV1ChannelProofParams{
+				ID:                dbChan.ID,
+				Node1Signature:    proof.NodeSig1Bytes,
+				Node2Signature:    proof.NodeSig2Bytes,
+				Bitcoin1Signature: proof.BitcoinSig1Bytes,
+				Bitcoin2Signature: proof.BitcoinSig2Bytes,
+			},
+		)
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("unable to add edge proof: %w", err)
+	}
+
+	return nil
+}
+
+// PutClosedScid stores a SCID for a closed channel in the database. This is so
+// that we can ignore channel announcements that we know to be closed without
+// having to validate them and fetch a block.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) PutClosedScid(scid lnwire.ShortChannelID) error {
+	ctx := context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		var chanIDB [8]byte
+		byteOrder.PutUint64(chanIDB[:], scid.ToUint64())
+
+		return db.InsertClosedChannel(ctx, chanIDB[:])
+	}, sqldb.NoOpReset)
+}
+
+// IsClosedScid checks whether a channel identified by the passed in scid is
+// closed. This helps avoid having to perform expensive validation checks.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
+	var (
+		ctx      = context.TODO()
+		isClosed bool
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var chanIDB [8]byte
+		byteOrder.PutUint64(chanIDB[:], scid.ToUint64())
+		var err error
+		isClosed, err = db.IsClosedChannel(ctx, chanIDB[:])
+		if err != nil {
+			return fmt.Errorf("unable to fetch closed channel: %w",
+				err)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return false, fmt.Errorf("unable to fetch closed channel: %w",
+			err)
+	}
+
+	return isClosed, nil
+}
+
+// GraphSession will provide the call-back with access to a NodeTraverser
+// instance which can be used to perform queries against the channel graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error) error {
+	var ctx = context.TODO()
+
+	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		return cb(newSQLNodeTraverser(db, s.cfg.ChainHash))
+	}, sqldb.NoOpReset)
+}
+
+// sqlNodeTraverser implements the NodeTraverser interface but with a backing
+// read only transaction for a consistent view of the graph.
+type sqlNodeTraverser struct {
+	db    SQLQueries
+	chain chainhash.Hash
+}
+
+// A compile-time assertion to ensure that sqlNodeTraverser implements the
+// NodeTraverser interface.
+var _ NodeTraverser = (*sqlNodeTraverser)(nil)
+
+// newSQLNodeTraverser creates a new instance of the sqlNodeTraverser.
+func newSQLNodeTraverser(db SQLQueries,
+	chain chainhash.Hash) *sqlNodeTraverser {
+
+	return &sqlNodeTraverser{
+		db:    db,
+		chain: chain,
+	}
+}
+
+// ForEachNodeDirectedChannel calls the callback for every channel of the given
+// node.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(nodePub route.Vertex,
+	cb func(channel *DirectedChannel) error) error {
+
+	ctx := context.TODO()
+
+	return forEachNodeDirectedChannel(ctx, s.db, nodePub, cb)
+}
+
+// FetchNodeFeatures returns the features of the given node. If the node is
+// unknown, assume no additional features are supported.
+//
+// NOTE: Part of the NodeTraverser interface.
+func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
+	*lnwire.FeatureVector, error) {
+
+	ctx := context.TODO()
+
+	return fetchNodeFeatures(ctx, s.db, nodePub)
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given

@@ -189,6 +189,14 @@ INSERT INTO channels (
 )
 RETURNING id;
 
+-- name: AddV1ChannelProof :exec
+UPDATE channels
+SET node_1_signature = $2,
+    node_2_signature = $3,
+    bitcoin_1_signature = $4,
+    bitcoin_2_signature = $5
+WHERE id = $1;
+
 -- name: GetChannelsBySCIDRange :many
 SELECT sqlc.embed(c),
     n1.pub_key AS node1_pub_key,
@@ -676,3 +684,20 @@ LIMIT 1;
 DELETE FROM prune_log
 WHERE block_height >= @start_height
   AND block_height <= @end_height;
+
+/* ─────────────────────────────────────────────
+   closed_scid table queries
+   ────────────────────────────────────────────-
+*/
+
+-- name: InsertClosedChannel :exec
+INSERT INTO closed_scids (scid)
+VALUES ($1)
+ON CONFLICT (scid) DO NOTHING;
+
+-- name: IsClosedChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM closed_scids
+    WHERE scid = $1
+);

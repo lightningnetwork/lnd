@@ -78,6 +78,10 @@ type ChannelPolicyExtraType struct {
 	Value           []byte
 }
 
+type ClosedScid struct {
+	Scid []byte
+}
+
 type Invoice struct {
 	ID                 int64
 	Hash               []byte

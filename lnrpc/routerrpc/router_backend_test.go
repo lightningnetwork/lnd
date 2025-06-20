@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/hex"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -503,11 +505,21 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		"g6aykds4ydvf2x9lpngqcfux3hv8qlraan9v3s9296r5w5eh959yzadgh5ck" +
 		"gjydgyfxdpumxtuk3p3caugmlqpz5necs"
 
+	const paymentReqMissingAddr = "lnbcrt100p1p70xwfzpp5qqqsyqcyq5rqwzqfq" +
+		"qqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kge" +
+		"tjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaqnp4q0n326hr8v9zprg8" +
+		"gsvezcch06gfaqqhde2aj730yg0durunfhv669qypqqqz3uu8wnr7883qzxr" +
+		"566nuhled49fx6e6q0jn06w6gpgyznwzxwf8xdmye87kpx0y8lqtcgwywsau" +
+		"0jkm66evelkw7cggwlegp4anv3cq62wusm"
+
 	destNodeBytes, err := hex.DecodeString(destKey)
 	require.NoError(t, err)
 
 	target, err := route.NewVertexFromBytes(destNodeBytes)
 	require.NoError(t, err)
+
+	mockClock := &lnmock.MockClock{}
+	mockClock.On("Now").Return(time.Date(2025, 3, 1, 13, 0, 0, 0, time.UTC))
 
 	testCases := []extractIntentTestCase{
 		{
@@ -706,6 +718,7 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 					return false
 				},
 				ActiveNetParams: &chaincfg.RegressionNetParams,
+				Clock:           mockClock,
 			},
 			sendReq: &SendPaymentRequest{
 				Amt:            int64(paymentAmount),
@@ -713,6 +726,23 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 			},
 			valid:            false,
 			expectedErrorMsg: "invoice expired.",
+		},
+		{
+			name: "Invoice missing payment address",
+			backend: &RouterBackend{
+				ShouldSetExpEndorsement: func() bool {
+					return false
+				},
+				ActiveNetParams:  &chaincfg.RegressionNetParams,
+				MaxTotalTimelock: 1000,
+				Clock:            mockClock,
+			},
+			sendReq: &SendPaymentRequest{
+				PaymentRequest: paymentReqMissingAddr,
+			},
+			valid: false,
+			expectedErrorMsg: "payment request must contain " +
+				"either a payment address or blinded paths",
 		},
 		{
 			name: "Invalid dest vertex length",

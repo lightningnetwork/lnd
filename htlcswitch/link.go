@@ -3624,6 +3624,9 @@ func (l *channelLink) updateChannelFee(ctx context.Context,
 // the switch.
 func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 	if len(fwdPkg.SettleFails) == 0 {
+		l.log.Trace("fwd package has no settle/fails to process " +
+			"exiting early")
+
 		return
 	}
 
@@ -3728,6 +3731,13 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 //
 //nolint:funlen
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
+	// Exit early if there are no adds to process.
+	if len(fwdPkg.Adds) == 0 {
+		l.log.Trace("fwd package has no adds to process exiting early")
+
+		return
+	}
+
 	l.log.Tracef("processing %d remote adds for height %d",
 		len(fwdPkg.Adds), fwdPkg.Height)
 

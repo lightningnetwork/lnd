@@ -1277,7 +1277,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1937,7 +1937,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
@@ -2727,7 +2727,7 @@ func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraphNew(t)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.

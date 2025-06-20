@@ -22,7 +22,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
@@ -33,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -1092,7 +1092,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// The final error returned should also indicate that the peer wasn't
 	// online (the last error we returned).
-	require.Equal(t, channeldb.FailureReasonNoRoute, err)
+	require.Equal(t, pymtpkg.FailureReasonNoRoute, err)
 
 	// Inspect the two attempts that were made before the payment failed.
 	p, err := ctx.router.cfg.Control.FetchPayment(*payment.paymentHash)
@@ -2430,7 +2430,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(permErr)
 
-	failureReason := channeldb.FailureReasonPaymentDetails
+	failureReason := pymtpkg.FailureReasonPaymentDetails
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(&failureReason, nil)

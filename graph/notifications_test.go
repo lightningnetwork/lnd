@@ -763,7 +763,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	// then it should trigger a new notification.
 	// TODO(roasbeef): assume monotonic time.
 	nodeUpdateAnn := *node1
-	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(300 * time.Millisecond)
+	nodeUpdateAnn.LastUpdate = node1.LastUpdate.Add(time.Second)
 
 	// Add new node topology update to the channel router.
 	if err := ctx.builder.AddNode(ctxb, &nodeUpdateAnn); err != nil {

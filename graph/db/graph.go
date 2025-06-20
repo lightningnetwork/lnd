@@ -351,10 +351,16 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 
 		info := infos[0]
 
+		var policy1, policy2 *models.CachedEdgePolicy
+		if info.Policy1 != nil {
+			policy1 = models.NewCachedPolicy(info.Policy1)
+		}
+		if info.Policy2 != nil {
+			policy2 = models.NewCachedPolicy(info.Policy2)
+		}
+
 		c.graphCache.AddChannel(
-			models.NewCachedEdge(info.Info),
-			models.NewCachedPolicy(info.Policy1),
-			models.NewCachedPolicy(info.Policy2),
+			models.NewCachedEdge(info.Info), policy1, policy2,
 		)
 	}
 

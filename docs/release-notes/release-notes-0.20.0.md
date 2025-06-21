@@ -125,6 +125,13 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 ## Testing
 
+* Previously, automatic peer bootstrapping was disabled for simnet, signet and
+  regtest networks even if the `--nobootstrap` flag was not set. This automatic
+  disabling has now been 
+  [removed](https://github.com/lightningnetwork/lnd/pull/9967) meaning that any 
+  test network scripts that rely on bootstrapping being disabled will need to 
+  explicitly define the `--nobootstrap` flag.
+
 ## Database
 
 ## Code Health

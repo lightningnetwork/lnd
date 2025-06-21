@@ -2644,7 +2644,7 @@ func (s *server) Start(ctx context.Context) error {
 		// configure the set of active bootstrappers, and launch a
 		// dedicated goroutine to maintain a set of persistent
 		// connections.
-		if shouldPeerBootstrap(s.cfg) {
+		if !s.cfg.NoNetBootstrap {
 			bootstrappers, err := initNetworkBootstrappers(s)
 			if err != nil {
 				startErr = err
@@ -5376,20 +5376,6 @@ func newSweepPkScriptGen(
 			InternalKey:     internalKeyDesc,
 		})
 	}
-}
-
-// shouldPeerBootstrap returns true if we should attempt to perform peer
-// bootstrapping to actively seek our peers using the set of active network
-// bootstrappers.
-func shouldPeerBootstrap(cfg *Config) bool {
-	isSimnet := cfg.Bitcoin.SimNet
-	isSignet := cfg.Bitcoin.SigNet
-	isRegtest := cfg.Bitcoin.RegTest
-	isDevNetwork := isSimnet || isSignet || isRegtest
-
-	// TODO(yy): remove the check on simnet/regtest such that the itest is
-	// covering the bootstrapping process.
-	return !cfg.NoNetBootstrap && !isDevNetwork
 }
 
 // fetchClosedChannelSCIDs returns a set of SCIDs that have their force closing

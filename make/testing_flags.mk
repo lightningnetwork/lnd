@@ -34,6 +34,11 @@ ifneq ($(shuffleseed),)
 SHUFFLE_SEED = $(shuffleseed)
 endif
 
+# Set the base dir if specified.
+ifneq ($(basedir),)
+ITEST_FLAGS += -basedir=$(basedir)
+endif
+
 # Windows needs to append a .exe suffix to all executable files, otherwise it
 # won't run them.
 ifneq ($(windows),)

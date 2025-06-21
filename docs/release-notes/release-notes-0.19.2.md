@@ -51,6 +51,9 @@
 
 ## Code Health
 
+- [Add Optional Migration](https://github.com/lightningnetwork/lnd/pull/9945)
+  which garbage collects the `decayed log` also known as `sphinxreplay.db`.
+
 ## Breaking Changes
 
 ## Performance Improvements

@@ -498,6 +498,7 @@ func TestOptionalMeta(t *testing.T) {
 	om = &OptionalMeta{
 		Versions: map[uint64]string{
 			0: optionalVersions[0].name,
+			1: optionalVersions[1].name,
 		},
 	}
 	err = db.putOptionalMeta(om)
@@ -506,29 +507,40 @@ func TestOptionalMeta(t *testing.T) {
 	om1, err := db.fetchOptionalMeta()
 	require.NoError(t, err, "error getting optional meta")
 	require.Equal(t, om, om1, "unexpected empty versions")
-	require.Equal(t, "0: prune revocation log", om.String())
+	require.Equal(
+		t, "0: prune_revocation_log, 1: gc_decayed_log",
+		om1.String(),
+	)
 }
 
 // TestApplyOptionalVersions checks that the optional migration is applied as
 // expected based on the config.
+//
+// NOTE: Cannot be run in parallel because we alter the optionalVersions
+// global variable which could be used by other tests.
 func TestApplyOptionalVersions(t *testing.T) {
-	t.Parallel()
-
 	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
-	// Overwrite the migration function so we can count how many times the
-	// migration has happened.
-	migrateCount := 0
-	optionalVersions[0].migration = func(_ kvdb.Backend,
-		_ MigrationConfig) error {
+	// migrateCount is the number of migrations that have been run. It
+	// counts the number of times a migration function is called.
+	var migrateCount int
 
-		migrateCount++
-		return nil
+	// Modify all migrations to track their execution.
+	for i := range optionalVersions {
+		optionalVersions[i].migration = func(_ kvdb.Backend,
+			_ MigrationConfig) error {
+
+			migrateCount++
+
+			return nil
+		}
 	}
 
-	// Test that when the flag is false, no migration happens.
-	cfg := OptionalMiragtionConfig{}
+	// All migrations are disabled by default.
+	cfg := NewOptionalMiragtionConfig()
+
+	// Run the optional migrations.
 	err = db.applyOptionalVersions(cfg)
 	require.NoError(t, err, "failed to apply optional migration")
 	require.Equal(t, 0, migrateCount, "expected no migration")
@@ -536,13 +548,18 @@ func TestApplyOptionalVersions(t *testing.T) {
 	// Check the optional meta is not updated.
 	om, err := db.fetchOptionalMeta()
 	require.NoError(t, err, "error getting optional meta")
-	require.Empty(t, om.Versions, "expected empty versions")
 
-	// Test that when specified, the optional migration is applied.
-	cfg.PruneRevocationLog = true
+	// Enable all optional migrations.
+	for i := range cfg.MigrationFlags {
+		cfg.MigrationFlags[i] = true
+	}
+
 	err = db.applyOptionalVersions(cfg)
 	require.NoError(t, err, "failed to apply optional migration")
-	require.Equal(t, 1, migrateCount, "expected migration")
+	require.Equal(
+		t, len(optionalVersions), migrateCount,
+		"expected all migrations to be run",
+	)
 
 	// Fetch the updated optional meta.
 	om, err = db.fetchOptionalMeta()
@@ -552,16 +569,20 @@ func TestApplyOptionalVersions(t *testing.T) {
 	omExpected := &OptionalMeta{
 		Versions: map[uint64]string{
 			0: optionalVersions[0].name,
+			1: optionalVersions[1].name,
 		},
 	}
 	require.Equal(t, omExpected, om, "unexpected empty versions")
 
-	// Test that though specified, the optional migration is not run since
-	// it's already been applied.
-	cfg.PruneRevocationLog = true
+	// We make sure running the migrations again does not call the
+	// migrations again because the meta data should signal that they have
+	// already been run.
 	err = db.applyOptionalVersions(cfg)
 	require.NoError(t, err, "failed to apply optional migration")
-	require.Equal(t, 1, migrateCount, "expected no migration")
+	require.Equal(
+		t, len(optionalVersions), migrateCount,
+		"expected all migrations to be run",
+	)
 }
 
 // TestFetchMeta tests that the FetchMeta returns the latest DB version for a

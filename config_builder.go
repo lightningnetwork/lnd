@@ -1073,6 +1073,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		),
 		channeldb.OptionPruneRevocationLog(cfg.DB.PruneRevocation),
 		channeldb.OptionNoRevLogAmtData(cfg.DB.NoRevLogAmtData),
+		channeldb.OptionGcDecayedLog(cfg.DB.NoGcDecayedLog),
+		channeldb.OptionWithDecayedLogDB(dbs.DecayedLogDB),
 	}
 
 	// Otherwise, we'll open two instances, one for the state we only need

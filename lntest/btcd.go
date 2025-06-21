@@ -74,6 +74,11 @@ func (b BtcdBackendConfig) Name() string {
 	return "btcd"
 }
 
+// P2PAddr return bitcoin p2p ip:port.
+func (b BtcdBackendConfig) P2PAddr() (string, error) {
+	return b.harness.P2PAddress(), nil
+}
+
 // NewBackend starts a new rpctest.Harness and returns a BtcdBackendConfig for
 // that node. miner should be set to the P2P address of the miner to connect
 // to.

@@ -85,6 +85,11 @@ func (b BitcoindBackendConfig) Name() string {
 	return "bitcoind"
 }
 
+// P2PAddr return bitcoin p2p ip:port.
+func (b BitcoindBackendConfig) P2PAddr() (string, error) {
+	return fmt.Sprintf("127.0.0.1:%d", b.p2pPort), nil
+}
+
 // newBackend starts a bitcoind node with the given extra parameters and returns
 // a BitcoindBackendConfig for that node.
 func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,

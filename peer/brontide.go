@@ -1601,6 +1601,10 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
+//
+// NOTE: Be aware that this method will block if the peer is still starting up.
+// Therefore consider starting it in a goroutine if you cannot guarantee that
+// the peer has finished starting up before calling this method.
 func (p *Brontide) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
 		return
@@ -1613,7 +1617,8 @@ func (p *Brontide) Disconnect(reason error) {
 	// started, otherwise we will skip reading it as this chan won't be
 	// closed, hence blocks forever.
 	if atomic.LoadInt32(&p.started) == 1 {
-		p.log.Debugf("Started, waiting on startReady signal")
+		p.log.Debugf("Peer hasn't finished starting up yet, waiting " +
+			"on startReady signal before closing connection")
 
 		select {
 		case <-p.startReady:

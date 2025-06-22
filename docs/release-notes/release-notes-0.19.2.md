@@ -32,6 +32,10 @@
 - [Fixed the `historical channel bucket has not yet been created` error on
   startup](https://github.com/lightningnetwork/lnd/pull/9653).
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/9978) a deadlock which
+  can happen when the peer start-up has not yet completed but a another p2p
+  connection attempt tries to disconnect the peer.
+
 # New Features
 
 ## Functional Enhancements

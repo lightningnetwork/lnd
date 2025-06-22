@@ -124,7 +124,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 			"d$507c670e800a95284294edb5773b05544b" +
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
-		fmt.Sprintf("-port=%d", p2pPort),
+		fmt.Sprintf("-bind=127.0.0.1:%d", p2pPort),
 		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
 		"-zmqpubrawblock=" + zmqBlockAddr,
 		"-zmqpubrawtx=" + zmqTxAddr,

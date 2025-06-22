@@ -131,6 +131,8 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 ## Tooling and Documentation
 
+* lntest: [enable neutrino testing with bitcoind](https://github.com/lightningnetwork/lnd/pull/9977)
+
 # Contributors (Alphabetical Order)
 
 * Abdulkbk

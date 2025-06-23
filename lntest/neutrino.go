@@ -54,6 +54,11 @@ func (b NeutrinoBackendConfig) Name() string {
 	return NeutrinoBackendName
 }
 
+// P2PAddr return bitcoin p2p ip:port.
+func (b NeutrinoBackendConfig) P2PAddr() (string, error) {
+	return b.minerAddr, nil
+}
+
 // NewBackend starts and returns a NeutrinoBackendConfig for the node.
 func NewBackend(miner string, _ *chaincfg.Params) (
 	*NeutrinoBackendConfig, func() error, error) {

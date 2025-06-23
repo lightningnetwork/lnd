@@ -85,6 +85,11 @@ func (b BitcoindBackendConfig) Name() string {
 	return "bitcoind"
 }
 
+// P2PAddr return bitcoin p2p ip:port.
+func (b BitcoindBackendConfig) P2PAddr() (string, error) {
+	return fmt.Sprintf("127.0.0.1:%d", b.p2pPort), nil
+}
+
 // newBackend starts a bitcoind node with the given extra parameters and returns
 // a BitcoindBackendConfig for that node.
 func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
@@ -124,13 +129,15 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 			"d$507c670e800a95284294edb5773b05544b" +
 			"220110063096c221be9933c82d38e1",
 		fmt.Sprintf("-rpcport=%d", rpcPort),
-		fmt.Sprintf("-port=%d", p2pPort),
+		fmt.Sprintf("-bind=127.0.0.1:%d", p2pPort),
 		fmt.Sprintf("-bind=127.0.0.1:%d=onion", torBindPort),
 		"-zmqpubrawblock=" + zmqBlockAddr,
 		"-zmqpubrawtx=" + zmqTxAddr,
 		"-debug",
 		"-debugexclude=libevent",
 		"-debuglogfile=" + logFile,
+		"-blockfilterindex",
+		"-peerblockfilters",
 	}
 	cmdArgs = append(cmdArgs, extraArgs...)
 	bitcoind := exec.Command("bitcoind", cmdArgs...)

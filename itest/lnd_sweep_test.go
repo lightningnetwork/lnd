@@ -766,14 +766,6 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// - when sweeping HTLCs, he needs one utxo for each sweep.
 	numUTXOs := 2
 
-	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Bob's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this extra UTXO once the issue is resolved.
-	numUTXOs++
-
 	// For neutrino backend, we need two more UTXOs for Bob to create his
 	// sweeping txns.
 	if ht.IsNeutrinoBackend() {
@@ -1801,14 +1793,6 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	// - when sweeping anchors, he needs one utxo for each sweep.
 	// - when sweeping HTLCs, he needs one utxo for each sweep.
 	numUTXOs := 2
-
-	// Bob should have enough wallet UTXOs here to sweep the HTLC in the
-	// end of this test. However, due to a known issue, Bob's wallet may
-	// report there's no UTXO available. For details,
-	// - https://github.com/lightningnetwork/lnd/issues/8786
-	//
-	// TODO(yy): remove this extra UTXO once the issue is resolved.
-	numUTXOs++
 
 	// For neutrino backend, we need two more UTXOs for Bob to create his
 	// sweeping txns.

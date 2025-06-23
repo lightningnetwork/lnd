@@ -49,7 +49,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	db := initDB(t, false)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Subscription should fail when the payment is not known.
 	_, err := pControl.SubscribePayment(lntypes.Hash{1})
@@ -63,7 +63,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	db := initDB(t, false)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -182,7 +182,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -295,7 +295,7 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -332,7 +332,7 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -401,7 +401,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 
 	db := initDB(t, keepFailedPaymentAttempts)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()

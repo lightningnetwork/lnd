@@ -29,6 +29,9 @@
 - [Fixed](https://github.com/lightningnetwork/lnd/pull/9962) a case where the
   node may panic if it's running in the remote signer mode.
 
+- [Fixed the `historical channel bucket has not yet been created` error on
+  startup](https://github.com/lightningnetwork/lnd/pull/9653).
+
 # New Features
 
 ## Functional Enhancements
@@ -83,5 +86,9 @@ much more slowly.
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
 * Abdulkbk
+* djkazic
+* Olaoluwa Osuntokun
 * Yong Yu
+* Ziggie

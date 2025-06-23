@@ -665,6 +665,26 @@ func testSweepCPFPAnchorIncomingTimeout(ht *lntest.HarnessTest) {
 	// needed to clean up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
+	// We mined a block above, which confirmed Bob's force closing tx and
+	// his anchor sweeping tx. Bob should now have a new change output
+	// created from that sweeping tx, which can be used as the input to
+	// sweep his HTLC.
+	// Also in the above mined block, the HTLC will be offered to Bob's
+	// sweeper for sweeping, which requires a wallet utxo since it's a
+	// zero fee HTLC.
+	// There's the possible race that,
+	// - btcwallet is processing this block, and marking the change output
+	//   as confirmed.
+	// - btcwallet notifies LND about the new block.
+	// If the block notification comes first, LND's sweeper will not be
+	// able to sweep this HTLC as it thinks the wallet UTXO is still
+	// unconfirmed.
+	// TODO(yy): To fix the above issue, we need to make sure btcwallet
+	// should update its internal state first before notifying the new
+	// block, which is scheduled to be fixed during the btcwallet SQLizing
+	// saga.
+	ht.MineEmptyBlocks(1)
+
 	// The above mined block should confirm Bob's force close tx, and his
 	// contractcourt will offer the HTLC to his sweeper. We are not testing
 	// the HTLC sweeping behaviors so we just perform a simple check and

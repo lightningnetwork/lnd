@@ -93,18 +93,10 @@ type HarnessNode struct {
 // NewHarnessNode creates a new test lightning node instance from the passed
 // config.
 func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
-	if cfg.BaseDir == "" {
-		var err error
-
-		// Create a temporary directory for the node's data and logs.
-		// Use dash suffix as a separator between base name and random
-		// suffix.
-		dirBaseName := fmt.Sprintf("lndtest-node-%s-", cfg.Name)
-		cfg.BaseDir, err = os.MkdirTemp("", dirBaseName)
-		if err != nil {
-			return nil, err
-		}
+	if err := cfg.GenBaseDir(); err != nil {
+		return nil, err
 	}
+
 	cfg.DataDir = filepath.Join(cfg.BaseDir, "data")
 	cfg.LogDir = filepath.Join(cfg.BaseDir, "logs")
 	cfg.TLSCertPath = filepath.Join(cfg.BaseDir, "tls.cert")
@@ -802,6 +794,13 @@ func (hn *HarnessNode) Shutdown() error {
 	if err := hn.Stop(); err != nil {
 		return err
 	}
+
+	// Exit if we want to skip the cleanup, which happens when a customized
+	// base dir is used.
+	if hn.Cfg.SkipCleanup {
+		return nil
+	}
+
 	if err := hn.cleanup(); err != nil {
 		return err
 	}

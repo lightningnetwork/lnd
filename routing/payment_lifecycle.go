@@ -724,6 +724,11 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 	// value.
 	rt.FirstHopWireCustomRecords = p.firstHopCustomRecords
 
+	var firstHop route.Vertex
+	if len(rt.Hops) > 0 {
+		firstHop = rt.Hops[0].PubKeyBytes
+	}
+
 	// extraDataRequest is a helper struct to pass the custom records and
 	// amount back from the traffic shaper.
 	type extraDataRequest struct {
@@ -740,6 +745,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 		func(ts htlcswitch.AuxTrafficShaper) fn.Result[extraDataRequest] {
 			newAmt, newRecords, err := ts.ProduceHtlcExtraData(
 				rt.TotalAmount, p.firstHopCustomRecords,
+				&firstHop,
 			)
 			if err != nil {
 				return fn.Err[extraDataRequest](err)

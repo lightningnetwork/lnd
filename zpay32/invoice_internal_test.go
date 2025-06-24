@@ -369,14 +369,23 @@ func TestParse32Bytes(t *testing.T) {
 func TestParseDescription(t *testing.T) {
 	t.Parallel()
 
+	testNonUTF8StrData, _ := bech32.ConvertBits([]byte(testNonUTF8Str), 8,
+		5, true)
 	testCupOfCoffeeData, _ := bech32.ConvertBits([]byte(testCupOfCoffee), 8, 5, true)
 	testPleaseConsiderData, _ := bech32.ConvertBits([]byte(testPleaseConsider), 8, 5, true)
 
 	tests := []struct {
-		data   []byte
-		valid  bool
-		result *string
+		data     []byte
+		valid    bool
+		result   *string
+		errorMsg string
 	}{
+		{
+			data:     testNonUTF8StrData,
+			valid:    false,
+			errorMsg: "description is not valid UTF-8",
+			result:   nil,
+		},
 		{
 			data:   []byte{},
 			valid:  true,
@@ -399,6 +408,16 @@ func TestParseDescription(t *testing.T) {
 		if (err == nil) != test.valid {
 			t.Errorf("description decoding test %d failed: %v", i, err)
 			return
+		}
+		if (err != nil) && !test.valid {
+			if test.errorMsg != "description is not valid UTF-8" {
+				t.Errorf("description decoding test %d "+
+					"failed: message expected \"%s\", "+
+					"got \"%s\"", i, test.errorMsg,
+					err.Error())
+
+				return
+			}
 		}
 		if test.valid && !reflect.DeepEqual(description, test.result) {
 			t.Fatalf("test %d failed decoding description: "+

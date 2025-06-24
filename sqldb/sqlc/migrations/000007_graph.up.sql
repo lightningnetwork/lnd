@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE UNIQUE INDEX IF NOT EXISTS nodes_unique ON nodes (
     pub_key, version
 );
+CREATE INDEX IF NOT EXISTS node_last_update_idx ON nodes(last_update);
 
 -- node_extra_types stores any extra TLV fields covered by a node announcement that
 -- we do not have an explicit column for in the nodes table.
@@ -273,6 +274,7 @@ CREATE TABLE IF NOT EXISTS channel_policies (
 CREATE UNIQUE INDEX IF NOT EXISTS channel_policies_unique ON channel_policies (
     channel_id, node_id, version
 );
+CREATE INDEX IF NOT EXISTS channel_policy_last_update_idx ON channel_policies(last_update);
 
 -- channel_policy_extra_types stores any extra TLV fields covered by a channel
 -- update that we do not have an explicit column for in the channel_policies

@@ -2149,9 +2149,14 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 		c.chanCache.insert(chanid, channel)
 	}
 
-	log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
-		float64(hits)/float64(len(edgesInHorizon)), hits,
-		len(edgesInHorizon))
+	if len(edgesInHorizon) > 0 {
+		log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
+			float64(hits)/float64(len(edgesInHorizon)), hits,
+			len(edgesInHorizon))
+	} else {
+		log.Debugf("ChanUpdatesInHorizon returned no edges in "+
+			"horizon (%s, %s)", startTime, endTime)
+	}
 
 	return edgesInHorizon, nil
 }

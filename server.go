@@ -4074,7 +4074,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeer(connectedPeer)
+		s.removePeerUnsafe(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, nil, true)
@@ -4191,7 +4191,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeer(connectedPeer)
+		s.removePeerUnsafe(connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, connReq, false)
@@ -4711,7 +4711,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// First, cleanup any remaining state the server has regarding the peer
 	// in question.
-	s.removePeer(p)
+	s.removePeerUnsafe(p)
 
 	// Next, check to see if this is a persistent peer or not.
 	if _, ok := s.persistentPeers[pubStr]; !ok {
@@ -4920,11 +4920,11 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 	}()
 }
 
-// removePeer removes the passed peer from the server's state of all active
-// peers.
+// removePeerUnsafe removes the passed peer from the server's state of all
+// active peers.
 //
 // NOTE: Server mutex must be held when calling this function.
-func (s *server) removePeer(p *peer.Brontide) {
+func (s *server) removePeerUnsafe(p *peer.Brontide) {
 	if p == nil {
 		return
 	}
@@ -5128,7 +5128,7 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	delete(s.persistentPeersBackoff, pubStr)
 
 	// Remove the peer by calling Disconnect. Previously this was done with
-	// removePeer, which bypassed the peerTerminationWatcher.
+	// removePeerUnsafe, which bypassed the peerTerminationWatcher.
 	//
 	// NOTE: We call it in a goroutine to avoid blocking the main server
 	// goroutine because we might hold the server's mutex.

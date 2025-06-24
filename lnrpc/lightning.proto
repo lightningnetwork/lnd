@@ -1428,16 +1428,24 @@ enum CommitmentType {
 
     /*
     A channel that uses musig2 for the funding output, and the new tapscript
-    features where relevant.
+    features where relevant. This is the staging version using development
+    scripts.
     */
     SIMPLE_TAPROOT = 5;
+
+    /*
+    A channel that uses musig2 for the funding output, and the new tapscript
+    features where relevant. This is the production version using final scripts
+    and feature bits 80/81.
+    */
+    SIMPLE_TAPROOT_FINAL = 6;
 
     /*
     Identical to the SIMPLE_TAPROOT channel type, but with extra functionality.
     This channel type also commits to additional meta data in the tapscript
     leaves for the scripts in a channel.
     */
-    SIMPLE_TAPROOT_OVERLAY = 6;
+    SIMPLE_TAPROOT_OVERLAY = 7;
 }
 
 message ChannelConstraints {

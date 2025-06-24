@@ -4975,8 +4975,7 @@ func (s *server) removePeer(p *peer.Brontide) {
 	}
 
 	// Remove the peer's access permission from the access manager.
-	peerPubStr := string(p.IdentityKey().SerializeCompressed())
-	s.peerAccessMan.removePeerAccess(peerPubStr)
+	s.peerAccessMan.removePeerAccess(p.IdentityKey())
 
 	// Copy the peer's error buffer across to the server if it has any items
 	// in it so that we can restore peer errors across connections.

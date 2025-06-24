@@ -709,6 +709,14 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 func TestRemovePeerAccess(t *testing.T) {
 	t.Parallel()
 
+	// genPeerPub is a helper closure that generates a random public key.
+	genPeerPub := func() *btcec.PublicKey {
+		peerPriv, err := btcec.NewPrivateKey()
+		require.NoError(t, err)
+
+		return peerPriv.PubKey()
+	}
+
 	// Create a testing accessMan.
 	a := &accessMan{
 		peerChanInfo: make(map[string]channeldb.ChanCount),
@@ -721,39 +729,44 @@ func TestRemovePeerAccess(t *testing.T) {
 
 	// peer1 exists with an open channel, which should not be removed. Since
 	// it has protected status, the numRestricted should stay unchanged.
-	peer1 := "peer1"
-	a.peerChanInfo[peer1] = channeldb.ChanCount{
+	peer1 := genPeerPub()
+	peer1Str := string(peer1.SerializeCompressed())
+	a.peerChanInfo[peer1Str] = channeldb.ChanCount{
 		HasOpenOrClosedChan: true,
 	}
 	peer1Access := peerStatusProtected
-	a.peerScores[peer1] = peerSlotStatus{state: peer1Access}
+	a.peerScores[peer1Str] = peerSlotStatus{state: peer1Access}
 
 	// peer2 exists with a pending channel, which should not be removed.
 	// Since it has temporary status, the numRestricted should stay
 	// unchanged.
-	peer2 := "peer2"
-	a.peerChanInfo[peer2] = channeldb.ChanCount{
+	peer2 := genPeerPub()
+	peer2Str := string(peer2.SerializeCompressed())
+	a.peerChanInfo[peer2Str] = channeldb.ChanCount{
 		PendingOpenCount: 1,
 	}
 	peer2Access := peerStatusTemporary
-	a.peerScores[peer2] = peerSlotStatus{state: peer2Access}
+	a.peerScores[peer2Str] = peerSlotStatus{state: peer2Access}
 
 	// peer3 exists without any channels, which will be removed. Since it
 	// has restricted status, the numRestricted should be decremented.
-	peer3 := "peer3"
-	a.peerChanInfo[peer3] = channeldb.ChanCount{}
+	peer3 := genPeerPub()
+	peer3Str := string(peer3.SerializeCompressed())
+	a.peerChanInfo[peer3Str] = channeldb.ChanCount{}
 	peer3Access := peerStatusRestricted
-	a.peerScores[peer3] = peerSlotStatus{state: peer3Access}
+	a.peerScores[peer3Str] = peerSlotStatus{state: peer3Access}
 	numRestrictedExpected--
 
 	// peer4 exists with a score and a temporary status, which will be
 	// removed.
-	peer4 := "peer4"
+	peer4 := genPeerPub()
+	peer4Str := string(peer4.SerializeCompressed())
 	peer4Access := peerStatusTemporary
-	a.peerScores[peer4] = peerSlotStatus{state: peer4Access}
+	a.peerScores[peer4Str] = peerSlotStatus{state: peer4Access}
 
 	// peer5 doesn't exist, removing it will be a NOOP.
-	peer5 := "peer5"
+	peer5 := genPeerPub()
+	peer5Str := string(peer5.SerializeCompressed())
 
 	// We now assert `removePeerAccess` behaves as expected.
 	//
@@ -761,27 +774,27 @@ func TestRemovePeerAccess(t *testing.T) {
 	a.removePeerAccess(peer1)
 
 	// peer1 should be removed from peerScores but not peerChanInfo.
-	_, found := a.peerScores[peer1]
+	_, found := a.peerScores[peer1Str]
 	require.False(t, found)
-	_, found = a.peerChanInfo[peer1]
+	_, found = a.peerChanInfo[peer1Str]
 	require.True(t, found)
 
 	// Remove peer2 should change nothing.
 	a.removePeerAccess(peer2)
 
 	// peer2 should be removed from peerScores but not peerChanInfo.
-	_, found = a.peerScores[peer2]
+	_, found = a.peerScores[peer2Str]
 	require.False(t, found)
-	_, found = a.peerChanInfo[peer2]
+	_, found = a.peerChanInfo[peer2Str]
 	require.True(t, found)
 
 	// Remove peer3 should remove it from the maps.
 	a.removePeerAccess(peer3)
 
 	// peer3 should be removed from peerScores and peerChanInfo.
-	_, found = a.peerScores[peer3]
+	_, found = a.peerScores[peer3Str]
 	require.False(t, found)
-	_, found = a.peerChanInfo[peer3]
+	_, found = a.peerChanInfo[peer3Str]
 	require.False(t, found)
 
 	// Remove peer4 should remove it from the maps.
@@ -789,18 +802,18 @@ func TestRemovePeerAccess(t *testing.T) {
 
 	// peer4 should be removed from peerScores and NOT be found in
 	// peerChanInfo.
-	_, found = a.peerScores[peer4]
+	_, found = a.peerScores[peer4Str]
 	require.False(t, found)
-	_, found = a.peerChanInfo[peer4]
+	_, found = a.peerChanInfo[peer4Str]
 	require.False(t, found)
 
 	// Remove peer5 should be NOOP.
 	a.removePeerAccess(peer5)
 
 	// peer5 should NOT be found.
-	_, found = a.peerScores[peer5]
+	_, found = a.peerScores[peer5Str]
 	require.False(t, found)
-	_, found = a.peerChanInfo[peer5]
+	_, found = a.peerChanInfo[peer5Str]
 	require.False(t, found)
 
 	// Finally, assert the numRestricted is decremented as expected. Given

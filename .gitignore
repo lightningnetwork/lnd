@@ -82,3 +82,6 @@ coverage.txt
 /lnd-*/
 
 .aider*
+
+# All test data generated from rapid.
+*/testdata

@@ -94,6 +94,10 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 	mockPaymentSession := &mockPaymentSession{}
 	mockShardTracker := &mockShardTracker{}
 
+	mockPaymentSession.On("MissionControl").Return(
+		fn.Some[MissionControlQuerier](mockMissionControl),
+	)
+
 	// Create a test payment lifecycle with no fee limit and no timeout.
 	p := newPaymentLifecycle(
 		rt, noFeeLimit, paymentHash, mockPaymentSession,

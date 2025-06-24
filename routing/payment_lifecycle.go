@@ -46,6 +46,7 @@ type paymentLifecycle struct {
 	shardTracker          shards.ShardTracker
 	currentHeight         int32
 	firstHopCustomRecords lnwire.CustomRecords
+	mc                    MissionControlQuerier
 
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
@@ -78,6 +79,14 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 		quit:                  make(chan struct{}),
 		resultCollected:       make(chan *switchResult, 1),
 		firstHopCustomRecords: firstHopCustomRecords,
+	}
+
+	// If a payment session is provided, try to get the mission control
+	// instance from it. Otherwise, fall back to the router's default.
+	if paySession != nil {
+		p.mc = paySession.MissionControl().UnwrapOr(r.cfg.MissionControl)
+	} else {
+		p.mc = r.cfg.MissionControl
 	}
 
 	// Mount the result collector.
@@ -824,7 +833,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 		msg lnwire.FailureMessage) (*attemptResult, error) {
 
 		// Report outcome to mission control.
-		reason, err := p.router.cfg.MissionControl.ReportPaymentFail(
+		reason, err := p.mc.ReportPaymentFail(
 			attemptID, &attempt.Route, srcIdx, msg,
 		)
 		if err != nil {
@@ -1155,7 +1164,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *channeldb.HTLCAttempt,
 		attempt.AttemptID)
 
 	// Report success to mission control.
-	err := p.router.cfg.MissionControl.ReportPaymentSuccess(
+	err := p.mc.ReportPaymentSuccess(
 		attempt.AttemptID, &attempt.Route,
 	)
 	if err != nil {

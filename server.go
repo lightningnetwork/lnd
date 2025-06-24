@@ -1095,8 +1095,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		GraphSessionFactory: dbs.GraphDB,
 		SourceNode:          sourceNode,
 		MissionControl:      s.defaultMC,
-		GetLink:             s.htlcSwitch.GetLinkByShortID,
-		PathFindingConfig:   pathFindingConfig,
+		GetMissionControl: func(namespace string) (routing.MissionControlQuerier, error) {
+			return s.missionController.GetNamespacedStore(namespace)
+		},
+		GetLink:           s.htlcSwitch.GetLinkByShortID,
+		PathFindingConfig: pathFindingConfig,
 	}
 
 	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)

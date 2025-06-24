@@ -231,9 +231,20 @@ func local_request_Router_ResetMissionControl_0(ctx context.Context, marshaler r
 
 }
 
+var (
+	filter_Router_QueryMissionControl_0 = &utilities.DoubleArray{Encoding: map[string]int{}, Base: []int(nil), Check: []int(nil)}
+)
+
 func request_Router_QueryMissionControl_0(ctx context.Context, marshaler runtime.Marshaler, client RouterClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryMissionControlRequest
 	var metadata runtime.ServerMetadata
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Router_QueryMissionControl_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
 
 	msg, err := client.QueryMissionControl(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
@@ -243,6 +254,13 @@ func request_Router_QueryMissionControl_0(ctx context.Context, marshaler runtime
 func local_request_Router_QueryMissionControl_0(ctx context.Context, marshaler runtime.Marshaler, server RouterServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryMissionControlRequest
 	var metadata runtime.ServerMetadata
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Router_QueryMissionControl_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
 
 	msg, err := server.QueryMissionControl(ctx, &protoReq)
 	return msg, metadata, err
@@ -335,6 +353,10 @@ func local_request_Router_SetMissionControlConfig_0(ctx context.Context, marshal
 
 }
 
+var (
+	filter_Router_QueryProbability_0 = &utilities.DoubleArray{Encoding: map[string]int{"from_node": 0, "fromNode": 1, "to_node": 2, "toNode": 3, "amt_msat": 4, "amtMsat": 5}, Base: []int{1, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0}, Check: []int{0, 1, 1, 1, 1, 1, 1, 2, 3, 4, 5, 6, 7}}
+)
+
 func request_Router_QueryProbability_0(ctx context.Context, marshaler runtime.Marshaler, client RouterClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq QueryProbabilityRequest
 	var metadata runtime.ServerMetadata
@@ -374,6 +396,13 @@ func request_Router_QueryProbability_0(ctx context.Context, marshaler runtime.Ma
 	protoReq.AmtMsat, err = runtime.Int64(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt_msat", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Router_QueryProbability_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := client.QueryProbability(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
@@ -420,6 +449,13 @@ func local_request_Router_QueryProbability_0(ctx context.Context, marshaler runt
 	protoReq.AmtMsat, err = runtime.Int64(val)
 	if err != nil {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "amt_msat", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Router_QueryProbability_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	msg, err := server.QueryProbability(ctx, &protoReq)

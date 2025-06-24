@@ -368,6 +368,12 @@ message SendPaymentRequest {
     base64.
     */
     map<uint64, bytes> first_hop_custom_records = 25;
+
+    /*
+    An optional mission control namespace that should be used for this payment.
+    If not specified, the default mission control namespace will be used.
+    */
+    string mission_control_namespace = 26;
 }
 
 message TrackPaymentRequest {
@@ -481,12 +487,18 @@ message SendToRouteResponse {
 }
 
 message ResetMissionControlRequest {
+    // An optional mission control namespace to reset. If not specified, the
+    // default mission control namespace will be used.
+    string mission_control_namespace = 1;
 }
 
 message ResetMissionControlResponse {
 }
 
 message QueryMissionControlRequest {
+    // An optional mission control namespace to query. If not specified, the
+    // default mission control namespace will be used.
+    string mission_control_namespace = 1;
 }
 
 // QueryMissionControlResponse contains mission control state.
@@ -505,6 +517,10 @@ message XImportMissionControlRequest {
     // override the failure pair is imported before the success pair and both
     // still clamp existing failure/success amounts.
     bool force = 2;
+
+    // An optional mission control namespace to import into. If not specified,
+    // the default mission control namespace will be used.
+    string mission_control_namespace = 3;
 }
 
 message XImportMissionControlResponse {
@@ -705,6 +721,10 @@ message QueryProbabilityRequest {
 
     // The amount for which to calculate a probability.
     int64 amt_msat = 3;
+
+    // An optional mission control namespace to query. If not specified, the
+    // default mission control namespace will be used.
+    string mission_control_namespace = 4;
 }
 
 message QueryProbabilityResponse {

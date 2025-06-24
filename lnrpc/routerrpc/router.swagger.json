@@ -109,6 +109,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "mission_control_namespace",
+            "description": "An optional mission control namespace to query. If not specified, the\ndefault mission control namespace will be used.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
         "tags": [
           "Router"
         ]
@@ -156,6 +165,13 @@
             "required": true,
             "type": "string",
             "format": "int64"
+          },
+          {
+            "name": "mission_control_namespace",
+            "description": "An optional mission control namespace to query. If not specified, the\ndefault mission control namespace will be used.",
+            "in": "query",
+            "required": false,
+            "type": "string"
           }
         ],
         "tags": [
@@ -1811,7 +1827,13 @@
       }
     },
     "routerrpcResetMissionControlRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "mission_control_namespace": {
+          "type": "string",
+          "description": "An optional mission control namespace to reset. If not specified, the\ndefault mission control namespace will be used."
+        }
+      }
     },
     "routerrpcResetMissionControlResponse": {
       "type": "object"
@@ -2006,6 +2028,10 @@
             "format": "byte"
           },
           "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto the first hop peer of this payment. This can be used to pass application\nspecific data during the payment attempt. Record types are required to be in\nthe custom range \u003e= 65536. When using REST, the values must be encoded as\nbase64."
+        },
+        "mission_control_namespace": {
+          "type": "string",
+          "description": "An optional mission control namespace that should be used for this payment.\nIf not specified, the default mission control namespace will be used."
         }
       }
     },
@@ -2102,6 +2128,10 @@
         "force": {
           "type": "boolean",
           "description": "Whether to force override MC pair history. Note that even with force\noverride the failure pair is imported before the success pair and both\nstill clamp existing failure/success amounts."
+        },
+        "mission_control_namespace": {
+          "type": "string",
+          "description": "An optional mission control namespace to import into. If not specified,\nthe default mission control namespace will be used."
         }
       }
     },

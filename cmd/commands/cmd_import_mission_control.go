@@ -31,6 +31,12 @@ var importMissionControlCommand = cli.Command{
 			Name:  "force",
 			Usage: "whether to force the history entry import",
 		},
+		&cli.StringFlag{
+			Name: "mission_control_namespace",
+			Usage: "an optional mission control namespace to import " +
+				"into. If not specified, the default " +
+				"mission control namespace will be used.",
+		},
 	},
 }
 
@@ -94,7 +100,8 @@ func importMissionControl(ctx *cli.Context) error {
 		Pairs: []*routerrpc.PairHistory{
 			importResult,
 		},
-		Force: ctx.IsSet("force"),
+		Force:                   ctx.IsSet("force"),
+		MissionControlNamespace: ctx.String("mission_control_namespace"),
 	}
 
 	rpcCtx := context.Background()

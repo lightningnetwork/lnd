@@ -50,6 +50,9 @@ type htlcSuccessResolver struct {
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
 
+	// chanType denotes the type of channel the HTLC belongs to.
+	chanType channeldb.ChannelType
+
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
 	// a non-nil SignDetails on the htlcResolution, otherwise the nursery
@@ -67,13 +70,14 @@ type htlcSuccessResolver struct {
 // newSuccessResolver instanties a new htlc success resolver.
 func newSuccessResolver(res lnwallet.IncomingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	resCfg ResolverConfig) *htlcSuccessResolver {
+	chanType channeldb.ChannelType, resCfg ResolverConfig) *htlcSuccessResolver {
 
 	h := &htlcSuccessResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		htlcResolution:      res,
 		broadcastHeight:     broadcastHeight,
 		htlc:                htlc,
+		chanType:            chanType,
 	}
 
 	h.initReport()
@@ -409,6 +413,11 @@ func (h *htlcSuccessResolver) isTaproot() bool {
 	)
 }
 
+// isTaprootFinal returns true if the htlc output is from a final taproot channel.
+func (h *htlcSuccessResolver) isTaprootFinal() bool {
+	return h.chanType.IsTaprootFinal()
+}
+
 // sweepRemoteCommitOutput creates a sweep request to sweep the HTLC output on
 // the remote commitment via the direct preimage-spend.
 func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
@@ -417,7 +426,18 @@ func (h *htlcSuccessResolver) sweepRemoteCommitOutput() error {
 	// sweeping transaction, and generate a witness.
 	var inp input.Input
 
-	if h.isTaproot() {
+	if h.isTaprootFinal() {
+		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInputFinal(
+			&h.htlcResolution.ClaimOutpoint,
+			&h.htlcResolution.SweepSignDesc,
+			h.htlcResolution.Preimage[:],
+			h.broadcastHeight,
+			h.htlcResolution.CsvDelay,
+			input.WithResolutionBlob(
+				h.htlcResolution.ResolutionBlob,
+			),
+		))
+	} else if h.isTaproot() {
 		inp = lnutils.Ptr(input.MakeTaprootHtlcSucceedInput(
 			&h.htlcResolution.ClaimOutpoint,
 			&h.htlcResolution.SweepSignDesc,
@@ -562,7 +582,9 @@ func (h *htlcSuccessResolver) sweepSuccessTxOutput() error {
 	// Let the sweeper sweep the second-level output now that the
 	// CSV/CLTV locks have expired.
 	var witType input.StandardWitnessType
-	if h.isTaproot() {
+	if h.isTaprootFinal() {
+		witType = input.TaprootHtlcAcceptedSuccessSecondLevelFinal
+	} else if h.isTaproot() {
 		witType = input.TaprootHtlcAcceptedSuccessSecondLevel
 	} else {
 		witType = input.HtlcAcceptedSuccessSecondLevel

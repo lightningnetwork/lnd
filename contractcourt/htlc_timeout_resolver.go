@@ -47,6 +47,9 @@ type htlcTimeoutResolver struct {
 	// htlc contains information on the htlc that we are resolving on-chain.
 	htlc channeldb.HTLC
 
+	// chanType denotes the type of channel the HTLC belongs to.
+	chanType channeldb.ChannelType
+
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface. This should only be reported in case we have
 	// a non-nil SignDetails on the htlcResolution, otherwise the nursery
@@ -69,13 +72,14 @@ type htlcTimeoutResolver struct {
 // newTimeoutResolver instantiates a new timeout htlc resolver.
 func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	resCfg ResolverConfig) *htlcTimeoutResolver {
+	chanType channeldb.ChannelType, resCfg ResolverConfig) *htlcTimeoutResolver {
 
 	h := &htlcTimeoutResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		htlcResolution:      res,
 		broadcastHeight:     broadcastHeight,
 		htlc:                htlc,
+		chanType:            chanType,
 	}
 
 	h.initReport()
@@ -89,6 +93,11 @@ func (h *htlcTimeoutResolver) isTaproot() bool {
 	return txscript.IsPayToTaproot(
 		h.htlcResolution.SweepSignDesc.Output.PkScript,
 	)
+}
+
+// isTaprootFinal returns true if the htlc output is from a final taproot channel.
+func (h *htlcTimeoutResolver) isTaprootFinal() bool {
+	return h.chanType.IsTaprootFinal()
 }
 
 // outpoint returns the outpoint of the HTLC output we're attempting to sweep.
@@ -514,7 +523,9 @@ func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
 // are resolved via this path.
 func (h *htlcTimeoutResolver) sweepDirectHtlcOutput() error {
 	var htlcWitnessType input.StandardWitnessType
-	if h.isTaproot() {
+	if h.isTaprootFinal() {
+		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeoutFinal
+	} else if h.isTaproot() {
 		htlcWitnessType = input.TaprootHtlcOfferedRemoteTimeout
 	} else {
 		htlcWitnessType = input.HtlcOfferedRemoteTimeout
@@ -752,6 +763,17 @@ func (h *htlcTimeoutResolver) Supplement(htlc channeldb.HTLC) {
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcTimeoutResolver) HtlcPoint() wire.OutPoint {
 	return h.htlcResolution.HtlcPoint()
+}
+
+// SupplementState allows the user of a ContractResolver to supplement it with
+// state required for the proper resolution of a contract. This restores the
+// channel type which is needed to select the correct witness type for
+// production taproot channels after restart.
+//
+// NOTE: Part of the ContractResolver interface.
+func (h *htlcTimeoutResolver) SupplementState(state *channeldb.OpenChannel) {
+	h.htlcLeaseResolver.SupplementState(state)
+	h.chanType = state.ChanType
 }
 
 // SupplementDeadline sets the incomingHTLCExpiryHeight for this outgoing htlc
@@ -1029,7 +1051,9 @@ func (h *htlcTimeoutResolver) sweepTimeoutTxOutput() error {
 	}
 
 	var witType input.StandardWitnessType
-	if h.isTaproot() {
+	if h.isTaprootFinal() {
+		witType = input.TaprootHtlcOfferedTimeoutSecondLevelFinal
+	} else if h.isTaproot() {
 		witType = input.TaprootHtlcOfferedTimeoutSecondLevel
 	} else {
 		witType = input.HtlcOfferedTimeoutSecondLevel

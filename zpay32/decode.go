@@ -23,6 +23,15 @@ var (
 	// ErrInvalidUTF8Description is returned if the invoice description is
 	// not valid UTF-8.
 	ErrInvalidUTF8Description = errors.New("description is not valid UTF-8")
+
+	// ErrLengthNotMultipleOfHopHintLength is returned if the length of the
+	// route hint data is not a multiple of the hop hint length.
+	ErrLengthNotMultipleOfHopHint = errors.New("length is not a multiple " +
+		"of hop hint length")
+
+	// ErrEmptyRouteHint is returned if the route hint field contains no hop
+	// data.
+	ErrEmptyRouteHint = errors.New("route hint field contains no hop data")
 )
 
 // DecodeOption is a type that can be used to supply functional options to the
@@ -576,8 +585,12 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 
 	// Check that base256Data is a multiple of hopHintLen.
 	if len(base256Data)%hopHintLen != 0 {
-		return nil, fmt.Errorf("expected length multiple of %d bytes, "+
-			"got %d", hopHintLen, len(base256Data))
+		return nil, ErrLengthNotMultipleOfHopHint
+	}
+
+	// Check for empty route hint
+	if len(base256Data) == 0 {
+		return nil, ErrEmptyRouteHint
 	}
 
 	var routeHint []HopHint

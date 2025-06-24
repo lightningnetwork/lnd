@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -16,6 +17,12 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// ErrInvalidUTF8Description is returned if the invoice description is
+	// not valid UTF-8.
+	ErrInvalidUTF8Description = errors.New("description is not valid UTF-8")
 )
 
 // DecodeOption is a type that can be used to supply functional options to the
@@ -444,6 +451,10 @@ func parseDescription(data []byte) (*string, error) {
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return nil, err
+	}
+
+	if !utf8.Valid(base256Data) {
+		return nil, ErrInvalidUTF8Description
 	}
 
 	description := string(base256Data)

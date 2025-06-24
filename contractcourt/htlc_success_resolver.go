@@ -667,6 +667,7 @@ func (h *htlcSuccessResolver) resolveLegacySuccessTx() error {
 		h.ChanPoint, fn.None[lnwallet.OutgoingHtlcResolution](),
 		fn.Some(h.htlcResolution),
 		h.broadcastHeight, fn.Some(int32(h.htlc.RefundTimeout)),
+		WithChanType(h.chanType),
 	)
 	if err != nil {
 		return err

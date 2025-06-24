@@ -509,6 +509,7 @@ func (h *htlcTimeoutResolver) resolveSecondLevelTxLegacy() error {
 		h.ChanPoint, fn.Some(h.htlcResolution),
 		fn.None[lnwallet.IncomingHtlcResolution](),
 		h.broadcastHeight, h.incomingHTLCExpiryHeight,
+		WithChanType(h.chanType),
 	)
 	if err != nil {
 		return err

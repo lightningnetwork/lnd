@@ -1311,11 +1311,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			outHtlcRes fn.Option[lnwallet.OutgoingHtlcResolution],
 			inHtlcRes fn.Option[lnwallet.IncomingHtlcResolution],
 			broadcastHeight uint32,
-			deadlineHeight fn.Option[int32]) error {
+			deadlineHeight fn.Option[int32],
+			opts ...contractcourt.IncubateOption) error {
 
 			return s.utxoNursery.IncubateOutputs(
 				chanPoint, outHtlcRes, inHtlcRes,
 				broadcastHeight, deadlineHeight,
+				opts...,
 			)
 		},
 		PreimageDB:   s.witnessBeacon,

@@ -299,7 +299,8 @@ func testHtlcTimeoutResolver(t *testing.T, testCase htlcTimeoutTestCase) {
 			IncubateOutputs: func(wire.OutPoint,
 				fn.Option[lnwallet.OutgoingHtlcResolution],
 				fn.Option[lnwallet.IncomingHtlcResolution],
-				uint32, fn.Option[int32]) error {
+				uint32, fn.Option[int32],
+				...IncubateOption) error {
 
 				incubateChan <- struct{}{}
 				return nil

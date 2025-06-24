@@ -574,6 +574,11 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 			"got %d", hopHintLen, len(base256Data))
 	}
 
+	// Check for empty route hint
+	if len(base256Data) == 0 {
+		return nil, fmt.Errorf("route hint field contains no hop data")
+	}
+
 	var routeHint []HopHint
 
 	for len(base256Data) > 0 {

@@ -7340,10 +7340,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err
@@ -7700,10 +7706,16 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		// Determine script options based on channel type.
+		var scriptOpts []input.TaprootScriptOpt
+		if chanType.IsTaprootFinal() {
+			scriptOpts = append(scriptOpts, input.WithProdScripts())
+		}
+
 		//nolint:ll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
-			secondLevelAuxLeaf,
+			secondLevelAuxLeaf, scriptOpts...,
 		)
 		if err != nil {
 			return nil, err

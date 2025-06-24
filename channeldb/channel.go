@@ -412,6 +412,11 @@ const (
 	// level tapscript commitment. This MUST be set along with the
 	// SimpleTaprootFeatureBit.
 	TapscriptRootBit ChannelType = 1 << 11
+
+	// TaprootFinalBit indicates that this is a MuSig2 channel using the
+	// final/production taproot scripts and feature bits 80/81. This MUST
+	// be set along with the SimpleTaprootFeatureBit.
+	TaprootFinalBit ChannelType = 1 << 12
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -486,6 +491,12 @@ func (c ChannelType) IsTaproot() bool {
 // root commitment.
 func (c ChannelType) HasTapscriptRoot() bool {
 	return c&TapscriptRootBit == TapscriptRootBit
+}
+
+// IsTaprootFinal returns true if the channel is using final/production taproot
+// scripts and feature bits.
+func (c ChannelType) IsTaprootFinal() bool {
+	return c&TaprootFinalBit == TaprootFinalBit
 }
 
 // ChannelStateBounds are the parameters from OpenChannel and AcceptChannel

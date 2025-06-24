@@ -133,7 +133,8 @@ func channelPointStr(chanPoint *lnrpc.ChannelPoint) string {
 // CommitTypeHasTaproot returns whether commitType is a taproot commitment.
 func CommitTypeHasTaproot(commitType lnrpc.CommitmentType) bool {
 	switch commitType {
-	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 		return true
 	default:
 		return false
@@ -145,6 +146,7 @@ func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 	switch commitType {
 	case lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		return true
 	default:
@@ -167,7 +169,8 @@ func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 			"--protocol.anchors",
 			"--protocol.script-enforced-lease",
 		}
-	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
 		return []string{
 			"--protocol.anchors",
 			"--protocol.simple-taproot-chans",

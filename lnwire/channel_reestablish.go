@@ -89,6 +89,10 @@ type ChannelReestablish struct {
 	// a dynamic commitment negotiation
 	DynHeight fn.Option[DynHeight]
 
+	// LocalNonces is an optional field that stores a map of local musig2
+	// nonces, keyed by TXID. This is used for splice nonce coordination.
+	LocalNonces OptLocalNonces
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -140,19 +144,21 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	recordProducers := make([]tlv.RecordProducer, 0, 3)
 	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
 		recordProducers = append(recordProducers, &localNonce)
 	})
 	a.DynHeight.WhenSome(func(h DynHeight) {
 		recordProducers = append(recordProducers, &h)
 	})
+	a.LocalNonces.WhenSome(func(ln LocalNoncesData) {
+		recordProducers = append(recordProducers, &ln)
+	})
 
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
 		return err
 	}
-
 	return WriteBytes(w, a.ExtraData)
 }
 
@@ -207,11 +213,13 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	}
 
 	var (
-		dynHeight  DynHeight
-		localNonce = a.LocalNonce.Zero()
+		dynHeight       DynHeight
+		localNonce      = a.LocalNonce.Zero()
+		localNoncesData LocalNoncesData
 	)
+
 	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce, &dynHeight,
+		&localNonce, &dynHeight, &localNoncesData,
 	)
 	if err != nil {
 		return err
@@ -223,11 +231,13 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	if val, ok := typeMap[CRDynHeight]; ok && val == nil {
 		a.DynHeight = fn.Some(dynHeight)
 	}
+	if val, ok := typeMap[(LocalNoncesRecordTypeDef)(nil).TypeVal()]; ok && val == nil {
+		a.LocalNonces = SomeLocalNonces(localNoncesData)
+	}
 
 	if len(tlvRecords) != 0 {
 		a.ExtraData = tlvRecords
 	}
-
 	return nil
 }
 

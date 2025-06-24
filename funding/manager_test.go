@@ -4804,13 +4804,23 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"SCRIPT_ENFORCED_LEASE":   4,
 		"SIMPLE_TAPROOT":          5,
 		"SIMPLE_TAPROOT_OVERLAY":  6,
+		"SIMPLE_TAPROOT_FINAL":    7,
 	}
 
-	for commitmentType := range lnrpc.CommitmentType_value {
-		if _, ok := allCommitmentTypes[commitmentType]; !ok {
+	for commitmentType, protoValue := range lnrpc.CommitmentType_value {
+		expectedValue, ok := allCommitmentTypes[commitmentType]
+		if !ok {
 			t.Fatalf("Commitment type %s hasn't been considered "+
 				"in the context of the --fundmax flag for "+
 				"channel openings.", commitmentType)
+		}
+
+		// Verify the proto enum integer values match to catch
+		// accidental renumbering.
+		if int(protoValue) != expectedValue {
+			t.Fatalf("Commitment type %s has proto value %d "+
+				"but expected %d", commitmentType,
+				protoValue, expectedValue)
 		}
 	}
 }

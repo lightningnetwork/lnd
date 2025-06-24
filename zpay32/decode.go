@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -444,6 +445,10 @@ func parseDescription(data []byte) (*string, error) {
 	base256Data, err := bech32.ConvertBits(data, 5, 8, false)
 	if err != nil {
 		return nil, err
+	}
+
+	if !utf8.Valid(base256Data) {
+		return nil, fmt.Errorf("description is not valid UTF-8")
 	}
 
 	description := string(base256Data)

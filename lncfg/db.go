@@ -86,9 +86,9 @@ type DB struct {
 
 	Sqlite *sqldb.SqliteConfig `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
-	UseNativeSQL bool `long:"use-native-sql" description:"Use native SQL for tables that already support it."`
+	UseNativeSQL bool `long:"use-native-sql" description:"If set to true, native SQL will be used instead of KV emulation for tables that support it. Subsystems which support native SQL tables: Invoices."`
 
-	SkipNativeSQLMigration bool `long:"skip-native-sql-migration" description:"Do not run the KV to native SQL migration. It should only be used if errors are encountered normally."`
+	SkipNativeSQLMigration bool `long:"skip-native-sql-migration" description:"If set to true, the KV to native SQL migration will be skipped. Note that this option is intended for users who experience non-resolvable migration errors. Enabling after there is a non-resolvable migration error that resulted in an incomplete migration will cause that partial migration to be abandoned and ignored and an empty database will be used instead. Since invoices are currently the only native SQL database used, our channels will still work but the invoice history will be forgotten. This option has no effect if native SQL is not in use (db.use-native-sql=false)."`
 
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 

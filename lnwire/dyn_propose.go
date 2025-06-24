@@ -195,17 +195,17 @@ func dynProposeRecords(dp *DynPropose) []tlv.RecordProducer {
 		},
 	)
 	dp.MaxValueInFlight.WhenSome(
-		func(max tlv.RecordT[tlv.TlvType2, MilliSatoshi]) {
+		func(mvif tlv.RecordT[tlv.TlvType2, MilliSatoshi]) {
 			rec := tlv.NewPrimitiveRecord[tlv.TlvType2](
-				uint64(max.Val),
+				uint64(mvif.Val),
 			)
 			recordProducers = append(recordProducers, &rec)
 		},
 	)
 	dp.HtlcMinimum.WhenSome(
-		func(min tlv.RecordT[tlv.TlvType4, MilliSatoshi]) {
+		func(hm tlv.RecordT[tlv.TlvType4, MilliSatoshi]) {
 			rec := tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(min.Val),
+				uint64(hm.Val),
 			)
 			recordProducers = append(recordProducers, &rec)
 		},
@@ -224,8 +224,8 @@ func dynProposeRecords(dp *DynPropose) []tlv.RecordProducer {
 		},
 	)
 	dp.MaxAcceptedHTLCs.WhenSome(
-		func(max tlv.RecordT[tlv.TlvType10, uint16]) {
-			recordProducers = append(recordProducers, &max)
+		func(mah tlv.RecordT[tlv.TlvType10, uint16]) {
+			recordProducers = append(recordProducers, &mah)
 		},
 	)
 	dp.ChannelType.WhenSome(

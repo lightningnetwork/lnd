@@ -1103,8 +1103,8 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 	}
 
 	if len(edges) > 0 {
-		log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
-			float64(hits)/float64(len(edges)), hits, len(edges))
+		log.Debugf("ChanUpdatesInHorizon hit percentage: %.2f (%d/%d)",
+			float64(hits)*100/float64(len(edges)), hits, len(edges))
 	} else {
 		log.Debugf("ChanUpdatesInHorizon returned no edges in "+
 			"horizon (%s, %s)", startTime, endTime)

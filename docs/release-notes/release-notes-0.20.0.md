@@ -26,6 +26,10 @@
   announcement remains unchanged until the new one is fully signed and
   validated.
 
+- Fixed BOLT-11 invoice parsing behavior: [now errors](
+  https://github.com/lightningnetwork/lnd/pull/9993) are returned when receiving
+  empty route hints or a non-UTF-8-encoded description.
+
 # New Features
 
 ## Functional Enhancements

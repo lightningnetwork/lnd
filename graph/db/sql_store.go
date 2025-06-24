@@ -1395,7 +1395,7 @@ func (s *SQLStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	}
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		var lastID int64
+		lastID := int64(-1)
 		for {
 			//nolint:ll
 			rows, err := db.ListChannelsWithPoliciesPaginated(
@@ -2953,7 +2953,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 func forEachNodeCacheable(ctx context.Context, db SQLQueries,
 	cb func(nodeID int64, nodePub route.Vertex) error) error {
 
-	var lastID int64
+	lastID := int64(-1)
 
 	for {
 		nodes, err := db.ListNodeIDsAndPubKeys(

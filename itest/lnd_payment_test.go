@@ -1396,3 +1396,64 @@ func testSendPaymentKeysendMPPFail(ht *lntest.HarnessTest) {
 	_, err = ht.ReceivePaymentUpdate(client)
 	require.Error(ht, err)
 }
+
+// testWrongPaymentAddr is a test that checks that a payment using a wrong
+// payment address will fail.
+func testWrongPaymentAddr(ht *lntest.HarnessTest) {
+	// Set the feerate to be 10 sat/vb.
+	ht.SetFeeEstimate(2500)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanAmt := btcutil.Amount(100_000)
+	openChannelParams := lntest.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	cfgs := [][]string{nil, nil}
+
+	invoiceAmt := int64(1000)
+
+	// Create a two hop network: Alice -> Bob.
+	_, nodes := ht.CreateSimpleNetwork(cfgs, openChannelParams)
+
+	alice, bob := nodes[0], nodes[1]
+
+	request1 := bob.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat:  invoiceAmt,
+		CltvExpiry: finalCltvDelta,
+	})
+
+	request2 := bob.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat:  invoiceAmt,
+		CltvExpiry: finalCltvDelta,
+	})
+	payReq2 := alice.RPC.DecodePayReq(request2.PaymentRequest)
+
+	ht.AssertNumInvoices(bob, 2)
+
+	// Now we don't want to use the payment request to send the payment
+	// because we want to use the payment_addr two for the payment of the
+	// invoice 1 to simulate the case where the payment address is wrong.
+	route := alice.RPC.BuildRoute(
+		&routerrpc.BuildRouteRequest{
+			PaymentAddr:    payReq2.PaymentAddr,
+			AmtMsat:        invoiceAmt,
+			FinalCltvDelta: finalCltvDelta,
+			HopPubkeys:     [][]byte{bob.PubKey[:]},
+		},
+	)
+
+	// Send the payment and expect it to fail the payment.
+	htlcAttempt := alice.RPC.SendToRouteV2(
+		&routerrpc.SendToRouteRequest{
+			Route:       route.Route,
+			PaymentHash: request1.RHash,
+		},
+	)
+	require.Equal(ht, lnrpc.HTLCAttempt_FAILED, htlcAttempt.Status)
+
+	// Make sure the payment is marked as failed also in the database.
+	ht.AssertPaymentStatus(
+		alice, lntypes.Hash(request1.RHash), lnrpc.Payment_FAILED,
+	)
+}

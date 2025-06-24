@@ -1288,12 +1288,9 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 			TxIndex:     math.MaxUint32 & 0x00ffffff,
 			TxPosition:  math.MaxUint16,
 		}
+		chanIDStart = channelIDToBytes(startSCID.ToUint64())
+		chanIDEnd   = channelIDToBytes(endSCID.ToUint64())
 	)
-
-	var chanIDStart [8]byte
-	byteOrder.PutUint64(chanIDStart[:], startSCID.ToUint64())
-	var chanIDEnd [8]byte
-	byteOrder.PutUint64(chanIDEnd[:], endSCID.ToUint64())
 
 	// 1) get all channels where channelID is between start and end chan ID.
 	// 2) skip if not public (ie, no channel_proof)
@@ -1638,9 +1635,8 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	var (
 		node1Pub, node2Pub route.Vertex
 		isNode1            bool
-		chanIDB            [8]byte
+		chanIDB            = channelIDToBytes(edge.ChannelID)
 	)
-	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
 
 	// Check that this edge policy refers to a channel that we already
 	// know of. We do this explicitly so that we can return the appropriate
@@ -2334,8 +2330,7 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) error {
 
-	var chanIDB [8]byte
-	byteOrder.PutUint64(chanIDB[:], edge.ChannelID)
+	chanIDB := channelIDToBytes(edge.ChannelID)
 
 	// Make sure that the channel doesn't already exist. We do this
 	// explicitly instead of relying on catching a unique constraint error
@@ -2919,4 +2914,13 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 		return nil, nil, fmt.Errorf("unexpected row type in "+
 			"extractChannelPolicies: %T", r)
 	}
+}
+
+// channelIDToBytes converts a channel ID (SCID) to a byte array
+// representation.
+func channelIDToBytes(channelID uint64) [8]byte {
+	var chanIDB [8]byte
+	byteOrder.PutUint64(chanIDB[:], channelID)
+
+	return chanIDB
 }

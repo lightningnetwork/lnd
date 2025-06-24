@@ -115,14 +115,13 @@ func (f *FeeService) Start() error {
 // handleRequest handles a client request for fee estimates.
 func (f *FeeService) handleRequest(w http.ResponseWriter, _ *http.Request) {
 	f.lock.Lock()
-	defer f.lock.Unlock()
-
 	bytes, err := json.Marshal(
 		chainfee.WebAPIResponse{
 			FeeByBlockTarget: f.feeRateMap,
 			MinRelayFeerate:  f.minRelayFeerate,
 		},
 	)
+	f.lock.Unlock()
 	require.NoErrorf(f, err, "cannot serialize estimates")
 
 	_, err = io.WriteString(w, string(bytes))

@@ -506,11 +506,19 @@ func (c *commitSweepResolver) decideWitnessType() (input.WitnessType, error) {
 	// commitment tweak to discern which type of commitment this is.
 	var witnessType input.WitnessType
 	switch {
-	// The local delayed output for a taproot channel.
+	// The local delayed output for a final taproot channel.
+	case isLocalCommitTx && c.chanType.IsTaprootFinal():
+		witnessType = input.TaprootLocalCommitSpendFinal
+
+	// The local delayed output for a staging taproot channel.
 	case isLocalCommitTx && c.chanType.IsTaproot():
 		witnessType = input.TaprootLocalCommitSpend
 
-	// The CSV 1 delayed output for a taproot channel.
+	// The CSV 1 delayed output for a final taproot channel.
+	case !isLocalCommitTx && c.chanType.IsTaprootFinal():
+		witnessType = input.TaprootRemoteCommitSpendFinal
+
+	// The CSV 1 delayed output for a staging taproot channel.
 	case !isLocalCommitTx && c.chanType.IsTaproot():
 		witnessType = input.TaprootRemoteCommitSpend
 

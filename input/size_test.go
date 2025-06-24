@@ -1020,6 +1020,49 @@ var witnessSizeTests = []witnessSizeTest{
 		},
 	},
 	{
+		name:    "taproot second level htlc success+timeout final",
+		expSize: input.TaprootSecondLevelHtlcWitnessSizeFinal,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+
+			scriptTree, err := input.SecondLevelHtlcTapscriptTree(
+				testKey.PubKey(), testCSVDelay,
+				input.NoneTapLeaf(),
+				input.WithProdScripts(),
+			)
+			require.NoError(t, err)
+
+			tapScriptRoot := scriptTree.RootNode.TapHash()
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			tapLeaf := scriptTree.LeafMerkleProofs[0].TapLeaf
+			witnessScript := tapLeaf.Script
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeKey.PubKey(),
+				},
+				WitnessScript: witnessScript,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootKeySpendSignMethod,
+				TapTweak:      tapScriptRoot[:],
+			}
+
+			witness, err := input.TaprootHtlcSpendSuccess(
+				signer, signDesc, testTx, revokeKey.PubKey(),
+				scriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	{
 		name:    "taproot second level htlc revoke",
 		expSize: input.TaprootSecondLevelRevokeWitnessSize,
 		genWitness: func(t *testing.T) wire.TxWitness {
@@ -1350,6 +1393,76 @@ var witnessSizeTests = []witnessSizeTest{
 				senderSig, txscript.SigHashAll, testPreimage,
 				signer, signDesc, testTx, revokeKey.PubKey(),
 				scriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	// Production taproot (Final) variants. These use WithProdScripts()
+	// which replaces OP_CHECKSIG + OP_DROP with OP_CHECKSIGVERIFY in
+	// the remote timeout and remote success scripts.
+	{
+		name:    "taproot to local sweep final",
+		expSize: input.TaprootToLocalWitnessSizeFinal,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+			commitScriptTree, err := input.NewLocalCommitScriptTree(
+				testCSVDelay, testKey.PubKey(),
+				testKey.PubKey(), input.NoneTapLeaf(),
+				input.WithProdScripts(),
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testKey.PubKey(),
+				},
+				WitnessScript: commitScriptTree.SettleLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.TaprootCommitSpendSuccess(
+				signer, signDesc, testTx,
+				commitScriptTree.TapscriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	{
+		name:    "taproot to remote sweep final",
+		expSize: input.TaprootToRemoteWitnessSizeFinal,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+			commitScriptTree, err := input.NewRemoteCommitScriptTree(
+				testKey.PubKey(), input.NoneTapLeaf(),
+				input.WithProdScripts(),
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testKey.PubKey(),
+				},
+				WitnessScript: commitScriptTree.SettleLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.TaprootCommitRemoteSpend(
+				signer, signDesc, testTx,
+				commitScriptTree.TapscriptTree,
 			)
 			require.NoError(t, err)
 

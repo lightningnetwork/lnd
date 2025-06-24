@@ -926,6 +926,66 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 	ht.AssertChannelActive(alice, chanPoint)
 }
 
+// testSimpleTaprootFinalChannelActivation ensures that a simple taproot final
+// channel (using production scripts) is active if the initiator disconnects
+// and reconnects in between channel opening and channel confirmation.
+func testSimpleTaprootFinalChannelActivation(ht *lntest.HarnessTest) {
+	simpleTaprootFinalChanArgs := lntest.NodeArgsForCommitType(
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+	)
+
+	// Make the new set of participants.
+	alice := ht.NewNode("alice", simpleTaprootFinalChanArgs)
+	bob := ht.NewNode("bob", simpleTaprootFinalChanArgs)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	// Make sure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Create simple taproot final channel opening parameters.
+	params := lntest.OpenChannelParams{
+		FundMax:        true,
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		Private:        true,
+	}
+
+	// Alice opens the channel to Bob.
+	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
+
+	// We'll create the channel point to be able to close the channel once
+	// our test is done.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingChan.Txid,
+		},
+		OutputIndex: pendingChan.OutputIndex,
+	}
+
+	// We disconnect and reconnect Alice and Bob before the channel is
+	// confirmed. Our expectation is that the channel is active once the
+	// channel is confirmed.
+	ht.DisconnectNodes(alice, bob)
+	ht.EnsureConnected(alice, bob)
+
+	// Mine six blocks to confirm the channel funding transaction.
+	ht.MineBlocksAndAssertNumTxes(6, 1)
+
+	// Verify that Alice sees an active channel to Bob.
+	ht.AssertChannelActive(alice, chanPoint)
+
+	// Verify that the channel uses the final taproot commitment type.
+	aliceChannels := alice.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.Len(ht, aliceChannels.Channels, 1)
+	require.Equal(ht, lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		aliceChannels.Channels[0].CommitmentType)
+
+	bobChannels := bob.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	require.Len(ht, bobChannels.Channels, 1)
+	require.Equal(ht, lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
+		bobChannels.Channels[0].CommitmentType)
+}
+
 // testOpenChannelLockedBalance tests that when a funding reservation is
 // made for opening a channel, the balance of the required outputs shows
 // up as locked balance in the WalletBalance response.

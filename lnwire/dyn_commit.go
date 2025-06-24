@@ -25,9 +25,13 @@ type DynCommit struct {
 	ExtraData ExtraOpaqueData
 }
 
-// A compile time check to ensure DynAck implements the lnwire.Message
+// A compile time check to ensure DynCommit implements the lnwire.Message
 // interface.
 var _ Message = (*DynCommit)(nil)
+
+// A compile time check to ensure DynCommit implements the
+// lnwire.SizeableMessage interface.
+var _ SizeableMessage = (*DynCommit)(nil)
 
 // Encode serializes the target DynAck into the passed io.Writer. Serialization
 // will observe the rules defined by the passed protocol version.
@@ -132,4 +136,11 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 // This is part of the lnwire.Message interface.
 func (dc *DynCommit) MsgType() MessageType {
 	return MsgDynCommit
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (dc *DynCommit) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(dc)
 }

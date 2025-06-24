@@ -909,6 +909,91 @@ func (dr *DynReject) RandTestMessage(t *rapid.T) Message {
 	}
 }
 
+// A compile time check to ensure DynCommit implements the lnwire.TestMessage
+// interface.
+var _ TestMessage = (*DynCommit)(nil)
+
+// RandTestMessage populates the message with random data suitable for testing.
+// It uses the rapid testing framework to generate random values.
+//
+// This is part of the TestMessage interface.
+func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
+	chanID := RandChannelID(t)
+
+	da := &DynAck{
+		ChanID: chanID,
+	}
+
+	dp := &DynPropose{
+		ChanID: chanID,
+	}
+
+	// Randomly decide which optional fields to include
+	includeDustLimit := rapid.Bool().Draw(t, "includeDustLimit")
+	includeMaxValueInFlight := rapid.Bool().Draw(
+		t, "includeMaxValueInFlight",
+	)
+	includeChannelReserve := rapid.Bool().Draw(t, "includeChannelReserve")
+	includeCsvDelay := rapid.Bool().Draw(t, "includeCsvDelay")
+	includeMaxAcceptedHTLCs := rapid.Bool().Draw(
+		t, "includeMaxAcceptedHTLCs",
+	)
+	includeChannelType := rapid.Bool().Draw(t, "includeChannelType")
+
+	// Generate random values for each included field
+	if includeDustLimit {
+		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
+		rec.Val = val
+		dp.DustLimit = tlv.SomeRecordT(rec)
+	}
+
+	if includeMaxValueInFlight {
+		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
+		val := MilliSatoshi(rapid.Uint64().Draw(t, "maxValueInFlight"))
+		rec.Val = val
+		dp.MaxValueInFlight = tlv.SomeRecordT(rec)
+	}
+
+	if includeChannelReserve {
+		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
+		rec.Val = val
+		dp.ChannelReserve = tlv.SomeRecordT(rec)
+	}
+
+	if includeCsvDelay {
+		csvDelay := dp.CsvDelay.Zero()
+		val := rapid.Uint16().Draw(t, "csvDelay")
+		csvDelay.Val = val
+		dp.CsvDelay = tlv.SomeRecordT(csvDelay)
+	}
+
+	if includeMaxAcceptedHTLCs {
+		maxHtlcs := dp.MaxAcceptedHTLCs.Zero()
+		maxHtlcs.Val = rapid.Uint16().Draw(t, "maxAcceptedHTLCs")
+		dp.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
+	}
+
+	if includeChannelType {
+		chanType := dp.ChannelType.Zero()
+		chanType.Val = *RandChannelType(t)
+		dp.ChannelType = tlv.SomeRecordT(chanType)
+	}
+
+	var extraData ExtraOpaqueData
+	randData := RandExtraOpaqueData(t, nil)
+	if len(randData) > 0 {
+		extraData = randData
+	}
+
+	return &DynCommit{
+		DynPropose: *dp,
+		DynAck:     *da,
+		ExtraData:  extraData,
+	}
+}
+
 // A compile time check to ensure FundingCreated implements the TestMessage
 // interface.
 var _ TestMessage = (*FundingCreated)(nil)

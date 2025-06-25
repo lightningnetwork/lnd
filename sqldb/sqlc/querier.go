@@ -12,6 +12,7 @@ import (
 
 type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
+	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
@@ -79,6 +80,7 @@ type Querier interface {
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
+	InsertClosedChannel(ctx context.Context, scid []byte) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
@@ -87,6 +89,7 @@ type Querier interface {
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
+	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)

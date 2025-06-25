@@ -2150,8 +2150,8 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 	}
 
 	if len(edgesInHorizon) > 0 {
-		log.Debugf("ChanUpdatesInHorizon hit percentage: %f (%d/%d)",
-			float64(hits)/float64(len(edgesInHorizon)), hits,
+		log.Debugf("ChanUpdatesInHorizon hit percentage: %.2f (%d/%d)",
+			float64(hits)*100/float64(len(edgesInHorizon)), hits,
 			len(edgesInHorizon))
 	} else {
 		log.Debugf("ChanUpdatesInHorizon returned no edges in "+

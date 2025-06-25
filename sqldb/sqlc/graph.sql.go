@@ -26,6 +26,34 @@ func (q *Queries) AddSourceNode(ctx context.Context, nodeID int64) error {
 	return err
 }
 
+const addV1ChannelProof = `-- name: AddV1ChannelProof :execresult
+UPDATE channels
+SET node_1_signature = $2,
+    node_2_signature = $3,
+    bitcoin_1_signature = $4,
+    bitcoin_2_signature = $5
+WHERE scid = $1
+  AND version = 1
+`
+
+type AddV1ChannelProofParams struct {
+	Scid              []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+}
+
+func (q *Queries) AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, addV1ChannelProof,
+		arg.Scid,
+		arg.Node1Signature,
+		arg.Node2Signature,
+		arg.Bitcoin1Signature,
+		arg.Bitcoin2Signature,
+	)
+}
+
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
 FROM zombie_channels
@@ -1527,6 +1555,22 @@ func (q *Queries) InsertChannelFeature(ctx context.Context, arg InsertChannelFea
 	return err
 }
 
+const insertClosedChannel = `-- name: InsertClosedChannel :exec
+/* ─────────────────────────────────────────────
+   closed_scid table queries
+   ────────────────────────────────────────────-
+*/
+
+INSERT INTO closed_scids (scid)
+VALUES ($1)
+ON CONFLICT (scid) DO NOTHING
+`
+
+func (q *Queries) InsertClosedChannel(ctx context.Context, scid []byte) error {
+	_, err := q.db.ExecContext(ctx, insertClosedChannel, scid)
+	return err
+}
+
 const insertNodeAddress = `-- name: InsertNodeAddress :exec
 /* ─────────────────────────────────────────────
    node_addresses table queries
@@ -1581,6 +1625,21 @@ type InsertNodeFeatureParams struct {
 func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const isClosedChannel = `-- name: IsClosedChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM closed_scids
+    WHERE scid = $1
+)
+`
+
+func (q *Queries) IsClosedChannel(ctx context.Context, scid []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isClosedChannel, scid)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const isPublicV1Node = `-- name: IsPublicV1Node :one

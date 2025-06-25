@@ -160,7 +160,9 @@ func makeTestGraph(t *testing.T, useCache bool) (*graphdb.ChannelGraph,
 	kvdb.Backend, error) {
 
 	// Create channelgraph for the first time.
-	graph := graphdb.MakeTestGraph(t, graphdb.WithUseGraphCache(useCache))
+	graph := graphdb.MakeTestGraphNew(
+		t, graphdb.WithUseGraphCache(useCache),
+	)
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graph.Stop())
@@ -289,6 +291,11 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			}
 
 			source = dbNode
+
+			// If this is the source node, we don't have to call
+			// AddLightningNode below since we will call
+			// SetSourceNode later.
+			continue
 		}
 
 		// With the node fully parsed, add it as a vertex within the
@@ -541,8 +548,8 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 
 	nodeIndex := byte(0)
-	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
-		*models.LightningNode, error) {
+	addNodeWithAlias := func(alias string,
+		features *lnwire.FeatureVector) error {
 
 		keyBytes := []byte{
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -572,28 +579,28 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
-			return nil, err
+		if alias == source {
+			err = graph.SetSourceNode(ctx, dbNode)
+			require.NoError(t, err)
+		} else {
+			err := graph.AddLightningNode(ctx, dbNode)
+			require.NoError(t, err)
 		}
 
 		aliasMap[alias] = dbNode.PubKeyBytes
 		nodeIndex++
 
-		return dbNode, nil
+		return nil
 	}
 
 	// Add the source node.
-	dbNode, err := addNodeWithAlias(
+	err = addNodeWithAlias(
 		source, lnwire.NewFeatureVector(
 			lnwire.NewRawFeatureVector(sourceFeatureBits...),
 			lnwire.Features,
 		),
 	)
 	require.NoError(t, err)
-
-	if err = graph.SetSourceNode(ctx, dbNode); err != nil {
-		return nil, err
-	}
 
 	// Initialize variable that keeps track of the next channel id to assign
 	// if none is specified.
@@ -612,7 +619,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 					features =
 						node.testChannelPolicy.Features
 				}
-				_, err := addNodeWithAlias(
+				err := addNodeWithAlias(
 					node.Alias, features,
 				)
 				if err != nil {
@@ -2169,6 +2176,7 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch channel edges by ID")
 	midEdge.MessageFlags = 1
 	midEdge.MaxHTLC = payAmt - 1
+	midEdge.LastUpdate = midEdge.LastUpdate.Add(time.Second)
 	err = graph.UpdateEdgePolicy(context.Background(), midEdge)
 	require.NoError(t, err)
 
@@ -2211,10 +2219,12 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
+	e1.LastUpdate = e1.LastUpdate.Add(time.Second)
 	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
+	e2.LastUpdate = e2.LastUpdate.Add(time.Second)
 	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -2232,6 +2242,7 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
 	require.NoError(t, err, "unable to fetch edge")
 	e.ChannelFlags |= lnwire.ChanUpdateDisabled
+	e.LastUpdate = e.LastUpdate.Add(time.Second)
 	if err := graph.graph.UpdateEdgePolicy(ctx, e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
@@ -2314,10 +2325,12 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	require.NoError(t, err, "unable to fetch edge")
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
+	e1.LastUpdate = e1.LastUpdate.Add(time.Second)
 	if err := graph.graph.UpdateEdgePolicy(ctx, e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 	e2.ChannelFlags |= lnwire.ChanUpdateDisabled
+	e2.LastUpdate = e2.LastUpdate.Add(time.Second)
 	if err := graph.graph.UpdateEdgePolicy(ctx, e2); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}

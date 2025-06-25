@@ -538,6 +538,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	aliasMap := make(map[string]route.Vertex)
 	privKeyMap := make(map[string]*btcec.PrivateKey)
+	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 
 	nodeIndex := byte(0)
 	addNodeWithAlias := func(alias string, features *lnwire.FeatureVector) (
@@ -652,6 +653,16 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			node1Vertex, node2Vertex = node2Vertex, node1Vertex
 		}
 
+		if _, ok := channelIDs[node1Vertex]; !ok {
+			channelIDs[node1Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node1Vertex][node2Vertex] = channelID
+
+		if _, ok := channelIDs[node2Vertex]; !ok {
+			channelIDs[node2Vertex] = map[route.Vertex]uint64{}
+		}
+		channelIDs[node2Vertex][node1Vertex] = channelID
+
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := models.ChannelEdgeInfo{
@@ -765,6 +776,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		mcBackend:  graphBackend,
 		aliasMap:   aliasMap,
 		privKeyMap: privKeyMap,
+		channelIDs: channelIDs,
 		links:      links,
 	}, nil
 }
@@ -3192,6 +3204,16 @@ func newPathFindingTestContext(t *testing.T, useCache bool,
 	return ctx
 }
 
+func (c *pathFindingTestContext) nodePairChannel(alias1, alias2 string) uint64 {
+	node1 := c.keyFromAlias(alias1)
+	node2 := c.keyFromAlias(alias2)
+
+	channel, ok := c.testGraphInstance.channelIDs[node1][node2]
+	require.True(c.t, ok)
+
+	return channel
+}
+
 func (c *pathFindingTestContext) keyFromAlias(alias string) route.Vertex {
 	return c.testGraphInstance.aliasMap[alias]
 }
@@ -3876,7 +3898,7 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,dave",
 	})
 
-	// 5) Finally, we will test the special case where the destination node
+	// 5) We will also test the special case where the destination node
 	// is also the recipient.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
 		minNumHops: 0,
@@ -3888,93 +3910,138 @@ func TestFindBlindedPaths(t *testing.T) {
 		"dave",
 	})
 
-	// 6) Restrict the min & max path length such that we only include paths
-	// with one being only the intro-node and the others with one hop other
-	// than the destination hop.
+	// 6) Now, we will test some cases where the user manually specifies
+	// the first few incoming channels of a route.
+	//
+	// 6.1) Let the user specify the B-D channel as the last hop with a
+	// max of 1 hop.
 	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops: 0,
+		minNumHops: 1,
 		maxNumHops: 1,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
+	})
+	require.NoError(t, err)
+
+	// If the max number of hops is 1, then only the B->D path is chosen
+	assertPaths(paths, []string{
+		"bob,dave",
+	})
+
+	// 6.2) Extend the search to include 2 hops along with the B-D channel
+	// restriction.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 2,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
 	require.NoError(t, err)
 
 	// We expect the following paths:
-	//	- D
 	//	- B, D
-	// 	- C, D
-	// The (A, D) path is not chosen since A does not advertise the route
-	// blinding feature bit. The (G, D) path is not chosen since G does not
-	// have any other known channels.
-	assertPaths(paths, []string{
-		"dave",
-		"bob,dave",
-		"charlie,dave",
-	})
-
-	// 7) Restrict the min & max path length such that we only include paths
-	// with one hop other than the destination hop. Now with bob-dave as the
-	// incoming channel.
-	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              1,
-		maxNumHops:              1,
-		incomingChainedChannels: []uint64{2},
-	})
-	require.NoError(t, err)
-
-	// Expect only B->D path.
-	assertPaths(paths, []string{
-		"bob,dave",
-	})
-
-	// 8) Extend the search to include 2 hops other than the destination,
-	// with bob-dave as the incoming channel.
-	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              1,
-		maxNumHops:              2,
-		incomingChainedChannels: []uint64{2},
-	})
-	require.NoError(t, err)
-
-	// We expect the following paths:
 	//	- F, B, D
 	// 	- E, B, D
 	assertPaths(paths, []string{
+		"bob,dave",
 		"frank,bob,dave",
 		"eve,bob,dave",
 	})
 
-	// 9) Extend the search even further and also increase the minimum path
-	// length, but this time with charlie-dave as the incoming channel.
-	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		incomingChainedChannels: []uint64{3},
-	})
-	require.NoError(t, err)
-
-	// We expect the following paths:
-	//	- E, C, D
-	// 	- B, E, C, D
-	assertPaths(paths, []string{
-		"eve,charlie,dave",
-		"bob,eve,charlie,dave",
-	})
-
-	// 10) Repeat the above test but instruct the function to never use
-	// charlie.
+	// 6.3) Repeat the above test but instruct the function to never use
+	// bob. This should fail since bob owns one of the channels in the
+	// partially specified path.
 	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		nodeOmissionSet:         fn.NewSet(ctx.keyFromAlias("charlie")),
-		incomingChainedChannels: []uint64{3},
+		minNumHops:      1,
+		maxNumHops:      2,
+		nodeOmissionSet: fn.NewSet(ctx.keyFromAlias("bob")),
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
 	require.ErrorContains(t, err, "cannot simultaneously be included in "+
 		"the omission set and in the partially specified path")
 
-	// 11) Test the circular route error.
-	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
-		minNumHops:              2,
-		maxNumHops:              3,
-		incomingChainedChannels: []uint64{2, 7, 6, 3},
+	// 6.4) Repeat it again but this time omit frank and demonstrate that
+	// the resulting set contains all the results from 6.2 except for the
+	// frank path.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops:      1,
+		maxNumHops:      2,
+		nodeOmissionSet: fn.NewSet(ctx.keyFromAlias("frank")),
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("bob", "dave"),
+		},
 	})
-	require.ErrorContains(t, err, "a circular route cannot be specified")
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	//	- B, D
+	// 	- E, B, D
+	assertPaths(paths, []string{
+		"bob,dave",
+		"eve,bob,dave",
+	})
+
+	// 6.5) Users may specify channels to nodes that do not signal route
+	// blinding (like A). So if we specify the A-D channel, we should get
+	// valid paths.
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 4,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("dave", "alice"),
+		},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	// 	- A, D
+	// 	- F, A, D
+	// 	- B, F, A, D
+	// 	- E, B, F, A, D
+	assertPaths(paths, []string{
+		"alice,dave",
+		"frank,alice,dave",
+		"bob,frank,alice,dave",
+		"eve,bob,frank,alice,dave",
+	})
+
+	// 6.6) Assert that an error is returned if a user accidentally tries
+	// to force a circular path.
+	_, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 2,
+		maxNumHops: 3,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("dave", "alice"),
+			ctx.nodePairChannel("alice", "frank"),
+			ctx.nodePairChannel("frank", "bob"),
+			ctx.nodePairChannel("bob", "dave"),
+		},
+	})
+	require.ErrorContains(t, err, "circular route")
+
+	// 6.7) Test specifying a chain of incoming channels. We specify
+	// the following incoming list: [A->D, F->A].
+	paths, err = ctx.findBlindedPaths(&blindedPathRestrictions{
+		minNumHops: 1,
+		maxNumHops: 4,
+		incomingChainedChannels: []uint64{
+			ctx.nodePairChannel("dave", "alice"),
+			ctx.nodePairChannel("alice", "frank"),
+		},
+	})
+	require.NoError(t, err)
+
+	// We expect the following paths:
+	// 	- F, A, D
+	// 	- B, F, A, D
+	// 	- E, B, F, A, D
+	assertPaths(paths, []string{
+		"frank,alice,dave",
+		"bob,frank,alice,dave",
+		"eve,bob,frank,alice,dave",
+	})
 }

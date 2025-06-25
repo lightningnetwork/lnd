@@ -33,6 +33,10 @@
 
 ## Functional Enhancements
 
+- [Adds](https://github.com/lightningnetwork/lnd/pull/9989) a method 
+  `FeeForWeightRoundUp` to the `chainfee` package which rounds up a calculated 
+  fee value to the nearest satoshi.
+
 ## RPC Additions
 
 ## lncli Additions
@@ -78,4 +82,5 @@ much more slowly.
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* hieblmi
 * Yong Yu

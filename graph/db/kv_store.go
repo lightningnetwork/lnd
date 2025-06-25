@@ -3792,7 +3792,9 @@ func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 // IsZombieEdge returns whether the edge is considered zombie. If it is a
 // zombie, then the two node public keys corresponding to this edge are also
 // returned.
-func (c *KVStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
+func (c *KVStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
+	error) {
+
 	var (
 		isZombie         bool
 		pubKey1, pubKey2 [33]byte
@@ -3817,10 +3819,11 @@ func (c *KVStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
 		pubKey2 = [33]byte{}
 	})
 	if err != nil {
-		return false, [33]byte{}, [33]byte{}
+		return false, [33]byte{}, [33]byte{}, fmt.Errorf("%w: %w "+
+			"(chanID=%d)", ErrCantCheckIfZombieEdgeStr, err, chanID)
 	}
 
-	return isZombie, pubKey1, pubKey2
+	return isZombie, pubKey1, pubKey2, nil
 }
 
 // isZombieEdge returns whether an entry exists for the given channel in the

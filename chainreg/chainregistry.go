@@ -878,8 +878,8 @@ var (
 	ChainDNSSeeds = map[chainhash.Hash][][2]string{
 		BitcoinMainnetGenesis: {
 			{
-				"nodes.lightning.directory",
-				"soa.nodes.lightning.directory",
+				"nodes.lightning.wiki",
+				"soa.nodes.lightning.wiki",
 			},
 			{
 				"lseed.bitcoinstats.com",
@@ -888,14 +888,22 @@ var (
 
 		BitcoinTestnetGenesis: {
 			{
-				"test.nodes.lightning.directory",
-				"soa.nodes.lightning.directory",
+				"test.nodes.lightning.wiki",
+				"soa.nodes.lightning.wiki",
+			},
+		},
+
+		BitcoinTestnet4Genesis: {
+			{
+				"test4.nodes.lightning.wiki",
+				"soa.nodes.lightning.wiki",
 			},
 		},
 
 		BitcoinSignetGenesis: {
 			{
-				"ln.signet.secp.tech",
+				"signet.nodes.lightning.wiki",
+				"soa.nodes.lightning.wiki",
 			},
 		},
 	}

@@ -509,6 +509,10 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 // node. If the route hints don't indicate an LSP, they are passed as arguments
 // to the SendPayment_V2 method, which enable it to send probe payments to the
 // payment request destination.
+//
+// NOTE: Be aware that because of the special heuristic that is applied to
+// identify LSPs, the probe payment might use a different node id as the
+// final destination (the assumed LSP node id).
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	timeout uint32) (*RouteFeeResponse, error) {
 
@@ -558,6 +562,9 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// payment won't be blocked along the route to the destination. We send
 	// a probe payment with unmodified route hints.
 	if !isLSP(hints, s.cfg.RouterBackend.FetchChannelEndpoints) {
+		log.Infof("No LSP detected, probing destination %x",
+			probeRequest.Dest)
+
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
 		return s.sendProbePayment(ctx, probeRequest)
 	}
@@ -571,9 +578,14 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		return nil, err
 	}
 
+	// Set the destination to the LSP node ID.
+	lspDest := lspHint.NodeID.SerializeCompressed()
+	probeRequest.Dest = lspDest
+
+	log.Infof("LSP detected, probing LSP with destination: %x", lspDest)
+
 	// The adjusted route hints serve the payment probe to find the last
 	// public hop to the LSP on the route.
-	probeRequest.Dest = lspHint.NodeID.SerializeCompressed()
 	if len(lspAdjustedRouteHints) > 0 {
 		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(
 			lspAdjustedRouteHints,
@@ -609,7 +621,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// Dispatch the payment probe with adjusted fee amount.
 	resp, err := s.sendProbePayment(ctx, probeRequest)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to send probe payment to "+
+			"LSP with destination %x: %w", lspDest, err)
 	}
 
 	// If the payment probe failed we only return the failure reason and
@@ -667,11 +680,11 @@ func isLSP(routeHints [][]zpay32.HopHint,
 			return false
 		}
 
-		idMatchesRefNode := bytes.Equal(
+		matchesDestNode := bytes.Equal(
 			lastHop.NodeID.SerializeCompressed(),
 			destHopHint.NodeID.SerializeCompressed(),
 		)
-		if !idMatchesRefNode {
+		if !matchesDestNode {
 			return false
 		}
 	}

@@ -320,3 +320,15 @@ CREATE TABLE IF NOT EXISTS zombie_channels (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS zombie_channels_channel_id_version_idx
     ON zombie_channels(scid, version);
+
+CREATE TABLE IF NOT EXISTS prune_log (
+    -- The block height that the prune was performed at.
+    -- NOTE: we don't use INTEGER PRIMARY KEY here since that would
+    -- get transformed into an auto-incrementing type by our SQL type
+    -- replacement logic. We don't want that since this must be the
+    -- actual block height and not an auto-incrementing value.
+    block_height BIGINT PRIMARY KEY,
+
+    -- The block hash that the prune was performed at.
+    block_hash BLOB NOT NULL
+);

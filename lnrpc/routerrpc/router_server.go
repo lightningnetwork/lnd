@@ -509,6 +509,10 @@ func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
 // node. If the route hints don't indicate an LSP, they are passed as arguments
 // to the SendPayment_V2 method, which enable it to send probe payments to the
 // payment request destination.
+//
+// NOTE: Be aware that because of the special heuristic that is applied to
+// identify LSPs, the probe payment might use a different node id as the
+// final destination (the assumed LSP node id).
 func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	timeout uint32) (*RouteFeeResponse, error) {
 
@@ -676,11 +680,11 @@ func isLSP(routeHints [][]zpay32.HopHint,
 			return false
 		}
 
-		idMatchesRefNode := bytes.Equal(
+		matchesDestNode := bytes.Equal(
 			lastHop.NodeID.SerializeCompressed(),
 			destHopHint.NodeID.SerializeCompressed(),
 		)
-		if !idMatchesRefNode {
+		if !matchesDestNode {
 			return false
 		}
 	}

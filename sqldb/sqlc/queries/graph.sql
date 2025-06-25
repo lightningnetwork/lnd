@@ -47,6 +47,24 @@ WHERE version = $1  AND id > $2
 ORDER BY id
 LIMIT $3;
 
+-- name: IsPublicV1Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channels c
+    JOIN nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V1 gossip protocol. In V1, a node is public
+    -- if it has a public channel and a public channel is one
+    -- where we have the set of signatures of the channel
+    -- announcement. It is enough to just check that we have
+    -- one of the signatures since we only ever set them
+    -- together.
+    WHERE c.version = 1
+      AND c.bitcoin_1_signature IS NOT NULL
+      AND n.pub_key = $1
+);
+
 -- name: DeleteNodeByPubKey :execresult
 DELETE FROM nodes
 WHERE pub_key = $1
@@ -206,6 +224,10 @@ SELECT
 FROM channel_extra_types cet
 WHERE cet.channel_id = $1;
 
+-- name: GetSCIDByOutpoint :one
+SELECT scid from channels
+WHERE outpoint = $1 AND version = $2;
+
 -- name: GetChannelsByPolicyLastUpdateRange :many
 SELECT
     sqlc.embed(c),
@@ -261,6 +283,51 @@ ORDER BY
             THEN COALESCE(cp1.last_update, 0)
         ELSE COALESCE(cp2.last_update, 0)
         END ASC;
+
+-- name: GetChannelByOutpointWithPolicies :one
+SELECT
+    sqlc.embed(c),
+
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey,
+
+    -- Node 1 policy
+    cp1.id AS policy_1_id,
+    cp1.node_id AS policy_1_node_id,
+    cp1.version AS policy_1_version,
+    cp1.timelock AS policy_1_timelock,
+    cp1.fee_ppm AS policy_1_fee_ppm,
+    cp1.base_fee_msat AS policy_1_base_fee_msat,
+    cp1.min_htlc_msat AS policy_1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy_1_max_htlc_msat,
+    cp1.last_update AS policy_1_last_update,
+    cp1.disabled AS policy_1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.signature AS policy_1_signature,
+
+    -- Node 2 policy
+    cp2.id AS policy_2_id,
+    cp2.node_id AS policy_2_node_id,
+    cp2.version AS policy_2_version,
+    cp2.timelock AS policy_2_timelock,
+    cp2.fee_ppm AS policy_2_fee_ppm,
+    cp2.base_fee_msat AS policy_2_base_fee_msat,
+    cp2.min_htlc_msat AS policy_2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy_2_max_htlc_msat,
+    cp2.last_update AS policy_2_last_update,
+    cp2.disabled AS policy_2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.signature AS policy_2_signature
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.outpoint = $1 AND c.version = $2;
 
 -- name: HighestSCID :one
 SELECT scid
@@ -506,6 +573,19 @@ JOIN channel_policy_extra_types cpet
 ON cp.id = cpet.channel_policy_id
 WHERE cp.id = $1 OR cp.id = $2;
 
+-- name: GetV1DisabledSCIDs :many
+SELECT c.scid
+FROM channels c
+    JOIN channel_policies cp ON cp.channel_id = c.id
+-- NOTE: this is V1 specific since for V1, disabled is a
+-- simple, single boolean. The proposed V2 policy
+-- structure will have a more complex disabled bit vector
+-- and so the query for V2 may differ.
+WHERE cp.disabled = true
+AND c.version = 1
+GROUP BY c.scid
+HAVING COUNT(*) > 1;
+
 -- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM channel_policy_extra_types
 WHERE channel_policy_id = $1;
@@ -540,3 +620,11 @@ SELECT *
 FROM zombie_channels
 WHERE scid = $1
 AND version = $2;
+
+-- name: IsZombieChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM zombie_channels
+    WHERE scid = $1
+    AND version = $2
+) AS is_zombie;

@@ -62,6 +62,7 @@ type SQLQueries interface {
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.Node, error)
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.Node, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
+	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.NodeExtraType, error)
@@ -95,7 +96,9 @@ type SQLQueries interface {
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
+	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.Channel, error)
+	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannel(ctx context.Context, id int64) error
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
@@ -106,6 +109,7 @@ type SQLQueries interface {
 	*/
 	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.ChannelPolicy, error)
+	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
@@ -118,6 +122,7 @@ type SQLQueries interface {
 	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.ZombieChannel, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
+	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -366,6 +371,35 @@ func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
 	ctx := context.TODO()
 
 	return fetchNodeFeatures(ctx, s.db, nodePub)
+}
+
+// DisabledChannelIDs returns the channel ids of disabled channels.
+// A channel is disabled when two of the associated ChanelEdgePolicies
+// have their disabled bit on.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
+	var (
+		ctx     = context.TODO()
+		chanIDs []uint64
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbChanIDs, err := db.GetV1DisabledSCIDs(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch disabled "+
+				"channels: %w", err)
+		}
+
+		chanIDs = fn.Map(dbChanIDs, byteOrder.Uint64)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch disabled channels: %w",
+			err)
+	}
+
+	return chanIDs, nil
 }
 
 // LookupAlias attempts to return the alias as advertised by the target node.
@@ -1669,6 +1703,501 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	}
 
 	return deleted, nil
+}
+
+// FetchChannelEdgesByID attempts to lookup the two directed edges for the
+// channel identified by the channel ID. If the channel can't be found, then
+// ErrEdgeNotFound is returned. A struct which houses the general information
+// for the channel itself is returned as well as two structs that contain the
+// routing policies for the channel in either direction.
+//
+// ErrZombieEdge an be returned if the edge is currently marked as a zombie
+// within the database. In this case, the ChannelEdgePolicy's will be nil, and
+// the ChannelEdgeInfo will only include the public keys of each node.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		ctx              = context.TODO()
+		edge             *models.ChannelEdgeInfo
+		policy1, policy2 *models.ChannelEdgePolicy
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var chanIDB [8]byte
+		byteOrder.PutUint64(chanIDB[:], chanID)
+
+		row, err := db.GetChannelBySCIDWithPolicies(
+			ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+				Scid:    chanIDB[:],
+				Version: int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			// First check if this edge is perhaps in the zombie
+			// index.
+			isZombie, err := db.IsZombieChannel(
+				ctx, sqlc.IsZombieChannelParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to check if "+
+					"channel is zombie: %w", err)
+			} else if isZombie {
+				return ErrZombieEdge
+			}
+
+			return ErrEdgeNotFound
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
+		}
+
+		node1, node2, err := buildNodeVertices(
+			row.Node.PubKey, row.Node_2.PubKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		edge, err = getAndBuildEdgeInfo(
+			ctx, db, s.cfg.ChainHash, row.Channel.ID, row.Channel,
+			node1, node2,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel info: %w",
+				err)
+		}
+
+		dbPol1, dbPol2, err := extractChannelPolicies(row)
+		if err != nil {
+			return fmt.Errorf("unable to extract channel "+
+				"policies: %w", err)
+		}
+
+		policy1, policy2, err = getAndBuildChanPolicies(
+			ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel "+
+				"policies: %w", err)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch channel: %w",
+			err)
+	}
+
+	return edge, policy1, policy2, nil
+}
+
+// FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for
+// the channel identified by the funding outpoint. If the channel can't be
+// found, then ErrEdgeNotFound is returned. A struct which houses the general
+// information for the channel itself is returned as well as two structs that
+// contain the routing policies for the channel in either direction.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	var (
+		ctx              = context.TODO()
+		edge             *models.ChannelEdgeInfo
+		policy1, policy2 *models.ChannelEdgePolicy
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		row, err := db.GetChannelByOutpointWithPolicies(
+			ctx, sqlc.GetChannelByOutpointWithPoliciesParams{
+				Outpoint: op.String(),
+				Version:  int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEdgeNotFound
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
+		}
+
+		node1, node2, err := buildNodeVertices(
+			row.Node1Pubkey, row.Node2Pubkey,
+		)
+		if err != nil {
+			return err
+		}
+
+		edge, err = getAndBuildEdgeInfo(
+			ctx, db, s.cfg.ChainHash, row.Channel.ID, row.Channel,
+			node1, node2,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel info: %w",
+				err)
+		}
+
+		dbPol1, dbPol2, err := extractChannelPolicies(row)
+		if err != nil {
+			return fmt.Errorf("unable to extract channel "+
+				"policies: %w", err)
+		}
+
+		policy1, policy2, err = getAndBuildChanPolicies(
+			ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel "+
+				"policies: %w", err)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("could not fetch channel: %w",
+			err)
+	}
+
+	return edge, policy1, policy2, nil
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge with the
+// passed channel ID, and false otherwise. If an edge with that ID is found
+// within the graph, then two time stamps representing the last time the edge
+// was updated for both directed edges are returned along with the boolean. If
+// it is not found, then the zombie index is checked and its result is returned
+// as the second boolean.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
+	bool, error) {
+
+	ctx := context.TODO()
+
+	var (
+		exists          bool
+		isZombie        bool
+		node1LastUpdate time.Time
+		node2LastUpdate time.Time
+	)
+
+	// We'll query the cache with the shared lock held to allow multiple
+	// readers to access values in the cache concurrently if they exist.
+	s.cacheMu.RLock()
+	if entry, ok := s.rejectCache.get(chanID); ok {
+		s.cacheMu.RUnlock()
+		node1LastUpdate = time.Unix(entry.upd1Time, 0)
+		node2LastUpdate = time.Unix(entry.upd2Time, 0)
+		exists, isZombie = entry.flags.unpack()
+
+		return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
+	}
+	s.cacheMu.RUnlock()
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	// The item was not found with the shared lock, so we'll acquire the
+	// exclusive lock and check the cache again in case another method added
+	// the entry to the cache while no lock was held.
+	if entry, ok := s.rejectCache.get(chanID); ok {
+		node1LastUpdate = time.Unix(entry.upd1Time, 0)
+		node2LastUpdate = time.Unix(entry.upd2Time, 0)
+		exists, isZombie = entry.flags.unpack()
+
+		return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
+	}
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var chanIDB [8]byte
+		byteOrder.PutUint64(chanIDB[:], chanID)
+
+		channel, err := db.GetChannelBySCID(
+			ctx, sqlc.GetChannelBySCIDParams{
+				Scid:    chanIDB[:],
+				Version: int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Check if it is a zombie channel.
+			isZombie, err = db.IsZombieChannel(
+				ctx, sqlc.IsZombieChannelParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("could not check if channel "+
+					"is zombie: %w", err)
+			}
+
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch channel: %w", err)
+		}
+
+		exists = true
+
+		policy1, err := db.GetChannelPolicyByChannelAndNode(
+			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+				Version:   int16(ProtocolV1),
+				ChannelID: channel.ID,
+				NodeID:    channel.NodeID1,
+			},
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("unable to fetch channel policy: %w",
+				err)
+		} else if err == nil {
+			node1LastUpdate = time.Unix(policy1.LastUpdate.Int64, 0)
+		}
+
+		policy2, err := db.GetChannelPolicyByChannelAndNode(
+			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
+				Version:   int16(ProtocolV1),
+				ChannelID: channel.ID,
+				NodeID:    channel.NodeID2,
+			},
+		)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("unable to fetch channel policy: %w",
+				err)
+		} else if err == nil {
+			node2LastUpdate = time.Unix(policy2.LastUpdate.Int64, 0)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return time.Time{}, time.Time{}, false, false,
+			fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	s.rejectCache.insert(chanID, rejectCacheEntry{
+		upd1Time: node1LastUpdate.Unix(),
+		upd2Time: node2LastUpdate.Unix(),
+		flags:    packRejectFlags(exists, isZombie),
+	})
+
+	return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
+}
+
+// ChannelID attempt to lookup the 8-byte compact channel ID which maps to the
+// passed channel point (outpoint). If the passed channel doesn't exist within
+// the database, then ErrEdgeNotFound is returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+	var (
+		ctx       = context.TODO()
+		channelID uint64
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		chanID, err := db.GetSCIDByOutpoint(
+			ctx, sqlc.GetSCIDByOutpointParams{
+				Outpoint: chanPoint.String(),
+				Version:  int16(ProtocolV1),
+			},
+		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrEdgeNotFound
+		} else if err != nil {
+			return fmt.Errorf("unable to fetch channel ID: %w",
+				err)
+		}
+
+		channelID = byteOrder.Uint64(chanID)
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch channel ID: %w", err)
+	}
+
+	return channelID, nil
+}
+
+// IsPublicNode is a helper method that determines whether the node with the
+// given public key is seen as a public node in the graph from the graph's
+// source node's point of view.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
+	ctx := context.TODO()
+
+	var isPublic bool
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var err error
+		isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
+
+		return err
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return false, fmt.Errorf("unable to check if node is "+
+			"public: %w", err)
+	}
+
+	return isPublic, nil
+}
+
+// FetchChanInfos returns the set of channel edges that correspond to the passed
+// channel ID's. If an edge is the query is unknown to the database, it will
+// skipped and the result will contain only those edges that exist at the time
+// of the query. This can be used to respond to peer queries that are seeking to
+// fill in gaps in their view of the channel graph.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+	var (
+		ctx   = context.TODO()
+		edges []ChannelEdge
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, chanID := range chanIDs {
+			var chanIDB [8]byte
+			byteOrder.PutUint64(chanIDB[:], chanID)
+
+			// TODO(elle): potentially optimize this by using
+			//  sqlc.slice() once that works for both SQLite and
+			//  Postgres.
+			row, err := db.GetChannelBySCIDWithPolicies(
+				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			} else if err != nil {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			node1, node2, err := buildNodes(
+				ctx, db, row.Node, row.Node_2,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch nodes: %w",
+					err)
+			}
+
+			edge, err := getAndBuildEdgeInfo(
+				ctx, db, s.cfg.ChainHash, row.Channel.ID,
+				row.Channel, node1.PubKeyBytes,
+				node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build "+
+					"channel info: %w", err)
+			}
+
+			dbPol1, dbPol2, err := extractChannelPolicies(row)
+			if err != nil {
+				return fmt.Errorf("unable to extract channel "+
+					"policies: %w", err)
+			}
+
+			p1, p2, err := getAndBuildChanPolicies(
+				ctx, db, dbPol1, dbPol2, edge.ChannelID,
+				node1.PubKeyBytes, node2.PubKeyBytes,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to build channel "+
+					"policies: %w", err)
+			}
+
+			edges = append(edges, ChannelEdge{
+				Info:    edge,
+				Policy1: p1,
+				Policy2: p2,
+				Node1:   node1,
+				Node2:   node2,
+			})
+		}
+
+		return nil
+	}, func() {
+		edges = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	return edges, nil
+}
+
+// FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
+// ID's that we don't know and are not known zombies of the passed set. In other
+// words, we perform a set difference of our set of chan ID's and the ones
+// passed in. This method can be used by callers to determine the set of
+// channels another peer knows of that we don't. The ChannelUpdateInfos for the
+// known zombies is also returned.
+//
+// NOTE: part of the V1Store interface.
+func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
+	[]ChannelUpdateInfo, error) {
+
+	var (
+		ctx          = context.TODO()
+		newChanIDs   []uint64
+		knownZombies []ChannelUpdateInfo
+	)
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		for _, chanInfo := range chansInfo {
+			channelID := chanInfo.ShortChannelID.ToUint64()
+			var chanIDB [8]byte
+			byteOrder.PutUint64(chanIDB[:], channelID)
+
+			// TODO(elle): potentially optimize this by using
+			//  sqlc.slice() once that works for both SQLite and
+			//  Postgres.
+			_, err := db.GetChannelBySCID(
+				ctx, sqlc.GetChannelBySCIDParams{
+					Version: int16(ProtocolV1),
+					Scid:    chanIDB[:],
+				},
+			)
+			if err == nil {
+				continue
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
+			}
+
+			isZombie, err := db.IsZombieChannel(
+				ctx, sqlc.IsZombieChannelParams{
+					Scid:    chanIDB[:],
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch zombie "+
+					"channel: %w", err)
+			}
+
+			if isZombie {
+				knownZombies = append(knownZombies, chanInfo)
+
+				continue
+			}
+
+			newChanIDs = append(newChanIDs, channelID)
+		}
+
+		return nil
+	}, func() {
+		newChanIDs = nil
+		knownZombies = nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	return newChanIDs, knownZombies, nil
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -3066,12 +3595,92 @@ func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
 // information. It returns two policies, which may be nil if the policy
 // information is not present in the row.
 //
-//nolint:ll,dupl
+//nolint:ll,dupl,funlen
 func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 	error) {
 
 	var policy1, policy2 *sqlc.ChannelPolicy
 	switch r := row.(type) {
+	case sqlc.GetChannelByOutpointWithPoliciesRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+
+	case sqlc.GetChannelBySCIDWithPoliciesRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.ChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.Channel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.ChannelPolicy{

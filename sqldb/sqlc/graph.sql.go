@@ -263,6 +263,138 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 	return i, err
 }
 
+const getChannelByOutpointWithPolicies = `-- name: GetChannelByOutpointWithPolicies :one
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey,
+
+    -- Node 1 policy
+    cp1.id AS policy_1_id,
+    cp1.node_id AS policy_1_node_id,
+    cp1.version AS policy_1_version,
+    cp1.timelock AS policy_1_timelock,
+    cp1.fee_ppm AS policy_1_fee_ppm,
+    cp1.base_fee_msat AS policy_1_base_fee_msat,
+    cp1.min_htlc_msat AS policy_1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy_1_max_htlc_msat,
+    cp1.last_update AS policy_1_last_update,
+    cp1.disabled AS policy_1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.signature AS policy_1_signature,
+
+    -- Node 2 policy
+    cp2.id AS policy_2_id,
+    cp2.node_id AS policy_2_node_id,
+    cp2.version AS policy_2_version,
+    cp2.timelock AS policy_2_timelock,
+    cp2.fee_ppm AS policy_2_fee_ppm,
+    cp2.base_fee_msat AS policy_2_base_fee_msat,
+    cp2.min_htlc_msat AS policy_2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy_2_max_htlc_msat,
+    cp2.last_update AS policy_2_last_update,
+    cp2.disabled AS policy_2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.signature AS policy_2_signature
+FROM channels c
+    JOIN nodes n1 ON c.node_id_1 = n1.id
+    JOIN nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.outpoint = $1 AND c.version = $2
+`
+
+type GetChannelByOutpointWithPoliciesParams struct {
+	Outpoint string
+	Version  int16
+}
+
+type GetChannelByOutpointWithPoliciesRow struct {
+	Channel                        Channel
+	Node1Pubkey                    []byte
+	Node2Pubkey                    []byte
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1Signature               []byte
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2Signature               []byte
+}
+
+func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error) {
+	row := q.db.QueryRowContext(ctx, getChannelByOutpointWithPolicies, arg.Outpoint, arg.Version)
+	var i GetChannelByOutpointWithPoliciesRow
+	err := row.Scan(
+		&i.Channel.ID,
+		&i.Channel.Version,
+		&i.Channel.Scid,
+		&i.Channel.NodeID1,
+		&i.Channel.NodeID2,
+		&i.Channel.Outpoint,
+		&i.Channel.Capacity,
+		&i.Channel.BitcoinKey1,
+		&i.Channel.BitcoinKey2,
+		&i.Channel.Node1Signature,
+		&i.Channel.Node2Signature,
+		&i.Channel.Bitcoin1Signature,
+		&i.Channel.Bitcoin2Signature,
+		&i.Node1Pubkey,
+		&i.Node2Pubkey,
+		&i.Policy1ID,
+		&i.Policy1NodeID,
+		&i.Policy1Version,
+		&i.Policy1Timelock,
+		&i.Policy1FeePpm,
+		&i.Policy1BaseFeeMsat,
+		&i.Policy1MinHtlcMsat,
+		&i.Policy1MaxHtlcMsat,
+		&i.Policy1LastUpdate,
+		&i.Policy1Disabled,
+		&i.Policy1InboundBaseFeeMsat,
+		&i.Policy1InboundFeeRateMilliMsat,
+		&i.Policy1Signature,
+		&i.Policy2ID,
+		&i.Policy2NodeID,
+		&i.Policy2Version,
+		&i.Policy2Timelock,
+		&i.Policy2FeePpm,
+		&i.Policy2BaseFeeMsat,
+		&i.Policy2MinHtlcMsat,
+		&i.Policy2MaxHtlcMsat,
+		&i.Policy2LastUpdate,
+		&i.Policy2Disabled,
+		&i.Policy2InboundBaseFeeMsat,
+		&i.Policy2InboundFeeRateMilliMsat,
+		&i.Policy2Signature,
+	)
+	return i, err
+}
+
 const getChannelBySCID = `-- name: GetChannelBySCID :one
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM channels
 WHERE scid = $1 AND version = $2
@@ -1035,6 +1167,23 @@ func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1
 	return items, nil
 }
 
+const getSCIDByOutpoint = `-- name: GetSCIDByOutpoint :one
+SELECT scid from channels
+WHERE outpoint = $1 AND version = $2
+`
+
+type GetSCIDByOutpointParams struct {
+	Outpoint string
+	Version  int16
+}
+
+func (q *Queries) GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getSCIDByOutpoint, arg.Outpoint, arg.Version)
+	var scid []byte
+	err := row.Scan(&scid)
+	return scid, err
+}
+
 const getSourceNodesByVersion = `-- name: GetSourceNodesByVersion :many
 SELECT sn.node_id, n.pub_key
 FROM source_nodes sn
@@ -1060,6 +1209,43 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getV1DisabledSCIDs = `-- name: GetV1DisabledSCIDs :many
+SELECT c.scid
+FROM channels c
+    JOIN channel_policies cp ON cp.channel_id = c.id
+WHERE cp.disabled = true
+AND c.version = 1
+GROUP BY c.scid
+HAVING COUNT(*) > 1
+`
+
+// NOTE: this is V1 specific since for V1, disabled is a
+// simple, single boolean. The proposed V2 policy
+// structure will have a more complex disabled bit vector
+// and so the query for V2 may differ.
+func (q *Queries) GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, getV1DisabledSCIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1209,6 +1395,53 @@ type InsertNodeFeatureParams struct {
 func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const isPublicV1Node = `-- name: IsPublicV1Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM channels c
+    JOIN nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V1 gossip protocol. In V1, a node is public
+    -- if it has a public channel and a public channel is one
+    -- where we have the set of signatures of the channel
+    -- announcement. It is enough to just check that we have
+    -- one of the signatures since we only ever set them
+    -- together.
+    WHERE c.version = 1
+      AND c.bitcoin_1_signature IS NOT NULL
+      AND n.pub_key = $1
+)
+`
+
+func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isPublicV1Node, pubKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const isZombieChannel = `-- name: IsZombieChannel :one
+SELECT EXISTS (
+    SELECT 1
+    FROM zombie_channels
+    WHERE scid = $1
+    AND version = $2
+) AS is_zombie
+`
+
+type IsZombieChannelParams struct {
+	Scid    []byte
+	Version int16
+}
+
+func (q *Queries) IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isZombieChannel, arg.Scid, arg.Version)
+	var is_zombie bool
+	err := row.Scan(&is_zombie)
+	return is_zombie, err
 }
 
 const listChannelsByNodeID = `-- name: ListChannelsByNodeID :many

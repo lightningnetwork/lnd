@@ -3232,7 +3232,9 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 // he receives Alice's CommitSig message, then Alice concludes that she needs
 // to re-send the CommitDiff. After the diff has been sent, both nodes should
 // resynchronize and be able to complete the dangling commit.
-func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
+func testChanSyncOweCommitment(t *testing.T,
+	chanType channeldb.ChannelType, noop bool) {
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -3241,6 +3243,17 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
 	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+
+	// Let's create the noop add TLV record. This will only be
+	// effective for channels that have a tapscript root.
+	noopRecord := tlv.NewPrimitiveRecord[NoOpHtlcTLVType, bool](true)
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+
+	// If the noop flag is not set for this test, nullify the records.
+	if !noop {
+		records = nil
+	}
 
 	// We'll start off the scenario with Bob sending 3 HTLC's to Alice in a
 	// single state update.
@@ -3251,10 +3264,11 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	for i := 0; i < 3; i++ {
 		rHash := sha256.Sum256(bobPreimage[:])
 		h := &lnwire.UpdateAddHTLC{
-			PaymentHash: rHash,
-			Amount:      htlcAmt,
-			Expiry:      uint32(10),
-			OnionBlob:   fakeOnionBlob,
+			PaymentHash:   rHash,
+			Amount:        htlcAmt,
+			Expiry:        uint32(10),
+			OnionBlob:     fakeOnionBlob,
+			CustomRecords: records,
 		}
 
 		htlcIndex, err := bobChannel.AddHTLC(h, nil)
@@ -3290,15 +3304,17 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
 	}
+
 	var alicePreimage [32]byte
 	copy(alicePreimage[:], bytes.Repeat([]byte{0xaa}, 32))
 	rHash := sha256.Sum256(alicePreimage[:])
 	aliceHtlc := &lnwire.UpdateAddHTLC{
-		ChanID:      chanID,
-		PaymentHash: rHash,
-		Amount:      htlcAmt,
-		Expiry:      uint32(10),
-		OnionBlob:   fakeOnionBlob,
+		ChanID:        chanID,
+		PaymentHash:   rHash,
+		Amount:        htlcAmt,
+		Expiry:        uint32(10),
+		OnionBlob:     fakeOnionBlob,
+		CustomRecords: records,
 	}
 	aliceHtlcIndex, err := aliceChannel.AddHTLC(aliceHtlc, nil)
 	require.NoError(t, err, "unable to add alice's htlc")
@@ -3519,22 +3535,25 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 
 	// At this point, the final balances of both parties should properly
 	// reflect the amount of HTLC's sent.
-	bobMsatSent := numBobHtlcs * htlcAmt
-	if aliceChannel.channelState.TotalMSatSent != htlcAmt {
-		t.Fatalf("wrong value for msat sent: expected %v, got %v",
-			htlcAmt, aliceChannel.channelState.TotalMSatSent)
-	}
-	if aliceChannel.channelState.TotalMSatReceived != bobMsatSent {
-		t.Fatalf("wrong value for msat recv: expected %v, got %v",
-			bobMsatSent, aliceChannel.channelState.TotalMSatReceived)
-	}
-	if bobChannel.channelState.TotalMSatSent != bobMsatSent {
-		t.Fatalf("wrong value for msat sent: expected %v, got %v",
-			bobMsatSent, bobChannel.channelState.TotalMSatSent)
-	}
-	if bobChannel.channelState.TotalMSatReceived != htlcAmt {
-		t.Fatalf("wrong value for msat recv: expected %v, got %v",
-			htlcAmt, bobChannel.channelState.TotalMSatReceived)
+	if noop {
+		// If this test-case includes noop HTLCs, then we don't expect
+		// any balance changes.
+		require.Zero(t, aliceChannel.channelState.TotalMSatSent)
+		require.Zero(t, aliceChannel.channelState.TotalMSatReceived)
+		require.Zero(t, bobChannel.channelState.TotalMSatSent)
+		require.Zero(t, bobChannel.channelState.TotalMSatReceived)
+	} else {
+		// Otherwise, calculate the expected changes and assert them.
+		bobMsatSent := numBobHtlcs * htlcAmt
+
+		aliceChan := aliceChannel.channelState
+		bobChan := bobChannel.channelState
+
+		require.Equal(t, aliceChan.TotalMSatSent, htlcAmt)
+		require.Equal(t, aliceChan.TotalMSatReceived, bobMsatSent)
+
+		require.Equal(t, bobChan.TotalMSatSent, bobMsatSent)
+		require.Equal(t, bobChan.TotalMSatReceived, htlcAmt)
 	}
 }
 
@@ -3548,6 +3567,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	testCases := []struct {
 		name     string
 		chanType channeldb.ChannelType
+		noop     bool
 	}{
 		{
 			name:     "tweakless",
@@ -3571,10 +3591,18 @@ func TestChanSyncOweCommitment(t *testing.T) {
 				channeldb.SimpleTaprootFeatureBit |
 				channeldb.TapscriptRootBit,
 		},
+		{
+			name: "tapscript root with noop",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+			noop: true,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testChanSyncOweCommitment(t, tc.chanType)
+			testChanSyncOweCommitment(t, tc.chanType, tc.noop)
 		})
 	}
 }

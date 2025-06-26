@@ -69,10 +69,7 @@ func (m *minFeeManager) fetchMinFee() SatPerKWeight {
 	// By default, we'll use the backend node's minimum fee as the
 	// minimum fee rate we'll propose for transactions. However, if this
 	// happens to be lower than our fee floor, we'll enforce that instead.
-	m.minFeePerKW = newMinFee
-	if m.minFeePerKW < FeePerKwFloor {
-		m.minFeePerKW = FeePerKwFloor
-	}
+	m.minFeePerKW = max(newMinFee, FeePerKwFloor)
 	m.lastUpdatedTime = time.Now()
 
 	log.Debugf("Using minimum fee rate of %v sat/kw",

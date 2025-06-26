@@ -246,7 +246,7 @@ func (c channelMapKey) String() string {
 
 // getChannelMap loads all channel edge policies from the database and stores
 // them in a map.
-func (c *KVStore) getChannelMap(edges kvdb.RBucket) (
+func getChannelMap(edges kvdb.RBucket) (
 	map[channelMapKey]*models.ChannelEdgePolicy, error) {
 
 	// Create a map to store all channel edge policies.
@@ -415,7 +415,7 @@ func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := c.getChannelMap(edges)
+		channelMap, err := getChannelMap(edges)
 		if err != nil {
 			return err
 		}
@@ -479,7 +479,7 @@ func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := c.getChannelMap(edges)
+		channelMap, err := getChannelMap(edges)
 		if err != nil {
 			return err
 		}

@@ -70,6 +70,9 @@ var (
 	testAddrMainnetP2SH, _   = btcutil.DecodeAddress("3EktnHQD7RiAE6uzMj2ZifT9YgRrkSgzQX", &chaincfg.MainNetParams)
 	testAddrMainnetP2WPKH, _ = btcutil.DecodeAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", &chaincfg.MainNetParams)
 	testAddrMainnetP2WSH, _  = btcutil.DecodeAddress("bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3", &chaincfg.MainNetParams)
+	testAddrMainnetP2TR, _   = btcutil.DecodeAddress("bc1pptdvg0d2nj99568"+
+		"qn6ssdy4cygnwuxgw2ukmnwgwz7jpqjz2kszse2s3lm",
+		&chaincfg.MainNetParams)
 
 	testHopHintPubkeyBytes1, _ = hex.DecodeString("029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255")
 	testHopHintPubkey1, _      = btcec.ParsePubKey(testHopHintPubkeyBytes1)
@@ -298,8 +301,14 @@ func TestDecodeEncode(t *testing.T) {
 		},
 		{
 			// Ignore unknown witness version in fallback address.
-			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsfpppw508d6qejxtdg4y5r3zarvary0c5xw7k8txqv6x0a75xuzp0zsdzk5hq6tmfgweltvs6jk5nhtyd9uqksvr48zga9mw08667w8264gkspluu66jhtcmct36nx363km6cquhhv2cpc6q43r",
-			valid:          true,
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqq" +
+				"qsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan" +
+				"79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrq" +
+				"sfp4z6yn92zrp97a6q5hhh8swys7uf4hm9tr8a0xylnk" +
+				"26fvkg3jx0sdsxvma0zvf2h0pycyyzdrmjncq6lzrfuw" +
+				"xfhv6gzz4q5303n3up6as4ghe5qthg7x20z7vae8w5rq" +
+				"u6de3g4jl7kvuap3qedprqsqqmgqqm6s8sl",
+			valid: true,
 			decodedInvoice: func() *Invoice {
 				return &Invoice{
 					Net:             &chaincfg.MainNetParams,

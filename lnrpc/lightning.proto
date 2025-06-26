@@ -2074,13 +2074,6 @@ message Chain {
     string network = 2;
 }
 
-message ConfirmationUpdate {
-    bytes block_sha = 1;
-    int32 block_height = 2;
-
-    uint32 num_confs_left = 3;
-}
-
 message ChannelOpenUpdate {
     ChannelPoint channel_point = 1;
 }

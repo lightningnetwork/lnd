@@ -3699,7 +3699,7 @@ type srcNodeInfo struct {
 	pub route.Vertex
 }
 
-// getSourceNode returns the DB node ID and pub key of the source node for the
+// sourceNode returns the DB node ID and pub key of the source node for the
 // specified protocol version.
 func (s *SQLStore) getSourceNode(ctx context.Context, db SQLQueries,
 	version ProtocolVersion) (int64, route.Vertex, error) {

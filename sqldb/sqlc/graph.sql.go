@@ -244,6 +244,46 @@ func (q *Queries) DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePr
 	return err
 }
 
+const deleteUnconnectedNodes = `-- name: DeleteUnconnectedNodes :many
+DELETE FROM nodes
+WHERE
+    -- Ignore any of our source nodes.
+    NOT EXISTS (
+        SELECT 1
+        FROM source_nodes sn
+        WHERE sn.node_id = nodes.id
+    )
+    -- Select all nodes that do not have any channels.
+    AND NOT EXISTS (
+        SELECT 1
+        FROM channels c
+        WHERE c.node_id_1 = nodes.id OR c.node_id_2 = nodes.id
+) RETURNING pub_key
+`
+
+func (q *Queries) DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error) {
+	rows, err := q.db.QueryContext(ctx, deleteUnconnectedNodes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var pub_key []byte
+		if err := rows.Scan(&pub_key); err != nil {
+			return nil, err
+		}
+		items = append(items, pub_key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteZombieChannel = `-- name: DeleteZombieChannel :execresult
 DELETE FROM zombie_channels
 WHERE scid = $1
@@ -1375,51 +1415,6 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 	for rows.Next() {
 		var i GetSourceNodesByVersionRow
 		if err := rows.Scan(&i.NodeID, &i.PubKey); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getUnconnectedNodes = `-- name: GetUnconnectedNodes :many
-SELECT n.id, n.pub_key
-FROM nodes n
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM channels c
-    WHERE c.node_id_1 = n.id OR c.node_id_2 = n.id
-)
-AND NOT EXISTS (
-    SELECT 1
-    FROM source_nodes sn
-    WHERE sn.node_id = n.id
-)
-`
-
-type GetUnconnectedNodesRow struct {
-	ID     int64
-	PubKey []byte
-}
-
-// Select all nodes that do not have any channels.
-// Ignore any of our source nodes.
-func (q *Queries) GetUnconnectedNodes(ctx context.Context) ([]GetUnconnectedNodesRow, error) {
-	rows, err := q.db.QueryContext(ctx, getUnconnectedNodes)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetUnconnectedNodesRow
-	for rows.Next() {
-		var i GetUnconnectedNodesRow
-		if err := rows.Scan(&i.ID, &i.PubKey); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

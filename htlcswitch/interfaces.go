@@ -522,7 +522,8 @@ type AuxTrafficShaper interface {
 	PaymentBandwidth(fundingBlob, htlcBlob,
 		commitmentBlob fn.Option[tlv.Blob],
 		linkBandwidth, htlcAmt lnwire.MilliSatoshi,
-		htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error)
+		htlcView lnwallet.AuxHtlcView,
+		peer route.Vertex) (lnwire.MilliSatoshi, error)
 
 	// IsCustomHTLC returns true if the HTLC carries the set of relevant
 	// custom records to put it under the purview of the traffic shaper,

@@ -407,7 +407,22 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
-	return c.db.View(func(tx kvdb.RTx) error {
+	return forEachChannel(c.db, cb)
+}
+
+// forEachChannel iterates through all the channel edges stored within the
+// graph and invokes the passed callback for each edge. The callback takes two
+// edges as since this is a directed graph, both the in/out edges are visited.
+// If the callback returns an error, then the transaction is aborted and the
+// iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
+// for that particular channel edge routing policy will be passed into the
+// callback.
+func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	return db.View(func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound

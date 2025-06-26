@@ -153,7 +153,7 @@ func (*mockTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // ShouldHandleTraffic method should be called first.
 func (*mockTrafficShaper) PaymentBandwidth(_, _, _ fn.Option[tlv.Blob],
 	linkBandwidth, _ lnwire.MilliSatoshi,
-	_ lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
+	_ lnwallet.AuxHtlcView, _ route.Vertex) (lnwire.MilliSatoshi, error) {
 
 	return linkBandwidth, nil
 }

@@ -175,10 +175,6 @@ type SQLStore struct {
 
 	srcNodes  map[ProtocolVersion]*srcNodeInfo
 	srcNodeMu sync.Mutex
-
-	// Temporary fall-back to the KVStore so that we can implement the
-	// interface incrementally.
-	*KVStore
 }
 
 // A compile-time assertion to ensure that SQLStore implements the V1Store
@@ -194,7 +190,7 @@ type SQLStoreConfig struct {
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
 // storage backend.
-func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
+func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	options ...StoreOptionModifier) (*SQLStore, error) {
 
 	opts := DefaultOptions()
@@ -210,7 +206,6 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries, kvStore *KVStore,
 	s := &SQLStore{
 		cfg:         cfg,
 		db:          db,
-		KVStore:     kvStore,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
 		srcNodes:    make(map[ProtocolVersion]*srcNodeInfo),
@@ -1641,7 +1636,9 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 // returned.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
+func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
+	error) {
+
 	var (
 		ctx              = context.TODO()
 		isZombie         bool
@@ -1671,12 +1668,12 @@ func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte) {
 		return nil
 	}, sqldb.NoOpReset)
 	if err != nil {
-		// TODO(elle): update the IsZombieEdge method to return an
-		// error.
-		return false, route.Vertex{}, route.Vertex{}
+		return false, route.Vertex{}, route.Vertex{},
+			fmt.Errorf("%w: %w (chanID=%d)",
+				ErrCantCheckIfZombieEdgeStr, err, chanID)
 	}
 
-	return isZombie, pubKey1, pubKey2
+	return isZombie, pubKey1, pubKey2, nil
 }
 
 // NumZombies returns the current number of zombie channels in the graph.

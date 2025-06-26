@@ -66,6 +66,11 @@ var (
 	// ErrUnknownAddressType is returned when a node's addressType is not
 	// an expected value.
 	ErrUnknownAddressType = fmt.Errorf("address type cannot be resolved")
+
+	// ErrCantCheckIfZombieEdgeStr is an error returned when we
+	// attempt to check if an edge is a zombie but encounter an error.
+	ErrCantCheckIfZombieEdgeStr = fmt.Errorf("unable to check if edge " +
+		"is a zombie")
 )
 
 // ErrTooManyExtraOpaqueBytes creates an error which should be returned if the

@@ -55,6 +55,14 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   `include_auth_proof`. With the flag, these APIs add AuthProof (signatures from
   the channel announcement) to the returned ChannelEdge.
 
+* A [new config](https://github.com/lightningnetwork/lnd/pull/10001) value
+  `--htlcswitch.quiescencetimeout` is added to allow specifying the max duration
+  the channel can be quiescent. A minimal value of 30s is enforced, and a
+  default value of 60s is used. This value is used to limit the dependent
+  protocols like dynamic commitments by restricting that the operation must
+  finish under this timeout value. Consider using a larger timeout value if you
+  have a slow network.
+
 
 ## lncli Additions
 
@@ -171,4 +179,5 @@ reader of a payment request.
 * Funyug
 * Mohamed Awnallah
 * Pins
+* Yong Yu
 * Ziggie

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -369,14 +370,23 @@ func TestParse32Bytes(t *testing.T) {
 func TestParseDescription(t *testing.T) {
 	t.Parallel()
 
+	testNonUTF8StrData, _ := bech32.ConvertBits([]byte(testNonUTF8Str), 8,
+		5, true)
 	testCupOfCoffeeData, _ := bech32.ConvertBits([]byte(testCupOfCoffee), 8, 5, true)
 	testPleaseConsiderData, _ := bech32.ConvertBits([]byte(testPleaseConsider), 8, 5, true)
 
 	tests := []struct {
-		data   []byte
-		valid  bool
-		result *string
+		data     []byte
+		valid    bool
+		result   *string
+		errorMsg string
 	}{
+		{
+			data:     testNonUTF8StrData,
+			valid:    false,
+			errorMsg: "description is not valid UTF-8",
+			result:   nil,
+		},
 		{
 			data:   []byte{},
 			valid:  true,
@@ -399,6 +409,16 @@ func TestParseDescription(t *testing.T) {
 		if (err == nil) != test.valid {
 			t.Errorf("description decoding test %d failed: %v", i, err)
 			return
+		}
+		if (err != nil) && !test.valid {
+			if test.errorMsg != "description is not valid UTF-8" {
+				t.Errorf("description decoding test %d "+
+					"failed: message expected \"%s\", "+
+					"got \"%s\"", i, test.errorMsg,
+					err.Error())
+
+				return
+			}
 		}
 		if test.valid && !reflect.DeepEqual(description, test.result) {
 			t.Fatalf("test %d failed decoding description: "+
@@ -685,18 +705,22 @@ func TestParseRouteHint(t *testing.T) {
 	testDoubleHopData, _ = bech32.ConvertBits(testDoubleHopData, 8, 5, true)
 
 	tests := []struct {
-		data   []byte
-		valid  bool
-		result []HopHint
+		data     []byte
+		valid    bool
+		result   []HopHint
+		errorMsg string
 	}{
 		{
-			data:  []byte{0x0, 0x0, 0x0, 0x0},
-			valid: false, // data too short, not multiple of 51 bytes
+			data: []byte{0x0, 0x0, 0x0, 0x0},
+			// data too short, not multiple of 51 bytes
+			valid:    false,
+			errorMsg: "expected length multiple of 51",
 		},
 		{
-			data:   []byte{},
-			valid:  true,
-			result: []HopHint{},
+			data:     []byte{},
+			valid:    false,
+			result:   []HopHint{},
+			errorMsg: "route hint field contains no hop data",
 		},
 		{
 			data:   testSingleHopData,
@@ -704,8 +728,11 @@ func TestParseRouteHint(t *testing.T) {
 			result: testSingleHop,
 		},
 		{
-			data:  append(testSingleHopData, 0x0),
-			valid: false, // data too long, not multiple of 51 bytes
+			data: append(testSingleHopData,
+				[]byte{0x0, 0x0}...),
+			// data too long, not multiple of 51 bytes
+			valid:    false,
+			errorMsg: "expected length multiple of 51",
 		},
 		{
 			data:   testDoubleHopData,
@@ -719,6 +746,17 @@ func TestParseRouteHint(t *testing.T) {
 		if (err == nil) != test.valid {
 			t.Errorf("routing info decoding test %d failed: %v", i, err)
 			return
+		}
+		if err != nil && !test.valid {
+			if !strings.Contains(err.Error(), test.errorMsg) {
+				t.Errorf("description route hint test %d "+
+					"failed: message got \"%s\", "+
+					"does no contain menssage received "+
+					"\"%s\"", i, err.Error(),
+					test.errorMsg)
+
+				return
+			}
 		}
 		if test.valid {
 			if err := compareRouteHints(test.result, routeHint); err != nil {

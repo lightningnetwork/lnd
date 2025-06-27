@@ -1038,7 +1038,11 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	)
 	switch {
 	case errors.Is(err, ErrInvoiceNotFound) ||
-		errors.Is(err, ErrNoInvoicesCreated):
+		errors.Is(err, ErrNoInvoicesCreated) ||
+		errors.Is(err, ErrInvRefEquivocation):
+
+		log.Debugf("Invoice not found with error: %v, failing htlc",
+			err)
 
 		// If the invoice was not found, return a failure resolution
 		// with an invoice not found result.

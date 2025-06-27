@@ -44,6 +44,11 @@
   `FeeForWeightRoundUp` to the `chainfee` package which rounds up a calculated 
   fee value to the nearest satoshi.
 
+- [Update](https://github.com/lightningnetwork/lnd/pull/9996) lnd to point at
+  the new deployment of the lightning seed service which is used to provide
+  candidate peers during initial network bootstrap. The lseed service now
+  supports `testnet4` and `signet` networks as well.
+
 ## RPC Additions
 
 * When querying

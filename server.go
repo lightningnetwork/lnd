@@ -3070,9 +3070,11 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	}
 	bootStrappers = append(bootStrappers, graphBootstrapper)
 
-	// If this isn't simnet mode, then one of our additional bootstrapping
-	// sources will be the set of running DNS seeds.
-	if !s.cfg.Bitcoin.SimNet {
+	// If this isn't using simnet or regtest mode, then one of our
+	// additional bootstrapping sources will be the set of running DNS
+	// seeds.
+	if !s.cfg.Bitcoin.IsLocalNetwork() {
+		//nolint:ll
 		dnsSeeds, ok := chainreg.ChainDNSSeeds[*s.cfg.ActiveNetParams.GenesisHash]
 
 		// If we have a set of DNS seeds for this chain, then we'll add

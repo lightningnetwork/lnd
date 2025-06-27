@@ -30,6 +30,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// assertTxIndexInBlock verifies that the transaction at the given index in the
+// block matches the expected txid.
+func assertTxIndexInBlock(t *testing.T, miner *rpctest.Harness,
+	blockHash *chainhash.Hash, txIndex uint32,
+	expectedTxid *chainhash.Hash) {
+
+	t.Helper()
+
+	msgBlock, err := miner.Client.GetBlock(blockHash)
+	if err != nil {
+		t.Fatalf("unable to fetch block: %v", err)
+	}
+	block := btcutil.NewBlock(msgBlock)
+	specifiedTxHash, err := block.TxHash(int(txIndex))
+	if err != nil {
+		t.Fatalf("unable to index into block: %v", err)
+	}
+	if !specifiedTxHash.IsEqual(expectedTxid) {
+		t.Fatalf("mismatched tx indexes: expected %v, got %v",
+			expectedTxid, specifiedTxHash)
+	}
+}
+
 func testSingleConfirmationNotification(miner *rpctest.Harness,
 	notifier chainntnfs.TestChainNotifier, scriptDispatch bool, t *testing.T) {
 
@@ -79,23 +102,12 @@ func testSingleConfirmationNotification(miner *rpctest.Harness,
 				blockHash[0], confInfo.BlockHash)
 		}
 
-		// Finally, we'll verify that the tx index returned is the exact same
-		// as the tx index of the transaction within the block itself.
-		msgBlock, err := miner.Client.GetBlock(blockHash[0])
-		if err != nil {
-			t.Fatalf("unable to fetch block: %v", err)
-		}
-
-		block := btcutil.NewBlock(msgBlock)
-		specifiedTxHash, err := block.TxHash(int(confInfo.TxIndex))
-		if err != nil {
-			t.Fatalf("unable to index into block: %v", err)
-		}
-
-		if !specifiedTxHash.IsEqual(txid) {
-			t.Fatalf("mismatched tx indexes: expected %v, got %v",
-				txid, specifiedTxHash)
-		}
+		// Finally, we'll verify that the tx index returned is the exact
+		// same as the tx index of the transaction within the block
+		// itself.
+		assertTxIndexInBlock(
+			t, miner, blockHash[0], confInfo.TxIndex, txid,
+		)
 	case <-time.After(20 * time.Second):
 		t.Fatalf("confirmation notification never received")
 	}
@@ -578,21 +590,12 @@ func testTxConfirmedBeforeNtfnRegistration(miner *rpctest.Harness,
 
 	select {
 	case confInfo := <-ntfn1.Confirmed:
-		// Finally, we'll verify that the tx index returned is the exact same
-		// as the tx index of the transaction within the block itself.
-		msgBlock, err := miner.Client.GetBlock(blockHash[0])
-		if err != nil {
-			t.Fatalf("unable to fetch block: %v", err)
-		}
-		block := btcutil.NewBlock(msgBlock)
-		specifiedTxHash, err := block.TxHash(int(confInfo.TxIndex))
-		if err != nil {
-			t.Fatalf("unable to index into block: %v", err)
-		}
-		if !specifiedTxHash.IsEqual(txid1) {
-			t.Fatalf("mismatched tx indexes: expected %v, got %v",
-				txid1, specifiedTxHash)
-		}
+		// Finally, we'll verify that the tx index returned is the exact
+		// same as the tx index of the transaction within the block
+		// itself.
+		assertTxIndexInBlock(
+			t, miner, blockHash[0], confInfo.TxIndex, txid1,
+		)
 
 		// We'll also ensure that the block height has been set
 		// properly.

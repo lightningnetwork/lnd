@@ -213,6 +213,31 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 		require.Equal(ht, aliceAlias, event.PeerAliasOut)
 	}
 
+	// Verify HTLC IDs are not nil and unique across all forwarding events.
+	seenIDs := make(map[uint64]bool)
+	for _, event := range fwdingHistory.ForwardingEvents {
+		// We check that the incoming and outgoing htlc indices are not
+		// set to nil. The indices are required for any forwarding event
+		// recorded after v0.20.
+		require.NotNil(ht, event.IncomingHtlcId)
+		require.NotNil(ht, event.OutgoingHtlcId)
+
+		require.False(ht, seenIDs[*event.IncomingHtlcId])
+		require.False(ht, seenIDs[*event.OutgoingHtlcId])
+		seenIDs[*event.IncomingHtlcId] = true
+		seenIDs[*event.OutgoingHtlcId] = true
+	}
+
+	// The HTLC IDs should be exactly 0, 1, 2, 3, 4.
+	expectedIDs := map[uint64]bool{
+		0: true,
+		1: true,
+		2: true,
+		3: true,
+		4: true,
+	}
+	require.Equal(ht, expectedIDs, seenIDs)
+
 	// We expect Carol to have successful forwards and settles for
 	// her sends.
 	ht.AssertHtlcEvents(

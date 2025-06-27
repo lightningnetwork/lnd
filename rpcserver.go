@@ -1869,11 +1869,13 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 
 	// In order to avoid erroneously disconnecting from a peer that we have
 	// an active channel with, if we have any channels active with this
-	// peer, then we'll disallow disconnecting from them.
+	// peer, then we'll disallow disconnecting from them in certain
+	// situations.
 	if len(nodeChannels) != 0 {
-		// If we are not in a dev environment or the configed dev value
-		// `unsafedisconnect` is false, we return an error since there
-		// are active channels.
+		// If the configured dev value `unsafedisconnect` is false, we
+		// return an error since there are active channels. For
+		// production environments, we allow disconnecting from a peer
+		// even if there are channels active with them.
 		if !r.cfg.Dev.GetUnsafeDisconnect() {
 			return nil, fmt.Errorf("cannot disconnect from "+
 				"peer(%x), still has %d active channels",
@@ -8060,6 +8062,16 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			AmtInMsat:   uint64(amtInMsat),
 			AmtOutMsat:  uint64(amtOutMsat),
 		}
+
+		// If the incoming htlc id is present, add it to the response.
+		event.IncomingHtlcID.WhenSome(func(id uint64) {
+			resp.ForwardingEvents[i].IncomingHtlcId = &id
+		})
+
+		// If the outgoing htlc id is present, add it to the response.
+		event.OutgoingHtlcID.WhenSome(func(id uint64) {
+			resp.ForwardingEvents[i].OutgoingHtlcId = &id
+		})
 
 		if req.PeerAliasLookup {
 			aliasIn, err := getRemoteAlias(event.IncomingChanID)

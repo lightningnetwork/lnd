@@ -2340,18 +2340,21 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// We'll generate the original second level witness script now, as
 	// we'll need it if we're revoking an HTLC output on the remote
 	// commitment transaction, and *they* go to the second level.
+	//nolint:ll
 	secondLevelAuxLeaf := fn.FlatMapOption(
 		func(l CommitAuxLeaves) fn.Option[input.AuxTapLeaf] {
-			return fn.MapOption(func(val uint16) input.AuxTapLeaf {
-				idx := input.HtlcIndex(val)
+			return fn.MapOption(
+				func(val tlv.BigSizeT[uint64]) input.AuxTapLeaf {
+					idx := val.Int()
 
-				if htlc.Incoming.Val {
-					leaves := l.IncomingHtlcLeaves[idx]
-					return leaves.SecondLevelLeaf
-				}
+					if htlc.Incoming.Val {
+						leaves := l.IncomingHtlcLeaves[idx]
+						return leaves.SecondLevelLeaf
+					}
 
-				return l.OutgoingHtlcLeaves[idx].SecondLevelLeaf
-			})(htlc.HtlcIndex.ValOpt())
+					return l.OutgoingHtlcLeaves[idx].SecondLevelLeaf
+				},
+			)(htlc.HtlcIndex.ValOpt())
 		},
 	)(auxLeaves)
 	secondLevelScript, err := SecondLevelHtlcScript(
@@ -2365,21 +2368,24 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 	// If this is an incoming HTLC, then this means that they were the
 	// sender of the HTLC (relative to us). So we'll re-generate the sender
-	// HTLC script. Otherwise, is this was an outgoing HTLC that we sent,
+	// HTLC script. Otherwise, if this was an outgoing HTLC that we sent,
 	// then from the PoV of the remote commitment state, they're the
 	// receiver of this HTLC.
+	//nolint:ll
 	htlcLeaf := fn.FlatMapOption(
 		func(l CommitAuxLeaves) fn.Option[input.AuxTapLeaf] {
-			return fn.MapOption(func(val uint16) input.AuxTapLeaf {
-				idx := input.HtlcIndex(val)
+			return fn.MapOption(
+				func(val tlv.BigSizeT[uint64]) input.AuxTapLeaf {
+					idx := val.Int()
 
-				if htlc.Incoming.Val {
-					leaves := l.IncomingHtlcLeaves[idx]
-					return leaves.AuxTapLeaf
-				}
+					if htlc.Incoming.Val {
+						leaves := l.IncomingHtlcLeaves[idx]
+						return leaves.AuxTapLeaf
+					}
 
-				return l.OutgoingHtlcLeaves[idx].AuxTapLeaf
-			})(htlc.HtlcIndex.ValOpt())
+					return l.OutgoingHtlcLeaves[idx].AuxTapLeaf
+				},
+			)(htlc.HtlcIndex.ValOpt())
 		},
 	)(auxLeaves)
 	scriptInfo, err := genHtlcScript(

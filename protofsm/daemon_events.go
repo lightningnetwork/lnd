@@ -72,6 +72,10 @@ func (b *BroadcastTxn) daemonSealed() {}
 // custom state machine event.
 type SpendMapper[Event any] func(*chainntnfs.SpendDetail) Event
 
+// ConfMapper is a function that's used to map a confirmation notification to a
+// custom state machine event.
+type ConfMapper[Event any] func(*chainntnfs.TxConfirmation) Event
+
 // RegisterSpend is used to request that a certain event is sent into the state
 // machine once the specified outpoint has been spent.
 type RegisterSpend[Event any] struct {
@@ -112,10 +116,14 @@ type RegisterConf[Event any] struct {
 	// transaction needs to dispatch an event.
 	NumConfs fn.Option[uint32]
 
-	// PostConfEvent is an event that's sent back to the requester once the
-	// transaction specified above has confirmed in the chain with
-	// sufficient depth.
-	PostConfEvent fn.Option[Event]
+	// FullBlock is a boolean that indicates whether we want the full block
+	// in the returned response. This is useful if callers want to create an
+	// SPV proof for the transaction post conf.
+	FullBlock bool
+
+	// PostConfMapper is a special conf mapper, that if present, will be
+	// used to map the protofsm confirmation event to a custom event.
+	PostConfMapper fn.Option[ConfMapper[Event]]
 }
 
 // daemonSealed indicates that this struct is a DaemonEvent instance.

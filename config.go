@@ -238,8 +238,9 @@ const (
 	// defaultHTTPHeaderTimeout is the default timeout for HTTP requests.
 	DefaultHTTPHeaderTimeout = 5 * time.Second
 
-	// DefaultNumRestrictedSlots is the default number of restricted slots
-	// we'll allocate in the server.
+	// DefaultNumRestrictedSlots is the default max number of incoming
+	// connections allowed in the server. Outbound connections are not
+	// restricted.
 	DefaultNumRestrictedSlots = 100
 
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
@@ -529,9 +530,9 @@ type Config struct {
 	// before timing out reading the headers of an HTTP request.
 	HTTPHeaderTimeout time.Duration `long:"http-header-timeout" description:"The maximum duration that the server will wait before timing out reading the headers of an HTTP request."`
 
-	// NumRestrictedSlots is the number of restricted slots we'll allocate
-	// in the server.
-	NumRestrictedSlots uint64 `long:"num-restricted-slots" description:"The number of restricted slots we'll allocate in the server."`
+	// NumRestrictedSlots is the max number of incoming connections allowed
+	// in the server. Outbound connections are not restricted.
+	NumRestrictedSlots uint64 `long:"num-restricted-slots" description:"The max number of incoming connections allowed in the server. Outbound connections are not restricted."`
 
 	// NoDisconnectOnPongFailure controls if we'll disconnect if a peer
 	// doesn't respond to a pong in time.

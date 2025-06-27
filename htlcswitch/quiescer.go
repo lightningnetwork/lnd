@@ -47,12 +47,8 @@ var (
 
 	// ErrQuiescenceTimeout indicates that the quiescer has been quiesced
 	// beyond the allotted time.
-	ErrQuiescenceTimeout = fmt.Errorf(
-		"quiescence timeout",
-	)
+	ErrQuiescenceTimeout = fmt.Errorf("quiescence timeout")
 )
-
-const defaultQuiescenceTimeout = 30 * time.Second
 
 type StfuReq = fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]]
 

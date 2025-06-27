@@ -40,7 +40,9 @@ func (h *Htlcswitch) Validate() error {
 			MaxMailboxDeliveryTimeout)
 	}
 
-	if h.QuiescenceTimeout < minQuiescenceTimeout {
+	// Skip the validation for integration tests so we can use a smaller
+	// timeout value to check the timeout behavior.
+	if !IsDevBuild() && h.QuiescenceTimeout < minQuiescenceTimeout {
 		return fmt.Errorf("quiescencetimeout: %v below minimal: %v",
 			h.QuiescenceTimeout, minQuiescenceTimeout)
 	}

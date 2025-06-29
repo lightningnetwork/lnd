@@ -3064,7 +3064,9 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 	// this can be used by default if we've already partially seeded the
 	// network.
 	chanGraph := autopilot.ChannelGraphFromDatabase(s.graphDB)
-	graphBootstrapper, err := discovery.NewGraphBootstrapper(chanGraph)
+	graphBootstrapper, err := discovery.NewGraphBootstrapper(
+		chanGraph, s.cfg.Bitcoin.IsLocalNetwork(),
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -138,13 +138,26 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // backed by an active autopilot.ChannelGraph instance. This type of network
 // peer bootstrapper will use the authenticated nodes within the known channel
 // graph to bootstrap connections.
-func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper,
-	error) {
+func NewGraphBootstrapper(cg autopilot.ChannelGraph,
+	deterministicSampling bool) (NetworkPeerBootstrapper, error) {
 
-	hashAccumulator, err := newRandomHashAccumulator()
-	if err != nil {
-		return nil, fmt.Errorf("unable to create hash accumulator: %w",
-			err)
+	var (
+		hashAccumulator hashAccumulator
+		err             error
+	)
+	if deterministicSampling {
+		// If we're using deterministic sampling, then we'll use a
+		// no-op hash accumulator that will always return false for
+		// skipNode.
+		hashAccumulator = newNoOpHashAccumulator()
+	} else {
+		// Otherwise, we'll use a random hash accumulator to sample
+		// nodes from the channel graph.
+		hashAccumulator, err = newRandomHashAccumulator()
+		if err != nil {
+			return nil, fmt.Errorf("unable to create hash "+
+				"accumulator: %w", err)
+		}
 	}
 
 	return &ChannelGraphBootstrapper{
@@ -602,3 +615,29 @@ func (r *randomHashAccumulator) rotate() {
 func (r *randomHashAccumulator) skipNode(pub route.Vertex) bool {
 	return bytes.Compare(r.hash[:], pub[1:]) > 0
 }
+
+// noOpHashAccumulator is a no-op implementation of the hashAccumulator
+// interface. This is used when we want deterministic behavior and don't
+// want to sample nodes randomly from the channel graph.
+type noOpHashAccumulator struct{}
+
+// newNoOpHashAccumulator returns a new instance of a noOpHashAccumulator.
+func newNoOpHashAccumulator() *noOpHashAccumulator {
+	return &noOpHashAccumulator{}
+}
+
+// rotate is a no-op for the noOpHashAccumulator.
+//
+// NOTE: this is part of the hashAccumulator interface.
+func (*noOpHashAccumulator) rotate() {}
+
+// skipNode always returns false, meaning that no nodes will be skipped.
+//
+// NOTE: this is part of the hashAccumulator interface.
+func (*noOpHashAccumulator) skipNode(route.Vertex) bool {
+	return false
+}
+
+// A compile-time assertion to ensure that noOpHashAccumulator meets the
+// hashAccumulator interface.
+var _ hashAccumulator = (*noOpHashAccumulator)(nil)

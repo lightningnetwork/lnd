@@ -137,7 +137,9 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   disabling has now been 
   [removed](https://github.com/lightningnetwork/lnd/pull/9967) meaning that any 
   test network scripts that rely on bootstrapping being disabled will need to 
-  explicitly define the `--nobootstrap` flag.
+  explicitly define the `--nobootstrap` flag. Bootstrapping will now also be
+  [deterministic](https://github.com/lightningnetwork/lnd/pull/10003) on local 
+  test networks so that bootstrapping behaviour can be tested for.
 
 ## Database
 

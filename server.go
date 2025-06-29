@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -932,20 +933,13 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within
 	// the network.
-	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
+	color, alias, addresses, err := s.getNodeAnnFields(
+		ctx, selfAddrs, serializedPubKey,
+	)
 	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
 		return nil, err
 	}
 
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
-	}
 	nodeAlias, err := lnwire.NewNodeAlias(alias)
 	if err != nil {
 		return nil, err
@@ -953,7 +947,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Now(),
-		Addresses:            selfAddrs,
+		Addresses:            addresses,
 		Alias:                nodeAlias.String(),
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),
 		Color:                color,
@@ -5572,4 +5566,74 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 	}
 
 	return updates, nil
+}
+
+// getNodeAnnFields populates the alias, color, and addresses. This is used
+// during startup to construct the initial node announcement.
+func (s *server) getNodeAnnFields(ctx context.Context, selfAddrs []net.Addr,
+	serializedPubKey [33]byte) (color.RGBA, string, []net.Addr, error) {
+
+	var (
+		color color.RGBA
+		alias = s.cfg.Alias
+		addrs = selfAddrs
+		err   error
+	)
+
+	// Parse the color from config. We will update this later if the config
+	// color is not changed from default (#3399FF) and we have a value in
+	// the source node.
+	color, err = lncfg.ParseHexColor(s.cfg.Color)
+	if err != nil {
+		return color, "", nil, fmt.Errorf("unable to parse color: %w",
+			err)
+	}
+
+	// Fetch the source node from the graphDB. If it exists, we'll use its
+	// values for our initial node announcement else we'll use the default
+	// config values.
+	sourceNode, err := s.graphDB.SourceNode(ctx)
+	switch {
+	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
+		// If an alias was not set, we'll set it to the first 10 bytes
+		// of the serialized public key.
+		if alias == "" {
+			alias = hex.EncodeToString(serializedPubKey[:10])
+		}
+
+		return color, alias, addrs, nil
+
+	case err != nil:
+		return color, "", nil, err
+	}
+
+	// If the color is not changed from default, it means that we didn't
+	// specify a different color in the config. We'll use the source node's
+	// color.
+	if s.cfg.Color == defaultColor {
+		color = sourceNode.Color
+	}
+
+	// If an alias is not specified in the config, we'll use the source
+	// node's alias.
+	if alias == "" {
+		alias = sourceNode.Alias
+	}
+
+	// To avoid having duplicate addresses, we'll only add addresses from
+	// the source node that are not already in our address list yet.
+	addressMap := make(map[string]struct{}, len(addrs))
+	// Populate the map with the existing addresses.
+	for _, existingAddr := range addrs {
+		addressMap[existingAddr.String()] = struct{}{}
+	}
+	// Append unique addresses from the source node to the address list.
+	for _, addr := range sourceNode.Addresses {
+		if _, found := addressMap[addr.String()]; !found {
+			addrs = append(addrs, addr)
+			addressMap[addr.String()] = struct{}{}
+		}
+	}
+
+	return color, alias, addrs, nil
 }

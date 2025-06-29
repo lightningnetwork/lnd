@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"testing"
@@ -652,6 +653,120 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 		FeatureUpdates: updateFeatureActions,
 	}
 	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
+}
+
+// testNodeAnnouncementPersistence tests that the node announcement configs are
+// persisted correctly and reused when the node is restarted using the correct
+// hierarchy (config > source node > defaults).
+func testNodeAnnouncementPersistence(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
+	// Get the node info and verify that the default values are used for
+	// alias and color.
+	resp := alice.RPC.GetInfo()
+
+	// The alias should be the first 10 bytes of the serialized public key.
+	defaultAlias := hex.EncodeToString(alice.PubKey[:10])
+	require.Equal(ht, defaultAlias, resp.Alias)
+
+	// The color should be the default color (#3399ff).
+	require.Equal(ht, "#3399ff", resp.Color)
+
+	// Update the node announcement and set an alias, color, and addresses.
+	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		Alias: "alice",
+		Color: "#eeeeee",
+		AddressUpdates: []*peersrpc.UpdateAddressAction{
+			{
+				Action:  peersrpc.UpdateAction_ADD,
+				Address: "192.168.1.10:8333",
+			},
+			{
+				Action:  peersrpc.UpdateAction_ADD,
+				Address: "192.168.1.11:8333",
+			},
+		},
+	}
+
+	response := alice.RPC.UpdateNodeAnnouncement(nodeAnnReq)
+
+	expectedOps := map[string]int{
+		"alias":     1,
+		"color":     1,
+		"addresses": 2,
+	}
+	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
+
+	// Restart Alice.
+	ht.RestartNode(alice)
+
+	// assertAddrs is a helper function to assert that the node info
+	// contains the correct addresses.
+	assertAddrs := func(addrsFound []string, targetAddrs ...string) error {
+		addrs := make(map[string]struct{}, len(addrsFound))
+		for _, addr := range addrsFound {
+			addr = strings.Split(addr, "@")[1]
+			addrs[addr] = struct{}{}
+		}
+
+		for _, addr := range targetAddrs {
+			_, ok := addrs[addr]
+			if !ok {
+				return fmt.Errorf("address %v not found in "+
+					"node announcement", addr)
+			}
+		}
+
+		return nil
+	}
+
+	// After restarting, the node info should contain the values that were
+	// set in the update request since the updated values take precedence
+	// over the default values.
+	resp = alice.RPC.GetInfo()
+	require.Equal(ht, "alice", resp.Alias)
+	require.Equal(ht, "#eeeeee", resp.Color)
+	err := assertAddrs(resp.Uris, "192.168.1.10:8333", "192.168.1.11:8333")
+	require.NoError(ht, err)
+
+	// Test that we can still remove an address.
+	removeAddrReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		AddressUpdates: []*peersrpc.UpdateAddressAction{
+			{
+				Action:  peersrpc.UpdateAction_REMOVE,
+				Address: "192.168.1.10:8333",
+			},
+		},
+	}
+	response = alice.RPC.UpdateNodeAnnouncement(removeAddrReq)
+	expectedOps = map[string]int{
+		"addresses": 1,
+	}
+	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
+
+	// Now we retart the node with custom values in the config.
+	lndArgs := []string{
+		"--externalip=192.168.1.12:8333",
+		"--externalip=192.168.1.13:8333",
+		"--alias=alice-updated",
+		"--color=#ffffff",
+	}
+	ht.RestartNodeWithExtraArgs(alice, lndArgs)
+
+	// Get the node info and verify that the values are the same as the
+	// ones we set in the config (and not the updated values).
+	resp = alice.RPC.GetInfo()
+	require.Equal(ht, "alice-updated", resp.Alias)
+	require.Equal(ht, "#ffffff", resp.Color)
+
+	// The addresses should be the same as the ones we set in the config
+	// plus the ones we set in the update request earlier.
+	err = assertAddrs(
+		resp.Uris, "192.168.1.11:8333", "192.168.1.12:8333",
+		"192.168.1.13:8333",
+	)
+	require.NoError(ht, err)
+	require.Error(ht, assertAddrs(resp.Uris, "192.168.1.10:8333"))
 }
 
 // assertSyncType asserts that the peer has an expected syncType.

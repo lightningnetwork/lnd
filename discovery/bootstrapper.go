@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/miekg/dns"
 )
@@ -121,11 +122,10 @@ func shuffleBootstrappers(candidates []NetworkPeerBootstrapper) []NetworkPeerBoo
 type ChannelGraphBootstrapper struct {
 	chanGraph autopilot.ChannelGraph
 
-	// hashAccumulator is a set of 32 random bytes that are read upon the
-	// creation of the channel graph bootstrapper. We use this value to
-	// randomly select nodes within the known graph to connect to. After
-	// each selection, we rotate the accumulator by hashing it with itself.
-	hashAccumulator [32]byte
+	// hashAccumulator is used to determine which nodes to use for
+	// bootstrapping. It allows us to potentially introduce some randomness
+	// into the selection process.
+	hashAccumulator hashAccumulator
 
 	tried map[autopilot.NodeID]struct{}
 }
@@ -138,18 +138,20 @@ var _ NetworkPeerBootstrapper = (*ChannelGraphBootstrapper)(nil)
 // backed by an active autopilot.ChannelGraph instance. This type of network
 // peer bootstrapper will use the authenticated nodes within the known channel
 // graph to bootstrap connections.
-func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper, error) {
+func NewGraphBootstrapper(cg autopilot.ChannelGraph) (NetworkPeerBootstrapper,
+	error) {
 
-	c := &ChannelGraphBootstrapper{
-		chanGraph: cg,
-		tried:     make(map[autopilot.NodeID]struct{}),
+	hashAccumulator, err := newRandomHashAccumulator()
+	if err != nil {
+		return nil, fmt.Errorf("unable to create hash accumulator: %w",
+			err)
 	}
 
-	if _, err := rand.Read(c.hashAccumulator[:]); err != nil {
-		return nil, err
-	}
-
-	return c, nil
+	return &ChannelGraphBootstrapper{
+		chanGraph:       cg,
+		tried:           make(map[autopilot.NodeID]struct{}),
+		hashAccumulator: hashAccumulator,
+	}, nil
 }
 
 // SampleNodeAddrs uniformly samples a set of specified address from the
@@ -199,7 +201,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 			// it's 50/50. If it isn't less, than then we'll
 			// continue forward.
 			nodePubKeyBytes := node.PubKey()
-			if bytes.Compare(c.hashAccumulator[:], nodePubKeyBytes[1:]) > 0 {
+			if c.hashAccumulator.skipNode(nodePubKeyBytes) {
 				return nil
 			}
 
@@ -259,7 +261,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 		tries++
 
 		// We'll now rotate our hash accumulator one value forwards.
-		c.hashAccumulator = sha256.Sum256(c.hashAccumulator[:])
+		c.hashAccumulator.rotate()
 
 		// If this attempt didn't yield any addresses, then we'll exit
 		// early.
@@ -545,4 +547,58 @@ search:
 // implementation of the NetworkPeerBootstrapper.
 func (d *DNSSeedBootstrapper) Name() string {
 	return fmt.Sprintf("BOLT-0010 DNS Seed: %v", d.dnsSeeds)
+}
+
+// hashAccumulator is an interface that defines the methods required for
+// a hash accumulator used to sample nodes from the channel graph.
+type hashAccumulator interface {
+	// rotate rotates the hash accumulator value.
+	rotate()
+
+	// skipNode returns true if the node with the given public key
+	// should be skipped based on the current hash accumulator state.
+	skipNode(pubKey route.Vertex) bool
+}
+
+// randomHashAccumulator is an implementation of the hashAccumulator
+// interface that uses a random hash to sample nodes from the channel graph.
+type randomHashAccumulator struct {
+	hash [32]byte
+}
+
+// A compile time assertion to ensure that randomHashAccumulator meets the
+// hashAccumulator interface.
+var _ hashAccumulator = (*randomHashAccumulator)(nil)
+
+// newRandomHashAccumulator returns a new instance of a randomHashAccumulator.
+// This accumulator is used to randomly sample nodes from the channel graph.
+func newRandomHashAccumulator() (*randomHashAccumulator, error) {
+	var r randomHashAccumulator
+
+	if _, err := rand.Read(r.hash[:]); err != nil {
+		return nil, fmt.Errorf("unable to read random bytes: %w", err)
+	}
+
+	return &r, nil
+}
+
+// rotate rotates the hash accumulator by hashing the current value
+// with itself. This ensures that we have a new random value to compare
+// against when we sample nodes from the channel graph.
+//
+// NOTE: this is part of the hashAccumulator interface.
+func (r *randomHashAccumulator) rotate() {
+	r.hash = sha256.Sum256(r.hash[:])
+}
+
+// skipNode returns true if the node with the given public key should be skipped
+// based on the current hash accumulator state. It will return false for the
+// pub key if it is lexicographically less than our current accumulator value.
+// It does so by comparing the current hash accumulator value with the passed
+// byte slice. When comparing, we skip the first byte as it's 50/50 between 02
+// and 03 for compressed pub keys.
+//
+// NOTE: this is part of the hashAccumulator interface.
+func (r *randomHashAccumulator) skipNode(pub route.Vertex) bool {
+	return bytes.Compare(r.hash[:], pub[1:]) > 0
 }

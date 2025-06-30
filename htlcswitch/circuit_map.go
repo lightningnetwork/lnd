@@ -2,10 +2,10 @@ package htlcswitch
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"

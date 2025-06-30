@@ -1,6 +1,6 @@
 package htlcswitch
 
-import "github.com/go-errors/errors"
+import "errors"
 
 var (
 	// ErrLinkShuttingDown signals that the link is shutting down.

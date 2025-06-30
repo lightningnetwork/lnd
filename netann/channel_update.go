@@ -14,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
-	"github.com/pkg/errors"
 )
 
 const (
@@ -279,13 +278,13 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 
 	// The maxHTLC flag is mandatory.
 	if !msg.MessageFlags.HasMaxHtlc() {
-		return errors.Errorf("max htlc flag not set for channel "+
+		return fmt.Errorf("max htlc flag not set for channel "+
 			"update %v", spew.Sdump(msg))
 	}
 
 	maxHtlc := msg.HtlcMaximumMsat
 	if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
-		return errors.Errorf("invalid max htlc for channel "+
+		return fmt.Errorf("invalid max htlc for channel "+
 			"update %v", spew.Sdump(msg))
 	}
 
@@ -294,7 +293,7 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 	// capacity.
 	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
 	if capacityMsat != 0 && maxHtlc > capacityMsat {
-		return errors.Errorf("max_htlc (%v) for channel update "+
+		return fmt.Errorf("max_htlc (%v) for channel update "+
 			"greater than capacity (%v)", maxHtlc, capacityMsat)
 	}
 

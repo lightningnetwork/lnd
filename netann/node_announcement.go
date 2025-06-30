@@ -2,13 +2,13 @@ package netann
 
 import (
 	"bytes"
+	"fmt"
 	"image/color"
 	"net"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -110,7 +110,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 			return err
 		}
 
-		return errors.Errorf("signature on NodeAnnouncement(%x) is "+
+		return fmt.Errorf("signature on NodeAnnouncement(%x) is "+
 			"invalid: %x", nodeKey.SerializeCompressed(),
 			msgBuf.Bytes())
 	}

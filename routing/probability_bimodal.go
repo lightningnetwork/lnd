@@ -1,12 +1,12 @@
 package routing
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )

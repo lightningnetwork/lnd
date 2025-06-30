@@ -99,6 +99,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 ## Code Health
 
+- [Increase itest coverage](https://github.com/lightningnetwork/lnd/pull/9990)
+for payments. Now the payment address is mandatory for the writer and
+reader of a payment request.
+
 ## Breaking Changes
 ## Performance Improvements
 
@@ -159,3 +163,4 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 * Funyug
 * Mohamed Awnallah
 * Pins
+* Ziggie

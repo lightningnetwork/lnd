@@ -11507,3 +11507,253 @@ func TestNoopAddBelowReserve(t *testing.T) {
 		bobChan.LocalChanReserve()+htlcAmt.ToSatoshis(),
 	)
 }
+
+// TestEvaluateNoOpHtlc tests that the noop htlc evaluator helper function
+// produces the expected balance deltas from various starting states.
+func TestEvaluateNoOpHtlc(t *testing.T) {
+	testCases := []struct {
+		name                        string
+		localBalance, remoteBalance btcutil.Amount
+		localReserve, remoteReserve btcutil.Amount
+		entry                       *paymentDescriptor
+		receiver                    lntypes.ChannelParty
+		balanceDeltas               *lntypes.Dual[int64]
+		expectedDeltas              *lntypes.Dual[int64]
+	}{
+		{
+			name: "local above reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver: lntypes.Local,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver: lntypes.Remote,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "local below reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 2_500,
+			},
+		},
+
+		{
+			name: "local above reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_000,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 25_001_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 25_001_000,
+			},
+		},
+		{
+			name: "local below reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  24_999_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 24_998_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 25_000_500,
+			},
+		},
+		{
+			name: "local above reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Remote,
+			localBalance: 55_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  -4_999_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  -4_999_000,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 55_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -4_999_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: -4_999_000,
+			},
+		},
+		{
+			name: "local below reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 55_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  -5_001_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  -4_998_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 55_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -5_001_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -4_998_500,
+			},
+		},
+	}
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChan, _, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	for _, testCase := range testCases {
+		tc := testCase
+
+		t.Logf("Running test case: %s", testCase.name)
+
+		if tc.localBalance != 0 && tc.localReserve != 0 {
+			aliceChan.channelState.LocalChanCfg.ChanReserve =
+				tc.localReserve
+
+			aliceChan.channelState.LocalCommitment.LocalBalance =
+				lnwire.NewMSatFromSatoshis(tc.localBalance)
+		}
+
+		if tc.remoteBalance != 0 && tc.remoteReserve != 0 {
+			aliceChan.channelState.RemoteChanCfg.ChanReserve =
+				tc.remoteReserve
+
+			aliceChan.channelState.RemoteCommitment.RemoteBalance =
+				lnwire.NewMSatFromSatoshis(tc.remoteBalance)
+		}
+
+		aliceChan.evaluateNoOpHtlc(
+			tc.entry, tc.receiver, tc.balanceDeltas,
+		)
+
+		require.Equal(t, tc.expectedDeltas, tc.balanceDeltas)
+	}
+}

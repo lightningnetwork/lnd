@@ -1670,94 +1670,7 @@ func (l *channelLink) handleDownstreamPkt(ctx context.Context,
 		l.processLocalUpdateFulfillHTLC(ctx, pkt, htlc)
 
 	case *lnwire.UpdateFailHTLC:
-		// If hodl.FailOutgoing mode is active, we exit early to
-		// simulate arbitrary delays between the switch adding a FAIL to
-		// the mailbox, and the HTLC being added to the commitment
-		// state.
-		if l.cfg.HodlMask.Active(hodl.FailOutgoing) {
-			l.log.Warnf(hodl.FailOutgoing.Warning())
-			l.mailBox.AckPacket(pkt.inKey())
-			return
-		}
-
-		// An HTLC cancellation has been triggered somewhere upstream,
-		// we'll remove then HTLC from our local state machine.
-		inKey := pkt.inKey()
-		err := l.channel.FailHTLC(
-			pkt.incomingHTLCID,
-			htlc.Reason,
-			pkt.sourceRef,
-			pkt.destRef,
-			&inKey,
-		)
-		if err != nil {
-			l.log.Errorf("unable to cancel incoming HTLC for "+
-				"circuit-key=%v: %v", inKey, err)
-
-			// If the HTLC index for Fail response was not known to
-			// our commitment state, it has already been cleaned up
-			// by a prior response. We'll thus try to clean up any
-			// lingering state to ensure we don't continue
-			// reforwarding.
-			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
-				l.cleanupSpuriousResponse(pkt)
-			}
-
-			// Remove the packet from the link's mailbox to ensure
-			// it doesn't get replayed after a reconnection.
-			l.mailBox.AckPacket(inKey)
-
-			return
-		}
-
-		l.log.Debugf("queueing removal of FAIL closed circuit: %s->%s",
-			pkt.inKey(), pkt.outKey())
-
-		l.closedCircuits = append(l.closedCircuits, pkt.inKey())
-
-		// With the HTLC removed, we'll need to populate the wire
-		// message to target the specific channel and HTLC to be
-		// canceled. The "Reason" field will have already been set
-		// within the switch.
-		htlc.ChanID = l.ChanID()
-		htlc.ID = pkt.incomingHTLCID
-
-		// We send the HTLC message to the peer which initially created
-		// the HTLC. If the incoming blinding point is non-nil, we
-		// know that we are a relaying node in a blinded path.
-		// Otherwise, we're either an introduction node or not part of
-		// a blinded path at all.
-		if err := l.sendIncomingHTLCFailureMsg(
-			htlc.ID,
-			pkt.obfuscator,
-			htlc.Reason,
-		); err != nil {
-			l.log.Errorf("unable to send HTLC failure: %v",
-				err)
-
-			return
-		}
-
-		// If the packet does not have a link failure set, it failed
-		// further down the route so we notify a forwarding failure.
-		// Otherwise, we notify a link failure because it failed at our
-		// node.
-		if pkt.linkFailure != nil {
-			l.cfg.HtlcNotifier.NotifyLinkFailEvent(
-				newHtlcKey(pkt),
-				newHtlcInfo(pkt),
-				getEventType(pkt),
-				pkt.linkFailure,
-				false,
-			)
-		} else {
-			l.cfg.HtlcNotifier.NotifyForwardingFailEvent(
-				newHtlcKey(pkt), getEventType(pkt),
-			)
-		}
-
-		// Immediately update the commitment tx to minimize latency.
-		l.updateCommitTxOrFail(ctx)
+		l.processLocalUpdateFailHTLC(ctx, pkt, htlc)
 	}
 }
 
@@ -4694,6 +4607,87 @@ func (l *channelLink) processLocalUpdateFulfillHTLC(ctx context.Context,
 	l.cfg.HtlcNotifier.NotifySettleEvent(
 		newHtlcKey(pkt), htlc.PaymentPreimage, getEventType(pkt),
 	)
+
+	// Immediately update the commitment tx to minimize latency.
+	l.updateCommitTxOrFail(ctx)
+}
+
+// processLocalUpdateFailHTLC takes an `UpdateFailHTLC` from the local and
+// processes it.
+func (l *channelLink) processLocalUpdateFailHTLC(ctx context.Context,
+	pkt *htlcPacket, htlc *lnwire.UpdateFailHTLC) {
+
+	// If hodl.FailOutgoing mode is active, we exit early to simulate
+	// arbitrary delays between the switch adding a FAIL to the mailbox, and
+	// the HTLC being added to the commitment state.
+	if l.cfg.HodlMask.Active(hodl.FailOutgoing) {
+		l.log.Warnf(hodl.FailOutgoing.Warning())
+		l.mailBox.AckPacket(pkt.inKey())
+
+		return
+	}
+
+	// An HTLC cancellation has been triggered somewhere upstream, we'll
+	// remove then HTLC from our local state machine.
+	inKey := pkt.inKey()
+	err := l.channel.FailHTLC(
+		pkt.incomingHTLCID, htlc.Reason, pkt.sourceRef, pkt.destRef,
+		&inKey,
+	)
+	if err != nil {
+		l.log.Errorf("unable to cancel incoming HTLC for "+
+			"circuit-key=%v: %v", inKey, err)
+
+		// If the HTLC index for Fail response was not known to our
+		// commitment state, it has already been cleaned up by a prior
+		// response. We'll thus try to clean up any lingering state to
+		// ensure we don't continue reforwarding.
+		if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
+			l.cleanupSpuriousResponse(pkt)
+		}
+
+		// Remove the packet from the link's mailbox to ensure it
+		// doesn't get replayed after a reconnection.
+		l.mailBox.AckPacket(inKey)
+
+		return
+	}
+
+	l.log.Debugf("queueing removal of FAIL closed circuit: %s->%s",
+		pkt.inKey(), pkt.outKey())
+
+	l.closedCircuits = append(l.closedCircuits, pkt.inKey())
+
+	// With the HTLC removed, we'll need to populate the wire message to
+	// target the specific channel and HTLC to be canceled. The "Reason"
+	// field will have already been set within the switch.
+	htlc.ChanID = l.ChanID()
+	htlc.ID = pkt.incomingHTLCID
+
+	// We send the HTLC message to the peer which initially created the
+	// HTLC. If the incoming blinding point is non-nil, we know that we are
+	// a relaying node in a blinded path. Otherwise, we're either an
+	// introduction node or not part of a blinded path at all.
+	err = l.sendIncomingHTLCFailureMsg(htlc.ID, pkt.obfuscator, htlc.Reason)
+	if err != nil {
+		l.log.Errorf("unable to send HTLC failure: %v", err)
+
+		return
+	}
+
+	// If the packet does not have a link failure set, it failed further
+	// down the route so we notify a forwarding failure. Otherwise, we
+	// notify a link failure because it failed at our node.
+	if pkt.linkFailure != nil {
+		l.cfg.HtlcNotifier.NotifyLinkFailEvent(
+			newHtlcKey(pkt), newHtlcInfo(pkt), getEventType(pkt),
+			pkt.linkFailure, false,
+		)
+	} else {
+		l.cfg.HtlcNotifier.NotifyForwardingFailEvent(
+			newHtlcKey(pkt), getEventType(pkt),
+		)
+	}
 
 	// Immediately update the commitment tx to minimize latency.
 	l.updateCommitTxOrFail(ctx)

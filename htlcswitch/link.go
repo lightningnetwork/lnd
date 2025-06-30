@@ -1667,71 +1667,7 @@ func (l *channelLink) handleDownstreamPkt(ctx context.Context,
 		_ = l.handleDownstreamUpdateAdd(ctx, pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
-		// If hodl.SettleOutgoing mode is active, we exit early to
-		// simulate arbitrary delays between the switch adding the
-		// SETTLE to the mailbox, and the HTLC being added to the
-		// commitment state.
-		if l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
-			l.log.Warnf(hodl.SettleOutgoing.Warning())
-			l.mailBox.AckPacket(pkt.inKey())
-			return
-		}
-
-		// An HTLC we forward to the switch has just settled somewhere
-		// upstream. Therefore we settle the HTLC within the our local
-		// state machine.
-		inKey := pkt.inKey()
-		err := l.channel.SettleHTLC(
-			htlc.PaymentPreimage,
-			pkt.incomingHTLCID,
-			pkt.sourceRef,
-			pkt.destRef,
-			&inKey,
-		)
-		if err != nil {
-			l.log.Errorf("unable to settle incoming HTLC for "+
-				"circuit-key=%v: %v", inKey, err)
-
-			// If the HTLC index for Settle response was not known
-			// to our commitment state, it has already been
-			// cleaned up by a prior response. We'll thus try to
-			// clean up any lingering state to ensure we don't
-			// continue reforwarding.
-			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
-				l.cleanupSpuriousResponse(pkt)
-			}
-
-			// Remove the packet from the link's mailbox to ensure
-			// it doesn't get replayed after a reconnection.
-			l.mailBox.AckPacket(inKey)
-
-			return
-		}
-
-		l.log.Debugf("queueing removal of SETTLE closed circuit: "+
-			"%s->%s", pkt.inKey(), pkt.outKey())
-
-		l.closedCircuits = append(l.closedCircuits, pkt.inKey())
-
-		// With the HTLC settled, we'll need to populate the wire
-		// message to target the specific channel and HTLC to be
-		// canceled.
-		htlc.ChanID = l.ChanID()
-		htlc.ID = pkt.incomingHTLCID
-
-		// Then we send the HTLC settle message to the connected peer
-		// so we can continue the propagation of the settle message.
-		l.cfg.Peer.SendMessage(false, htlc)
-
-		// Send a settle event notification to htlcNotifier.
-		l.cfg.HtlcNotifier.NotifySettleEvent(
-			newHtlcKey(pkt),
-			htlc.PaymentPreimage,
-			getEventType(pkt),
-		)
-
-		// Immediately update the commitment tx to minimize latency.
-		l.updateCommitTxOrFail(ctx)
+		l.processLocalUpdateFulfillHTLC(ctx, pkt, htlc)
 
 	case *lnwire.UpdateFailHTLC:
 		// If hodl.FailOutgoing mode is active, we exit early to
@@ -4697,4 +4633,68 @@ func (l *channelLink) processRemoteError(msg *lnwire.Error) {
 		"ChannelPoint(%v): received error from peer: %v",
 		l.channel.ChannelPoint(), msg.Error(),
 	)
+}
+
+// processLocalUpdateFulfillHTLC takes an `UpdateFulfillHTLC` from the local and
+// processes it.
+func (l *channelLink) processLocalUpdateFulfillHTLC(ctx context.Context,
+	pkt *htlcPacket, htlc *lnwire.UpdateFulfillHTLC) {
+
+	// If hodl.SettleOutgoing mode is active, we exit early to simulate
+	// arbitrary delays between the switch adding the SETTLE to the mailbox,
+	// and the HTLC being added to the commitment state.
+	if l.cfg.HodlMask.Active(hodl.SettleOutgoing) {
+		l.log.Warnf(hodl.SettleOutgoing.Warning())
+		l.mailBox.AckPacket(pkt.inKey())
+
+		return
+	}
+
+	// An HTLC we forward to the switch has just settled somewhere upstream.
+	// Therefore we settle the HTLC within the our local state machine.
+	inKey := pkt.inKey()
+	err := l.channel.SettleHTLC(
+		htlc.PaymentPreimage, pkt.incomingHTLCID, pkt.sourceRef,
+		pkt.destRef, &inKey,
+	)
+	if err != nil {
+		l.log.Errorf("unable to settle incoming HTLC for "+
+			"circuit-key=%v: %v", inKey, err)
+
+		// If the HTLC index for Settle response was not known to our
+		// commitment state, it has already been cleaned up by a prior
+		// response. We'll thus try to clean up any lingering state to
+		// ensure we don't continue reforwarding.
+		if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
+			l.cleanupSpuriousResponse(pkt)
+		}
+
+		// Remove the packet from the link's mailbox to ensure it
+		// doesn't get replayed after a reconnection.
+		l.mailBox.AckPacket(inKey)
+
+		return
+	}
+
+	l.log.Debugf("queueing removal of SETTLE closed circuit: %s->%s",
+		pkt.inKey(), pkt.outKey())
+
+	l.closedCircuits = append(l.closedCircuits, pkt.inKey())
+
+	// With the HTLC settled, we'll need to populate the wire message to
+	// target the specific channel and HTLC to be canceled.
+	htlc.ChanID = l.ChanID()
+	htlc.ID = pkt.incomingHTLCID
+
+	// Then we send the HTLC settle message to the connected peer so we can
+	// continue the propagation of the settle message.
+	l.cfg.Peer.SendMessage(false, htlc)
+
+	// Send a settle event notification to htlcNotifier.
+	l.cfg.HtlcNotifier.NotifySettleEvent(
+		newHtlcKey(pkt), htlc.PaymentPreimage, getEventType(pkt),
+	)
+
+	// Immediately update the commitment tx to minimize latency.
+	l.updateCommitTxOrFail(ctx)
 }

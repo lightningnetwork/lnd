@@ -1363,24 +1363,8 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 			return
 		}
 
-		// If the previous event resulted in a non-empty batch, resume
-		// the batch ticker so that it can be cleared. Otherwise pause
-		// the ticker to prevent waking up the htlcManager while the
-		// batch is empty.
-		numUpdates := l.channel.NumPendingUpdates(
-			lntypes.Local, lntypes.Remote,
-		)
-		if numUpdates > 0 {
-			l.cfg.BatchTicker.Resume()
-			l.log.Tracef("BatchTicker resumed, "+
-				"NumPendingUpdates(Local, Remote)=%d",
-				numUpdates,
-			)
-		} else {
-			l.cfg.BatchTicker.Pause()
-			l.log.Trace("BatchTicker paused due to zero " +
-				"NumPendingUpdates(Local, Remote)")
-		}
+		// Pause or resume the batch ticker.
+		l.toggleBatchTicker()
 
 		select {
 		// We have a new hook that needs to be run when we reach a clean
@@ -4621,4 +4605,24 @@ func (l *channelLink) handleUpdateFee(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// toggleBatchTicker checks whether we need to resume or pause the batch ticker.
+// When we have no pending updates, the ticker is paused, otherwise resumed.
+func (l *channelLink) toggleBatchTicker() {
+	// If the previous event resulted in a non-empty batch, resume the batch
+	// ticker so that it can be cleared. Otherwise pause the ticker to
+	// prevent waking up the htlcManager while the batch is empty.
+	numUpdates := l.channel.NumPendingUpdates(lntypes.Local, lntypes.Remote)
+	if numUpdates > 0 {
+		l.cfg.BatchTicker.Resume()
+		l.log.Tracef("BatchTicker resumed, NumPendingUpdates(Local, "+
+			"Remote)=%d", numUpdates)
+
+		return
+	}
+
+	l.cfg.BatchTicker.Pause()
+	l.log.Trace("BatchTicker paused due to zero NumPendingUpdates" +
+		"(Local, Remote)")
 }

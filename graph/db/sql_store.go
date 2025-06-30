@@ -154,11 +154,6 @@ type BatchedSQLQueries interface {
 
 // SQLStore is an implementation of the V1Store interface that uses a SQL
 // database as the backend.
-//
-// NOTE: currently, this temporarily embeds the KVStore struct so that we can
-// implement the V1Store interface incrementally. For any method not
-// implemented,  things will fall back to the KVStore. This is ONLY the case
-// for the time being while this struct is purely used in unit tests only.
 type SQLStore struct {
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries

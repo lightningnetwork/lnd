@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -118,6 +119,10 @@ type RouterBackend struct {
 	// ShouldSetExpEndorsement returns a boolean indicating whether the
 	// experimental endorsement bit should be set.
 	ShouldSetExpEndorsement func() bool
+
+	// Clock is the clock used to validate payment requests expiry.
+	// It is useful for testing.
+	Clock clock.Clock
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -980,9 +985,18 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		}
 
 		// Next, we'll ensure that this payreq hasn't already expired.
-		err = ValidatePayReqExpiry(payReq)
+		err = ValidatePayReqExpiry(r.Clock, payReq)
 		if err != nil {
 			return nil, err
+		}
+
+		// An invoice must include either a payment address or
+		// blinded paths.
+		if payReq.PaymentAddr.IsNone() &&
+			len(payReq.BlindedPaymentPaths) == 0 {
+
+			return nil, errors.New("payment request must contain " +
+				"either a payment address or blinded paths")
 		}
 
 		// If the amount was not included in the invoice, then we let
@@ -1001,7 +1015,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			if reqAmt != 0 {
 				return nil, errors.New("amount must not be " +
 					"specified when paying a non-zero " +
-					" amount invoice")
+					"amount invoice")
 			}
 
 			payIntent.Amount = *payReq.MilliSat
@@ -1370,10 +1384,10 @@ func UnmarshalFeatures(
 
 // ValidatePayReqExpiry checks if the passed payment request has expired. In
 // the case it has expired, an error will be returned.
-func ValidatePayReqExpiry(payReq *zpay32.Invoice) error {
+func ValidatePayReqExpiry(clock clock.Clock, payReq *zpay32.Invoice) error {
 	expiry := payReq.Expiry()
 	validUntil := payReq.Timestamp.Add(expiry)
-	if time.Now().After(validUntil) {
+	if clock.Now().After(validUntil) {
 		return fmt.Errorf("invoice expired. Valid until %v", validUntil)
 	}
 

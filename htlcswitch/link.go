@@ -1414,50 +1414,10 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 		// fee to see if we should adjust our commitment fee.
 		case <-l.updateFeeTimer.C:
 			l.updateFeeTimer.Reset(l.randomFeeUpdateTimeout())
-
-			// If we're not the initiator of the channel, don't we
-			// don't control the fees, so we can ignore this.
-			if !l.channel.IsInitiator() {
-				continue
-			}
-
-			// If we are the initiator, then we'll sample the
-			// current fee rate to get into the chain within 3
-			// blocks.
-			netFee, err := l.sampleNetworkFee()
+			err := l.handleUpdateFee(ctx)
 			if err != nil {
-				l.log.Errorf("unable to sample network fee: %v",
-					err)
-				continue
-			}
-
-			minRelayFee := l.cfg.FeeEstimator.RelayFeePerKW()
-
-			newCommitFee := l.channel.IdealCommitFeeRate(
-				netFee, minRelayFee,
-				l.cfg.MaxAnchorsCommitFeeRate,
-				l.cfg.MaxFeeAllocation,
-			)
-
-			// We determine if we should adjust the commitment fee
-			// based on the current commitment fee, the suggested
-			// new commitment fee and the current minimum relay fee
-			// rate.
-			commitFee := l.channel.CommitFeeRate()
-			if !shouldAdjustCommitFee(
-				newCommitFee, commitFee, minRelayFee,
-			) {
-
-				continue
-			}
-
-			// If we do, then we'll send a new UpdateFee message to
-			// the remote party, to be locked in with a new update.
-			err = l.updateChannelFee(ctx, newCommitFee)
-			if err != nil {
-				l.log.Errorf("unable to update fee rate: %v",
-					err)
-				continue
+				l.log.Errorf("failed to handle update fee: "+
+					"%v", err)
 			}
 
 		// The underlying channel has notified us of a unilateral close
@@ -4618,4 +4578,47 @@ func (l *channelLink) handleQuiescenceReq(req StfuReq) error {
 	}
 
 	return err
+}
+
+// handleUpdateFee is called whenever the `updateFeeTimer` ticks. It is used to
+// decide whether we should send an `update_fee` msg to update the commitment's
+// feerate.
+func (l *channelLink) handleUpdateFee(ctx context.Context) error {
+	// If we're not the initiator of the channel, we don't control the fees,
+	// so we can ignore this.
+	if !l.channel.IsInitiator() {
+		return nil
+	}
+
+	// If we are the initiator, then we'll sample the current fee rate to
+	// get into the chain within 3 blocks.
+	netFee, err := l.sampleNetworkFee()
+	if err != nil {
+		return fmt.Errorf("unable to sample network fee: %w", err)
+	}
+
+	minRelayFee := l.cfg.FeeEstimator.RelayFeePerKW()
+
+	newCommitFee := l.channel.IdealCommitFeeRate(
+		netFee, minRelayFee,
+		l.cfg.MaxAnchorsCommitFeeRate,
+		l.cfg.MaxFeeAllocation,
+	)
+
+	// We determine if we should adjust the commitment fee based on the
+	// current commitment fee, the suggested new commitment fee and the
+	// current minimum relay fee rate.
+	commitFee := l.channel.CommitFeeRate()
+	if !shouldAdjustCommitFee(newCommitFee, commitFee, minRelayFee) {
+		return nil
+	}
+
+	// If we do, then we'll send a new UpdateFee message to the remote
+	// party, to be locked in with a new update.
+	err = l.updateChannelFee(ctx, newCommitFee)
+	if err != nil {
+		return fmt.Errorf("unable to update fee rate: %w", err)
+	}
+
+	return nil
 }

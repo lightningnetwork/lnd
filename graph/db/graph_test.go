@@ -190,17 +190,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// Fetch the node and assert the empty addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
-
-	// Temporarily have a special case for SQLStore, as currently, it does
-	// not correctly handle empty addresses. We assert this incorrect
-	// behaviour here in order to demonstrate the bug. This will be fixed in
-	// an upcoming commit.
-	if _, ok := graph.V1Store.(*SQLStore); ok {
-		require.Empty(t, dbNode.Addresses)
-		require.NotEqual(t, node.Addresses, dbNode.Addresses)
-	} else {
-		compareNodes(t, node, dbNode)
-	}
+	compareNodes(t, node, dbNode)
 
 	known, addrs, err = graph.AddrsForNode(ctx, pub)
 	require.NoError(t, err)

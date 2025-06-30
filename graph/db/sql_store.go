@@ -3619,6 +3619,12 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		}
 	}
 
+	// If we have no addresses, then we'll return nil instead of an
+	// empty slice.
+	if len(addresses) == 0 {
+		addresses = nil
+	}
+
 	return true, addresses, nil
 }
 

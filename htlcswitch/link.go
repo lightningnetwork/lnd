@@ -1252,8 +1252,6 @@ func (l *channelLink) handleChanSyncErr(err error) {
 // and also the htlc trickle queue+timer for this active channels.
 //
 // NOTE: This MUST be run as a goroutine.
-//
-//nolint:funlen
 func (l *channelLink) htlcManager(ctx context.Context) {
 	defer func() {
 		l.cfg.BatchTicker.Stop()
@@ -1269,8 +1267,6 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 	// matched by an inactive one.
 	l.cfg.NotifyActiveLink(l.ChannelPoint())
 	defer l.cfg.NotifyInactiveLinkEvent(l.ChannelPoint())
-
-	// TODO(roasbeef): need to call wipe chan whenever D/C?
 
 	// If the link is not started for the first time, we need to take extra
 	// steps to resume its state.

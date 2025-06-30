@@ -3918,7 +3918,10 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 	// ensure that all acknowledgments that occur during channel
 	// resynchronization have taken affect, causing us only to pull unacked
 	// packets after starting to read from the downstream mailbox.
-	l.mailBox.ResetPackets()
+	err := l.mailBox.ResetPackets()
+	if err != nil {
+		l.log.Errorf("failed to reset packets: %v", err)
+	}
 
 	// If the channel is pending, there's no need to reforwarding packets.
 	if l.ShortChanID() == hop.Source {
@@ -3931,7 +3934,7 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 	// only attempt to resolve packages if our short chan id indicates that
 	// the channel is not pending, otherwise we should have no htlcs to
 	// reforward.
-	err := l.resolveFwdPkgs(ctx)
+	err = l.resolveFwdPkgs(ctx)
 	switch err {
 	// No error was encountered, success.
 	case nil:
@@ -4316,7 +4319,10 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 	l.incomingCommitHooks.invoke()
 	l.RWMutex.Unlock()
 
-	l.cfg.Peer.SendMessage(false, nextRevocation)
+	err = l.cfg.Peer.SendMessage(false, nextRevocation)
+	if err != nil {
+		l.log.Errorf("failed to send RevokeAndAck: %v", err)
+	}
 
 	// Notify the incoming htlcs of which the resolutions were locked in.
 	for id, settled := range finalHTLCs {
@@ -4601,7 +4607,10 @@ func (l *channelLink) processLocalUpdateFulfillHTLC(ctx context.Context,
 
 	// Then we send the HTLC settle message to the connected peer so we can
 	// continue the propagation of the settle message.
-	l.cfg.Peer.SendMessage(false, htlc)
+	err = l.cfg.Peer.SendMessage(false, htlc)
+	if err != nil {
+		l.log.Errorf("failed to send UpdateFulfillHTLC: %v", err)
+	}
 
 	// Send a settle event notification to htlcNotifier.
 	l.cfg.HtlcNotifier.NotifySettleEvent(

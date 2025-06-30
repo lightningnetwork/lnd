@@ -9,7 +9,6 @@ import (
 	"io"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -1451,7 +1450,7 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 		return &FailInvalidBlinding{}, nil
 
 	default:
-		return nil, errors.Errorf("unknown error code: %v", code)
+		return nil, fmt.Errorf("unknown error code: %v", code)
 	}
 }
 

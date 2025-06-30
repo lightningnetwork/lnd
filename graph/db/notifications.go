@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"net"
@@ -11,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -412,8 +412,7 @@ func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
 		// being connected.
 		edgeInfo, _, _, err := c.FetchChannelEdgesByID(m.ChannelID)
 		if err != nil {
-			return errors.Errorf("unable fetch channel edge: %v",
-				err)
+			return fmt.Errorf("unable fetch channel edge: %w", err)
 		}
 
 		// If the flag is one, then the advertising node is actually

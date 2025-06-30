@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -21,7 +22,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
@@ -395,12 +395,12 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			aliceStoredChannels, err = dbAlice.ChannelStateDB().
 				FetchOpenChannels(aliceKeyPub)
 			if err != nil {
-				return nil, errors.Errorf("unable to fetch alice "+
-					"channel: %v", err)
+				return nil, fmt.Errorf("unable to fetch alice "+
+					"channel: %w", err)
 			}
 		default:
-			return nil, errors.Errorf("unable to fetch alice channel: "+
-				"%v", err)
+			return nil, fmt.Errorf("unable to fetch alice "+
+				"channel: %w", err)
 		}
 
 		var aliceStoredChannel *channeldb.OpenChannel
@@ -421,8 +421,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			lnwallet.WithAuxSigner(signerMock),
 		)
 		if err != nil {
-			return nil, errors.Errorf("unable to create new channel: %v",
-				err)
+			return nil, fmt.Errorf("unable to create new "+
+				"channel: %w", err)
 		}
 
 		return newAliceChannel, nil
@@ -436,19 +436,19 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 		case kvdb.ErrDatabaseNotOpen:
 			dbBob = channeldb.OpenForTesting(t, dbBob.Path())
 			if err != nil {
-				return nil, errors.Errorf("unable to reopen bob "+
-					"db: %v", err)
+				return nil, fmt.Errorf("unable to reopen bob "+
+					"db: %w", err)
 			}
 
 			bobStoredChannels, err = dbBob.ChannelStateDB().
 				FetchOpenChannels(bobKeyPub)
 			if err != nil {
-				return nil, errors.Errorf("unable to fetch bob "+
-					"channel: %v", err)
+				return nil, fmt.Errorf("unable to fetch bob "+
+					"channel: %w", err)
 			}
 		default:
-			return nil, errors.Errorf("unable to fetch bob channel: "+
-				"%v", err)
+			return nil, fmt.Errorf("unable to fetch bob channel: "+
+				"%w", err)
 		}
 
 		var bobStoredChannel *channeldb.OpenChannel
@@ -469,8 +469,8 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 			lnwallet.WithAuxSigner(signerMock),
 		)
 		if err != nil {
-			return nil, errors.Errorf("unable to create new channel: %v",
-				err)
+			return nil, fmt.Errorf("unable to create new "+
+				"channel: %w", err)
 		}
 		return newBobChannel, nil
 	}
@@ -881,16 +881,16 @@ func createClusterChannels(t *testing.T, aliceToBob, bobToCarol btcutil.Amount) 
 		bobPrivKey, aliceToBob, aliceToBob, 0, 0, firstChanID,
 	)
 	if err != nil {
-		return nil, nil, errors.Errorf("unable to create "+
-			"alice<->bob channel: %v", err)
+		return nil, nil, fmt.Errorf("unable to create "+
+			"alice<->bob channel: %w", err)
 	}
 
 	secondBobChannel, carolChannel, err := createTestChannel(t, bobPrivKey,
 		carolPrivKey, bobToCarol, bobToCarol, 0, 0, secondChanID,
 	)
 	if err != nil {
-		return nil, nil, errors.Errorf("unable to create "+
-			"bob<->carol channel: %v", err)
+		return nil, nil, fmt.Errorf("unable to create "+
+			"bob<->carol channel: %w", err)
 	}
 
 	restoreFromDb := func() (*clusterChannels, error) {
@@ -1070,8 +1070,8 @@ func createMirroredChannel(t *testing.T, aliceToBob,
 		aliceToBob, bobToAlice, 0, 0, firstChanID,
 	)
 	if err != nil {
-		return nil, nil, errors.Errorf("unable to create "+
-			"alice<->bob channel: %v", err)
+		return nil, nil, fmt.Errorf("unable to create "+
+			"alice<->bob channel: %w", err)
 	}
 
 	return alice, bob, nil

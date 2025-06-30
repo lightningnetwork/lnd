@@ -93,7 +93,7 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of `1.23.9` (or, in case this
+`lnd` is written in Go, with a minimum version of `1.23.10` (or, in case this
 document gets out of date, whatever the Go version in the main `go.mod` file
 requires). To install, run one of the following commands for your OS:
 
@@ -101,8 +101,8 @@ requires). To install, run one of the following commands for your OS:
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.23.9.linux-amd64.tar.gz
-  sha256sum go1.23.9.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.23.10.linux-amd64.tar.gz
+  sha256sum go1.23.10.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
@@ -110,7 +110,7 @@ requires). To install, run one of the following commands for your OS:
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.10.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -119,8 +119,8 @@ requires). To install, run one of the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.23.9.linux-armv6l.tar.gz
-  sha256sum go1.23.9.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.23.10.linux-armv6l.tar.gz
+  sha256sum go1.23.10.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
@@ -128,7 +128,7 @@ requires). To install, run one of the following commands for your OS:
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.23.9.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.23.10.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

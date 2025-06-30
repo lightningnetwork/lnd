@@ -2,10 +2,11 @@ package shachain
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/go-errors/errors"
 )
 
 // Store is an interface which serves as an abstraction over data structure
@@ -117,7 +118,7 @@ func (store *RevocationStore) LookUp(v uint64) (*chainhash.Hash, error) {
 		return &element.hash, nil
 	}
 
-	return nil, errors.Errorf("unable to derive hash #%v", ind)
+	return nil, fmt.Errorf("unable to derive hash #%v", ind)
 }
 
 // AddNextEntry attempts to store the given hash within its internal storage in

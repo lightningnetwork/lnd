@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -188,7 +187,7 @@ func createTestNode() (*models.LightningNode, error) {
 
 	priv, err := btcec.NewPrivateKey()
 	if err != nil {
-		return nil, errors.Errorf("unable create private key: %v", err)
+		return nil, fmt.Errorf("unable create private key: %w", err)
 	}
 
 	pub := priv.PubKey().SerializeCompressed()

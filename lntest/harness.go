@@ -3,6 +3,7 @@ package lntest
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
@@ -293,10 +293,22 @@ func (h *HarnessTest) Stop() {
 // represented as fatal.
 func (h *HarnessTest) RunTestCase(testCase *TestCase) {
 	defer func() {
-		if err := recover(); err != nil {
-			description := errors.Wrap(err, 2).ErrorStack()
-			h.Fatalf("Failed: (%v) panic with: \n%v",
-				testCase.Name, description)
+		if r := recover(); r != nil {
+			// Wrap the recovered panic in an error.
+			var err error
+			switch v := r.(type) {
+			case error:
+				err = v
+			default:
+				err = fmt.Errorf("%v", v)
+			}
+
+			// Capture and print the stack trace.
+			stack := debug.Stack()
+
+			// Fail the test with panic info and stack.
+			h.Fatalf("Failed: (%v) panic with: %v\n%s",
+				testCase.Name, err, stack)
 		}
 	}()
 

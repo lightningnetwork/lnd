@@ -1517,18 +1517,13 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 					"resolution: %v", err)
 			}
 
+		// A user-initiated quiescence request is received. We now
+		// forward it to the quiescer.
 		case qReq := <-l.quiescenceReqs:
-			l.quiescer.InitStfu(qReq)
-
-			if l.noDanglingUpdates(lntypes.Local) {
-				err := l.quiescer.SendOwedStfu()
-				if err != nil {
-					l.stfuFailf(
-						"SendOwedStfu: %s", err.Error(),
-					)
-					res := fn.Err[lntypes.ChannelParty](err)
-					qReq.Resolve(res)
-				}
+			err := l.handleQuiescenceReq(qReq)
+			if err != nil {
+				l.log.Errorf("failed handle quiescence "+
+					"req: %v", err)
 			}
 
 		case <-l.cg.Done():
@@ -4601,6 +4596,25 @@ func (l *channelLink) handleHtlcResolution(ctx context.Context,
 			"process hodl queue: unable to update commitment: %v",
 			err,
 		)
+	}
+
+	return err
+}
+
+// handleQuiescenceReq takes a locally initialized (RPC) quiescence request and
+// forwards it to the quiescer for further processing.
+func (l *channelLink) handleQuiescenceReq(req StfuReq) error {
+	l.quiescer.InitStfu(req)
+
+	if !l.noDanglingUpdates(lntypes.Local) {
+		return nil
+	}
+
+	err := l.quiescer.SendOwedStfu()
+	if err != nil {
+		l.stfuFailf("SendOwedStfu: %s", err.Error())
+		res := fn.Err[lntypes.ChannelParty](err)
+		req.Resolve(res)
 	}
 
 	return err

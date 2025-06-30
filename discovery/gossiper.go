@@ -2234,7 +2234,7 @@ func (d *AuthenticatedGossiper) isMsgStale(_ context.Context,
 		}
 		if err != nil {
 			log.Debugf("Unable to retrieve channel=%v from graph: "+
-				"%v", chanInfo.ChannelID, err)
+				"%v", msg.ShortChannelID, err)
 			return false
 		}
 

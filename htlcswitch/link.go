@@ -1920,76 +1920,11 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
-		if l.IsFlushing(Incoming) {
-			// This is forbidden by the protocol specification.
-			// The best chance we have to deal with this is to drop
-			// the connection. This should roll back the channel
-			// state to the last CommitSig. If the remote has
-			// already sent a CommitSig we haven't received yet,
-			// channel state will be re-synchronized with a
-			// ChannelReestablish message upon reconnection and the
-			// protocol state that caused us to flush the link will
-			// be rolled back. In the event that there was some
-			// non-deterministic behavior in the remote that caused
-			// them to violate the protocol, we have a decent shot
-			// at correcting it this way, since reconnecting will
-			// put us in the cleanest possible state to try again.
-			//
-			// In addition to the above, it is possible for us to
-			// hit this case in situations where we improperly
-			// handle message ordering due to concurrency choices.
-			// An issue has been filed to address this here:
-			// https://github.com/lightningnetwork/lnd/issues/8393
-			l.failf(
-				LinkFailureError{
-					code:             ErrInvalidUpdate,
-					FailureAction:    LinkFailureDisconnect,
-					PermanentFailure: false,
-					Warning:          true,
-				},
-				"received add while link is flushing",
-			)
-
-			return
-		}
-
-		// Disallow htlcs with blinding points set if we haven't
-		// enabled the feature. This saves us from having to process
-		// the onion at all, but will only catch blinded payments
-		// where we are a relaying node (as the blinding point will
-		// be in the payload when we're the introduction node).
-		if msg.BlindingPoint.IsSome() && l.cfg.DisallowRouteBlinding {
-			l.failf(LinkFailureError{code: ErrInvalidUpdate},
-				"blinding point included when route blinding "+
-					"is disabled")
-
-			return
-		}
-
-		// We have to check the limit here rather than later in the
-		// switch because the counterparty can keep sending HTLC's
-		// without sending a revoke. This would mean that the switch
-		// check would only occur later.
-		if l.isOverexposedWithHtlc(msg, true) {
-			l.failf(LinkFailureError{code: ErrInternalError},
-				"peer sent us an HTLC that exceeded our max "+
-					"fee exposure")
-
-			return
-		}
-
-		// We just received an add request from an upstream peer, so we
-		// add it to our state machine, then add the HTLC to our
-		// "settle" list in the event that we know the preimage.
-		index, err := l.channel.ReceiveHTLC(msg)
+		err := l.processRemoteUpdateAddHTLC(msg)
 		if err != nil {
-			l.failf(LinkFailureError{code: ErrInvalidUpdate},
-				"unable to handle upstream add HTLC: %v", err)
+			l.log.Errorf("failed to process remote ADD: %v", err)
 			return
 		}
-
-		l.log.Tracef("receive upstream htlc with payment hash(%x), "+
-			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
 		pre := msg.PaymentPreimage
@@ -4642,4 +4577,83 @@ func (l *channelLink) resumeLink(ctx context.Context) error {
 	}
 
 	return err
+}
+
+// processRemoteUpdateAddHTLC takes an `UpdateAddHTLC` msg sent from the remote
+// and processes it.
+func (l *channelLink) processRemoteUpdateAddHTLC(
+	msg *lnwire.UpdateAddHTLC) error {
+
+	if l.IsFlushing(Incoming) {
+		// This is forbidden by the protocol specification. The best
+		// chance we have to deal with this is to drop the connection.
+		// This should roll back the channel state to the last
+		// CommitSig. If the remote has already sent a CommitSig we
+		// haven't received yet, channel state will be re-synchronized
+		// with a ChannelReestablish message upon reconnection and the
+		// protocol state that caused us to flush the link will be
+		// rolled back. In the event that there was some
+		// non-deterministic behavior in the remote that caused them to
+		// violate the protocol, we have a decent shot at correcting it
+		// this way, since reconnecting will put us in the cleanest
+		// possible state to try again.
+		//
+		// In addition to the above, it is possible for us to hit this
+		// case in situations where we improperly handle message
+		// ordering due to concurrency choices. An issue has been filed
+		// to address this here:
+		// https://github.com/lightningnetwork/lnd/issues/8393
+		err := errors.New("received add while link is flushing")
+		l.failf(
+			LinkFailureError{
+				code:             ErrInvalidUpdate,
+				FailureAction:    LinkFailureDisconnect,
+				PermanentFailure: false,
+				Warning:          true,
+			}, err.Error(),
+		)
+
+		return err
+	}
+
+	// Disallow htlcs with blinding points set if we haven't enabled the
+	// feature. This saves us from having to process the onion at all, but
+	// will only catch blinded payments where we are a relaying node (as the
+	// blinding point will be in the payload when we're the introduction
+	// node).
+	if msg.BlindingPoint.IsSome() && l.cfg.DisallowRouteBlinding {
+		err := errors.New("blinding point included when route " +
+			"blinding is disabled")
+
+		l.failf(LinkFailureError{code: ErrInvalidUpdate}, err.Error())
+
+		return err
+	}
+
+	// We have to check the limit here rather than later in the switch
+	// because the counterparty can keep sending HTLC's without sending a
+	// revoke. This would mean that the switch check would only occur later.
+	if l.isOverexposedWithHtlc(msg, true) {
+		err := errors.New("peer sent us an HTLC that exceeded our " +
+			"max fee exposure")
+		l.failf(LinkFailureError{code: ErrInternalError}, err.Error())
+
+		return err
+	}
+
+	// We just received an add request from an upstream peer, so we add it
+	// to our state machine, then add the HTLC to our "settle" list in the
+	// event that we know the preimage.
+	index, err := l.channel.ReceiveHTLC(msg)
+	if err != nil {
+		l.failf(LinkFailureError{code: ErrInvalidUpdate},
+			"unable to handle upstream add HTLC: %v", err)
+
+		return err
+	}
+
+	l.log.Tracef("receive upstream htlc with payment hash(%x), "+
+		"assigning index: %v", msg.PaymentHash[:], index)
+
+	return nil
 }

@@ -908,6 +908,92 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
 }
 
+// TestEdgePolicyCRUD tests basic CRUD operations for edge policies.
+//
+// NOTE: this currently demonstrates a bug in the SQL backend where
+// Channel Flags and Message Flags are not properly stored. This will be fixed
+// in an upcoming commit.
+func TestEdgePolicyCRUD(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	graph := MakeTestGraph(t)
+
+	node1 := createTestVertex(t)
+	node2 := createTestVertex(t)
+
+	// Create an edge. Don't add it to the DB yet.
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+
+	updateAndAssertPolicies := func(expErr bool) {
+		// Make copies of the policies before calling UpdateEdgePolicy
+		// to avoid any data race's that can occur during async calls
+		// that UpdateEdgePolicy may trigger.
+		edge1 := copyEdgePolicy(edge1)
+		edge2 := copyEdgePolicy(edge2)
+
+		edge1.LastUpdate = nextUpdateTime()
+		edge2.LastUpdate = nextUpdateTime()
+
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
+
+		// Use the ForEachChannel method to fetch the policies and
+		// assert that the deserialized policies match the original
+		// ones.
+		err := graph.ForEachChannel(func(info *models.ChannelEdgeInfo,
+			policy1 *models.ChannelEdgePolicy,
+			policy2 *models.ChannelEdgePolicy) error {
+
+			if expErr {
+				require.Error(
+					t, compareEdgePolicies(edge1, policy1),
+				)
+				require.Error(
+					t, compareEdgePolicies(edge2, policy2),
+				)
+
+				return nil
+			}
+
+			require.NoError(t, compareEdgePolicies(edge1, policy1))
+			require.NoError(t, compareEdgePolicies(edge2, policy2))
+
+			return nil
+		})
+		require.NoError(t, err)
+	}
+
+	// Make sure inserting the policy at this point, before the edge info
+	// is added, will fail.
+	require.ErrorIs(t, graph.UpdateEdgePolicy(ctx, edge1), ErrEdgeNotFound)
+
+	// Now add the edge.
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+
+	updateAndAssertPolicies(false)
+
+	// Update one of the edges to have no extra opaque data.
+	edge1.ExtraOpaqueData = nil
+
+	updateAndAssertPolicies(false)
+
+	// Update one of the edges to have ChannelFlags include a bit unknown
+	// to us.
+	edge1.ChannelFlags |= 1 << 6
+
+	// Update the other edge to have MessageFlags include a bit unknown to
+	// us.
+	edge2.MessageFlags |= 1 << 4
+
+	// NOTE: If the backend is SQL, then we expect an error here as
+	// there is currently a bug in the SQL backend where
+	// ChannelFlags and MessageFlags are not properly stored. This will
+	// be fixed in an upcoming commit.
+	_, isSQLImp := graph.V1Store.(*SQLStore)
+	updateAndAssertPolicies(isSQLImp)
+}
+
 func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
 	expectedFeatures *lnwire.FeatureVector) {
 
@@ -4114,7 +4200,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
-	require.Error(t, ErrEdgeNotFound, graph.UpdateEdgePolicy(ctx, edge1))
+	require.ErrorIs(t, graph.UpdateEdgePolicy(ctx, edge1), ErrEdgeNotFound)
 
 	// Add the edge info.
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))

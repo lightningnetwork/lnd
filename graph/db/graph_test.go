@@ -77,7 +77,7 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(nextUpdateTime(), 0),
+		LastUpdate:           nextUpdateTime(),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
@@ -784,7 +784,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 	edge1 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(433453, 0),
+		LastUpdate:                nextUpdateTime(),
 		MessageFlags:              1,
 		ChannelFlags:              0,
 		TimeLockDelta:             99,
@@ -798,7 +798,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 	edge2 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(124234, 0),
+		LastUpdate:                nextUpdateTime(),
 		MessageFlags:              1,
 		ChannelFlags:              1,
 		TimeLockDelta:             99,
@@ -3455,13 +3455,13 @@ var (
 	updateTimeMu sync.Mutex
 )
 
-func nextUpdateTime() int64 {
+func nextUpdateTime() time.Time {
 	updateTimeMu.Lock()
 	defer updateTimeMu.Unlock()
 
 	updateTime++
 
-	return updateTime
+	return time.Unix(updateTime, 0)
 }
 
 // TestNodeIsPublic ensures that we properly detect nodes that are seen as
@@ -3506,7 +3506,7 @@ func TestNodeIsPublic(t *testing.T) {
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
-			node.LastUpdate = time.Unix(nextUpdateTime(), 0)
+			node.LastUpdate = nextUpdateTime()
 			err := graph.AddLightningNode(ctx, node)
 			require.NoError(t, err)
 		}
@@ -3621,7 +3621,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
-	node2.LastUpdate = time.Unix(nextUpdateTime(), 0)
+	node2.LastUpdate = nextUpdateTime()
 	if err := graph.AddLightningNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}

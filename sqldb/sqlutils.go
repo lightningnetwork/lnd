@@ -68,3 +68,10 @@ func SQLTime(t time.Time) sql.NullTime {
 		Valid: true,
 	}
 }
+
+// ExtractSqlInt16 turns a NullInt16 into a numerical type. This can be useful
+// when reading directly from the database, as this function handles extracting
+// the inner value from the "option"-like struct.
+func ExtractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
+	return T(num.Int16)
+}

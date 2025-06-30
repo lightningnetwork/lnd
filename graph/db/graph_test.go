@@ -909,10 +909,6 @@ func TestEdgeInfoUpdates(t *testing.T) {
 }
 
 // TestEdgePolicyCRUD tests basic CRUD operations for edge policies.
-//
-// NOTE: this currently demonstrates a bug in the SQL backend where
-// Channel Flags and Message Flags are not properly stored. This will be fixed
-// in an upcoming commit.
 func TestEdgePolicyCRUD(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -925,7 +921,7 @@ func TestEdgePolicyCRUD(t *testing.T) {
 	// Create an edge. Don't add it to the DB yet.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 
-	updateAndAssertPolicies := func(expErr bool) {
+	updateAndAssertPolicies := func() {
 		// Make copies of the policies before calling UpdateEdgePolicy
 		// to avoid any data race's that can occur during async calls
 		// that UpdateEdgePolicy may trigger.
@@ -945,17 +941,6 @@ func TestEdgePolicyCRUD(t *testing.T) {
 			policy1 *models.ChannelEdgePolicy,
 			policy2 *models.ChannelEdgePolicy) error {
 
-			if expErr {
-				require.Error(
-					t, compareEdgePolicies(edge1, policy1),
-				)
-				require.Error(
-					t, compareEdgePolicies(edge2, policy2),
-				)
-
-				return nil
-			}
-
 			require.NoError(t, compareEdgePolicies(edge1, policy1))
 			require.NoError(t, compareEdgePolicies(edge2, policy2))
 
@@ -971,12 +956,12 @@ func TestEdgePolicyCRUD(t *testing.T) {
 	// Now add the edge.
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
 
-	updateAndAssertPolicies(false)
+	updateAndAssertPolicies()
 
 	// Update one of the edges to have no extra opaque data.
 	edge1.ExtraOpaqueData = nil
 
-	updateAndAssertPolicies(false)
+	updateAndAssertPolicies()
 
 	// Update one of the edges to have ChannelFlags include a bit unknown
 	// to us.
@@ -986,12 +971,7 @@ func TestEdgePolicyCRUD(t *testing.T) {
 	// us.
 	edge2.MessageFlags |= 1 << 4
 
-	// NOTE: If the backend is SQL, then we expect an error here as
-	// there is currently a bug in the SQL backend where
-	// ChannelFlags and MessageFlags are not properly stored. This will
-	// be fixed in an upcoming commit.
-	_, isSQLImp := graph.V1Store.(*SQLStore)
-	updateAndAssertPolicies(isSQLImp)
+	updateAndAssertPolicies()
 }
 
 func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,

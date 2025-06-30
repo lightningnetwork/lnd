@@ -1961,106 +1961,11 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 		}
 
 	case *lnwire.RevokeAndAck:
-		// We've received a revocation from the remote chain, if valid,
-		// this moves the remote chain forward, and expands our
-		// revocation window.
-
-		// We now process the message and advance our remote commit
-		// chain.
-		fwdPkg, remoteHTLCs, err := l.channel.ReceiveRevocation(msg)
+		err := l.processRemoteRevokeAndAck(ctx, msg)
 		if err != nil {
-			// TODO(halseth): force close?
-			l.failf(
-				LinkFailureError{
-					code:          ErrInvalidRevocation,
-					FailureAction: LinkFailureDisconnect,
-				},
-				"unable to accept revocation: %v", err,
-			)
+			l.log.Errorf("failed to process remote revoke: %v", err)
 			return
 		}
-
-		// The remote party now has a new primary commitment, so we'll
-		// update the contract court to be aware of this new set (the
-		// prior old remote pending).
-		newUpdate := &contractcourt.ContractUpdate{
-			HtlcKey: contractcourt.RemoteHtlcSet,
-			Htlcs:   remoteHTLCs,
-		}
-		err = l.cfg.NotifyContractUpdate(newUpdate)
-		if err != nil {
-			l.log.Errorf("unable to notify contract update: %v",
-				err)
-			return
-		}
-
-		select {
-		case <-l.cg.Done():
-			return
-		default:
-		}
-
-		// If we have a tower client for this channel type, we'll
-		// create a backup for the current state.
-		if l.cfg.TowerClient != nil {
-			state := l.channel.State()
-			chanID := l.ChanID()
-
-			err = l.cfg.TowerClient.BackupState(
-				&chanID, state.RemoteCommitment.CommitHeight-1,
-			)
-			if err != nil {
-				l.failf(LinkFailureError{
-					code: ErrInternalError,
-				}, "unable to queue breach backup: %v", err)
-				return
-			}
-		}
-
-		// If we can send updates then we can process adds in case we
-		// are the exit hop and need to send back resolutions, or in
-		// case there are validity issues with the packets. Otherwise
-		// we defer the action until resume.
-		//
-		// We are free to process the settles and fails without this
-		// check since processing those can't result in further updates
-		// to this channel link.
-		if l.quiescer.CanSendUpdates() {
-			l.processRemoteAdds(fwdPkg)
-		} else {
-			l.quiescer.OnResume(func() {
-				l.processRemoteAdds(fwdPkg)
-			})
-		}
-		l.processRemoteSettleFails(fwdPkg)
-
-		// If the link failed during processing the adds, we must
-		// return to ensure we won't attempted to update the state
-		// further.
-		if l.failed {
-			return
-		}
-
-		// The revocation window opened up. If there are pending local
-		// updates, try to update the commit tx. Pending updates could
-		// already have been present because of a previously failed
-		// update to the commit tx or freshly added in by
-		// processRemoteAdds. Also in case there are no local updates,
-		// but there are still remote updates that are not in the remote
-		// commit tx yet, send out an update.
-		if l.channel.OweCommitment() {
-			if !l.updateCommitTxOrFail(ctx) {
-				return
-			}
-		}
-
-		// Now that we have finished processing the RevokeAndAck, we
-		// can invoke the flushHooks if the channel state is clean.
-		l.RWMutex.Lock()
-		if l.channel.IsChannelClean() {
-			l.flushHooks.invoke()
-		}
-		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
 		// Check and see if their proposed fee-rate would make us
@@ -4693,6 +4598,111 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 	// Now that we have finished processing the incoming CommitSig and sent
 	// out our RevokeAndAck, we invoke the flushHooks if the channel state
 	// is clean.
+	l.RWMutex.Lock()
+	if l.channel.IsChannelClean() {
+		l.flushHooks.invoke()
+	}
+	l.RWMutex.Unlock()
+
+	return nil
+}
+
+// processRemoteRevokeAndAck takes a `RevokeAndAck` msg sent from the remote and
+// processes it.
+func (l *channelLink) processRemoteRevokeAndAck(ctx context.Context,
+	msg *lnwire.RevokeAndAck) error {
+
+	// We've received a revocation from the remote chain, if valid, this
+	// moves the remote chain forward, and expands our revocation window.
+
+	// We now process the message and advance our remote commit chain.
+	fwdPkg, remoteHTLCs, err := l.channel.ReceiveRevocation(msg)
+	if err != nil {
+		// TODO(halseth): force close?
+		l.failf(
+			LinkFailureError{
+				code:          ErrInvalidRevocation,
+				FailureAction: LinkFailureDisconnect,
+			},
+			"unable to accept revocation: %v", err,
+		)
+
+		return err
+	}
+
+	// The remote party now has a new primary commitment, so we'll update
+	// the contract court to be aware of this new set (the prior old remote
+	// pending).
+	newUpdate := &contractcourt.ContractUpdate{
+		HtlcKey: contractcourt.RemoteHtlcSet,
+		Htlcs:   remoteHTLCs,
+	}
+	err = l.cfg.NotifyContractUpdate(newUpdate)
+	if err != nil {
+		return fmt.Errorf("unable to notify contract update: %w", err)
+	}
+
+	select {
+	case <-l.cg.Done():
+		return nil
+	default:
+	}
+
+	// If we have a tower client for this channel type, we'll create a
+	// backup for the current state.
+	if l.cfg.TowerClient != nil {
+		state := l.channel.State()
+		chanID := l.ChanID()
+
+		err = l.cfg.TowerClient.BackupState(
+			&chanID, state.RemoteCommitment.CommitHeight-1,
+		)
+		if err != nil {
+			l.failf(LinkFailureError{
+				code: ErrInternalError,
+			}, "unable to queue breach backup: %v", err)
+
+			return err
+		}
+	}
+
+	// If we can send updates then we can process adds in case we are the
+	// exit hop and need to send back resolutions, or in case there are
+	// validity issues with the packets. Otherwise we defer the action until
+	// resume.
+	//
+	// We are free to process the settles and fails without this check since
+	// processing those can't result in further updates to this channel
+	// link.
+	if l.quiescer.CanSendUpdates() {
+		l.processRemoteAdds(fwdPkg)
+	} else {
+		l.quiescer.OnResume(func() {
+			l.processRemoteAdds(fwdPkg)
+		})
+	}
+	l.processRemoteSettleFails(fwdPkg)
+
+	// If the link failed during processing the adds, we must return to
+	// ensure we won't attempted to update the state further.
+	if l.failed {
+		return nil
+	}
+
+	// The revocation window opened up. If there are pending local updates,
+	// try to update the commit tx. Pending updates could already have been
+	// present because of a previously failed update to the commit tx or
+	// freshly added in by processRemoteAdds. Also in case there are no
+	// local updates, but there are still remote updates that are not in the
+	// remote commit tx yet, send out an update.
+	if l.channel.OweCommitment() {
+		if !l.updateCommitTxOrFail(ctx) {
+			return nil
+		}
+	}
+
+	// Now that we have finished processing the RevokeAndAck, we can invoke
+	// the flushHooks if the channel state is clean.
 	l.RWMutex.Lock()
 	if l.channel.IsChannelClean() {
 		l.flushHooks.invoke()

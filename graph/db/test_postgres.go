@@ -12,8 +12,7 @@ import (
 )
 
 // NewTestDB is a helper function that creates a SQLStore backed by a postgres
-// database for testing. At the moment, it embeds a KVStore but once the
-// SQLStore fully implements the V1Store interface, the KVStore will be removed.
+// database for testing.
 func NewTestDB(t testing.TB) V1Store {
 	pgFixture := sqldb.NewTestPgFixture(
 		t, sqldb.DefaultPostgresFixtureLifetime,

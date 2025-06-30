@@ -1307,13 +1307,6 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 	// allow the switch to forward HTLCs in the outbound direction.
 	l.markReestablished()
 
-	// Now that we've received both channel_ready and channel reestablish,
-	// we can go ahead and send the active channel notification. We'll also
-	// defer the inactive notification for when the link exits to ensure
-	// that every active notification is matched by an inactive one.
-	l.cfg.NotifyActiveChannel(l.ChannelPoint())
-	defer l.cfg.NotifyInactiveChannel(l.ChannelPoint())
-
 	// With the channel states synced, we now reset the mailbox to ensure
 	// we start processing all unacked packets in order. This is done here
 	// to ensure that all acknowledgments that occur during channel
@@ -1354,6 +1347,13 @@ func (l *channelLink) htlcManager(ctx context.Context) {
 		l.cg.WgAdd(1)
 		go l.fwdPkgGarbager()
 	}
+
+	// Now that we've received both channel_ready and channel reestablish,
+	// we can go ahead and send the active channel notification. We'll also
+	// defer the inactive notification for when the link exits to ensure
+	// that every active notification is matched by an inactive one.
+	l.cfg.NotifyActiveChannel(l.ChannelPoint())
+	defer l.cfg.NotifyInactiveChannel(l.ChannelPoint())
 
 	for {
 		// We must always check if we failed at some point processing

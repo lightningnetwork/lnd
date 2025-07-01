@@ -64,7 +64,7 @@ type SQLQueries interface {
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.Node, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
-	GetUnconnectedNodes(ctx context.Context) ([]sqlc.GetUnconnectedNodesRow, error)
+	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
 
@@ -154,11 +154,6 @@ type BatchedSQLQueries interface {
 
 // SQLStore is an implementation of the V1Store interface that uses a SQL
 // database as the backend.
-//
-// NOTE: currently, this temporarily embeds the KVStore struct so that we can
-// implement the V1Store interface incrementally. For any method not
-// implemented,  things will fall back to the KVStore. This is ONLY the case
-// for the time being while this struct is purely used in unit tests only.
 type SQLStore struct {
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries
@@ -2568,30 +2563,21 @@ func (s *SQLStore) PruneTip() (*chainhash.Hash, uint32, error) {
 func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 	db SQLQueries) ([]route.Vertex, error) {
 
-	// Fetch all un-connected nodes from the database.
-	// NOTE: this will not include any nodes that are listed in the
-	// source table.
-	nodes, err := db.GetUnconnectedNodes(ctx)
+	nodeKeys, err := db.DeleteUnconnectedNodes(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch unconnected nodes: %w",
-			err)
+		return nil, fmt.Errorf("unable to delete unconnected "+
+			"nodes: %w", err)
 	}
 
-	prunedNodes := make([]route.Vertex, 0, len(nodes))
-	for _, node := range nodes {
-		// TODO(elle): update to use sqlc.slice() once that works.
-		if err = db.DeleteNode(ctx, node.ID); err != nil {
-			return nil, fmt.Errorf("unable to delete "+
-				"node(id=%d): %w", node.ID, err)
-		}
-
-		pubKey, err := route.NewVertexFromBytes(node.PubKey)
+	prunedNodes := make([]route.Vertex, len(nodeKeys))
+	for i, nodeKey := range nodeKeys {
+		pub, err := route.NewVertexFromBytes(nodeKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse pubkey "+
-				"for node(id=%d): %w", node.ID, err)
+				"from bytes: %w", err)
 		}
 
-		prunedNodes = append(prunedNodes, pubKey)
+		prunedNodes[i] = pub
 	}
 
 	return prunedNodes, nil
@@ -3636,6 +3622,12 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 			return false, nil, fmt.Errorf("unknown address "+
 				"type: %v", addr.Type)
 		}
+	}
+
+	// If we have no addresses, then we'll return nil instead of an
+	// empty slice.
+	if len(addresses) == 0 {
+		addresses = nil
 	}
 
 	return true, addresses, nil

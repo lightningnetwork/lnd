@@ -97,6 +97,7 @@ func createTestVertex(t testing.TB) *models.LightningNode {
 	return createLightningNode(priv)
 }
 
+// TestNodeInsertionAndDeletion tests the CRUD operations for a LightningNode.
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -124,9 +125,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
 	node := nodeWithAddrs(testAddrs)
-	if err := graph.AddLightningNode(ctx, node); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, graph.AddLightningNode(ctx, node))
 	assertNodeInCache(t, graph, node, testFeatures)
 
 	// Next, fetch the node from the database to ensure everything was
@@ -135,11 +134,8 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, err, "unable to locate node")
 
 	_, exists, err := graph.HasLightningNode(ctx, dbNode.PubKeyBytes)
-	if err != nil {
-		t.Fatalf("unable to query for node: %v", err)
-	} else if !exists {
-		t.Fatalf("node should be found but wasn't")
-	}
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	// The two nodes should match exactly!
 	compareNodes(t, node, dbNode)
@@ -194,7 +190,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// Fetch the node and assert the empty addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
-	require.Empty(t, dbNode.Addresses)
+	compareNodes(t, node, dbNode)
 
 	known, addrs, err = graph.AddrsForNode(ctx, pub)
 	require.NoError(t, err)

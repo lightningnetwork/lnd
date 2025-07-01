@@ -10993,7 +10993,8 @@ type RoutingPolicy struct {
 	Disabled         bool   `protobuf:"varint,5,opt,name=disabled,proto3" json:"disabled,omitempty"`
 	MaxHtlcMsat      uint64 `protobuf:"varint,6,opt,name=max_htlc_msat,json=maxHtlcMsat,proto3" json:"max_htlc_msat,omitempty"`
 	LastUpdate       uint32 `protobuf:"varint,7,opt,name=last_update,json=lastUpdate,proto3" json:"last_update,omitempty"`
-	// Custom channel update tlv records.
+	// Custom channel update tlv records. These are customized fields that are
+	// not defined by LND and cannot be extracted.
 	CustomRecords           map[uint64][]byte `protobuf:"bytes,8,rep,name=custom_records,json=customRecords,proto3" json:"custom_records,omitempty" protobuf_key:"varint,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
 	InboundFeeBaseMsat      int32             `protobuf:"varint,9,opt,name=inbound_fee_base_msat,json=inboundFeeBaseMsat,proto3" json:"inbound_fee_base_msat,omitempty"`
 	InboundFeeRateMilliMsat int32             `protobuf:"varint,10,opt,name=inbound_fee_rate_milli_msat,json=inboundFeeRateMilliMsat,proto3" json:"inbound_fee_rate_milli_msat,omitempty"`

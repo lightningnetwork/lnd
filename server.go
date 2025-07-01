@@ -24,6 +24,7 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -56,6 +57,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -4974,7 +4976,11 @@ func (s *server) removePeerUnsafe(p *peer.Brontide) {
 		return
 	}
 
-	srvrLog.Debugf("Removing peer %v", p)
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", p.IdentityKey()),
+	)
+
+	srvrLog.DebugS(ctx, "Removing peer")
 
 	// Exit early if we have already been instructed to shutdown, the peers
 	// will be disconnected in the server shutdown process.
@@ -5014,7 +5020,7 @@ func (s *server) removePeerUnsafe(p *peer.Brontide) {
 
 		// Remove the peer's access permission from the access manager.
 		peerPubStr := string(p.IdentityKey().SerializeCompressed())
-		s.peerAccessMan.removePeerAccess(peerPubStr)
+		s.peerAccessMan.removePeerAccess(ctx, peerPubStr)
 
 		// Copy the peer's error buffer across to the server if it has
 		// any items in it so that we can restore peer errors across

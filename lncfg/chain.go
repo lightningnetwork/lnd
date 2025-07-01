@@ -52,3 +52,9 @@ func (c *Chain) Validate(minTimeLockDelta uint32, minDelay uint16) error {
 
 	return nil
 }
+
+// IsLocalNetwork returns true if the chain is a local network, such as
+// simnet or regtest.
+func (c *Chain) IsLocalNetwork() bool {
+	return c.SimNet || c.RegTest
+}

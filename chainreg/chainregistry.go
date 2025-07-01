@@ -528,7 +528,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// On local test networks we usually don't have multiple
 			// chain backend peers, so we can skip
 			// the checkOutboundPeers test.
-			if cfg.Bitcoin.SimNet || cfg.Bitcoin.RegTest {
+			if cfg.Bitcoin.IsLocalNetwork() {
 				return nil
 			}
 
@@ -651,7 +651,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			// On local test networks we usually don't have multiple
 			// chain backend peers, so we can skip
 			// the checkOutboundPeers test.
-			if cfg.Bitcoin.SimNet || cfg.Bitcoin.RegTest {
+			if cfg.Bitcoin.IsLocalNetwork() {
 				return nil
 			}
 

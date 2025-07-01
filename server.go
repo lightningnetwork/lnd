@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	prand "math/rand"
@@ -23,7 +24,6 @@ import (
 	"github.com/btcsuite/btcd/connmgr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
@@ -950,9 +950,35 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(elle): All previously persisted node announcement fields (ie,
+	//  not just LastUpdate) should be consulted here to ensure that we
+	//  aren't overwriting any fields that may have been set during the
+	//  last run of lnd.
+	nodeLastUpdate := time.Now()
+	srcNode, err := dbs.GraphDB.SourceNode(ctx)
+	switch {
+	// If we have a source node persisted in the DB already, then we just
+	// need to make sure that the new LastUpdate time is at least one
+	// second after the last update time.
+	case err == nil:
+		if srcNode.LastUpdate.Second() >= nodeLastUpdate.Second() {
+			nodeLastUpdate = srcNode.LastUpdate.Add(time.Second)
+		}
+
+	// If we don't have a source node persisted in the DB, then we'll
+	// create a new one with the current time as the LastUpdate.
+	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
+
+	// If the above cases are not matched, then we have an unhandled non
+	// nil error.
+	default:
+		return nil, fmt.Errorf("unable to fetch source node: %w", err)
+	}
+
 	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Now(),
+		LastUpdate:           nodeLastUpdate,
 		Addresses:            selfAddrs,
 		Alias:                nodeAlias.String(),
 		Features:             s.featureMgr.Get(feature.SetNodeAnn),

@@ -1,11 +1,11 @@
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"

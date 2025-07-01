@@ -1,10 +1,10 @@
 package shachain
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
-	"github.com/go-errors/errors"
 	"github.com/stretchr/testify/require"
 )
 

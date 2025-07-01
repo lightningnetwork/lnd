@@ -2,10 +2,11 @@ package channeldb
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/go-errors/errors"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
@@ -56,7 +57,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 			if dryRun && r != ErrDryRunMigrationOK {
 				t.Fatalf("expected dry run migration OK")
 			}
-			err = errors.New(r)
+			err = fmt.Errorf("%v", r)
 		}
 
 		if err == nil && shouldFail {

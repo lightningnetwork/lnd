@@ -3,6 +3,7 @@ package funding
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -18,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -4436,8 +4436,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
 	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement: %w", err)
 	}
 
 	switch {
@@ -4480,13 +4480,13 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 	sig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanUpdateMsg, true)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement signature: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement signature: %w", err)
 	}
 	chanUpdateAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement signature: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement signature: %w", err)
 	}
 
 	// The channel existence proofs itself is currently announced in
@@ -4502,15 +4502,15 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanAnnMsg, true)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate node "+
-			"signature for channel announcement: %v", err)
+		return nil, fmt.Errorf("unable to generate node "+
+			"signature for channel announcement: %w", err)
 	}
 	bitcoinSig, err := f.cfg.SignMessage(
 		localFundingKey.KeyLocator, chanAnnMsg, true,
 	)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate bitcoin "+
-			"signature for node public key: %v", err)
+		return nil, fmt.Errorf("unable to generate bitcoin "+
+			"signature for node public key: %w", err)
 	}
 
 	// Finally, we'll generate the announcement proof which we'll use to
@@ -5172,13 +5172,13 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	nodeReservations, ok := f.activeReservations[peerIDKey]
 	if !ok {
 		// No reservations for this node.
-		return nil, errors.Errorf("no active reservations for peer(%x)",
+		return nil, fmt.Errorf("no active reservations for peer(%x)",
 			peerIDKey[:])
 	}
 
 	ctx, ok := nodeReservations[pendingChanID]
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x) for "+
+		return nil, fmt.Errorf("unknown channel (id: %x) for "+
 			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
@@ -5191,8 +5191,7 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	}
 
 	if err := ctx.reservation.Cancel(); err != nil {
-		return nil, errors.Errorf("unable to cancel reservation: %v",
-			err)
+		return nil, fmt.Errorf("unable to cancel reservation: %w", err)
 	}
 
 	delete(nodeReservations, pendingChanID)
@@ -5239,7 +5238,7 @@ func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
 	f.resMtx.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x) for "+
+		return nil, fmt.Errorf("unknown channel (id: %x) for "+
 			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 

@@ -1,12 +1,12 @@
 package itest
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"

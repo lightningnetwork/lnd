@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -8,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -874,8 +874,8 @@ func (b *Builder) assertNodeAnnFreshness(node route.Vertex,
 	// already have.
 	lastUpdate, exists, err := b.cfg.Graph.HasLightningNode(node)
 	if err != nil {
-		return errors.Errorf("unable to query for the "+
-			"existence of node: %v", err)
+		return fmt.Errorf("unable to query for the "+
+			"existence of node: %w", err)
 	}
 	if !exists {
 		return NewErrf(ErrIgnored, "Ignoring node announcement"+
@@ -998,8 +998,8 @@ func (b *Builder) addNode(node *models.LightningNode,
 	}
 
 	if err := b.cfg.Graph.AddLightningNode(node, op...); err != nil {
-		return errors.Errorf("unable to add node %x to the "+
-			"graph: %v", node.PubKeyBytes, err)
+		return fmt.Errorf("unable to add node %x to the "+
+			"graph: %w", node.PubKeyBytes, err)
 	}
 
 	log.Tracef("Updated vertex data for node=%x", node.PubKeyBytes)
@@ -1045,7 +1045,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 		edge.ChannelID,
 	)
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
-		return errors.Errorf("unable to check for edge existence: %v",
+		return fmt.Errorf("unable to check for edge existence: %w",
 			err)
 	}
 	if isZombie {
@@ -1103,8 +1103,7 @@ func (b *Builder) addEdge(edge *models.ChannelEdgeInfo,
 
 	err = b.cfg.ChainView.UpdateFilter(filterUpdate, b.bestHeight.Load())
 	if err != nil {
-		return errors.Errorf("unable to update chain "+
-			"view: %v", err)
+		return fmt.Errorf("unable to update chain view: %w", err)
 	}
 
 	return nil
@@ -1146,8 +1145,7 @@ func (b *Builder) updateEdge(policy *models.ChannelEdgePolicy,
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
 		b.cfg.Graph.HasChannelEdge(policy.ChannelID)
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
-		return errors.Errorf("unable to check for edge existence: %v",
-			err)
+		return fmt.Errorf("unable to check for edge existence: %w", err)
 	}
 
 	// If the channel is marked as a zombie in our database, and
@@ -1206,7 +1204,7 @@ func (b *Builder) updateEdge(policy *models.ChannelEdgePolicy,
 	// Now that we know this isn't a stale update, we'll apply the new edge
 	// policy to the proper directional edge within the channel graph.
 	if err = b.cfg.Graph.UpdateEdgePolicy(policy, op...); err != nil {
-		err := errors.Errorf("unable to add channel: %v", err)
+		err := fmt.Errorf("unable to add channel: %w", err)
 		log.Error(err)
 		return err
 	}

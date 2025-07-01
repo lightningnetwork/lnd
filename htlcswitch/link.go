@@ -36,10 +36,6 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-func init() {
-	prand.Seed(time.Now().UnixNano())
-}
-
 const (
 	// DefaultMaxOutgoingCltvExpiry is the maximum outgoing time lock that
 	// the node accepts for forwarded payments. The value is relative to the

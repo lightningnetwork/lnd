@@ -11,6 +11,18 @@ import (
 // reset function ExecTx calls.
 var NoOpReset = func() {}
 
+// SQLInt16 turns a numerical integer type into the NullInt16 that sql/sqlc
+// uses when an integer field can be permitted to be NULL.
+//
+// We use this constraints.Integer constraint here which maps to all signed and
+// unsigned integer types.
+func SQLInt16[T constraints.Integer](num T) sql.NullInt16 {
+	return sql.NullInt16{
+		Int16: int16(num),
+		Valid: true,
+	}
+}
+
 // SQLInt32 turns a numerical integer type into the NullInt32 that sql/sqlc
 // uses when an integer field can be permitted to be NULL.
 //
@@ -55,4 +67,11 @@ func SQLTime(t time.Time) sql.NullTime {
 		Time:  t,
 		Valid: true,
 	}
+}
+
+// ExtractSqlInt16 turns a NullInt16 into a numerical type. This can be useful
+// when reading directly from the database, as this function handles extracting
+// the inner value from the "option"-like struct.
+func ExtractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
+	return T(num.Int16)
 }

@@ -69,6 +69,8 @@ type ChannelPolicy struct {
 	Disabled                sql.NullBool
 	InboundBaseFeeMsat      sql.NullInt64
 	InboundFeeRateMilliMsat sql.NullInt64
+	MessageFlags            sql.NullInt16
+	ChannelFlags            sql.NullInt16
 	Signature               []byte
 }
 

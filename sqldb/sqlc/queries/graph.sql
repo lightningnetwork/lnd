@@ -296,6 +296,8 @@ SELECT
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
     -- Policy 2 (node_id_2)
@@ -311,6 +313,8 @@ SELECT
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c
@@ -353,6 +357,8 @@ SELECT
     cp1.disabled AS policy_1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy_1_message_flags,
+    cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -368,6 +374,8 @@ SELECT
     cp2.disabled AS policy_2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy_2_signature
 FROM channels c
     JOIN nodes n1 ON c.node_id_1 = n1.id
@@ -406,6 +414,8 @@ SELECT sqlc.embed(c),
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
        -- Policy 2
@@ -421,6 +431,8 @@ SELECT sqlc.embed(c),
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c
@@ -468,6 +480,8 @@ SELECT
     cp1.disabled AS policy_1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -483,6 +497,8 @@ SELECT
     cp2.disabled AS policy_2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy_2_signature
 
 FROM channels c
@@ -532,9 +548,10 @@ INSERT INTO channel_policies (
     version, channel_id, node_id, timelock, fee_ppm,
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
-    inbound_fee_rate_milli_msat, signature
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -549,6 +566,8 @@ ON CONFLICT (channel_id, node_id, version)
         max_htlc_msat = EXCLUDED.max_htlc_msat,
         inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
         signature = EXCLUDED.signature
 WHERE EXCLUDED.last_update > channel_policies.last_update
 RETURNING id;
@@ -579,6 +598,8 @@ SELECT
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
     -- Policy 2
@@ -594,6 +615,8 @@ SELECT
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c

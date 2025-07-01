@@ -377,6 +377,8 @@ SELECT
     cp1.disabled AS policy_1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy_1_message_flags,
+    cp1.channel_flags AS policy_1_channel_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -392,6 +394,8 @@ SELECT
     cp2.disabled AS policy_2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy_2_signature
 FROM channels c
     JOIN nodes n1 ON c.node_id_1 = n1.id
@@ -424,6 +428,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy1Disabled                sql.NullBool
 	Policy1InboundBaseFeeMsat      sql.NullInt64
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -437,6 +443,8 @@ type GetChannelByOutpointWithPoliciesRow struct {
 	Policy2Disabled                sql.NullBool
 	Policy2InboundBaseFeeMsat      sql.NullInt64
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
 }
 
@@ -471,6 +479,8 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy1Disabled,
 		&i.Policy1InboundBaseFeeMsat,
 		&i.Policy1InboundFeeRateMilliMsat,
+		&i.Policy1MessageFlags,
+		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
@@ -484,6 +494,8 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 		&i.Policy2Disabled,
 		&i.Policy2InboundBaseFeeMsat,
 		&i.Policy2InboundFeeRateMilliMsat,
+		&i.Policy2MessageFlags,
+		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
 	)
 	return i, err
@@ -539,6 +551,8 @@ SELECT
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
     -- Policy 2
@@ -554,6 +568,8 @@ SELECT
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy_2_message_flags,
+    cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c
@@ -588,6 +604,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy1Disabled                sql.NullBool
 	Policy1InboundBaseFeeMsat      sql.NullInt64
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -601,6 +619,8 @@ type GetChannelBySCIDWithPoliciesRow struct {
 	Policy2Disabled                sql.NullBool
 	Policy2InboundBaseFeeMsat      sql.NullInt64
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
 }
 
@@ -647,6 +667,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy1Disabled,
 		&i.Policy1InboundBaseFeeMsat,
 		&i.Policy1InboundFeeRateMilliMsat,
+		&i.Policy1MessageFlags,
+		&i.Policy1ChannelFlags,
 		&i.Policy1Signature,
 		&i.Policy2ID,
 		&i.Policy2NodeID,
@@ -660,6 +682,8 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 		&i.Policy2Disabled,
 		&i.Policy2InboundBaseFeeMsat,
 		&i.Policy2InboundFeeRateMilliMsat,
+		&i.Policy2MessageFlags,
+		&i.Policy2ChannelFlags,
 		&i.Policy2Signature,
 	)
 	return i, err
@@ -725,7 +749,7 @@ func (q *Queries) GetChannelFeaturesAndExtras(ctx context.Context, channelID int
 }
 
 const getChannelPolicyByChannelAndNode = `-- name: GetChannelPolicyByChannelAndNode :one
-SELECT id, version, channel_id, node_id, timelock, fee_ppm, base_fee_msat, min_htlc_msat, max_htlc_msat, last_update, disabled, inbound_base_fee_msat, inbound_fee_rate_milli_msat, signature
+SELECT id, version, channel_id, node_id, timelock, fee_ppm, base_fee_msat, min_htlc_msat, max_htlc_msat, last_update, disabled, inbound_base_fee_msat, inbound_fee_rate_milli_msat, message_flags, channel_flags, signature
 FROM channel_policies
 WHERE channel_id = $1
   AND node_id = $2
@@ -755,6 +779,8 @@ func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetC
 		&i.Disabled,
 		&i.InboundBaseFeeMsat,
 		&i.InboundFeeRateMilliMsat,
+		&i.MessageFlags,
+		&i.ChannelFlags,
 		&i.Signature,
 	)
 	return i, err
@@ -834,6 +860,8 @@ SELECT
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
     -- Policy 2 (node_id_2)
@@ -849,6 +877,8 @@ SELECT
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c
@@ -894,6 +924,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy1Disabled                sql.NullBool
 	Policy1InboundBaseFeeMsat      sql.NullInt64
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -907,6 +939,8 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 	Policy2Disabled                sql.NullBool
 	Policy2InboundBaseFeeMsat      sql.NullInt64
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
 }
 
@@ -959,6 +993,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy1Disabled,
 			&i.Policy1InboundBaseFeeMsat,
 			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
@@ -972,6 +1008,8 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 			&i.Policy2Disabled,
 			&i.Policy2InboundBaseFeeMsat,
 			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
 		); err != nil {
 			return nil, err
@@ -1710,6 +1748,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp1.disabled AS policy1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy1_signature,
 
        -- Policy 2
@@ -1725,6 +1765,8 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp2.disabled AS policy2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
 FROM channels c
@@ -1759,6 +1801,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy1Disabled                sql.NullBool
 	Policy1InboundBaseFeeMsat      sql.NullInt64
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -1772,6 +1816,8 @@ type ListChannelsByNodeIDRow struct {
 	Policy2Disabled                sql.NullBool
 	Policy2InboundBaseFeeMsat      sql.NullInt64
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
 }
 
@@ -1812,6 +1858,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy1Disabled,
 			&i.Policy1InboundBaseFeeMsat,
 			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
@@ -1825,6 +1873,8 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 			&i.Policy2Disabled,
 			&i.Policy2InboundBaseFeeMsat,
 			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
 		); err != nil {
 			return nil, err
@@ -1910,6 +1960,8 @@ SELECT
     cp1.disabled AS policy_1_disabled,
     cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
     cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
     cp1.signature AS policy_1_signature,
 
     -- Node 2 policy
@@ -1925,6 +1977,8 @@ SELECT
     cp2.disabled AS policy_2_disabled,
     cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
     cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy_2_signature
 
 FROM channels c
@@ -1961,6 +2015,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy1Disabled                sql.NullBool
 	Policy1InboundBaseFeeMsat      sql.NullInt64
 	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
 	Policy1Signature               []byte
 	Policy2ID                      sql.NullInt64
 	Policy2NodeID                  sql.NullInt64
@@ -1974,6 +2030,8 @@ type ListChannelsWithPoliciesPaginatedRow struct {
 	Policy2Disabled                sql.NullBool
 	Policy2InboundBaseFeeMsat      sql.NullInt64
 	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
 	Policy2Signature               []byte
 }
 
@@ -2014,6 +2072,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy1Disabled,
 			&i.Policy1InboundBaseFeeMsat,
 			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
 			&i.Policy1Signature,
 			&i.Policy2ID,
 			&i.Policy2NodeID,
@@ -2027,6 +2087,8 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 			&i.Policy2Disabled,
 			&i.Policy2InboundBaseFeeMsat,
 			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
 			&i.Policy2Signature,
 		); err != nil {
 			return nil, err
@@ -2139,9 +2201,10 @@ INSERT INTO channel_policies (
     version, channel_id, node_id, timelock, fee_ppm,
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
-    inbound_fee_rate_milli_msat, signature
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
 ) VALUES  (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 ON CONFLICT (channel_id, node_id, version)
     -- Update the following fields if a conflict occurs on channel_id,
@@ -2156,6 +2219,8 @@ ON CONFLICT (channel_id, node_id, version)
         max_htlc_msat = EXCLUDED.max_htlc_msat,
         inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
         inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
         signature = EXCLUDED.signature
 WHERE EXCLUDED.last_update > channel_policies.last_update
 RETURNING id
@@ -2174,6 +2239,8 @@ type UpsertEdgePolicyParams struct {
 	MaxHtlcMsat             sql.NullInt64
 	InboundBaseFeeMsat      sql.NullInt64
 	InboundFeeRateMilliMsat sql.NullInt64
+	MessageFlags            sql.NullInt16
+	ChannelFlags            sql.NullInt16
 	Signature               []byte
 }
 
@@ -2191,6 +2258,8 @@ func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyPara
 		arg.MaxHtlcMsat,
 		arg.InboundBaseFeeMsat,
 		arg.InboundFeeRateMilliMsat,
+		arg.MessageFlags,
+		arg.ChannelFlags,
 		arg.Signature,
 	)
 	var id int64

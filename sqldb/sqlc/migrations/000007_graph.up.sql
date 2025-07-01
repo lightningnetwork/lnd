@@ -228,7 +228,7 @@ CREATE TABLE IF NOT EXISTS channel_policies (
     -- The DB ID of the node that created the policy update.
     node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
 
-    -- The number of blocks that the node will subtrace from the expiry
+    -- The number of blocks that the node will subtract from the expiry
     -- of an incoming HTLC.
     timelock INTEGER NOT NULL,
 
@@ -265,6 +265,25 @@ CREATE TABLE IF NOT EXISTS channel_policies (
     -- The optional fee rate in parts per million (ppm) that the node will
     -- charge for incoming HTLCs.
     inbound_fee_rate_milli_msat BIGINT,
+
+    -- A bitfield used to provide extra details about the message. This is
+    -- nullable since for later protocol versions, this might not be
+    -- present. Even though we explicitly store some details from the
+    -- message_flags in other ways (for example, max_htlc_msat being not
+    -- null means that bit 0 of the message_flags is set), we still store
+    -- the full message_flags field so that we can reconstruct the original
+    -- announcement if needed, even if the bitfield contains bits that we
+    -- don't use or understand.
+    message_flags SMALLINT CHECK (message_flags >= 0 AND message_flags <= 255),
+
+    -- A bitfield used to provide extra details about the update. This is
+    -- nullable since for later protocol versions, this might not be present.
+    -- Even though we explicitly store some details from the channel_flags in
+    -- other ways (for example, the disabled field's value is derived directly
+    -- from the channel_flags), we still store the full bitfield so that we
+    -- can reconstruct the original announcement if needed, even if the
+    -- bitfield contains bits that we don't use  or understand.
+    channel_flags SMALLINT CHECK (channel_flags >= 0 AND channel_flags <= 255),
 
     -- The signature of the channel update announcement.
     signature BLOB

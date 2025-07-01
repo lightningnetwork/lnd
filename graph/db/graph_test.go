@@ -77,7 +77,7 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	n := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(nextUpdateTime(), 0),
+		LastUpdate:           nextUpdateTime(),
 		Color:                color.RGBA{1, 2, 3, 0},
 		Alias:                "kek" + hex.EncodeToString(pub),
 		Features:             testFeatures,
@@ -784,7 +784,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 	edge1 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(433453, 0),
+		LastUpdate:                nextUpdateTime(),
 		MessageFlags:              1,
 		ChannelFlags:              0,
 		TimeLockDelta:             99,
@@ -798,7 +798,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 	edge2 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID,
-		LastUpdate:                time.Unix(124234, 0),
+		LastUpdate:                nextUpdateTime(),
 		MessageFlags:              1,
 		ChannelFlags:              1,
 		TimeLockDelta:             99,
@@ -906,6 +906,72 @@ func TestEdgeInfoUpdates(t *testing.T) {
 		t.Fatalf("edge doesn't match: %v", err)
 	}
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
+}
+
+// TestEdgePolicyCRUD tests basic CRUD operations for edge policies.
+func TestEdgePolicyCRUD(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	graph := MakeTestGraph(t)
+
+	node1 := createTestVertex(t)
+	node2 := createTestVertex(t)
+
+	// Create an edge. Don't add it to the DB yet.
+	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
+
+	updateAndAssertPolicies := func() {
+		// Make copies of the policies before calling UpdateEdgePolicy
+		// to avoid any data race's that can occur during async calls
+		// that UpdateEdgePolicy may trigger.
+		edge1 := copyEdgePolicy(edge1)
+		edge2 := copyEdgePolicy(edge2)
+
+		edge1.LastUpdate = nextUpdateTime()
+		edge2.LastUpdate = nextUpdateTime()
+
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
+
+		// Use the ForEachChannel method to fetch the policies and
+		// assert that the deserialized policies match the original
+		// ones.
+		err := graph.ForEachChannel(func(info *models.ChannelEdgeInfo,
+			policy1 *models.ChannelEdgePolicy,
+			policy2 *models.ChannelEdgePolicy) error {
+
+			require.NoError(t, compareEdgePolicies(edge1, policy1))
+			require.NoError(t, compareEdgePolicies(edge2, policy2))
+
+			return nil
+		})
+		require.NoError(t, err)
+	}
+
+	// Make sure inserting the policy at this point, before the edge info
+	// is added, will fail.
+	require.ErrorIs(t, graph.UpdateEdgePolicy(ctx, edge1), ErrEdgeNotFound)
+
+	// Now add the edge.
+	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
+
+	updateAndAssertPolicies()
+
+	// Update one of the edges to have no extra opaque data.
+	edge1.ExtraOpaqueData = nil
+
+	updateAndAssertPolicies()
+
+	// Update one of the edges to have ChannelFlags include a bit unknown
+	// to us.
+	edge1.ChannelFlags |= 1 << 6
+
+	// Update the other edge to have MessageFlags include a bit unknown to
+	// us.
+	edge2.MessageFlags |= 1 << 4
+
+	updateAndAssertPolicies()
 }
 
 func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
@@ -3455,13 +3521,13 @@ var (
 	updateTimeMu sync.Mutex
 )
 
-func nextUpdateTime() int64 {
+func nextUpdateTime() time.Time {
 	updateTimeMu.Lock()
 	defer updateTimeMu.Unlock()
 
 	updateTime++
 
-	return updateTime
+	return time.Unix(updateTime, 0)
 }
 
 // TestNodeIsPublic ensures that we properly detect nodes that are seen as
@@ -3506,7 +3572,7 @@ func TestNodeIsPublic(t *testing.T) {
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
-			node.LastUpdate = time.Unix(nextUpdateTime(), 0)
+			node.LastUpdate = nextUpdateTime()
 			err := graph.AddLightningNode(ctx, node)
 			require.NoError(t, err)
 		}
@@ -3621,7 +3687,7 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
-	node2.LastUpdate = time.Unix(nextUpdateTime(), 0)
+	node2.LastUpdate = nextUpdateTime()
 	if err := graph.AddLightningNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
@@ -4114,7 +4180,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 
 	// Make sure inserting the policy at this point, before the edge info
 	// is added, will fail.
-	require.Error(t, ErrEdgeNotFound, graph.UpdateEdgePolicy(ctx, edge1))
+	require.ErrorIs(t, graph.UpdateEdgePolicy(ctx, edge1), ErrEdgeNotFound)
 
 	// Add the edge info.
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))

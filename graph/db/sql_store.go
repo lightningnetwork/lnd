@@ -1271,7 +1271,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		var pol1, pol2 *models.CachedEdgePolicy
 		if dbPol1 != nil {
 			policy1, err := buildChanPolicy(
-				*dbPol1, edge.ChannelID, nil, node2, true,
+				*dbPol1, edge.ChannelID, nil, node2,
 			)
 			if err != nil {
 				return err
@@ -1281,7 +1281,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		}
 		if dbPol2 != nil {
 			policy2, err := buildChanPolicy(
-				*dbPol2, edge.ChannelID, nil, node1, false,
+				*dbPol2, edge.ChannelID, nil, node1,
 			)
 			if err != nil {
 				return err
@@ -2900,7 +2900,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		var p1, p2 *models.CachedEdgePolicy
 		if dbPol1 != nil {
 			policy1, err := buildChanPolicy(
-				*dbPol1, edge.ChannelID, nil, node2, true,
+				*dbPol1, edge.ChannelID, nil, node2,
 			)
 			if err != nil {
 				return err
@@ -2910,7 +2910,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		}
 		if dbPol2 != nil {
 			policy2, err := buildChanPolicy(
-				*dbPol2, edge.ChannelID, nil, node1, false,
+				*dbPol2, edge.ChannelID, nil, node1,
 			)
 			if err != nil {
 				return err
@@ -3138,6 +3138,8 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 			Valid: edge.MessageFlags.HasMaxHtlc(),
 			Int64: int64(edge.MaxHTLC),
 		},
+		MessageFlags:            sqldb.SQLInt16(edge.MessageFlags),
+		ChannelFlags:            sqldb.SQLInt16(edge.ChannelFlags),
 		InboundBaseFeeMsat:      inboundBase,
 		InboundFeeRateMilliMsat: inboundRate,
 		Signature:               edge.SigBytes,
@@ -4135,7 +4137,7 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 	var pol1, pol2 *models.ChannelEdgePolicy
 	if dbPol1 != nil {
 		pol1, err = buildChanPolicy(
-			*dbPol1, channelID, dbPol1Extras, node2, true,
+			*dbPol1, channelID, dbPol1Extras, node2,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -4143,7 +4145,7 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 	}
 	if dbPol2 != nil {
 		pol2, err = buildChanPolicy(
-			*dbPol2, channelID, dbPol2Extras, node1, false,
+			*dbPol2, channelID, dbPol2Extras, node1,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -4156,26 +4158,13 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 // buildChanPolicy builds a models.ChannelEdgePolicy instance from the
 // provided sqlc.ChannelPolicy and other required information.
 func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
-	extras map[uint64][]byte, toNode route.Vertex,
-	isNode1 bool) (*models.ChannelEdgePolicy, error) {
+	extras map[uint64][]byte,
+	toNode route.Vertex) (*models.ChannelEdgePolicy, error) {
 
 	recs, err := lnwire.CustomRecords(extras).Serialize()
 	if err != nil {
 		return nil, fmt.Errorf("unable to serialize extra signed "+
 			"fields: %w", err)
-	}
-
-	var msgFlags lnwire.ChanUpdateMsgFlags
-	if dbPolicy.MaxHtlcMsat.Valid {
-		msgFlags |= lnwire.ChanUpdateRequiredMaxHtlc
-	}
-
-	var chanFlags lnwire.ChanUpdateChanFlags
-	if !isNode1 {
-		chanFlags |= lnwire.ChanUpdateDirection
-	}
-	if dbPolicy.Disabled.Bool {
-		chanFlags |= lnwire.ChanUpdateDisabled
 	}
 
 	var inboundFee fn.Option[lnwire.Fee]
@@ -4194,8 +4183,12 @@ func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
 		LastUpdate: time.Unix(
 			dbPolicy.LastUpdate.Int64, 0,
 		),
-		MessageFlags:  msgFlags,
-		ChannelFlags:  chanFlags,
+		MessageFlags: sqldb.ExtractSqlInt16[lnwire.ChanUpdateMsgFlags](
+			dbPolicy.MessageFlags,
+		),
+		ChannelFlags: sqldb.ExtractSqlInt16[lnwire.ChanUpdateChanFlags](
+			dbPolicy.ChannelFlags,
+		),
 		TimeLockDelta: uint16(dbPolicy.Timelock),
 		MinHTLC: lnwire.MilliSatoshi(
 			dbPolicy.MinHtlcMsat,
@@ -4259,6 +4252,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
 				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
 			}
 		}
@@ -4277,6 +4272,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
 				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
 			}
 		}
@@ -4299,6 +4296,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
 				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
 			}
 		}
@@ -4317,6 +4316,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
 				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
 			}
 		}
@@ -4339,6 +4340,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
 				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
 			}
 		}
@@ -4357,6 +4360,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
 				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
 			}
 		}
@@ -4379,6 +4384,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
 				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
 			}
 		}
@@ -4397,6 +4404,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
 				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
 			}
 		}
@@ -4419,6 +4428,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
 				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
 				Signature:               r.Policy1Signature,
 			}
 		}
@@ -4437,6 +4448,8 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
 				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
 				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
 				Signature:               r.Policy2Signature,
 			}
 		}

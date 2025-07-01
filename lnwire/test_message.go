@@ -815,8 +815,7 @@ var _ TestMessage = (*DynPropose)(nil)
 // This is part of the TestMessage interface.
 func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	msg := &DynPropose{
-		ChanID:    RandChannelID(t),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ChanID: RandChannelID(t),
 	}
 
 	// Randomly decide which optional fields to include
@@ -870,6 +869,21 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 		chanType := msg.ChannelType.Zero()
 		chanType.Val = *RandChannelType(t)
 		msg.ChannelType = tlv.SomeRecordT(chanType)
+	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(13) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+
+	extraData := RandExtraOpaqueData(t, ignoreRecords)
+	if len(extraData) > 0 {
+		msg.ExtraData = extraData
 	}
 
 	return msg
@@ -981,17 +995,23 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
-	var extraData ExtraOpaqueData
-	randData := RandExtraOpaqueData(t, nil)
-	if len(randData) > 0 {
-		extraData = randData
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(13) {
+		ignoreRecords.Add(i)
 	}
-
-	return &DynCommit{
+	msg := &DynCommit{
 		DynPropose: *dp,
 		DynAck:     *da,
-		ExtraData:  extraData,
 	}
+
+	extraData := RandExtraOpaqueData(t, ignoreRecords)
+	if len(extraData) > 0 {
+		msg.ExtraData = extraData
+	}
+
+	return msg
 }
 
 // A compile time check to ensure FundingCreated implements the TestMessage

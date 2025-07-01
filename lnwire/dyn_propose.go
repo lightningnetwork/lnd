@@ -119,9 +119,9 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	maxHtlcs := dp.MaxAcceptedHTLCs.Zero()
 	chanType := dp.ChannelType.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(
-		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
-		&chanType,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &dustLimit, &maxValue, &htlcMin, &reserve,
+		&csvDelay, &maxHtlcs, &chanType,
 	)
 	if err != nil {
 		return err
@@ -129,57 +129,43 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[dp.DustLimit.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dp.DustLimit.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = dustLimit.Val
 		dp.DustLimit = tlv.SomeRecordT(rec)
-		delete(typeMap, dp.DustLimit.TlvType())
 	}
-	if val, ok := typeMap[dp.MaxValueInFlight.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.MaxValueInFlight.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
 		rec.Val = maxValue.Val
 		dp.MaxValueInFlight = tlv.SomeRecordT(rec)
-
-		delete(typeMap, dp.MaxValueInFlight.TlvType())
 	}
-	if val, ok := typeMap[dp.HtlcMinimum.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.HtlcMinimum.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
 		rec.Val = htlcMin.Val
 		dp.HtlcMinimum = tlv.SomeRecordT(rec)
-
-		delete(typeMap, dp.HtlcMinimum.TlvType())
 	}
-	if val, ok := typeMap[dp.ChannelReserve.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.ChannelReserve.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = reserve.Val
 		dp.ChannelReserve = tlv.SomeRecordT(rec)
-
-		delete(typeMap, dp.ChannelReserve.TlvType())
 	}
-	if val, ok := typeMap[dp.CsvDelay.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.CsvDelay.TlvType()]; ok {
 		dp.CsvDelay = tlv.SomeRecordT(csvDelay)
-
-		delete(typeMap, dp.CsvDelay.TlvType())
 	}
-	if val, ok := typeMap[dp.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.MaxAcceptedHTLCs.TlvType()]; ok {
 		dp.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
-
-		delete(typeMap, dp.MaxAcceptedHTLCs.TlvType())
 	}
-	if val, ok := typeMap[dp.ChannelType.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.ChannelType.TlvType()]; ok {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
-
-		delete(typeMap, dp.ChannelType.TlvType())
 	}
 
-	if len(typeMap) != 0 {
-		extraData, err := NewExtraOpaqueData(typeMap)
-		if err != nil {
-			return err
-		}
-
-		dp.ExtraData = extraData
-	}
+	dp.ExtraData = extraData
 
 	return nil
 }

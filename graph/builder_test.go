@@ -71,6 +71,7 @@ func TestAddProof(t *testing.T) {
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
 		AuthProof:     nil,
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(script),
 	}
 	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -158,6 +159,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		Features:         lnwire.EmptyFeatureVector(),
 		FundingScript:    fn.Some(script),
 	}
 	edgePolicy := &models.ChannelEdgePolicy{
@@ -281,6 +283,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(fundingScript1),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -300,6 +303,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(fundingScript2),
 	}
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -491,6 +495,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some([]byte{}),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -512,6 +517,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some([]byte{}),
 	}
 	copy(edge2.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -645,6 +651,7 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 		},
 		ChannelPoint:  *chanUTXO,
 		Capacity:      chanValue,
+		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(script),
 	}
 	copy(edge1.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
@@ -1062,6 +1069,7 @@ func TestIsStaleNode(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		Features:         lnwire.EmptyFeatureVector(),
 		FundingScript:    fn.Some(script),
 	}
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
@@ -1142,6 +1150,7 @@ func TestIsKnownEdge(t *testing.T) {
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
 		FundingScript:    fn.Some(script),
+		Features:         lnwire.EmptyFeatureVector(),
 	}
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -1200,6 +1209,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
+		Features:         lnwire.EmptyFeatureVector(),
 		FundingScript:    fn.Some(script),
 	}
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
@@ -1508,6 +1518,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
 			Capacity:     btcutil.Amount(edge.Capacity),
+			Features:     lnwire.EmptyFeatureVector(),
 		}
 
 		copy(edgeInfo.NodeKey1Bytes[:], node1Bytes)
@@ -1882,6 +1893,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			BitcoinKey1Bytes: node1Vertex,
 			NodeKey2Bytes:    node2Vertex,
 			BitcoinKey2Bytes: node2Vertex,
+			Features:         lnwire.EmptyFeatureVector(),
 		}
 
 		err = graph.AddChannelEdge(ctx, &edgeInfo)

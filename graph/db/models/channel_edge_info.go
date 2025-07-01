@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // ChannelEdgeInfo represents a fully authenticated channel along with all its
@@ -46,9 +47,9 @@ type ChannelEdgeInfo struct {
 	BitcoinKey2Bytes [33]byte
 	bitcoinKey2      *btcec.PublicKey
 
-	// Features is an opaque byte slice that encodes the set of channel
-	// specific features that this channel edge supports.
-	Features []byte
+	// Features is the list of protocol features supported by this channel
+	// edge.
+	Features *lnwire.FeatureVector
 
 	// AuthProof is the authentication proof for this channel. This proof
 	// contains a set of signatures binding four identities, which attests

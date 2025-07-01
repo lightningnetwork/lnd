@@ -24,11 +24,6 @@ func TestCreateChanAnnouncement(t *testing.T) {
 	key := [33]byte{0x1}
 	var sig lnwire.Sig
 	features := lnwire.NewRawFeatureVector(lnwire.AnchorsRequired)
-	var featuresBuf bytes.Buffer
-	if err := features.Encode(&featuresBuf); err != nil {
-		t.Fatalf("unable to encode features: %v", err)
-	}
-
 	expChanAnn := &lnwire.ChannelAnnouncement1{
 		ChainHash:       chainhash.Hash{0x1},
 		ShortChannelID:  lnwire.ShortChannelID{BlockHeight: 1},
@@ -59,8 +54,10 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		NodeKey2Bytes:    key,
 		BitcoinKey1Bytes: key,
 		BitcoinKey2Bytes: key,
-		Features:         featuresBuf.Bytes(),
-		ExtraOpaqueData:  expChanAnn.ExtraOpaqueData,
+		Features: lnwire.NewFeatureVector(
+			features, lnwire.Features,
+		),
+		ExtraOpaqueData: expChanAnn.ExtraOpaqueData,
 	}
 	chanAnn, _, _, err := CreateChanAnnouncement(
 		chanProof, chanInfo, nil, nil,

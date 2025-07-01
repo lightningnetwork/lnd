@@ -486,6 +486,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	edge := &models.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
 		Capacity:  capacity,
+		Features:  lnwire.EmptyFeatureVector(),
 	}
 	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
 	if err := d.db.AddChannelEdge(ctx, edge); err != nil {

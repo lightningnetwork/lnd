@@ -1,7 +1,6 @@
 package netann
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 
@@ -49,14 +48,11 @@ func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
 		ChainHash:       chanInfo.ChainHash,
 		BitcoinKey1:     chanInfo.BitcoinKey1Bytes,
 		BitcoinKey2:     chanInfo.BitcoinKey2Bytes,
-		Features:        lnwire.NewRawFeatureVector(),
+		Features:        chanInfo.Features.RawFeatureVector,
 		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
 	}
 
-	err := chanAnn.Features.Decode(bytes.NewReader(chanInfo.Features))
-	if err != nil {
-		return nil, nil, nil, err
-	}
+	var err error
 	chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
 		chanProof.BitcoinSig1Bytes,
 	)

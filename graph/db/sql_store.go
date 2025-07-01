@@ -3833,26 +3833,16 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	// Insert any channel features.
-	if len(edge.Features) != 0 {
-		chanFeatures := lnwire.NewRawFeatureVector()
-		err := chanFeatures.Decode(bytes.NewReader(edge.Features))
+	for feature := range edge.Features.Features() {
+		err = db.InsertChannelFeature(
+			ctx, sqlc.InsertChannelFeatureParams{
+				ChannelID:  dbChanID,
+				FeatureBit: int32(feature),
+			},
+		)
 		if err != nil {
-			return nil, err
-		}
-
-		fv := lnwire.NewFeatureVector(chanFeatures, lnwire.Features)
-		for feature := range fv.Features() {
-			err = db.InsertChannelFeature(
-				ctx, sqlc.InsertChannelFeatureParams{
-					ChannelID:  dbChanID,
-					FeatureBit: int32(feature),
-				},
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to insert "+
-					"channel(%d) feature(%v): %w", dbChanID,
-					feature, err)
-			}
+			return nil, fmt.Errorf("unable to insert channel(%d) "+
+				"feature(%v): %w", dbChanID, feature, err)
 		}
 	}
 
@@ -3975,11 +3965,6 @@ func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
 		return nil, err
 	}
 
-	var featureBuf bytes.Buffer
-	if err := fv.Encode(&featureBuf); err != nil {
-		return nil, fmt.Errorf("unable to encode features: %w", err)
-	}
-
 	recs, err := lnwire.CustomRecords(extras).Serialize()
 	if err != nil {
 		return nil, fmt.Errorf("unable to serialize extra signed "+
@@ -4002,7 +3987,7 @@ func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
 		BitcoinKey2Bytes: btcKey2,
 		ChannelPoint:     *op,
 		Capacity:         btcutil.Amount(dbChan.Capacity.Int64),
-		Features:         featureBuf.Bytes(),
+		Features:         fv,
 		ExtraOpaqueData:  recs,
 	}
 

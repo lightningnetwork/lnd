@@ -348,6 +348,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
+			Features:     lnwire.EmptyFeatureVector(),
 			Capacity:     btcutil.Amount(edge.Capacity),
 		}
 
@@ -677,6 +678,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: *fundingPoint,
 			Capacity:     testChannel.Capacity,
+			Features:     lnwire.EmptyFeatureVector(),
 
 			NodeKey1Bytes:    node1Vertex,
 			BitcoinKey1Bytes: node1Vertex,

@@ -17,7 +17,9 @@ type DynPropose struct {
 
 	// DustLimit, if not nil, proposes a change to the dust_limit_satoshis
 	// for the sender's commitment transaction.
-	DustLimit tlv.OptionalRecordT[tlv.TlvType0, btcutil.Amount]
+	DustLimit tlv.OptionalRecordT[
+		tlv.TlvType0, tlv.BigSizeT[btcutil.Amount],
+	]
 
 	// MaxValueInFlight, if not nil, proposes a change to the
 	// max_htlc_value_in_flight_msat limit of the sender.
@@ -29,7 +31,9 @@ type DynPropose struct {
 
 	// ChannelReserve, if not nil, proposes a change to the
 	// channel_reserve_satoshis requirement of the recipient.
-	ChannelReserve tlv.OptionalRecordT[tlv.TlvType6, btcutil.Amount]
+	ChannelReserve tlv.OptionalRecordT[
+		tlv.TlvType6, tlv.BigSizeT[btcutil.Amount],
+	]
 
 	// CsvDelay, if not nil, proposes a change to the to_self_delay
 	// requirement of the recipient.
@@ -98,10 +102,10 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	}
 
 	// Prepare receiving buffers to be filled by TLV extraction.
-	var dustLimit tlv.RecordT[tlv.TlvType0, uint64]
+	var dustLimit tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 	var maxValue tlv.RecordT[tlv.TlvType2, uint64]
 	var htlcMin tlv.RecordT[tlv.TlvType4, uint64]
-	var reserve tlv.RecordT[tlv.TlvType6, uint64]
+	var reserve tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 	csvDelay := dp.CsvDelay.Zero()
 	maxHtlcs := dp.MaxAcceptedHTLCs.Zero()
 	chanType := dp.ChannelType.Zero()
@@ -117,8 +121,8 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
 	if val, ok := typeMap[dp.DustLimit.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
-		rec.Val = btcutil.Amount(dustLimit.Val)
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
+		rec.Val = dustLimit.Val
 		dp.DustLimit = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dp.MaxValueInFlight.TlvType()]; ok && val == nil {
@@ -132,8 +136,8 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		dp.HtlcMinimum = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dp.ChannelReserve.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
-		rec.Val = btcutil.Amount(reserve.Val)
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
+		rec.Val = reserve.Val
 		dp.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dp.CsvDelay.TlvType()]; ok && val == nil {
@@ -187,11 +191,10 @@ func dynProposeRecords(dp *DynPropose) []tlv.RecordProducer {
 	recordProducers := make([]tlv.RecordProducer, 0, 7)
 
 	dp.DustLimit.WhenSome(
-		func(dl tlv.RecordT[tlv.TlvType0, btcutil.Amount]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType0](
-				uint64(dl.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+		func(dl tlv.RecordT[tlv.TlvType0,
+			tlv.BigSizeT[btcutil.Amount]]) {
+
+			recordProducers = append(recordProducers, &dl)
 		},
 	)
 	dp.MaxValueInFlight.WhenSome(
@@ -211,11 +214,10 @@ func dynProposeRecords(dp *DynPropose) []tlv.RecordProducer {
 		},
 	)
 	dp.ChannelReserve.WhenSome(
-		func(reserve tlv.RecordT[tlv.TlvType6, btcutil.Amount]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType6](
-				uint64(reserve.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+		func(reserve tlv.RecordT[tlv.TlvType6,
+			tlv.BigSizeT[btcutil.Amount]]) {
+
+			recordProducers = append(recordProducers, &reserve)
 		},
 	)
 	dp.CsvDelay.WhenSome(

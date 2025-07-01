@@ -75,10 +75,10 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 
 	// Prepare receiving buffers to be filled by TLV extraction.
-	var dustLimit tlv.RecordT[tlv.TlvType0, uint64]
+	var dustLimit tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 	var maxValue tlv.RecordT[tlv.TlvType2, uint64]
 	var htlcMin tlv.RecordT[tlv.TlvType4, uint64]
-	var reserve tlv.RecordT[tlv.TlvType6, uint64]
+	var reserve tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 	csvDelay := dc.CsvDelay.Zero()
 	maxHtlcs := dc.MaxAcceptedHTLCs.Zero()
 	chanType := dc.ChannelType.Zero()
@@ -94,8 +94,8 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
 	if val, ok := typeMap[dc.DustLimit.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
-		rec.Val = btcutil.Amount(dustLimit.Val)
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
+		rec.Val = dustLimit.Val
 		dc.DustLimit = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dc.MaxValueInFlight.TlvType()]; ok && val == nil {
@@ -109,8 +109,8 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 		dc.HtlcMinimum = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dc.ChannelReserve.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
-		rec.Val = btcutil.Amount(reserve.Val)
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
+		rec.Val = reserve.Val
 		dc.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 	if val, ok := typeMap[dc.CsvDelay.TlvType()]; ok && val == nil {

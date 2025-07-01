@@ -80,6 +80,7 @@ func (c *ChannelGraph) Start() error {
 			return fmt.Errorf("could not populate the graph "+
 				"cache: %w", err)
 		}
+		c.graphCache.Start()
 	}
 
 	c.wg.Add(1)
@@ -96,6 +97,10 @@ func (c *ChannelGraph) Stop() error {
 
 	log.Debugf("ChannelGraph shutting down...")
 	defer log.Debug("ChannelGraph shutdown complete")
+
+	if c.graphCache != nil {
+		c.graphCache.Stop()
+	}
 
 	close(c.quit)
 	c.wg.Wait()

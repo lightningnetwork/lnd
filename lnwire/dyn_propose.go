@@ -76,11 +76,19 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 
 	producers := dynProposeRecords(dp)
 
-	err := EncodeMessageExtraData(&dp.ExtraData, producers...)
+	// Encode all known records.
+	var tlvData ExtraOpaqueData
+	err := tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
 
+	// Write the known records.
+	if err := WriteBytes(w, tlvData); err != nil {
+		return err
+	}
+
+	// Encode ExtraData.
 	return WriteBytes(w, dp.ExtraData)
 }
 
@@ -124,34 +132,52 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = dustLimit.Val
 		dp.DustLimit = tlv.SomeRecordT(rec)
+		delete(typeMap, dp.DustLimit.TlvType())
 	}
 	if val, ok := typeMap[dp.MaxValueInFlight.TlvType()]; ok && val == nil {
 		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
 		rec.Val = MilliSatoshi(maxValue.Val)
 		dp.MaxValueInFlight = tlv.SomeRecordT(rec)
+
+		delete(typeMap, dp.MaxValueInFlight.TlvType())
 	}
 	if val, ok := typeMap[dp.HtlcMinimum.TlvType()]; ok && val == nil {
 		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
 		rec.Val = MilliSatoshi(htlcMin.Val)
 		dp.HtlcMinimum = tlv.SomeRecordT(rec)
+
+		delete(typeMap, dp.HtlcMinimum.TlvType())
 	}
 	if val, ok := typeMap[dp.ChannelReserve.TlvType()]; ok && val == nil {
 		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = reserve.Val
 		dp.ChannelReserve = tlv.SomeRecordT(rec)
+
+		delete(typeMap, dp.ChannelReserve.TlvType())
 	}
 	if val, ok := typeMap[dp.CsvDelay.TlvType()]; ok && val == nil {
 		dp.CsvDelay = tlv.SomeRecordT(csvDelay)
+
+		delete(typeMap, dp.CsvDelay.TlvType())
 	}
 	if val, ok := typeMap[dp.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
 		dp.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
+
+		delete(typeMap, dp.MaxAcceptedHTLCs.TlvType())
 	}
 	if val, ok := typeMap[dp.ChannelType.TlvType()]; ok && val == nil {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
+
+		delete(typeMap, dp.ChannelType.TlvType())
 	}
 
-	if len(tlvRecords) != 0 {
-		dp.ExtraData = tlvRecords
+	if len(typeMap) != 0 {
+		extraData, err := NewExtraOpaqueData(typeMap)
+		if err != nil {
+			return err
+		}
+
+		dp.ExtraData = extraData
 	}
 
 	return nil

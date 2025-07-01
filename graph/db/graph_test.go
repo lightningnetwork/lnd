@@ -451,8 +451,14 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	// properly deleted.
 	_, _, _, err = graph.FetchChannelEdgesByOutpoint(&outpoint)
 	require.ErrorIs(t, err, ErrEdgeNotFound)
-	_, _, _, err = graph.FetchChannelEdgesByID(chanID)
+
+	// Assert that if the edge is a zombie, then FetchChannelEdgesByID
+	// still returns a populated models.ChannelEdgeInfo as its comment
+	// description promises.
+	edge, _, _, err := graph.FetchChannelEdgesByID(chanID)
 	require.ErrorIs(t, err, ErrZombieEdge)
+	require.NotNil(t, edge)
+
 	isZombie, _, _, err := graph.IsZombieEdge(chanID)
 	require.NoError(t, err)
 	require.True(t, isZombie)

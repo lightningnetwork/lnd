@@ -1852,20 +1852,29 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		if errors.Is(err, sql.ErrNoRows) {
 			// First check if this edge is perhaps in the zombie
 			// index.
-			isZombie, err := db.IsZombieChannel(
-				ctx, sqlc.IsZombieChannelParams{
+			zombie, err := db.GetZombieChannel(
+				ctx, sqlc.GetZombieChannelParams{
 					Scid:    chanIDB[:],
 					Version: int16(ProtocolV1),
 				},
 			)
-			if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrEdgeNotFound
+			} else if err != nil {
 				return fmt.Errorf("unable to check if "+
 					"channel is zombie: %w", err)
-			} else if isZombie {
-				return ErrZombieEdge
 			}
 
-			return ErrEdgeNotFound
+			// At this point, we know the channel is a zombie, so
+			// we'll return an error indicating this, and we will
+			// populate the edge info with the public keys of each
+			// party as this is the only information we have about
+			// it.
+			edge = &models.ChannelEdgeInfo{}
+			copy(edge.NodeKey1Bytes[:], zombie.NodeKey1)
+			copy(edge.NodeKey2Bytes[:], zombie.NodeKey2)
+
+			return ErrZombieEdge
 		} else if err != nil {
 			return fmt.Errorf("unable to fetch channel: %w", err)
 		}
@@ -1903,7 +1912,10 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		return nil
 	}, sqldb.NoOpReset)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("could not fetch channel: %w",
+		// If we are returning the ErrZombieEdge, then we also need to
+		// return the edge info as the method comment indicates that
+		// this will be populated when the edge is a zombie.
+		return edge, nil, nil, fmt.Errorf("could not fetch channel: %w",
 			err)
 	}
 

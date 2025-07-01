@@ -4076,6 +4076,11 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.peerConnected(conn, nil, true)
 
 	case nil:
+		ctx := btclog.WithCtx(
+			context.TODO(),
+			lnutils.LogPubKey("peer", connectedPeer.IdentityKey()),
+		)
+
 		// We already have a connection with the incoming peer. If the
 		// connection we've already established should be kept and is
 		// not of the same type of the new connection (inbound), then
@@ -4085,24 +4090,24 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		if !connectedPeer.Inbound() &&
 			!shouldDropLocalConnection(localPub, nodePub) {
 
-			srvrLog.Warnf("Received inbound connection from "+
-				"peer %v, but already have outbound "+
-				"connection, dropping conn", connectedPeer)
+			srvrLog.WarnS(ctx, "Received inbound connection from "+
+				"peer, but already have outbound "+
+				"connection, dropping conn",
+				fmt.Errorf("already have outbound conn"))
 			conn.Close()
 			return
 		}
 
 		// Otherwise, if we should drop the connection, then we'll
 		// disconnect our already connected peer.
-		srvrLog.Debugf("Disconnecting stale connection to %v",
-			connectedPeer)
+		srvrLog.DebugS(ctx, "Disconnecting stale connection")
 
 		s.cancelConnReqs(pubStr, nil)
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeerUnsafe(connectedPeer)
+		s.removePeerUnsafe(ctx, connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, nil, true)
@@ -4191,6 +4196,11 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.peerConnected(conn, connReq, false)
 
 	case nil:
+		ctx := btclog.WithCtx(
+			context.TODO(),
+			lnutils.LogPubKey("peer", connectedPeer.IdentityKey()),
+		)
+
 		// We already have a connection with the incoming peer. If the
 		// connection we've already established should be kept and is
 		// not of the same type of the new connection (outbound), then
@@ -4200,9 +4210,10 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		if connectedPeer.Inbound() &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
-			srvrLog.Warnf("Established outbound connection to "+
-				"peer %v, but already have inbound "+
-				"connection, dropping conn", connectedPeer)
+			srvrLog.WarnS(ctx, "Established outbound connection "+
+				"to peer, but already have inbound "+
+				"connection, dropping conn",
+				fmt.Errorf("already have inbound conn"))
 			if connReq != nil {
 				s.connMgr.Remove(connReq.ID())
 			}
@@ -4213,13 +4224,12 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		// Otherwise, _their_ connection should be dropped. So we'll
 		// disconnect the peer and send the now obsolete peer to the
 		// server for garbage collection.
-		srvrLog.Debugf("Disconnecting stale connection to %v",
-			connectedPeer)
+		srvrLog.DebugS(ctx, "Disconnecting stale connection")
 
 		// Remove the current peer from the server's internal state and
 		// signal that the peer termination watcher does not need to
 		// execute for this peer.
-		s.removePeerUnsafe(connectedPeer)
+		s.removePeerUnsafe(ctx, connectedPeer)
 		s.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.scheduledPeerConnection[pubStr] = func() {
 			s.peerConnected(conn, connReq, false)
@@ -4667,14 +4677,18 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	defer s.wg.Done()
 
+	ctx := btclog.WithCtx(
+		context.TODO(), lnutils.LogPubKey("peer", p.IdentityKey()),
+	)
+
 	p.WaitForDisconnect(ready)
 
-	srvrLog.Debugf("Peer %v has been disconnected", p)
+	srvrLog.DebugS(ctx, "Peer has been disconnected")
 
 	// If the server is exiting then we can bail out early ourselves as all
 	// the other sub-systems will already be shutting down.
 	if s.Stopped() {
-		srvrLog.Debugf("Server quitting, exit early for peer %v", p)
+		srvrLog.DebugS(ctx, "Server quitting, exit early for peer")
 		return
 	}
 
@@ -4709,7 +4723,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// If there were any notification requests for when this peer
 	// disconnected, we can trigger them now.
-	srvrLog.Debugf("Notifying that peer %v is offline", p)
+	srvrLog.DebugS(ctx, "Notifying that peer is offline")
 	pubStr := string(pubKey.SerializeCompressed())
 	for _, offlineChan := range s.peerDisconnectedListeners[pubStr] {
 		close(offlineChan)
@@ -4739,7 +4753,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 
 	// First, cleanup any remaining state the server has regarding the peer
 	// in question.
-	s.removePeerUnsafe(p)
+	s.removePeerUnsafe(ctx, p)
 
 	// Next, check to see if this is a persistent peer or not.
 	if _, ok := s.persistentPeers[pubStr]; !ok {
@@ -4778,18 +4792,16 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 		// the address used by our onion service to dial
 		// to lnd), so we don't have enough information
 		// to attempt a reconnect.
-		srvrLog.Debugf("Ignoring reconnection attempt "+
-			"to inbound peer %v without "+
-			"advertised address", p)
+		srvrLog.DebugS(ctx, "Ignoring reconnection attempt "+
+			"to inbound peer without advertised address")
 		return
 
 	// We came across an error retrieving an advertised
 	// address, log it, and fall back to the existing peer
 	// address.
 	default:
-		srvrLog.Errorf("Unable to retrieve advertised "+
-			"address for node %x: %v", p.PubKey(),
-			err)
+		srvrLog.ErrorS(ctx, "Unable to retrieve advertised "+
+			"address for peer", err)
 	}
 
 	// Make an easy lookup map so that we can check if an address
@@ -4831,9 +4843,9 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// call can stall for arbitrarily long if we shutdown while an
 	// outbound connection attempt is being made.
 	go func() {
-		srvrLog.Debugf("Scheduling connection re-establishment to "+
-			"persistent peer %x in %s",
-			p.IdentityKey().SerializeCompressed(), backoff)
+		srvrLog.DebugS(ctx, "Scheduling connection "+
+			"re-establishment to persistent peer",
+			"reconnecting_in", backoff)
 
 		select {
 		case <-time.After(backoff):
@@ -4843,9 +4855,8 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 			return
 		}
 
-		srvrLog.Debugf("Attempting to re-establish persistent "+
-			"connection to peer %x",
-			p.IdentityKey().SerializeCompressed())
+		srvrLog.DebugS(ctx, "Attempting to re-establish persistent "+
+			"connection")
 
 		s.connectToPersistentPeer(pubStr)
 	}()
@@ -4952,14 +4963,10 @@ func (s *server) connectToPersistentPeer(pubKeyStr string) {
 // active peers.
 //
 // NOTE: Server mutex must be held when calling this function.
-func (s *server) removePeerUnsafe(p *peer.Brontide) {
+func (s *server) removePeerUnsafe(ctx context.Context, p *peer.Brontide) {
 	if p == nil {
 		return
 	}
-
-	ctx := btclog.WithCtx(
-		context.TODO(), lnutils.LogPubKey("peer", p.IdentityKey()),
-	)
 
 	srvrLog.DebugS(ctx, "Removing peer")
 

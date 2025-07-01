@@ -246,7 +246,7 @@ func (c channelMapKey) String() string {
 
 // getChannelMap loads all channel edge policies from the database and stores
 // them in a map.
-func (c *KVStore) getChannelMap(edges kvdb.RBucket) (
+func getChannelMap(edges kvdb.RBucket) (
 	map[channelMapKey]*models.ChannelEdgePolicy, error) {
 
 	// Create a map to store all channel edge policies.
@@ -407,7 +407,22 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
-	return c.db.View(func(tx kvdb.RTx) error {
+	return forEachChannel(c.db, cb)
+}
+
+// forEachChannel iterates through all the channel edges stored within the
+// graph and invokes the passed callback for each edge. The callback takes two
+// edges as since this is a directed graph, both the in/out edges are visited.
+// If the callback returns an error, then the transaction is aborted and the
+// iteration stops early.
+//
+// NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
+// for that particular channel edge routing policy will be passed into the
+// callback.
+func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+
+	return db.View(func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -415,7 +430,7 @@ func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := c.getChannelMap(edges)
+		channelMap, err := getChannelMap(edges)
 		if err != nil {
 			return err
 		}
@@ -479,7 +494,7 @@ func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 		// First, load all edges in memory indexed by node and channel
 		// id.
-		channelMap, err := c.getChannelMap(edges)
+		channelMap, err := getChannelMap(edges)
 		if err != nil {
 			return err
 		}
@@ -658,7 +673,7 @@ func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
 	// We'll iterate over each node, then the set of channels for each
 	// node, and construct a similar callback functiopn signature as the
 	// main funcotin expects.
-	return c.forEachNode(func(tx kvdb.RTx,
+	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.LightningNode) error {
 
 		channels := make(map[uint64]*DirectedChannel)
@@ -774,7 +789,7 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 // executed under the same read transaction and so, methods on the NodeTx object
 // _MUST_ only be called from within the call-back.
 func (c *KVStore) ForEachNode(cb func(tx NodeRTx) error) error {
-	return c.forEachNode(func(tx kvdb.RTx,
+	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.LightningNode) error {
 
 		return cb(newChanGraphNodeTx(tx, c, node))
@@ -788,7 +803,7 @@ func (c *KVStore) ForEachNode(cb func(tx NodeRTx) error) error {
 //
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega.
-func (c *KVStore) forEachNode(
+func forEachNode(db kvdb.Backend,
 	cb func(kvdb.RTx, *models.LightningNode) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
@@ -819,7 +834,7 @@ func (c *KVStore) forEachNode(
 		})
 	}
 
-	return kvdb.View(c.db, traversal, func() {})
+	return kvdb.View(db, traversal, func() {})
 }
 
 // ForEachNodeCacheable iterates through all the stored vertices/nodes in the
@@ -866,11 +881,15 @@ func (c *KVStore) ForEachNodeCacheable(cb func(route.Vertex,
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
-func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode,
-	error) {
+func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode, error) {
+	return sourceNode(c.db)
+}
 
+// sourceNode fetches the source node of the graph. The source node is treated
+// as the center node within a star-graph.
+func sourceNode(db kvdb.Backend) (*models.LightningNode, error) {
 	var source *models.LightningNode
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.ReadBucket(nodeBucket)
@@ -878,7 +897,7 @@ func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode,
 			return ErrGraphNotFound
 		}
 
-		node, err := c.sourceNode(nodes)
+		node, err := sourceNodeWithTx(nodes)
 		if err != nil {
 			return err
 		}
@@ -895,13 +914,11 @@ func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode,
 	return source, nil
 }
 
-// sourceNode uses an existing database transaction and returns the source node
-// of the graph. The source node is treated as the center node within a
+// sourceNodeWithTx uses an existing database transaction and returns the source
+// node of the graph. The source node is treated as the center node within a
 // star-graph. This method may be used to kick off a path finding algorithm in
 // order to explore the reachability of another node based off the source node.
-func (c *KVStore) sourceNode(nodes kvdb.RBucket) (*models.LightningNode,
-	error) {
-
+func sourceNodeWithTx(nodes kvdb.RBucket) (*models.LightningNode, error) {
 	selfPub := nodes.Get(sourceKey)
 	if selfPub == nil {
 		return nil, ErrSourceNodeNotSet
@@ -1554,7 +1571,7 @@ func (c *KVStore) pruneGraphNodes(nodes kvdb.RwBucket,
 
 	// We'll retrieve the graph's source node to ensure we don't remove it
 	// even if it no longer has any open channels.
-	sourceNode, err := c.sourceNode(nodes)
+	sourceNode, err := sourceNodeWithTx(nodes)
 	if err != nil {
 		return nil, err
 	}
@@ -3240,7 +3257,7 @@ func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 			return ErrGraphNotFound
 		}
 
-		node, err := c.sourceNode(nodes)
+		node, err := sourceNodeWithTx(nodes)
 		if err != nil {
 			return err
 		}

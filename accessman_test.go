@@ -708,6 +708,7 @@ func TestAddPeerAccessOutbound(t *testing.T) {
 // accessman's internal state based on the peer's status.
 func TestRemovePeerAccess(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	// Create a testing accessMan.
 	a := &accessMan{
@@ -758,7 +759,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	// We now assert `removePeerAccess` behaves as expected.
 	//
 	// Remove peer1 should change nothing.
-	a.removePeerAccess(peer1)
+	a.removePeerAccess(ctx, peer1)
 
 	// peer1 should be removed from peerScores but not peerChanInfo.
 	_, found := a.peerScores[peer1]
@@ -767,7 +768,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	require.True(t, found)
 
 	// Remove peer2 should change nothing.
-	a.removePeerAccess(peer2)
+	a.removePeerAccess(ctx, peer2)
 
 	// peer2 should be removed from peerScores but not peerChanInfo.
 	_, found = a.peerScores[peer2]
@@ -776,7 +777,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	require.True(t, found)
 
 	// Remove peer3 should remove it from the maps.
-	a.removePeerAccess(peer3)
+	a.removePeerAccess(ctx, peer3)
 
 	// peer3 should be removed from peerScores and peerChanInfo.
 	_, found = a.peerScores[peer3]
@@ -785,7 +786,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	require.False(t, found)
 
 	// Remove peer4 should remove it from the maps.
-	a.removePeerAccess(peer4)
+	a.removePeerAccess(ctx, peer4)
 
 	// peer4 should be removed from peerScores and NOT be found in
 	// peerChanInfo.
@@ -795,7 +796,7 @@ func TestRemovePeerAccess(t *testing.T) {
 	require.False(t, found)
 
 	// Remove peer5 should be NOOP.
-	a.removePeerAccess(peer5)
+	a.removePeerAccess(ctx, peer5)
 
 	// peer5 should NOT be found.
 	_, found = a.peerScores[peer5]

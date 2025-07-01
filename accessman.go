@@ -611,8 +611,7 @@ func (a *accessMan) addPeerAccess(remotePub *btcec.PublicKey,
 
 // removePeerAccess removes the peer's access from the maps. This should be
 // called when the peer has been disconnected.
-func (a *accessMan) removePeerAccess(peerPubKey string) {
-	ctx := btclog.WithCtx(context.TODO(), "peer", peerPubKey)
+func (a *accessMan) removePeerAccess(ctx context.Context, peerPubKey string) {
 	acsmLog.DebugS(ctx, "Removing access:")
 
 	a.banScoreMtx.Lock()

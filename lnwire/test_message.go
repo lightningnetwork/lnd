@@ -833,9 +833,9 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 
 	// Generate random values for each included field
 	if includeDustLimit {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		msg.DustLimit = tlv.SomeRecordT(rec)
 	}
 
@@ -847,9 +847,9 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if includeChannelReserve {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		msg.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 
@@ -942,9 +942,9 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 
 	// Generate random values for each included field
 	if includeDustLimit {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		dp.DustLimit = tlv.SomeRecordT(rec)
 	}
 
@@ -956,9 +956,9 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if includeChannelReserve {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		dp.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 

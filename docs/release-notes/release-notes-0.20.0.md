@@ -25,6 +25,8 @@
   https://github.com/lightningnetwork/lnd/pull/9815). This ensures the original
   announcement remains unchanged until the new one is fully signed and
   validated.
+- [Fixed creation of invoices with zero amount and blinded paths](
+  https://github.com/lightningnetwork/lnd/pull/10029).
 
 # New Features
 
@@ -170,5 +172,6 @@ reader of a payment request.
 * Erick Cestari
 * Funyug
 * Mohamed Awnallah
+* Maurice Poirrier
 * Pins
 * Ziggie

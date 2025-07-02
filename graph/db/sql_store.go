@@ -135,6 +135,7 @@ type SQLQueries interface {
 		Prune log table queries.
 	*/
 	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
+	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg sqlc.DeletePruneLogEntriesInRangeParams) error
 

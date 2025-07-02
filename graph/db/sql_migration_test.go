@@ -5,6 +5,7 @@ package graphdb
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"image/color"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -215,6 +217,45 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numPolicies: 3,
 			},
 		},
+		{
+			name: "prune log",
+			write: func(t *testing.T, db *KVStore, object any) {
+				var hash chainhash.Hash
+				_, err := rand.Read(hash[:])
+				require.NoError(t, err)
+
+				switch obj := object.(type) {
+				case *models.LightningNode:
+					err = db.SetSourceNode(ctx, obj)
+				default:
+					height, ok := obj.(uint32)
+					require.True(t, ok)
+
+					_, _, err = db.PruneGraph(
+						nil, &hash, height,
+					)
+				}
+				require.NoError(t, err)
+			},
+			objects: []any{
+				// The PruneGraph call requires that the source
+				// node be set. So that is the first object
+				// we will write.
+				&models.LightningNode{
+					HaveNodeAnnouncement: false,
+					PubKeyBytes:          testPub,
+				},
+				// Now we add some block heights to prune
+				// the graph at.
+				uint32(1), uint32(2), uint32(20), uint32(3),
+				uint32(4),
+			},
+			expGraphStats: graphStats{
+				numNodes:   1,
+				srcNodeSet: true,
+				pruneTip:   20,
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -251,6 +292,7 @@ type graphStats struct {
 	srcNodeSet  bool
 	numChannels int
 	numPolicies int
+	pruneTip    int
 }
 
 // assertInSync checks that the KVStore and SQLStore both contain the same
@@ -274,6 +316,12 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 	require.Len(t, sqlChannels, stats.numChannels)
 	require.Equal(t, stats.numPolicies, sqlChannels.CountPolicies())
 	require.Equal(t, fetchAllChannelsAndPolicies(t, kvDB), sqlChannels)
+
+	// 4) Assert prune logs match. For this one, we iterate through the
+	// prune log of the kvdb store and check that the entries match the
+	// entries in the SQL store. Then we just do a final check to ensure
+	// that the prune tip also matches.
+	checkKVPruneLogEntries(t, kvDB, sqlDB, stats.pruneTip)
 }
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
@@ -378,6 +426,46 @@ func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
 	})
 
 	return channels
+}
+
+// checkKVPruneLogEntries iterates through the prune log entries in the
+// KVStore and checks that there is an entry for each in the SQLStore. It then
+// does a final check to ensure that the prune tips in both stores match.
+func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
+	expTip int) {
+
+	// Iterate through the prune log entries in the KVStore and
+	// check that each entry exists in the SQLStore.
+	err := forEachPruneLogEntry(kv.db,
+		func(height uint32, hash *chainhash.Hash) error {
+			sqlHash, err := sql.db.GetPruneHashByHeight(
+				context.Background(), int64(height),
+			)
+			require.NoError(t, err)
+			require.Equal(t, hash[:], sqlHash)
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	kvPruneHash, kvPruneHeight, kvPruneErr := kv.PruneTip()
+	sqlPruneHash, sqlPruneHeight, sqlPruneErr := sql.PruneTip()
+
+	// If the prune error is ErrGraphNeverPruned, then we expect
+	// the SQL prune error to also be ErrGraphNeverPruned.
+	if errors.Is(kvPruneErr, ErrGraphNeverPruned) {
+		require.ErrorIs(t, sqlPruneErr, ErrGraphNeverPruned)
+		return
+	}
+
+	// Otherwise, we expect both prune errors to be nil and the
+	// prune hashes and heights to match.
+	require.NoError(t, kvPruneErr)
+	require.NoError(t, sqlPruneErr)
+	require.Equal(t, kvPruneHash[:], sqlPruneHash[:])
+	require.Equal(t, kvPruneHeight, sqlPruneHeight)
+	require.Equal(t, expTip, int(sqlPruneHeight))
 }
 
 // setUpKVStore initializes a new KVStore for testing.

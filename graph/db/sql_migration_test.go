@@ -258,6 +258,22 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				pruneTip:   20,
 			},
 		},
+		{
+			name: "closed SCID index",
+			write: func(t *testing.T, db *KVStore, object any) {
+				scid, ok := object.(lnwire.ShortChannelID)
+				require.True(t, ok)
+
+				err := db.PutClosedScid(scid)
+				require.NoError(t, err)
+			},
+			objects: []any{
+				lnwire.NewShortChanIDFromInt(1),
+				lnwire.NewShortChanIDFromInt(2),
+				lnwire.NewShortChanIDFromInt(3),
+				lnwire.NewShortChanIDFromInt(4),
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -324,6 +340,11 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 	// entries in the SQL store. Then we just do a final check to ensure
 	// that the prune tip also matches.
 	checkKVPruneLogEntries(t, kvDB, sqlDB, stats.pruneTip)
+
+	// 5) Assert that the closed SCID index is also in sync. Like the prune
+	// log we iterate through the kvdb store and check that the entries
+	// match the entries in the SQL store.
+	checkClosedSCIDIndex(t, kvDB.db, sqlDB)
 }
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
@@ -465,6 +486,19 @@ func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
 	require.Equal(t, kvPruneHash[:], sqlPruneHash[:])
 	require.Equal(t, kvPruneHeight, sqlPruneHeight)
 	require.Equal(t, expTip, int(sqlPruneHeight))
+}
+
+// checkClosedSCIDIndex iterates through the closed SCID index in the
+// KVStore and checks that each SCID is marked as closed in the SQLStore.
+func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
+	err := forEachClosedSCID(kv, func(scid lnwire.ShortChannelID) error {
+		closed, err := sql.IsClosedScid(scid)
+		require.NoError(t, err)
+		require.True(t, closed)
+
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // setUpKVStore initializes a new KVStore for testing.

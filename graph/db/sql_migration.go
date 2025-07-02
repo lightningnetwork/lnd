@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -60,6 +61,13 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	// 4) Migrate the Prune log.
 	if err := migratePruneLog(ctx, kvBackend, sqlDB); err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// 5) Migrate the closed SCID index.
+	err = migrateClosedSCIDIndex(ctx, kvBackend, sqlDB)
+	if err != nil {
+		return fmt.Errorf("could not migrate closed SCID index: %w",
+			err)
 	}
 
 	log.Infof("Finished migration of the graph store from KV to SQL in %v",
@@ -683,6 +691,71 @@ func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
 			copy(blockHash[:], v)
 
 			return cb(blockHeight, &blockHash)
+		})
+	}, func() {})
+}
+
+// migrateClosedSCIDIndex migrates the closed SCID index from the KV backend to
+// the SQL database. It iterates over each closed SCID in the KV store, inserts
+// it into the SQL database, and then verifies that the SCID was inserted
+// correctly by checking if the channel with the given SCID is seen as closed in
+// the SQL database.
+func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var count uint64
+	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
+		count++
+
+		chanIDB := channelIDToBytes(scid.ToUint64())
+		err := sqlDB.InsertClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not insert closed channel "+
+				"with SCID %s: %w", scid, err)
+		}
+
+		// Now, verify that the channel with the given SCID is
+		// seen as closed.
+		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not check if channel %s "+
+				"is closed: %w", scid, err)
+		}
+
+		if !isClosed {
+			return fmt.Errorf("channel %s should be closed, "+
+				"but is not", scid)
+		}
+
+		return nil
+	}
+
+	err := forEachClosedSCID(kvBackend, migrateSingleClosedSCID)
+	if err != nil {
+		return fmt.Errorf("could not migrate closed SCID index: %w",
+			err)
+	}
+
+	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)
+
+	return nil
+}
+
+// forEachClosedSCID iterates over each closed SCID in the KV backend and calls
+// the provided callback function for each SCID.
+func forEachClosedSCID(db kvdb.Backend,
+	cb func(lnwire.ShortChannelID) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		closedScids := tx.ReadBucket(closedScidBucket)
+		if closedScids == nil {
+			return nil
+		}
+
+		return closedScids.ForEach(func(k, _ []byte) error {
+			return cb(lnwire.NewShortChanIDFromInt(
+				byteOrder.Uint64(k),
+			))
 		})
 	}, func() {})
 }

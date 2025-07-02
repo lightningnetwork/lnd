@@ -1004,11 +1004,21 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
+	includeLocalNonce := rapid.Bool().Draw(t, "includeLocalNonce")
+	if includeLocalNonce {
+		nonce := RandMusig2Nonce(t)
+		rec := tlv.NewRecordT[tlv.TlvType14](nonce)
+		da.LocalNonce = tlv.SomeRecordT(rec)
+	}
+
 	// Create a tlv type lists to hold all known records which will be
 	// ignored when creating ExtraData records.
 	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(13) {
-		ignoreRecords.Add(i)
+	for i := range uint64(15) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
 	}
 	msg := &DynCommit{
 		DynPropose: *dp,

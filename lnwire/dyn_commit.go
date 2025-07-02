@@ -45,9 +45,14 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, dc.Sig); err != nil {
 		return err
 	}
+	producers := dynProposeRecords(&dc.DynPropose)
+	dc.LocalNonce.WhenSome(
+		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
+			producers = append(producers, &rec)
+		})
 
 	var extra ExtraOpaqueData
-	err := extra.PackRecords(dynProposeRecords(&dc.DynPropose)...)
+	err := extra.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
@@ -82,10 +87,11 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	csvDelay := dc.CsvDelay.Zero()
 	maxHtlcs := dc.MaxAcceptedHTLCs.Zero()
 	chanType := dc.ChannelType.Zero()
+	nonce := dc.LocalNonce.Zero()
 
 	typeMap, err := tlvRecords.ExtractRecords(
 		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
-		&chanType,
+		&chanType, &nonce,
 	)
 	if err != nil {
 		return err
@@ -121,6 +127,9 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 	if val, ok := typeMap[dc.ChannelType.TlvType()]; ok && val == nil {
 		dc.ChannelType = tlv.SomeRecordT(chanType)
+	}
+	if val, ok := typeMap[dc.LocalNonce.TlvType()]; ok && val == nil {
+		dc.LocalNonce = tlv.SomeRecordT(nonce)
 	}
 
 	if len(tlvRecords) != 0 {

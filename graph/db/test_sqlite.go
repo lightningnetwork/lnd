@@ -1,4 +1,4 @@
-//go:build !test_db_posgres && test_db_sqlite
+//go:build !test_db_postgres && test_db_sqlite
 
 package graphdb
 

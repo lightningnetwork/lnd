@@ -1916,66 +1916,32 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 		return
 	}
 
+	var err error
+
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
-		err := l.processRemoteUpdateAddHTLC(msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote ADD: %v", err)
-			return
-		}
+		err = l.processRemoteUpdateAddHTLC(msg)
 
 	case *lnwire.UpdateFulfillHTLC:
-		err := l.processRemoteUpdateFulfillHTLC(msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote fulfill: %v",
-				err)
-
-			return
-		}
+		err = l.processRemoteUpdateFulfillHTLC(msg)
 
 	case *lnwire.UpdateFailMalformedHTLC:
-		err := l.processRemoteUpdateFailMalformedHTLC(msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote fail "+
-				"malformed: %v", err)
-
-			return
-		}
+		err = l.processRemoteUpdateFailMalformedHTLC(msg)
 
 	case *lnwire.UpdateFailHTLC:
-		err := l.processRemoteUpdateFailHTLC(msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote fail: %v", err)
-			return
-		}
+		err = l.processRemoteUpdateFailHTLC(msg)
 
 	case *lnwire.CommitSig:
-		err := l.processRemoteCommitSig(ctx, msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote commit sig: %v",
-				err)
-
-			return
-		}
+		err = l.processRemoteCommitSig(ctx, msg)
 
 	case *lnwire.RevokeAndAck:
-		err := l.processRemoteRevokeAndAck(ctx, msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote revoke: %v", err)
-			return
-		}
+		err = l.processRemoteRevokeAndAck(ctx, msg)
 
 	case *lnwire.UpdateFee:
-		err := l.processRemoteUpdateFee(msg)
-		if err != nil {
-			l.log.Errorf("failed to process remote update fee: %v",
-				err)
-
-			return
-		}
+		err = l.processRemoteUpdateFee(msg)
 
 	case *lnwire.Stfu:
-		err := l.handleStfu(msg)
+		err = l.handleStfu(msg)
 		if err != nil {
 			l.stfuFailf("handleStfu: %v", err.Error())
 		}
@@ -1992,6 +1958,11 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
+	}
+
+	if err != nil {
+		l.log.Errorf("failed to process remote %v: %v", msg.MsgType(),
+			err)
 	}
 }
 

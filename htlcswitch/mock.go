@@ -1143,21 +1143,6 @@ func (m *mockCircuitMap) NumOpen() int {
 	return 0
 }
 
-type mockOnionErrorDecryptor struct {
-	sourceIdx int
-	message   []byte
-	err       error
-}
-
-func (m *mockOnionErrorDecryptor) DecryptError(encryptedData, attrdata []byte) (
-	*sphinx.DecryptedError, error) {
-
-	return &sphinx.DecryptedError{
-		SenderIdx: m.sourceIdx,
-		Message:   m.message,
-	}, m.err
-}
-
 var _ htlcNotifier = (*mockHTLCNotifier)(nil)
 
 type mockHTLCNotifier struct {

@@ -29,6 +29,10 @@
 - Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
   when we fail starting up LND before we startup the chanbackup sub-server.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10027) an issue where
+  known TLV fields were incorrectly encoded into the `ExtraData` field of
+  messages in the dynamic commitment set.
+
 # New Features
 
 ## Functional Enhancements

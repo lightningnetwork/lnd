@@ -1,8 +1,10 @@
 package graphdb
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -53,6 +55,11 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",
 			err)
+	}
+
+	// 4) Migrate the Prune log.
+	if err := migratePruneLog(ctx, kvBackend, sqlDB); err != nil {
+		return fmt.Errorf("could not migrate prune log: %w", err)
 	}
 
 	log.Infof("Finished migration of the graph store from KV to SQL in %v",
@@ -506,6 +513,115 @@ func migrateSingleChannel(ctx context.Context, sqlDB SQLQueries,
 	return nil
 }
 
+// migratePruneLog migrates the prune log from the KV backend to the SQL
+// database. It iterates over each prune log entry in the KV store, inserts it
+// into the SQL database, and then verifies that the entry was inserted
+// correctly by fetching it back from the SQL database and comparing it to the
+// original entry.
+func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var (
+		count          uint64
+		pruneTipHeight uint32
+		pruneTipHash   chainhash.Hash
+	)
+
+	// migrateSinglePruneEntry is a helper function that inserts a single
+	// prune log entry into the SQL database and verifies that it was
+	// inserted correctly.
+	migrateSinglePruneEntry := func(height uint32,
+		hash *chainhash.Hash) error {
+
+		count++
+
+		// Keep track of the prune tip height and hash.
+		if height > pruneTipHeight {
+			pruneTipHeight = height
+			pruneTipHash = *hash
+		}
+
+		err := sqlDB.UpsertPruneLogEntry(
+			ctx, sqlc.UpsertPruneLogEntryParams{
+				BlockHeight: int64(height),
+				BlockHash:   hash[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert prune log "+
+				"entry for height %d: %w", height, err)
+		}
+
+		// Now, check that the entry was inserted correctly.
+		migratedHash, err := sqlDB.GetPruneHashByHeight(
+			ctx, int64(height),
+		)
+		if err != nil {
+			return fmt.Errorf("could not get prune hash "+
+				"for height %d: %w", height, err)
+		}
+
+		return sqldb.CompareRecords(
+			hash[:], migratedHash, "prune log entry",
+		)
+	}
+
+	// Iterate over each prune log entry in the KV store and migrate it to
+	// the SQL database.
+	err := forEachPruneLogEntry(
+		kvBackend, func(height uint32, hash *chainhash.Hash) error {
+			err := migrateSinglePruneEntry(height, hash)
+			if err != nil {
+				return fmt.Errorf("could not migrate "+
+					"prune log entry at height %d: %w",
+					height, err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// Check that the prune tip is set correctly in the SQL
+	// database.
+	pruneTip, err := sqlDB.GetPruneTip(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The ErrGraphNeverPruned error is expected if no prune log
+		// entries were migrated from the kvdb store. Otherwise, it's
+		// an unexpected error.
+		if count == 0 {
+			log.Infof("No prune log entries found in KV store " +
+				"to migrate")
+			return nil
+		}
+		// Fall-through to the next error check.
+	}
+	if err != nil {
+		return fmt.Errorf("could not get prune tip: %w", err)
+	}
+
+	if pruneTip.BlockHeight != int64(pruneTipHeight) ||
+		!bytes.Equal(pruneTip.BlockHash, pruneTipHash[:]) {
+
+		return fmt.Errorf("prune tip mismatch after migration: "+
+			"expected height %d, hash %s; got height %d, "+
+			"hash %s", pruneTipHeight, pruneTipHash,
+			pruneTip.BlockHeight,
+			chainhash.Hash(pruneTip.BlockHash))
+	}
+
+	log.Infof("Migrated %d prune log entries from KV to SQL. The prune "+
+		"tip is: height %d, hash: %s", count, pruneTipHeight,
+		pruneTipHash)
+
+	return nil
+}
+
+// getAndBuildChanAndPolicies is a helper that builds the channel edge info
+// and policies from the given row returned by the SQL query
+// GetChannelBySCIDWithPolicies.
 func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	row sqlc.GetChannelBySCIDWithPoliciesRow,
 	chain chainhash.Hash) (*models.ChannelEdgeInfo,
@@ -541,4 +657,32 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	return edge, policy1, policy2, nil
+}
+
+// forEachPruneLogEntry iterates over each prune log entry in the KV
+// backend and calls the provided callback function for each entry.
+func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
+	hash *chainhash.Hash) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		metaBucket := tx.ReadBucket(graphMetaBucket)
+		if metaBucket == nil {
+			return ErrGraphNotFound
+		}
+
+		pruneBucket := metaBucket.NestedReadBucket(pruneLogBucket)
+		if pruneBucket == nil {
+			// The graph has never been pruned and so, there are no
+			// entries to iterate over.
+			return nil
+		}
+
+		return pruneBucket.ForEach(func(k, v []byte) error {
+			blockHeight := byteOrder.Uint32(k)
+			var blockHash chainhash.Hash
+			copy(blockHash[:], v)
+
+			return cb(blockHeight, &blockHash)
+		})
+	}, func() {})
 }

@@ -2878,3 +2878,65 @@ func (h *HarnessTest) AssertForceCloseAndAnchorTxnsInMempool() (*wire.MsgTx,
 		return nil, nil
 	}
 }
+
+// ReceiveSendToRouteUpdate waits until a message is received on the
+// PeerEventsClient stream or the timeout is reached.
+func (h *HarnessTest) ReceivePeerEvent(
+	stream rpc.PeerEventsClient) (*lnrpc.PeerEvent, error) {
+
+	eventChan := make(chan *lnrpc.PeerEvent, 1)
+	errChan := make(chan error, 1)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+		eventChan <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout waiting for peer event")
+		return nil, nil
+
+	case err := <-errChan:
+		return nil, err
+
+	case event := <-eventChan:
+		return event, nil
+	}
+}
+
+// AssertPeerOnlineEvent reads an event from the PeerEventsClient stream and
+// asserts it's an online event.
+func (h HarnessTest) AssertPeerOnlineEvent(stream rpc.PeerEventsClient) {
+	event, err := h.ReceivePeerEvent(stream)
+	require.NoError(h, err)
+
+	require.Equal(h, lnrpc.PeerEvent_PEER_ONLINE, event.Type)
+}
+
+// AssertPeerOfflineEvent reads an event from the PeerEventsClient stream and
+// asserts it's an offline event.
+func (h HarnessTest) AssertPeerOfflineEvent(stream rpc.PeerEventsClient) {
+	event, err := h.ReceivePeerEvent(stream)
+	require.NoError(h, err)
+
+	require.Equal(h, lnrpc.PeerEvent_PEER_OFFLINE, event.Type)
+}
+
+// AssertPeerReconnected reads two events from the PeerEventsClient stream. The
+// first event must be an offline event, and the second event must be an online
+// event. This is a typical reconnection scenario, where the peer is
+// disconnected then connected again.
+//
+// NOTE: It's important to make the subscription before the disconnection
+// happens, otherwise the events can be missed.
+func (h HarnessTest) AssertPeerReconnected(stream rpc.PeerEventsClient) {
+	h.AssertPeerOfflineEvent(stream)
+	h.AssertPeerOnlineEvent(stream)
+}

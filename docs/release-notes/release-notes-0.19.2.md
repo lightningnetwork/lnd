@@ -57,7 +57,10 @@
 - [Improved](https://github.com/lightningnetwork/lnd/pull/9880) the connection
   restriction logic enforced by `accessman`. In addition, the restriction placed
   on outbound connections is now lifted.
-
+- [Enhanced](https://github.com/lightningnetwork/lnd/pull/9980) the aux traffic
+  shaper to now accept the first hop peer pub key as an argument. This can
+  affect the reported aux bandwidth and also the custom records that are
+  produced.
 ## RPC Updates
 
 ## lncli Updates

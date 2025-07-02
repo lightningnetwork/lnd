@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -13,7 +11,7 @@ const (
 	// DALocalMusig2Pubnonce is the TLV type number that identifies the
 	// musig2 public nonce that we need to verify the commitment transaction
 	// signature.
-	DALocalMusig2Pubnonce tlv.Type = 0
+	DALocalMusig2Pubnonce tlv.Type = 14
 )
 
 // DynAck is the message used to accept the parameters of a dynamic commitment
@@ -33,7 +31,7 @@ type DynAck struct {
 	// used to verify the first commitment transaction signature. This will
 	// only be populated if the DynPropose we are responding to specifies
 	// taproot channels in the ChannelType field.
-	LocalNonce fn.Option[Musig2Nonce]
+	LocalNonce tlv.OptionalRecordT[tlv.TlvType14, Musig2Nonce]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -62,34 +60,26 @@ func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	var tlvRecords []tlv.Record
-	da.LocalNonce.WhenSome(func(nonce Musig2Nonce) {
-		tlvRecords = append(
-			tlvRecords, tlv.MakeStaticRecord(
-				DALocalMusig2Pubnonce, &nonce,
-				musig2.PubNonceSize, nonceTypeEncoder,
-				nonceTypeDecoder,
-			),
-		)
-	})
-	tlv.SortRecords(tlvRecords)
+	producers := make([]tlv.RecordProducer, 0, 1)
 
-	tlvStream, err := tlv.NewStream(tlvRecords...)
+	da.LocalNonce.WhenSome(
+		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
+			producers = append(producers, &rec)
+		})
+
+	// Encode all known records.
+	var tlvData ExtraOpaqueData
+	err := tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
 
-	// Encode the tlv records into raw bytes.
-	var tlvData bytes.Buffer
-	if err := tlvStream.Encode(&tlvData); err != nil {
+	// Write the known records.
+	if err := WriteBytes(w, tlvData); err != nil {
 		return err
 	}
 
-	// Write the tlv records as raw bytes.
-	if err := WriteBytes(w, tlvData.Bytes()); err != nil {
-		return err
-	}
-
+	// Encode ExtraData.
 	return WriteBytes(w, da.ExtraData)
 }
 
@@ -110,16 +100,10 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	// Prepare receiving buffers to be filled by TLV extraction.
-	var localNonceScratch Musig2Nonce
-	localNonce := tlv.MakeStaticRecord(
-		DALocalMusig2Pubnonce, &localNonceScratch, musig2.PubNonceSize,
-		nonceTypeEncoder, nonceTypeDecoder,
-	)
-
 	// Parse all known records and extra data.
+	nonce := da.LocalNonce.Zero()
 	knownRecords, extraData, err := ParseAndExtractExtraData(
-		tlvRecords, &localNonce,
+		tlvRecords, &nonce,
 	)
 	if err != nil {
 		return err
@@ -127,8 +111,8 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if _, ok := knownRecords[DALocalMusig2Pubnonce]; ok {
-		da.LocalNonce = fn.Some(localNonceScratch)
+	if _, ok := knownRecords[da.LocalNonce.TlvType()]; ok {
+		da.LocalNonce = tlv.SomeRecordT(nonce)
 	}
 
 	da.ExtraData = extraData

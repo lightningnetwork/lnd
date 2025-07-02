@@ -260,6 +260,12 @@ type ConfNtfn struct {
 	// the block included with it.
 	includeBlock bool
 
+	// allConfirmations is true if the client wants to receive a
+	// notification for every confirmation of this transaction/output script
+	// rather than just the final one. If true, the client will receive a
+	// notification for each confirmation, starting from the first.
+	allConfirmations bool
+
 	// numConfsLeft is the number of confirmations left to be sent to the
 	// subscriber.
 	numConfsLeft uint32
@@ -592,9 +598,10 @@ func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 		Event: NewConfirmationEvent(numConfs, func() {
 			n.CancelConf(confRequest, confID)
 		}),
-		HeightHint:   heightHint,
-		includeBlock: opts.includeBlock,
-		numConfsLeft: numConfs,
+		HeightHint:       heightHint,
+		includeBlock:     opts.includeBlock,
+		allConfirmations: opts.allConfirmations,
+		numConfsLeft:     numConfs,
 	}, nil
 }
 
@@ -788,7 +795,6 @@ func (n *TxNotifier) CancelConf(confRequest ConfRequest, confID uint64) {
 	// We'll close all the notification channels to let the client know
 	// their cancel request has been fulfilled.
 	close(ntfn.Event.Confirmed)
-	close(ntfn.Event.Updates)
 	close(ntfn.Event.NegativeConf)
 
 	// Finally, we'll clean up any lingering references to this
@@ -945,13 +951,8 @@ func (n *TxNotifier) dispatchConfDetails(
 			"conf_id=%v, %v", ntfn.NumConfirmations, ntfn.ConfID,
 			ntfn.ConfRequest)
 
-		// We'll send a 0 value to the Updates channel,
-		// indicating that the transaction/output script has already
-		// been confirmed.
-		err := n.notifyNumConfsLeft(ntfn, 0)
-		if err != nil {
-			return err
-		}
+		// Update the number of confirmations left to the notification.
+		ntfn.numConfsLeft = 0
 
 		select {
 		case ntfn.Event.Confirmed <- details:
@@ -973,14 +974,17 @@ func (n *TxNotifier) dispatchConfDetails(
 		}
 		ntfnSet[ntfn] = struct{}{}
 
-		// We'll also send an update to the client of how many
-		// confirmations are left for the transaction/output script to
-		// be confirmed.
+		// We'll send a confirmation update to the client only if
+		// the client has opted in to receive updates on the number
+		// of confirmations remaining for the transaction/output script.
 		numConfsLeft := confHeight - n.currentHeight
-		err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+		err := n.notifyConfsUpdate(ntfn, numConfsLeft, *details)
 		if err != nil {
 			return err
 		}
+
+		// Update the number of confirmations left to the notification.
+		ntfn.numConfsLeft = numConfsLeft
 	}
 
 	// As a final check, we'll also watch the transaction/output script if
@@ -1744,10 +1748,15 @@ func (n *TxNotifier) NotifyHeight(height uint32) error {
 					continue
 				}
 
-				err := n.notifyNumConfsLeft(ntfn, numConfsLeft)
+				err := n.notifyConfsUpdate(ntfn, numConfsLeft,
+					*confSet.details)
 				if err != nil {
 					return err
 				}
+
+				// Update the number of confirmations left to
+				// the notification.
+				ntfn.numConfsLeft = numConfsLeft
 			}
 		}
 	}
@@ -1848,11 +1857,11 @@ func (n *TxNotifier) DisconnectTip(blockHeight uint32) error {
 			}
 
 			for _, ntfn := range confSet.ntfns {
-				// First, we'll attempt to drain an update
-				// from each notification to ensure sends to the
-				// Updates channel are always non-blocking.
+				// We'll attempt to drain an Confirmed from each
+				// notification to ensure sends to the Confirmed
+				// channel are always non-blocking.
 				select {
-				case <-ntfn.Event.Updates:
+				case <-ntfn.Event.Confirmed:
 				case <-n.quit:
 					return ErrTxNotifierExiting
 				default:
@@ -2081,7 +2090,6 @@ func (n *TxNotifier) TearDown() {
 	for _, confSet := range n.confNotifications {
 		for confID, ntfn := range confSet.ntfns {
 			close(ntfn.Event.Confirmed)
-			close(ntfn.Event.Updates)
 			close(ntfn.Event.NegativeConf)
 			close(ntfn.Event.Done)
 			delete(confSet.ntfns, confID)
@@ -2098,26 +2106,38 @@ func (n *TxNotifier) TearDown() {
 	}
 }
 
-// notifyNumConfsLeft sends the number of confirmations left to the
-// notification subscriber through the Event.Updates channel.
+// notifyConfsUpdate sends a confirmation notification to the subscriber
+// through the Event.Confirmed channel, but only if the caller has opted to
+// receive updates for all confirmations and the transaction/output script
+// has not yet reached the target number of confirmations.
 //
 // NOTE: must be used with the TxNotifier's lock held.
-func (n *TxNotifier) notifyNumConfsLeft(ntfn *ConfNtfn, num uint32) error {
+func (n *TxNotifier) notifyConfsUpdate(ntfn *ConfNtfn, num uint32,
+	details TxConfirmation) error {
+
+	// Send the confirmation notification only if the caller has opted to
+	// receive updates for all confirmations and the transaction/output
+	// script has not yet reached the target number of confirmations.
+	if !ntfn.allConfirmations || num == 0 {
+		return nil
+	}
+
 	// If the number left is no less than the recorded value, we can skip
 	// sending it as it means this same value has already been sent before.
 	if num >= ntfn.numConfsLeft {
-		Log.Debugf("Skipped dispatched update (numConfsLeft=%v) for "+
-			"request %v conf_id=%v", num, ntfn.ConfRequest,
+		Log.Debugf("Skipped dispatched confirmation (numConfsLeft=%v) "+
+			"for request %v conf_id=%v", num, ntfn.ConfRequest,
 			ntfn.ConfID)
 
 		return nil
 	}
 
-	// Update the number of confirmations left to the notification.
-	ntfn.numConfsLeft = num
+	// Update the number of confirmations left to the confirmation
+	// notification.
+	details.NumConfsLeft = num
 
 	select {
-	case ntfn.Event.Updates <- num:
+	case ntfn.Event.Confirmed <- &details:
 	case <-n.quit:
 		return ErrTxNotifierExiting
 	}

@@ -28,6 +28,13 @@
 
 # New Features
 
+* The `RegisterConfirmationsNtfn` call of the `ChainNotifier` now optionally
+  [supports returning a confirmation notification for each confirmation
+  received](https://github.com/lightningnetwork/lnd/pull/9878) for the target
+  transaction/output script. Additionally, the `Updates` channel, which was
+  sent on every incremental confirmation, has been removed from the
+  `ConfirmationEvent`.
+
 ## Functional Enhancements
 
 ## RPC Additions
@@ -164,5 +171,6 @@ reader of a payment request.
 * Erick Cestari
 * Funyug
 * Mohamed Awnallah
+* Nishant Bansal
 * Pins
 * Ziggie

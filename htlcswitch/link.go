@@ -1018,7 +1018,11 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 		// immediately so we return to a synchronized state as soon as
 		// possible.
 		for _, msg := range msgsToReSend {
-			l.cfg.Peer.SendMessage(false, msg)
+			err := l.cfg.Peer.SendMessage(false, msg)
+			if err != nil {
+				l.log.Errorf("failed to send %v: %v",
+					msg.MsgType(), err)
+			}
 		}
 
 	case <-l.cg.Done():
@@ -1619,7 +1623,10 @@ func (l *channelLink) handleDownstreamUpdateAdd(ctx context.Context,
 	l.openedCircuits = append(l.openedCircuits, pkt.inKey())
 	l.keystoneBatch = append(l.keystoneBatch, pkt.keystone())
 
-	_ = l.cfg.Peer.SendMessage(false, htlc)
+	err = l.cfg.Peer.SendMessage(false, htlc)
+	if err != nil {
+		l.log.Errorf("failed to send UpdateAddHTLC: %v", err)
+	}
 
 	// Send a forward event notification to htlcNotifier.
 	l.cfg.HtlcNotifier.NotifyForwardingEvent(
@@ -2021,7 +2028,10 @@ func (l *channelLink) updateCommitTx(ctx context.Context) error {
 		PartialSig:    newCommit.PartialSig,
 		CustomRecords: auxBlobRecords,
 	}
-	l.cfg.Peer.SendMessage(false, commitSig)
+	err = l.cfg.Peer.SendMessage(false, commitSig)
+	if err != nil {
+		l.log.Errorf("failed to send CommitSig: %v", err)
+	}
 
 	// Now that we have sent out a new CommitSig, we invoke the outgoing set
 	// of commit hooks.
@@ -3485,11 +3495,14 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 
 	// HTLC was successfully settled locally send notification about it
 	// remote peer.
-	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
+	err = l.cfg.Peer.SendMessage(false, &lnwire.UpdateFulfillHTLC{
 		ChanID:          l.ChanID(),
 		ID:              htlcIndex,
 		PaymentPreimage: preimage,
 	})
+	if err != nil {
+		l.log.Errorf("failed to send UpdateFulfillHTLC: %v", err)
+	}
 
 	// Once we have successfully settled the htlc, notify a settle event.
 	l.cfg.HtlcNotifier.NotifySettleEvent(
@@ -3684,12 +3697,15 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 		return
 	}
 
-	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailMalformedHTLC{
+	err = l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailMalformedHTLC{
 		ChanID:       l.ChanID(),
 		ID:           htlcIndex,
 		ShaOnionBlob: shaOnionBlob,
 		FailureCode:  code,
 	})
+	if err != nil {
+		l.log.Errorf("failed to send UpdateFailMalformedHTLC: %v", err)
+	}
 }
 
 // failf is a function which is used to encapsulate the action necessary for

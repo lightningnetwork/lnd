@@ -79,12 +79,16 @@ func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	var extraBytesWriter bytes.Buffer
-	if err := tlvStream.Encode(&extraBytesWriter); err != nil {
+	// Encode the tlv records into raw bytes.
+	var tlvData bytes.Buffer
+	if err := tlvStream.Encode(&tlvData); err != nil {
 		return err
 	}
 
-	da.ExtraData = ExtraOpaqueData(extraBytesWriter.Bytes())
+	// Write the tlv records as raw bytes.
+	if err := WriteBytes(w, tlvData.Bytes()); err != nil {
+		return err
+	}
 
 	return WriteBytes(w, da.ExtraData)
 }
@@ -113,30 +117,21 @@ func (da *DynAck) Decode(r io.Reader, _ uint32) error {
 		nonceTypeEncoder, nonceTypeDecoder,
 	)
 
-	// Create set of Records to read TLV bytestream into.
-	records := []tlv.Record{localNonce}
-	tlv.SortRecords(records)
-
-	// Read TLV stream into record set.
-	extraBytesReader := bytes.NewReader(tlvRecords)
-	tlvStream, err := tlv.NewStream(records...)
-	if err != nil {
-		return err
-	}
-	typeMap, err := tlvStream.DecodeWithParsedTypesP2P(extraBytesReader)
+	// Parse all known records and extra data.
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &localNonce,
+	)
 	if err != nil {
 		return err
 	}
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[DALocalMusig2Pubnonce]; ok && val == nil {
+	if _, ok := knownRecords[DALocalMusig2Pubnonce]; ok {
 		da.LocalNonce = fn.Some(localNonceScratch)
 	}
 
-	if len(tlvRecords) != 0 {
-		da.ExtraData = tlvRecords
-	}
+	da.ExtraData = extraData
 
 	return nil
 }

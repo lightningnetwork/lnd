@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -3503,11 +3504,19 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 		})
 	}
 
+	peerBytes := l.cfg.Peer.PubKey()
+
+	peer, err := route.NewVertexFromBytes(peerBytes[:])
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to decode "+
+			"peer pub key: %v", err))
+	}
+
 	// Ask for a specific bandwidth to be used for the channel.
 	commitmentBlob := l.CommitmentCustomBlob()
 	auxBandwidth, err := ts.PaymentBandwidth(
 		fundingBlob, htlcBlob, commitmentBlob, l.Bandwidth(), amount,
-		l.channel.FetchLatestAuxHTLCView(),
+		l.channel.FetchLatestAuxHTLCView(), peer,
 	)
 	if err != nil {
 		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+

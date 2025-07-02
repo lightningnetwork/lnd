@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -495,8 +496,9 @@ type AuxHtlcModifier interface {
 	// data blob of an HTLC, may produce a different blob or modify the
 	// amount of bitcoin this htlc should carry.
 	ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-		htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
-		lnwire.CustomRecords, error)
+		htlcCustomRecords lnwire.CustomRecords,
+		peer route.Vertex) (lnwire.MilliSatoshi, lnwire.CustomRecords,
+		error)
 }
 
 // AuxTrafficShaper is an interface that allows the sender to determine if a
@@ -520,7 +522,8 @@ type AuxTrafficShaper interface {
 	PaymentBandwidth(fundingBlob, htlcBlob,
 		commitmentBlob fn.Option[tlv.Blob],
 		linkBandwidth, htlcAmt lnwire.MilliSatoshi,
-		htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error)
+		htlcView lnwallet.AuxHtlcView,
+		peer route.Vertex) (lnwire.MilliSatoshi, error)
 
 	// IsCustomHTLC returns true if the HTLC carries the set of relevant
 	// custom records to put it under the purview of the traffic shaper,

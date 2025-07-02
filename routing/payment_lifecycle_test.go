@@ -368,7 +368,11 @@ func TestRequestRouteSucceed(t *testing.T) {
 
 	// Create a mock payment session and a dummy route.
 	paySession := &mockPaymentSession{}
-	dummyRoute := &route.Route{}
+	dummyRoute := &route.Route{
+		Hops: []*route.Hop{
+			testHop,
+		},
+	}
 
 	// Mount the mocked payment session.
 	p.paySession = paySession

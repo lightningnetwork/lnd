@@ -130,27 +130,19 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
 	if _, ok := knownRecords[dp.DustLimit.TlvType()]; ok {
-		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
-		rec.Val = dustLimit.Val
-		dp.DustLimit = tlv.SomeRecordT(rec)
+		dp.DustLimit = tlv.SomeRecordT(dustLimit)
 	}
 
 	if _, ok := knownRecords[dp.MaxValueInFlight.TlvType()]; ok {
-		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
-		rec.Val = maxValue.Val
-		dp.MaxValueInFlight = tlv.SomeRecordT(rec)
+		dp.MaxValueInFlight = tlv.SomeRecordT(maxValue)
 	}
 
 	if _, ok := knownRecords[dp.HtlcMinimum.TlvType()]; ok {
-		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
-		rec.Val = htlcMin.Val
-		dp.HtlcMinimum = tlv.SomeRecordT(rec)
+		dp.HtlcMinimum = tlv.SomeRecordT(htlcMin)
 	}
 
 	if _, ok := knownRecords[dp.ChannelReserve.TlvType()]; ok {
-		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
-		rec.Val = reserve.Val
-		dp.ChannelReserve = tlv.SomeRecordT(rec)
+		dp.ChannelReserve = tlv.SomeRecordT(reserve)
 	}
 
 	if _, ok := knownRecords[dp.CsvDelay.TlvType()]; ok {

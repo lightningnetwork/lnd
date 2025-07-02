@@ -6,28 +6,17 @@ import (
 	"database/sql"
 	"testing"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/sqldb"
-	"github.com/stretchr/testify/require"
 )
 
-// NewTestDB is a helper function that creates a SQLStore backed by a sqlite
-// database for testing.
-func NewTestDB(t testing.TB) V1Store {
+// newBatchQuerier creates a new BatchedSQLQueries instance for testing
+// using a SQLite database.
+func newBatchQuerier(t testing.TB) BatchedSQLQueries {
 	db := sqldb.NewTestSqliteDB(t).BaseDB
 
-	executor := sqldb.NewTransactionExecutor(
+	return sqldb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) SQLQueries {
 			return db.WithTx(tx)
 		},
 	)
-
-	store, err := NewSQLStore(
-		&SQLStoreConfig{
-			ChainHash: *chaincfg.MainNetParams.GenesisHash,
-		}, executor,
-	)
-	require.NoError(t, err)
-
-	return store
 }

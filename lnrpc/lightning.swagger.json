@@ -7350,7 +7350,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "Custom channel update tlv records."
+          "description": "Custom channel update tlv records. These are customized fields that are\nnot defined by LND and cannot be extracted."
         },
         "inbound_fee_base_msat": {
           "type": "integer",

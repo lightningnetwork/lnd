@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -723,6 +724,28 @@ func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 	}
 	if policy.Disabled != expectedPolicy.Disabled {
 		return errors.New("edge should be disabled but isn't")
+	}
+
+	// We now validate custom records.
+	records := policy.CustomRecords
+
+	if len(records) != len(expectedPolicy.CustomRecords) {
+		return fmt.Errorf("expected %v CustomRecords, got %v, "+
+			"records: %v", len(expectedPolicy.CustomRecords),
+			len(records), records)
+	}
+
+	expectedRecords := expectedPolicy.CustomRecords
+	for k, record := range records {
+		expected, found := expectedRecords[k]
+		if !found {
+			return fmt.Errorf("CustomRecords %v not found", k)
+		}
+
+		if !bytes.Equal(record, expected) {
+			return fmt.Errorf("want CustomRecords(%v) %s, got %s",
+				k, expected, record)
+		}
 	}
 
 	return nil

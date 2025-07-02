@@ -3471,7 +3471,8 @@ message RoutingPolicy {
     uint64 max_htlc_msat = 6;
     uint32 last_update = 7;
 
-    // Custom channel update tlv records.
+    // Custom channel update tlv records. These are customized fields that are
+    // not defined by LND and cannot be extracted.
     map<uint64, bytes> custom_records = 8;
 
     int32 inbound_fee_base_msat = 9;

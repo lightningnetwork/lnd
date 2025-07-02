@@ -2648,13 +2648,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 	// With the proof validated (if necessary), we can now store it within
 	// the database for our path finding and syncing needs.
-	var featureBuf bytes.Buffer
-	if err := ann.Features.Encode(&featureBuf); err != nil {
-		log.Errorf("unable to encode features: %v", err)
-		nMsg.err <- err
-		return nil, false
-	}
-
 	edge := &models.ChannelEdgeInfo{
 		ChannelID:        scid.ToUint64(),
 		ChainHash:        ann.ChainHash,
@@ -2663,8 +2656,10 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		BitcoinKey1Bytes: ann.BitcoinKey1,
 		BitcoinKey2Bytes: ann.BitcoinKey2,
 		AuthProof:        proof,
-		Features:         featureBuf.Bytes(),
-		ExtraOpaqueData:  ann.ExtraOpaqueData,
+		Features: lnwire.NewFeatureVector(
+			ann.Features, lnwire.Features,
+		),
+		ExtraOpaqueData: ann.ExtraOpaqueData,
 	}
 
 	// If there were any optional message fields provided, we'll include

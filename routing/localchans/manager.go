@@ -305,13 +305,6 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 		channelFlags = 1
 	}
 
-	var featureBuf bytes.Buffer
-	err := lnwire.NewRawFeatureVector().Encode(&featureBuf)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to encode features: %w",
-			err)
-	}
-
 	// We need to make sure we use the real scid for public confirmed
 	// zero-conf channels.
 	shortChanID := channel.ShortChanID()
@@ -323,7 +316,7 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 	info := &models.ChannelEdgeInfo{
 		ChannelID:    shortChanID.ToUint64(),
 		ChainHash:    channel.ChainHash,
-		Features:     featureBuf.Bytes(),
+		Features:     lnwire.EmptyFeatureVector(),
 		Capacity:     channel.Capacity,
 		ChannelPoint: channel.FundingOutpoint,
 	}

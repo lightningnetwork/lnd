@@ -4291,7 +4291,12 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 		return err
 	}
 
-	if err := wire.WriteVarBytes(&b, 0, edgeInfo.Features); err != nil {
+	var featureBuf bytes.Buffer
+	if err := edgeInfo.Features.Encode(&featureBuf); err != nil {
+		return fmt.Errorf("unable to encode features: %w", err)
+	}
+
+	if err := wire.WriteVarBytes(&b, 0, featureBuf.Bytes()); err != nil {
 		return err
 	}
 
@@ -4374,10 +4379,18 @@ func deserializeChanEdgeInfo(r io.Reader) (models.ChannelEdgeInfo, error) {
 		return models.ChannelEdgeInfo{}, err
 	}
 
-	edgeInfo.Features, err = wire.ReadVarBytes(r, 0, 900, "features")
+	featureBytes, err := wire.ReadVarBytes(r, 0, 900, "features")
 	if err != nil {
 		return models.ChannelEdgeInfo{}, err
 	}
+
+	features := lnwire.NewRawFeatureVector()
+	err = features.Decode(bytes.NewReader(featureBytes))
+	if err != nil {
+		return models.ChannelEdgeInfo{}, fmt.Errorf("unable to decode "+
+			"features: %w", err)
+	}
+	edgeInfo.Features = lnwire.NewFeatureVector(features, lnwire.Features)
 
 	proof := &models.ChannelAuthProof{}
 

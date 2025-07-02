@@ -387,7 +387,7 @@ func TestCreateEdgeLower(t *testing.T) {
 	expectedInfo := &models.ChannelEdgeInfo{
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
-		Features:      []byte{0, 0},
+		Features:      lnwire.EmptyFeatureVector(),
 		Capacity:      9,
 		ChannelPoint:  channel.FundingOutpoint,
 		NodeKey1Bytes: sp,
@@ -475,7 +475,7 @@ func TestCreateEdgeHigher(t *testing.T) {
 	expectedInfo := &models.ChannelEdgeInfo{
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
-		Features:      []byte{0, 0},
+		Features:      lnwire.EmptyFeatureVector(),
 		Capacity:      9,
 		ChannelPoint:  channel.FundingOutpoint,
 		NodeKey1Bytes: rp,

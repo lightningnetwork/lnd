@@ -416,6 +416,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
 		},
+		Features:     lnwire.EmptyFeatureVector(),
 		ChannelPoint: outpoint,
 		Capacity:     9000,
 	}
@@ -479,12 +480,6 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 		Index: outPointIndex,
 	}
 
-	var (
-		features   = lnwire.NewRawFeatureVector()
-		featureBuf bytes.Buffer
-	)
-	_ = features.Encode(&featureBuf)
-
 	node1Pub, _ := node1.PubKey()
 	node2Pub, _ := node2.PubKey()
 	edgeInfo := models.ChannelEdgeInfo{
@@ -499,7 +494,7 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 		ChannelPoint:    outpoint,
 		Capacity:        9000,
 		ExtraOpaqueData: make([]byte, 0),
-		Features:        featureBuf.Bytes(),
+		Features:        lnwire.EmptyFeatureVector(),
 	}
 
 	copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
@@ -663,8 +658,8 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 		t.Fatalf("bitcoinkey2 doesn't match")
 	}
 
-	if !bytes.Equal(e1.Features, e2.Features) {
-		t.Fatalf("features doesn't match: %x vs %x", e1.Features,
+	if !e1.Features.Equals(e2.Features.RawFeatureVector) {
+		t.Fatalf("features don't match: %v vs %v", e1.Features,
 			e2.Features)
 	}
 
@@ -741,12 +736,6 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 		Index: prand.Uint32(),
 	}
 
-	var (
-		features   = lnwire.NewRawFeatureVector()
-		featureBuf bytes.Buffer
-	)
-	_ = features.Encode(&featureBuf)
-
 	// Add the new edge to the database, this should proceed without any
 	// errors.
 	edgeInfo := &models.ChannelEdgeInfo{
@@ -759,7 +748,7 @@ func createChannelEdge(node1, node2 *models.LightningNode,
 			2, 2, 2, 2,
 			3, 3, 3, 3, 3,
 		},
-		Features: featureBuf.Bytes(),
+		Features: lnwire.EmptyFeatureVector(),
 	}
 	copy(edgeInfo.NodeKey1Bytes[:], firstNode[:])
 	copy(edgeInfo.NodeKey2Bytes[:], secondNode[:])
@@ -1617,6 +1606,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 					BitcoinSig1Bytes: testSig.Serialize(),
 					BitcoinSig2Bytes: testSig.Serialize(),
 				},
+				Features:     lnwire.EmptyFeatureVector(),
 				ChannelPoint: op,
 				Capacity:     1000,
 			}
@@ -1799,6 +1789,7 @@ func TestGraphPruning(t *testing.T) {
 				BitcoinSig1Bytes: testSig.Serialize(),
 				BitcoinSig2Bytes: testSig.Serialize(),
 			},
+			Features:     lnwire.EmptyFeatureVector(),
 			ChannelPoint: op,
 			Capacity:     1000,
 		}

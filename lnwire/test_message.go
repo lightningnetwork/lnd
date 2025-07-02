@@ -1025,10 +1025,7 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		DynAck:     *da,
 	}
 
-	extraData := RandExtraOpaqueData(t, ignoreRecords)
-	if len(extraData) > 0 {
-		msg.ExtraData = extraData
-	}
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
 
 	return msg
 }

@@ -45,20 +45,29 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, dc.Sig); err != nil {
 		return err
 	}
-	producers := dynProposeRecords(&dc.DynPropose)
-	dc.LocalNonce.WhenSome(
-		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
-			producers = append(producers, &rec)
-		})
 
-	var extra ExtraOpaqueData
-	err := extra.PackRecords(producers...)
+	// Create extra data records.
+	producers, err := dc.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
-	dc.ExtraData = extra
 
-	return WriteBytes(w, dc.ExtraData)
+	// Append the known records.
+	producers = append(producers, dynProposeRecords(&dc.DynPropose)...)
+	dc.LocalNonce.WhenSome(
+		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
+			producers = append(producers, &rec)
+		},
+	)
+
+	// Encode all known records.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynCommit stored in the passed io.Reader
@@ -89,9 +98,10 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	chanType := dc.ChannelType.Zero()
 	nonce := dc.LocalNonce.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(
-		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
-		&chanType, &nonce,
+	// Parse all known records and extra data.
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &dustLimit, &maxValue, &htlcMin, &reserve,
+		&csvDelay, &maxHtlcs, &chanType, &nonce,
 	)
 	if err != nil {
 		return err
@@ -99,42 +109,40 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[dc.DustLimit.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.DustLimit.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = dustLimit.Val
 		dc.DustLimit = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[dc.MaxValueInFlight.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.MaxValueInFlight.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
 		rec.Val = maxValue.Val
 		dc.MaxValueInFlight = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[dc.HtlcMinimum.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.HtlcMinimum.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
 		rec.Val = htlcMin.Val
 		dc.HtlcMinimum = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[dc.ChannelReserve.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.ChannelReserve.TlvType()]; ok {
 		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		rec.Val = reserve.Val
 		dc.ChannelReserve = tlv.SomeRecordT(rec)
 	}
-	if val, ok := typeMap[dc.CsvDelay.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.CsvDelay.TlvType()]; ok {
 		dc.CsvDelay = tlv.SomeRecordT(csvDelay)
 	}
-	if val, ok := typeMap[dc.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.MaxAcceptedHTLCs.TlvType()]; ok {
 		dc.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
 	}
-	if val, ok := typeMap[dc.ChannelType.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.ChannelType.TlvType()]; ok {
 		dc.ChannelType = tlv.SomeRecordT(chanType)
 	}
-	if val, ok := typeMap[dc.LocalNonce.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.LocalNonce.TlvType()]; ok {
 		dc.LocalNonce = tlv.SomeRecordT(nonce)
 	}
 
-	if len(tlvRecords) != 0 {
-		dc.ExtraData = tlvRecords
-	}
+	dc.ExtraData = extraData
 
 	return nil
 }

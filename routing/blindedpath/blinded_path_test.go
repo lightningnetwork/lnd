@@ -1059,3 +1059,110 @@ func decryptAndDecodeHopData(t *testing.T, priv *btcec.PrivateKey,
 
 	return routeData, nextEphem
 }
+
+// TestBuildBlindedPathZeroAmount tests that blinded paths can be built
+// successfully when ValueMsat is 0 (zero amount), even when channels have
+// MinHTLC policies > 0. This is important for building blinded paths invoices
+// for zero amount payments.
+func TestBuildBlindedPathZeroAmount(t *testing.T) {
+	// Alice chooses the following path to herself for blinded path
+	// construction:
+	//    	Carol -> Bob -> Alice.
+	var (
+		_, pkC = btcec.PrivKeyFromBytes([]byte{1})
+		_, pkB = btcec.PrivKeyFromBytes([]byte{2})
+		_, pkA = btcec.PrivKeyFromBytes([]byte{3})
+
+		carol = route.NewVertex(pkC)
+		bob   = route.NewVertex(pkB)
+		alice = route.NewVertex(pkA)
+
+		chanCB = uint64(1)
+		chanBA = uint64(2)
+	)
+
+	realRoute := &route.Route{
+		SourcePubKey: carol,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes: bob,
+				ChannelID:   chanCB,
+			},
+			{
+				PubKeyBytes: alice,
+				ChannelID:   chanBA,
+			},
+		},
+	}
+
+	realPolicies := map[uint64]*models.ChannelEdgePolicy{
+		chanCB: {
+			ChannelID:                 chanCB,
+			ToNode:                    bob,
+			MinHTLC:                   1000, // MinHTLC > 0
+			MaxHTLC:                   lnwire.MaxMilliSatoshi,
+			FeeBaseMSat:               100,
+			FeeProportionalMillionths: 500,
+			TimeLockDelta:             144,
+		},
+		chanBA: {
+			ChannelID:                 chanBA,
+			ToNode:                    alice,
+			MinHTLC:                   500, // MinHTLC > 0
+			MaxHTLC:                   lnwire.MaxMilliSatoshi,
+			FeeBaseMSat:               50,
+			FeeProportionalMillionths: 250,
+			TimeLockDelta:             72,
+		},
+	}
+
+	paths, err := BuildBlindedPaymentPaths(&BuildBlindedPathCfg{
+		FindRoutes: func(_ lnwire.MilliSatoshi) ([]*route.Route,
+			error) {
+
+			return []*route.Route{realRoute}, nil
+		},
+		FetchChannelEdgesByID: func(chanID uint64) (
+			*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy, error) {
+
+			return nil, realPolicies[chanID], nil, nil
+		},
+		BestHeight: func() (uint32, error) {
+			return 1000, nil
+		},
+		AddPolicyBuffer: func(policy *BlindedHopPolicy) (
+			*BlindedHopPolicy, error) {
+			// We don't mind about maxHTLCs
+			return AddPolicyBuffer(policy, 1.5, 0.0)
+		},
+		PathID:                  []byte{1, 2, 3},
+		ValueMsat:               0,
+		MinFinalCLTVExpiryDelta: 12,
+		BlocksUntilExpiry:       200,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, paths, 1, "Should return exactly one blinded path")
+
+	path := paths[0]
+	require.Len(
+		t,
+		path.Hops, 3,
+		"Path should have 3 hops (intro + 2 relay hops)",
+	)
+
+	hop := path.Hops[0]
+	require.True(
+		t,
+		hop.BlindedNodePub.IsEqual(pkC),
+		"First hop should be Carol (introduction node)",
+	)
+
+	require.EqualValues(
+		t,
+		path.HTLCMinMsat,
+		uint64(1500),
+		"Path MinHTLC should be 1500 with 1.5x policy buffer applied",
+	)
+}

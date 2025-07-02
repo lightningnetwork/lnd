@@ -8787,7 +8787,10 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	}, nil
 }
 
-// CheckMacaroonPermissions checks the caveats and permissions of a macaroon.
+// CheckMacaroonPermissions checks whether the provided macaroon contains all
+// the provided permissions. If the macaroon is valid (e.g. all caveats are
+// satisfied), and all permissions provided in the request are met, then
+// this RPC returns true.
 func (r *rpcServer) CheckMacaroonPermissions(ctx context.Context,
 	req *lnrpc.CheckMacPermRequest) (*lnrpc.CheckMacPermResponse, error) {
 

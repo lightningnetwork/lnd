@@ -17406,9 +17406,25 @@ type CheckMacPermRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Macaroon    []byte                `protobuf:"bytes,1,opt,name=macaroon,proto3" json:"macaroon,omitempty"`
+	// The macaroon to check permissions for, serialized in binary format. For
+	// a macaroon to be valid, it must have been issued by lnd, must succeed all
+	// caveat conditions, and must contain all of the permissions specified in
+	// the permissions field.
+	Macaroon []byte `protobuf:"bytes,1,opt,name=macaroon,proto3" json:"macaroon,omitempty"`
+	// The list of permissions the macaroon should be checked against. Only if
+	// the macaroon contains all of these permissions, it is considered valid.
+	// If the list of permissions given is empty, then the macaroon is
+	// considered valid only based on issuance authority and caveat validity.
+	// An empty list of permissions is therefore equivalent to saying "skip
+	// checking permissions".
 	Permissions []*MacaroonPermission `protobuf:"bytes,2,rep,name=permissions,proto3" json:"permissions,omitempty"`
-	FullMethod  string                `protobuf:"bytes,3,opt,name=fullMethod,proto3" json:"fullMethod,omitempty"`
+	// The RPC method to check the macaroon against. This is only used if there
+	// are custom `uri:<rpcpackage>.<ServiceName>/<MethodName>` permissions in
+	// the permission list above. To check a macaroon against the list of
+	// permissions of a certain RPC method, query the `ListPermissions` RPC
+	// first, extract the permissions for the method, and then pass them in the
+	// `permissions` field above.
+	FullMethod string `protobuf:"bytes,3,opt,name=fullMethod,proto3" json:"fullMethod,omitempty"`
 }
 
 func (x *CheckMacPermRequest) Reset() {

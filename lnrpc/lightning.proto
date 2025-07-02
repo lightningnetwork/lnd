@@ -548,9 +548,10 @@ service Lightning {
         returns (ListPermissionsResponse);
 
     /*
-    CheckMacaroonPermissions checks whether a request follows the constraints
-    imposed on the macaroon and that the macaroon is authorized to follow the
-    provided permissions.
+    CheckMacaroonPermissions checks whether the provided macaroon contains all
+    the provided permissions. If the macaroon is valid (e.g. all caveats are
+    satisfied), and all permissions provided in the request are met, then
+    this RPC returns true.
     */
     rpc CheckMacaroonPermissions (CheckMacPermRequest)
         returns (CheckMacPermResponse);
@@ -5107,8 +5108,26 @@ message Op {
 }
 
 message CheckMacPermRequest {
+    // The macaroon to check permissions for, serialized in binary format. For
+    // a macaroon to be valid, it must have been issued by lnd, must succeed all
+    // caveat conditions, and must contain all of the permissions specified in
+    // the permissions field.
     bytes macaroon = 1;
+
+    // The list of permissions the macaroon should be checked against. Only if
+    // the macaroon contains all of these permissions, it is considered valid.
+    // If the list of permissions given is empty, then the macaroon is
+    // considered valid only based on issuance authority and caveat validity.
+    // An empty list of permissions is therefore equivalent to saying "skip
+    // checking permissions".
     repeated MacaroonPermission permissions = 2;
+
+    // The RPC method to check the macaroon against. This is only used if there
+    // are custom `uri:<rpcpackage>.<ServiceName>/<MethodName>` permissions in
+    // the permission list above. To check a macaroon against the list of
+    // permissions of a certain RPC method, query the `ListPermissions` RPC
+    // first, extract the permissions for the method, and then pass them in the
+    // `permissions` field above.
     string fullMethod = 3;
 }
 

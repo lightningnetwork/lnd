@@ -1991,7 +1991,7 @@
     },
     "/v1/macaroon/checkpermissions": {
       "post": {
-        "summary": "CheckMacaroonPermissions checks whether a request follows the constraints\nimposed on the macaroon and that the macaroon is authorized to follow the\nprovided permissions.",
+        "summary": "CheckMacaroonPermissions checks whether the provided macaroon contains all\nthe provided permissions. If the macaroon is valid (e.g. all caveats are\nsatisfied), and all permissions provided in the request are met, then\nthis RPC returns true.",
         "operationId": "Lightning_CheckMacaroonPermissions",
         "responses": {
           "200": {
@@ -4667,17 +4667,20 @@
       "properties": {
         "macaroon": {
           "type": "string",
-          "format": "byte"
+          "format": "byte",
+          "description": "The macaroon to check permissions for, serialized in binary format. For\na macaroon to be valid, it must have been issued by lnd, must succeed all\ncaveat conditions, and must contain all of the permissions specified in\nthe permissions field."
         },
         "permissions": {
           "type": "array",
           "items": {
             "type": "object",
             "$ref": "#/definitions/lnrpcMacaroonPermission"
-          }
+          },
+          "description": "The list of permissions the macaroon should be checked against. Only if\nthe macaroon contains all of these permissions, it is considered valid.\nIf the list of permissions given is empty, then the macaroon is\nconsidered valid only based on issuance authority and caveat validity.\nAn empty list of permissions is therefore equivalent to saying \"skip\nchecking permissions\"."
         },
         "fullMethod": {
-          "type": "string"
+          "type": "string",
+          "description": "The RPC method to check the macaroon against. This is only used if there\nare custom `uri:\u003crpcpackage\u003e.\u003cServiceName\u003e/\u003cMethodName\u003e` permissions in\nthe permission list above. To check a macaroon against the list of\npermissions of a certain RPC method, query the `ListPermissions` RPC\nfirst, extract the permissions for the method, and then pass them in the\n`permissions` field above."
         }
       }
     },

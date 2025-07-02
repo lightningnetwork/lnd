@@ -60,27 +60,27 @@ func (da *DynAck) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	producers := make([]tlv.RecordProducer, 0, 1)
+	// Create extra data records.
+	producers, err := da.ExtraData.RecordProducers()
+	if err != nil {
+		return err
+	}
 
+	// Append the known records.
 	da.LocalNonce.WhenSome(
 		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
 			producers = append(producers, &rec)
 		})
 
-	// Encode all known records.
+	// Encode all records.
 	var tlvData ExtraOpaqueData
-	err := tlvData.PackRecords(producers...)
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
 
-	// Write the known records.
-	if err := WriteBytes(w, tlvData); err != nil {
-		return err
-	}
-
-	// Encode ExtraData.
-	return WriteBytes(w, da.ExtraData)
+	// Write the records.
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynAck stored in the passed io.Reader into

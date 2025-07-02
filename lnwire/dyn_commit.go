@@ -45,7 +45,15 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, dc.Sig); err != nil {
 		return err
 	}
-	producers := dynProposeRecords(&dc.DynPropose)
+
+	// Create extra data records.
+	producers, err := dc.ExtraData.RecordProducers()
+	if err != nil {
+		return err
+	}
+
+	// Append the known records.
+	producers = append(producers, dynProposeRecords(&dc.DynPropose)...)
 	dc.LocalNonce.WhenSome(
 		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
 			producers = append(producers, &rec)
@@ -53,18 +61,13 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 
 	// Encode all known records.
 	var tlvData ExtraOpaqueData
-	err := tlvData.PackRecords(producers...)
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
 
-	// Write the known records.
-	if err := WriteBytes(w, tlvData); err != nil {
-		return err
-	}
-
-	// Encode ExtraData.
-	return WriteBytes(w, dc.ExtraData)
+	// Write the records.
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynCommit stored in the passed io.Reader

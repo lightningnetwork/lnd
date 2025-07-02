@@ -74,22 +74,24 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	producers := dynProposeRecords(dp)
-
-	// Encode all known records.
-	var tlvData ExtraOpaqueData
-	err := tlvData.PackRecords(producers...)
+	// Create extra data records.
+	producers, err := dp.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	// Write the known records.
-	if err := WriteBytes(w, tlvData); err != nil {
+	// Append the known records.
+	producers = append(producers, dynProposeRecords(dp)...)
+
+	// Encode all records.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
 		return err
 	}
 
-	// Encode ExtraData.
-	return WriteBytes(w, dp.ExtraData)
+	// Write the records.
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynPropose stored in the passed io.Reader

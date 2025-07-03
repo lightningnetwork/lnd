@@ -1581,17 +1581,27 @@ func (p *Brontide) maybeSendChannelUpdates() {
 // calling Disconnect will signal the quit channel and the method will not
 // block, since no goroutines were spawned.
 func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
+	p.log.Trace("waiting for disconnect")
+	defer p.log.Trace("peer disconnected")
+
 	// Before we try to call the `Wait` goroutine, we'll make sure the main
 	// set of goroutines are already active.
 	select {
 	case <-p.startReady:
+		p.log.Trace("startReady received, waiting for signal ready")
+
 	case <-p.cg.Done():
+		p.log.Trace("peer quit, exit waiting for signal startReady")
+
 		return
 	}
 
 	select {
 	case <-ready:
+		p.log.Trace("ready received, waiting goroutines to finish")
+
 	case <-p.cg.Done():
+		p.log.Trace("peer quit, exit waiting for signal ready")
 	}
 
 	p.cg.WgWait()
@@ -1606,6 +1616,9 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 // the peer has finished starting up before calling this method.
 func (p *Brontide) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
+		p.log.Warnf("got disconnect reason [%v], but peer already "+
+			"disconnected", reason)
+
 		return
 	}
 
@@ -1616,11 +1629,13 @@ func (p *Brontide) Disconnect(reason error) {
 	// started, otherwise we will skip reading it as this chan won't be
 	// closed, hence blocks forever.
 	if atomic.LoadInt32(&p.started) == 1 {
-		p.log.Debugf("Peer hasn't finished starting up yet, waiting " +
-			"on startReady signal before closing connection")
+		p.log.Debug("waiting on startReady signal before closing " +
+			"connection")
 
 		select {
 		case <-p.startReady:
+			p.log.Debug("startReady received")
+
 		case <-p.cg.Done():
 			return
 		}
@@ -2062,7 +2077,8 @@ out:
 			}
 		}
 		if err != nil {
-			p.log.Infof("unable to read message from peer: %v", err)
+			p.log.Debugf("unable to read message from peer: %v",
+				err)
 
 			// If we could not read our peer's message due to an
 			// unknown type or invalid alias, we continue processing
@@ -2184,8 +2200,7 @@ out:
 				err := p.resendChanSyncMsg(targetChan)
 				if err != nil {
 					// TODO(halseth): send error to peer?
-					p.log.Errorf("resend failed: %v",
-						err)
+					p.log.Errorf("resend failed: %v", err)
 				}
 			}
 

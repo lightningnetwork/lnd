@@ -958,7 +958,7 @@ func newServer(_ context.Context, cfg *Config, listenAddrs []net.Addr,
 	//  aren't overwriting any fields that may have been set during the
 	//  last run of lnd.
 	nodeLastUpdate := time.Now()
-	srcNode, err := dbs.GraphDB.SourceNode(ctx)
+	srcNode, err := dbs.GraphDB.SourceNode()
 	switch {
 	// If we have a source node persisted in the DB already, then we just
 	// need to make sure that the new LastUpdate time is at least one

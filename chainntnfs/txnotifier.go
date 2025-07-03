@@ -559,7 +559,7 @@ func NewTxNotifier(startHeight uint32, reorgSafetyLimit uint32,
 // and register a confirmation notification.
 func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
-	opts *notifierOptions) (*ConfNtfn, error) {
+	opts *NotifierOptions) (*ConfNtfn, error) {
 
 	// An accompanying output script must always be provided.
 	if len(pkScript) == 0 {
@@ -593,7 +593,7 @@ func (n *TxNotifier) newConfNtfn(txid *chainhash.Hash,
 			n.CancelConf(confRequest, confID)
 		}),
 		HeightHint:   heightHint,
-		includeBlock: opts.includeBlock,
+		includeBlock: opts.IncludeBlock,
 		numConfsLeft: numConfs,
 	}, nil
 }
@@ -616,7 +616,7 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 	default:
 	}
 
-	opts := defaultNotifierOptions()
+	opts := DefaultNotifierOptions()
 	for _, optFunc := range optFuncs {
 		optFunc(opts)
 	}

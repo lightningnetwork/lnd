@@ -70,28 +70,28 @@ func (t TxConfStatus) String() string {
 	}
 }
 
-// notifierOptions is a set of functional options that allow callers to further
+// NotifierOptions is a set of functional options that allow callers to further
 // modify the type of chain event notifications they receive.
-type notifierOptions struct {
-	// includeBlock if true, then the dispatched confirmation notification
+type NotifierOptions struct {
+	// IncludeBlock if true, then the dispatched confirmation notification
 	// will include the block that mined the transaction.
-	includeBlock bool
+	IncludeBlock bool
 }
 
-// defaultNotifierOptions returns the set of default options for the notifier.
-func defaultNotifierOptions() *notifierOptions {
-	return &notifierOptions{}
+// DefaultNotifierOptions returns the set of default options for the notifier.
+func DefaultNotifierOptions() *NotifierOptions {
+	return &NotifierOptions{}
 }
 
 // NotifierOption is a functional option that allows a caller to modify the
 // events received from the notifier.
-type NotifierOption func(*notifierOptions)
+type NotifierOption func(*NotifierOptions)
 
-// WithIncludeBlock is an optional argument that allows the calelr to specify
+// WithIncludeBlock is an optional argument that allows the caller to specify
 // that the block that mined a transaction should be included in the response.
 func WithIncludeBlock() NotifierOption {
-	return func(o *notifierOptions) {
-		o.includeBlock = true
+	return func(o *NotifierOptions) {
+		o.IncludeBlock = true
 	}
 }
 

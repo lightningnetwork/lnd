@@ -1595,6 +1595,8 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 
 	case <-p.cg.Done():
 		p.log.Trace("peer quit, exit waiting for signal ready")
+
+		return
 	}
 
 	p.cg.WgWait()

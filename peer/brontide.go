@@ -769,7 +769,9 @@ func NewBrontide(cfg Config) *Brontide {
 // Start starts all helper goroutines the peer needs for normal operations.  In
 // the case this peer has already been started, then this function is a noop.
 func (p *Brontide) Start() error {
-	if atomic.AddInt32(&p.started, 1) != 1 {
+	if !atomic.CompareAndSwapInt32(&p.started, 0, 1) {
+		p.log.Warn("already started")
+
 		return nil
 	}
 

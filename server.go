@@ -5192,7 +5192,12 @@ func (s *server) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	//
 	// NOTE: We call it in a goroutine to avoid blocking the main server
 	// goroutine because we might hold the server's mutex.
-	go peer.Disconnect(fmt.Errorf("server: DisconnectPeer called"))
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		peer.Disconnect(fmt.Errorf("server: DisconnectPeer called"))
+	}()
 
 	return nil
 }

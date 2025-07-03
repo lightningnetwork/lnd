@@ -2000,32 +2000,22 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// so that a parent context can be passed in here.
 		ctx := context.TODO()
 
+		// Processing here means we send it to the gossiper which then
+		// decides whether this message is processed immediately or
+		// waits for dependent messages to be processed. It can also
+		// happen that the message is not processed at all if it is
+		// premature and the LRU cache fills up and the message is
+		// deleted.
 		p.log.Debugf("Processing remote msg %T", msg)
 
-		errChan := p.cfg.AuthGossiper.ProcessRemoteAnnouncement(
-			ctx, msg, p,
-		)
-
-		// Start a goroutine to process the error channel for logging
-		// purposes.
-		//
-		// TODO(ziggie): Maybe use the error to potentially punish the
-		// peer depending on the error ?
-		go func() {
-			select {
-			case <-p.cg.Done():
-				return
-
-			case err := <-errChan:
-				if err != nil {
-					p.log.Warnf("Error processing remote "+
-						"msg %T: %v", msg,
-						err)
-				}
-			}
-
-			p.log.Debugf("Processed remote msg %T", msg)
-		}()
+		// TODO(ziggie): ProcessRemoteAnnouncement returns an error
+		// channel, but we cannot rely on it being written to.
+		// Because some messages might never be processed (e.g.
+		// premature channel updates). We should change the design here
+		// and use the actor model pattern as soon as it is available.
+		// So for now we should NOT use the error channel.
+		// See https://github.com/lightningnetwork/lnd/pull/9820.
+		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 
 	return newMsgStream(

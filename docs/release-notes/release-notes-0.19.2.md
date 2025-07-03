@@ -35,6 +35,10 @@
 - [Fixed](https://github.com/lightningnetwork/lnd/pull/9978) a deadlock which
   can happen when the peer start-up has not yet completed but a another p2p
   connection attempt tries to disconnect the peer.
+  
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10012) a case which
+  could lead to a memory issues due to a goroutine leak in the peer/gossiper
+  code.
 
 # New Features
 

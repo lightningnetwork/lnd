@@ -2067,6 +2067,9 @@ func (p *Brontide) readHandler() {
 	// gossiper?
 	p.initGossipSync()
 
+	// exitErr is the error to be used when disconnect the peer.
+	var exitErr error
+
 	discStream := newDiscMsgStream(p)
 	discStream.Start()
 	defer discStream.Stop()
@@ -2119,6 +2122,7 @@ out:
 			// didn't recognize, then we'll stop all processing as
 			// this is a fatal error.
 			default:
+				exitErr = err
 				break out
 			}
 		}
@@ -2262,9 +2266,13 @@ out:
 		idleTimer.Reset(idleTimeout)
 	}
 
-	p.Disconnect(errors.New("read handler closed"))
+	// Disconnect the peer on exitErr, but only if the peer hasn't been
+	// disconnected before.
+	if atomic.LoadInt32(&p.disconnect) == 0 {
+		p.Disconnect(exitErr)
+	}
 
-	p.log.Trace("readHandler for peer done")
+	p.log.Debugf("peer quit, exit readHandler")
 }
 
 // handleCustomMessage handles the given custom message if a handler is
@@ -2749,7 +2757,7 @@ out:
 			}
 
 		case <-p.cg.Done():
-			exitErr = lnpeer.ErrPeerExiting
+			p.log.Debug("peer quit, exit writeHandler")
 			break out
 		}
 	}
@@ -2758,7 +2766,9 @@ out:
 	// disconnect.
 	p.cg.WgDone()
 
-	p.Disconnect(exitErr)
+	if exitErr != nil {
+		p.Disconnect(exitErr)
+	}
 
 	p.log.Trace("writeHandler for peer done")
 }

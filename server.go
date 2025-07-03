@@ -4614,8 +4614,6 @@ func (s *server) addPeer(p *peer.Brontide) {
 	// to clients listening for peer events.
 	var pubKey [33]byte
 	copy(pubKey[:], pubBytes)
-
-	s.peerNotifier.NotifyPeerOnline(pubKey)
 }
 
 // peerInitializer asynchronously starts a newly connected peer after it has
@@ -4683,6 +4681,10 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 		}
 	}
 	delete(s.peerConnectedListeners, pubStr)
+
+	// Since the peer has been fully initialized, now it's time to notify
+	// the RPC about the peer online event.
+	s.peerNotifier.NotifyPeerOnline([33]byte(pubBytes))
 }
 
 // peerTerminationWatcher waits until a peer has been disconnected unexpectedly,

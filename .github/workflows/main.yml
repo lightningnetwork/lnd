@@ -54,6 +54,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          use-build-cache: 'no'
 
       - name: docker image cache
         uses: satackey/action-docker-layer-caching@v0.0.11
@@ -203,6 +204,7 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          use-build-cache: 'no'
 
       - name: check default values in sample-lnd.conf file
         run: make sample-conf-check

@@ -579,6 +579,46 @@ jobs:
       - name: 🛡️ backwards compatibility test
         run: make backwards-compat-test
 
+  #########################################
+  # Auto Cache Cleanup on Pull Requests
+  #########################################
+  auto-cleanup-cache:
+    name: Cache Cleanup
+    runs-on: ubuntu-latest
+
+    # This condition checks for pull requests from authors with write access.
+    if: >-
+      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Delete caches older than 12 hours
+        continue-on-error: true
+        env:
+          # GITHUB_TOKEN is required for the gh CLI.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Finding caches not used in the last 12 hours..."
+
+          # Get the current time and the cutoff time (12 hours ago) in Unix
+          # timestamp format.
+          cutoff_timestamp=$(date -d "12 hours ago" +%s)
+
+          # Use gh and jq to parse caches. Delete any cache last accessed
+          # before the cutoff time.
+          gh cache list --json key,lastAccessedAt | jq -r '.[] |
+          select(.lastAccessedAt != null) | "\(.lastAccessedAt) \(.key)"' |
+          while read -r last_accessed_at key; do
+            last_accessed_timestamp=$(date -d "$last_accessed_at" +%s)
+
+            if (( last_accessed_timestamp < cutoff_timestamp )); then
+              echo "Deleting old cache. Key: $key, Last Used: $last_accessed_at"
+              gh cache delete "$key"
+            fi
+          done
+
   # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}

@@ -92,6 +92,8 @@ circuit. The indices are only available for forwarding events saved after v0.20.
     * [9](https://github.com/lightningnetwork/lnd/pull/9939)
     * [10](https://github.com/lightningnetwork/lnd/pull/9971)
     * [11](https://github.com/lightningnetwork/lnd/pull/9972)
+  * Add graph SQL migration logic:
+    * [1](https://github.com/lightningnetwork/lnd/pull/10036)
 
 ## RPC Updates
 * Previously the `RoutingPolicy` would return the inbound fee record in its

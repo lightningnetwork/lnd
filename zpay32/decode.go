@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -446,6 +447,10 @@ func parseDescription(data []byte) (*string, error) {
 		return nil, err
 	}
 
+	if !utf8.Valid(base256Data) {
+		return nil, fmt.Errorf("description is not valid UTF-8")
+	}
+
 	description := string(base256Data)
 
 	return &description, nil
@@ -567,6 +572,11 @@ func parseRouteHint(data []byte) ([]HopHint, error) {
 	if len(base256Data)%hopHintLen != 0 {
 		return nil, fmt.Errorf("expected length multiple of %d bytes, "+
 			"got %d", hopHintLen, len(base256Data))
+	}
+
+	// Check for empty route hint
+	if len(base256Data) == 0 {
+		return nil, fmt.Errorf("route hint field contains no hop data")
 	}
 
 	var routeHint []HopHint

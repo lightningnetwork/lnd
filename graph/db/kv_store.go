@@ -4497,8 +4497,9 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy,
 		//
 		// TODO(halseth): get rid of these invalid policies in a
 		// migration.
-		// TODO(elle): complete the above TODO in migration from kvdb
-		// to SQL.
+		//
+		// NOTE: the above TODO was completed in the SQL migration and
+		// so such edge cases no longer need to be handled there.
 		oldEdgePolicy, err := deserializeChanEdgePolicy(
 			bytes.NewReader(edgeBytes),
 		)

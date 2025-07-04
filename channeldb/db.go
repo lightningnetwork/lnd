@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/go-errors/errors"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration31"
 	"github.com/lightningnetwork/lnd/channeldb/migration32"
 	"github.com/lightningnetwork/lnd/channeldb/migration33"
+	"github.com/lightningnetwork/lnd/channeldb/migration34"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -73,12 +74,14 @@ type mandatoryVersion struct {
 // optional migrations.
 type MigrationConfig interface {
 	migration30.MigrateRevLogConfig
+	migration34.MigrationConfig
 }
 
 // MigrationConfigImpl is a super set of all the various migration configs and
 // an implementation of MigrationConfig.
 type MigrationConfigImpl struct {
 	migration30.MigrateRevLogConfigImpl
+	migration34.MigrationConfigImpl
 }
 
 // optionalMigration defines an optional migration function. When a migration
@@ -307,11 +310,21 @@ var (
 	// to determine its state.
 	optionalVersions = []optionalVersion{
 		{
-			name: "prune revocation log",
+			name: "prune_revocation_log",
 			migration: func(db kvdb.Backend,
 				cfg MigrationConfig) error {
 
 				return migration30.MigrateRevocationLog(db, cfg)
+			},
+		},
+		{
+			name: "gc_decayed_log",
+			migration: func(db kvdb.Backend,
+				cfg MigrationConfig) error {
+
+				return migration34.MigrateDecayedLog(
+					db, cfg,
+				)
 			},
 		},
 	}
@@ -479,17 +492,17 @@ func initChannelDB(db kvdb.Backend) error {
 			return err
 		}
 
+		for _, tlb := range dbTopLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
+		}
+
 		meta := &Meta{}
 		// Check if DB is already initialized.
 		err := FetchMeta(meta, tx)
 		if err == nil {
 			return nil
-		}
-
-		for _, tlb := range dbTopLevelBuckets {
-			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
-				return err
-			}
 		}
 
 		meta.DbVersionNumber = getLatestDBVersion(dbVersions)
@@ -742,7 +755,7 @@ type ChanCount struct {
 func (c *ChannelStateDB) FetchPermAndTempPeers(
 	chainHash []byte) (map[string]ChanCount, error) {
 
-	peerCounts := make(map[string]ChanCount)
+	peerChanInfo := make(map[string]ChanCount)
 
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
 		openChanBucket := tx.ReadBucket(openChannelBucket)
@@ -828,7 +841,7 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 				HasOpenOrClosedChan: isPermPeer,
 				PendingOpenCount:    pendingOpenCount,
 			}
-			peerCounts[string(nodePub)] = peerCount
+			peerChanInfo[string(nodePub)] = peerCount
 
 			return nil
 		})
@@ -892,15 +905,15 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 				remoteSer := remotePub.SerializeCompressed()
 				remoteKey := string(remoteSer)
 
-				count, exists := peerCounts[remoteKey]
+				count, exists := peerChanInfo[remoteKey]
 				if exists {
 					count.HasOpenOrClosedChan = true
-					peerCounts[remoteKey] = count
+					peerChanInfo[remoteKey] = count
 				} else {
 					peerCount := ChanCount{
 						HasOpenOrClosedChan: true,
 					}
-					peerCounts[remoteKey] = peerCount
+					peerChanInfo[remoteKey] = peerCount
 				}
 			}
 
@@ -912,10 +925,10 @@ func (c *ChannelStateDB) FetchPermAndTempPeers(
 
 		return nil
 	}, func() {
-		clear(peerCounts)
+		clear(peerChanInfo)
 	})
 
-	return peerCounts, err
+	return peerChanInfo, err
 }
 
 // channelSelector describes a function that takes a chain-hash bucket from
@@ -1728,10 +1741,8 @@ func (d *DB) syncVersions(versions []mandatoryVersion) error {
 	}, func() {})
 }
 
-// applyOptionalVersions takes a config to determine whether the optional
-// migrations will be applied.
-//
-// NOTE: only support the prune_revocation_log optional migration atm.
+// applyOptionalVersions applies the optional migrations to the database if
+// specified in the config.
 func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	// TODO(yy): need to design the db to support dry run for optional
 	// migrations.
@@ -1748,50 +1759,71 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 				Versions: make(map[uint64]string),
 			}
 		} else {
-			return err
+			return fmt.Errorf("unable to fetch optional "+
+				"meta: %w", err)
 		}
 	}
 
-	log.Infof("Checking for optional update: prune_revocation_log=%v, "+
-		"db_version=%s", cfg.PruneRevocationLog, om)
-
-	// Exit early if the optional migration is not specified.
-	if !cfg.PruneRevocationLog {
-		return nil
-	}
-
-	// Exit early if the optional migration has already been applied.
-	if _, ok := om.Versions[0]; ok {
-		return nil
-	}
-
-	// Get the optional version.
-	version := optionalVersions[0]
-	log.Infof("Performing database optional migration: %s", version.name)
-
+	// migrationCfg is the parent configuration which implements the config
+	// interfaces of all the single optional migrations.
 	migrationCfg := &MigrationConfigImpl{
 		migration30.MigrateRevLogConfigImpl{
 			NoAmountData: d.noRevLogAmtData,
 		},
+		migration34.MigrationConfigImpl{
+			DecayedLog: cfg.DecayedLog,
+		},
 	}
 
-	// Migrate the data.
-	if err := version.migration(d, migrationCfg); err != nil {
-		log.Errorf("Unable to apply optional migration: %s, error: %v",
-			version.name, err)
-		return err
-	}
+	log.Infof("Applying %d optional migrations", len(optionalVersions))
 
-	// Update the optional meta. Notice that unlike the mandatory db
-	// migrations where we perform the migration and updating meta in a
-	// single db transaction, we use different transactions here. Even when
-	// the following update is failed, we should be fine here as we would
-	// re-run the optional migration again, which is a noop, during next
-	// startup.
-	om.Versions[0] = version.name
-	if err := d.putOptionalMeta(om); err != nil {
-		log.Errorf("Unable to update optional meta: %v", err)
-		return err
+	// Apply the optional migrations if requested.
+	for number, version := range optionalVersions {
+		log.Infof("Checking for optional update: name=%v", version.name)
+
+		// Exit early if the optional migration is not specified.
+		if !cfg.MigrationFlags[number] {
+			log.Debugf("Skipping optional migration: name=%s as "+
+				"it is not specified in the config",
+				version.name)
+
+			continue
+		}
+
+		// Exit early if the optional migration has already been
+		// applied.
+		if _, ok := om.Versions[uint64(number)]; ok {
+			log.Debugf("Skipping optional migration: name=%s as "+
+				"it has already been applied", version.name)
+
+			continue
+		}
+
+		log.Infof("Performing database optional migration: %s",
+			version.name)
+
+		// Call the migration function for the specific optional
+		// migration.
+		if err := version.migration(d, migrationCfg); err != nil {
+			log.Errorf("Unable to apply optional migration: %s, "+
+				"error: %v", version.name, err)
+			return err
+		}
+
+		// Update the optional meta. Notice that unlike the mandatory db
+		// migrations where we perform the migration and updating meta
+		// in a single db transaction, we use different transactions
+		// here. Even when the following update is failed, we should be
+		// fine here as we would re-run the optional migration again,
+		// which is a noop, during next startup.
+		om.Versions[uint64(number)] = version.name
+		if err := d.putOptionalMeta(om); err != nil {
+			log.Errorf("Unable to update optional meta: %v", err)
+			return err
+		}
+
+		log.Infof("Successfully applied optional migration: %s",
+			version.name)
 	}
 
 	return nil

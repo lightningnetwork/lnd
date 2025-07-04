@@ -1,9 +1,9 @@
 package migration_01_to_11
 
 import (
+	"fmt"
 	"testing"
 
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -33,7 +33,7 @@ func applyMigration(t *testing.T, beforeMigration, afterMigration func(d *DB),
 
 	defer func() {
 		if r := recover(); r != nil {
-			err = errors.New(r)
+			err = fmt.Errorf("%v", r)
 		}
 
 		if err == nil && shouldFail {

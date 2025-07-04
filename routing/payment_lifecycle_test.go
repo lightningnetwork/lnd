@@ -2,12 +2,12 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -368,7 +368,11 @@ func TestRequestRouteSucceed(t *testing.T) {
 
 	// Create a mock payment session and a dummy route.
 	paySession := &mockPaymentSession{}
-	dummyRoute := &route.Route{}
+	dummyRoute := &route.Route{
+		Hops: []*route.Hop{
+			testHop,
+		},
+	}
 
 	// Mount the mocked payment session.
 	p.paySession = paySession

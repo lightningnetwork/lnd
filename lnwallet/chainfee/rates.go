@@ -71,6 +71,14 @@ func (s SatPerKWeight) FeeForWeight(wu lntypes.WeightUnit) btcutil.Amount {
 	return btcutil.Amount(s) * btcutil.Amount(wu) / 1000
 }
 
+// FeeForWeightRoundUp calculates the fee resulting from this fee rate and the
+// given weight in weight units (wu), rounding up to the nearest satoshi.
+func (s SatPerKWeight) FeeForWeightRoundUp(
+	wu lntypes.WeightUnit) btcutil.Amount {
+
+	return (btcutil.Amount(s)*btcutil.Amount(wu) + 999) / 1000
+}
+
 // FeeForVByte calculates the fee resulting from this fee rate and the given
 // size in vbytes (vb).
 func (s SatPerKWeight) FeeForVByte(vb lntypes.VByte) btcutil.Amount {

@@ -1,6 +1,8 @@
 package graph
 
-import "github.com/go-errors/errors"
+import (
+	"fmt"
+)
 
 // ErrorCode is used to represent the various errors that can occur within this
 // package.
@@ -21,7 +23,7 @@ const (
 // this structure carries additional information about error code in order to
 // be able distinguish errors outside of the current package.
 type Error struct {
-	err  *errors.Error
+	err  error
 	code ErrorCode
 }
 
@@ -39,7 +41,7 @@ var _ error = (*Error)(nil)
 func NewErrf(code ErrorCode, format string, a ...interface{}) *Error {
 	return &Error{
 		code: code,
-		err:  errors.Errorf(format, a...),
+		err:  fmt.Errorf(format, a...),
 	}
 }
 

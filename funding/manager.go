@@ -3,6 +3,7 @@ package funding
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -18,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -511,7 +511,7 @@ type Config struct {
 
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
-	NotifyOpenChannelEvent func(wire.OutPoint, *btcec.PublicKey) error
+	NotifyOpenChannelEvent func(wire.OutPoint, *btcec.PublicKey)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
@@ -521,13 +521,13 @@ type Config struct {
 	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when
 	// channels enter a pending state.
 	NotifyPendingOpenChannelEvent func(wire.OutPoint,
-		*channeldb.OpenChannel, *btcec.PublicKey) error
+		*channeldb.OpenChannel, *btcec.PublicKey)
 
 	// NotifyFundingTimeout informs the ChannelNotifier when a pending-open
 	// channel times out because the funding transaction hasn't confirmed.
 	// This is only called for the fundee and only if the channel is
 	// zero-conf.
-	NotifyFundingTimeout func(wire.OutPoint, *btcec.PublicKey) error
+	NotifyFundingTimeout func(wire.OutPoint, *btcec.PublicKey)
 
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
@@ -1319,13 +1319,9 @@ func (f *Manager) advancePendingChannelState(channel *channeldb.OpenChannel,
 
 		// Inform the ChannelNotifier that the channel has transitioned
 		// from pending open to open.
-		if err := f.cfg.NotifyOpenChannelEvent(
+		f.cfg.NotifyOpenChannelEvent(
 			channel.FundingOutpoint, channel.IdentityPub,
-		); err != nil {
-			log.Errorf("Unable to notify open channel event for "+
-				"ChannelPoint(%v): %v",
-				channel.FundingOutpoint, err)
-		}
+		)
 
 		// Find and close the discoverySignal for this channel such
 		// that ChannelReady messages will be processed.
@@ -2666,12 +2662,9 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 
 	// Inform the ChannelNotifier that the channel has entered
 	// pending open state.
-	if err := f.cfg.NotifyPendingOpenChannelEvent(
+	f.cfg.NotifyPendingOpenChannelEvent(
 		fundingOut, completeChan, completeChan.IdentityPub,
-	); err != nil {
-		log.Errorf("Unable to send pending-open channel event for "+
-			"ChannelPoint(%v) %v", fundingOut, err)
-	}
+	)
 
 	// At this point we have sent our last funding message to the
 	// initiating peer before the funding transaction will be broadcast.
@@ -2891,13 +2884,9 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 	case resCtx.updates <- upd:
 		// Inform the ChannelNotifier that the channel has entered
 		// pending open state.
-		if err := f.cfg.NotifyPendingOpenChannelEvent(
+		f.cfg.NotifyPendingOpenChannelEvent(
 			*fundingPoint, completeChan, completeChan.IdentityPub,
-		); err != nil {
-			log.Errorf("Unable to send pending-open channel "+
-				"event for ChannelPoint(%v) %v", fundingPoint,
-				err)
-		}
+		)
 
 	case <-f.quit:
 		return
@@ -2955,11 +2944,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	}
 
 	// Notify other subsystems about the funding timeout.
-	err := f.cfg.NotifyFundingTimeout(c.FundingOutpoint, c.IdentityPub)
-	if err != nil {
-		log.Errorf("failed to notify of funding timeout for "+
-			"ChanPoint(%v): %v", c.FundingOutpoint, err)
-	}
+	f.cfg.NotifyFundingTimeout(c.FundingOutpoint, c.IdentityPub)
 
 	timeoutErr := fmt.Errorf("timeout waiting for funding tx (%v) to "+
 		"confirm", c.FundingOutpoint)
@@ -3341,13 +3326,9 @@ func (f *Manager) handleFundingConfirmation(
 
 	// Inform the ChannelNotifier that the channel has transitioned from
 	// pending open to open.
-	if err := f.cfg.NotifyOpenChannelEvent(
+	f.cfg.NotifyOpenChannelEvent(
 		completeChan.FundingOutpoint, completeChan.IdentityPub,
-	); err != nil {
-		log.Errorf("Unable to notify open channel event for "+
-			"ChannelPoint(%v): %v", completeChan.FundingOutpoint,
-			err)
-	}
+	)
 
 	// Close the discoverySignal channel, indicating to a separate
 	// goroutine that the channel now is marked as open in the database
@@ -4455,8 +4436,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
 	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement: %w", err)
 	}
 
 	switch {
@@ -4499,13 +4480,13 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 	sig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanUpdateMsg, true)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement signature: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement signature: %w", err)
 	}
 	chanUpdateAnn.Signature, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate channel "+
-			"update announcement signature: %v", err)
+		return nil, fmt.Errorf("unable to generate channel "+
+			"update announcement signature: %w", err)
 	}
 
 	// The channel existence proofs itself is currently announced in
@@ -4521,15 +4502,15 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 	nodeSig, err := f.cfg.SignMessage(f.cfg.IDKeyLoc, chanAnnMsg, true)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate node "+
-			"signature for channel announcement: %v", err)
+		return nil, fmt.Errorf("unable to generate node "+
+			"signature for channel announcement: %w", err)
 	}
 	bitcoinSig, err := f.cfg.SignMessage(
 		localFundingKey.KeyLocator, chanAnnMsg, true,
 	)
 	if err != nil {
-		return nil, errors.Errorf("unable to generate bitcoin "+
-			"signature for node public key: %v", err)
+		return nil, fmt.Errorf("unable to generate bitcoin "+
+			"signature for node public key: %w", err)
 	}
 
 	// Finally, we'll generate the announcement proof which we'll use to
@@ -5191,13 +5172,13 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	nodeReservations, ok := f.activeReservations[peerIDKey]
 	if !ok {
 		// No reservations for this node.
-		return nil, errors.Errorf("no active reservations for peer(%x)",
+		return nil, fmt.Errorf("no active reservations for peer(%x)",
 			peerIDKey[:])
 	}
 
 	ctx, ok := nodeReservations[pendingChanID]
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x) for "+
+		return nil, fmt.Errorf("unknown channel (id: %x) for "+
 			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 
@@ -5210,8 +5191,7 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 	}
 
 	if err := ctx.reservation.Cancel(); err != nil {
-		return nil, errors.Errorf("unable to cancel reservation: %v",
-			err)
+		return nil, fmt.Errorf("unable to cancel reservation: %w", err)
 	}
 
 	delete(nodeReservations, pendingChanID)
@@ -5258,7 +5238,7 @@ func (f *Manager) getReservationCtx(peerKey *btcec.PublicKey,
 	f.resMtx.RUnlock()
 
 	if !ok {
-		return nil, errors.Errorf("unknown channel (id: %x) for "+
+		return nil, fmt.Errorf("unknown channel (id: %x) for "+
 			"peer(%x)", pendingChanID[:], peerIDKey[:])
 	}
 

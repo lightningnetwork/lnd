@@ -411,6 +411,10 @@ type processedNetworkMsg struct {
 
 // cachedNetworkMsg is a wrapper around a network message that can be used with
 // *lru.Cache.
+//
+// NOTE: This struct is not thread safe which means you need to assure no
+// concurrent read write access to it and all its contents which are pointers
+// as well.
 type cachedNetworkMsg struct {
 	msgs []*processedNetworkMsg
 }
@@ -2234,7 +2238,7 @@ func (d *AuthenticatedGossiper) isMsgStale(_ context.Context,
 		}
 		if err != nil {
 			log.Debugf("Unable to retrieve channel=%v from graph: "+
-				"%v", chanInfo.ChannelID, err)
+				"%v", msg.ShortChannelID, err)
 			return false
 		}
 
@@ -3134,7 +3138,9 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 
 		// NOTE: We don't return anything on the error channel for this
 		// message, as we expect that will be done when this
-		// ChannelUpdate is later reprocessed.
+		// ChannelUpdate is later reprocessed. This might never happen
+		// if the corresponding ChannelAnnouncement is never received
+		// or the LRU cache is filled up and the entry is evicted.
 		return nil, false
 
 	default:

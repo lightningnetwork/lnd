@@ -880,7 +880,6 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 	// Try to find links by node destination.
 	s.indexMtx.RLock()
 	link, err := s.getLinkByShortID(pkt.outgoingChanID)
-	defer s.indexMtx.RUnlock()
 	if err != nil {
 		// If the link was not found for the outgoingChanID, an outside
 		// subsystem may be using the confirmed SCID of a zero-conf
@@ -892,6 +891,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 		// do that upon receiving the packet.
 		baseScid, ok := s.baseIndex[pkt.outgoingChanID]
 		if !ok {
+			s.indexMtx.RUnlock()
 			log.Errorf("Link %v not found", pkt.outgoingChanID)
 			return nil, NewLinkError(&lnwire.FailUnknownNextPeer{})
 		}
@@ -900,10 +900,15 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 		// link.
 		link, err = s.getLinkByShortID(baseScid)
 		if err != nil {
+			s.indexMtx.RUnlock()
 			log.Errorf("Link %v not found", baseScid)
 			return nil, NewLinkError(&lnwire.FailUnknownNextPeer{})
 		}
 	}
+	// We finished looking up the indexes, so we can unlock the mutex before
+	// performing the link operations which might also acquire the lock
+	// in case e.g. failAliasUpdate is called.
+	s.indexMtx.RUnlock()
 
 	if !link.EligibleToForward() {
 		log.Errorf("Link %v is not available to forward",
@@ -928,6 +933,7 @@ func (s *Switch) getLocalLink(pkt *htlcPacket, htlc *lnwire.UpdateAddHTLC) (
 			"satisfied", pkt.outgoingChanID)
 		return nil, htlcErr
 	}
+
 	return link, nil
 }
 
@@ -3074,6 +3080,12 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 				OutgoingChanID: circuit.Outgoing.ChanID,
 				AmtIn:          circuit.IncomingAmount,
 				AmtOut:         circuit.OutgoingAmount,
+				IncomingHtlcID: fn.Some(
+					circuit.Incoming.HtlcID,
+				),
+				OutgoingHtlcID: fn.Some(
+					circuit.Outgoing.HtlcID,
+				),
 			},
 		)
 		s.fwdEventMtx.Unlock()

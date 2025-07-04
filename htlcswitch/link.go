@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -108,8 +109,10 @@ type ChannelLinkConfig struct {
 	// blobs, which are then used to inform how to forward an HTLC.
 	//
 	// NOTE: This function assumes the same set of readers and preimages
-	// are always presented for the same identifier.
-	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
+	// are always presented for the same identifier. The last boolean is
+	// used to decide whether this is a reforwarding or not - when it's
+	// reforwarding, we skip the replay check enforced in our decay log.
+	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest, bool) (
 		[]hop.DecodeHopIteratorResponse, error)
 
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
@@ -3501,11 +3504,19 @@ func (l *channelLink) AuxBandwidth(amount lnwire.MilliSatoshi,
 		})
 	}
 
+	peerBytes := l.cfg.Peer.PubKey()
+
+	peer, err := route.NewVertexFromBytes(peerBytes[:])
+	if err != nil {
+		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to decode "+
+			"peer pub key: %v", err))
+	}
+
 	// Ask for a specific bandwidth to be used for the channel.
 	commitmentBlob := l.CommitmentCustomBlob()
 	auxBandwidth, err := ts.PaymentBandwidth(
 		fundingBlob, htlcBlob, commitmentBlob, l.Bandwidth(), amount,
-		l.channel.FetchLatestAuxHTLCView(),
+		l.channel.FetchLatestAuxHTLCView(), peer,
 	)
 	if err != nil {
 		return fn.Err[OptionalBandwidth](fmt.Errorf("failed to get "+
@@ -3624,6 +3635,16 @@ func (l *channelLink) updateChannelFee(ctx context.Context,
 // the switch.
 func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 	if len(fwdPkg.SettleFails) == 0 {
+		l.log.Trace("fwd package has no settle/fails to process " +
+			"exiting early")
+
+		return
+	}
+
+	// Exit early if the fwdPkg is already processed.
+	if fwdPkg.State == channeldb.FwdStateCompleted {
+		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
+
 		return
 	}
 
@@ -3728,13 +3749,43 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 //
 //nolint:funlen
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
+	// Exit early if there are no adds to process.
+	if len(fwdPkg.Adds) == 0 {
+		l.log.Trace("fwd package has no adds to process exiting early")
+
+		return
+	}
+
+	// Exit early if the fwdPkg is already processed.
+	if fwdPkg.State == channeldb.FwdStateCompleted {
+		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)
+
+		return
+	}
+
 	l.log.Tracef("processing %d remote adds for height %d",
 		len(fwdPkg.Adds), fwdPkg.Height)
 
-	decodeReqs := make(
-		[]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds),
-	)
-	for _, update := range fwdPkg.Adds {
+	// decodeReqs is a list of requests sent to the onion decoder. We expect
+	// the same length of responses to be returned.
+	decodeReqs := make([]hop.DecodeHopIteratorRequest, 0, len(fwdPkg.Adds))
+
+	// unackedAdds is a list of ADDs that's waiting for the remote's
+	// settle/fail update.
+	unackedAdds := make([]*lnwire.UpdateAddHTLC, 0, len(fwdPkg.Adds))
+
+	for i, update := range fwdPkg.Adds {
+		// If this index is already found in the ack filter, the
+		// response to this forwarding decision has already been
+		// committed by one of our commitment txns. ADDs in this state
+		// are waiting for the rest of the fwding package to get acked
+		// before being garbage collected.
+		if fwdPkg.State == channeldb.FwdStateProcessed &&
+			fwdPkg.AckFilter.Contains(uint16(i)) {
+
+			continue
+		}
+
 		if msg, ok := update.UpdateMsg.(*lnwire.UpdateAddHTLC); ok {
 			// Before adding the new htlc to the state machine,
 			// parse the onion object in order to obtain the
@@ -3751,15 +3802,20 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			}
 
 			decodeReqs = append(decodeReqs, req)
+			unackedAdds = append(unackedAdds, msg)
 		}
 	}
+
+	// If the fwdPkg has already been processed, it means we are
+	// reforwarding the packets again, which happens only on a restart.
+	reforward := fwdPkg.State == channeldb.FwdStateProcessed
 
 	// Atomically decode the incoming htlcs, simultaneously checking for
 	// replay attempts. A particular index in the returned, spare list of
 	// channel iterators should only be used if the failure code at the
 	// same index is lnwire.FailCodeNone.
 	decodeResps, sphinxErr := l.cfg.DecodeHopIterators(
-		fwdPkg.ID(), decodeReqs,
+		fwdPkg.ID(), decodeReqs, reforward,
 	)
 	if sphinxErr != nil {
 		l.failf(LinkFailureError{code: ErrInternalError},
@@ -3769,23 +3825,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 	var switchPackets []*htlcPacket
 
-	for i, update := range fwdPkg.Adds {
+	for i, update := range unackedAdds {
 		idx := uint16(i)
-
-		//nolint:forcetypeassert
-		add := *update.UpdateMsg.(*lnwire.UpdateAddHTLC)
 		sourceRef := fwdPkg.SourceRef(idx)
-
-		if fwdPkg.State == channeldb.FwdStateProcessed &&
-			fwdPkg.AckFilter.Contains(idx) {
-
-			// If this index is already found in the ack filter,
-			// the response to this forwarding decision has already
-			// been committed by one of our commitment txns. ADDs
-			// in this state are waiting for the rest of the fwding
-			// package to get acked before being garbage collected.
-			continue
-		}
+		add := *update
 
 		// An incoming HTLC add has been full-locked in. As a result we
 		// can now examine the forwarding details of the HTLC, and the
@@ -3805,8 +3848,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				add.ID, failureCode, add.OnionBlob, &sourceRef,
 			)
 
-			l.log.Errorf("unable to decode onion hop "+
-				"iterator: %v", failureCode)
+			l.log.Errorf("unable to decode onion hop iterator "+
+				"for htlc(id=%v, hash=%x): %v", add.ID,
+				add.PaymentHash, failureCode)
+
 			continue
 		}
 
@@ -4110,17 +4155,15 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 		return
 	}
 
-	replay := fwdPkg.State != channeldb.FwdStateLockedIn
-
-	l.log.Debugf("forwarding %d packets to switch: replay=%v",
-		len(switchPackets), replay)
+	l.log.Debugf("forwarding %d packets to switch: reforward=%v",
+		len(switchPackets), reforward)
 
 	// NOTE: This call is made synchronous so that we ensure all circuits
 	// are committed in the exact order that they are processed in the link.
 	// Failing to do this could cause reorderings/gaps in the range of
 	// opened circuits, which violates assumptions made by the circuit
 	// trimming.
-	l.forwardBatch(replay, switchPackets...)
+	l.forwardBatch(reforward, switchPackets...)
 }
 
 // experimentalEndorsement returns the value to set for our outgoing

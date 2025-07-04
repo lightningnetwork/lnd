@@ -1601,6 +1601,10 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 // Disconnect terminates the connection with the remote peer. Additionally, a
 // signal is sent to the server and htlcSwitch indicating the resources
 // allocated to the peer can now be cleaned up.
+//
+// NOTE: Be aware that this method will block if the peer is still starting up.
+// Therefore consider starting it in a goroutine if you cannot guarantee that
+// the peer has finished starting up before calling this method.
 func (p *Brontide) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
 		return
@@ -1613,7 +1617,8 @@ func (p *Brontide) Disconnect(reason error) {
 	// started, otherwise we will skip reading it as this chan won't be
 	// closed, hence blocks forever.
 	if atomic.LoadInt32(&p.started) == 1 {
-		p.log.Debugf("Started, waiting on startReady signal")
+		p.log.Debugf("Peer hasn't finished starting up yet, waiting " +
+			"on startReady signal before closing connection")
 
 		select {
 		case <-p.startReady:
@@ -1995,32 +2000,22 @@ func newDiscMsgStream(p *Brontide) *msgStream {
 		// so that a parent context can be passed in here.
 		ctx := context.TODO()
 
+		// Processing here means we send it to the gossiper which then
+		// decides whether this message is processed immediately or
+		// waits for dependent messages to be processed. It can also
+		// happen that the message is not processed at all if it is
+		// premature and the LRU cache fills up and the message is
+		// deleted.
 		p.log.Debugf("Processing remote msg %T", msg)
 
-		errChan := p.cfg.AuthGossiper.ProcessRemoteAnnouncement(
-			ctx, msg, p,
-		)
-
-		// Start a goroutine to process the error channel for logging
-		// purposes.
-		//
-		// TODO(ziggie): Maybe use the error to potentially punish the
-		// peer depending on the error ?
-		go func() {
-			select {
-			case <-p.cg.Done():
-				return
-
-			case err := <-errChan:
-				if err != nil {
-					p.log.Warnf("Error processing remote "+
-						"msg %T: %v", msg,
-						err)
-				}
-			}
-
-			p.log.Debugf("Processed remote msg %T", msg)
-		}()
+		// TODO(ziggie): ProcessRemoteAnnouncement returns an error
+		// channel, but we cannot rely on it being written to.
+		// Because some messages might never be processed (e.g.
+		// premature channel updates). We should change the design here
+		// and use the actor model pattern as soon as it is available.
+		// So for now we should NOT use the error channel.
+		// See https://github.com/lightningnetwork/lnd/pull/9820.
+		p.cfg.AuthGossiper.ProcessRemoteAnnouncement(ctx, msg, p)
 	}
 
 	return newMsgStream(

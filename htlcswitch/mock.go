@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -522,7 +522,7 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
-	reqs []hop.DecodeHopIteratorRequest) (
+	reqs []hop.DecodeHopIteratorRequest, _ bool) (
 	[]hop.DecodeHopIteratorResponse, error) {
 
 	idHash := sha256.Sum256(id)

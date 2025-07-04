@@ -83,6 +83,12 @@ func TestMigrateGraphToSQL(t *testing.T) {
 		node2 = genPubKey(t)
 	)
 
+	type zombieIndexObject struct {
+		scid    uint64
+		pubKey1 route.Vertex
+		pubKey2 route.Vertex
+	}
+
 	tests := []struct {
 		name          string
 		write         func(t *testing.T, db *KVStore, object any)
@@ -274,6 +280,35 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				lnwire.NewShortChanIDFromInt(4),
 			},
 		},
+		{
+			name: "zombie index",
+			write: func(t *testing.T, db *KVStore, object any) {
+				obj, ok := object.(*zombieIndexObject)
+				require.True(t, ok)
+
+				err := db.MarkEdgeZombie(
+					obj.scid, obj.pubKey1, obj.pubKey2,
+				)
+				require.NoError(t, err)
+			},
+			objects: []any{
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -345,6 +380,9 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 	// log we iterate through the kvdb store and check that the entries
 	// match the entries in the SQL store.
 	checkClosedSCIDIndex(t, kvDB.db, sqlDB)
+
+	// 6) Finally, check that the zombie index is also in sync.
+	checkZombieIndex(t, kvDB.db, sqlDB)
 }
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
@@ -495,6 +533,38 @@ func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		closed, err := sql.IsClosedScid(scid)
 		require.NoError(t, err)
 		require.True(t, closed)
+
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// checkZombieIndex iterates through the zombie index in the
+// KVStore and checks that each SCID is marked as a zombie in the SQLStore.
+func checkZombieIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
+	err := forEachZombieEntry(kv, func(chanID uint64, pubKey1,
+		pubKey2 [33]byte) error {
+
+		scid := lnwire.NewShortChanIDFromInt(chanID)
+
+		// The migration logic skips zombie entries if they are already
+		// present in the closed SCID index in the SQL DB. We need to
+		// replicate that check here.
+		isClosed, err := sql.IsClosedScid(scid)
+		require.NoError(t, err)
+
+		isZombie, _, _, err := sql.IsZombieEdge(chanID)
+		require.NoError(t, err)
+
+		if isClosed {
+			// If it's in the closed index, it should NOT be in the
+			// zombie index.
+			require.False(t, isZombie)
+		} else {
+			// If it's not in the closed index, it SHOULD be in the
+			// zombie index.
+			require.True(t, isZombie)
+		}
 
 		return nil
 	})
@@ -989,6 +1059,39 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			}},
 		})
 	})
+
+	// This test covers the case where the KV store contains zombie entries
+	// that it also has entries for in the closed SCID index. In this case,
+	// the SQL store will only insert zombie entries for channels that
+	// are not yet closed.
+	t.Run("zombies and closed scids", func(t *testing.T) {
+		var (
+			n1, n2 route.Vertex
+			cID1   = uint64(1)
+			cID2   = uint64(2)
+		)
+
+		populateKV := func(t *testing.T, db *KVStore) {
+			// Mark both channels as zombies.
+			err := db.MarkEdgeZombie(cID1, n1, n2)
+			require.NoError(t, err)
+
+			err = db.MarkEdgeZombie(cID2, n1, n2)
+			require.NoError(t, err)
+
+			// Mark channel 1 as closed.
+			err = db.PutClosedScid(
+				lnwire.NewShortChanIDFromInt(cID1),
+			)
+			require.NoError(t, err)
+		}
+
+		runTestMigration(t, populateKV, dbState{
+			chans:   make(chanSet, 0),
+			closed:  []uint64{1},
+			zombies: []uint64{2},
+		})
+	})
 }
 
 // runTestMigration is a helper function that sets up the KVStore and SQLStore,
@@ -1020,8 +1123,10 @@ func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 
 // dbState describes the expected state of the SQLStore after a migration.
 type dbState struct {
-	nodes []*models.LightningNode
-	chans chanSet
+	nodes   []*models.LightningNode
+	chans   chanSet
+	closed  []uint64
+	zombies []uint64
 }
 
 // assertResultState asserts that the SQLStore contains the expected
@@ -1032,4 +1137,26 @@ func assertResultState(t *testing.T, sql *SQLStore, expState dbState) {
 	require.ElementsMatch(
 		t, expState.chans, fetchAllChannelsAndPolicies(t, sql),
 	)
+
+	for _, closed := range expState.closed {
+		isClosed, err := sql.IsClosedScid(
+			lnwire.NewShortChanIDFromInt(closed),
+		)
+		require.NoError(t, err)
+		require.True(t, isClosed)
+
+		// Any closed SCID should NOT be in the zombie
+		// index.
+		isZombie, _, _, err := sql.IsZombieEdge(closed)
+		require.NoError(t, err)
+		require.False(t, isZombie)
+	}
+
+	for _, zombie := range expState.zombies {
+		isZombie, _, _, err := sql.IsZombieEdge(
+			zombie,
+		)
+		require.NoError(t, err)
+		require.True(t, isZombie)
+	}
 }

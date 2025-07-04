@@ -70,6 +70,11 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 			err)
 	}
 
+	// 6) Migrate the zombie index.
+	if err := migrateZombieIndex(ctx, kvBackend, sqlDB); err != nil {
+		return fmt.Errorf("could not migrate zombie index: %w", err)
+	}
+
 	log.Infof("Finished migration of the graph store from KV to SQL in %v",
 		time.Since(t0))
 
@@ -739,6 +744,109 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)
 
 	return nil
+}
+
+// migrateZombieIndex migrates the zombie index from the KV backend to
+// the SQL database. It iterates over each zombie channel in the KV store,
+// inserts it into the SQL database, and then verifies that the channel is
+// indeed marked as a zombie channel in the SQL database.
+//
+// NOTE: before inserting an entry into the zombie index, the function checks
+// if the channel is already marked as closed in the SQL store. If it is,
+// the entry is skipped. This means that the resulting zombie index count in
+// the SQL store may well be less than the count of zombie channels in the KV
+// store.
+func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var count uint64
+	err := forEachZombieEntry(kvBackend, func(chanID uint64, pubKey1,
+		pubKey2 [33]byte) error {
+
+		chanIDB := channelIDToBytes(chanID)
+
+		// If it is in the closed SCID index, we don't need to
+		// add it to the zombie index.
+		//
+		// NOTE: this means that the resulting zombie index count in
+		// the SQL store may well be less than the count of zombie
+		// channels in the KV store.
+		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not check closed "+
+				"channel: %w", err)
+		}
+		if isClosed {
+			return nil
+		}
+
+		count++
+
+		err = sqlDB.UpsertZombieChannel(
+			ctx, sqlc.UpsertZombieChannelParams{
+				Version:  int16(ProtocolV1),
+				Scid:     chanIDB,
+				NodeKey1: pubKey1[:],
+				NodeKey2: pubKey2[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not upsert zombie "+
+				"channel %d: %w", chanID, err)
+		}
+
+		// Finally, verify that the channel is indeed marked as a
+		// zombie channel.
+		isZombie, err := sqlDB.IsZombieChannel(
+			ctx, sqlc.IsZombieChannelParams{
+				Version: int16(ProtocolV1),
+				Scid:    chanIDB,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not check if "+
+				"channel %d is zombie: %w", chanID, err)
+		}
+
+		if !isZombie {
+			return fmt.Errorf("channel %d should be "+
+				"a zombie, but is not", chanID)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("could not migrate zombie index: %w", err)
+	}
+
+	log.Infof("Migrated %d zombie channels from KV to SQL", count)
+
+	return nil
+}
+
+// forEachZombieEntry iterates over each zombie channel entry in the
+// KV backend and calls the provided callback function for each entry.
+func forEachZombieEntry(db kvdb.Backend, cb func(chanID uint64, pubKey1,
+	pubKey2 [33]byte) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex := edges.NestedReadBucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		return zombieIndex.ForEach(func(k, v []byte) error {
+			var pubKey1, pubKey2 [33]byte
+			copy(pubKey1[:], v[:33])
+			copy(pubKey2[:], v[33:])
+
+			return cb(byteOrder.Uint64(k), pubKey1, pubKey2)
+		})
+	}, func() {})
 }
 
 // forEachClosedSCID iterates over each closed SCID in the KV backend and calls

@@ -167,10 +167,10 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
-	// ExtractErrorEncrypter is an interface allowing switch to reextract
+	// ExtractSharedSecret is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractSharedSecret hop.SharedSecretGenerator
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -362,11 +362,11 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	resStore := newResolutionStore(cfg.DB)
 
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
-		DB:                    cfg.DB,
-		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
-		FetchClosedChannels:   cfg.FetchClosedChannels,
-		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
-		CheckResolutionMsg:    resStore.checkResolutionMsg,
+		DB:                   cfg.DB,
+		FetchAllOpenChannels: cfg.FetchAllOpenChannels,
+		FetchClosedChannels:  cfg.FetchClosedChannels,
+		ExtractSharedSecret:  cfg.ExtractSharedSecret,
+		CheckResolutionMsg:   resStore.checkResolutionMsg,
 	})
 	if err != nil {
 		return nil, err
@@ -1106,9 +1106,14 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 	// A regular multi-hop payment error that we'll need to
 	// decrypt.
 	default:
+		attrData, err := lnwire.ExtraDataToAttrData(htlc.ExtraData)
+		if err != nil {
+			return err
+		}
+
 		// We'll attempt to fully decrypt the onion encrypted
 		// error. If we're unable to then we'll bail early.
-		failure, err := deobfuscator.DecryptError(htlc.Reason)
+		failure, err := deobfuscator.DecryptError(htlc.Reason, attrData)
 		if err != nil {
 			log.Errorf("unable to de-obfuscate onion failure "+
 				"(hash=%v, pid=%d): %v",
@@ -1233,7 +1238,9 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 	// Encrypt the failure so that the sender will be able to read the error
 	// message. Since we failed this packet, we use EncryptFirstHop to
 	// obfuscate the failure for their eyes only.
-	reason, err := packet.obfuscator.EncryptFirstHop(failure.WireMessage())
+	reason, attrData, err := packet.obfuscator.EncryptFirstHop(
+		failure.WireMessage(),
+	)
 	if err != nil {
 		err := fmt.Errorf("unable to obfuscate "+
 			"error: %v", err)
@@ -1242,6 +1249,11 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 	}
 
 	log.Error(failure.Error())
+
+	extraData, err := lnwire.AttrDataToExtraData(attrData)
+	if err != nil {
+		return err
+	}
 
 	// Create a failure packet for this htlc. The full set of
 	// information about the htlc failure is included so that they can
@@ -1260,7 +1272,8 @@ func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
 		obfuscator:      packet.obfuscator,
 		linkFailure:     failure,
 		htlc: &lnwire.UpdateFailHTLC{
-			Reason: reason,
+			Reason:    reason,
+			ExtraData: extraData,
 		},
 	}
 
@@ -3161,12 +3174,18 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 		var err error
 		// TODO(roasbeef): don't need to pass actually?
 		failure := &lnwire.FailPermanentChannelFailure{}
-		htlc.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
+		reason, attrData, err := circuit.ErrorEncrypter.EncryptFirstHop(
 			failure,
 		)
 		if err != nil {
 			err = fmt.Errorf("unable to obfuscate error: %w", err)
 			log.Error(err)
+		}
+
+		htlc.Reason = reason
+		htlc.ExtraData, err = lnwire.AttrDataToExtraData(attrData)
+		if err != nil {
+			return err
 		}
 
 	// Alternatively, if the remote party sends us an
@@ -3179,16 +3198,41 @@ func (s *Switch) handlePacketFail(packet *htlcPacket,
 			packet.incomingChanID, packet.incomingHTLCID,
 			packet.outgoingChanID, packet.outgoingHTLCID)
 
-		htlc.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
-			htlc.Reason,
-		)
+		reason, attrData, err :=
+			circuit.ErrorEncrypter.EncryptMalformedError(
+				htlc.Reason,
+			)
+		if err != nil {
+			return err
+		}
+
+		htlc.Reason = reason
+		htlc.ExtraData, err = lnwire.AttrDataToExtraData(attrData)
+		if err != nil {
+			return err
+		}
 
 	default:
+		attrData, err := lnwire.ExtraDataToAttrData(htlc.ExtraData)
+		if err != nil {
+			return err
+		}
+
 		// Otherwise, it's a forwarded error, so we'll perform a
 		// wrapper encryption as normal.
-		htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-			htlc.Reason,
-		)
+		reason, attrData, err :=
+			circuit.ErrorEncrypter.IntermediateEncrypt(
+				htlc.Reason, attrData,
+			)
+		if err != nil {
+			return err
+		}
+
+		htlc.Reason = reason
+		htlc.ExtraData, err = lnwire.AttrDataToExtraData(attrData)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Deliver this packet.

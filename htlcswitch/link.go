@@ -12,9 +12,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -115,9 +117,15 @@ type ChannelLinkConfig struct {
 	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest, bool) (
 		[]hop.DecodeHopIteratorResponse, error)
 
-	// ExtractErrorEncrypter function is responsible for decoding HTLC
-	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	// ExtractSharedSecret function is responsible for decoding HTLC
+	// Sphinx onion blob, and deriving the shared secret.
+	ExtractSharedSecret hop.SharedSecretGenerator
+
+	// CreateErrorEncrypter instantiates an error encrypter based on the
+	// provided encryption parameters.
+	CreateErrorEncrypter func(ephemeralKey *btcec.PublicKey,
+		sharedSecret sphinx.Hash256, isIntroduction,
+		hasBlindingPoint bool) hop.ErrorEncrypter
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -1902,6 +1910,7 @@ func (l *channelLink) handleDownstreamPkt(ctx context.Context,
 		err := l.channel.FailHTLC(
 			pkt.incomingHTLCID,
 			htlc.Reason,
+			htlc.ExtraData,
 			pkt.sourceRef,
 			pkt.destRef,
 			&inKey,
@@ -1947,6 +1956,7 @@ func (l *channelLink) handleDownstreamPkt(ctx context.Context,
 			htlc.ID,
 			pkt.obfuscator,
 			htlc.Reason,
+			htlc.ExtraData,
 		); err != nil {
 			l.log.Errorf("unable to send HTLC failure: %v",
 				err)
@@ -2256,7 +2266,9 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 		// If remote side have been unable to parse the onion blob we
 		// have sent to it, than we should transform the malformed HTLC
 		// message to the usual HTLC fail message.
-		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
+		err := l.channel.ReceiveFailHTLC(
+			msg.ID, b.Bytes(), msg.ExtraData,
+		)
 		if err != nil {
 			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream fail HTLC: %v", err)
@@ -2294,7 +2306,9 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 
 		// Add fail to the update log.
 		idx := msg.ID
-		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
+		err := l.channel.ReceiveFailHTLC(
+			idx, msg.Reason[:], msg.ExtraData,
+		)
 		if err != nil {
 			l.failf(LinkFailureError{code: ErrInvalidUpdate},
 				"unable to handle upstream fail HTLC: %v", err)
@@ -3872,19 +3886,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 				failedType = uint64(e.Type)
 			}
 
-			// If we couldn't parse the payload, make our best
-			// effort at creating an error encrypter that knows
-			// what blinding type we were, but if we couldn't
-			// parse the payload we have no way of knowing whether
-			// we were the introduction node or not.
-			//
-			//nolint:ll
-			obfuscator, failCode := chanIterator.ExtractErrorEncrypter(
-				l.cfg.ExtractErrorEncrypter,
-				// We need our route role here because we
-				// couldn't parse or validate the payload.
-				routeRole == hop.RouteRoleIntroduction,
-			)
+			// Let's extract the error encrypter parameters.
+			ephemeralKey, sharedSecret, blindingPoint, failCode :=
+				chanIterator.ExtractEncrypterParams(
+					l.cfg.ExtractSharedSecret,
+				)
 			if failCode != lnwire.CodeNone {
 				l.log.Errorf("could not extract error "+
 					"encrypter: %v", pldErr)
@@ -3898,6 +3904,21 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 				continue
 			}
+
+			// If we couldn't parse the payload, make our best
+			// effort at creating an error encrypter that knows
+			// what blinding type we were, but if we couldn't
+			// parse the payload we have no way of knowing whether
+			// we were the introduction node or not. Let's create
+			// the error encrypter based on the extracted encryption
+			// parameters.
+			obfuscator := l.cfg.CreateErrorEncrypter(
+				ephemeralKey, sharedSecret,
+				// We need our route role here because we
+				// couldn't parse or validate the payload.
+				routeRole == hop.RouteRoleIntroduction,
+				blindingPoint.IsSome(),
+			)
 
 			// TODO: currently none of the test unit infrastructure
 			// is setup to handle TLV payloads, so testing this
@@ -3918,12 +3939,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			continue
 		}
 
-		// Retrieve onion obfuscator from onion blob in order to
-		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
-			routeRole == hop.RouteRoleIntroduction,
-		)
+		// Extract the encryption parameters.
+		ephemeralKey, sharedSecret, blindingPoint, failureCode :=
+			chanIterator.ExtractEncrypterParams(
+				l.cfg.ExtractSharedSecret,
+			)
 		if failureCode != lnwire.CodeNone {
 			// If we're unable to process the onion blob than we
 			// should send the malformed htlc error to payment
@@ -3938,6 +3958,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 
 			continue
 		}
+
+		// Instantiate an error encrypter based on the extracted
+		// encryption parameters.
+		obfuscator := l.cfg.CreateErrorEncrypter(
+			ephemeralKey, sharedSecret,
+			routeRole == hop.RouteRoleIntroduction,
+			blindingPoint.IsSome(),
+		)
 
 		fwdInfo := pld.ForwardingInfo()
 
@@ -4376,13 +4404,20 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	sourceRef channeldb.AddRef, failure *LinkError,
 	e hop.ErrorEncrypter, isReceive bool) {
 
-	reason, err := e.EncryptFirstHop(failure.WireMessage())
+	reason, attrData, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return
 	}
 
-	err = l.channel.FailHTLC(add.ID, reason, &sourceRef, nil, nil)
+	extraData, err := lnwire.AttrDataToExtraData(attrData)
+	if err != nil {
+		return
+	}
+
+	err = l.channel.FailHTLC(
+		add.ID, reason, extraData, &sourceRef, nil, nil,
+	)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return
@@ -4391,7 +4426,7 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 	// Send the appropriate failure message depending on whether we're
 	// in a blinded route or not.
 	if err := l.sendIncomingHTLCFailureMsg(
-		add.ID, e, reason,
+		add.ID, e, reason, extraData,
 	); err != nil {
 		l.log.Errorf("unable to send HTLC failure: %v", err)
 		return
@@ -4435,8 +4470,8 @@ func (l *channelLink) sendHTLCError(add lnwire.UpdateAddHTLC,
 // used if we are the introduction node and need to present an error as if
 // we're the failing party.
 func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
-	e hop.ErrorEncrypter,
-	originalFailure lnwire.OpaqueReason) error {
+	e hop.ErrorEncrypter, originalFailure lnwire.OpaqueReason,
+	extraData lnwire.ExtraOpaqueData) error {
 
 	var msg lnwire.Message
 	switch {
@@ -4449,9 +4484,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 	// code.
 	case e == nil:
 		msg = &lnwire.UpdateFailHTLC{
-			ChanID: l.ChanID(),
-			ID:     htlcIndex,
-			Reason: originalFailure,
+			ChanID:    l.ChanID(),
+			ID:        htlcIndex,
+			Reason:    originalFailure,
+			ExtraData: extraData,
 		}
 
 		l.log.Errorf("Unexpected blinded failure when "+
@@ -4462,9 +4498,10 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 	// transformation on the error message and can just send the original.
 	case !e.Type().IsBlinded():
 		msg = &lnwire.UpdateFailHTLC{
-			ChanID: l.ChanID(),
-			ID:     htlcIndex,
-			Reason: originalFailure,
+			ChanID:    l.ChanID(),
+			ID:        htlcIndex,
+			Reason:    originalFailure,
+			ExtraData: extraData,
 		}
 
 	// When we're the introduction node, we need to convert the error to
@@ -4478,7 +4515,7 @@ func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
 		failureMsg := lnwire.NewInvalidBlinding(
 			fn.None[[lnwire.OnionPacketSize]byte](),
 		)
-		reason, err := e.EncryptFirstHop(failureMsg)
+		reason, _, err := e.EncryptFirstHop(failureMsg)
 		if err != nil {
 			return err
 		}

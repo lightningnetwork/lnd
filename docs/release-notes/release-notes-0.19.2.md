@@ -37,6 +37,8 @@
   could lead to a memory issues due to a goroutine leak in the peer/gossiper
   code.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10035) a deadlock (writer starvation) in the switch.
+
 # New Features
 
 ## Functional Enhancements

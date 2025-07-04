@@ -26,6 +26,10 @@
   announcement remains unchanged until the new one is fully signed and
   validated.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10027) an issue where
+  known TLV fields were incorrectly encoded into the `ExtraData` field of
+  messages in the dynamic commitment set.
+
 # New Features
 
 ## Functional Enhancements

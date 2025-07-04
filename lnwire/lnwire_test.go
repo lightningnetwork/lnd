@@ -5,10 +5,8 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"math"
-	"math/rand"
 	"net"
 	"testing"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -248,8 +246,4 @@ func TestLightningWireProtocol(t *testing.T) {
 			)
 		}))
 	}
-}
-
-func init() {
-	rand.Seed(time.Now().Unix())
 }

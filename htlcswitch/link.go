@@ -301,6 +301,12 @@ type ChannelLinkConfig struct {
 	// AuxTrafficShaper is an optional auxiliary traffic shaper that can be
 	// used to manage the bandwidth of the link.
 	AuxTrafficShaper fn.Option[AuxTrafficShaper]
+
+	// QuiescenceTimeout is the max duration that the channel can be
+	// quiesced. Any dependent protocols (dynamic commitments, splicing,
+	// etc.) must finish their operations under this timeout value,
+	// otherwise the node will disconnect.
+	QuiescenceTimeout time.Duration
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -497,7 +503,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 			sendMsg: func(s lnwire.Stfu) error {
 				return cfg.Peer.SendMessage(false, &s)
 			},
-			timeoutDuration: defaultQuiescenceTimeout,
+			timeoutDuration: cfg.QuiescenceTimeout,
 			onTimeout: func() {
 				cfg.Peer.Disconnect(ErrQuiescenceTimeout)
 			},

@@ -751,6 +751,7 @@ func DefaultConfig() Config {
 		Sweeper: lncfg.DefaultSweeperConfig(),
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
+			QuiescenceTimeout:      lncfg.DefaultQuiescenceTimeout,
 		},
 		GRPC: &GRPCConfig{
 			ServerPingTime:    defaultGrpcServerPingTime,

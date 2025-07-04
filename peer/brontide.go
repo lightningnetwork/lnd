@@ -438,6 +438,12 @@ type Config struct {
 	// should have the quiescence feature disabled.
 	DisallowQuiescence bool
 
+	// QuiescenceTimeout is the max duration that the channel can be
+	// quiesced. Any dependent protocols (dynamic commitments, splicing,
+	// etc.) must finish their operations under this timeout value,
+	// otherwise the node will disconnect.
+	QuiescenceTimeout time.Duration
+
 	// MaxFeeExposure limits the number of outstanding fees in a channel.
 	// This value will be passed to created links.
 	MaxFeeExposure lnwire.MilliSatoshi
@@ -1449,7 +1455,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
-		AuxTrafficShaper: p.cfg.AuxTrafficShaper,
+		AuxTrafficShaper:  p.cfg.AuxTrafficShaper,
+		QuiescenceTimeout: p.cfg.QuiescenceTimeout,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

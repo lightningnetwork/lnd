@@ -147,7 +147,7 @@ func (l *ProtocolOptions) NoExperimentalEndorsement() bool {
 
 // NoQuiescence returns true if quiescence is disabled.
 func (l *ProtocolOptions) NoQuiescence() bool {
-	return true
+	return false
 }
 
 // CustomMessageOverrides returns the set of protocol messages that we override

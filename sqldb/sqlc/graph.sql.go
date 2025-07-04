@@ -1350,6 +1350,19 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 	return items, nil
 }
 
+const getPruneHashByHeight = `-- name: GetPruneHashByHeight :one
+SELECT block_hash
+FROM prune_log
+WHERE block_height = $1
+`
+
+func (q *Queries) GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getPruneHashByHeight, blockHeight)
+	var block_hash []byte
+	err := row.Scan(&block_hash)
+	return block_hash, err
+}
+
 const getPruneTip = `-- name: GetPruneTip :one
 SELECT block_height, block_hash
 FROM prune_log

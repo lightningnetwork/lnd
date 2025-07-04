@@ -3,11 +3,15 @@
 package lnd
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // getGraphStore returns a graphdb.V1Store backed by a graphdb.SQLStore
@@ -28,4 +32,25 @@ func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,
 		},
 		graphExecutor, opts...,
 	)
+}
+
+const graphSQLMigration = 9
+
+func getSQLMigration(ctx context.Context, version int,
+	kvBackend kvdb.Backend,
+	chain chainhash.Hash) (func(tx *sqlc.Queries) error, bool) {
+
+	if version != graphSQLMigration {
+		return nil, false
+	}
+
+	return func(tx *sqlc.Queries) error {
+		err := graphdb.MigrateGraphToSQL(ctx, kvBackend, tx, chain)
+		if err != nil {
+			return fmt.Errorf("failed to migrate graph to SQL: %w",
+				err)
+		}
+
+		return nil
+	}, true
 }

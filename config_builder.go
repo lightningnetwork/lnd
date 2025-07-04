@@ -1097,7 +1097,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// migration's version (7), it will be skipped permanently,
 		// regardless of the flag.
 		if !d.cfg.DB.SkipNativeSQLMigration {
-			migrationFn := func(tx *sqlc.Queries) error {
+			invoiceMig := func(tx *sqlc.Queries) error {
 				err := invoices.MigrateInvoicesToSQL(
 					ctx, dbs.ChanStateDB.Backend,
 					dbs.ChanStateDB, tx,
@@ -1119,11 +1119,22 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
 			for i := 0; i < len(migrations); i++ {
-				if migrations[i].Version != invoiceMigration {
+				version := migrations[i].Version
+				if version == invoiceMigration {
+					migrations[i].MigrationFn = invoiceMig
+
 					continue
 				}
 
-				migrations[i].MigrationFn = migrationFn
+				migFn, ok := getSQLMigration(
+					ctx, version, dbs.ChanStateDB.Backend,
+					*d.cfg.ActiveNetParams.GenesisHash,
+				)
+				if !ok {
+					continue
+				}
+
+				migrations[i].MigrationFn = migFn
 			}
 		}
 

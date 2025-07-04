@@ -202,6 +202,9 @@ require (
 // store have been included in a tagged sqldb version.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
+// Replace for local kvdb package modifications.
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 

@@ -2844,7 +2844,17 @@ func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
 			edgeNotFound = false
 		},
 		Do: func(tx kvdb.RwTx) error {
-			var err error
+			// Validate that the ExtraOpaqueData is in fact a valid
+			// TLV stream. This is done here instead of within
+			// updateEdgePolicy so that updateEdgePolicy can be used
+			// by unit tests to recreate the case where we already
+			// have nodes persisted with invalid TLV data.
+			err := edge.ExtraOpaqueData.ValidateTLV()
+			if err != nil {
+				return fmt.Errorf("%w: %w",
+					ErrParsingExtraTLVBytes, err)
+			}
+
 			from, to, isUpdate1, err = updateEdgePolicy(tx, edge)
 			if err != nil {
 				log.Errorf("UpdateEdgePolicy faild: %v", err)
@@ -4701,12 +4711,6 @@ func serializeChanEdgePolicy(w io.Writer, edge *models.ChannelEdgePolicy,
 		if err != nil {
 			return err
 		}
-	}
-
-	// Validate that the ExtraOpaqueData is in fact a valid TLV stream.
-	err = edge.ExtraOpaqueData.ValidateTLV()
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrParsingExtraTLVBytes, err)
 	}
 
 	if len(edge.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {

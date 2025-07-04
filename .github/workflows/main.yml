@@ -11,6 +11,12 @@ on:
     branches:
       - "master"
 
+permissions:
+  # Required to manage and delete caches.
+  actions: write
+  # Default permission for checking out code.
+  contents: read
+
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.
   group: ${{ github.event.pull_request.number || github.ref }}

@@ -37,11 +37,8 @@ env:
   GO_VERSION: 1.23.10
 
 jobs:
-  ########################
-  # SQLC code gen check 
-  ########################
-  sqlc-check:
-    name: Sqlc check
+  static-checks:
+    name: Static Checks
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
@@ -50,54 +47,60 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
 
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
+        with:
+          # Needed for some checks.
+          fetch-depth: 0
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup Go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           use-build-cache: 'no'
 
-      - name: docker image cache
+      ########################
+      # sample configuration check
+      ########################
+      - name: Check default values in sample-lnd.conf file
+        run: make sample-conf-check
+
+      ########################
+      # Check code and RPC format
+      ########################
+      - name: Check code format
+        run: make fmt-check
+
+      - name: Check go modules tidiness 
+        run: make tidy-module-check
+
+      - name: Lint proto files
+        run: make protolint
+
+      ########################
+      # SQLC code gen check 
+      ########################
+      - name: Docker image cache
         uses: satackey/action-docker-layer-caching@v0.0.11
         # Ignore the failure of a step and avoid terminating the job.
         continue-on-error: true
 
-      - name: Generate sql models
+      - name: Check SQL models
         run: make sqlc-check
 
-  ########################
-  # RPC and mobile compilation check
-  ########################
-  rpc-check:
-    name: RPC and mobile compilation check
-    runs-on: ubuntu-latest
-    steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: run check
+      ########################
+      # RPC and mobile compilation check
+      ########################
+      - name: Check RPC format
         run: make rpc-check
 
-      - name: run JSON/WASM stub compilation check
+      - name: Check JSON/WASM stub compilation
         run: make rpc-js-compile
 
-      - name: build mobile RPC bindings
+      - name: Check mobile RPC bindings
         run: make mobile-rpc
 
-      - name: build mobile specific code
+      - name: Check mobile specific code
         run: go build --tags="mobile" ./mobile
 
   ########################
@@ -153,15 +156,6 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: check code format
-        run: make fmt-check
-
-      - name: check go modules tidiness 
-        run: make tidy-module-check
-
-      - name: lint proto files
-        run: make protolint
-
       - name: lint
         run: GOGC=50 make lint
 
@@ -201,31 +195,6 @@ jobs:
 
       - name: build release for all architectures
         run: make release sys="${{ matrix.sys }}"
-
-  ########################
-  # sample configuration check
-  ########################
-  sample-conf-check:
-    name: sample configuration check
-    runs-on: ubuntu-latest
-    steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-          use-build-cache: 'no'
-
-      - name: check default values in sample-lnd.conf file
-        run: make sample-conf-check
 
   ########################
   # run unit tests

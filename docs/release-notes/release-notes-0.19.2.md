@@ -55,10 +55,11 @@
 
 ## RPC Additions
 
-* When querying
-[`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813) logs,
-the response now include the incoming and outgoing htlc indices of the payment
-circuit. The indices are only available for forwarding events saved after v0.20.
+- When querying
+  [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813) logs,
+  the response now includes the incoming and outgoing htlc indices of the
+  payment circuit. The indices are only available for forwarding events saved
+  after `v0.19.2`.
 
 ## lncli Additions
 
@@ -69,10 +70,12 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 - [Improved](https://github.com/lightningnetwork/lnd/pull/9880) the connection
   restriction logic enforced by `accessman`. In addition, the restriction placed
   on outbound connections is now lifted.
+
 - [Enhanced](https://github.com/lightningnetwork/lnd/pull/9980) the aux traffic
   shaper to now accept the first hop peer pub key as an argument. This can
   affect the reported aux bandwidth and also the custom records that are
   produced.
+
 ## RPC Updates
 
 ## lncli Updates
@@ -81,15 +84,16 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 - [Add Optional Migration](https://github.com/lightningnetwork/lnd/pull/9945)
   which garbage collects the `decayed log` also known as `sphinxreplay.db`.
+  This will lower disk and memory requirements for nodes significantly.
 
 ## Breaking Changes
 
 ## Performance Improvements
 
 - The replay protection is
-[optimized](https://github.com/lightningnetwork/lnd/pull/9929) to use less disk
-space such that the `sphinxreplay.db` or the `decayedlogdb_kv` table will grow
-much more slowly.
+  [optimized](https://github.com/lightningnetwork/lnd/pull/9929) to use less
+  disk space such that the `sphinxreplay.db` or the `decayedlogdb_kv` table will
+  grow much more slowly.
 
 ## Deprecations
 
@@ -108,8 +112,13 @@ much more slowly.
 # Contributors (Alphabetical Order)
 
 * Abdulkbk
+* Calvin Zachman
 * djkazic
+* Elle Mouton
+* ffranr
+* George Tsagkarelis
 * hieblmi
+* Oliver Gugger
 * Olaoluwa Osuntokun
 * Yong Yu
 * Ziggie

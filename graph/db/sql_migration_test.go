@@ -5,6 +5,7 @@ package graphdb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/color"
 	"net"
@@ -106,6 +107,23 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numNodes: 6,
 			},
 		},
+		{
+			name: "source node",
+			write: func(t *testing.T, db *KVStore, object any) {
+				node, ok := object.(*models.LightningNode)
+				require.True(t, ok)
+
+				err := db.SetSourceNode(ctx, node)
+				require.NoError(t, err)
+			},
+			objects: []any{
+				makeTestNode(t),
+			},
+			expGraphStats: graphStats{
+				numNodes:   1,
+				srcNodeSet: true,
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -138,7 +156,8 @@ func TestMigrateGraphToSQL(t *testing.T) {
 
 // graphStats holds expected statistics about the graph after migration.
 type graphStats struct {
-	numNodes int
+	numNodes   int
+	srcNodeSet bool
 }
 
 // assertInSync checks that the KVStore and SQLStore both contain the same
@@ -150,6 +169,12 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 	sqlNodes := fetchAllNodes(t, sqlDB)
 	require.Len(t, sqlNodes, stats.numNodes)
 	require.Equal(t, fetchAllNodes(t, kvDB), sqlNodes)
+
+	// 2) Check that the source nodes match (if indeed source nodes have
+	// been set).
+	sqlSourceNode := fetchSourceNode(t, sqlDB)
+	require.Equal(t, stats.srcNodeSet, sqlSourceNode != nil)
+	require.Equal(t, fetchSourceNode(t, kvDB), sqlSourceNode)
 }
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
@@ -177,6 +202,18 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 	})
 
 	return nodes
+}
+
+// fetchSourceNode retrieves the source node from the given store.
+func fetchSourceNode(t *testing.T, store V1Store) *models.LightningNode {
+	node, err := store.SourceNode(context.Background())
+	if errors.Is(err, ErrSourceNodeNotSet) {
+		return nil
+	} else {
+		require.NoError(t, err)
+	}
+
+	return node
 }
 
 // setUpKVStore initializes a new KVStore for testing.

@@ -43,6 +43,11 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 		return fmt.Errorf("could not migrate nodes: %w", err)
 	}
 
+	// 2) Migrate the source node.
+	if err := migrateSourceNode(ctx, kvBackend, sqlDB); err != nil {
+		return fmt.Errorf("could not migrate source node: %w", err)
+	}
+
 	log.Infof("Finished migration of the graph store from KV to SQL in %v",
 		time.Since(t0))
 
@@ -181,6 +186,78 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 
 	log.Infof("Migrated %d nodes from KV to SQL (skipped %d nodes due to "+
 		"invalid TLV streams)", count, skipped)
+
+	return nil
+}
+
+// migrateSourceNode migrates the source node from the KV backend to the
+// SQL database.
+func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	sourceNode, err := sourceNode(kvdb)
+	if errors.Is(err, ErrSourceNodeNotSet) {
+		// If the source node has not been set yet, we can skip this
+		// migration step.
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("could not get source node from kv "+
+			"store: %w", err)
+	}
+
+	pub := sourceNode.PubKeyBytes
+
+	// Get the DB ID of the source node by its public key. This node must
+	// already exist in the SQL database, as it should have been migrated
+	// in the previous node-migration step.
+	id, err := sqlDB.GetNodeIDByPubKey(
+		ctx, sqlc.GetNodeIDByPubKeyParams{
+			PubKey:  pub[:],
+			Version: int16(ProtocolV1),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not get source node ID: %w", err)
+	}
+
+	// Now we can add the source node to the SQL database.
+	err = sqlDB.AddSourceNode(ctx, id)
+	if err != nil {
+		return fmt.Errorf("could not add source node to SQL store: %w",
+			err)
+	}
+
+	// Verify that the source node was added correctly by fetching it back
+	// from the SQL database and checking that the expected DB ID and
+	// pub key are returned. We don't need to do a whole node comparison
+	// here, as this was already done in the previous migration step.
+	srcNodes, err := sqlDB.GetSourceNodesByVersion(ctx, int16(ProtocolV1))
+	if err != nil {
+		return fmt.Errorf("could not get source nodes from SQL "+
+			"store: %w", err)
+	}
+
+	// The SQL store has support for multiple source nodes (for future
+	// protocol versions) but this migration is purely aimed at the V1
+	// store, and so we expect exactly one source node to be present.
+	if len(srcNodes) != 1 {
+		return fmt.Errorf("expected exactly one source node, "+
+			"got %d", len(srcNodes))
+	}
+
+	// Check that the source node ID and pub key match the original
+	// source node.
+	if srcNodes[0].NodeID != id {
+		return fmt.Errorf("source node ID mismatch after migration: "+
+			"expected %d, got %d", id, srcNodes[0].NodeID)
+	}
+	err = sqldb.CompareRecords(pub[:], srcNodes[0].PubKey, "source node")
+	if err != nil {
+		return fmt.Errorf("source node pubkey mismatch after "+
+			"migration: %w", err)
+	}
+
+	log.Infof("Migrated source node with pubkey %x to SQL", pub[:])
 
 	return nil
 }

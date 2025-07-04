@@ -45,7 +45,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -72,7 +75,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -103,7 +109,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -129,7 +138,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -172,7 +184,10 @@ jobs:
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -195,7 +210,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -231,7 +249,10 @@ jobs:
 
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -300,7 +321,10 @@ jobs:
             args: backend=neutrino cover=1
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -379,6 +403,12 @@ jobs:
           - name: bitcoind-postgres-nativesql-experiment
             args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
+      - name: cleanup space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+
       - name: git checkout
         uses: actions/checkout@v4
         with:
@@ -527,7 +557,10 @@ jobs:
 
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4
@@ -544,7 +577,10 @@ jobs:
     if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
 
       - name: git checkout
         uses: actions/checkout@v4

@@ -95,6 +95,7 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   * Add graph SQL migration logic:
     * [1]()
     * [2]()
+    * [3]()
 
 ## RPC Updates
 * Previously the `RoutingPolicy` would return the inbound fee record in its

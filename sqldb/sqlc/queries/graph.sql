@@ -728,6 +728,11 @@ FROM prune_log
 ORDER BY block_height DESC
 LIMIT 1;
 
+-- name: GetPruneHashByHeight :one
+SELECT block_hash
+FROM prune_log
+WHERE block_height = $1;
+
 -- name: DeletePruneLogEntriesInRange :exec
 DELETE FROM prune_log
 WHERE block_height >= @start_height

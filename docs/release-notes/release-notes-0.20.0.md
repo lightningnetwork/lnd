@@ -26,6 +26,10 @@
   announcement remains unchanged until the new one is fully signed and
   validated.
 
+- [Fix a bug](https://github.com/lightningnetwork/lnd/pull/10015) that leaks 
+  zombie channels in the memory graph, resulting in incorrect path finding and
+  memory usage.
+
 # New Features
 
 ## Functional Enhancements
@@ -169,6 +173,7 @@ reader of a payment request.
 * Elle Mouton
 * Erick Cestari
 * Funyug
+* Gustavo Stingelin
 * Mohamed Awnallah
 * Pins
 * Ziggie

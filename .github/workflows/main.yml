@@ -47,17 +47,14 @@ jobs:
     name: Static Checks
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: Git checkout
         uses: actions/checkout@v4
         with:
           # Needed for some checks.
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: Setup Go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -117,16 +114,13 @@ jobs:
     name: check commits
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -146,16 +140,13 @@ jobs:
     name: lint code
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -183,14 +174,11 @@ jobs:
           - name: arm
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
@@ -223,16 +211,13 @@ jobs:
           - unit-module
 
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
@@ -295,16 +280,13 @@ jobs:
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
@@ -378,16 +360,13 @@ jobs:
           - name: bitcoind-postgres-nativesql-experiment
             args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
@@ -531,14 +510,11 @@ jobs:
           - github.com/golang/protobuf v1.5.3
 
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: ensure dependencies at correct version
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
@@ -551,14 +527,11 @@ jobs:
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
-      - name: cleanup space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-
       - name: git checkout
         uses: actions/checkout@v4
+
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
 
       - name: release notes check
         run: scripts/check-release-notes.sh

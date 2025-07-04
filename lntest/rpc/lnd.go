@@ -601,6 +601,17 @@ func (h *HarnessRPC) LookupInvoice(rHash []byte) *lnrpc.Invoice {
 	return resp
 }
 
+// LookupInvoiceAssertErr makes a RPC call to the node's
+// LookupInvoice and asserts an RPC error is returned.
+func (h *HarnessRPC) LookupInvoiceAssertErr(rHash []byte, errStr string) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payHash := &lnrpc.PaymentHash{RHash: rHash}
+	_, err := h.LN.LookupInvoice(ctxt, payHash)
+	require.ErrorContains(h, err, errStr)
+}
+
 // DecodePayReq makes a RPC call to node's DecodePayReq and asserts.
 func (h *HarnessRPC) DecodePayReq(req string) *lnrpc.PayReq {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
@@ -754,4 +765,30 @@ func (h *HarnessRPC) Quiesce(
 	h.NoError(err, "Quiesce returned an error")
 
 	return res
+}
+
+// DeleteCanceledInvoices makes a RPC call to the node's DeleteCanceledInvoices
+// and asserts.
+func (h *HarnessRPC) DeleteCanceledInvoices(
+	req *lnrpc.DeleteInvoicesRequest) *lnrpc.DeleteInvoicesResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.DeleteCanceledInvoices(ctxt, req)
+	h.NoError(err, "DeleteCanceledInvoices")
+
+	return resp
+}
+
+// DeleteCanceledInvoicesAssertErr makes a RPC call to the node's
+// DeleteCanceledInvoices and asserts an RPC error is returned.
+func (h *HarnessRPC) DeleteCanceledInvoicesAssertErr(
+	req *lnrpc.DeleteInvoicesRequest, errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.DeleteCanceledInvoices(ctxt, req)
+	require.ErrorContains(h, err, errStr)
 }

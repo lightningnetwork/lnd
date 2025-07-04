@@ -467,6 +467,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/DeleteCanceledInvoices": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/ListPayments": {{
 			Entity: "offchain",
 			Action: "read",
@@ -7490,6 +7494,92 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	return paymentsResp, nil
+}
+
+// DeleteCanceledInvoices removes canceled invoices from the database.
+// It supports deleting all canceled invoices or a specific list by hash.
+func (r *rpcServer) DeleteCanceledInvoices(ctx context.Context,
+	req *lnrpc.DeleteInvoicesRequest) (*lnrpc.DeleteInvoicesResponse,
+	error) {
+
+	var invoicesDeleteRef []invoices.InvoiceDeleteRef
+	var deleteRef invoices.InvoiceDeleteRef
+	var notDeleted []string
+
+	// Checking a non-valid combination of the flags.
+	if req.AllInvoices && req.InvoiceHashes != nil {
+		message := fmt.Errorf("cannot use --all and --invoice_hashes " +
+			"at the same time")
+
+		return nil, message
+	}
+
+	// If the user has requested to delete all canceled invoices, then we
+	// can skip the rest of the logic and just do it.
+	if req.AllInvoices {
+		err := r.server.invoicesDB.DeleteCanceledInvoices(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		return &lnrpc.DeleteInvoicesResponse{
+			Status: "requested to delete canceled invoices",
+		}, nil
+	}
+
+	// If the user has specified invoice hashes, then we'll attempt to
+	// delete each invoice with the specified hash.
+	for _, invoiceHash := range req.InvoiceHashes {
+		hash, err := lntypes.MakeHashFromStr(invoiceHash)
+		if err != nil {
+			rpcsLog.Warnf("cannot delete invoice with hash %v: %v",
+				invoiceHash, err)
+
+			notDeleted = append(notDeleted, invoiceHash)
+
+			continue
+		}
+
+		invoice, err := r.server.invoices.LookupInvoice(ctx, hash)
+		if err != nil {
+			rpcsLog.Warnf("cannot delete invoice with hash %v: %v",
+				hash, err)
+
+			notDeleted = append(notDeleted, invoiceHash)
+
+			continue
+		}
+
+		if invoice.State != invoices.ContractCanceled {
+			rpcsLog.Warnf("cannot delete invoice with hash %v: "+
+				"invoice is not canceled, state: %v", hash,
+				invoice.State)
+
+			notDeleted = append(notDeleted, invoiceHash)
+
+			continue
+		}
+
+		deleteRef.PayHash = hash
+		deleteRef.AddIndex = invoice.AddIndex
+
+		invoicesDeleteRef = append(invoicesDeleteRef, deleteRef)
+	}
+
+	if len(invoicesDeleteRef) == 0 {
+		return nil, fmt.Errorf("no canceled invoices to delete")
+	}
+
+	err := r.server.invoicesDB.DeleteInvoice(ctx, invoicesDeleteRef)
+	if err != nil {
+		return nil, err
+	}
+
+	count := len(invoicesDeleteRef)
+	message := fmt.Sprintf("%d canceled invoice(s) deleted", count)
+
+	return &lnrpc.DeleteInvoicesResponse{Status: message,
+		InvoicesNotDeleted: notDeleted}, nil
 }
 
 // DeletePayment deletes a payment from the DB given its payment hash. If

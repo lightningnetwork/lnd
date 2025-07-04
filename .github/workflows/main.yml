@@ -60,8 +60,6 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
-          # No build cache needed for these checks.
-          use-build-cache: 'no'
 
       ########################
       # lint code

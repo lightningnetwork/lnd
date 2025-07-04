@@ -93,7 +93,7 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of `1.23.9` (or, in case this
+`lnd` is written in Go, with a minimum version of `1.23.10` (or, in case this
 document gets out of date, whatever the Go version in the main `go.mod` file
 requires). To install, run one of the following commands for your OS:
 
@@ -101,37 +101,37 @@ requires). To install, run one of the following commands for your OS:
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.23.9.linux-amd64.tar.gz
-  sha256sum go1.23.9.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.23.10.linux-amd64.tar.gz
+  sha256sum go1.23.10.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `de03e45d7a076c06baaa9618d42b3b6a0561125b87f6041c6397680a71e5bb26`. If it
+  `535f9f81802499f2a7dbfa70abb8fda3793725fcc29460f719815f6e10b5fd60`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.9.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.10.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
 
 <details>
   <summary>Linux (ARMv6)</summary>
-  
+
   ```
-  wget https://dl.google.com/go/go1.23.9.linux-armv6l.tar.gz
-  sha256sum go1.23.9.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.23.10.linux-armv6l.tar.gz
+  sha256sum go1.23.10.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `ade33880caacb8919b48767e0957e9880f2cdf634e137402a6f22552504136dd`. If it
+  `b6e00c9a72406d394b9f167e74670e28b72ed559cca8115b21be1cb9d5316cb4`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.23.9.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.23.10.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
-  ```  
-  
+  ```
+
 </details>
 
 <details>

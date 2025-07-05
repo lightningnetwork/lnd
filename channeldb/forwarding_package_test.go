@@ -217,48 +217,25 @@ func TestPackagerEmptyFwdPkg(t *testing.T) {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
-	// There should now be one fwdpkg on disk. Since no forwarding decision
-	// has been written, we expect it to be FwdStateLockedIn. With no HTLCs,
-	// the ack filter will have no elements, and should always return true.
+	// There should now be one fwdpkg on disk. There are no adds in the
+	// package and also no settle/fail HTLCs, so we expect it to be in the
+	// state completed.
 	fwdPkgs = loadFwdPkgs(t, db, packager)
-	if len(fwdPkgs) != 1 {
-		t.Fatalf("expected 1 fwdpkg, instead found %d", len(fwdPkgs))
-	}
-	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateLockedIn)
-	assertFwdPkgNumAddsSettleFails(t, fwdPkgs[0], 0, 0)
-	assertAckFilterIsFull(t, fwdPkgs[0], true)
-
-	// Now, write the forwarding decision. In this case, its just an empty
-	// fwd filter.
-	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
-		return packager.SetFwdFilter(tx, fwdPkg.Height, fwdPkg.FwdFilter)
-	}, func() {}); err != nil {
-		t.Fatalf("unable to set fwdfiter: %v", err)
-	}
-
-	// We should still have one package on disk. Since the forwarding
-	// decision has been written, it will minimally be in FwdStateProcessed.
-	// However with no htlcs, it should leap frog to FwdStateCompleted.
-	fwdPkgs = loadFwdPkgs(t, db, packager)
-	if len(fwdPkgs) != 1 {
-		t.Fatalf("expected 1 fwdpkg, instead found %d", len(fwdPkgs))
-	}
+	require.Equal(t, 1, len(fwdPkgs), "expected 1 fwdpkg")
 	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateCompleted)
 	assertFwdPkgNumAddsSettleFails(t, fwdPkgs[0], 0, 0)
+	assertSettleFailFilterIsFull(t, fwdPkgs[0], true)
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Lastly, remove the completed forwarding package from disk.
-	if err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
 		return packager.RemovePkg(tx, fwdPkg.Height)
-	}, func() {}); err != nil {
-		t.Fatalf("unable to remove fwdpkg: %v", err)
-	}
+	}, func() {})
+	require.NoError(t, err, "unable to remove fwdpkg")
 
 	// Check that the fwd package was actually removed.
 	fwdPkgs = loadFwdPkgs(t, db, packager)
-	if len(fwdPkgs) != 0 {
-		t.Fatalf("no forwarding packages should exist, found %d", len(fwdPkgs))
-	}
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
 // TestPackagerOnlyAdds checks that the fwdpkg does not reach FwdStateCompleted
@@ -394,15 +371,17 @@ func TestPackagerOnlySettleFails(t *testing.T) {
 		t.Fatalf("unable to add fwd pkg: %v", err)
 	}
 
-	// There should now be one fwdpkg on disk. Since no forwarding decision
-	// has been written, we expect it to be FwdStateLockedIn. The package
-	// has unacked add HTLCs, so the ack filter should not be full.
+	// There should now be one fwdpkg on disk. There are not ADDs in the
+	// package, so we expect it to be in the state FwdStateProcessed.
 	fwdPkgs = loadFwdPkgs(t, db, packager)
 	if len(fwdPkgs) != 1 {
 		t.Fatalf("expected 1 fwdpkg, instead found %d", len(fwdPkgs))
 	}
-	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateLockedIn)
+	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateProcessed)
 	assertFwdPkgNumAddsSettleFails(t, fwdPkgs[0], 0, nSettleFails)
+	assertSettleFailFilterIsFull(t, fwdPkgs[0], false)
+
+	// The ack filter should be full because there are no adds to process.
 	assertAckFilterIsFull(t, fwdPkgs[0], true)
 
 	// Now, write the forwarding decision. Since we have not explicitly

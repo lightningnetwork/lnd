@@ -678,24 +678,40 @@ func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 		SettleFailFilter: settleFailFilter,
 	}
 
-	// Check to see if we have written the set exported filter adds to
-	// disk. If we haven't, processing of this package was never started, or
-	// failed during the last attempt.
-	fwdFilterBytes := heightBkt.Get(fwdFilterKey)
-	if fwdFilterBytes == nil {
-		nAdds := uint16(len(adds))
-		fwdPkg.FwdFilter = NewPkgFilter(nAdds)
+	// Handle packages with no Adds (settle/fail only packages).
+	if len(adds) == 0 {
+		// Mark as processed since there are no Adds to process.
+		fwdPkg.State = FwdStateProcessed
+
+		// Check if all settle/fails have been acknowledged.
+		if fwdPkg.SettleFailFilter.IsFull() {
+			fwdPkg.State = FwdStateCompleted
+		}
+
 		return fwdPkg, nil
 	}
 
+	// Check if the forward filter has been persisted to disk.
+	// This indicates whether the Adds in this package have been processed.
+	fwdFilterBytes := heightBkt.Get(fwdFilterKey)
+
+	// Handle packages with Adds that haven't been processed yet.
+	if fwdFilterBytes == nil {
+		// Create a new forward filter for the unprocessed Adds.
+		nAdds := uint16(len(adds))
+		fwdPkg.FwdFilter = NewPkgFilter(nAdds)
+
+		return fwdPkg, nil
+	}
+
+	// Load the existing forward filter from disk.
 	fwdFilterReader := bytes.NewReader(fwdFilterBytes)
 	fwdPkg.FwdFilter = &PkgFilter{}
 	if err := fwdPkg.FwdFilter.Decode(fwdFilterReader); err != nil {
 		return nil, err
 	}
 
-	// Otherwise, a complete round of processing was completed, and we
-	// advance the package to FwdStateProcessed.
+	// Mark the package as processed since the forward filter exists.
 	fwdPkg.State = FwdStateProcessed
 
 	// If every add, settle, and fail has been fully acknowledged, we can

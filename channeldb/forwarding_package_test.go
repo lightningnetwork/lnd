@@ -785,6 +785,99 @@ func TestPackagerWipeAll(t *testing.T) {
 	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
 }
 
+// TestPackagerOnlySettleFailsNoAdds tests that a forwarding package with only
+// settles/fails (no Adds) can be properly completed without needing to call
+// SetFwdFilter. This tests our optimization where packages with no Adds skip
+// the forward filter logic entirely.
+func TestPackagerOnlySettleFailsNoAdds(t *testing.T) {
+	t.Parallel()
+
+	db := makeFwdPkgDB(t, "")
+
+	shortChanID := lnwire.NewShortChanIDFromInt(1)
+	packager := channeldb.NewChannelPackager(shortChanID)
+
+	// To begin, there should be no forwarding packages on disk.
+	fwdPkgs := loadFwdPkgs(t, db, packager)
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
+
+	// Create a forwarding package that only has settle/fail HTLCs
+	// (no Adds).
+	settleFails := testSettleFails()
+	fwdPkg := channeldb.NewFwdPkg(
+		shortChanID, 0, []channeldb.LogUpdate{}, settleFails,
+	)
+
+	nSettleFails := len(settleFails)
+
+	// We flush the package to disk.
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		return packager.AddFwdPkg(tx, fwdPkg)
+	}, func() {})
+	require.NoError(t, err, "unable to add fwd pkg")
+
+	// There should now be one fwdpkg on disk. We expect the package to be
+	// in the state FwdStateProcessed because the adds were considered but
+	// none were present.
+	fwdPkgs = loadFwdPkgs(t, db, packager)
+	require.Equal(t, 1, len(fwdPkgs), "expected 1 fwdpkg")
+
+	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateProcessed)
+	assertFwdPkgNumAddsSettleFails(t, fwdPkgs[0], 0, nSettleFails)
+	assertSettleFailFilterIsFull(t, fwdPkgs[0], false)
+
+	// The ack filter should be full because there are no adds to process.
+	assertAckFilterIsFull(t, fwdPkgs[0], true)
+
+	// Now acknowledge all the settle/fail HTLCs one by one and monitor
+	for i := range settleFails {
+		failSettleRef := channeldb.SettleFailRef{
+			Source: shortChanID,
+			Height: fwdPkg.Height,
+			Index:  uint16(i),
+		}
+
+		err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+			return packager.AckSettleFails(tx, failSettleRef)
+		}, func() {})
+		require.NoError(t, err, "unable to ack settle/fail htlc")
+
+		// After each ack, check the state. It should remain processed
+		// until all settles/fails are acknowledged.
+		fwdPkgs = loadFwdPkgs(t, db, packager)
+		require.Equal(t, 1, len(fwdPkgs), "expected 1 fwdpkg")
+
+		// If this is the last settle/fail, the package should be
+		// completed. Otherwise, it should still be processed.
+		expectedState := channeldb.FwdStateProcessed
+		if i == len(settleFails)-1 {
+			expectedState = channeldb.FwdStateCompleted
+		}
+
+		assertFwdPkgState(t, fwdPkgs[0], expectedState)
+	}
+
+	// Verify the final state - all settles/fails should be acknowledged and
+	// the package should be completed.
+	fwdPkgs = loadFwdPkgs(t, db, packager)
+	require.Equal(t, 1, len(fwdPkgs), "expected 1 fwdpkg")
+
+	assertFwdPkgState(t, fwdPkgs[0], channeldb.FwdStateCompleted)
+	assertFwdPkgNumAddsSettleFails(t, fwdPkgs[0], 0, nSettleFails)
+	assertSettleFailFilterIsFull(t, fwdPkgs[0], true)
+	assertAckFilterIsFull(t, fwdPkgs[0], true)
+
+	// Lastly, remove the completed forwarding package from disk.
+	err = kvdb.Update(db, func(tx kvdb.RwTx) error {
+		return packager.RemovePkg(tx, fwdPkg.Height)
+	}, func() {})
+	require.NoError(t, err, "unable to remove fwdpkg")
+
+	// Check that the fwd package was actually removed.
+	fwdPkgs = loadFwdPkgs(t, db, packager)
+	require.Empty(t, fwdPkgs, "no forwarding packages should exist")
+}
+
 // assertFwdPkgState checks the current state of a fwdpkg meets our
 // expectations.
 func assertFwdPkgState(t *testing.T, fwdPkg *channeldb.FwdPkg,

@@ -96,7 +96,7 @@ const (
 	Init SweepState = iota
 
 	// PendingPublish specifies an input's state where it's already been
-	// included in a sweeping tx but the tx is not published yet.  Inputs
+	// included in a sweeping tx but the tx is not published yet.  Inputs.
 	// in this state should not be used for grouping again.
 	PendingPublish
 
@@ -420,6 +420,11 @@ type UtxoSweeperConfig struct {
 	// NoDeadlineConfTarget is the conf target to use when sweeping
 	// non-time-sensitive outputs.
 	NoDeadlineConfTarget uint32
+	// New: "linear", "cubic_delay", "cubic_eager"
+	FeeFunctionType string
+
+	// New: Base fee rate in sat/vb
+	BaseFeeRate chainfee.SatPerVByte 
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -739,6 +744,48 @@ func (s *UtxoSweeper) collector() {
 	}
 }
 
+// createFeeFunction creates a FeeFunction based on the configured type and input parameters.
+func (s *UtxoSweeper) createFeeFunction(deadlineHeight int32, params Params, inp input.Input) (FeeFunction, error) {
+	maxFeeRate := s.cfg.MaxFeeRate.FeePerKWeight()
+	baseFeeRate := s.cfg.BaseFeeRate.FeePerKWeight()
+	confTarget := uint32(deadlineHeight - s.currentHeight)
+	if confTarget <= 0 {
+		confTarget = 1 // Ensure at least one block.
+	}
+
+	startingFeeRate := params.StartingFeeRate.UnwrapOr(baseFeeRate)
+
+	// Calculate value density (rho) in sats/vbyte.
+	txValue := btcutil.Amount(inp.SignDesc().Output.Value)
+	txSize := inp.MinInputSize() // Approximate size in vbytes.
+	rho := float64(txValue) / float64(txSize)
+
+	// Dynamic selection based on analysis from optimization.ipynb.
+	feeFunctionType := s.cfg.FeeFunctionType
+	if feeFunctionType == "linear" { // Allow dynamic selection if not explicitly set.
+		switch {
+		case confTarget < 13 && rho > 9008.22:
+			feeFunctionType = "cubic_eager"
+		case confTarget >= 40 || (confTarget >= 26 && rho < 65983.36):
+			feeFunctionType = "cubic_delay"
+		default:
+			feeFunctionType = "linear"
+		}
+	}
+
+	switch feeFunctionType {
+	case "cubic_delay":
+		return NewCubicDelayFeeFunction(maxFeeRate, startingFeeRate, confTarget, s.cfg.FeeEstimator)
+	case "cubic_eager":
+		return NewCubicEagerFeeFunction(maxFeeRate, startingFeeRate, confTarget, s.cfg.FeeEstimator)
+	case "linear":
+		return NewLinearFeeFunction(maxFeeRate, startingFeeRate, confTarget, s.cfg.FeeEstimator)
+	default:
+		return nil, fmt.Errorf("unknown fee function type: %v", feeFunctionType)
+	}
+}
+
+
 // removeExclusiveGroup removes all inputs in the given exclusive group. This
 // function is called when one of the exclusive group inputs has been spent. The
 // other inputs won't ever be spendable and can be removed. This also prevents
@@ -839,7 +886,12 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	if err != nil {
 		return err
 	}
-
+	// Use the first input to initialize the fee function (assumes similar deadlines).
+	inp := set.Inputs()[0]
+	feeFunc, err := s.createFeeFunction(set.DeadlineHeight(), inp.params, inp)
+	if err != nil {
+		return fmt.Errorf("create fee function: %w", err)
+	}
 	// Create a fee bump request and ask the publisher to broadcast it. The
 	// publisher will then take over and start monitoring the tx for
 	// potential fee bump.
@@ -953,6 +1005,9 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord, set InputSet) error {
 
 	return nil
 }
+
+
+
 
 // markInputsPublishFailed marks the list of inputs as failed to be published.
 func (s *UtxoSweeper) markInputsPublishFailed(set InputSet,

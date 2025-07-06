@@ -274,22 +274,6 @@ func mustParseHex(str string) []byte {
 	return b
 }
 
-func parseKey(xHex string) *btcec.PublicKey {
-	xB, err := hex.DecodeString(xHex)
-	if err != nil {
-		panic(err)
-	}
-
-	var x, y btcec.FieldVal
-	x.SetByteSlice(xB)
-	if !btcec.DecompressY(&x, false, &y) {
-		panic("x not on curve")
-	}
-	y.Normalize()
-
-	return btcec.NewPublicKey(&x, &y)
-}
-
 var (
 	signSetPrivKey, _ = btcec.PrivKeyFromBytes(
 		mustParseHex("7FB9E0E687ADA1EEBF7ECFE2F21E73EBDB51A7D450948DF" +
@@ -305,9 +289,6 @@ var (
 
 	signSetKey3 = mustParseHex("DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA" +
 		"2DECED843240F7B502BA659")
-
-	invalidSetKey1 = mustParseHex("00000000000000000000000000000000" +
-		"00000000000000000000000000000007")
 
 	signExpected1 = mustParseHex("68537CC5234E505BD14061F8DA9E90C220A1818" +
 		"55FD8BDB7F127BB12403B4D3B")

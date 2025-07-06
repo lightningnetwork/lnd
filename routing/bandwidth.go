@@ -91,7 +91,10 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	if err != nil {
 		// If the link isn't online, then we'll report that it has
 		// zero bandwidth.
-		log.Warnf("ShortChannelID=%v: link not found: %v", cid, err)
+		log.Warnf("ShortChannelID=%v: link not found when "+
+			"determining bandwidth for local channel=%v, "+
+			"reporting 0 bandwidth", cid, err)
+
 		return 0
 	}
 

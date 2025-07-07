@@ -39,6 +39,9 @@
 
 - [Fixed](https://github.com/lightningnetwork/lnd/pull/10035) a deadlock (writer starvation) in the switch.
 
+- Fixed a [case](https://github.com/lightningnetwork/lnd/pull/10045) that a
+  panic may happen which prevents the node from starting up.
+
 # New Features
 
 ## Functional Enhancements

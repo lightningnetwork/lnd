@@ -219,7 +219,7 @@ func (nc dbNodeCached) ForEachChannel(ctx context.Context,
 func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error) error {
 
-	return dc.db.ForEachNodeCached(func(n route.Vertex,
+	return dc.db.ForEachNodeCached(ctx, func(n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		if len(channels) > 0 {

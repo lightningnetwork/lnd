@@ -1102,10 +1102,9 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 // NOTE: The callback contents MUST not be modified.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNodeCached(cb func(node route.Vertex,
-	chans map[uint64]*DirectedChannel) error) error {
-
-	var ctx = context.TODO()
+func (s *SQLStore) ForEachNodeCached(ctx context.Context,
+	cb func(node route.Vertex,
+		chans map[uint64]*DirectedChannel) error) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,

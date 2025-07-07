@@ -1358,7 +1358,7 @@ func TestGraphTraversal(t *testing.T) {
 	// set of channels (to force the fall back), we should find all the
 	// channel as well as the nodes included.
 	graph.graphCache = nil
-	err := graph.ForEachNodeCached(func(node route.Vertex,
+	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
 		chans map[uint64]*DirectedChannel) error {
 
 		if _, ok := nodeIndex[node]; !ok {

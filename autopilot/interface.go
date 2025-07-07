@@ -234,6 +234,6 @@ type GraphSource interface {
 	// channel graph cache if one is available. It is less consistent than
 	// ForEachNode since any further calls are made across multiple
 	// transactions.
-	ForEachNodeCached(cb func(node route.Vertex,
+	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
 		chans map[uint64]*graphdb.DirectedChannel) error) error
 }

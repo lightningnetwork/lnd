@@ -2607,7 +2607,7 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
-		if err := s.establishPersistentConnections(); err != nil {
+		if err := s.establishPersistentConnections(ctx); err != nil {
 			srvrLog.Errorf("Failed to establish persistent "+
 				"connections: %v", err)
 		}
@@ -3594,7 +3594,7 @@ type nodeAddresses struct {
 // to all our direct channel collaborators. In order to promote liveness of our
 // active channels, we instruct the connection manager to attempt to establish
 // and maintain persistent connections to all our direct channel counterparties.
-func (s *server) establishPersistentConnections() error {
+func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// nodeAddrsMap stores the combination of node public keys and addresses
 	// that we'll attempt to reconnect to. PubKey strings are used as keys
 	// since other PubKey forms can't be compared.
@@ -3690,7 +3690,7 @@ func (s *server) establishPersistentConnections() error {
 		nodeAddrsMap[pubStr] = n
 		return nil
 	}
-	err = s.graphDB.ForEachSourceNodeChannel(forEachSrcNodeChan)
+	err = s.graphDB.ForEachSourceNodeChannel(ctx, forEachSrcNodeChan)
 	if err != nil {
 		srvrLog.Errorf("Failed to iterate over source node channels: "+
 			"%v", err)

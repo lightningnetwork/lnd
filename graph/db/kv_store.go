@@ -3248,8 +3248,9 @@ func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
 // executing the passed callback on each. The callback is provided with the
 // channel's outpoint, whether we have a policy for the channel and the channel
 // peer's node information.
-func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
-	havePolicy bool, otherNode *models.LightningNode) error) error {
+func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.LightningNode) error) error {
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)

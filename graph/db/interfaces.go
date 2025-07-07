@@ -70,8 +70,9 @@ type V1Store interface { //nolint:interfacebloat
 	// node, executing the passed callback on each. The call-back is
 	// provided with the channel's outpoint, whether we have a policy for
 	// the channel and the channel peer's node information.
-	ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
-		havePolicy bool, otherNode *models.LightningNode) error) error
+	ForEachSourceNodeChannel(ctx context.Context,
+		cb func(chanPoint wire.OutPoint, havePolicy bool,
+			otherNode *models.LightningNode) error) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

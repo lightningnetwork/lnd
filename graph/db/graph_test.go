@@ -1311,7 +1311,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 
 	// Now, we'll use the ForEachSourceNodeChannel and assert that it
 	// returns the expected data in the call-back.
-	err := graph.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+	err := graph.ForEachSourceNodeChannel(ctx, func(chanPoint wire.OutPoint,
 		havePolicy bool, otherNode *models.LightningNode) error {
 
 		require.Contains(t, expectedSrcChans, chanPoint)

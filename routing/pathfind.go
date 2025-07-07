@@ -551,8 +551,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			log.Warnf("ShortChannelID=%v: not found in the local "+
 				"channels map of the bandwidth manager, "+
 				"using channel capacity=%v as bandwidth for "+
-				"this channel", shortID, bandwidth,
-			)
+				"this channel", shortID, bandwidth)
 		}
 
 		if bandwidth > max {

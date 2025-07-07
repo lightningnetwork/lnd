@@ -23,6 +23,19 @@ type mockPeer struct {
 
 var _ lnpeer.Peer = (*mockPeer)(nil)
 
+func newMockPeer(pk *btcec.PublicKey, sentMsgs chan lnwire.Message,
+	quit chan struct{}, disconnected bool) *mockPeer {
+
+	p := &mockPeer{
+		pk:       pk,
+		sentMsgs: sentMsgs,
+		quit:     quit,
+	}
+	p.disconnected.Store(disconnected)
+
+	return p
+}
+
 func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 	if p.sentMsgs == nil && p.quit == nil {
 		return nil

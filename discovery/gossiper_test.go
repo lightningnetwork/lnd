@@ -960,7 +960,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 			peerChan chan<- lnpeer.Peer) {
 
 			pk, _ := btcec.ParsePubKey(target[:])
-			peerChan <- &mockPeer{pk, nil, nil, atomic.Bool{}}
+			peerChan <- newMockPeer(pk, nil, nil, false)
 		},
 		NotifyWhenOffline: func(_ [33]byte) <-chan struct{} {
 			c := make(chan struct{})
@@ -1043,7 +1043,7 @@ func TestProcessAnnouncement(t *testing.T) {
 		}
 	}
 
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// First, we'll craft a valid remote channel announcement and send it to
 	// the gossiper so that it can be processed.
@@ -1154,7 +1154,7 @@ func TestPrematureAnnouncement(t *testing.T) {
 	_, err = createNodeAnnouncement(remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "can't create node announcement")
 
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// Pretending that we receive the valid channel announcement from
 	// remote side, but block height of this announcement is greater than
@@ -1194,9 +1194,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 		pk, _ := btcec.ParsePubKey(target[:])
 
 		select {
-		case peerChan <- &mockPeer{
-			pk, sentMsgs, tCtx.gossiper.quit, atomic.Bool{},
-		}:
+		case peerChan <- newMockPeer(
+			pk, sentMsgs, tCtx.gossiper.quit, false,
+		):
 		case <-tCtx.gossiper.quit:
 		}
 	}
@@ -1206,9 +1206,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{
-		remoteKey, sentMsgs, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentMsgs, tCtx.gossiper.quit, false,
+	)
 
 	// Recreate lightning network topology. Initialize router with channel
 	// between two nodes.
@@ -1248,9 +1248,9 @@ func TestSignatureAnnouncementLocalFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	// The local ChannelUpdate should now be sent directly to the remote peer,
-	// such that the edge can be used for routing, regardless if this channel
-	// is announced or not (private channel).
+	// The local ChannelUpdate should now be sent directly to the remote
+	// peer, such that the edge can be used for routing, regardless if this
+	// channel is announced or not (private channel).
 	select {
 	case msg := <-sentMsgs:
 		assertMessage(t, batch.chanUpdAnn1, msg)
@@ -1373,9 +1373,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 		pk, _ := btcec.ParsePubKey(target[:])
 
 		select {
-		case peerChan <- &mockPeer{
-			pk, sentMsgs, tCtx.gossiper.quit, atomic.Bool{},
-		}:
+		case peerChan <- newMockPeer(
+			pk, sentMsgs, tCtx.gossiper.quit, false,
+		):
 		case <-tCtx.gossiper.quit:
 		}
 	}
@@ -1385,9 +1385,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{
-		remoteKey, sentMsgs, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentMsgs, tCtx.gossiper.quit, false,
+	)
 
 	// Pretending that we receive local channel announcement from funding
 	// manager, thereby kick off the announcement exchange process, in
@@ -1460,9 +1460,9 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	// The local ChannelUpdate should now be sent directly to the remote peer,
-	// such that the edge can be used for routing, regardless if this channel
-	// is announced or not (private channel).
+	// The local ChannelUpdate should now be sent directly to the remote
+	// peer, such that the edge can be used for routing, regardless if this
+	// channel is announced or not (private channel).
 	select {
 	case msg := <-sentMsgs:
 		assertMessage(t, batch.chanUpdAnn1, msg)
@@ -1564,9 +1564,9 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 
 	// Set up a channel to intercept the messages sent to the remote peer.
 	sentToPeer := make(chan lnwire.Message, 1)
-	remotePeer := &mockPeer{
-		remoteKey, sentToPeer, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentToPeer, tCtx.gossiper.quit, false,
+	)
 
 	// Since the reliable send to the remote peer of the local channel proof
 	// requires a notification when the peer comes online, we'll capture the
@@ -1802,9 +1802,9 @@ func TestSignatureAnnouncementFullProofWhenRemoteProof(t *testing.T) {
 	// Set up a channel we can use to inspect messages sent by the
 	// gossiper to the remote peer.
 	sentToPeer := make(chan lnwire.Message, 1)
-	remotePeer := &mockPeer{
-		remoteKey, sentToPeer, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentToPeer, tCtx.gossiper.quit, false,
+	)
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
 	// meesages to be sent to.
@@ -2002,7 +2002,7 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	)
 	require.NoError(t, err, "can't create remote channel announcement")
 
-	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(bitcoinKeyPub2, nil, nil, false)
 	announcements.AddMsgs(networkMsg{
 		msg:    ca,
 		peer:   nodePeer,
@@ -2293,7 +2293,7 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 		startingHeight - 1,
 	)
 	require.NoError(t, err, "unable to create remote channel announcement")
-	peer := &mockPeer{pubKey, nil, nil, atomic.Bool{}}
+	peer := newMockPeer(pubKey, nil, nil, false)
 
 	select {
 	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
@@ -2614,9 +2614,9 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	// Set up a channel that we can use to inspect the messages sent
 	// directly from the gossiper.
 	sentMsgs := make(chan lnwire.Message, 10)
-	remotePeer := &mockPeer{
-		remoteKey, sentMsgs, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentMsgs, tCtx.gossiper.quit, false,
+	)
 
 	// Override NotifyWhenOnline to return the remote peer which we expect
 	// messages to be sent to.
@@ -2809,9 +2809,7 @@ func TestExtraDataChannelAnnouncementValidation(t *testing.T) {
 	tCtx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
-	remotePeer := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// We'll now create an announcement that contains an extra set of bytes
 	// that we don't know of ourselves, but should still include in the
@@ -2847,9 +2845,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 	tCtx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
-	remotePeer := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// In this scenario, we'll create two announcements, one regular
 	// channel announcement, and another channel update announcement, that
@@ -2907,9 +2903,7 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	tCtx, err := createTestCtx(t, 0, false)
 	require.NoError(t, err, "can't create context")
 
-	remotePeer := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 	timestamp := testTimestamp
 
 	// We'll create a node announcement that includes a set of opaque data
@@ -2985,7 +2979,7 @@ func TestRetransmit(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
+	remotePeer := newMockPeer(remoteKey, nil, nil, false)
 
 	// Process a local channel announcement, channel update and node
 	// announcement. No messages should be broadcasted yet, since no proof
@@ -3095,7 +3089,7 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
+	remotePeer := newMockPeer(remoteKey, nil, nil, false)
 
 	// Process the remote node announcement.
 	select {
@@ -3186,7 +3180,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 
 	chanUpdateHeight := uint32(0)
 	timestamp := uint32(123456)
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// In this scenario, we'll test whether the message flags field in a
 	// channel update is properly handled.
@@ -3294,9 +3288,9 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 	// Set up a channel we can use to inspect messages sent by the
 	// gossiper to the remote peer.
 	sentToPeer := make(chan lnwire.Message, 1)
-	remotePeer := &mockPeer{
-		remoteKey, sentToPeer, tCtx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(
+		remoteKey, sentToPeer, tCtx.gossiper.quit, false,
+	)
 
 	// Since we first wait to be notified of the peer before attempting to
 	// send the message, we'll overwrite NotifyWhenOnline and
@@ -3652,9 +3646,7 @@ func TestPropagateChanPolicyUpdate(t *testing.T) {
 	remoteKey := remoteKeyPriv1.PubKey()
 
 	sentMsgs := make(chan lnwire.Message, 10)
-	remotePeer := &mockPeer{
-		remoteKey, sentMsgs, ctx.gossiper.quit, atomic.Bool{},
-	}
+	remotePeer := newMockPeer(remoteKey, sentMsgs, ctx.gossiper.quit, false)
 
 	// The forced code path for sending the private ChannelUpdate to the
 	// remote peer will be hit, forcing it to request a notification that
@@ -4007,9 +3999,9 @@ func TestBroadcastAnnsAfterGraphSynced(t *testing.T) {
 
 		t.Helper()
 
-		nodePeer := &mockPeer{
-			remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-		}
+		nodePeer := newMockPeer(
+			remoteKeyPriv1.PubKey(), nil, nil, false,
+		)
 		var errChan chan error
 		if isRemote {
 			errChan = tCtx.gossiper.ProcessRemoteAnnouncement(
@@ -4109,9 +4101,7 @@ func TestRateLimitDeDup(t *testing.T) {
 	batch, err := tCtx.createRemoteAnnouncements(blockHeight)
 	require.NoError(t, err)
 
-	nodePeer1 := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
+	nodePeer1 := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 	select {
 	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, nodePeer1,
@@ -4130,9 +4120,7 @@ func TestRateLimitDeDup(t *testing.T) {
 		t.Fatal("remote announcement not processed")
 	}
 
-	nodePeer2 := &mockPeer{
-		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
-	}
+	nodePeer2 := newMockPeer(remoteKeyPriv2.PubKey(), nil, nil, false)
 	select {
 	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, nodePeer2,
@@ -4287,9 +4275,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 	batch, err := tCtx.createRemoteAnnouncements(blockHeight)
 	require.NoError(t, err)
 
-	nodePeer1 := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
+	nodePeer1 := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 	select {
 	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanAnn, nodePeer1,
@@ -4308,9 +4294,7 @@ func TestRateLimitChannelUpdates(t *testing.T) {
 		t.Fatal("remote announcement not processed")
 	}
 
-	nodePeer2 := &mockPeer{
-		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
-	}
+	nodePeer2 := newMockPeer(remoteKeyPriv2.PubKey(), nil, nil, false)
 	select {
 	case err := <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.chanUpdAnn2, nodePeer2,
@@ -4432,7 +4416,7 @@ func TestIgnoreOwnAnnouncement(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
+	remotePeer := newMockPeer(remoteKey, nil, nil, false)
 
 	// Try to let the remote peer tell us about the channel we are part of.
 	select {
@@ -4581,7 +4565,7 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 
 	remoteKey, err := btcec.ParsePubKey(batch.nodeAnn2.NodeID[:])
 	require.NoError(t, err, "unable to parse pubkey")
-	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
+	remotePeer := newMockPeer(remoteKey, nil, nil, false)
 
 	// Before sending over the announcement, we'll modify it such that we
 	// know it will always fail.
@@ -4655,12 +4639,8 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	tCtx, err := createTestCtx(t, 1000, false)
 	require.NoError(t, err, "can't create context")
 
-	nodePeer1 := &mockPeer{
-		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
-	}
-	nodePeer2 := &mockPeer{
-		remoteKeyPriv2.PubKey(), nil, nil, atomic.Bool{},
-	}
+	nodePeer1 := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
+	nodePeer2 := newMockPeer(remoteKeyPriv2.PubKey(), nil, nil, false)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := range DefaultBanThreshold {
@@ -4751,7 +4731,7 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 	tCtx, err := createTestCtx(t, 1000, true)
 	require.NoError(t, err, "can't create context")
 
-	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(remoteKeyPriv1.PubKey(), nil, nil, false)
 
 	// Loop 100 times to get nodePeer banned.
 	for i := range DefaultBanThreshold {
@@ -4828,7 +4808,7 @@ func assertChanChainRejection(t *testing.T, ctx *testCtx,
 
 	t.Helper()
 
-	nodePeer := &mockPeer{bitcoinKeyPub2, nil, nil, atomic.Bool{}}
+	nodePeer := newMockPeer(bitcoinKeyPub2, nil, nil, false)
 	errChan := make(chan error, 1)
 	nMsg := &networkMsg{
 		msg:      edge,

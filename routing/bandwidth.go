@@ -85,25 +85,18 @@ func newBandwidthManager(graph Graph, sourceNode route.Vertex,
 // queried is one of our local channels, so any failure to retrieve the link
 // is interpreted as the link being offline.
 func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
-	amount lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+	amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	link, err := b.getLink(cid)
 	if err != nil {
-		// If the link isn't online, then we'll report that it has
-		// zero bandwidth.
-		log.Warnf("ShortChannelID=%v: link not found when "+
-			"determining bandwidth for local channel=%v, "+
-			"reporting 0 bandwidth", cid, err)
-
-		return 0
+		return 0, fmt.Errorf("error querying switch for link: %w", err)
 	}
 
 	// If the link is found within the switch, but it isn't yet eligible
 	// to forward any HTLCs, then we'll treat it as if it isn't online in
 	// the first place.
 	if !link.EligibleToForward() {
-		log.Warnf("ShortChannelID=%v: not eligible to forward", cid)
-		return 0
+		return 0, fmt.Errorf("link not eligible to forward")
 	}
 
 	// bandwidthResult is an inline type that we'll use to pass the
@@ -168,10 +161,8 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 		},
 	).Unpack()
 	if err != nil {
-		log.Errorf("ShortChannelID=%v: failed to get bandwidth from "+
-			"external traffic shaper: %v", cid, err)
-
-		return 0
+		return 0, fmt.Errorf("failed to consult external traffic "+
+			"shaper: %w", err)
 	}
 
 	htlcAmount := result.htlcAmount.UnwrapOr(amount)
@@ -179,9 +170,8 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	// If our link isn't currently in a state where it can add another
 	// outgoing htlc, treat the link as unusable.
 	if err := link.MayAddOutgoingHtlc(htlcAmount); err != nil {
-		log.Warnf("ShortChannelID=%v: cannot add outgoing "+
-			"htlc with amount %v: %v", cid, htlcAmount, err)
-		return 0
+		return 0, fmt.Errorf("cannot add outgoing htlc to channel %v "+
+			"with amount %v: %w", cid, htlcAmount, err)
 	}
 
 	// If the external traffic shaper determined the bandwidth, we'll return
@@ -189,7 +179,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	// available on that channel).
 	reportedBandwidth := result.bandwidth.UnwrapOr(linkBandwidth)
 
-	return reportedBandwidth
+	return reportedBandwidth, nil
 }
 
 // availableChanBandwidth returns the total available bandwidth for a channel
@@ -204,7 +194,15 @@ func (b *bandwidthManager) availableChanBandwidth(channelID uint64,
 		return 0, false
 	}
 
-	return b.getBandwidth(shortID, amount), true
+	bandwidth, err := b.getBandwidth(shortID, amount)
+	if err != nil {
+		log.Warnf("failed to get bandwidth for channel %v: %v",
+			shortID, err)
+
+		return 0, true
+	}
+
+	return bandwidth, true
 }
 
 // firstHopCustomBlob returns the custom blob for the first hop of the payment,

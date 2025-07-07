@@ -286,19 +286,18 @@ func (u *UtxoNursery) Start() error {
 	// 2. Restart spend ntfns for any preschool outputs, which are waiting
 	// for the force closed commitment txn to confirm, or any second-layer
 	// HTLC success transactions.
-	//
-	// NOTE: The next two steps *may* spawn go routines, thus from this
-	// point forward, we must close the nursery's quit channel if we detect
-	// any failures during startup to ensure they terminate.
+	// NOTE: The next two steps *may* spawn go routines.
 	if err := u.reloadPreschool(); err != nil {
-		close(u.quit)
+		utxnLog.Errorf("Failed to reload preschool: %v", err)
+
 		return err
 	}
 
 	// 3. Replay all crib and kindergarten outputs up to the current best
 	// height.
 	if err := u.reloadClasses(uint32(bestHeight)); err != nil {
-		close(u.quit)
+		utxnLog.Errorf("Failed to reload class: %v", err)
+
 		return err
 	}
 
@@ -309,7 +308,8 @@ func (u *UtxoNursery) Start() error {
 		Hash:   bestHash,
 	})
 	if err != nil {
-		close(u.quit)
+		utxnLog.Errorf("RegisterBlockEpochNtfn failed: %v", err)
+
 		return err
 	}
 

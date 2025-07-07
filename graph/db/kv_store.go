@@ -842,8 +842,8 @@ func forEachNode(db kvdb.Backend,
 // graph, executing the passed callback with each node encountered. If the
 // callback returns an error, then the transaction is aborted and the iteration
 // stops early.
-func (c *KVStore) ForEachNodeCacheable(cb func(route.Vertex,
-	*lnwire.FeatureVector) error) error {
+func (c *KVStore) ForEachNodeCacheable(_ context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from

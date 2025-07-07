@@ -1433,6 +1433,7 @@ func TestGraphTraversal(t *testing.T) {
 // working correctly.
 func TestGraphTraversalCacheable(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
@@ -1458,7 +1459,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
 	var nodes []route.Vertex
-	err = graph.ForEachNodeCacheable(func(node route.Vertex,
+	err = graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
 		features *lnwire.FeatureVector) error {
 
 		delete(nodeMap, node)
@@ -4226,7 +4227,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 		)
 
 		var nodes []route.Vertex
-		err := graph.ForEachNodeCacheable(func(node route.Vertex,
+		err := graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
 			vector *lnwire.FeatureVector) error {
 
 			nodes = append(nodes, node)

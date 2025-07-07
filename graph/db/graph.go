@@ -75,7 +75,7 @@ func (c *ChannelGraph) Start() error {
 	defer log.Debug("ChannelGraph started")
 
 	if c.graphCache != nil {
-		if err := c.populateCache(); err != nil {
+		if err := c.populateCache(context.TODO()); err != nil {
 			return fmt.Errorf("could not populate the graph "+
 				"cache: %w", err)
 		}
@@ -159,12 +159,12 @@ func (c *ChannelGraph) handleTopologySubscriptions() {
 // populateCache loads the entire channel graph into the in-memory graph cache.
 //
 // NOTE: This should only be called if the graphCache has been constructed.
-func (c *ChannelGraph) populateCache() error {
+func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	startTime := time.Now()
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.V1Store.ForEachNodeCacheable(func(node route.Vertex,
+	err := c.V1Store.ForEachNodeCacheable(ctx, func(node route.Vertex,
 		features *lnwire.FeatureVector) error {
 
 		c.graphCache.AddNodeFeatures(node, features)

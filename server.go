@@ -3622,7 +3622,7 @@ func (s *server) establishPersistentConnections() error {
 	// that have been added via NodeAnnouncement messages.
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	err = s.graphDB.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+	forEachSrcNodeChan := func(chanPoint wire.OutPoint,
 		havePolicy bool, channelPeer *models.LightningNode) error {
 
 		// If the remote party has announced the channel to us, but we
@@ -3666,6 +3666,7 @@ func (s *server) establishPersistentConnections() error {
 				// addresses if Tor outbound support is enabled.
 				case *tor.OnionAddr:
 					if s.cfg.Tor.Active {
+						//nolint:ll
 						addrSet[lnAddress.String()] = lnAddress
 					}
 				}
@@ -3688,7 +3689,8 @@ func (s *server) establishPersistentConnections() error {
 
 		nodeAddrsMap[pubStr] = n
 		return nil
-	})
+	}
+	err = s.graphDB.ForEachSourceNodeChannel(forEachSrcNodeChan)
 	if err != nil {
 		srvrLog.Errorf("Failed to iterate over source node channels: "+
 			"%v", err)

@@ -7020,7 +7020,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	err = graph.ForEachNodeChannel(node.PubKeyBytes,
+	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
 		func(edge *models.ChannelEdgeInfo,
 			c1, c2 *models.ChannelEdgePolicy) error {
 
@@ -7702,7 +7702,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
+	err = channelGraph.ForEachNodeChannel(ctx, selfNode.PubKeyBytes,
 		func(chanInfo *models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy) error {
 

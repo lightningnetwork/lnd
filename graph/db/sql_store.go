@@ -958,11 +958,9 @@ func (s *SQLStore) ForEachNodeCacheable(cb func(route.Vertex,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNodeChannel(nodePub route.Vertex,
+func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
-
-	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(

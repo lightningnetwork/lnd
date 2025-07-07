@@ -1255,7 +1255,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ForAllOutgoingChannels: func(cb func(*models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy) error) error {
 
-			return s.graphDB.ForEachNodeChannel(selfVertex,
+			ctx := context.TODO()
+
+			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {

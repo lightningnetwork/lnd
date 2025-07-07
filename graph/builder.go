@@ -1278,7 +1278,9 @@ func (b *Builder) FetchLightningNode(ctx context.Context,
 func (b *Builder) ForAllOutgoingChannels(cb func(*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy) error) error {
 
-	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
+	ctx := context.TODO()
+
+	return b.cfg.Graph.ForEachNodeChannel(ctx, b.cfg.SelfNode,
 		func(c *models.ChannelEdgeInfo, e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 

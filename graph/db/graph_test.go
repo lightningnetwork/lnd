@@ -1332,6 +1332,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
@@ -1387,7 +1388,7 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = graph.ForEachNodeChannel(firstNode.PubKeyBytes,
+	err = graph.ForEachNodeChannel(ctx, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -3138,7 +3139,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 		expectedOut bool) {
 
 		calls := 0
-		err := graph.ForEachNodeChannel(node.PubKeyBytes,
+		err := graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
@@ -4204,6 +4205,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 // allocations and the total memory consumed by the full graph traversal.
 func BenchmarkForEachChannel(b *testing.B) {
 	graph := MakeTestGraph(b)
+	ctx := context.Background()
 
 	const numNodes = 100
 	const numChannels = 4
@@ -4244,7 +4246,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(n, cb)
+			err := graph.ForEachNodeChannel(ctx, n, cb)
 			require.NoError(b, err)
 		}
 	}

@@ -1252,10 +1252,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.localChanMgr = &localchans.Manager{
 		SelfPub:              nodeKeyDesc.PubKey,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
-		ForAllOutgoingChannels: func(cb func(*models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy) error) error {
-
-			ctx := context.TODO()
+		ForAllOutgoingChannels: func(ctx context.Context,
+			cb func(*models.ChannelEdgeInfo,
+				*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,

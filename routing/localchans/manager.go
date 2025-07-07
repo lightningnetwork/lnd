@@ -40,8 +40,9 @@ type Manager struct {
 
 	// ForAllOutgoingChannels is required to iterate over all our local
 	// channels. The ChannelEdgePolicy parameter may be nil.
-	ForAllOutgoingChannels func(cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy) error) error
+	ForAllOutgoingChannels func(ctx context.Context,
+		cb func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
 	// existing db tx can be supplied.
@@ -151,7 +152,7 @@ func (r *Manager) UpdatePolicy(ctx context.Context,
 	// Next, we'll loop over all the outgoing channels the router knows of.
 	// If we have a filter then we'll only collect those channels, otherwise
 	// we'll collect them all.
-	err := r.ForAllOutgoingChannels(processChan)
+	err := r.ForAllOutgoingChannels(ctx, processChan)
 	if err != nil {
 		return nil, err
 	}

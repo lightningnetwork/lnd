@@ -789,7 +789,9 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 // early. Any operations performed on the NodeTx passed to the call-back are
 // executed under the same read transaction and so, methods on the NodeTx object
 // _MUST_ only be called from within the call-back.
-func (c *KVStore) ForEachNode(cb func(tx NodeRTx) error) error {
+func (c *KVStore) ForEachNode(_ context.Context,
+	cb func(tx NodeRTx) error) error {
+
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.LightningNode) error {
 

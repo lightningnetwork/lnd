@@ -783,12 +783,10 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // _MUST_ only be called from within the call-back.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNode(cb func(tx NodeRTx) error) error {
-	var (
-		ctx          = context.TODO()
-		lastID int64 = 0
-	)
+func (s *SQLStore) ForEachNode(ctx context.Context,
+	cb func(tx NodeRTx) error) error {
 
+	var lastID int64 = 0
 	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {
 		node, err := buildNode(ctx, db, &dbNode)
 		if err != nil {

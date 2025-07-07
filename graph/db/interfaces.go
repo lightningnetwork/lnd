@@ -101,7 +101,7 @@ type V1Store interface { //nolint:interfacebloat
 	// passed to the call-back are executed under the same read transaction
 	// and so, methods on the NodeTx object _MUST_ only be called from
 	// within the call-back.
-	ForEachNode(cb func(tx NodeRTx) error) error
+	ForEachNode(ctx context.Context, cb func(tx NodeRTx) error) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
 	// in the graph, executing the passed callback with each node

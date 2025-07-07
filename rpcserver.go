@@ -6716,7 +6716,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+	err := graph.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
 		lnNode := marshalNode(nodeTx.Node())
 
 		resp.Nodes = append(resp.Nodes, lnNode)

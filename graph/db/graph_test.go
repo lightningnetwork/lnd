@@ -922,15 +922,20 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		// Use the ForEachChannel method to fetch the policies and
 		// assert that the deserialized policies match the original
 		// ones.
-		err := graph.ForEachChannel(func(info *models.ChannelEdgeInfo,
-			policy1 *models.ChannelEdgePolicy,
-			policy2 *models.ChannelEdgePolicy) error {
+		err := graph.ForEachChannel(
+			ctx, func(info *models.ChannelEdgeInfo,
+				policy1 *models.ChannelEdgePolicy,
+				policy2 *models.ChannelEdgePolicy) error {
 
-			require.NoError(t, compareEdgePolicies(edge1, policy1))
-			require.NoError(t, compareEdgePolicies(edge2, policy2))
+				require.NoError(
+					t, compareEdgePolicies(edge1, policy1),
+				)
+				require.NoError(
+					t, compareEdgePolicies(edge2, policy2),
+				)
 
-			return nil
-		})
+				return nil
+			})
 		require.NoError(t, err)
 	}
 
@@ -1374,7 +1379,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(func(ei *models.ChannelEdgeInfo,
+	err = graph.ForEachChannel(ctx, func(ei *models.ChannelEdgeInfo,
 		_ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
@@ -1663,13 +1668,14 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error {
+	if err := graph.ForEachChannel(context.Background(),
+		func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error {
 
-		numChans++
-		return nil
-	}); err != nil {
+			numChans++
+			return nil
+		},
+	); err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan channels: %v", line, err)
 	}

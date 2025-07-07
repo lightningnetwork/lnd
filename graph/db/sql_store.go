@@ -1333,10 +1333,9 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 // callback.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) ForEachChannel(ctx context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
 
 	handleChannel := func(db SQLQueries,
 		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {

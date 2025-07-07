@@ -9,14 +9,17 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/btcsuite/btclog/v2"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/pmezard/go-difflib/difflib"
 )
 
 var (
@@ -71,6 +74,11 @@ var (
 			// user if necessary.
 		},
 	}, migrationAdditions...)
+
+	// ErrMigrationMismatch is returned when a migrated record does not
+	// match the original record.
+	ErrMigrationMismatch = fmt.Errorf("migrated record does not match " +
+		"original record")
 )
 
 // MigrationConfig is a configuration struct that describes SQL migrations. Each
@@ -471,4 +479,26 @@ func ApplyMigrations(ctx context.Context, db *BaseDB,
 	}
 
 	return nil
+}
+
+// CompareRecords checks if the original and migrated objects are equal. If
+// they are not, it returns an error with a unified diff of the two objects.
+func CompareRecords(original, migrated any, identifier string) error {
+	if reflect.DeepEqual(original, migrated) {
+		return nil
+	}
+
+	diff := difflib.UnifiedDiff{
+		A:        difflib.SplitLines(spew.Sdump(original)),
+		B:        difflib.SplitLines(spew.Sdump(migrated)),
+		FromFile: "Expected",
+		FromDate: "",
+		ToFile:   "Actual",
+		ToDate:   "",
+		Context:  3,
+	}
+	diffText, _ := difflib.GetUnifiedDiffString(diff)
+
+	return fmt.Errorf("%w: %s.\n%v", ErrMigrationMismatch, identifier,
+		diffText)
 }

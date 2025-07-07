@@ -3797,45 +3797,10 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 	require.ErrorIs(t, err, ErrEdgePolicyOptionalFieldNotFound)
 
 	// Put the stripped bytes in the DB.
-	err = kvdb.Update(boltStore.db, func(tx kvdb.RwTx) error {
-		edges := tx.ReadWriteBucket(edgeBucket)
-		if edges == nil {
-			return ErrEdgeNotFound
-		}
-
-		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
-		if edgeIndex == nil {
-			return ErrEdgeNotFound
-		}
-
-		var edgeKey [33 + 8]byte
-		copy(edgeKey[:], from)
-		byteOrder.PutUint64(edgeKey[33:], edge1.ChannelID)
-
-		var scratch [8]byte
-		var indexKey [8 + 8]byte
-		copy(indexKey[:], scratch[:])
-		byteOrder.PutUint64(indexKey[8:], edge1.ChannelID)
-
-		updateIndex, err := edges.CreateBucketIfNotExists(
-			edgeUpdateIndexBucket,
-		)
-		if err != nil {
-			return err
-		}
-
-		if err := updateIndex.Put(indexKey[:], nil); err != nil {
-			return err
-		}
-
-		return edges.Put(edgeKey[:], stripped)
-	}, func() {})
-	require.NoError(t, err, "error writing db")
+	putSerialisedPolicy(t, boltStore.db, from, chanID, stripped)
 
 	// And add the second, unmodified edge.
-	if err := graph.UpdateEdgePolicy(ctx, edge2); err != nil {
-		t.Fatalf("unable to update edge: %v", err)
-	}
+	require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
 
 	// Attempt to fetch the edge and policies from the DB. Since the policy
 	// we added is invalid according to the new format, it should be as we
@@ -3868,6 +3833,38 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 		t.Fatalf("edge doesn't match: %v", err)
 	}
 	assertEdgeInfoEqual(t, dbEdgeInfo, edgeInfo)
+}
+
+// putSerialisedPolicy is a helper function that writes a serialised
+// ChannelEdgePolicy to the edge bucket in the database.
+func putSerialisedPolicy(t *testing.T, db kvdb.Backend, from []byte,
+	chanID uint64, b []byte) {
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		require.NotNil(t, edges)
+
+		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
+		require.NotNil(t, edgeIndex)
+
+		var edgeKey [33 + 8]byte
+		copy(edgeKey[:], from)
+		byteOrder.PutUint64(edgeKey[33:], chanID)
+
+		var scratch [8]byte
+		var indexKey [8 + 8]byte
+		copy(indexKey[:], scratch[:])
+		byteOrder.PutUint64(indexKey[8:], chanID)
+
+		updateIndex, err := edges.CreateBucketIfNotExists(
+			edgeUpdateIndexBucket,
+		)
+		require.NoError(t, err)
+		require.NoError(t, updateIndex.Put(indexKey[:], nil))
+
+		return edges.Put(edgeKey[:], b)
+	}, func() {})
+	require.NoError(t, err, "error writing db")
 }
 
 // assertNumZombies queries the provided ChannelGraph for NumZombies, and

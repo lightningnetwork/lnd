@@ -514,7 +514,18 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 
 	var max, total lnwire.MilliSatoshi
 	cb := func(channel *graphdb.DirectedChannel) error {
+		shortID := lnwire.NewShortChanIDFromInt(channel.ChannelID)
+
+		// This log line is needed to debug issues in case we do not
+		// have a channel in our graph for some reason when evaluating
+		// the local balance. Otherwise we could not tell whether all
+		// channels are being evaluated.
+		log.Tracef("Evaluating channel %v for local balance", shortID)
+
 		if !channel.OutPolicySet {
+			log.Debugf("ShortChannelID=%v: has no out policy set, "+
+				"skipping", shortID)
+
 			return nil
 		}
 
@@ -536,6 +547,11 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		// we've already queried the bandwidth hints.
 		if !ok {
 			bandwidth = lnwire.NewMSatFromSatoshis(channel.Capacity)
+
+			log.Warnf("ShortChannelID=%v: not found in the local "+
+				"channels map of the bandwidth manager, "+
+				"using channel capacity=%v as bandwidth for "+
+				"this channel", shortID, bandwidth)
 		}
 
 		if bandwidth > max {
@@ -545,6 +561,9 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 		var overflow bool
 		total, overflow = overflowSafeAdd(total, bandwidth)
 		if overflow {
+			log.Warnf("ShortChannelID=%v: overflow detected, "+
+				"setting total to max value", shortID)
+
 			// If the current total and the bandwidth would
 			// overflow the maximum value, we set the total to the
 			// maximum value. Which is more milli-satoshis than are

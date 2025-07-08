@@ -6,17 +6,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
-	"github.com/pmezard/go-difflib/difflib"
 	"golang.org/x/time/rate"
 )
 
@@ -53,11 +50,6 @@ var (
 	//
 	//   addIndexNo => invoiceKey
 	addIndexBucket = []byte("invoice-add-index")
-
-	// ErrMigrationMismatch is returned when the migrated invoice does not
-	// match the original invoice.
-	ErrMigrationMismatch = fmt.Errorf("migrated invoice does not match " +
-		"original invoice")
 )
 
 // createInvoiceHashIndex generates a hash index that contains payment hashes
@@ -548,24 +540,9 @@ func migrateInvoices(ctx context.Context, tx *sqlc.Queries,
 		// Override the add index before checking for equality.
 		migratedInvoice.AddIndex = invoice.AddIndex
 
-		if !reflect.DeepEqual(invoice, *migratedInvoice) {
-			diff := difflib.UnifiedDiff{
-				A: difflib.SplitLines(
-					spew.Sdump(invoice),
-				),
-				B: difflib.SplitLines(
-					spew.Sdump(migratedInvoice),
-				),
-				FromFile: "Expected",
-				FromDate: "",
-				ToFile:   "Actual",
-				ToDate:   "",
-				Context:  3,
-			}
-			diffText, _ := difflib.GetUnifiedDiffString(diff)
-
-			return fmt.Errorf("%w: %v.\n%v", ErrMigrationMismatch,
-				paymentHash, diffText)
+		err = sqldb.CompareRecords(invoice, *migratedInvoice, "invoice")
+		if err != nil {
+			return err
 		}
 	}
 

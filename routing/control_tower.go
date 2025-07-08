@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/multimutex"
+	pymtpkg "github.com/lightningnetwork/lnd/payments"
 	"github.com/lightningnetwork/lnd/queue"
 )
 
@@ -60,8 +61,8 @@ type ControlTower interface {
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
-	// this is a multi shard payment, this might implicitly mean the the
-	// full payment succeeded.
+	// this is a multi shard payment, this might implicitly mean the full
+	// payment succeeded.
 	//
 	// After invoking this method, InitPayment should always return an
 	// error to prevent us from making duplicate payments to the same
@@ -151,7 +152,7 @@ func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
 // controlTower is persistent implementation of ControlTower to restrict
 // double payment sending.
 type controlTower struct {
-	db *channeldb.PaymentControl
+	db pymtpkg.PaymentDB
 
 	// subscriberIndex is used to provide a unique id for each subscriber
 	// to all payments. This is used to easily remove the subscriber when
@@ -168,7 +169,7 @@ type controlTower struct {
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db *channeldb.PaymentControl) ControlTower {
+func NewControlTower(db pymtpkg.PaymentDB) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
@@ -232,8 +233,8 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If
-// this is a multi shard payment, this might implicitly mean the the
-// full payment succeeded.
+// this is a multi shard payment, this might implicitly mean the full payment
+// succeeded.
 func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) (
 	*channeldb.HTLCAttempt, error) {

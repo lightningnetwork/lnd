@@ -105,8 +105,8 @@ type DaemonAdapters interface {
 	// TODO(roasbeef): could abstract further?
 	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
 		numConfs, heightHint uint32,
-		opts ...chainntnfs.NotifierOption,
-	) (*chainntnfs.ConfirmationEvent, error)
+		opts ...chainntnfs.NotifierOption) (
+		*chainntnfs.ConfirmationEvent, error)
 
 	// RegisterSpendNtfn registers an intent to be notified once the target
 	// outpoint is successfully spent within a transaction. The script that
@@ -374,7 +374,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 
 			// If a post-send event was specified, then we'll funnel
 			// that back into the main state machine now as well.
-			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error { //nolint:ll
+			//nolint:ll
+			return fn.MapOptionZ(daemonEvent.PostSendEvent, func(event Event) error {
 				launched := s.gm.Go(
 					ctx, func(ctx context.Context) {
 						s.log.DebugS(ctx, "Sending post-send event",
@@ -590,7 +591,7 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 			}
 
 			newEvents := transition.NewEvents
-			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error { //nolint:ll
+			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error {
 				// With the event processed, we'll process any
 				// new daemon events that were emitted as part
 				// of this new state transition.
@@ -605,8 +606,6 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 
 				// Next, we'll add any new emitted events to our
 				// event queue.
-				//
-				//nolint:ll
 				for _, inEvent := range events.InternalEvent {
 					s.log.DebugS(ctx, "Adding new internal event to queue",
 						"event", lnutils.SpewLogClosure(inEvent))
@@ -692,7 +691,10 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 		// An outside caller is querying our state, so we'll return the
 		// latest state.
 		case stateQuery := <-s.stateQuery:
-			if !fn.SendOrQuit(stateQuery.CurrentState, currentState, s.quit) { //nolint:ll
+			if !fn.SendOrQuit(
+				stateQuery.CurrentState, currentState, s.quit,
+			) {
+
 				return
 			}
 

@@ -49,8 +49,10 @@ var (
 	remoteSigBytes = fromHex("304502210082235e21a2300022738dabb8e1bbd9d1" +
 		"9cfb1e7ab8c30a23b0afbb8d178abcf3022024bf68e256c534ddfaf966b" +
 		"f908deb944305596f7bdcc38d69acad7f9c868724")
-	remoteSig     = sigMustParse(remoteSigBytes)
-	remoteWireSig = mustWireSig(&remoteSig)
+	remoteSig            = sigMustParse(remoteSigBytes)
+	remoteWireSig        = mustWireSig(&remoteSig)
+	remoteSigRecordType3 = newSigTlv[tlv.TlvType3](remoteWireSig)
+	remoteSigRecordType1 = newSigTlv[tlv.TlvType1](remoteWireSig)
 
 	localTx = wire.MsgTx{Version: 2}
 
@@ -1284,9 +1286,8 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 
 		// We'll modify the starting balance to be 3x the required fee
 		// to ensure that we can pay for the fee.
-		flushEvent.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
-			absoluteFee * 3,
-		)
+		localBalanceMSat := lnwire.NewMSatFromSatoshis(absoluteFee * 3)
+		flushEvent.ShutdownBalances.LocalBalance = localBalanceMSat
 
 		testName := fmt.Sprintf("local_can_pay_for_fee/"+
 			"fresh_flush=%v", isFreshFlush)
@@ -1304,7 +1305,8 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 			defer closeHarness.stopAndAssert()
 
 			localBalance := flushEvent.ShutdownBalances.LocalBalance
-			balanceAfterClose := localBalance.ToSatoshis() - absoluteFee //nolint:ll
+			balanceAfterClose := localBalance.ToSatoshis() -
+				absoluteFee
 
 			// If this is a fresh flush, then we expect the state
 			// to be marked on disk.
@@ -1353,9 +1355,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1467,9 +1467,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 					CloserNoClosee: newSigTlv[tlv.TlvType1](
 						remoteWireSig,
 					),
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1564,9 +1562,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1764,9 +1760,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1792,9 +1786,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserNoClosee: remoteSigRecordType1,
 				},
 			},
 		}
@@ -1840,9 +1832,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1886,9 +1876,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserNoClosee: remoteSigRecordType1,
 				},
 			},
 		}
@@ -1937,9 +1925,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -2040,9 +2026,7 @@ func TestRbfCloseErr(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}

@@ -23,7 +23,7 @@ import (
 )
 
 var (
-	// ErrInvalidStateTransition is returned if the remote party tries to
+	// ErrThawHeightNotReached is returned if the remote party tries to
 	// close, but the thaw height hasn't been matched yet.
 	ErrThawHeightNotReached = fmt.Errorf("thaw height not reached")
 )
@@ -139,8 +139,8 @@ func validateShutdown(chanThawHeight fn.Option[uint32],
 // the state. From this state, we can receive two possible incoming events:
 // SendShutdown and ShutdownReceived. Both of these will transition us to the
 // ChannelFlushing state.
-func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *ChannelActive) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -284,8 +284,8 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 // forward once we receive the ShutdownComplete event. Receiving
 // ShutdownComplete means that we've sent our shutdown, as this was specified
 // as a post send event.
-func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (s *ShutdownPending) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -443,8 +443,8 @@ func (s *ShutdownPending) ProcessEvent(event ProtocolEvent, env *Environment,
 // a ShutdownReceived event, then we'll stay in the ChannelFlushing state, as
 // we haven't yet fully cleared the channel. Otherwise, we can move to the
 // CloseReady state which'll being the channel closing process.
-func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a confirmation, then a prior transaction we broadcasted
@@ -578,8 +578,8 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent, env *Environment,
 // processNegotiateEvent is a helper function that processes a new event to
 // local channel state once we're in the ClosingNegotiation state.
 func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
-	env *Environment, chanPeer lntypes.ChannelParty,
-) (*CloseStateTransition, error) {
+	env *Environment,
+	chanPeer lntypes.ChannelParty) (*CloseStateTransition, error) {
 
 	targetPeerState := c.PeerState.GetForParty(chanPeer)
 
@@ -611,8 +611,8 @@ func processNegotiateEvent(c *ClosingNegotiation, event ProtocolEvent,
 // updateAndValidateCloseTerms is a helper function that validates examines the
 // incoming event, and decide if we need to update the remote party's address,
 // or reject it if it doesn't include our latest address.
-func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
-) error {
+func (c *ClosingNegotiation) updateAndValidateCloseTerms(
+	event ProtocolEvent) error {
 
 	assertLocalScriptMatches := func(localScriptInMsg []byte) error {
 		if !bytes.Equal(
@@ -669,8 +669,8 @@ func (c *ClosingNegotiation) updateAndValidateCloseTerms(event ProtocolEvent,
 // party in response to new events. From this state, we'll continue to drive
 // forward the local and remote states until we arrive at the StateFin stage,
 // or we loop back up to the ShutdownPending state.
-func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	// There're two classes of events that can break us out of this state:
 	// we receive a confirmation event, or we receive a signal to restart
@@ -722,8 +722,8 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 
 	case shouldRouteTo(lntypes.Remote):
 		chancloserLog.Infof("ChannelPoint(%v): routing %T to remote "+
-
 			"chan state", env.ChanPoint, event)
+
 		// Drive forward the remote state based on the next event.
 		return processNegotiateEvent(c, event, env, lntypes.Remote)
 	}
@@ -740,8 +740,8 @@ func newSigTlv[T tlv.TlvType](s lnwire.Sig) tlv.OptionalRecordT[T, lnwire.Sig] {
 
 // ProcessEvent implements the event processing to kick off the process of
 // obtaining a new (possibly RBF'd) signature for our commitment transaction.
-func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a SendOfferEvent, then we'll use the specified fee
@@ -905,8 +905,8 @@ func extractSig(msg lnwire.ClosingSig) fn.Result[lnwire.Sig] {
 // LocalOfferSent state. In this state, we'll wait for the remote party to
 // send a close_signed message which gives us the ability to broadcast a new
 // co-op close transaction.
-func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a LocalSigReceived event, then we'll attempt to
@@ -981,8 +981,8 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 // RemoteCloseStart. In this state, we'll wait for the remote party to send a
 // closing_complete message. Assuming they can pay for the fees, we'll sign it
 // ourselves, then transition to the next state of ClosePending.
-func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
+	env *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) { //nolint:gocritic
 	// If we receive a OfferReceived event, we'll make sure they can
@@ -1156,8 +1156,8 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 // ProcessEvent is a semi-terminal state in the rbf-coop close state machine.
 // In this state, we're waiting for either a confirmation, or for either side
 // to attempt to create a new RBF'd co-op close transaction.
-func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *ClosePending) ProcessEvent(event ProtocolEvent,
+	_ *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we can a spend while waiting for the close, then we'll go to our
@@ -1205,8 +1205,8 @@ func (c *ClosePending) ProcessEvent(event ProtocolEvent, env *Environment,
 
 // ProcessEvent is the event processing for out terminal state. In this state,
 // we just keep looping back on ourselves.
-func (c *CloseFin) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *CloseFin) ProcessEvent(_ ProtocolEvent,
+	_ *Environment) (*CloseStateTransition, error) {
 
 	return &CloseStateTransition{
 		NextState: c,
@@ -1217,8 +1217,8 @@ func (c *CloseFin) ProcessEvent(event ProtocolEvent, env *Environment,
 // In this state, we hit a validation error in an earlier state, so we'll remain
 // in this state for the user to examine. We may also process new requests to
 // continue the state machine.
-func (c *CloseErr) ProcessEvent(event ProtocolEvent, env *Environment,
-) (*CloseStateTransition, error) {
+func (c *CloseErr) ProcessEvent(event ProtocolEvent,
+	_ *Environment) (*CloseStateTransition, error) {
 
 	switch msg := event.(type) {
 	// If we get a send offer event in this state, then we're doing a state

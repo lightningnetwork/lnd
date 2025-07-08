@@ -2,7 +2,9 @@ package contractcourt
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"reflect"
@@ -1111,5 +1113,152 @@ func (s *mockSweeperFull) sweepAll() {
 		case <-time.After(defaultTestTimeout):
 			s.t.Fatal("signal result timeout")
 		}
+	}
+}
+
+// writeOutpointVarBytes writes an outpoint using the variable-length encoding.
+func writeOutpointVarBytes(w io.Writer, o *wire.OutPoint) error {
+	if err := wire.WriteVarBytes(w, 0, o.Hash[:]); err != nil {
+		return err
+	}
+
+	var scratch [4]byte
+	byteOrder.PutUint32(scratch[:], o.Index)
+	_, err := w.Write(scratch[:])
+
+	return err
+}
+
+// encodeKidOutputLegacy encodes a kidOutput using the legacy format.
+func encodeKidOutputLegacy(w io.Writer, k *kidOutput) error {
+	var scratch [8]byte
+	byteOrder.PutUint64(scratch[:], uint64(k.Amount()))
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+
+	op := k.OutPoint()
+	if err := writeOutpointVarBytes(w, &op); err != nil {
+		return err
+	}
+	if err := writeOutpointVarBytes(w, k.OriginChanPoint()); err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, byteOrder, k.isHtlc); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], k.BlocksToMaturity())
+	if _, err := w.Write(scratch[:4]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], k.absoluteMaturity)
+	if _, err := w.Write(scratch[:4]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint32(scratch[:4], k.ConfHeight())
+	if _, err := w.Write(scratch[:4]); err != nil {
+		return err
+	}
+
+	byteOrder.PutUint16(scratch[:2], uint16(k.witnessType))
+	if _, err := w.Write(scratch[:2]); err != nil {
+		return err
+	}
+
+	if err := input.WriteSignDescriptor(w, k.SignDesc()); err != nil {
+		return err
+	}
+
+	if k.SignDesc().ControlBlock == nil {
+		return nil
+	}
+
+	return wire.WriteVarBytes(w, 1000, k.SignDesc().ControlBlock)
+}
+
+// TestKidOutputDecode tests that we can decode a kidOutput from both the
+// new and legacy formats. It also checks that the decoded output matches the
+// original output, except for the deadlineHeight field, which is not encoded
+// in the legacy format.
+func TestKidOutputDecode(t *testing.T) {
+	t.Parallel()
+
+	op := wire.OutPoint{
+		Hash:  chainhash.Hash{1},
+		Index: 1,
+	}
+	originOp := wire.OutPoint{
+		Hash:  chainhash.Hash{2},
+		Index: 2,
+	}
+	pkScript := []byte{
+		0x00, 0x14, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12,
+		0x13, 0x14,
+	}
+	signDesc := &input.SignDescriptor{
+		Output: &wire.TxOut{
+			Value:    12345,
+			PkScript: pkScript,
+		},
+		HashType:      txscript.SigHashAll,
+		WitnessScript: []byte{},
+	}
+
+	// Since makeKidOutput is not exported, we construct the kid output
+	// manually.
+	kid := kidOutput{
+		breachedOutput: breachedOutput{
+			amt:         btcutil.Amount(signDesc.Output.Value),
+			outpoint:    op,
+			witnessType: input.CommitmentRevoke,
+			signDesc:    *signDesc,
+			confHeight:  100,
+		},
+		originChanPoint:  originOp,
+		blocksToMaturity: 144,
+		isHtlc:           false,
+		absoluteMaturity: 0,
+	}
+
+	// Encode the kid output in both formats.
+	var newBuf bytes.Buffer
+	err := kid.Encode(&newBuf)
+	require.NoError(t, err)
+
+	var legacyBuf bytes.Buffer
+	err = encodeKidOutputLegacy(&legacyBuf, &kid)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "new format",
+			data: newBuf.Bytes(),
+		},
+		{
+			name: "legacy format",
+			data: legacyBuf.Bytes(),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var decodedKid kidOutput
+			err := decodedKid.Decode(bytes.NewReader(tc.data))
+			require.NoError(t, err)
+
+			// The deadlineHeight field is not encoded, so we need
+			// to set it manually for the comparison.
+			kid.deadlineHeight = decodedKid.deadlineHeight
+
+			require.Equal(t, kid, decodedKid)
+		})
 	}
 }

@@ -3747,15 +3747,12 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg) {
 // whether we are reprocessing as a result of a failure or restart. Adds that
 // have already been acknowledged in the forwarding package will be ignored.
 //
+// NOTE: This function needs also be called for fwd packages with no ADDs
+// because it marks the fwdPkg as processed by writing the FwdFilter into the
+// database.
+//
 //nolint:funlen
 func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
-	// Exit early if there are no adds to process.
-	if len(fwdPkg.Adds) == 0 {
-		l.log.Trace("fwd package has no adds to process exiting early")
-
-		return
-	}
-
 	// Exit early if the fwdPkg is already processed.
 	if fwdPkg.State == channeldb.FwdStateCompleted {
 		l.log.Debugf("skipped processing completed fwdPkg %v", fwdPkg)

@@ -1520,6 +1520,18 @@
             "required": false,
             "type": "number",
             "format": "double"
+          },
+          {
+            "name": "outgoing_chan_ids",
+            "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used.",
+            "in": "query",
+            "required": false,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uint64"
+            },
+            "collectionFormat": "multi"
           }
         ],
         "tags": [
@@ -1663,6 +1675,14 @@
                   "type": "number",
                   "format": "double",
                   "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+                },
+                "outgoing_chan_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uint64"
+                  },
+                  "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used."
                 }
               }
             }

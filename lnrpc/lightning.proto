@@ -3196,6 +3196,12 @@ message QueryRoutesRequest {
     only, to 1 to optimize for reliability only or a value inbetween for a mix.
     */
     double time_pref = 18;
+
+    /*
+    The channel ids of the channels allowed for the first hop. If empty, any
+    channel may be used.
+    */
+    repeated uint64 outgoing_chan_ids = 20;
 }
 
 message NodePair {

@@ -413,8 +413,18 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
-	// Pass along an outgoing channel restriction if specified.
-	if in.OutgoingChanId != 0 {
+	// We set the outgoing channel restrictions if the user provides a
+	// list of channel ids. We also handle the case where the user
+	// provides the deprecated `OutgoingChanId` field.
+	switch {
+	case len(in.OutgoingChanIds) > 0 && in.OutgoingChanId != 0:
+		return nil, errors.New("outgoing_chan_id and " +
+			"outgoing_chan_ids cannot both be set")
+
+	case len(in.OutgoingChanIds) > 0:
+		restrictions.OutgoingChannelIDs = in.OutgoingChanIds
+
+	case in.OutgoingChanId != 0:
 		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
 	}
 

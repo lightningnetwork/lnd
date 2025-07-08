@@ -112,8 +112,8 @@ const (
 	// error, which means they cannot be retried with increased budget.
 	TxFatal
 
-	// sentinalEvent is used to check if an event is unknown.
-	sentinalEvent
+	// sentinelEvent is used to check if an event is unknown.
+	sentinelEvent
 )
 
 // String returns a human-readable string for the event.
@@ -138,13 +138,13 @@ func (e BumpEvent) String() string {
 
 // Unknown returns true if the event is unknown.
 func (e BumpEvent) Unknown() bool {
-	return e >= sentinalEvent
+	return e >= sentinelEvent
 }
 
 // BumpRequest is used by the caller to give the Bumper the necessary info to
 // create and manage potential fee bumps for a set of inputs.
 type BumpRequest struct {
-	// Budget givens the total amount that can be used as fees by these
+	// Budget gives the total amount that can be used as fees by these
 	// inputs.
 	Budget btcutil.Amount
 
@@ -594,7 +594,7 @@ func (t *TxPublisher) createRBFCompliantTx(
 				// used up the budget, we will return an error
 				// indicating this tx cannot be made. The
 				// sweeper should handle this error and try to
-				// cluster these inputs differetly.
+				// cluster these inputs differently.
 				increased, err = f.Increment()
 				if err != nil {
 					return nil, err
@@ -1337,7 +1337,7 @@ func (t *TxPublisher) createAndPublishTx(
 	// the fee bumper retry it at next block.
 	//
 	// NOTE: we may get this error if we've bypassed the mempool check,
-	// which means we are suing neutrino backend.
+	// which means we are using neutrino backend.
 	if errors.Is(result.Err, chain.ErrInsufficientFee) ||
 		errors.Is(result.Err, lnwallet.ErrMempoolFee) {
 

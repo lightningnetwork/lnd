@@ -73,7 +73,7 @@ func TestBumpResultValidate(t *testing.T) {
 	// Unknown event type will give an error.
 	b = BumpResult{
 		Tx:    &wire.MsgTx{},
-		Event: sentinalEvent,
+		Event: sentinelEvent,
 	}
 	require.ErrorIs(t, b.Validate(), ErrInvalidBumpResult)
 
@@ -457,7 +457,7 @@ func TestCreateAndCheckTx(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -550,7 +550,7 @@ func TestCreateRBFCompliantTx(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -1120,9 +1120,9 @@ func TestBroadcastImmediate(t *testing.T) {
 	require.Empty(t, tp.subscriberChans.Len())
 }
 
-// TestCreateAnPublishFail checks all the error cases are handled properly in
-// the method createAndPublish.
-func TestCreateAnPublishFail(t *testing.T) {
+// TestCreateAndPublishFail checks all the error cases are handled properly in
+// the method createAndPublishTx.
+func TestCreateAndPublishFail(t *testing.T) {
 	t.Parallel()
 
 	// Create a publisher using the mocks.
@@ -1152,7 +1152,7 @@ func TestCreateAnPublishFail(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -1190,9 +1190,9 @@ func TestCreateAnPublishFail(t *testing.T) {
 	require.True(t, resultOpt.IsNone())
 }
 
-// TestCreateAnPublishSuccess checks the expected result is returned from the
-// method createAndPublish.
-func TestCreateAnPublishSuccess(t *testing.T) {
+// TestCreateAndPublishSuccess checks the expected result is returned from the
+// method createAndPublishTx.
+func TestCreateAndPublishSuccess(t *testing.T) {
 	t.Parallel()
 
 	// Create a publisher using the mocks.
@@ -1218,7 +1218,7 @@ func TestCreateAnPublishSuccess(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -1445,7 +1445,7 @@ func TestHandleFeeBumpTx(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -1830,7 +1830,7 @@ func TestHandleInitialBroadcastSuccess(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)
@@ -1916,7 +1916,7 @@ func TestHandleInitialBroadcastFail(t *testing.T) {
 	//
 	// NOTE: we are not testing the utility of creating valid txes here, so
 	// this is fine to be mocked. This behaves essentially as skipping the
-	// Signer check and alaways assume the tx has a valid sig.
+	// Signer check and always assume the tx has a valid sig.
 	script := &input.Script{}
 	m.signer.On("ComputeInputScript", mock.Anything,
 		mock.Anything).Return(script, nil)

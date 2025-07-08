@@ -26,6 +26,9 @@
   announcement remains unchanged until the new one is fully signed and
   validated.
 
+- Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
+  when we fail starting up LND before we startup the chanbackup sub-server.
+
 # New Features
 
 ## Functional Enhancements

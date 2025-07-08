@@ -272,6 +272,11 @@ unit-bench: $(BTCD_BIN)
 	@$(call print, "Running benchmark tests.")
 	$(UNIT_BENCH)
 
+#? unit-flake: Run the unit tests continuously until one fails
+unit-flake: $(BTCD_BIN)
+	@$(call print, "Flake hunting unit tests.")
+	while [ $$? -eq 0 ]; do make unit; done
+
 # =============
 # FLAKE HUNTING
 # =============

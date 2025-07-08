@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -24,6 +25,10 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
+
+// spentNotificationTimeout defines the time to wait for a spending event from
+// `RegisterSpendNtfn` when an immediate response is expected.
+const spentNotificationTimeout = 1 * time.Second
 
 var (
 	// ErrInvalidBumpResult is returned when the bump result is invalid.
@@ -1482,6 +1487,20 @@ func (t *TxPublisher) getSpentInputs(
 				spendingTx.TxHash())
 
 			spentInputs[op] = spendingTx
+
+		// The above spent event should be returned immediately, yet we
+		// still perform a timeout check here in case it blocks forever.
+		//
+		// TODO(yy): The proper way to fix this is to redesign the area
+		// so we use the async flow for checking whether a given input
+		// is spent or not. A better approach is to implement a new
+		// synchronous method to check for spending, which should be
+		// attempted when implementing SQL into btcwallet.
+		case <-time.After(spentNotificationTimeout):
+			log.Warnf("Input is reported as spent by GetUtxo, "+
+				"but spending notification is not returned "+
+				"immediately: input=%v, heightHint=%v", op,
+				heightHint)
 		}
 	}
 

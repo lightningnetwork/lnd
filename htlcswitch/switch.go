@@ -2229,6 +2229,9 @@ func (s *Switch) GetLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink,
 func (s *Switch) getLinkByShortID(chanID lnwire.ShortChannelID) (ChannelLink, error) {
 	link, ok := s.forwardingIndex[chanID]
 	if !ok {
+		log.Debugf("Link not found in forwarding index using "+
+			"chanID=%v", chanID)
+
 		return nil, ErrChannelLinkNotFound
 	}
 

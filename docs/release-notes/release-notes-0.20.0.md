@@ -111,6 +111,9 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 for payments. Now the payment address is mandatory for the writer and
 reader of a payment request.
 
+- [Refactored](https://github.com/lightningnetwork/lnd/pull/10018) `channelLink`
+  to improve readability and maintainability of the code.
+
 ## Breaking Changes
 ## Performance Improvements
 

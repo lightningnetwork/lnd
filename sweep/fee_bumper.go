@@ -1467,7 +1467,7 @@ func (t *TxPublisher) getSpentInputs(
 		// Remove the subscription when exit.
 		defer spendEvent.Cancel()
 
-		// Do a non-blocking read to see if the output has been spent.
+		// Do a blocking read to receive the spent event.
 		select {
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
@@ -1482,10 +1482,6 @@ func (t *TxPublisher) getSpentInputs(
 				spendingTx.TxHash())
 
 			spentInputs[op] = spendingTx
-
-		// Move to the next input.
-		default:
-			log.Tracef("Input %v not spent yet", op)
 		}
 	}
 

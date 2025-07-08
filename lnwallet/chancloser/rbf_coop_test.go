@@ -642,7 +642,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	// We'll now send in the send offer event, which should trigger 1/2 of
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
-		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		initEvent, balanceAfterClose, absoluteFee, dustExpect,
 		iteration,
 	)
 
@@ -1817,9 +1817,6 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 
 		firstState := &ClosingNegotiation{
 			PeerState: lntypes.Dual[AsymmetricPeerState]{
-				Local: &LocalCloseStart{
-					CloseChannelTerms: &closingTerms,
-				},
 				Remote: &RemoteCloseStart{
 					CloseChannelTerms: &closingTerms,
 				},

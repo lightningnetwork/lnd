@@ -248,6 +248,11 @@ type FwdPkg struct {
 
 	// FwdFilter is a filter containing the indices of all Adds that were
 	// forwarded to the switch.
+	//
+	// NOTE: This value signals when persisted to disk that the fwd package
+	// has been processed and garbage collection can happen. So it also
+	// has to be set for packages with no adds (empty packages or only
+	// settle/fail packages) so that they can be garbage collected as well.
 	FwdFilter *PkgFilter
 
 	// AckFilter is a filter containing the indices of all Adds for which
@@ -678,24 +683,31 @@ func loadFwdPkg(fwdPkgBkt kvdb.RBucket, source lnwire.ShortChannelID,
 		SettleFailFilter: settleFailFilter,
 	}
 
-	// Check to see if we have written the set exported filter adds to
-	// disk. If we haven't, processing of this package was never started, or
-	// failed during the last attempt.
+	// Check if the forward filter has been persisted to disk.
+	// This indicates whether the Adds in this package have been processed.
+	//
+	// NOTE: We also expect packages with no Adds (settle/fail only packages
+	// or empty packages) to have the fwd filter set to signal that the
+	// packages have been processed.
 	fwdFilterBytes := heightBkt.Get(fwdFilterKey)
+
+	// Handle packages with Adds that haven't been processed yet.
 	if fwdFilterBytes == nil {
+		// Create a new forward filter for the unprocessed Adds.
 		nAdds := uint16(len(adds))
 		fwdPkg.FwdFilter = NewPkgFilter(nAdds)
+
 		return fwdPkg, nil
 	}
 
+	// Load the existing forward filter from disk.
 	fwdFilterReader := bytes.NewReader(fwdFilterBytes)
 	fwdPkg.FwdFilter = &PkgFilter{}
 	if err := fwdPkg.FwdFilter.Decode(fwdFilterReader); err != nil {
 		return nil, err
 	}
 
-	// Otherwise, a complete round of processing was completed, and we
-	// advance the package to FwdStateProcessed.
+	// Mark the package as processed since the forward filter exists.
 	fwdPkg.State = FwdStateProcessed
 
 	// If every add, settle, and fail has been fully acknowledged, we can

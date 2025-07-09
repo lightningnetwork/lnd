@@ -874,18 +874,39 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 
 	graphCacheDuration := r.cfg.Caches.RPCGraphCacheDuration
 	if graphCacheDuration != 0 {
-		r.graphCacheEvictor = time.AfterFunc(graphCacheDuration, func() {
-			// Grab the mutex and purge the current populated
-			// describe graph response.
-			r.graphCache.Lock()
-			defer r.graphCache.Unlock()
+		r.graphCacheEvictor = time.NewTimer(graphCacheDuration)
 
-			r.describeGraphResp = nil
+		go func() {
+			for {
+				select {
+				// The timer fired, so we'll purge the graph
+				// cache.
+				case <-r.graphCacheEvictor.C:
+					r.graphCache.Lock()
+					r.describeGraphResp = nil
+					r.graphCache.Unlock()
 
-			// Reset ourselves as well at the end so we run again
-			// after the duration.
-			r.graphCacheEvictor.Reset(graphCacheDuration)
-		})
+					// Reset the timer so we'll fire
+					// again after the specified
+					// duration.
+					r.graphCacheEvictor.Reset(
+						graphCacheDuration,
+					)
+
+				// The server is quitting, so we'll stop the
+				// timer and exit.
+				case <-r.quit:
+					if !r.graphCacheEvictor.Stop() {
+						// Drain the channel if Stop()
+						// returns false, meaning the
+						// timer has already fired.
+						<-r.graphCacheEvictor.C
+					}
+
+					return
+				}
+			}
+		}()
 	}
 
 	return nil

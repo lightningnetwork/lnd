@@ -3158,10 +3158,10 @@ message QueryRoutesRequest {
     map<uint64, bytes> dest_custom_records = 13;
 
     /*
-    The channel id of the channel that must be taken to the first hop. If zero,
-    any channel may be used.
+    Deprecated, use outgoing_chan_ids. The channel id of the channel that must
+    be taken to the first hop. If zero, any channel may be used.
     */
-    uint64 outgoing_chan_id = 14 [jstype = JS_STRING];
+    uint64 outgoing_chan_id = 14 [jstype = JS_STRING, deprecated = true];
 
     /*
     The pubkey of the last hop of the route. If empty, any hop may be used.

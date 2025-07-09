@@ -1459,7 +1459,7 @@
           },
           {
             "name": "outgoing_chan_id",
-            "description": "The channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used.",
+            "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1641,7 +1641,7 @@
                 "outgoing_chan_id": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The channel id of the channel that must be taken to the first hop. If zero,\nany channel may be used."
+                  "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used."
                 },
                 "last_hop_pubkey": {
                   "type": "string",

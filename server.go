@@ -932,11 +932,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	selfAddrs := make([]net.Addr, 0, len(externalIPs))
 	selfAddrs = append(selfAddrs, externalIPs...)
 
-	// TODO(elle): All previously persisted node announcement fields (ie,
-	//  not just LastUpdate) should be consulted here to ensure that we
-	//  aren't overwriting any fields that may have been set during the
-	//  last run of lnd.
-
 	// We now get the self node which represents our node on the channel
 	// graph.
 	selfNode, err := s.getSelfNode(
@@ -5622,6 +5617,8 @@ func (s *server) getSelfNode(ctx context.Context, selfAddrs []net.Addr,
 		return nil, err
 	}
 
+	// TODO(abdulkbk): potentially find a way to use the source node's
+	// features in the self node.
 	selfNode := &models.LightningNode{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           nodeLastUpdate,

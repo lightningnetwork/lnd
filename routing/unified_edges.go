@@ -280,8 +280,9 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 			edge.policy.ChannelID, amt,
 		)
 		if !ok {
-			log.Debugf("Cannot get bandwidth for edge %v, use max "+
+			log.Warnf("Cannot get bandwidth for edge %v, use max "+
 				"instead", edge.policy.ChannelID)
+
 			bandwidth = lnwire.MaxMilliSatoshi
 		}
 

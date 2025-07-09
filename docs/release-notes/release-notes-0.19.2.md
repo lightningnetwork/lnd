@@ -42,6 +42,16 @@
 
 - [Fixed](https://github.com/lightningnetwork/lnd/pull/10035) a deadlock (writer starvation) in the switch.
 
+- Fixed a [case](https://github.com/lightningnetwork/lnd/pull/10045) that a
+  panic may happen which prevents the node from starting up.
+
+- Fixed a [case](https://github.com/lightningnetwork/lnd/pull/10048) where we
+  would not be able to decode persisted data in the utxo nursery and therefore
+  would fail to start up.
+
+- Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
+  when we fail starting up LND before we startup the chanbackup sub-server.
+
 # New Features
 
 ## Functional Enhancements

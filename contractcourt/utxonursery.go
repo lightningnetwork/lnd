@@ -286,19 +286,18 @@ func (u *UtxoNursery) Start() error {
 	// 2. Restart spend ntfns for any preschool outputs, which are waiting
 	// for the force closed commitment txn to confirm, or any second-layer
 	// HTLC success transactions.
-	//
-	// NOTE: The next two steps *may* spawn go routines, thus from this
-	// point forward, we must close the nursery's quit channel if we detect
-	// any failures during startup to ensure they terminate.
+	// NOTE: The next two steps *may* spawn go routines.
 	if err := u.reloadPreschool(); err != nil {
-		close(u.quit)
+		utxnLog.Errorf("Failed to reload preschool: %v", err)
+
 		return err
 	}
 
 	// 3. Replay all crib and kindergarten outputs up to the current best
 	// height.
 	if err := u.reloadClasses(uint32(bestHeight)); err != nil {
-		close(u.quit)
+		utxnLog.Errorf("Failed to reload class: %v", err)
+
 		return err
 	}
 
@@ -309,7 +308,8 @@ func (u *UtxoNursery) Start() error {
 		Hash:   bestHash,
 	})
 	if err != nil {
-		close(u.quit)
+		utxnLog.Errorf("RegisterBlockEpochNtfn failed: %v", err)
+
 		return err
 	}
 
@@ -1514,21 +1514,70 @@ func (k *kidOutput) Encode(w io.Writer) error {
 // Decode takes a byte array representation of a kidOutput and converts it to an
 // struct. Note that the witnessFunc method isn't added during deserialization
 // and must be added later based on the value of the witnessType field.
+//
+// NOTE: We need to support both formats because we did not migrate the database
+// to the new format so the support for the legacy format is still needed.
 func (k *kidOutput) Decode(r io.Reader) error {
+	// Read all available data into a buffer first so we can try both
+	// formats.
+	//
+	// NOTE: We can consume the whole reader here because every kidOutput is
+	// saved separately via a key-value pair and we are only decoding them
+	// individually so there is no risk of reading multiple kidOutputs.
+	var buf bytes.Buffer
+	_, err := io.Copy(&buf, r)
+	if err != nil {
+		return err
+	}
+
+	data := buf.Bytes()
+	bufReader := bytes.NewReader(data)
+
+	// Try the new format first. A successful decode must consume all bytes.
+	newErr := k.decodeNewFormat(bufReader)
+	if newErr == nil && bufReader.Len() == 0 {
+		return nil
+	}
+
+	// If that fails, reset the reader and try the legacy format.
+	_, err = bufReader.Seek(0, io.SeekStart)
+	if err != nil {
+		return err
+	}
+
+	legacyErr := k.decodeLegacyFormat(bufReader)
+	if legacyErr != nil {
+		return fmt.Errorf("failed to decode with both new and "+
+			"legacy formats: new=%v, legacy=%v", newErr, legacyErr)
+	}
+
+	// The legacy format must also consume all bytes.
+	if bufReader.Len() > 0 {
+		return fmt.Errorf("legacy decode has %d trailing bytes",
+			bufReader.Len())
+	}
+
+	return nil
+}
+
+// decodeNewFormat decodes using the new format with variable-length outpoint
+// encoding.
+func (k *kidOutput) decodeNewFormat(r *bytes.Reader) error {
 	var scratch [8]byte
 
-	if _, err := r.Read(scratch[:]); err != nil {
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
 		return err
 	}
 	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
 
-	err := graphdb.ReadOutpoint(io.LimitReader(r, 40), &k.outpoint)
-	if err != nil {
+	// The outpoint does use the new format without a preceding varint.
+	if err := graphdb.ReadOutpoint(r, &k.outpoint); err != nil {
 		return err
 	}
 
-	err = graphdb.ReadOutpoint(io.LimitReader(r, 40), &k.originChanPoint)
-	if err != nil {
+	// The origin chan point does use the new format without a preceding
+	// varint..
+	if err := graphdb.ReadOutpoint(r, &k.originChanPoint); err != nil {
 		return err
 	}
 
@@ -1536,22 +1585,22 @@ func (k *kidOutput) Decode(r io.Reader) error {
 		return err
 	}
 
-	if _, err := r.Read(scratch[:4]); err != nil {
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
 		return err
 	}
 	k.blocksToMaturity = byteOrder.Uint32(scratch[:4])
 
-	if _, err := r.Read(scratch[:4]); err != nil {
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
 		return err
 	}
 	k.absoluteMaturity = byteOrder.Uint32(scratch[:4])
 
-	if _, err := r.Read(scratch[:4]); err != nil {
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
 		return err
 	}
 	k.confHeight = byteOrder.Uint32(scratch[:4])
 
-	if _, err := r.Read(scratch[:2]); err != nil {
+	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
 		return err
 	}
 	k.witnessType = input.StandardWitnessType(byteOrder.Uint16(scratch[:2]))
@@ -1575,6 +1624,91 @@ func (k *kidOutput) Decode(r io.Reader) error {
 	}
 
 	k.signDesc.ControlBlock = ctrlBlock
+
+	return nil
+}
+
+// decodeLegacyFormat decodes using the legacy format with fixed-length outpoint
+// encoding.
+func (k *kidOutput) decodeLegacyFormat(r *bytes.Reader) error {
+	var scratch [8]byte
+
+	if _, err := io.ReadFull(r, scratch[:]); err != nil {
+		return err
+	}
+	k.amt = btcutil.Amount(byteOrder.Uint64(scratch[:]))
+
+	// Outpoint uses the legacy format with a preceding varint.
+	if err := readOutpointVarBytes(r, &k.outpoint); err != nil {
+		return err
+	}
+
+	// Origin chan point uses the legacy format with a preceding varint.
+	if err := readOutpointVarBytes(r, &k.originChanPoint); err != nil {
+		return err
+	}
+
+	if err := binary.Read(r, byteOrder, &k.isHtlc); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
+		return err
+	}
+	k.blocksToMaturity = byteOrder.Uint32(scratch[:4])
+
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
+		return err
+	}
+	k.absoluteMaturity = byteOrder.Uint32(scratch[:4])
+
+	if _, err := io.ReadFull(r, scratch[:4]); err != nil {
+		return err
+	}
+	k.confHeight = byteOrder.Uint32(scratch[:4])
+
+	if _, err := io.ReadFull(r, scratch[:2]); err != nil {
+		return err
+	}
+	k.witnessType = input.StandardWitnessType(byteOrder.Uint16(scratch[:2]))
+
+	if err := input.ReadSignDescriptor(r, &k.signDesc); err != nil {
+		return err
+	}
+
+	// If there's anything left in the reader, then this is a taproot
+	// output that also wrote a control block.
+	ctrlBlock, err := wire.ReadVarBytes(r, 0, 1000, "control block")
+	switch {
+	// If there're no bytes remaining, then we'll return early.
+	case errors.Is(err, io.EOF):
+		fallthrough
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return nil
+
+	case err != nil:
+		return err
+	}
+
+	k.signDesc.ControlBlock = ctrlBlock
+
+	return nil
+}
+
+// readOutpointVarBytes reads an outpoint using the variable-length encoding.
+func readOutpointVarBytes(r io.Reader, o *wire.OutPoint) error {
+	scratch := make([]byte, 4)
+
+	txid, err := wire.ReadVarBytes(r, 0, 32, "prevout")
+	if err != nil {
+		return err
+	}
+	copy(o.Hash[:], txid)
+
+	if _, err := r.Read(scratch); err != nil {
+		return err
+	}
+	o.Index = byteOrder.Uint32(scratch)
 
 	return nil
 }

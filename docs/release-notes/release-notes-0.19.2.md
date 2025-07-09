@@ -49,6 +49,9 @@
   would not be able to decode persisted data in the utxo nursery and therefore
   would fail to start up.
 
+- Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
+  when we fail starting up LND before we startup the chanbackup sub-server.
+
 # New Features
 
 ## Functional Enhancements

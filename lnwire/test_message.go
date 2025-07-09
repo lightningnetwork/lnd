@@ -792,8 +792,7 @@ var _ TestMessage = (*DynAck)(nil)
 // This is part of the TestMessage interface.
 func (da *DynAck) RandTestMessage(t *rapid.T) Message {
 	msg := &DynAck{
-		ChanID:    RandChannelID(t),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ChanID: RandChannelID(t),
 	}
 
 	includeLocalNonce := rapid.Bool().Draw(t, "includeLocalNonce")
@@ -801,6 +800,18 @@ func (da *DynAck) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonce {
 		msg.LocalNonce = fn.Some(RandMusig2Nonce(t))
 	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(15) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
 
 	return msg
 }

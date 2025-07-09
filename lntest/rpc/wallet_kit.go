@@ -169,16 +169,12 @@ func (h *HarnessRPC) VerifyMessageWithAddr(
 }
 
 // ListSweeps makes a ListSweeps RPC call to the node's WalletKit client.
-func (h *HarnessRPC) ListSweeps(verbose bool,
-	startHeight int32) *walletrpc.ListSweepsResponse {
+func (h *HarnessRPC) ListSweeps(
+	req *walletrpc.ListSweepsRequest) *walletrpc.ListSweepsResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	req := &walletrpc.ListSweepsRequest{
-		Verbose:     verbose,
-		StartHeight: startHeight,
-	}
 	resp, err := h.WalletKit.ListSweeps(ctxt, req)
 	h.NoError(err, "ListSweeps")
 

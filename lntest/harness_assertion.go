@@ -2817,6 +2817,54 @@ func (h *HarnessTest) AssertAtLeastNumPendingSweeps(hn *node.HarnessNode,
 	return results
 }
 
+// AssertNumSweeps asserts the number of sweeps for the given node.
+func (h *HarnessTest) AssertNumSweeps(hn *node.HarnessNode,
+	req *walletrpc.ListSweepsRequest,
+	n int) *walletrpc.ListSweepsResponse {
+
+	var result *walletrpc.ListSweepsResponse
+
+	// The ListSweeps call is wrapped in wait.NoError to handle potential
+	// timing issues. Sweep transactions might not be immediately reflected
+	// or processed by the node after an event (e.g., channel closure or
+	// block mining) due to propagation or processing delays. This ensures
+	// the system retries the call until the expected sweep is found,
+	// preventing test flakes caused by race conditions.
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListSweeps(req)
+
+		var txIDs []string
+		if req.Verbose {
+			details := resp.GetTransactionDetails()
+			if details != nil {
+				for _, tx := range details.Transactions {
+					txIDs = append(txIDs, tx.TxHash)
+				}
+			}
+		} else {
+			ids := resp.GetTransactionIds()
+			if ids != nil {
+				txIDs = ids.TransactionIds
+			}
+		}
+
+		num := len(txIDs)
+
+		// Exit early if the num matches.
+		if num == n {
+			result = resp
+			return nil
+		}
+
+		return fmt.Errorf("want %d, got %d, sweeps: %v, req: %v", n,
+			num, txIDs, req)
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: check num of sweeps timeout", hn.Name())
+
+	return result
+}
+
 // FindSweepingTxns asserts the expected number of sweeping txns are found in
 // the txns specified and return them.
 func (h *HarnessTest) FindSweepingTxns(txns []*wire.MsgTx,

@@ -345,8 +345,9 @@ func (c chanSet) CountPolicies() int {
 // fetchAllChannelsAndPolicies retrieves all channels and their policies
 // from the given store and returns them sorted by their channel ID.
 func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
+	ctx := context.Background()
 	channels := make(chanSet, 0)
-	err := store.ForEachChannel(func(info *models.ChannelEdgeInfo,
+	err := store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
 		p1 *models.ChannelEdgePolicy,
 		p2 *models.ChannelEdgePolicy) error {
 

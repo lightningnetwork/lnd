@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -79,6 +80,47 @@ func NewNonFinalBlindedRouteData(chanID lnwire.ShortChannelID,
 	if constraints != nil {
 		info.Constraints = tlv.SomeRecordT(
 			tlv.NewRecordT[tlv.TlvType12](*constraints))
+	}
+
+	if features != nil {
+		info.Features = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType14](*features),
+		)
+	}
+
+	return info
+}
+
+// NewNonFinalBlindedRouteData creates the data that's provided for hops within
+// a blinded route.
+func NewNonFinalBlindedRouteDataOnionMessage(
+	nextNode fn.Either[*btcec.PublicKey, lnwire.ShortChannelID],
+	blindingOverride *btcec.PublicKey,
+	features *lnwire.FeatureVector) *BlindedRouteData {
+
+	info := fn.ElimEither(
+		nextNode,
+		func(nextNodeID *btcec.PublicKey) *BlindedRouteData {
+			return &BlindedRouteData{
+				NextNodeID: tlv.SomeRecordT(
+					tlv.NewPrimitiveRecord[tlv.TlvType4](
+						nextNodeID,
+					),
+				),
+			}
+		},
+		func(chanID lnwire.ShortChannelID) *BlindedRouteData {
+			return &BlindedRouteData{
+				ShortChannelID: tlv.SomeRecordT(
+					tlv.NewRecordT[tlv.TlvType2](chanID),
+				),
+			}
+		},
+	)
+
+	if blindingOverride != nil {
+		info.NextBlindingOverride = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType8](blindingOverride))
 	}
 
 	if features != nil {

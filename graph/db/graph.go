@@ -79,11 +79,8 @@ func (c *ChannelGraph) Start() error {
 
 	ctx := context.TODO()
 
-	if c.graphCache != nil {
-		if err := c.populateCache(ctx); err != nil {
-			return fmt.Errorf("could not populate the graph "+
-				"cache: %w", err)
-		}
+	if err := c.populateCache(ctx); err != nil {
+		return fmt.Errorf("could not populate the graph cache: %w", err)
 	}
 
 	c.wg.Add(1)
@@ -165,9 +162,13 @@ func (c *ChannelGraph) handleTopologySubscriptions(ctx context.Context) {
 }
 
 // populateCache loads the entire channel graph into the in-memory graph cache.
-//
-// NOTE: This should only be called if the graphCache has been constructed.
 func (c *ChannelGraph) populateCache(ctx context.Context) error {
+	if c.graphCache == nil {
+		log.Info("In-memory channel graph cache disabled")
+
+		return nil
+	}
+
 	startTime := time.Now()
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")

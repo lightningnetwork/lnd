@@ -111,4 +111,12 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.OnionMessagesOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
+	lnwire.OnionMessagesRequired: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

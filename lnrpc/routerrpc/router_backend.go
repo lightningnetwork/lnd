@@ -413,9 +413,19 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
-	// Pass along an outgoing channel restriction if specified.
+	// Pass along the outgoing channel restrictions if specified.
+	restrictions.OutgoingChannelIDs = in.OutgoingChanIds
+
+	// Add the single outgoing channel restriction if specified.
 	if in.OutgoingChanId != 0 {
-		restrictions.OutgoingChannelIDs = []uint64{in.OutgoingChanId}
+		if len(restrictions.OutgoingChannelIDs) > 0 {
+			return nil, errors.New("outgoing chan id and " +
+				"chan ids cannot both be set")
+		}
+
+		restrictions.OutgoingChannelIDs = append(
+			restrictions.OutgoingChannelIDs, in.OutgoingChanId,
+		)
 	}
 
 	// Pass along a last hop restriction if specified.

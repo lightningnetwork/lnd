@@ -116,6 +116,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 
 
 ## lncli Updates
+* Previously users can only specify one `outgoing_chan_id` when calling the 
+  `lncli queryroutes` or the QueryRoutes RPC, with this change, 
+  multiple `outgoing_chan_id` can be passed during the call.
+
 
 ## Code Health
 
@@ -148,6 +152,10 @@ reader of a payment request.
 | [`routerrpc.SendToRouteV2`](https://lightning.engineering/api-docs/api/lnd/router/send-to-route-v2/) | ✅ | `POST` | `/v2/router/route/send` |
 | [`routerrpc.SendPaymentV2`](https://lightning.engineering/api-docs/api/lnd/router/send-payment-v2/index.html) | ✅ | `POST` | `/v2/router/send` |
 | [`routerrpc.TrackPaymentV2`](https://lightning.engineering/api-docs/api/lnd/router/track-payment-v2/) | ✅ | `GET` | `/v2/router/track/{payment_hash}` |
+
+* We are deprecating `OutgoingChanId` in favour of `OutgoingChanIds` in the
+  `QueryRoutes` RPC. This [transition](https://github.com/lightningnetwork/lnd/pull/10057) allows us to specify more than one outgoing channel
+  the pathfinder should use as first hop when finding a route.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

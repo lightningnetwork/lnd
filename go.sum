@@ -156,6 +156,13 @@ github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4
 github.com/fsnotify/fsnotify v1.5.4 h1:jRbGcIw6P2Meqdwuo0H1p6JVLbL5DHKAKlYndzMwVZI=
 github.com/fsnotify/fsnotify v1.5.4/go.mod h1:OVB6XrOHzAwXMpEM7uPOzcehqUV2UqJxmVXmkdnm1bU=
 github.com/ghodss/yaml v1.0.0/go.mod h1:4dBDuWmgqj2HViK6kFavaiC9ZROes6MMH2rRYeMEF04=
+github.com/gijswijs/lightning-onion v0.0.0-20250710132007-63dd4c5705db/go.mod h1:AX52YxRT/CQOb/c6IExwNoZUTHbiepDgGmrPrRS7gog=
+github.com/gijswijs/lightning-onion v0.0.0-20250710133033-97ee6ea9781c h1:wSnFxRM2bsI0/ewihfw9uKh8xu7TeXHV2Xj3M6d6Wkg=
+github.com/gijswijs/lightning-onion v0.0.0-20250710133033-97ee6ea9781c/go.mod h1:QriyoZ6g5m4R+0cSa8O7sstLjyKTDqLiEPBvY3wRD4s=
+github.com/gijswijs/lightning-onion v0.0.0-20250710134414-bfdbdec7f9d7 h1:wgjWd6wmbmj2GEL6eqwaz2xh7t8zzI2wIW4xDN4VLX4=
+github.com/gijswijs/lightning-onion v0.0.0-20250710134414-bfdbdec7f9d7/go.mod h1:QriyoZ6g5m4R+0cSa8O7sstLjyKTDqLiEPBvY3wRD4s=
+github.com/gijswijs/lightning-onion v0.0.0-20250710135052-c3f8db769b88 h1:xekg0CO6TbpDFUybdAPsdeIuku7OQDw/Cp46Msefe5Q=
+github.com/gijswijs/lightning-onion v0.0.0-20250710135052-c3f8db769b88/go.mod h1:QriyoZ6g5m4R+0cSa8O7sstLjyKTDqLiEPBvY3wRD4s=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=

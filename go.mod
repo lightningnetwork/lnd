@@ -213,6 +213,9 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
 
+// TODO(gijs): remove once onion messaging PR is merged into lightning-onion.
+replace github.com/lightningnetwork/lightning-onion => github.com/gijswijs/lightning-onion v0.0.0-20250710135052-c3f8db769b88
+
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as
 // well).

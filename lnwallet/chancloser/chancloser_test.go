@@ -509,7 +509,10 @@ func TestTaprootFastClose(t *testing.T) {
 	aliceChan := newMockTaprootChan(t, true)
 	bobChan := newMockTaprootChan(t, false)
 
-	broadcastSignal := make(chan struct{}, 2)
+	// We'll create two distinct broadcast signals to ensure that each party
+	// broadcasts at the correct time.
+	aliceBroadcast := make(chan struct{}, 1)
+	bobBroadcast := make(chan struct{}, 1)
 
 	idealFee := chainfee.SatPerKWeight(506)
 
@@ -520,7 +523,7 @@ func TestTaprootFastClose(t *testing.T) {
 			Channel:      aliceChan,
 			MusigSession: newMockMusigSession(),
 			BroadcastTx: func(_ *wire.MsgTx, _ string) error {
-				broadcastSignal <- struct{}{}
+				aliceBroadcast <- struct{}{}
 				return nil
 			},
 			MaxFee:       chainfee.SatPerKWeight(1000),
@@ -538,7 +541,7 @@ func TestTaprootFastClose(t *testing.T) {
 			MusigSession: newMockMusigSession(),
 			MaxFee:       chainfee.SatPerKWeight(1000),
 			BroadcastTx: func(_ *wire.MsgTx, _ string) error {
-				broadcastSignal <- struct{}{}
+				bobBroadcast <- struct{}{}
 				return nil
 			},
 			FeeEstimator: &SimpleCoopFeeEstimator{},
@@ -591,7 +594,7 @@ func TestTaprootFastClose(t *testing.T) {
 
 	// At this point, Bob has accepted the offer, so he can broadcast the
 	// closing transaction, and considers the channel closed.
-	_, err = lnutils.RecvOrTimeout(broadcastSignal, time.Second*1)
+	_, err = lnutils.RecvOrTimeout(bobBroadcast, time.Second*1)
 	require.NoError(t, err)
 
 	// Bob's fee proposal should exactly match Alice's initial fee.
@@ -623,7 +626,7 @@ func TestTaprootFastClose(t *testing.T) {
 	aliceClosingSigned = oClosingSigned.UnwrapOrFail(t)
 
 	// Alice should now also broadcast her closing transaction.
-	_, err = lnutils.RecvOrTimeout(broadcastSignal, time.Second*1)
+	_, err = lnutils.RecvOrTimeout(aliceBroadcast, time.Second*1)
 	require.NoError(t, err)
 
 	// Finally, Bob will process Alice's echo message, and conclude.

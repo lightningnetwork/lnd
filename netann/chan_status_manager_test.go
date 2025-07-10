@@ -768,6 +768,10 @@ var stateMachineTests = []stateMachineTest{
 			// Finally, assert that enabling the channel doesn't
 			// return an error now that everything is in place.
 			h.assertEnables(newChans, nil, false)
+
+			// The channels should already be enabled, so we don't
+			// expect any more updates.
+			h.assertNoUpdates(h.safeDisableTimeout)
 		},
 	},
 	{

@@ -1,6 +1,7 @@
 package hop
 
 import (
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -15,6 +16,11 @@ type ForwardingInfo struct {
 	// be forwarded to this particular channel in order to continue the
 	// end-to-end route.
 	NextHop lnwire.ShortChannelID
+
+	// NextNodeID is the public key of the next node in the route. This is
+	// used by onion messages that do not necessarily care about the channel
+	// ID.
+	NextNodeID *btcec.PublicKey
 
 	// AmountToForward is the amount of milli-satoshis that the receiving
 	// node should forward to the next hop.

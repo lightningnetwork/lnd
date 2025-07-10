@@ -42,6 +42,9 @@
   send unnecessary `channel_announcement` and `node_announcement` messages when
   replying to a `gossip_timestamp_filter` query.
 
+- Fixed [zombie channel leak](https://github.com/lightningnetwork/lnd/pull/10015)
+  in the memory graph, resulting in incorrect path finding and memory usage.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 
@@ -277,6 +280,7 @@ reader of a payment request.
 * Elle Mouton
 * Erick Cestari
 * Funyug
+* Gustavo Stingelin
 * Mohamed Awnallah
 * Pins
 * Torkel Rogstad

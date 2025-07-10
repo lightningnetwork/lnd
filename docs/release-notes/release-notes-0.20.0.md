@@ -114,6 +114,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   [fixed](https://github.com/lightningnetwork/lnd/pull/9572), the affected RPCs
   are `SubscribeChannelGraph`, `GetChanInfo`, `GetNodeInfo` and `DescribeGraph`.
 
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/10064) where the
+  `GetChanInfo` was not returning the correct gRPC status code in the cases 
+  where the channel is unknown to the node. The same is done for `LookupInvoice`
+  for the case where the DB is kvdb backed and no invoices have yet been added
+  to the database.
 
 ## lncli Updates
 
@@ -188,5 +193,6 @@ reader of a payment request.
 * Funyug
 * Mohamed Awnallah
 * Pins
+* Torkel Rogstad
 * Yong Yu
 * Ziggie

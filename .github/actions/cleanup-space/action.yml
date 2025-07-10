@@ -1,0 +1,16 @@
+name: "Clean up runner disk space"
+description: "Removes large, non-essential toolsets to free up disk space on the runner."
+
+runs:
+  using: "composite"
+  steps:
+    - name: Free up disk space
+      shell: bash
+      run: |
+        echo "Removing large toolsets to free up disk space..."
+        # Remove dotnet to save disk space.
+        sudo rm -rf /usr/share/dotnet
+        # Remove android to save disk space.
+        sudo rm -rf /usr/local/lib/android
+        # Remove ghc to save disk space.
+        sudo rm -rf /opt/ghc

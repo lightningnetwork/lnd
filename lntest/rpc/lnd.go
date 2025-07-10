@@ -755,3 +755,19 @@ func (h *HarnessRPC) Quiesce(
 
 	return res
 }
+
+type PeerEventsClient lnrpc.Lightning_SubscribePeerEventsClient
+
+// SubscribePeerEvents makes a RPC call to the node's SubscribePeerEvents and
+// returns the stream client.
+func (h *HarnessRPC) SubscribePeerEvents(
+	req *lnrpc.PeerEventSubscription) PeerEventsClient {
+
+	// SubscribePeerEvents needs to have the context alive for the entire
+	// test case as the returned client will be used for send and receive
+	// events stream. Thus we use runCtx here instead of a timeout context.
+	resp, err := h.LN.SubscribePeerEvents(h.runCtx, req)
+	h.NoError(err, "SubscribePeerEvents")
+
+	return resp
+}

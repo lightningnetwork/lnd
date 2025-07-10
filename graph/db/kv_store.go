@@ -404,8 +404,9 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 // NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
 // for that particular channel edge routing policy will be passed into the
 // callback.
-func (c *KVStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
+func (c *KVStore) ForEachChannel(_ context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
 
 	return forEachChannel(c.db, cb)
 }
@@ -666,8 +667,9 @@ func (c *KVStore) FetchNodeFeatures(nodePub route.Vertex) (
 // data to the call-back.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *KVStore) ForEachNodeCached(cb func(node route.Vertex,
-	chans map[uint64]*DirectedChannel) error) error {
+func (c *KVStore) ForEachNodeCached(_ context.Context,
+	cb func(node route.Vertex,
+		chans map[uint64]*DirectedChannel) error) error {
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each
@@ -788,7 +790,9 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 // early. Any operations performed on the NodeTx passed to the call-back are
 // executed under the same read transaction and so, methods on the NodeTx object
 // _MUST_ only be called from within the call-back.
-func (c *KVStore) ForEachNode(cb func(tx NodeRTx) error) error {
+func (c *KVStore) ForEachNode(_ context.Context,
+	cb func(tx NodeRTx) error) error {
+
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.LightningNode) error {
 
@@ -841,8 +845,8 @@ func forEachNode(db kvdb.Backend,
 // graph, executing the passed callback with each node encountered. If the
 // callback returns an error, then the transaction is aborted and the iteration
 // stops early.
-func (c *KVStore) ForEachNodeCacheable(cb func(route.Vertex,
-	*lnwire.FeatureVector) error) error {
+func (c *KVStore) ForEachNodeCacheable(_ context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
@@ -3242,7 +3246,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
+func (c *KVStore) ForEachNodeChannel(_ context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
 
@@ -3258,8 +3262,9 @@ func (c *KVStore) ForEachNodeChannel(nodePub route.Vertex,
 // executing the passed callback on each. The callback is provided with the
 // channel's outpoint, whether we have a policy for the channel and the channel
 // peer's node information.
-func (c *KVStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
-	havePolicy bool, otherNode *models.LightningNode) error) error {
+func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.LightningNode) error) error {
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)

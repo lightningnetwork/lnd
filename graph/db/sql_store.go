@@ -724,10 +724,9 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // peer's node information.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
-	havePolicy bool, otherNode *models.LightningNode) error) error {
-
-	var ctx = context.TODO()
+func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.LightningNode) error) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
@@ -784,12 +783,10 @@ func (s *SQLStore) ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
 // _MUST_ only be called from within the call-back.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNode(cb func(tx NodeRTx) error) error {
-	var (
-		ctx          = context.TODO()
-		lastID int64 = 0
-	)
+func (s *SQLStore) ForEachNode(ctx context.Context,
+	cb func(tx NodeRTx) error) error {
 
+	var lastID int64 = 0
 	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {
 		node, err := buildNode(ctx, db, &dbNode)
 		if err != nil {
@@ -924,10 +921,8 @@ func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
 // stops early.
 //
 // NOTE: This is a part of the V1Store interface.
-func (s *SQLStore) ForEachNodeCacheable(cb func(route.Vertex,
-	*lnwire.FeatureVector) error) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error) error {
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,
@@ -959,11 +954,9 @@ func (s *SQLStore) ForEachNodeCacheable(cb func(route.Vertex,
 // Unknown policies are passed into the callback as nil values.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNodeChannel(nodePub route.Vertex,
+func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error {
-
-	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
@@ -1109,10 +1102,9 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 // NOTE: The callback contents MUST not be modified.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachNodeCached(cb func(node route.Vertex,
-	chans map[uint64]*DirectedChannel) error) error {
-
-	var ctx = context.TODO()
+func (s *SQLStore) ForEachNodeCached(ctx context.Context,
+	cb func(node route.Vertex,
+		chans map[uint64]*DirectedChannel) error) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,
@@ -1336,10 +1328,9 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 // callback.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) ForEachChannel(cb func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	ctx := context.TODO()
+func (s *SQLStore) ForEachChannel(ctx context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
 
 	handleChannel := func(db SQLQueries,
 		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {

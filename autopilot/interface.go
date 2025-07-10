@@ -228,12 +228,12 @@ type GraphSource interface {
 	// the callback returns an error, then the transaction is aborted and
 	// the iteration stops early. Any operations performed on the NodeTx
 	// passed to the call-back are executed under the same read transaction.
-	ForEachNode(func(graphdb.NodeRTx) error) error
+	ForEachNode(context.Context, func(graphdb.NodeRTx) error) error
 
 	// ForEachNodeCached is similar to ForEachNode, but it utilizes the
 	// channel graph cache if one is available. It is less consistent than
 	// ForEachNode since any further calls are made across multiple
 	// transactions.
-	ForEachNodeCached(cb func(node route.Vertex,
+	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
 		chans map[uint64]*graphdb.DirectedChannel) error) error
 }

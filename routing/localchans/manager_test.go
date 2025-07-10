@@ -123,8 +123,9 @@ func TestManager(t *testing.T) {
 		return nil
 	}
 
-	forAllOutgoingChannels := func(cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy) error) error {
+	forAllOutgoingChannels := func(_ context.Context,
+		cb func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy) error) error {
 
 		for _, c := range channelSet {
 			if err := cb(c.edgeInfo, &currentPolicy); err != nil {

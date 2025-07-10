@@ -922,15 +922,20 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		// Use the ForEachChannel method to fetch the policies and
 		// assert that the deserialized policies match the original
 		// ones.
-		err := graph.ForEachChannel(func(info *models.ChannelEdgeInfo,
-			policy1 *models.ChannelEdgePolicy,
-			policy2 *models.ChannelEdgePolicy) error {
+		err := graph.ForEachChannel(
+			ctx, func(info *models.ChannelEdgeInfo,
+				policy1 *models.ChannelEdgePolicy,
+				policy2 *models.ChannelEdgePolicy) error {
 
-			require.NoError(t, compareEdgePolicies(edge1, policy1))
-			require.NoError(t, compareEdgePolicies(edge2, policy2))
+				require.NoError(
+					t, compareEdgePolicies(edge1, policy1),
+				)
+				require.NoError(
+					t, compareEdgePolicies(edge2, policy2),
+				)
 
-			return nil
-		})
+				return nil
+			})
 		require.NoError(t, err)
 	}
 
@@ -1311,7 +1316,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 
 	// Now, we'll use the ForEachSourceNodeChannel and assert that it
 	// returns the expected data in the call-back.
-	err := graph.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+	err := graph.ForEachSourceNodeChannel(ctx, func(chanPoint wire.OutPoint,
 		havePolicy bool, otherNode *models.LightningNode) error {
 
 		require.Contains(t, expectedSrcChans, chanPoint)
@@ -1332,6 +1337,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
@@ -1352,7 +1358,7 @@ func TestGraphTraversal(t *testing.T) {
 	// set of channels (to force the fall back), we should find all the
 	// channel as well as the nodes included.
 	graph.graphCache = nil
-	err := graph.ForEachNodeCached(func(node route.Vertex,
+	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
 		chans map[uint64]*DirectedChannel) error {
 
 		if _, ok := nodeIndex[node]; !ok {
@@ -1373,7 +1379,7 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(func(ei *models.ChannelEdgeInfo,
+	err = graph.ForEachChannel(ctx, func(ei *models.ChannelEdgeInfo,
 		_ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
@@ -1387,7 +1393,7 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = graph.ForEachNodeChannel(firstNode.PubKeyBytes,
+	err = graph.ForEachNodeChannel(ctx, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -1427,6 +1433,7 @@ func TestGraphTraversal(t *testing.T) {
 // working correctly.
 func TestGraphTraversalCacheable(t *testing.T) {
 	t.Parallel()
+	ctx := context.Background()
 
 	graph := MakeTestGraph(t)
 
@@ -1440,7 +1447,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err := graph.ForEachNode(func(tx NodeRTx) error {
+	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
 		nodeMap[tx.Node().PubKeyBytes] = struct{}{}
 
 		return nil
@@ -1452,7 +1459,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// iterating over each node, once again if the map is empty that
 	// indicates that all edges have properly been reached.
 	var nodes []route.Vertex
-	err = graph.ForEachNodeCacheable(func(node route.Vertex,
+	err = graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
 		features *lnwire.FeatureVector) error {
 
 		delete(nodeMap, node)
@@ -1570,7 +1577,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(func(tx NodeRTx) error {
+	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
 		delete(nodeIndex, tx.Node().Alias)
 		return nil
 	})
@@ -1662,13 +1669,14 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error {
+	if err := graph.ForEachChannel(context.Background(),
+		func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error {
 
-		numChans++
-		return nil
-	}); err != nil {
+			numChans++
+			return nil
+		},
+	); err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan channels: %v", line, err)
 	}
@@ -1681,7 +1689,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(func(tx NodeRTx) error {
+	err := graph.ForEachNode(context.Background(), func(tx NodeRTx) error {
 		numNodes++
 
 		return nil
@@ -3138,7 +3146,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 		expectedOut bool) {
 
 		calls := 0
-		err := graph.ForEachNodeChannel(node.PubKeyBytes,
+		err := graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
@@ -4201,6 +4209,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 // allocations and the total memory consumed by the full graph traversal.
 func BenchmarkForEachChannel(b *testing.B) {
 	graph := MakeTestGraph(b)
+	ctx := context.Background()
 
 	const numNodes = 100
 	const numChannels = 4
@@ -4215,7 +4224,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 		)
 
 		var nodes []route.Vertex
-		err := graph.ForEachNodeCacheable(func(node route.Vertex,
+		err := graph.ForEachNodeCacheable(ctx, func(node route.Vertex,
 			vector *lnwire.FeatureVector) error {
 
 			nodes = append(nodes, node)
@@ -4241,7 +4250,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(n, cb)
+			err := graph.ForEachNodeChannel(ctx, n, cb)
 			require.NoError(b, err)
 		}
 	}

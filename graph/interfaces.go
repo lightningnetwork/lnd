@@ -70,8 +70,9 @@ type ChannelGraphSource interface {
 	// ForAllOutgoingChannels is used to iterate over all channels
 	// emanating from the "source" node which is the center of the
 	// star-graph.
-	ForAllOutgoingChannels(cb func(c *models.ChannelEdgeInfo,
-		e *models.ChannelEdgePolicy) error) error
+	ForAllOutgoingChannels(ctx context.Context,
+		cb func(c *models.ChannelEdgeInfo,
+			e *models.ChannelEdgePolicy) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -257,7 +258,7 @@ type DB interface {
 	// to the caller.
 	//
 	// Unknown policies are passed into the callback as nil values.
-	ForEachNodeChannel(nodePub route.Vertex,
+	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error) error
 

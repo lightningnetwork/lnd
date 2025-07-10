@@ -211,8 +211,9 @@ func (r *mockGraphSource) ForEachNode(
 	return nil
 }
 
-func (r *mockGraphSource) ForAllOutgoingChannels(cb func(
-	i *models.ChannelEdgeInfo, c *models.ChannelEdgePolicy) error) error {
+func (r *mockGraphSource) ForAllOutgoingChannels(_ context.Context,
+	cb func(i *models.ChannelEdgeInfo,
+		c *models.ChannelEdgePolicy) error) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -3716,7 +3717,7 @@ out:
 	// policy of all of them.
 	const newTimeLockDelta = 100
 	var edgesToUpdate []EdgeWithInfo
-	err = ctx.router.ForAllOutgoingChannels(func(
+	err = ctx.router.ForAllOutgoingChannels(context.Background(), func(
 		info *models.ChannelEdgeInfo,
 		edge *models.ChannelEdgePolicy) error {
 

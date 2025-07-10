@@ -123,7 +123,7 @@ func (d *dbNode) ForEachChannel(ctx context.Context,
 func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error) error {
 
-	return d.db.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+	return d.db.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
 		// We'll skip over any node that doesn't have any advertised
 		// addresses. As we won't be able to reach them to actually
 		// open any channels.
@@ -219,7 +219,7 @@ func (nc dbNodeCached) ForEachChannel(ctx context.Context,
 func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error) error {
 
-	return dc.db.ForEachNodeCached(func(n route.Vertex,
+	return dc.db.ForEachNodeCached(ctx, func(n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
 
 		if len(channels) > 0 {

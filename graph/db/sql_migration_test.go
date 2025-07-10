@@ -283,7 +283,7 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 	nodes := make([]*models.LightningNode, 0)
 
-	err := store.ForEachNode(func(tx NodeRTx) error {
+	err := store.ForEachNode(context.Background(), func(tx NodeRTx) error {
 		node := tx.Node()
 
 		// Call PubKey to ensure the objects cached pubkey is set so that

@@ -1252,10 +1252,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	s.localChanMgr = &localchans.Manager{
 		SelfPub:              nodeKeyDesc.PubKey,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
-		ForAllOutgoingChannels: func(cb func(*models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy) error) error {
+		ForAllOutgoingChannels: func(ctx context.Context,
+			cb func(*models.ChannelEdgeInfo,
+				*models.ChannelEdgePolicy) error) error {
 
-			return s.graphDB.ForEachNodeChannel(selfVertex,
+			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,
 					e *models.ChannelEdgePolicy,
 					_ *models.ChannelEdgePolicy) error {
@@ -2607,7 +2608,7 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
-		if err := s.establishPersistentConnections(); err != nil {
+		if err := s.establishPersistentConnections(ctx); err != nil {
 			srvrLog.Errorf("Failed to establish persistent "+
 				"connections: %v", err)
 		}
@@ -3594,7 +3595,7 @@ type nodeAddresses struct {
 // to all our direct channel collaborators. In order to promote liveness of our
 // active channels, we instruct the connection manager to attempt to establish
 // and maintain persistent connections to all our direct channel counterparties.
-func (s *server) establishPersistentConnections() error {
+func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// nodeAddrsMap stores the combination of node public keys and addresses
 	// that we'll attempt to reconnect to. PubKey strings are used as keys
 	// since other PubKey forms can't be compared.
@@ -3604,7 +3605,7 @@ func (s *server) establishPersistentConnections() error {
 	// attempt to connect to based on our set of previous connections. Set
 	// the reconnection port to the default peer port.
 	linkNodes, err := s.chanStateDB.LinkNodeDB().FetchAllLinkNodes()
-	if err != nil && err != channeldb.ErrLinkNodesNotFound {
+	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
 		return fmt.Errorf("failed to fetch all link nodes: %w", err)
 	}
 
@@ -3622,7 +3623,7 @@ func (s *server) establishPersistentConnections() error {
 	// that have been added via NodeAnnouncement messages.
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
-	err = s.graphDB.ForEachSourceNodeChannel(func(chanPoint wire.OutPoint,
+	forEachSrcNodeChan := func(chanPoint wire.OutPoint,
 		havePolicy bool, channelPeer *models.LightningNode) error {
 
 		// If the remote party has announced the channel to us, but we
@@ -3666,6 +3667,7 @@ func (s *server) establishPersistentConnections() error {
 				// addresses if Tor outbound support is enabled.
 				case *tor.OnionAddr:
 					if s.cfg.Tor.Active {
+						//nolint:ll
 						addrSet[lnAddress.String()] = lnAddress
 					}
 				}
@@ -3688,7 +3690,8 @@ func (s *server) establishPersistentConnections() error {
 
 		nodeAddrsMap[pubStr] = n
 		return nil
-	})
+	}
+	err = s.graphDB.ForEachSourceNodeChannel(ctx, forEachSrcNodeChan)
 	if err != nil {
 		srvrLog.Errorf("Failed to iterate over source node channels: "+
 			"%v", err)

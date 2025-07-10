@@ -70,8 +70,9 @@ type V1Store interface { //nolint:interfacebloat
 	// node, executing the passed callback on each. The call-back is
 	// provided with the channel's outpoint, whether we have a policy for
 	// the channel and the channel peer's node information.
-	ForEachSourceNodeChannel(cb func(chanPoint wire.OutPoint,
-		havePolicy bool, otherNode *models.LightningNode) error) error
+	ForEachSourceNodeChannel(ctx context.Context,
+		cb func(chanPoint wire.OutPoint, havePolicy bool,
+			otherNode *models.LightningNode) error) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the
@@ -82,7 +83,7 @@ type V1Store interface { //nolint:interfacebloat
 	// to the caller.
 	//
 	// Unknown policies are passed into the callback as nil values.
-	ForEachNodeChannel(nodePub route.Vertex,
+	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error) error
 
@@ -90,7 +91,7 @@ type V1Store interface { //nolint:interfacebloat
 	// DirectedChannel data to the call-back.
 	//
 	// NOTE: The callback contents MUST not be modified.
-	ForEachNodeCached(cb func(node route.Vertex,
+	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
 		chans map[uint64]*DirectedChannel) error) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
@@ -100,13 +101,13 @@ type V1Store interface { //nolint:interfacebloat
 	// passed to the call-back are executed under the same read transaction
 	// and so, methods on the NodeTx object _MUST_ only be called from
 	// within the call-back.
-	ForEachNode(cb func(tx NodeRTx) error) error
+	ForEachNode(ctx context.Context, cb func(tx NodeRTx) error) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
 	// in the graph, executing the passed callback with each node
 	// encountered. If the callback returns an error, then the transaction
 	// is aborted and the iteration stops early.
-	ForEachNodeCacheable(cb func(route.Vertex,
+	ForEachNodeCacheable(ctx context.Context, cb func(route.Vertex,
 		*lnwire.FeatureVector) error) error
 
 	// LookupAlias attempts to return the alias as advertised by the target
@@ -157,7 +158,7 @@ type V1Store interface { //nolint:interfacebloat
 	// NOTE: If an edge can't be found, or wasn't advertised, then a nil
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
-	ForEachChannel(cb func(*models.ChannelEdgeInfo,
+	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error
 

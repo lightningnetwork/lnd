@@ -6737,7 +6737,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(func(nodeTx graphdb.NodeRTx) error {
+	err := graph.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
 		lnNode := marshalNode(nodeTx.Node())
 
 		resp.Nodes = append(resp.Nodes, lnNode)
@@ -6751,7 +6751,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
+	err = graph.ForEachChannel(ctx, func(edgeInfo *models.ChannelEdgeInfo,
 		c1, c2 *models.ChannelEdgePolicy) error {
 
 		// Do not include unannounced channels unless specifically
@@ -7041,7 +7041,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	err = graph.ForEachNodeChannel(node.PubKeyBytes,
+	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
 		func(edge *models.ChannelEdgeInfo,
 			c1, c2 *models.ChannelEdgePolicy) error {
 
@@ -7151,7 +7151,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// network, tallying up the total number of nodes, and also gathering
 	// each node so we can measure the graph diameter and degree stats
 	// below.
-	err := graph.ForEachNodeCached(func(node route.Vertex,
+	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
 		edges map[uint64]*graphdb.DirectedChannel) error {
 
 		// Increment the total number of nodes with each iteration.
@@ -7723,7 +7723,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = channelGraph.ForEachNodeChannel(selfNode.PubKeyBytes,
+	err = channelGraph.ForEachNodeChannel(ctx, selfNode.PubKeyBytes,
 		func(chanInfo *models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy) error {
 

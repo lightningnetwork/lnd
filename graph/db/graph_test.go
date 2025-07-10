@@ -1336,11 +1336,16 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	require.Empty(t, expectedSrcChans)
 }
 
+// TestGraphTraversal tests that we can traverse the graph and find all
+// nodes and channels that we expect to find.
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	// If we turn the channel graph cache _off_, then iterate through the
+	// set of channels (to force the fall back), we should find all the
+	// channel as well as the nodes included.
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1355,10 +1360,6 @@ func TestGraphTraversal(t *testing.T) {
 		nodeIndex[node.PubKeyBytes] = struct{}{}
 	}
 
-	// If we turn the channel graph cache _off_, then iterate through the
-	// set of channels (to force the fall back), we should find all the
-	// channel as well as the nodes included.
-	graph.graphCache = nil
 	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
 		chans map[uint64]*DirectedChannel) error {
 
@@ -4257,17 +4258,16 @@ func BenchmarkForEachChannel(b *testing.B) {
 	}
 }
 
-// TestGraphCacheForEachNodeChannel tests that the forEachNodeDirectedChannel
+// TestForEachNodeDirectedChannel tests that the ForEachNodeDirectedChannel
 // method works as expected, and is able to handle nil self edges.
-func TestGraphCacheForEachNodeChannel(t *testing.T) {
+func TestForEachNodeDirectedChannel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
-
 	// Unset the channel graph cache to simulate the user running with the
-	// option turned off.
-	graph.graphCache = nil
+	// option turned off. This forces the V1Store ForEachNodeDirectedChannel
+	// to be queried instead of the graph cache's ForEachChannel method.
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
 
 	node1 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(ctx, node1))

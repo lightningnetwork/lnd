@@ -931,9 +931,19 @@ func (p *Brontide) Start() error {
 		)
 		p.onionPeerActorRef = fn.Some(onionPeerActorRef)
 	}
-	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
-		p.cfg.OnionMessageServer,
+
+	// The onion message endpoint is used to handle incoming onion messages
+	// **from** this peer. This uses the message multiplexer to route
+	// messages to the endpoint for further processing.
+	onionMessageEndpoint, err := onionmessage.NewOnionEndpoint(
+		p.cfg.ActorSystem.Receptionist(),
+		p.cfg.SphinxRouterNoReplayLog,
+		onionmessage.WithMessageServer(p.cfg.OnionMessageServer),
 	)
+	if err != nil {
+		return fmt.Errorf("unable to create onion message endpoint: "+
+			"%w", err)
+	}
 
 	// We register the onion message endpoint with the message router.
 	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {

@@ -6445,7 +6445,9 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 
 	invoice, err := r.server.invoices.LookupInvoice(ctx, payHash)
 	switch {
-	case errors.Is(err, invoices.ErrInvoiceNotFound):
+	case errors.Is(err, invoices.ErrInvoiceNotFound) ||
+		errors.Is(err, invoices.ErrNoInvoicesCreated):
+
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

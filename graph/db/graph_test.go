@@ -4350,15 +4350,6 @@ func TestGraphLoading(t *testing.T) {
 	// Next, create the graph for the first time.
 	graphStore := NewTestDB(t)
 
-	// Temporarily add a manual skip for this test, until all the methods
-	// it uses have been implemented on the SQLStore struct. We have to
-	// manually add this skip because it is the only test that doesn't use
-	// the MakeTestGraph helper to create the graph store.
-	_, ok := graphStore.(*KVStore)
-	if !ok {
-		t.Skipf("Skipping TestGraphLoading for non-bbolt graph store")
-	}
-
 	graph, err := NewChannelGraph(graphStore)
 	require.NoError(t, err)
 	require.NoError(t, graph.Start())

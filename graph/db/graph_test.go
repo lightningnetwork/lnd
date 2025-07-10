@@ -1009,9 +1009,6 @@ func assertNodeNotInCache(t *testing.T, g *ChannelGraph, n route.Vertex) {
 	_, ok := g.graphCache.nodeFeatures[n]
 	require.False(t, ok)
 
-	_, ok = g.graphCache.nodeChannels[n]
-	require.False(t, ok)
-
 	// We should get the default features for this node.
 	features := g.graphCache.GetFeatures(n)
 	require.Equal(t, lnwire.EmptyFeatureVector(), features)
@@ -1531,10 +1528,13 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	require.Len(t, chanIndex2, 0)
 }
 
+// TestGraphCacheTraversal tests traversal of the graph via the graph cache.
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	// Explicitly enable the graph cache so that the
+	// ForEachNodeDirectedChannel call below will use the cache.
+	graph := MakeTestGraph(t, WithUseGraphCache(true))
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1550,7 +1550,7 @@ func TestGraphCacheTraversal(t *testing.T) {
 	for _, node := range nodeList {
 		node := node
 
-		err := graph.graphCache.ForEachChannel(
+		err := graph.ForEachNodeDirectedChannel(
 			node.PubKeyBytes, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 
@@ -1572,6 +1572,8 @@ func TestGraphCacheTraversal(t *testing.T) {
 				numNodeChans++
 
 				return nil
+			}, func() {
+				numNodeChans = 0
 			},
 		)
 		require.NoError(t, err)

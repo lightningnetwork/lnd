@@ -461,6 +461,9 @@ type Config struct {
 	// onion messages to subscribers.
 	OnionMessageServer *subscribe.Server
 
+	// OnionMsgSender is a function that sends an onion message to any peer.
+	OnionMsgSender func([33]byte, *btcec.PublicKey, []byte) error
+
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
 	ShouldFwdExpEndorsement func() bool
@@ -897,7 +900,9 @@ func (p *Brontide) Start() error {
 	}
 
 	onionMessageEndpoint := onion_message.NewOnionEndpoint(
-		p.cfg.OnionMessageServer,
+		onion_message.WithMessageServer(p.cfg.OnionMessageServer),
+		onion_message.WithOnionProcessor(p.cfg.Sphinx),
+		onion_message.WithMessageSender(p.cfg.OnionMsgSender),
 	)
 
 	// We register the onion message endpoint with the message router.

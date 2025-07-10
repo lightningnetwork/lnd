@@ -4408,6 +4408,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		OnionMessageServer:      s.onionMessageServer,
+		OnionMsgSender:          s.SendOnionMessage,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement, error) {
 

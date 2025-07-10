@@ -108,8 +108,8 @@ type ChannelLinkConfig struct {
 	// are always presented for the same identifier. The last boolean is
 	// used to decide whether this is a reforwarding or not - when it's
 	// reforwarding, we skip the replay check enforced in our decay log.
-	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest, bool) (
-		[]hop.DecodeHopIteratorResponse, error)
+	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest, bool,
+	) ([]hop.DecodeHopIteratorResponse, error)
 
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.

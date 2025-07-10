@@ -6989,7 +6989,10 @@ func (r *rpcServer) GetChanInfo(_ context.Context,
 	default:
 		return nil, fmt.Errorf("specify either chan_id or chan_point")
 	}
-	if err != nil {
+	switch {
+	case errors.Is(err, graphdb.ErrEdgeNotFound):
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
 		return nil, err
 	}
 

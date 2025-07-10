@@ -5,7 +5,26 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/tlv"
 )
+
+
+// TaprootPartialSigs houses the 3 possible taproot partial signatures (without nonces)
+// that can be sent in a ClosingSig message. These use just PartialSig since the
+// receiver already knows our nonce from the previous ClosingComplete.
+type TaprootPartialSigs struct {
+	// CloserNoClosee is a partial signature that excludes the
+	// output of the closee. Uses TLV type 5.
+	CloserNoClosee tlv.OptionalRecordT[tlv.TlvType5, PartialSig]
+
+	// NoCloserClosee is a partial signature that excludes the
+	// output of the closer. Uses TLV type 6.
+	NoCloserClosee tlv.OptionalRecordT[tlv.TlvType6, PartialSig]
+
+	// CloserAndClosee is a partial signature that includes
+	// both outputs. Uses TLV type 7.
+	CloserAndClosee tlv.OptionalRecordT[tlv.TlvType7, PartialSig]
+}
 
 // ClosingSig is sent in response to a ClosingComplete message. It carries the
 // signatures of the closee to the closer.
@@ -30,12 +49,84 @@ type ClosingSig struct {
 	LockTime uint32
 
 	// ClosingSigs houses the 3 possible signatures that can be sent.
+	// For non-taproot channels, these are regular signatures.
 	ClosingSigs
+
+	// TaprootPartialSigs houses the 3 possible taproot partial signatures
+	// that can be sent. For ClosingSig, we only send the partial signature
+	// without the nonce since the remote already knows our nonce from the
+	// previous ClosingComplete message.
+	//
+	// NOTE: This field is only populated for taproot channels. When present,
+	// the above ClosingSigs MUST be empty.
+	TaprootPartialSigs
+
+	// NextCloseeNonce is an optional nonce for RBF iterations. This is the
+	// nonce that the closer should use for this party's closee signature
+	// in the next RBF round.
+	//
+	// NOTE: This field is only populated for taproot channels during RBF.
+	NextCloseeNonce tlv.OptionalRecordT[tlv.TlvType22, Musig2Nonce]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
 	ExtraData ExtraOpaqueData
+}
+
+// decodeClosingSigSigs decodes the closing sig TLV records from the passed
+// ExtraOpaqueData.
+func decodeClosingSigSigs(c *ClosingSigs, tp *TaprootPartialSigs, 
+	nextNonce *tlv.OptionalRecordT[tlv.TlvType22, Musig2Nonce], 
+	tlvRecords ExtraOpaqueData) error {
+	// Regular signatures
+	sig1 := c.CloserNoClosee.Zero()
+	sig2 := c.NoCloserClosee.Zero()
+	sig3 := c.CloserAndClosee.Zero()
+	
+	// Taproot partial signatures (without nonces)
+	tSig1 := tp.CloserNoClosee.Zero()
+	tSig2 := tp.NoCloserClosee.Zero()
+	tSig3 := tp.CloserAndClosee.Zero()
+	
+	// Next closee nonce for RBF
+	nonce := nextNonce.Zero()
+
+	typeMap, err := tlvRecords.ExtractRecords(
+		&sig1, &sig2, &sig3, &tSig1, &tSig2, &tSig3, &nonce,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Regular signatures
+	if val, ok := typeMap[c.CloserNoClosee.TlvType()]; ok && val == nil {
+		c.CloserNoClosee = tlv.SomeRecordT(sig1)
+	}
+	if val, ok := typeMap[c.NoCloserClosee.TlvType()]; ok && val == nil {
+		c.NoCloserClosee = tlv.SomeRecordT(sig2)
+	}
+	if val, ok := typeMap[c.CloserAndClosee.TlvType()]; ok && val == nil {
+		c.CloserAndClosee = tlv.SomeRecordT(sig3)
+	}
+	
+	// Taproot partial signatures
+	if val, ok := typeMap[tp.CloserNoClosee.TlvType()]; ok && val == nil {
+		tp.CloserNoClosee = tlv.SomeRecordT(tSig1)
+	}
+	if val, ok := typeMap[tp.NoCloserClosee.TlvType()]; ok && val == nil {
+		tp.NoCloserClosee = tlv.SomeRecordT(tSig2)
+	}
+	if val, ok := typeMap[tp.CloserAndClosee.TlvType()]; ok && val == nil {
+		tp.CloserAndClosee = tlv.SomeRecordT(tSig3)
+	}
+	
+	// Next closee nonce
+	if val, ok := typeMap[nextNonce.TlvType()]; ok && val == nil {
+		*nextNonce = tlv.SomeRecordT(nonce)
+	}
+
+	return nil
 }
 
 // Decode deserializes a serialized ClosingSig message stored in the passed
@@ -57,7 +148,7 @@ func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	if err := decodeClosingSigs(&c.ClosingSigs, tlvRecords); err != nil {
+	if err := decodeClosingSigSigs(&c.ClosingSigs, &c.TaprootPartialSigs, &c.NextCloseeNonce, tlvRecords); err != nil {
 		return err
 	}
 
@@ -66,6 +157,42 @@ func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 	}
 
 	return nil
+}
+
+// closingSigSigRecords returns the set of records that encode the closing sigs,
+// including both regular and taproot signatures.
+func closingSigSigRecords(c *ClosingSigs, tp *TaprootPartialSigs, 
+	nextNonce tlv.OptionalRecordT[tlv.TlvType22, Musig2Nonce]) []tlv.RecordProducer {
+	recordProducers := make([]tlv.RecordProducer, 0, 7)
+	
+	// Regular signatures
+	c.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType1, Sig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	c.NoCloserClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType2, Sig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	c.CloserAndClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType3, Sig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	
+	// Taproot partial signatures (without nonces)
+	tp.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType5, PartialSig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	tp.NoCloserClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType6, PartialSig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	tp.CloserAndClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType7, PartialSig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	
+	// Next closee nonce for RBF
+	nextNonce.WhenSome(func(nonce tlv.RecordT[tlv.TlvType22, Musig2Nonce]) {
+		recordProducers = append(recordProducers, &nonce)
+	})
+
+	return recordProducers
 }
 
 // Encode serializes the target ClosingSig into the passed io.Writer.
@@ -89,7 +216,7 @@ func (c *ClosingSig) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	recordProducers := closingSigRecords(&c.ClosingSigs)
+	recordProducers := closingSigSigRecords(&c.ClosingSigs, &c.TaprootPartialSigs, c.NextCloseeNonce)
 
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {

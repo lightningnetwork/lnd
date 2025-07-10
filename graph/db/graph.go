@@ -28,6 +28,8 @@ type ChannelGraph struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
+	opts *chanGraphOptions
+
 	// cacheLoaded is true if the initial graphCache population has
 	// finished. We use this to ensure that when performing any reads,
 	// we only read from the graphCache if it has been fully populated.
@@ -51,6 +53,7 @@ func NewChannelGraph(v1Store V1Store,
 	}
 
 	g := &ChannelGraph{
+		opts:            opts,
 		V1Store:         v1Store,
 		topologyManager: newTopologyManager(),
 		quit:            make(chan struct{}),
@@ -75,8 +78,22 @@ func (c *ChannelGraph) Start() error {
 	log.Debugf("ChannelGraph starting")
 	defer log.Debug("ChannelGraph started")
 
-	if err := c.populateCache(context.TODO()); err != nil {
-		return fmt.Errorf("could not populate the graph cache: %w", err)
+	ctx := context.TODO()
+	if c.opts.asyncGraphCachePopulation {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+
+			if err := c.populateCache(ctx); err != nil {
+				log.Errorf("Could not populate the graph "+
+					"cache: %v", err)
+			}
+		}()
+	} else {
+		if err := c.populateCache(ctx); err != nil {
+			return fmt.Errorf("could not populate the graph "+
+				"cache: %w", err)
+		}
 	}
 
 	c.wg.Add(1)

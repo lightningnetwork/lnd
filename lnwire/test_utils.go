@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -56,6 +57,33 @@ func RandPubKey(t *rapid.T) *btcec.PublicKey {
 	_, pub := btcec.PrivKeyFromBytes(privKeyBytes)
 
 	return pub
+}
+
+// RandBlindedPath generates a random blinded path with 1-5 hops.
+func RandBlindedPath(t *rapid.T) *sphinx.BlindedPath {
+	introKey := RandPubKey(t)
+	blindingKey := RandPubKey(t)
+
+	numHops := rapid.IntRange(1, 5).Draw(t, "numBlindedHops")
+	hops := make([]*sphinx.BlindedHopInfo, numHops)
+	for i := range hops {
+		cipherLen := rapid.IntRange(1, 128).Draw(
+			t, fmt.Sprintf("cipherLen-%d", i),
+		)
+
+		hops[i] = &sphinx.BlindedHopInfo{
+			BlindedNodePub: RandPubKey(t),
+			CipherText: rapid.SliceOfN(
+				rapid.Byte(), cipherLen, cipherLen,
+			).Draw(t, fmt.Sprintf("cipherText-%d", i)),
+		}
+	}
+
+	return &sphinx.BlindedPath{
+		IntroductionPoint: introKey,
+		BlindingPoint:     blindingKey,
+		BlindedHops:       hops,
+	}
 }
 
 // RandChannelID generates a random channel ID.

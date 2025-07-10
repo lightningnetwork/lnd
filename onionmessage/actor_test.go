@@ -57,8 +57,8 @@ func TestSpawnOnionPeerActorSendsMessage(t *testing.T) {
 	}
 }
 
-// TestFindPeerActorExists verifies that findPeerActor returns the actor
-// reference when the actor has been spawned.
+// TestFindPeerActorExists verifies that findPeerActor returns the same actor
+// reference that was returned by SpawnOnionPeerActor.
 func TestFindPeerActorExists(t *testing.T) {
 	t.Parallel()
 
@@ -77,12 +77,14 @@ func TestFindPeerActorExists(t *testing.T) {
 
 	// Spawn the actor.
 	sender := func(msg *lnwire.OnionMessage) {}
-	SpawnOnionPeerActor(system, sender, pubKeyArr)
+	spawnedRef, _ := SpawnOnionPeerActor(system, sender, pubKeyArr)
 
-	// Find the actor.
+	// Find the actor and verify it's the same reference.
 	actorOpt := findPeerActor(receptionist, pubKeyArr)
-
 	require.True(t, actorOpt.IsSome(), "actor should be found")
+
+	foundRef := actorOpt.UnwrapOrFail(t)
+	require.Equal(t, spawnedRef, OnionPeerActorRef(foundRef))
 }
 
 // TestOnionPeerActorReceive tests the OnionPeerActor.Receive method directly

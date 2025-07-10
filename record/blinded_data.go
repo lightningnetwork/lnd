@@ -90,6 +90,37 @@ func NewNonFinalBlindedRouteData(chanID lnwire.ShortChannelID,
 	return info
 }
 
+// NewNonFinalBlindedRouteData creates the data that's provided for hops within
+// a blinded route.
+func NewNonFinalBlindedRouteDataOnionMessage(nextNodeID *btcec.PublicKey,
+	blindingOverride *btcec.PublicKey, constraints *PaymentConstraints,
+	features *lnwire.FeatureVector) *BlindedRouteData {
+
+	info := &BlindedRouteData{
+		NextNodeID: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType4](nextNodeID),
+		),
+	}
+
+	if blindingOverride != nil {
+		info.NextBlindingOverride = tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[tlv.TlvType8](blindingOverride))
+	}
+
+	if constraints != nil {
+		info.Constraints = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType12](*constraints))
+	}
+
+	if features != nil {
+		info.Features = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType14](*features),
+		)
+	}
+
+	return info
+}
+
 // NewFinalHopBlindedRouteData creates the data that's provided for the final
 // hop in a blinded route.
 func NewFinalHopBlindedRouteData(constraints *PaymentConstraints,

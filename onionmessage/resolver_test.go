@@ -22,7 +22,7 @@ func TestMockNodeIDResolverRemotePubFromSCID(t *testing.T) {
 		scid := lnwire.NewShortChanIDFromInt(1)
 		resolver.addPeer(scid, pubKey)
 
-		got, err := resolver.RemotePubFromSCID(scid)
+		got, err := resolver.RemotePubFromSCID(t.Context(), scid)
 		require.NoError(t, err)
 		require.Equal(t, pubKey, got)
 	})
@@ -33,7 +33,7 @@ func TestMockNodeIDResolverRemotePubFromSCID(t *testing.T) {
 		resolver := newMockNodeIDResolver()
 		scid := lnwire.NewShortChanIDFromInt(2)
 
-		got, err := resolver.RemotePubFromSCID(scid)
+		got, err := resolver.RemotePubFromSCID(t.Context(), scid)
 		require.Error(t, err)
 		require.Nil(t, got)
 	})

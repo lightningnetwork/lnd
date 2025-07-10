@@ -694,11 +694,19 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	var pubKey [33]byte
 	copy(pubKey[:], aliceKeyPub.SerializeCompressed())
 
+	// We have to have a valid server key for brontide to start up properly.
+	serverKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	var serverKeyArr [33]byte
+	copy(serverKeyArr[:], serverKey.PubKey().SerializeCompressed())
+
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
+		ServerPubKey:      serverKeyArr,
 		ErrorBuffer:       errBuffer,
 		ChainIO:           chainIO,
 		Switch:            mockSwitch,

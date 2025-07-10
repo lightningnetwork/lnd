@@ -2,6 +2,7 @@ package onionmessage
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 
@@ -34,7 +35,7 @@ func newMockNodeIDResolver() *mockNodeIDResolver {
 }
 
 // RemotePubFromSCID resolves a node public key from a short channel ID.
-func (m *mockNodeIDResolver) RemotePubFromSCID(
+func (m *mockNodeIDResolver) RemotePubFromSCID(_ context.Context,
 	scid lnwire.ShortChannelID) (*btcec.PublicKey, error) {
 
 	if pk, ok := m.peers[scid]; ok {

@@ -26,6 +26,11 @@ type Request struct {
 	msg lnwire.OnionMessage
 }
 
+// NewRequest creates a new Request from an onion message.
+func NewRequest(msg lnwire.OnionMessage) *Request {
+	return &Request{msg: msg}
+}
+
 // MessageType returns a string identifier for the Request message type.
 func (m *Request) MessageType() string {
 	return "OnionMessageRequest"
@@ -115,7 +120,7 @@ func (a *OnionPeerActor) Receive(ctx context.Context,
 		slog.Int("blob_length", len(req.msg.OnionBlob)))
 
 	routingActionResult := processOnionMessage(
-		a.router, a.resolver, &req.msg,
+		ctx, a.router, a.resolver, &req.msg,
 	)
 
 	routingAction, err := routingActionResult.Unpack()

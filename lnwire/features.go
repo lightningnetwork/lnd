@@ -403,6 +403,8 @@ var Features = map[FeatureBit]string{
 	RbfCoopCloseRequired:                 "rbf-coop-close",
 	RbfCoopCloseOptionalStaging:          "rbf-coop-close-x",
 	RbfCoopCloseRequiredStaging:          "rbf-coop-close-x",
+	OnionMessagesOptional:                "onion-messages",
+	OnionMessagesRequired:                "onion-messages",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

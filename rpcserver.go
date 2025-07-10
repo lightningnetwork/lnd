@@ -9447,10 +9447,30 @@ func (r *rpcServer) SubscribeOnionMessages(
 					"failed type assertion: %T", update)
 			}
 
-			err := server.Send(&lnrpc.OnionMessage{
-				Peer:    oMsg.Peer[:],
-				PathKey: oMsg.PathKey[:],
-				Onion:   oMsg.OnionBlob,
+			bp := &lnrpc.BlindedPath{}
+
+			//nolint:ll
+			if oMsg.ReplyPath != nil {
+				bp.IntroductionNode = oMsg.ReplyPath.IntroductionPoint.SerializeCompressed()
+				bp.BlindingPoint = oMsg.ReplyPath.BlindingPoint.SerializeCompressed()
+
+				for _, hop := range oMsg.ReplyPath.BlindedHops {
+					rpcHop := &lnrpc.BlindedHop{
+						BlindedNode:   hop.BlindedNodePub.SerializeCompressed(),
+						EncryptedData: hop.CipherText,
+					}
+					bp.BlindedHops = append(bp.BlindedHops, rpcHop)
+				}
+			}
+
+			//nolint:ll
+			err := server.Send(&lnrpc.OnionMessageUpdate{
+				Peer:                   oMsg.Peer[:],
+				PathKey:                oMsg.PathKey[:],
+				Onion:                  oMsg.OnionBlob,
+				ReplyPath:              bp,
+				EncryptedRecipientData: oMsg.EncryptedRecipientData,
+				CustomRecords:          oMsg.CustomRecords,
 			})
 			if err != nil {
 				return err

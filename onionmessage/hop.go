@@ -2,6 +2,7 @@ package onionmessage
 
 import (
 	"bytes"
+	"context"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -43,7 +44,8 @@ type routingAction = fn.Either[forwardAction, deliverAction]
 // NodeIDResolver defines an interface to resolve a node public key from a short
 // channel ID.
 type NodeIDResolver interface {
-	RemotePubFromSCID(scid lnwire.ShortChannelID) (*btcec.PublicKey, error)
+	RemotePubFromSCID(ctx context.Context,
+		scid lnwire.ShortChannelID) (*btcec.PublicKey, error)
 }
 
 // processOnionMessage decodes and processes an onion message packet and its
@@ -51,7 +53,8 @@ type NodeIDResolver interface {
 // recipient data, and derives the next path key. It returns a fn.Result type
 // containing a routingAction, which contains all the information required to
 // execute the next step in the routing process.
-func processOnionMessage(router OnionRouter, resolver NodeIDResolver,
+func processOnionMessage(ctx context.Context, router OnionRouter,
+	resolver NodeIDResolver,
 	msg *lnwire.OnionMessage) fn.Result[routingAction] {
 
 	var onionPkt sphinx.OnionPacket
@@ -102,7 +105,7 @@ func processOnionMessage(router OnionRouter, resolver NodeIDResolver,
 		routeData.NextBlindingOverride)
 
 	action, err := createRoutingAction(
-		resolver, processedPkt, &originalPayload, routeData,
+		ctx, resolver, processedPkt, &originalPayload, routeData,
 		nextPathKey,
 	)
 	if err != nil {
@@ -114,7 +117,7 @@ func processOnionMessage(router OnionRouter, resolver NodeIDResolver,
 
 // createRoutingAction creates the routing action based on whether we are
 // forwarding or the receiver of the onion message.
-func createRoutingAction(resolver NodeIDResolver,
+func createRoutingAction(ctx context.Context, resolver NodeIDResolver,
 	packet *sphinx.ProcessedPacket, payload *lnwire.OnionMessagePayload,
 	routeData *record.BlindedRouteData,
 	nextPathKey *btcec.PublicKey) (routingAction, error) {
@@ -136,7 +139,9 @@ func createRoutingAction(resolver NodeIDResolver,
 			if err != nil {
 				return routingAction{}, err
 			}
-			nextNodeID, err = resolver.RemotePubFromSCID(scid.Val)
+			nextNodeID, err = resolver.RemotePubFromSCID(
+				ctx, scid.Val,
+			)
 			if err != nil {
 				return routingAction{}, err
 			}

@@ -156,7 +156,7 @@ func testProcessOnionMessageCase(t *testing.T, router OnionRouter,
 	)
 
 	// Process the message.
-	result := processOnionMessage(router, resolver, msg)
+	result := processOnionMessage(t.Context(), router, resolver, msg)
 	require.True(t, result.IsOk())
 
 	// Verify result.

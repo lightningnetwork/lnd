@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -67,6 +68,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -423,6 +425,15 @@ type server struct {
 
 	onionMessageServer *subscribe.Server
 
+	// actorSystem is the actor system tasked with handling actors that are
+	// created for this server.
+	actorSystem *actor.ActorSystem
+
+	// onionActorFactory is a factory function that spawns per-peer onion
+	// message actors. It captures shared dependencies and is passed to
+	// each peer connection.
+	onionActorFactory onionmessage.OnionActorFactory
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -741,6 +752,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		customMessageServer: subscribe.NewServer(),
 
 		onionMessageServer: subscribe.NewServer(),
+
+		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
 
@@ -2355,6 +2368,17 @@ func (s *server) Start(ctx context.Context) error {
 			startErr = err
 			return
 		}
+
+		// Create the onion message actor factory that will be used to
+		// spawn per-peer actors for handling onion messages.
+		resolver := &onionmessage.GraphNodeResolver{
+			Graph:  s.graphDB,
+			OurPub: s.identityECDH.PubKey(),
+		}
+		s.onionActorFactory = onionmessage.NewOnionActorFactory(
+			s.sphinxOnionMsg, resolver, s,
+			s.onionMessageServer,
+		)
 
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 		if err := s.chanStatusMgr.Start(); err != nil {
@@ -4422,14 +4446,14 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		SphinxPayment:           s.sphinxPayment,
-		SphinxOnionMsg:          s.sphinxOnionMsg,
+		SpawnOnionActor:         s.onionActorFactory,
+		ActorSystem:             s.actorSystem,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
-		OnionMessageServer:      s.onionMessageServer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 
@@ -4685,6 +4709,10 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// peer termination watcher and skip cleanup.
 	if _, ok := s.ignorePeerTermination[p]; ok {
 		delete(s.ignorePeerTermination, p)
+
+		// Ensure the onion peer actor is stopped even if Disconnect
+		// hasn't been called yet due to async execution.
+		p.StopOnionActorIfExists()
 
 		pubKey := p.PubKey()
 		pubStr := string(pubKey[:])
@@ -5364,6 +5392,20 @@ func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
 
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
+	return peer.SendMessageLazy(true, msg)
+}
+
+// SendToPeer sends an onion message to the peer identified by the given
+// compressed public key. This implements the onionmessage.PeerMessageSender
+// interface and is used by the onion peer actor when forwarding messages.
+func (s *server) SendToPeer(pubKey [33]byte,
+	msg *lnwire.OnionMessage) error {
+
+	peer, err := s.FindPeerByPubStr(string(pubKey[:]))
+	if err != nil {
+		return err
+	}
+
 	return peer.SendMessageLazy(true, msg)
 }
 

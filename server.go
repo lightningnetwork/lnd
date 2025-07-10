@@ -1127,7 +1127,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
+	paymentControl := channeldb.NewKVPaymentsDB(dbs.ChanStateDB)
 
 	s.controlTower = routing.NewControlTower(paymentControl)
 

@@ -28,7 +28,7 @@ func (m *OMRequest) MessageType() string {
 	return "OnionMessageRequest"
 }
 
-// OMResponse is the response message sent back from an Onion Peer Actor
+// OMResponse is the response message sent back from an Onion Peer Actor.
 type OMResponse struct {
 	actor.BaseMessage
 	Success bool
@@ -66,6 +66,7 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 
 		select {
 		case <-ctx.Done():
+
 			return fn.Err[*OMResponse](
 				ErrActorShuttingDown,
 			)
@@ -74,6 +75,7 @@ func SpawnOnionPeerActor(system *actor.ActorSystem,
 
 		sender(&req.msg)
 		response := &OMResponse{Success: true}
+
 		return fn.Ok(response)
 	}
 
@@ -95,5 +97,6 @@ func findPeerActor(receptionist *actor.Receptionist, pubKey [33]byte,
 	pubKeyHex := hex.EncodeToString(pubKey[:])
 	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
 	refs := actor.FindInReceptionist(receptionist, serviceKey)
+
 	return fn.Head(refs)
 }

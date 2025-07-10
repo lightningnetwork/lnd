@@ -4,8 +4,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/onionmessage/testhelpers"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,34 +48,49 @@ func testOnionMessage(ht *lntest.HarnessTest) {
 	// Connect alice and bob so that they can exchange messages.
 	ht.EnsureConnected(alice, bob)
 
-	// Create a random onion message.
-	randomPriv, err := btcec.NewPrivateKey()
+	// Build a valid onion message destined for Alice.
+	alicePubKey, err := btcec.ParsePubKey(alice.PubKey[:])
 	require.NoError(ht.T, err)
-	randomPub := randomPriv.PubKey()
-	msgPathKey := randomPub.SerializeCompressed()
-	// Create a random payload. The content doesn't matter for this and
-	// doesn't need to be encrypted. It's also of arbitrary length, so it
-	// doesn't follow the BOLT 4 spec for onion message payload length of
-	// either 1300 or 32768 bytes. Here we just use a few bytes to keep it
-	// simple.
-	msgOnion := []byte{1, 2, 3}
+
+	// Alice is the final destination, so her route data is empty.
+	aliceData := &record.BlindedRouteData{}
+
+	hops := []*sphinx.HopInfo{
+		{
+			NodePub: alicePubKey,
+			PlainText: testhelpers.EncodeBlindedRouteData(
+				ht.T, aliceData,
+			),
+		},
+	}
+
+	blindedPath := testhelpers.BuildBlindedPath(ht.T, hops)
+
+	// Add a custom payload to verify it's received correctly.
+	finalPayloads := []*lnwire.FinalHopPayload{
+		{
+			TLVType: lnwire.InvoiceRequestNamespaceType,
+			Value:   []byte{1, 2, 3},
+		},
+	}
+
+	onionMsg, _ := testhelpers.BuildOnionMessage(
+		ht.T, blindedPath, finalPayloads,
+	)
 
 	// Send it from Bob to Alice.
+	pathKey := blindedPath.SessionKey.PubKey().SerializeCompressed()
 	bobMsg := &lnrpc.SendOnionMessageRequest{
 		Peer:    alice.PubKey[:],
-		PathKey: msgPathKey,
-		Onion:   msgOnion,
+		PathKey: pathKey,
+		Onion:   onionMsg.OnionBlob,
 	}
 	bob.RPC.SendOnionMessage(bobMsg)
 
 	// Wait for Alice to receive the message.
 	select {
 	case msg := <-messages:
-		// Check our type and data and (sanity) check the peer we got
-		// it from.
-		require.Equal(ht, msgOnion, msg.Onion, "msg data wrong")
-		require.Equal(ht, msgPathKey, msg.PathKey, "msg "+
-			"path key wrong")
+		// Check we received the message from Bob.
 		require.Equal(ht, bob.PubKey[:], msg.Peer, "msg peer wrong")
 
 	case <-time.After(lntest.DefaultTimeout):

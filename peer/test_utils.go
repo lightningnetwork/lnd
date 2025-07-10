@@ -15,6 +15,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -33,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/stretchr/testify/require"
 )
 
@@ -694,21 +697,52 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 	var pubKey [33]byte
 	copy(pubKey[:], aliceKeyPub.SerializeCompressed())
 
+	// We have to have a valid server key for brontide to start up properly.
+	serverKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	var serverKeyArr [33]byte
+	copy(serverKeyArr[:], serverKey.PubKey().SerializeCompressed())
+
+	router := sphinx.NewRouter(
+		&sphinx.PrivKeyECDH{PrivKey: aliceKeyPriv},
+		sphinx.NewMemoryReplayLog(),
+	)
+	require.NoError(t, router.Start())
+	t.Cleanup(func() {
+		router.Stop()
+	})
+
+	server := subscribe.NewServer()
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		require.NoError(t, server.Stop())
+	})
+
+	actorSystem := actor.NewActorSystem()
+	t.Cleanup(func() {
+		require.NoError(t, actorSystem.Shutdown())
+	})
+
 	estimator := chainfee.NewStaticEstimator(12500, 0)
 
 	cfg := &Config{
-		Addr:              cfgAddr,
-		PubKeyBytes:       pubKey,
-		ErrorBuffer:       errBuffer,
-		ChainIO:           chainIO,
-		Switch:            mockSwitch,
-		ChanActiveTimeout: chanActiveTimeout,
-		InterceptSwitch:   interceptableSwitch,
-		ChannelDB:         dbAliceChannel.ChannelStateDB(),
-		FeeEstimator:      estimator,
-		Wallet:            wallet,
-		ChainNotifier:     notifier,
-		ChanStatusMgr:     chanStatusMgr,
+		Addr:                    cfgAddr,
+		PubKeyBytes:             pubKey,
+		ServerPubKey:            serverKeyArr,
+		SphinxRouterNoReplayLog: router,
+		OnionMessageServer:      server,
+		ActorSystem:             actorSystem,
+		ErrorBuffer:             errBuffer,
+		ChainIO:                 chainIO,
+		Switch:                  mockSwitch,
+		ChanActiveTimeout:       chanActiveTimeout,
+		InterceptSwitch:         interceptableSwitch,
+		ChannelDB:               dbAliceChannel.ChannelStateDB(),
+		FeeEstimator:            estimator,
+		Wallet:                  wallet,
+		ChainNotifier:           notifier,
+		ChanStatusMgr:           chanStatusMgr,
 		Features: lnwire.NewFeatureVector(
 			nil, lnwire.Features,
 		),

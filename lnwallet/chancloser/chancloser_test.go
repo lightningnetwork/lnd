@@ -273,6 +273,8 @@ func newMockTaprootChan(t *testing.T, initiator bool) *mockChannel {
 }
 
 type mockMusigSession struct {
+	remoteNonceInited bool
+	remoteNonce       musig2.Nonces
 }
 
 func newMockMusigSession() *mockMusigSession {
@@ -293,11 +295,15 @@ func (m *mockMusigSession) CombineClosingOpts(localSig,
 		nil
 }
 
-func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
-	return &musig2.Nonces{}, nil
+func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
+	m.remoteNonceInited = true
+	m.remoteNonce = *nonce
 }
 
-func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
+func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
+	return &musig2.Nonces{
+		PubNonce: [66]byte{1, 2, 3},
+	}, nil
 }
 
 type mockCoopFeeEstimator struct {

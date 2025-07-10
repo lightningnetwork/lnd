@@ -54,6 +54,11 @@ var (
 	// ClosingComplete message that doesn't carry our last local script
 	// sent.
 	ErrWrongLocalScript = fmt.Errorf("wrong local script")
+
+	// ErrTaprootShutdownNonceMissing is returned when a taproot channel
+	// receives a shutdown message without the required nonce.
+	ErrTaprootShutdownNonceMissing = fmt.Errorf("shutdown nonce " +
+		"required for taproot channel RBF flow")
 )
 
 // ProtocolEvent is a special interface used to create the equivalent of a
@@ -101,6 +106,11 @@ type SendShutdown struct {
 	// IdealFeeRate is the ideal fee rate we'd like to use for the closing
 	// attempt.
 	IdealFeeRate chainfee.SatPerVByte
+
+	// CloseeNonce is the nonce we'll send in the shutdown message. The
+	// remote party will use this when they create their closing transaction
+	// (when they act as closer). Only present for taproot channels.
+	CloseeNonce fn.Option[lnwire.Musig2Nonce]
 }
 
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
@@ -121,6 +131,11 @@ type ShutdownReceived struct {
 	// received. This is used for channel leases to determine if a co-op
 	// close can occur.
 	BlockHeight uint32
+
+	// RemoteShutdownNonce is the closee nonce from the remote party's
+	// shutdown message. We'll use this when signing our closing transaction
+	// (when we act as closer). Only present for taproot channels.
+	RemoteShutdownNonce fn.Option[lnwire.Musig2Nonce]
 }
 
 // protocolSealed indicates that this struct is a ProtocolEvent instance.
@@ -338,6 +353,16 @@ type Environment struct {
 	// we'll be signing can only be determined once the channel has been
 	// flushed.
 	CloseSigner CloseSigner
+
+	// LocalMusigSession is the MuSig2 session used when we're creating our
+	// own closing transaction (acting as the closer) in the RBF flow. This
+	// is optional and only used for taproot channels.
+	LocalMusigSession MusigSession
+
+	// RemoteMusigSession is the MuSig2 session used when we're creating the
+	// remote party's closing transaction (acting as the closee) in the RBF
+	// flow. This is optional and only used for taproot channels.
+	RemoteMusigSession MusigSession
 }
 
 // Name returns the name of the environment. This is used to uniquely identify
@@ -345,6 +370,12 @@ type Environment struct {
 // is based on the channel ID.
 func (e *Environment) Name() string {
 	return fmt.Sprintf("rbf_chan_closer(%v)", e.ChanPoint)
+}
+
+// IsTaproot returns true if this is a taproot channel. A channel is considered
+// taproot if either the LocalMusigSession or RemoteMusigSession is set.
+func (e *Environment) IsTaproot() bool {
+	return e.LocalMusigSession != nil || e.RemoteMusigSession != nil
 }
 
 // CloseStateTransition is the StateTransition type specific to the coop close
@@ -459,6 +490,10 @@ type ShutdownPending struct {
 	// before we received their shutdown message. We'll stash it to process
 	// later.
 	EarlyRemoteOffer fn.Option[OfferReceivedEvent]
+
+	// NonceState tracks the nonces exchanged during shutdown for taproot
+	// channels.
+	NonceState NonceState
 }
 
 // String returns the name of the state for ShutdownPending.
@@ -499,6 +534,10 @@ type ChannelFlushing struct {
 	// transaction. Once the channel has been flushed, we'll use this as
 	// our target fee rate.
 	IdealFeeRate fn.Option[chainfee.SatPerVByte]
+
+	// NonceState tracks the nonces exchanged during shutdown for taproot
+	// channels.
+	NonceState NonceState
 }
 
 // String returns the name of the state for ChannelFlushing.
@@ -609,6 +648,20 @@ func (e *ErrStateCantPayForFee) String() string {
 		"attempted_fee=%v)", e.localBalance, e.attemptedFee)
 }
 
+// NonceState stores the nonces for taproot channel closing using the simplified
+// JIT (just-in-time) nonce pattern. With this pattern, shutdown messages only
+// contain the sender's closee nonce, and subsequent nonces are sent alongside
+// signatures in PartialSigWithNonce fields.
+type NonceState struct {
+	// LocalCloseeNonce is the nonce we sent in our shutdown message.
+	// The remote party will use this when they act as closer.
+	LocalCloseeNonce fn.Option[lnwire.Musig2Nonce]
+
+	// RemoteCloseeNonce is the nonce from the remote party's shutdown
+	// message. We'll use this when we act as closer.
+	RemoteCloseeNonce fn.Option[lnwire.Musig2Nonce]
+}
+
 // CloseChannelTerms is a set of terms that we'll use to close the channel. This
 // includes the balances of the channel, and the scripts we'll use to send each
 // party's funds to.
@@ -616,6 +669,9 @@ type CloseChannelTerms struct {
 	ShutdownScripts
 
 	ShutdownBalances
+
+	// NonceState tracks nonces for taproot channels across RBF iterations.
+	NonceState NonceState
 }
 
 // DeriveCloseTxOuts takes the close terms, and returns the local and remote tx

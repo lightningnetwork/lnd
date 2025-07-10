@@ -620,25 +620,71 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 		}
 	}
 
-	if includeCloserNoClosee {
-		sig := RandSignature(t)
-		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
-		)
-	}
+	// Randomly decide between regular sigs and taproot sigs
+	useTaprootSigs := rapid.Bool().Draw(t, "useTaprootSigs")
+	
+	if useTaprootSigs {
+		// For taproot channels, use PartialSigWithNonce
+		if includeCloserNoClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5, PartialSigWithNonce](
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
 
-	if includeNoCloserClosee {
-		sig := RandSignature(t)
-		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
-		)
-	}
+		if includeNoCloserClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType6, PartialSigWithNonce](
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
 
-	if includeCloserAndClosee {
-		sig := RandSignature(t)
-		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
-		)
+		if includeCloserAndClosee {
+			partialSig := *RandPartialSig(t)
+			nonce := RandMusig2Nonce(t)
+			msg.TaprootClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType7, PartialSigWithNonce](
+					PartialSigWithNonce{
+						PartialSig: partialSig,
+						Nonce:      nonce,
+					},
+				),
+			)
+		}
+	} else {
+		// For non-taproot channels, use regular signatures
+		if includeCloserNoClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			)
+		}
+
+		if includeNoCloserClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			)
+		}
+
+		if includeCloserAndClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			)
+		}
 	}
 
 	return msg
@@ -657,7 +703,13 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		ChannelID:    RandChannelID(t),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		FeeSatoshis: btcutil.Amount(rapid.Int64Range(0, 1000000).Draw(
+			t, "feeSatoshis"),
+		),
+		LockTime: rapid.Uint32Range(0, 0xffffffff).Draw(
+			t, "lockTime",
+		),
+		ExtraData: RandExtraOpaqueData(t, nil),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")
@@ -680,25 +732,53 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		}
 	}
 
-	if includeCloserNoClosee {
-		sig := RandSignature(t)
-		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
-		)
-	}
+	// Randomly decide between regular sigs and taproot sigs
+	useTaprootSigs := rapid.Bool().Draw(t, "useTaprootSigs")
+	
+	if useTaprootSigs {
+		// For taproot channels in ClosingSig, use just PartialSig (no nonce)
+		if includeCloserNoClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType5, PartialSig](partialSig),
+			)
+		}
 
-	if includeNoCloserClosee {
-		sig := RandSignature(t)
-		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
-		)
-	}
+		if includeNoCloserClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType6, PartialSig](partialSig),
+			)
+		}
 
-	if includeCloserAndClosee {
-		sig := RandSignature(t)
-		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
-		)
+		if includeCloserAndClosee {
+			partialSig := *RandPartialSig(t)
+			msg.TaprootPartialSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType7, PartialSig](partialSig),
+			)
+		}
+	} else {
+		// For non-taproot channels, use regular signatures
+		if includeCloserNoClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserNoClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			)
+		}
+
+		if includeNoCloserClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.NoCloserClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			)
+		}
+
+		if includeCloserAndClosee {
+			sig := RandSignature(t)
+			msg.ClosingSigs.CloserAndClosee = tlv.SomeRecordT(
+				tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			)
+		}
 	}
 
 	return msg

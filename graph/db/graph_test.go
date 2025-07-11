@@ -1469,6 +1469,8 @@ func TestGraphTraversalCacheable(t *testing.T) {
 		nodes = append(nodes, node)
 
 		return nil
+	}, func() {
+		nodes = nil
 	})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
@@ -4227,6 +4229,8 @@ func BenchmarkForEachChannel(b *testing.B) {
 			nodes = append(nodes, node)
 
 			return nil
+		}, func() {
+			nodes = nil
 		})
 		require.NoError(b, err)
 

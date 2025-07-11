@@ -924,9 +924,8 @@ func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
 //
 // NOTE: This is a part of the V1Store interface.
 func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error) error {
-
-	reset := func() {}
+	cb func(route.Vertex, *lnwire.FeatureVector) error,
+	reset func()) error {
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,

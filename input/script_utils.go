@@ -162,7 +162,8 @@ func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	}
 
 	return txscript.ScriptTemplate(
-		`OP_2 {{ hex .pubA }} {{ hex .pubB }} OP_2 OP_CHECKMULTISIG`,
+		`
+		OP_2 {{ hex .pubA }} {{ hex .pubB }} OP_2 OP_CHECKMULTISIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"pubA": aPub,
 			"pubB": bPub,
@@ -335,23 +336,71 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 
 	// Build the base script template
 	scriptTemplate := `
+	/* The opening operations are used to determine if this is the receiver
+	   of the HTLC attempting to sweep all the funds due to a contract
+	   breach. In this case, they'll place the revocation key at the top of
+	   the stack. */
 	OP_DUP OP_HASH160 {{ hex .RevKeyHash }} OP_EQUAL
 	OP_IF
+		/* If the hash matches, then this is the revocation clause. The 
+	           output can be spent if the check sig operation passes. */
 		OP_CHECKSIG
 	OP_ELSE
+		/* Otherwise, this may either be the receiver of the HTLC 
+	           claiming with the pre-image, or the sender of the HTLC 
+	           sweeping the output after  it has timed out. */
+		
+		/* We'll do a bit of set up by pushing the receiver's key on 
+	           the top of the stack. This will be needed later if we decide 
+	           that this is the sender activating the time out clause with 
+  		   the HTLC timeout transaction. */
 		{{ hex .ReceiverKey }}
-		OP_SWAP OP_SIZE 32 OP_EQUAL
+		
+		/* Atm, the top item of the stack is the receiverKey's so 
+	           we use a swap to expose what is either the payment pre-image 
+	           or a signature. */
+		OP_SWAP 
+		
+		/* With the top item swapped, check if it's 32 bytes. If so, 
+		   then this *may* be the payment pre-image. */
+		OP_SIZE 32 OP_EQUAL
+		
+		/* If it isn't then this might be the sender of the HTLC 
+	           activating the time out clause. */
 		OP_NOTIF
-			OP_DROP 2 OP_SWAP {{ hex .SenderKey }} 2 OP_CHECKMULTISIG
+			/* We'll drop the OP_IF return value off the top of 
+	                   the stack so we can reconstruct the multi-sig script 
+			   used as an off-chain covenant. If two valid 
+		           signatures are provided, then the output will be 
+		           deemed as spendable. */
+		       OP_DROP 2 OP_SWAP {{ hex .SenderKey }} 2 OP_CHECKMULTISIG
 		OP_ELSE
+			/* Otherwise, then the only other case is that this 
+		           is the receiver of the HTLC sweeping it on-chain 
+			   with the payment pre-image. */
+			
+			/* Hash the top item of the stack and compare it with 
+			   the hash160 of the payment hash, which is already 
+	                   the sha256 of the payment pre-image. By using this 
+		           little trick we're able to save space on-chain as 
+	                   the witness includes a 20-byte hash rather than a
+			   32-byte hash. */
 			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY
+			
+			/* This checks the receiver's signature so that a third 
+	                   party with knowledge of the payment preimage still 
+	                   cannot steal the output. */
 			OP_CHECKSIG
-		OP_ENDIF
+		/* Close out the OP_IF statement above. */
+		OP_ENDIF 
 	`
 
 	// Add 1 block CSV delay if a confirmation is required.
 	if confirmedSpend {
-		scriptTemplate += ` OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
+		scriptTemplate += ` 
+		/* Add 1 block CSV delay if a confirmation is required for the
+		   non-revocation clauses. */
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
 	}
 
 	// Close out the top level if statement.
@@ -539,14 +588,28 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	switch {
 	case !opt.prodScript:
 		scriptTemplate = `
-			OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
-			{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			/* Check that the pre-image is 32 bytes as required. */
+			OP_SIZE 32 OP_EQUALVERIFY 
+			
+			/* Check that the specified pre-image matches what we 
+			   hard code into the script. */
+			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			
+			/* Verify the remote party's signature, then make them 
+		           wait 1 block after confirmation to properly sweep. */
 			{{ hex .ReceiverKey }} OP_CHECKSIG 
 			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
 	default:
 		scriptTemplate = `
-			OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
-			{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			/* Check that the pre-image is 32 bytes as required. */
+			OP_SIZE 32 OP_EQUALVERIFY 
+			
+			/* Check that the specified pre-image matches what we 
+		           hard code into the script. */
+			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+			
+			/* Verify the remote party's signature, then make them 
+		           wait 1 block after confirmation to properly sweep. */
 			{{ hex .ReceiverKey }} OP_CHECKSIGVERIFY
 			OP_1 OP_CHECKSEQUENCEVERIFY`
 	}
@@ -942,29 +1005,84 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	paymentHash []byte, confirmedSpend bool) ([]byte, error) {
 
 	scriptTemplate := `
+	/* The opening operations are used to determine if this is the sender
+	   of the HTLC attempting to sweep all the funds due to a contract
+	   breach. In this case, they'll place the revocation key at the top of
+	   the stack. */
 	OP_DUP OP_HASH160 {{ hex .RevKeyHash }} OP_EQUAL
 	OP_IF
+		/* If the hash matches, then this is the revocation clause. 
+		   The output can be spent if the check sig operation passes. */
 		OP_CHECKSIG
 	OP_ELSE
+		/* Otherwise, this may either be the receiver of the HTLC 
+		   starting the claiming process via the second level HTLC 
+	           success transaction and the pre-image, or the sender of the 
+	           HTLC sweeping the output after it has timed out. */
+		
+		/* We'll do a bit of set up by pushing the sender's key on the 
+		   top of the stack. This will be needed later if we decide 
+	           that this is the receiver transitioning the output to the 
+		   claim state using theirsecond-level HTLC success 
+	           transaction. */
 		{{ hex .SenderKey }}
-		OP_SWAP OP_SIZE 32 OP_EQUAL
+		
+		/* Atm, the top item of the stack is the sender's key so we 
+	           use a swap to expose what is either the payment pre-image 
+		   or something else. */
+		OP_SWAP 
+		
+		/* With the top item swapped, check if it's 32 bytes. If so, 
+		   then this *may* be the payment pre-image. */
+		OP_SIZE 32 OP_EQUAL
+		
+		/* If the item on the top of the stack is 32-bytes, then it is 
+		   the proper size, so this indicates that the receiver of the 
+		   HTLC is attempting to claim the output on-chain by 
+		   transitioning the state of the HTLC to delay+claim. */
 		OP_IF
+			/* Next we'll hash the item on the top of the stack, 
+			   if it matches the payment pre-image, then we'll 
+			   continue. Otherwise, we'll end the script here as 
+			   this is the invalid payment pre-image. */
 			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY
-			OP_2 OP_SWAP {{ hex .ReceiverKey }} OP_2 OP_CHECKMULTISIG
+			
+			/* If the payment hash matches, then we'll also need to 
+			   satisfy the multi-sig covenant by providing both 
+			   signatures of the sender and receiver. If the 
+			    convenient is met, then we'll allow the spending of
+			   this output, but only by the HTLC success 
+			   transaction. */
+		       OP_2 OP_SWAP {{ hex .ReceiverKey }} OP_2 OP_CHECKMULTISIG
 		OP_ELSE
-			OP_DROP {{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
+			/* Otherwise, this might be the sender of the HTLC 
+			   attempting to sweep it on-chain after the timeout. */
+			
+			/* We'll drop the extra item (which is the output 
+			   from evaluating the OP_EQUAL) above from the stack. */
+			OP_DROP 
+			
+			/* With that item dropped off, we can now enforce the 
+			   absolute lock-time required to timeout the HTLC. If 
+			   the time has passed, then we'll proceed with a 
+			   checksig to ensure that this is actually the
+			   sender of he original HTLC. */
+			{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
 			OP_CHECKSIG
-		OP_ENDIF
+		OP_ENDIF /* Close out the inner if statement. */
 	`
 
 	// Add 1 block CSV delay for non-revocation clauses if confirmation is
 	// required.
 	if confirmedSpend {
-		scriptTemplate += ` OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
+		scriptTemplate += ` 
+		/* Add 1 block CSV delay for non-revocation clauses if 
+		   confirmation is required. */
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
 	}
 
 	// Close out the outer if statement.
-	scriptTemplate += ` OP_ENDIF`
+	scriptTemplate += ` OP_ENDIF /* Close out the outer if statement. */`
 
 	// Use the ScriptTemplate function with the properly formatted template
 	return txscript.ScriptTemplate(
@@ -1136,20 +1254,27 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 	switch {
 	case !opt.prodScript:
 		scriptTemplate = `
+		/* The first part of the script will verify a signature from the
+		   sender authorizing the spend (the timeout). */
 		{{ hex .SenderKey }} OP_CHECKSIG 
 		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
+		
+		/* The second portion will ensure that the CLTV expiry on the spending
+		   transaction is correct. */
 		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP`
 
 	default:
 		scriptTemplate = `
+		/* The first part of the script will verify a signature from the
+		   sender authorizing the spend (the timeout). */
 		{{ hex .SenderKey }} OP_CHECKSIGVERIFY
 		OP_1 OP_CHECKSEQUENCEVERIFY OP_VERIFY
+		
+		/* The second portion will ensure that the CLTV expiry on the spending
+		   transaction is correct. */
 		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY`
 	}
 
-	// The first part of the script will verify a signature from the sender
-	// authorizing the spend (the timeout). The second portion will ensure
-	// that the CLTV expiry on the spending transaction is correct.
 	timeoutLeafScript, err := txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -1177,14 +1302,17 @@ func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	paymentHash []byte,
 	opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	// Check that the pre-image is 32 bytes as required. We also check that
-	// the specified pre-image matches what we hard code into the script.
-	// Finally, verify the "2-of-2" multi-sig that requires both parties to
-	// sign off.
 	successLeafScript, err := txscript.ScriptTemplate(
 		`
-		OP_SIZE 32 OP_EQUALVERIFY OP_HASH160 
-		{{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+		/* Check that the pre-image is 32 bytes as required. */
+		OP_SIZE 32 OP_EQUALVERIFY 
+		
+		/* Check that the specified pre-image matches what we hard code into
+		   the script. */
+		OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+		
+		/* Verify the "2-of-2" multi-sig that requires both parties to sign
+		   off. */
 		{{ hex .ReceiverKey }} OP_CHECKSIGVERIFY 
 		{{ hex .SenderKey }} OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -1456,26 +1584,29 @@ func ReceiverHTLCScriptTaprootRevoke(signer Signer, signDesc *SignDescriptor,
 func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay uint32) ([]byte, error) {
 
-	// If this is the revocation clause for this script is to be executed,
-	// the spender will push a 1, forcing us to hit the true clause of this
-	// if statement.
-	// If this is the revocation case, then we'll push the revocation
-	// public key on the stack.
-	// Otherwise, this is either the sender or receiver of the HTLC
-	// attempting to claim the HTLC output.
-	// In order to give the other party time to execute the revocation
-	// clause above, we require a relative timeout to pass before the
-	// output can be spent.
-	// If the relative timelock passes, then we'll add the delay key to the
-	// stack to ensure that we properly authenticate the spending party.
 	// In either case, we'll ensure that only either the party possessing
 	// the revocation private key, or the delay private key is able to
 	// spend this output.
 	return txscript.ScriptTemplate(
-		`OP_IF
+		`
+		/* If this is the revocation clause for this script is to be 
+		   executed, the spender will push a 1, forcing us to hit the 
+	           true clause of this if statement. */
+		OP_IF
+			/* If this is the revocation case, then we'll push 
+		           the revocation public key on the stack. */
 			{{ hex .RevokeKey }}
 		OP_ELSE
+			/* Otherwise, this is either the sender or receiver 
+		           of the HTLC attempting to claim the HTLC output.
+			   In order to give the other party time to execute the 
+			   revocation clause above, we require a relative 
+		           timeout to pass before the output can be spent. */
 			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		
+			/* If the relative timelock passes, then we'll add the 
+		           delay key to the stack to ensure that we properly 
+		           authenticate the spending party. */
 			{{ hex .DelayKey }}
 		OP_ENDIF OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
@@ -1795,9 +1926,10 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay, cltvExpiry uint32) ([]byte, error) {
 
-	// Build a script template with conditional paths for revocation and normal spending
-	// If this is the revocation clause, the spender will push a 1, forcing the first path
-	// Otherwise, this is either the sender or receiver of the HTLC attempting to claim
+	// Build a script template with conditional paths for revocation and
+	// normal spending If this is the revocation clause, the spender will
+	// push a 1, forcing the first path Otherwise, this is either the sender
+	// or receiver of the HTLC attempting to claim
 	return txscript.ScriptTemplate(
 		`
 		OP_IF
@@ -1958,11 +2090,20 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return txscript.ScriptTemplate(
 		`
 		OP_IF
+			/* If a valid signature using the revocation key is 
+		           presented, then allow an immediate spend provided 
+			   the proper signature. */
 			{{ hex .RevokeKey }}
 		OP_ELSE
+			/* Otherwise, we can re-claim our funds after a CSV 
+		           delay of 'csvTimeout' timeout blocks, and a valid 
+			   signature. */
 			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
 			{{ hex .SelfKey }}
 		OP_ENDIF
+
+		/* Finally, we'll validate the signature against the public key 
+		   that's left on the top of the stack. */
 		OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"RevokeKey":  revokeKey.SerializeCompressed(),
@@ -2361,12 +2502,22 @@ func LeaseCommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey,
 	return txscript.ScriptTemplate(
 		`
 		OP_IF
+			/* If a valid signature using the revocation key is 
+		           presented, then allow an immediate spend provided 
+		           the proper signature. */
 			{{ hex .RevokeKey }}
 		OP_ELSE
+			/* Otherwise, we can re-claim our funds after once 
+		           the CLTV lease maturity has been met, along with 
+		           the CSV delay of 'csvTimeout'
+			   timeout blocks, and a valid signature. */
 			{{ .LeaseExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
 			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
 			{{ hex .SelfKey }}
 		OP_ENDIF
+
+		/* Finally, we'll validate the signature against the public 
+		   key that's left on the top of the stack. */
 		OP_CHECKSIG`,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"RevokeKey":   revokeKey.SerializeCompressed(),
@@ -2671,8 +2822,15 @@ func LeaseCommitScriptToRemoteConfirmed(key *btcec.PublicKey,
 	// standard remote confirmed script requirements.
 	return txscript.ScriptTemplate(
 		`
+		/* Only the given key can spend the output. */
 		{{ hex .Key }} OP_CHECKSIGVERIFY 
+		
+		/* The channel initiator always has the additional channel lease
+		   expiration constraint for outputs that pay to them which 
+		   must be satisfied. */
 		{{ .LeaseExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP 
+		
+		/* Check that it has one confirmation. */
 		OP_1 OP_CHECKSEQUENCEVERIFY`,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"Key":         key.SerializeCompressed(),
@@ -2728,7 +2886,14 @@ func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
 	// 2. Spend after 16 confirmations by anyone (the alternative path)
 	return txscript.ScriptTemplate(
 		`
-		{{ hex .Key }} OP_CHECKSIG OP_IFDUP 
+		/* Spend immediately with key. */
+		{{ hex .Key }} OP_CHECKSIG 
+		
+		/* Duplicate the value if true, since it will be consumed by 
+		   the NOTIF. */
+		OP_IFDUP 
+		
+		/* Otherwise spendable by anyone after 16 confirmations. */
 		OP_NOTIF 
 			OP_16 OP_CHECKSEQUENCEVERIFY 
 	        OP_ENDIF`,

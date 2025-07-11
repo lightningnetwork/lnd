@@ -176,6 +176,11 @@ type LightningClient interface {
 	// then the user can specify either a target number of blocks until the
 	// closure transaction is confirmed, or a manual fee rate. If neither are
 	// specified, then a default lax, block confirmation target is used.
+	//
+	// Starting with v0.19.0, if the `--protocol.rbf-coop-close` config option is
+	// enabled, users can issue multiple CloseChannel calls with increasing fee
+	// rates to use RBF to bump an existing signed co-op close transaction.
+	// Channel peers must support option_simple_close for this to work.
 	CloseChannel(ctx context.Context, in *CloseChannelRequest, opts ...grpc.CallOption) (Lightning_CloseChannelClient, error)
 	// lncli: `abandonchannel`
 	// AbandonChannel removes all channel state from the database except for a
@@ -1504,6 +1509,11 @@ type LightningServer interface {
 	// then the user can specify either a target number of blocks until the
 	// closure transaction is confirmed, or a manual fee rate. If neither are
 	// specified, then a default lax, block confirmation target is used.
+	//
+	// Starting with v0.19.0, if the `--protocol.rbf-coop-close` config option is
+	// enabled, users can issue multiple CloseChannel calls with increasing fee
+	// rates to use RBF to bump an existing signed co-op close transaction.
+	// Channel peers must support option_simple_close for this to work.
 	CloseChannel(*CloseChannelRequest, Lightning_CloseChannelServer) error
 	// lncli: `abandonchannel`
 	// AbandonChannel removes all channel state from the database except for a

@@ -907,9 +907,8 @@ func (s *sqlGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
 func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, reset func()) error {
 
-	reset := func() {}
 	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -2792,7 +2791,7 @@ func newSQLNodeTraverser(db SQLQueries,
 //
 // NOTE: Part of the NodeTraverser interface.
 func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, _ func()) error {
 
 	ctx := context.TODO()
 

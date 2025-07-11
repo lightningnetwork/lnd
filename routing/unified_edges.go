@@ -97,6 +97,7 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
 func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
+	var channels []*graphdb.DirectedChannel
 	cb := func(channel *graphdb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have
@@ -108,6 +109,22 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 			return nil
 		}
 
+		channels = append(channels, channel)
+
+		return nil
+	}
+
+	// Iterate over all channels of the to node.
+	err := g.ForEachNodeDirectedChannel(
+		u.toNode, cb, func() {
+			channels = nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, channel := range channels {
 		// Add this policy to the corresponding edgeUnifier. We default
 		// to the clear hop payload size function because
 		// `addGraphPolicies` is only used for cleartext intermediate
@@ -120,12 +137,9 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g Graph) error {
 			channel.OtherNode, channel.InPolicy, inboundFee,
 			channel.Capacity, defaultHopPayloadSize, nil,
 		)
-
-		return nil
 	}
 
-	// Iterate over all channels of the to node.
-	return g.ForEachNodeDirectedChannel(u.toNode, cb)
+	return nil
 }
 
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier

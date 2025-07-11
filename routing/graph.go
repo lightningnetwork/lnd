@@ -15,7 +15,8 @@ type Graph interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
 	ForEachNodeDirectedChannel(nodePub route.Vertex,
-		cb func(channel *graphdb.DirectedChannel) error) error
+		cb func(channel *graphdb.DirectedChannel) error,
+		reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)

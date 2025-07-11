@@ -1490,7 +1490,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 
@@ -1499,7 +1499,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex2, d.ChannelID)
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 	}
@@ -4298,7 +4298,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 				ch = c
 
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 

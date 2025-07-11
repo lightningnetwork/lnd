@@ -205,13 +205,13 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
 func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, reset func()) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.V1Store.ForEachNodeDirectedChannel(node, cb)
+	return c.V1Store.ForEachNodeDirectedChannel(node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are

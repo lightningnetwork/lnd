@@ -269,3 +269,41 @@ func MergeAndEncode(knownRecords []tlv.RecordProducer,
 
 	return EncodeRecords(sortedRecords)
 }
+
+// ParseAndExtractExtraData parses the given extra data into the passed-in
+// records, then returns any remaining records as extra data.
+func ParseAndExtractExtraData(allTlvData ExtraOpaqueData,
+	knownRecords ...tlv.RecordProducer) (fn.Set[tlv.Type],
+	ExtraOpaqueData, error) {
+
+	extraDataTlvMap, err := allTlvData.ExtractRecords(knownRecords...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Remove the known and now extracted records from the leftover extra
+	// data map.
+	parsedKnownRecords := make(fn.Set[tlv.Type], len(knownRecords))
+	for _, producer := range knownRecords {
+		r := producer.Record()
+
+		// Only remove the records if it was parsed (remainder is nil).
+		// We'll just store the type so we can tell the caller which
+		// records were actually parsed fully.
+		val, ok := extraDataTlvMap[r.Type()]
+		if ok && val == nil {
+			parsedKnownRecords.Add(r.Type())
+			delete(extraDataTlvMap, r.Type())
+		}
+	}
+
+	// Encode the remaining records back into the extra data field. These
+	// records are not in the custom records TLV type range and do not
+	// have associated fields in the struct that produced the records.
+	extraData, err := NewExtraOpaqueData(extraDataTlvMap)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return parsedKnownRecords, extraData, nil
+}

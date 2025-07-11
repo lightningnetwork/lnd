@@ -1331,7 +1331,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 		delete(expectedSrcChans, chanPoint)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Empty(t, expectedSrcChans)
 }

@@ -72,7 +72,8 @@ type V1Store interface { //nolint:interfacebloat
 	// the channel and the channel peer's node information.
 	ForEachSourceNodeChannel(ctx context.Context,
 		cb func(chanPoint wire.OutPoint, havePolicy bool,
-			otherNode *models.LightningNode) error) error
+			otherNode *models.LightningNode) error,
+		reset func()) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

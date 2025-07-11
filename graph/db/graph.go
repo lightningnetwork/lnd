@@ -182,7 +182,8 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 			c.graphCache.AddChannel(info, policy1, policy2)
 
 			return nil
-		})
+		}, func() {},
+	)
 	if err != nil {
 		return err
 	}

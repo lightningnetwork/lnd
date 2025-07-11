@@ -110,7 +110,7 @@ type V1Store interface { //nolint:interfacebloat
 	// encountered. If the callback returns an error, then the transaction
 	// is aborted and the iteration stops early.
 	ForEachNodeCacheable(ctx context.Context, cb func(route.Vertex,
-		*lnwire.FeatureVector) error) error
+		*lnwire.FeatureVector) error, reset func()) error
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.

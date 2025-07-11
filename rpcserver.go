@@ -6768,6 +6768,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
+	}, func() {
+		resp.Edges = nil
 	})
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return nil, err

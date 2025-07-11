@@ -935,7 +935,8 @@ func TestEdgePolicyCRUD(t *testing.T) {
 				)
 
 				return nil
-			})
+			}, func() {},
+		)
 		require.NoError(t, err)
 	}
 
@@ -1385,7 +1386,7 @@ func TestGraphTraversal(t *testing.T) {
 
 		delete(chanIndex, ei.ChannelID)
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, chanIndex, 0)
 
@@ -1669,22 +1670,19 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(context.Background(),
-		func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	err := graph.ForEachChannel(
+		context.Background(), func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error {
 
 			numChans++
 			return nil
+		}, func() {
+			numChans = 0
 		},
-	); err != nil {
-		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: unable to scan channels: %v", line, err)
-	}
-	if numChans != n {
-		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: expected %v chans instead have %v", line,
-			n, numChans)
-	}
+	)
+	require.NoError(t, err)
+	require.Equal(t, n, numChans)
 }
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {

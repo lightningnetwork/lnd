@@ -406,9 +406,7 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 // callback.
 func (c *KVStore) ForEachChannel(_ context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-	*models.ChannelEdgePolicy) error) error {
-
-	reset := func() {}
+	*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return forEachChannel(c.db, cb, reset)
 }

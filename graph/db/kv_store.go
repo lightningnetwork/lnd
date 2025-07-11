@@ -3267,9 +3267,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // Unknown policies are passed into the callback as nil values.
 func (c *KVStore) ForEachNodeChannel(_ context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error {
-
-	reset := func() {}
+		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return nodeTraversal(
 		nil, nodePub[:], c.db, func(_ kvdb.RTx,

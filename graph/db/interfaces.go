@@ -86,7 +86,7 @@ type V1Store interface { //nolint:interfacebloat
 	// Unknown policies are passed into the callback as nil values.
 	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy) error) error
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
 	// DirectedChannel data to the call-back.

@@ -486,9 +486,8 @@ func forEachChannel(db kvdb.Backend, cb func(*models.ChannelEdgeInfo,
 // NOTE: this method is like ForEachChannel but fetches only the data required
 // for the graph cache.
 func (c *KVStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error) error {
-
-	reset := func() {}
+	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
 
 	return c.db.View(func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)

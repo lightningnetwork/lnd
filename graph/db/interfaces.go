@@ -177,8 +177,8 @@ type V1Store interface { //nolint:interfacebloat
 	// NOTE: this method is like ForEachChannel but fetches only the data
 	// required for the graph cache.
 	ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-		*models.CachedEdgePolicy,
-		*models.CachedEdgePolicy) error) error
+		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+		reset func()) error
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies

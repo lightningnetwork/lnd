@@ -1236,10 +1236,9 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 // NOTE: this method is like ForEachChannel but fetches only the data
 // required for the graph cache.
 func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy,
-	*models.CachedEdgePolicy) error) error {
+	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
 
-	reset := func() {}
 	ctx := context.TODO()
 
 	handleChannel := func(db SQLQueries,

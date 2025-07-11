@@ -1758,6 +1758,9 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(ctx context.Context,
 		}
 
 		return nil
+	}, func() {
+		havePublicChannels = false
+		edgesToUpdate = nil
 	})
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return fmt.Errorf("unable to retrieve outgoing channels: %w",

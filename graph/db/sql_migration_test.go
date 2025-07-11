@@ -401,6 +401,8 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 		nodes = append(nodes, node)
 
 		return nil
+	}, func() {
+		nodes = nil
 	})
 	require.NoError(t, err)
 
@@ -475,7 +477,7 @@ func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
 		})
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	// Sort the channels by their channel ID to ensure a consistent order.

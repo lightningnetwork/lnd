@@ -15,7 +15,8 @@ type Graph interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
 	ForEachNodeDirectedChannel(nodePub route.Vertex,
-		cb func(channel *graphdb.DirectedChannel) error) error
+		cb func(channel *graphdb.DirectedChannel) error,
+		reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
@@ -29,7 +30,8 @@ type GraphSessionFactory interface {
 	// GraphSession will provide the call-back with access to a
 	// graphdb.NodeTraverser instance which can be used to perform queries
 	// against the channel graph.
-	GraphSession(cb func(graph graphdb.NodeTraverser) error) error
+	GraphSession(cb func(graph graphdb.NodeTraverser) error,
+		reset func()) error
 }
 
 // FetchAmountPairCapacity determines the maximal public capacity between two

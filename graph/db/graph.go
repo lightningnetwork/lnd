@@ -170,7 +170,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 		c.graphCache.AddNodeFeatures(node, features)
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,8 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 			c.graphCache.AddChannel(info, policy1, policy2)
 
 			return nil
-		})
+		}, func() {},
+	)
 	if err != nil {
 		return err
 	}
@@ -204,13 +205,13 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
 func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, reset func()) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.V1Store.ForEachNodeDirectedChannel(node, cb)
+	return c.V1Store.ForEachNodeDirectedChannel(node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -233,12 +234,14 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 // instance which can be used to perform queries against the channel graph. If
 // the graph cache is not enabled, then the call-back will be provided with
 // access to the graph via a consistent read-only transaction.
-func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
+func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error,
+	reset func()) error {
+
 	if c.graphCache != nil {
 		return cb(c)
 	}
 
-	return c.V1Store.GraphSession(cb)
+	return c.V1Store.GraphSession(cb, reset)
 }
 
 // ForEachNodeCached iterates through all the stored vertices/nodes in the
@@ -246,14 +249,14 @@ func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
-	cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error {
+	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
+	reset func()) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachNode(cb)
 	}
 
-	return c.V1Store.ForEachNodeCached(ctx, cb)
+	return c.V1Store.ForEachNodeCached(ctx, cb, reset)
 }
 
 // AddLightningNode adds a vertex/node to the graph database. If the node is not

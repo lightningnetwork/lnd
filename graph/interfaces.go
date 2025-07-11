@@ -72,7 +72,7 @@ type ChannelGraphSource interface {
 	// star-graph.
 	ForAllOutgoingChannels(ctx context.Context,
 		cb func(c *models.ChannelEdgeInfo,
-			e *models.ChannelEdgePolicy) error) error
+			e *models.ChannelEdgePolicy) error, reset func()) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -260,7 +260,7 @@ type DB interface {
 	// Unknown policies are passed into the callback as nil values.
 	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy) error) error
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// AddEdgeProof sets the proof of an existing edge in the graph
 	// database.

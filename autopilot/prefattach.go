@@ -105,6 +105,9 @@ func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
 		}
 
 		return nil
+	}, func() {
+		allChans = nil
+		seenChans = make(map[uint64]struct{})
 	}); err != nil {
 		return nil, err
 	}
@@ -162,6 +165,9 @@ func (p *PrefAttachment) NodeScores(ctx context.Context, g ChannelGraph,
 		log.Tracef("Counted %v channels for node %x", nodeChans, nID[:])
 
 		return nil
+	}, func() {
+		maxChans = 0
+		nodeChanNum = make(map[NodeID]int)
 	}); err != nil {
 		return nil, err
 	}

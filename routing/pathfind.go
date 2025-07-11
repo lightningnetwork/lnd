@@ -576,7 +576,12 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 	}
 
 	// Iterate over all channels of the to node.
-	err := g.ForEachNodeDirectedChannel(node, cb)
+	err := g.ForEachNodeDirectedChannel(
+		node, cb, func() {
+			max = 0
+			total = 0
+		},
+	)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1276,7 +1281,12 @@ func findBlindedPaths(g Graph, target route.Vertex,
 		// it later on when we call "processNodeForBlindedPath".
 		visited[nextTarget] = true
 
-		err := g.ForEachNodeDirectedChannel(nextTarget,
+		var (
+			incomingPathReset []blindedHop
+			nextTargetReset   = nextTarget
+		)
+		err := g.ForEachNodeDirectedChannel(
+			nextTarget,
 			func(channel *graphdb.DirectedChannel) error {
 				// This is not the right channel, continue to
 				// the node's other channels.
@@ -1286,18 +1296,21 @@ func findBlindedPaths(g Graph, target route.Vertex,
 
 				// We found the channel in question. Prepend it
 				// to the incoming path.
-				incomingPath = append([]blindedHop{
+				incomingPathReset = append([]blindedHop{
 					{
 						vertex:       channel.OtherNode,
 						channelID:    channel.ChannelID,
 						edgeCapacity: channel.Capacity,
 					},
-				}, incomingPath...)
+				}, incomingPathReset...)
 
 				// Update the target node.
-				nextTarget = channel.OtherNode
+				nextTargetReset = channel.OtherNode
 
 				return errChanFound
+			}, func() {
+				incomingPathReset = nil
+				nextTargetReset = nextTarget
 			},
 		)
 		// We expect errChanFound to be returned if the channel in
@@ -1308,6 +1321,8 @@ func findBlindedPaths(g Graph, target route.Vertex,
 			return nil, fmt.Errorf("incoming channel %d is not "+
 				"seen as owned by node %v", chanID, nextTarget)
 		}
+		nextTarget = nextTargetReset
+		incomingPath = append(incomingPathReset, incomingPath...)
 
 		// Check that the user didn't accidentally add a channel that
 		// is owned by a node in the node omission set.
@@ -1445,7 +1460,8 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 
 	// Now, iterate over the node's channels in search for paths to this
 	// node that can be used for blinded paths
-	err = g.ForEachNodeDirectedChannel(node,
+	err = g.ForEachNodeDirectedChannel(
+		node,
 		func(channel *graphdb.DirectedChannel) error {
 			// Keep track of how many incoming channels this node
 			// has. We only use a node as an introduction node if it
@@ -1488,6 +1504,9 @@ func processNodeForBlindedPath(g Graph, node route.Vertex,
 			}
 
 			return nil
+		}, func() {
+			hopSets = nil
+			chanCount = 0
 		},
 	)
 	if err != nil {

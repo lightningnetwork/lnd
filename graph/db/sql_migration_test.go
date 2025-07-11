@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"image/color"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -80,6 +82,12 @@ func TestMigrateGraphToSQL(t *testing.T) {
 		node1 = genPubKey(t)
 		node2 = genPubKey(t)
 	)
+
+	type zombieIndexObject struct {
+		scid    uint64
+		pubKey1 route.Vertex
+		pubKey2 route.Vertex
+	}
 
 	tests := []struct {
 		name          string
@@ -217,6 +225,90 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numPolicies: 3,
 			},
 		},
+		{
+			name: "prune log",
+			write: func(t *testing.T, db *KVStore, object any) {
+				var hash chainhash.Hash
+				_, err := rand.Read(hash[:])
+				require.NoError(t, err)
+
+				switch obj := object.(type) {
+				case *models.LightningNode:
+					err = db.SetSourceNode(ctx, obj)
+				default:
+					height, ok := obj.(uint32)
+					require.True(t, ok)
+
+					_, _, err = db.PruneGraph(
+						nil, &hash, height,
+					)
+				}
+				require.NoError(t, err)
+			},
+			objects: []any{
+				// The PruneGraph call requires that the source
+				// node be set. So that is the first object
+				// we will write.
+				&models.LightningNode{
+					HaveNodeAnnouncement: false,
+					PubKeyBytes:          testPub,
+				},
+				// Now we add some block heights to prune
+				// the graph at.
+				uint32(1), uint32(2), uint32(20), uint32(3),
+				uint32(4),
+			},
+			expGraphStats: graphStats{
+				numNodes:   1,
+				srcNodeSet: true,
+				pruneTip:   20,
+			},
+		},
+		{
+			name: "closed SCID index",
+			write: func(t *testing.T, db *KVStore, object any) {
+				scid, ok := object.(lnwire.ShortChannelID)
+				require.True(t, ok)
+
+				err := db.PutClosedScid(scid)
+				require.NoError(t, err)
+			},
+			objects: []any{
+				lnwire.NewShortChanIDFromInt(1),
+				lnwire.NewShortChanIDFromInt(2),
+				lnwire.NewShortChanIDFromInt(3),
+				lnwire.NewShortChanIDFromInt(4),
+			},
+		},
+		{
+			name: "zombie index",
+			write: func(t *testing.T, db *KVStore, object any) {
+				obj, ok := object.(*zombieIndexObject)
+				require.True(t, ok)
+
+				err := db.MarkEdgeZombie(
+					obj.scid, obj.pubKey1, obj.pubKey2,
+				)
+				require.NoError(t, err)
+			},
+			objects: []any{
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+				&zombieIndexObject{
+					scid:    prand.Uint64(),
+					pubKey1: genPubKey(t),
+					pubKey2: genPubKey(t),
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -253,6 +345,7 @@ type graphStats struct {
 	srcNodeSet  bool
 	numChannels int
 	numPolicies int
+	pruneTip    int
 }
 
 // assertInSync checks that the KVStore and SQLStore both contain the same
@@ -276,6 +369,20 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 	require.Len(t, sqlChannels, stats.numChannels)
 	require.Equal(t, stats.numPolicies, sqlChannels.CountPolicies())
 	require.Equal(t, fetchAllChannelsAndPolicies(t, kvDB), sqlChannels)
+
+	// 4) Assert prune logs match. For this one, we iterate through the
+	// prune log of the kvdb store and check that the entries match the
+	// entries in the SQL store. Then we just do a final check to ensure
+	// that the prune tip also matches.
+	checkKVPruneLogEntries(t, kvDB, sqlDB, stats.pruneTip)
+
+	// 5) Assert that the closed SCID index is also in sync. Like the prune
+	// log we iterate through the kvdb store and check that the entries
+	// match the entries in the SQL store.
+	checkClosedSCIDIndex(t, kvDB.db, sqlDB)
+
+	// 6) Finally, check that the zombie index is also in sync.
+	checkZombieIndex(t, kvDB.db, sqlDB)
 }
 
 // fetchAllNodes retrieves all nodes from the given store and returns them
@@ -377,6 +484,91 @@ func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
 	})
 
 	return channels
+}
+
+// checkKVPruneLogEntries iterates through the prune log entries in the
+// KVStore and checks that there is an entry for each in the SQLStore. It then
+// does a final check to ensure that the prune tips in both stores match.
+func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
+	expTip int) {
+
+	// Iterate through the prune log entries in the KVStore and
+	// check that each entry exists in the SQLStore.
+	err := forEachPruneLogEntry(
+		kv.db, func(height uint32, hash *chainhash.Hash) error {
+			sqlHash, err := sql.db.GetPruneHashByHeight(
+				context.Background(), int64(height),
+			)
+			require.NoError(t, err)
+			require.Equal(t, hash[:], sqlHash)
+
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	kvPruneHash, kvPruneHeight, kvPruneErr := kv.PruneTip()
+	sqlPruneHash, sqlPruneHeight, sqlPruneErr := sql.PruneTip()
+
+	// If the prune error is ErrGraphNeverPruned, then we expect
+	// the SQL prune error to also be ErrGraphNeverPruned.
+	if errors.Is(kvPruneErr, ErrGraphNeverPruned) {
+		require.ErrorIs(t, sqlPruneErr, ErrGraphNeverPruned)
+		return
+	}
+
+	// Otherwise, we expect both prune errors to be nil and the
+	// prune hashes and heights to match.
+	require.NoError(t, kvPruneErr)
+	require.NoError(t, sqlPruneErr)
+	require.Equal(t, kvPruneHash[:], sqlPruneHash[:])
+	require.Equal(t, kvPruneHeight, sqlPruneHeight)
+	require.Equal(t, expTip, int(sqlPruneHeight))
+}
+
+// checkClosedSCIDIndex iterates through the closed SCID index in the
+// KVStore and checks that each SCID is marked as closed in the SQLStore.
+func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
+	err := forEachClosedSCID(kv, func(scid lnwire.ShortChannelID) error {
+		closed, err := sql.IsClosedScid(scid)
+		require.NoError(t, err)
+		require.True(t, closed)
+
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+// checkZombieIndex iterates through the zombie index in the
+// KVStore and checks that each SCID is marked as a zombie in the SQLStore.
+func checkZombieIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
+	err := forEachZombieEntry(kv, func(chanID uint64, pubKey1,
+		pubKey2 [33]byte) error {
+
+		scid := lnwire.NewShortChanIDFromInt(chanID)
+
+		// The migration logic skips zombie entries if they are already
+		// present in the closed SCID index in the SQL DB. We need to
+		// replicate that check here.
+		isClosed, err := sql.IsClosedScid(scid)
+		require.NoError(t, err)
+
+		isZombie, _, _, err := sql.IsZombieEdge(chanID)
+		require.NoError(t, err)
+
+		if isClosed {
+			// If it's in the closed index, it should NOT be in the
+			// zombie index.
+			require.False(t, isZombie)
+		} else {
+			// If it's not in the closed index, it SHOULD be in the
+			// zombie index.
+			require.True(t, isZombie)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // setUpKVStore initializes a new KVStore for testing.
@@ -867,6 +1059,39 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			}},
 		})
 	})
+
+	// This test covers the case where the KV store contains zombie entries
+	// that it also has entries for in the closed SCID index. In this case,
+	// the SQL store will only insert zombie entries for channels that
+	// are not yet closed.
+	t.Run("zombies and closed scids", func(t *testing.T) {
+		var (
+			n1, n2 route.Vertex
+			cID1   = uint64(1)
+			cID2   = uint64(2)
+		)
+
+		populateKV := func(t *testing.T, db *KVStore) {
+			// Mark both channels as zombies.
+			err := db.MarkEdgeZombie(cID1, n1, n2)
+			require.NoError(t, err)
+
+			err = db.MarkEdgeZombie(cID2, n1, n2)
+			require.NoError(t, err)
+
+			// Mark channel 1 as closed.
+			err = db.PutClosedScid(
+				lnwire.NewShortChanIDFromInt(cID1),
+			)
+			require.NoError(t, err)
+		}
+
+		runTestMigration(t, populateKV, dbState{
+			chans:   make(chanSet, 0),
+			closed:  []uint64{1},
+			zombies: []uint64{2},
+		})
+	})
 }
 
 // runTestMigration is a helper function that sets up the KVStore and SQLStore,
@@ -898,8 +1123,10 @@ func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 
 // dbState describes the expected state of the SQLStore after a migration.
 type dbState struct {
-	nodes []*models.LightningNode
-	chans chanSet
+	nodes   []*models.LightningNode
+	chans   chanSet
+	closed  []uint64
+	zombies []uint64
 }
 
 // assertResultState asserts that the SQLStore contains the expected
@@ -910,4 +1137,26 @@ func assertResultState(t *testing.T, sql *SQLStore, expState dbState) {
 	require.ElementsMatch(
 		t, expState.chans, fetchAllChannelsAndPolicies(t, sql),
 	)
+
+	for _, closed := range expState.closed {
+		isClosed, err := sql.IsClosedScid(
+			lnwire.NewShortChanIDFromInt(closed),
+		)
+		require.NoError(t, err)
+		require.True(t, isClosed)
+
+		// Any closed SCID should NOT be in the zombie
+		// index.
+		isZombie, _, _, err := sql.IsZombieEdge(closed)
+		require.NoError(t, err)
+		require.False(t, isZombie)
+	}
+
+	for _, zombie := range expState.zombies {
+		isZombie, _, _, err := sql.IsZombieEdge(
+			zombie,
+		)
+		require.NoError(t, err)
+		require.True(t, isZombie)
+	}
 }

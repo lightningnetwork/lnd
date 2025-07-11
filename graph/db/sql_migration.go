@@ -1,8 +1,10 @@
 package graphdb
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -53,6 +56,23 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",
 			err)
+	}
+
+	// 4) Migrate the Prune log.
+	if err := migratePruneLog(ctx, kvBackend, sqlDB); err != nil {
+		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// 5) Migrate the closed SCID index.
+	err = migrateClosedSCIDIndex(ctx, kvBackend, sqlDB)
+	if err != nil {
+		return fmt.Errorf("could not migrate closed SCID index: %w",
+			err)
+	}
+
+	// 6) Migrate the zombie index.
+	if err := migrateZombieIndex(ctx, kvBackend, sqlDB); err != nil {
+		return fmt.Errorf("could not migrate zombie index: %w", err)
 	}
 
 	log.Infof("Finished migration of the graph store from KV to SQL in %v",
@@ -506,6 +526,115 @@ func migrateSingleChannel(ctx context.Context, sqlDB SQLQueries,
 	return nil
 }
 
+// migratePruneLog migrates the prune log from the KV backend to the SQL
+// database. It iterates over each prune log entry in the KV store, inserts it
+// into the SQL database, and then verifies that the entry was inserted
+// correctly by fetching it back from the SQL database and comparing it to the
+// original entry.
+func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var (
+		count          uint64
+		pruneTipHeight uint32
+		pruneTipHash   chainhash.Hash
+	)
+
+	// migrateSinglePruneEntry is a helper function that inserts a single
+	// prune log entry into the SQL database and verifies that it was
+	// inserted correctly.
+	migrateSinglePruneEntry := func(height uint32,
+		hash *chainhash.Hash) error {
+
+		count++
+
+		// Keep track of the prune tip height and hash.
+		if height > pruneTipHeight {
+			pruneTipHeight = height
+			pruneTipHash = *hash
+		}
+
+		err := sqlDB.UpsertPruneLogEntry(
+			ctx, sqlc.UpsertPruneLogEntryParams{
+				BlockHeight: int64(height),
+				BlockHash:   hash[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert prune log "+
+				"entry for height %d: %w", height, err)
+		}
+
+		// Now, check that the entry was inserted correctly.
+		migratedHash, err := sqlDB.GetPruneHashByHeight(
+			ctx, int64(height),
+		)
+		if err != nil {
+			return fmt.Errorf("could not get prune hash "+
+				"for height %d: %w", height, err)
+		}
+
+		return sqldb.CompareRecords(
+			hash[:], migratedHash, "prune log entry",
+		)
+	}
+
+	// Iterate over each prune log entry in the KV store and migrate it to
+	// the SQL database.
+	err := forEachPruneLogEntry(
+		kvBackend, func(height uint32, hash *chainhash.Hash) error {
+			err := migrateSinglePruneEntry(height, hash)
+			if err != nil {
+				return fmt.Errorf("could not migrate "+
+					"prune log entry at height %d: %w",
+					height, err)
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// Check that the prune tip is set correctly in the SQL
+	// database.
+	pruneTip, err := sqlDB.GetPruneTip(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The ErrGraphNeverPruned error is expected if no prune log
+		// entries were migrated from the kvdb store. Otherwise, it's
+		// an unexpected error.
+		if count == 0 {
+			log.Infof("No prune log entries found in KV store " +
+				"to migrate")
+			return nil
+		}
+		// Fall-through to the next error check.
+	}
+	if err != nil {
+		return fmt.Errorf("could not get prune tip: %w", err)
+	}
+
+	if pruneTip.BlockHeight != int64(pruneTipHeight) ||
+		!bytes.Equal(pruneTip.BlockHash, pruneTipHash[:]) {
+
+		return fmt.Errorf("prune tip mismatch after migration: "+
+			"expected height %d, hash %s; got height %d, "+
+			"hash %s", pruneTipHeight, pruneTipHash,
+			pruneTip.BlockHeight,
+			chainhash.Hash(pruneTip.BlockHash))
+	}
+
+	log.Infof("Migrated %d prune log entries from KV to SQL. The prune "+
+		"tip is: height %d, hash: %s", count, pruneTipHeight,
+		pruneTipHash)
+
+	return nil
+}
+
+// getAndBuildChanAndPolicies is a helper that builds the channel edge info
+// and policies from the given row returned by the SQL query
+// GetChannelBySCIDWithPolicies.
 func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	row sqlc.GetChannelBySCIDWithPoliciesRow,
 	chain chainhash.Hash) (*models.ChannelEdgeInfo,
@@ -541,4 +670,200 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	return edge, policy1, policy2, nil
+}
+
+// forEachPruneLogEntry iterates over each prune log entry in the KV
+// backend and calls the provided callback function for each entry.
+func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
+	hash *chainhash.Hash) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		metaBucket := tx.ReadBucket(graphMetaBucket)
+		if metaBucket == nil {
+			return ErrGraphNotFound
+		}
+
+		pruneBucket := metaBucket.NestedReadBucket(pruneLogBucket)
+		if pruneBucket == nil {
+			// The graph has never been pruned and so, there are no
+			// entries to iterate over.
+			return nil
+		}
+
+		return pruneBucket.ForEach(func(k, v []byte) error {
+			blockHeight := byteOrder.Uint32(k)
+			var blockHash chainhash.Hash
+			copy(blockHash[:], v)
+
+			return cb(blockHeight, &blockHash)
+		})
+	}, func() {})
+}
+
+// migrateClosedSCIDIndex migrates the closed SCID index from the KV backend to
+// the SQL database. It iterates over each closed SCID in the KV store, inserts
+// it into the SQL database, and then verifies that the SCID was inserted
+// correctly by checking if the channel with the given SCID is seen as closed in
+// the SQL database.
+func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var count uint64
+	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
+		count++
+
+		chanIDB := channelIDToBytes(scid.ToUint64())
+		err := sqlDB.InsertClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not insert closed channel "+
+				"with SCID %s: %w", scid, err)
+		}
+
+		// Now, verify that the channel with the given SCID is
+		// seen as closed.
+		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not check if channel %s "+
+				"is closed: %w", scid, err)
+		}
+
+		if !isClosed {
+			return fmt.Errorf("channel %s should be closed, "+
+				"but is not", scid)
+		}
+
+		return nil
+	}
+
+	err := forEachClosedSCID(kvBackend, migrateSingleClosedSCID)
+	if err != nil {
+		return fmt.Errorf("could not migrate closed SCID index: %w",
+			err)
+	}
+
+	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)
+
+	return nil
+}
+
+// migrateZombieIndex migrates the zombie index from the KV backend to
+// the SQL database. It iterates over each zombie channel in the KV store,
+// inserts it into the SQL database, and then verifies that the channel is
+// indeed marked as a zombie channel in the SQL database.
+//
+// NOTE: before inserting an entry into the zombie index, the function checks
+// if the channel is already marked as closed in the SQL store. If it is,
+// the entry is skipped. This means that the resulting zombie index count in
+// the SQL store may well be less than the count of zombie channels in the KV
+// store.
+func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
+	sqlDB SQLQueries) error {
+
+	var count uint64
+	err := forEachZombieEntry(kvBackend, func(chanID uint64, pubKey1,
+		pubKey2 [33]byte) error {
+
+		chanIDB := channelIDToBytes(chanID)
+
+		// If it is in the closed SCID index, we don't need to
+		// add it to the zombie index.
+		//
+		// NOTE: this means that the resulting zombie index count in
+		// the SQL store may well be less than the count of zombie
+		// channels in the KV store.
+		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
+		if err != nil {
+			return fmt.Errorf("could not check closed "+
+				"channel: %w", err)
+		}
+		if isClosed {
+			return nil
+		}
+
+		count++
+
+		err = sqlDB.UpsertZombieChannel(
+			ctx, sqlc.UpsertZombieChannelParams{
+				Version:  int16(ProtocolV1),
+				Scid:     chanIDB,
+				NodeKey1: pubKey1[:],
+				NodeKey2: pubKey2[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not upsert zombie "+
+				"channel %d: %w", chanID, err)
+		}
+
+		// Finally, verify that the channel is indeed marked as a
+		// zombie channel.
+		isZombie, err := sqlDB.IsZombieChannel(
+			ctx, sqlc.IsZombieChannelParams{
+				Version: int16(ProtocolV1),
+				Scid:    chanIDB,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not check if "+
+				"channel %d is zombie: %w", chanID, err)
+		}
+
+		if !isZombie {
+			return fmt.Errorf("channel %d should be "+
+				"a zombie, but is not", chanID)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("could not migrate zombie index: %w", err)
+	}
+
+	log.Infof("Migrated %d zombie channels from KV to SQL", count)
+
+	return nil
+}
+
+// forEachZombieEntry iterates over each zombie channel entry in the
+// KV backend and calls the provided callback function for each entry.
+func forEachZombieEntry(db kvdb.Backend, cb func(chanID uint64, pubKey1,
+	pubKey2 [33]byte) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		edges := tx.ReadBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		zombieIndex := edges.NestedReadBucket(zombieBucket)
+		if zombieIndex == nil {
+			return nil
+		}
+
+		return zombieIndex.ForEach(func(k, v []byte) error {
+			var pubKey1, pubKey2 [33]byte
+			copy(pubKey1[:], v[:33])
+			copy(pubKey2[:], v[33:])
+
+			return cb(byteOrder.Uint64(k), pubKey1, pubKey2)
+		})
+	}, func() {})
+}
+
+// forEachClosedSCID iterates over each closed SCID in the KV backend and calls
+// the provided callback function for each SCID.
+func forEachClosedSCID(db kvdb.Backend,
+	cb func(lnwire.ShortChannelID) error) error {
+
+	return kvdb.View(db, func(tx kvdb.RTx) error {
+		closedScids := tx.ReadBucket(closedScidBucket)
+		if closedScids == nil {
+			return nil
+		}
+
+		return closedScids.ForEach(func(k, _ []byte) error {
+			return cb(lnwire.NewShortChanIDFromInt(
+				byteOrder.Uint64(k),
+			))
+		})
+	}, func() {})
 }

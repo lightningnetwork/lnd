@@ -655,9 +655,7 @@ func (c *KVStore) fetchNodeFeatures(tx kvdb.RTx,
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
 func (c *KVStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
-
-	reset := func() {}
+	cb func(channel *DirectedChannel) error, reset func()) error {
 
 	return c.forEachNodeDirectedChannel(nil, nodePub, cb, reset)
 }
@@ -3999,7 +3997,7 @@ type nodeTraverserSession struct {
 //
 // NOTE: Part of the NodeTraverser interface.
 func (c *nodeTraverserSession) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, _ func()) error {
 
 	return c.db.forEachNodeDirectedChannel(c.tx, nodePub, cb, func() {})
 }

@@ -206,6 +206,9 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 		return sqldb.CompareRecords(
 			node, migratedNode, fmt.Sprintf("node %x", pub),
 		)
+	}, func() {
+		// No reset is needed since if a retry occurs, the entire
+		// migration will be retried from the start.
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate nodes: %w", err)
@@ -384,6 +387,9 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		return nil
+	}, func() {
+		// No reset is needed since if a retry occurs, the entire
+		// migration will be retried from the start.
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",

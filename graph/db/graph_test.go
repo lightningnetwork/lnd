@@ -1374,7 +1374,7 @@ func TestGraphTraversal(t *testing.T) {
 		}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	// Iterate through all the known channels within the graph DB, once

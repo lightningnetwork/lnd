@@ -93,7 +93,7 @@ type V1Store interface { //nolint:interfacebloat
 	//
 	// NOTE: The callback contents MUST not be modified.
 	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error
+		chans map[uint64]*DirectedChannel) error, reset func()) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If

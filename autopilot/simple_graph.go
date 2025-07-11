@@ -60,6 +60,10 @@ func NewSimpleGraph(ctx context.Context, g ChannelGraph) (*SimpleGraph, error) {
 				return nil
 			},
 		)
+	}, func() {
+		adj = make(map[int][]int)
+		nodes = make(map[NodeID]int)
+		nextIndex = 0
 	})
 	if err != nil {
 		return nil, err

@@ -246,14 +246,14 @@ func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
-	cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error {
+	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
+	reset func()) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachNode(cb)
 	}
 
-	return c.V1Store.ForEachNodeCached(ctx, cb)
+	return c.V1Store.ForEachNodeCached(ctx, cb, reset)
 }
 
 // AddLightningNode adds a vertex/node to the graph database. If the node is not

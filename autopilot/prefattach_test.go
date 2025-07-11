@@ -147,10 +147,13 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// Get the score for all nodes found in the graph at
 			// this point.
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(ctx,
+			err = graph.ForEachNode(
+				ctx,
 				func(_ context.Context, n Node) error {
 					nodes[n.PubKey()] = struct{}{}
 					return nil
+				}, func() {
+					nodes = make(map[NodeID]struct{})
 				},
 			)
 			require.NoError(t1, err)
@@ -257,7 +260,12 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 					twoChans = twoChans || (numChans == 2)
 
 					return nil
-				})
+				}, func() {
+					numNodes = 0
+					twoChans = false
+					nodes = make(map[NodeID]struct{})
+				},
+			)
 			require.NoError(t1, err)
 
 			require.EqualValues(t1, 3, numNodes)
@@ -338,7 +346,7 @@ func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 					nodes[n.PubKey()] = struct{}{}
 
 					return nil
-				},
+				}, func() {},
 			)
 			require.NoError(t1, err)
 
@@ -593,7 +601,7 @@ func newMemChannelGraph() *memChannelGraph {
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (m *memChannelGraph) ForEachNode(ctx context.Context,
-	cb func(context.Context, Node) error) error {
+	cb func(context.Context, Node) error, _ func()) error {
 
 	for _, node := range m.graph {
 		if err := cb(ctx, node); err != nil {

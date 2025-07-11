@@ -149,7 +149,7 @@ type V1Store interface { //nolint:interfacebloat
 	// GraphSession will provide the call-back with access to a
 	// NodeTraverser instance which can be used to perform queries against
 	// the channel graph.
-	GraphSession(cb func(graph NodeTraverser) error) error
+	GraphSession(cb func(graph NodeTraverser) error, reset func()) error
 
 	// ForEachChannel iterates through all the channel edges stored within
 	// the graph and invokes the passed callback for each edge. The callback

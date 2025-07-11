@@ -2757,10 +2757,10 @@ func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 // instance which can be used to perform queries against the channel graph.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error) error {
-	var ctx = context.TODO()
+func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error,
+	reset func()) error {
 
-	reset := func() {}
+	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return cb(newSQLNodeTraverser(db, s.cfg.ChainHash))

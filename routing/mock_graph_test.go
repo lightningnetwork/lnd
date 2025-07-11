@@ -232,8 +232,8 @@ func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 // the channel graph.
 //
 // NOTE: Part of the GraphSessionFactory interface.
-func (m *mockGraph) GraphSession(
-	cb func(graph graphdb.NodeTraverser) error) error {
+func (m *mockGraph) GraphSession(cb func(graph graphdb.NodeTraverser) error,
+	_ func()) error {
 
 	return cb(m)
 }

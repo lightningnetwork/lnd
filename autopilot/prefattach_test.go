@@ -736,7 +736,8 @@ func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 			policy2 *models.ChannelEdgePolicy) error {
 
 			return f(edge, policy1, policy2)
-		})
+		}, func() {},
+	)
 }
 
 func (t *testNodeTx) FetchNode(pub route.Vertex) (graphdb.NodeRTx, error) {

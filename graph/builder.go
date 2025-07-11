@@ -1276,10 +1276,11 @@ func (b *Builder) FetchLightningNode(ctx context.Context,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForAllOutgoingChannels(ctx context.Context,
-	cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy) error) error {
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error,
+	reset func()) error {
 
-	return b.cfg.Graph.ForEachNodeChannel(ctx, b.cfg.SelfNode,
+	return b.cfg.Graph.ForEachNodeChannel(
+		ctx, b.cfg.SelfNode,
 		func(c *models.ChannelEdgeInfo, e *models.ChannelEdgePolicy,
 			_ *models.ChannelEdgePolicy) error {
 
@@ -1289,7 +1290,7 @@ func (b *Builder) ForAllOutgoingChannels(ctx context.Context,
 			}
 
 			return cb(c, e)
-		},
+		}, reset,
 	)
 }
 

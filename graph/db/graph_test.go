@@ -1394,7 +1394,8 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = graph.ForEachNodeChannel(ctx, firstNode.PubKeyBytes,
+	err = graph.ForEachNodeChannel(
+		ctx, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -1425,7 +1426,8 @@ func TestGraphTraversal(t *testing.T) {
 			numNodeChans++
 
 			return nil
-		})
+		}, func() {},
+	)
 	require.NoError(t, err)
 	require.Equal(t, numChannels, numNodeChans)
 }
@@ -3144,7 +3146,8 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 		expectedOut bool) {
 
 		calls := 0
-		err := graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
+		err := graph.ForEachNodeChannel(
+			ctx, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
@@ -3167,14 +3170,10 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 				calls++
 
 				return nil
-			})
-		if err != nil {
-			t.Fatalf("unable to scan channels: %v", err)
-		}
-
-		if calls != 1 {
-			t.Fatalf("Expected only one callback call")
-		}
+			}, func() {},
+		)
+		require.NoError(t, err)
+		require.Equal(t, 1, calls)
 	}
 
 	checkPolicies(node2, false, false)
@@ -4248,7 +4247,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(ctx, n, cb)
+			err := graph.ForEachNodeChannel(ctx, n, cb, func() {})
 			require.NoError(b, err)
 		}
 	}

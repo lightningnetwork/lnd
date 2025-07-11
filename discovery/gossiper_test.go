@@ -213,7 +213,7 @@ func (r *mockGraphSource) ForEachNode(
 
 func (r *mockGraphSource) ForAllOutgoingChannels(_ context.Context,
 	cb func(i *models.ChannelEdgeInfo,
-		c *models.ChannelEdgePolicy) error) error {
+		c *models.ChannelEdgePolicy) error, _ func()) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -3728,10 +3728,8 @@ out:
 		})
 
 		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, func() {})
+	require.NoError(t, err)
 
 	err = ctx.gossiper.PropagateChanPolicyUpdate(edgesToUpdate)
 	require.NoError(t, err, "unable to chan policies")

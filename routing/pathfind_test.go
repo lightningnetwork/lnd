@@ -3303,6 +3303,8 @@ func dbFindPath(graph *graphdb.ChannelGraph,
 		)
 
 		return err
+	}, func() {
+		route = nil
 	})
 	if err != nil {
 		return nil, err

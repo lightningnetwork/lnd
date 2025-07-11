@@ -259,8 +259,8 @@ func (g *sessionGraph) sourceNode() route.Vertex {
 	return route.Vertex{}
 }
 
-func (g *sessionGraph) GraphSession(
-	cb func(graph graphdb.NodeTraverser) error) error {
+func (g *sessionGraph) GraphSession(cb func(graph graphdb.NodeTraverser) error,
+	_ func()) error {
 
 	return cb(g)
 }

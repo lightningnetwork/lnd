@@ -233,12 +233,14 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 // instance which can be used to perform queries against the channel graph. If
 // the graph cache is not enabled, then the call-back will be provided with
 // access to the graph via a consistent read-only transaction.
-func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error) error {
+func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error,
+	reset func()) error {
+
 	if c.graphCache != nil {
 		return cb(c)
 	}
 
-	return c.V1Store.GraphSession(cb)
+	return c.V1Store.GraphSession(cb, reset)
 }
 
 // ForEachNodeCached iterates through all the stored vertices/nodes in the

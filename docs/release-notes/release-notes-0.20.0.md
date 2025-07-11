@@ -29,6 +29,9 @@
 - Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
   when we fail starting up LND before we startup the chanbackup sub-server.
 
+- Fixed [zombie channel leak](https://github.com/lightningnetwork/lnd/pull/10015)
+  in the memory graph, resulting in incorrect path finding and memory usage.
+
 # New Features
 
 ## Functional Enhancements
@@ -187,6 +190,7 @@ reader of a payment request.
 * Elle Mouton
 * Erick Cestari
 * Funyug
+* Gustavo Stingelin
 * Mohamed Awnallah
 * Pins
 * Yong Yu

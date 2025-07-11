@@ -401,6 +401,8 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 		nodes = append(nodes, node)
 
 		return nil
+	}, func() {
+		nodes = nil
 	})
 	require.NoError(t, err)
 

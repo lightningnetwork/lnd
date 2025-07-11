@@ -31,7 +31,13 @@ type ChannelGraph struct {
 	started atomic.Bool
 	stopped atomic.Bool
 
-	graphCache *GraphCache
+	opts *chanGraphOptions
+
+	// cacheLoaded is true if the initial graphCache population has
+	// finished. We use this to ensure that when performing any reads,
+	// we only read from the graphCache if it has been fully populated.
+	cacheLoaded atomic.Bool
+	graphCache  *GraphCache
 
 	V1Store
 	*topologyManager
@@ -50,6 +56,7 @@ func NewChannelGraph(v1Store V1Store,
 	}
 
 	g := &ChannelGraph{
+		opts:            opts,
 		V1Store:         v1Store,
 		topologyManager: newTopologyManager(),
 		quit:            make(chan struct{}),
@@ -74,8 +81,19 @@ func (c *ChannelGraph) Start() error {
 	log.Debugf("ChannelGraph starting")
 	defer log.Debug("ChannelGraph started")
 
-	if c.graphCache != nil {
-		if err := c.populateCache(context.TODO()); err != nil {
+	ctx := context.TODO()
+	if c.opts.asyncGraphCachePopulation {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+
+			if err := c.populateCache(ctx); err != nil {
+				log.Errorf("Could not populate the graph "+
+					"cache: %v", err)
+			}
+		}()
+	} else {
+		if err := c.populateCache(ctx); err != nil {
 			return fmt.Errorf("could not populate the graph "+
 				"cache: %w", err)
 		}
@@ -157,9 +175,13 @@ func (c *ChannelGraph) handleTopologySubscriptions() {
 }
 
 // populateCache loads the entire channel graph into the in-memory graph cache.
-//
-// NOTE: This should only be called if the graphCache has been constructed.
 func (c *ChannelGraph) populateCache(ctx context.Context) error {
+	if c.graphCache == nil {
+		log.Info("In-memory channel graph cache disabled")
+
+		return nil
+	}
+
 	startTime := time.Now()
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
@@ -188,6 +210,8 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 		return err
 	}
 
+	c.cacheLoaded.Store(true)
+
 	log.Infof("Finished populating in-memory channel graph (took %v, %s)",
 		time.Since(startTime), c.graphCache.Stats())
 
@@ -207,7 +231,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 	cb func(channel *DirectedChannel) error, reset func()) error {
 
-	if c.graphCache != nil {
+	if c.graphCache != nil && c.cacheLoaded.Load() {
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
@@ -223,7 +247,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	if c.graphCache != nil {
+	if c.graphCache != nil && c.cacheLoaded.Load() {
 		return c.graphCache.GetFeatures(node), nil
 	}
 
@@ -237,7 +261,7 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error,
 	reset func()) error {
 
-	if c.graphCache != nil {
+	if c.graphCache != nil && c.cacheLoaded.Load() {
 		return cb(c)
 	}
 
@@ -252,7 +276,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context,
 	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
 	reset func()) error {
 
-	if c.graphCache != nil {
+	if c.graphCache != nil && c.cacheLoaded.Load() {
 		return c.graphCache.ForEachNode(cb)
 	}
 

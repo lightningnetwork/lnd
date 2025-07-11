@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
@@ -260,7 +261,7 @@ func TestPartialNode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
@@ -386,7 +387,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
@@ -511,7 +512,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	sourceNode := createTestVertex(t)
 	if err := graph.SetSourceNode(ctx, sourceNode); err != nil {
@@ -802,7 +803,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	graph := MakeTestGraph(t, WithSyncGraphCachePopulation())
 
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
@@ -985,9 +986,6 @@ func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
 
 func assertNodeNotInCache(t *testing.T, g *ChannelGraph, n route.Vertex) {
 	_, ok := g.graphCache.nodeFeatures[n]
-	require.False(t, ok)
-
-	_, ok = g.graphCache.nodeChannels[n]
 	require.False(t, ok)
 
 	// We should get the default features for this node.
@@ -1336,11 +1334,16 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	require.Empty(t, expectedSrcChans)
 }
 
+// TestGraphTraversal tests that we can traverse the graph and find all
+// nodes and channels that we expect to find.
 func TestGraphTraversal(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
+	// If we turn the channel graph cache _off_, then iterate through the
+	// set of channels (to force the fall back), we should find all the
+	// channel as well as the nodes included.
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1355,10 +1358,6 @@ func TestGraphTraversal(t *testing.T) {
 		nodeIndex[node.PubKeyBytes] = struct{}{}
 	}
 
-	// If we turn the channel graph cache _off_, then iterate through the
-	// set of channels (to force the fall back), we should find all the
-	// channel as well as the nodes included.
-	graph.graphCache = nil
 	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
 		chans map[uint64]*DirectedChannel) error {
 
@@ -1507,10 +1506,13 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	require.Len(t, chanIndex2, 0)
 }
 
+// TestGraphCacheTraversal tests traversal of the graph via the graph cache.
 func TestGraphCacheTraversal(t *testing.T) {
 	t.Parallel()
 
-	graph := MakeTestGraph(t)
+	// Explicitly enable the graph cache so that the
+	// ForEachNodeDirectedChannel call below will use the cache.
+	graph := MakeTestGraph(t, WithUseGraphCache(true))
 
 	// We'd like to test some of the graph traversal capabilities within
 	// the DB, so we'll create a series of fake nodes to insert into the
@@ -1526,7 +1528,7 @@ func TestGraphCacheTraversal(t *testing.T) {
 	for _, node := range nodeList {
 		node := node
 
-		err := graph.graphCache.ForEachChannel(
+		err := graph.ForEachNodeDirectedChannel(
 			node.PubKeyBytes, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 
@@ -1548,6 +1550,8 @@ func TestGraphCacheTraversal(t *testing.T) {
 				numNodeChans++
 
 				return nil
+			}, func() {
+				numNodeChans = 0
 			},
 		)
 		require.NoError(t, err)
@@ -4257,17 +4261,16 @@ func BenchmarkForEachChannel(b *testing.B) {
 	}
 }
 
-// TestGraphCacheForEachNodeChannel tests that the forEachNodeDirectedChannel
+// TestForEachNodeDirectedChannel tests that the ForEachNodeDirectedChannel
 // method works as expected, and is able to handle nil self edges.
-func TestGraphCacheForEachNodeChannel(t *testing.T) {
+func TestForEachNodeDirectedChannel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
-	graph := MakeTestGraph(t)
-
 	// Unset the channel graph cache to simulate the user running with the
-	// option turned off.
-	graph.graphCache = nil
+	// option turned off. This forces the V1Store ForEachNodeDirectedChannel
+	// to be queried instead of the graph cache's ForEachChannel method.
+	graph := MakeTestGraph(t, WithUseGraphCache(false))
 
 	node1 := createTestVertex(t)
 	require.NoError(t, graph.AddLightningNode(ctx, node1))
@@ -4351,7 +4354,9 @@ func TestGraphLoading(t *testing.T) {
 	// Next, create the graph for the first time.
 	graphStore := NewTestDB(t)
 
-	graph, err := NewChannelGraph(graphStore)
+	graph, err := NewChannelGraph(
+		graphStore, WithSyncGraphCachePopulation(),
+	)
 	require.NoError(t, err)
 	require.NoError(t, graph.Start())
 	t.Cleanup(func() {
@@ -4365,7 +4370,9 @@ func TestGraphLoading(t *testing.T) {
 
 	// Recreate the graph. This should cause the graph cache to be
 	// populated.
-	graphReloaded, err := NewChannelGraph(graphStore)
+	graphReloaded, err := NewChannelGraph(
+		graphStore, WithSyncGraphCachePopulation(),
+	)
 	require.NoError(t, err)
 	require.NoError(t, graphReloaded.Start())
 	t.Cleanup(func() {
@@ -4382,6 +4389,105 @@ func TestGraphLoading(t *testing.T) {
 		t, graph.graphCache.nodeFeatures,
 		graphReloaded.graphCache.nodeFeatures,
 	)
+}
+
+// TestAsyncGraphCache tests the behaviour of the ChannelGraph when the graph
+// cache is populated asynchronously.
+func TestAsyncGraphCache(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	const (
+		numNodes    = 100
+		numChannels = 3
+	)
+
+	// Next, create the graph for the first time.
+	graphStore := NewTestDB(t)
+
+	// The first time we spin up the graph, we Start is as normal and fill
+	// it with test data. This will ensure that the graph cache has
+	// something to load on the next Start.
+	graph, err := NewChannelGraph(graphStore)
+	require.NoError(t, err)
+	require.NoError(t, graph.Start())
+	channels, nodes := fillTestGraph(t, graph, numNodes, numChannels)
+
+	assertGraphState := func() {
+		var (
+			numNodes  int
+			chanIndex = make(map[uint64]struct{}, numChannels)
+		)
+		// We query the graph for all nodes and channels, and
+		// assert that we get the expected number of nodes and
+		// channels.
+		err := graph.ForEachNodeCached(
+			ctx, func(node route.Vertex,
+				chans map[uint64]*DirectedChannel) error {
+
+				numNodes++
+				for chanID := range chans {
+					chanIndex[chanID] = struct{}{}
+				}
+
+				return nil
+			}, func() {
+				numNodes = 0
+				chanIndex = make(
+					map[uint64]struct{}, numChannels,
+				)
+			},
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, len(nodes), numNodes)
+		require.Equal(t, len(channels), len(chanIndex))
+	}
+
+	assertGraphState()
+
+	// Now we stop the graph.
+	require.NoError(t, graph.Stop())
+
+	// Recreate it but don't start it yet.
+	graph, err = NewChannelGraph(graphStore)
+	require.NoError(t, err)
+
+	// Spin off a goroutine that starts to make queries to the ChannelGraph.
+	// We start this before we start the graph, so that we can ensure that
+	// the queries are made while the graph cache is being populated.
+	var (
+		wg      sync.WaitGroup
+		numRuns = 10
+	)
+	for i := 0; i < numRuns; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			assertGraphState()
+		}()
+	}
+
+	require.NoError(t, graph.Start())
+	t.Cleanup(func() {
+		require.NoError(t, graph.Stop())
+	})
+
+	wg.Wait()
+
+	// Wait for the cache to be fully populated.
+	err = wait.Predicate(func() bool {
+		return graph.cacheLoaded.Load()
+	}, wait.DefaultTimeout)
+	require.NoError(t, err)
+
+	// And then assert that all the expected nodes and channels are
+	// present in the graph cache.
+	for _, node := range nodes {
+		_, ok := graph.graphCache.nodeChannels[node.PubKeyBytes]
+		require.True(t, ok)
+	}
 }
 
 // TestClosedScid tests that we can correctly insert a SCID into the index of

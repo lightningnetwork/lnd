@@ -159,8 +159,8 @@ type V1Store interface { //nolint:interfacebloat
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
 	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+		reset func()) error
 
 	// ForEachChannelCacheable iterates through all the channel edges stored
 	// within the graph and invokes the passed callback for each edge. The

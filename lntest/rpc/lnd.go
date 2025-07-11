@@ -303,6 +303,66 @@ func (h *HarnessRPC) AddInvoiceAssertErr(req *lnrpc.Invoice, errStr string) {
 	require.ErrorContains(h, err, errStr)
 }
 
+// GetChanInfoAssertErr makes an RPC call to GetChanInfo and asserts an error
+// has returned with a specific error message.
+func (h *HarnessRPC) GetChanInfoAssertErr(req *lnrpc.ChanInfoRequest,
+	errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.GetChanInfo(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
+// GetNodeInfoAssertErr makes an RPC call to GetNodeInfo and asserts an error
+// has returned with a specific error message.
+func (h *HarnessRPC) GetNodeInfoAssertErr(req *lnrpc.NodeInfoRequest,
+	errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.GetNodeInfo(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
+// SendCustomMessageAssertErr makes an RPC call to SendCustomMessage and asserts
+// an error has returned with a specific error message.
+func (h *HarnessRPC) SendCustomMessageAssertErr(
+	req *lnrpc.SendCustomMessageRequest, errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.SendCustomMessage(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
+// LookupInvoiceAssertErr makes an RPC call to LookupInvoice and asserts an
+// error has returned with a specific error message.
+func (h *HarnessRPC) LookupInvoiceAssertErr(req *lnrpc.PaymentHash,
+	errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.LookupInvoice(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
+// LookupHTLCResolutionAssertErr makes an RPC call to LookupHTLCResolution and
+// asserts an error has returned with a specific error message.
+func (h *HarnessRPC) LookupHTLCResolutionAssertErr(
+	req *lnrpc.LookupHtlcResolutionRequest, errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.LookupHtlcResolution(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}
+
 // AbandonChannel makes a RPC call to AbandonChannel and asserts.
 func (h *HarnessRPC) AbandonChannel(
 	req *lnrpc.AbandonChannelRequest) *lnrpc.AbandonChannelResponse {

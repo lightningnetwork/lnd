@@ -3291,9 +3291,7 @@ func (c *KVStore) ForEachNodeChannel(_ context.Context, nodePub route.Vertex,
 // peer's node information.
 func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
-	otherNode *models.LightningNode) error) error {
-
-	reset := func() {}
+	otherNode *models.LightningNode) error, reset func()) error {
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)

@@ -1254,7 +1254,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		ForAllOutgoingChannels: func(ctx context.Context,
 			cb func(*models.ChannelEdgeInfo,
-				*models.ChannelEdgePolicy) error) error {
+			*models.ChannelEdgePolicy) error) error {
 
 			return s.graphDB.ForEachNodeChannel(ctx, selfVertex,
 				func(c *models.ChannelEdgeInfo,
@@ -3599,7 +3599,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// nodeAddrsMap stores the combination of node public keys and addresses
 	// that we'll attempt to reconnect to. PubKey strings are used as keys
 	// since other PubKey forms can't be compared.
-	nodeAddrsMap := map[string]*nodeAddresses{}
+	nodeAddrsMap := make(map[string]*nodeAddresses)
 
 	// Iterate through the list of LinkNodes to find addresses we should
 	// attempt to connect to based on our set of previous connections. Set
@@ -3623,6 +3623,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// that have been added via NodeAnnouncement messages.
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
+	graphAddrs := make(map[string]*nodeAddresses)
 	forEachSrcNodeChan := func(chanPoint wire.OutPoint,
 		havePolicy bool, channelPeer *models.LightningNode) error {
 
@@ -3688,10 +3689,14 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 			return err
 		}
 
-		nodeAddrsMap[pubStr] = n
+		graphAddrs[pubStr] = n
 		return nil
 	}
-	err = s.graphDB.ForEachSourceNodeChannel(ctx, forEachSrcNodeChan)
+	err = s.graphDB.ForEachSourceNodeChannel(
+		ctx, forEachSrcNodeChan, func() {
+			clear(graphAddrs)
+		},
+	)
 	if err != nil {
 		srvrLog.Errorf("Failed to iterate over source node channels: "+
 			"%v", err)
@@ -3701,6 +3706,11 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 
 			return err
 		}
+	}
+
+	// Combine the addresses from the link nodes and the channel graph.
+	for pubStr, nodeAddr := range graphAddrs {
+		nodeAddrsMap[pubStr] = nodeAddr
 	}
 
 	srvrLog.Debugf("Establishing %v persistent connections on start",

@@ -727,9 +727,7 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.LightningNode) error) error {
-
-	reset := func() {}
+		otherNode *models.LightningNode) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)

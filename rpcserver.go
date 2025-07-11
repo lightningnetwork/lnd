@@ -7215,6 +7215,15 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		}
 
 		return nil
+	}, func() {
+		numChannels = 0
+		numNodes = 0
+		maxChanOut = 0
+		totalNetworkCapacity = 0
+		minChannelSize = math.MaxInt64
+		maxChannelSize = 0
+		allChans = nil
+		clear(seenChans)
 	})
 	if err != nil {
 		return nil, err

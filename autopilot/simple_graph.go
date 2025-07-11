@@ -60,6 +60,10 @@ func NewSimpleGraph(ctx context.Context, g ChannelGraph) (*SimpleGraph, error) {
 				return nil
 			},
 		)
+	}, func() {
+		clear(adj)
+		clear(nodes)
+		nextIndex = 0
 	})
 	if err != nil {
 		return nil, err

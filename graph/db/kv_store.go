@@ -678,10 +678,8 @@ func (c *KVStore) FetchNodeFeatures(nodePub route.Vertex) (
 //
 // NOTE: The callback contents MUST not be modified.
 func (c *KVStore) ForEachNodeCached(_ context.Context,
-	cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error {
-
-	reset := func() {}
+	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
+	reset func()) error {
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each

@@ -785,9 +785,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNode(ctx context.Context,
-	cb func(tx NodeRTx) error) error {
-
-	reset := func() {}
+	cb func(tx NodeRTx) error, reset func()) error {
 
 	var lastID int64 = 0
 	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {

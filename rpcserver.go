@@ -6743,6 +6743,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		resp.Nodes = append(resp.Nodes, lnNode)
 
 		return nil
+	}, func() {
+		resp.Nodes = nil
 	})
 	if err != nil {
 		return nil, err

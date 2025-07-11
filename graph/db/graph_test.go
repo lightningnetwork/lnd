@@ -1454,7 +1454,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 		nodeMap[tx.Node().PubKeyBytes] = struct{}{}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, numNodes)
 
@@ -1583,7 +1583,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
 		delete(nodeIndex, tx.Node().Alias)
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, nodeIndex, 0)
 
@@ -1693,7 +1693,7 @@ func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 		numNodes++
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan nodes: %v", line, err)

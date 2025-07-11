@@ -868,27 +868,33 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	ht.AssertNumTxsInMempool(1)
 
 	// List all unconfirmed sweeps that alice's node had broadcast.
-	sweepResp := alice.RPC.ListSweeps(false, -1)
-	txIDs := sweepResp.GetTransactionIds().TransactionIds
-	require.Lenf(ht, txIDs, 1, "number of pending sweeps, starting from "+
-		"height -1")
+	req1 := &walletrpc.ListSweepsRequest{
+		Verbose:     false,
+		StartHeight: -1,
+	}
+	ht.AssertNumSweeps(alice, req1, 1)
 
 	// Now list sweeps from the closing of the first channel. We should
 	// only see the sweep from the second channel and the pending one.
-	sweepResp = alice.RPC.ListSweeps(false, blockHeight)
-	txIDs = sweepResp.GetTransactionIds().TransactionIds
-	require.Lenf(ht, txIDs, 2, "number of sweeps, starting from height %d",
-		blockHeight)
+	req2 := &walletrpc.ListSweepsRequest{
+		Verbose:     false,
+		StartHeight: blockHeight,
+	}
+	ht.AssertNumSweeps(alice, req2, 2)
 
 	// Finally list all sweeps from the closing of the second channel. We
 	// should see all sweeps, including the pending one.
-	sweepResp = alice.RPC.ListSweeps(false, 0)
-	txIDs = sweepResp.GetTransactionIds().TransactionIds
-	require.Lenf(ht, txIDs, 3, "number of sweeps, starting from height 0")
+	req3 := &walletrpc.ListSweepsRequest{
+		Verbose:     false,
+		StartHeight: 0,
+	}
+	ht.AssertNumSweeps(alice, req3, 3)
 
 	// Mine the pending sweep and make sure it is no longer returned.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
-	sweepResp = alice.RPC.ListSweeps(false, -1)
-	txIDs = sweepResp.GetTransactionIds().TransactionIds
-	require.Empty(ht, txIDs, "pending sweep should not be returned")
+	req4 := &walletrpc.ListSweepsRequest{
+		Verbose:     false,
+		StartHeight: -1,
+	}
+	ht.AssertNumSweeps(alice, req4, 0)
 }

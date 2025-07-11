@@ -2059,9 +2059,14 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
 	sweep string, verbose bool, startHeight int32) {
 
+	req := &walletrpc.ListSweepsRequest{
+		Verbose:     verbose,
+		StartHeight: startHeight,
+	}
+
 	err := wait.NoError(func() error {
 		// List all sweeps that alice's node had broadcast.
-		sweepResp := hn.RPC.ListSweeps(verbose, startHeight)
+		sweepResp := hn.RPC.ListSweeps(req)
 
 		var found bool
 		if verbose {

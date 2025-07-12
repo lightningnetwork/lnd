@@ -23,6 +23,7 @@ import (
 
 func openKVBackend(ht *lntest.HarnessTest, hn *node.HarnessNode) kvdb.Backend {
 	sqlbase.Init(0)
+
 	var (
 		backend kvdb.Backend
 		err     error

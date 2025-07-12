@@ -14,6 +14,10 @@ import (
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
+// RunTestSQLMigration is a build tag that indicates whether the test_native_sql
+// build tag is set.
+var RunTestSQLMigration = true
+
 // getGraphStore returns a graphdb.V1Store backed by a graphdb.SQLStore
 // implementation.
 func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,

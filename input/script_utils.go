@@ -20,6 +20,10 @@ import (
 	"golang.org/x/crypto/ripemd160"
 )
 
+// TemplateParams is a type alias for the map[string]interface{} type used
+// with txscript.ScriptTemplate to make code more readable.
+type TemplateParams map[string]interface{}
+
 var (
 	// TODO(roasbeef): remove these and use the one's defined in txscript
 	// within testnet-L.
@@ -83,69 +87,62 @@ func ParseSignature(rawSig []byte) (Signature, error) {
 // WitnessScriptHash generates a pay-to-witness-script-hash public key script
 // paying to a version 0 witness program paying to the passed redeem script.
 func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(P2WSHSize),
-	)
-
-	bldr.AddOp(txscript.OP_0)
 	scriptHash := sha256.Sum256(witnessScript)
-	bldr.AddData(scriptHash[:])
-	return bldr.Script()
+	return txscript.ScriptTemplate(
+		`OP_0 {{ hex .ScriptHash }}`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"ScriptHash": scriptHash[:],
+		}),
+	)
 }
 
 // WitnessPubKeyHash generates a pay-to-witness-pubkey-hash public key script
 // paying to a version 0 witness program containing the passed serialized
 // public key.
 func WitnessPubKeyHash(pubkey []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(P2WPKHSize),
-	)
-
-	bldr.AddOp(txscript.OP_0)
 	pkhash := btcutil.Hash160(pubkey)
-	bldr.AddData(pkhash)
-	return bldr.Script()
+	return txscript.ScriptTemplate(
+		`OP_0 {{ hex .PKHash }}`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"PKHash": pkhash,
+		}),
+	)
 }
 
 // GenerateP2SH generates a pay-to-script-hash public key script paying to the
 // passed redeem script.
 func GenerateP2SH(script []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(NestedP2WPKHSize),
+	scriptHash := btcutil.Hash160(script)
+	return txscript.ScriptTemplate(
+		`OP_HASH160 {{ hex .ScriptHash }} OP_EQUAL`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"ScriptHash": scriptHash,
+		}),
 	)
-
-	bldr.AddOp(txscript.OP_HASH160)
-	scripthash := btcutil.Hash160(script)
-	bldr.AddData(scripthash)
-	bldr.AddOp(txscript.OP_EQUAL)
-	return bldr.Script()
 }
 
 // GenerateP2PKH generates a pay-to-public-key-hash public key script paying to
 // the passed serialized public key.
 func GenerateP2PKH(pubkey []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder(
-		txscript.WithScriptAllocSize(P2PKHSize),
+	pkHash := btcutil.Hash160(pubkey)
+	return txscript.ScriptTemplate(
+		`OP_DUP OP_HASH160 {{ hex .pkh }} OP_EQUALVERIFY OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"pkh": pkHash,
+		}),
 	)
-
-	bldr.AddOp(txscript.OP_DUP)
-	bldr.AddOp(txscript.OP_HASH160)
-	pkhash := btcutil.Hash160(pubkey)
-	bldr.AddData(pkhash)
-	bldr.AddOp(txscript.OP_EQUALVERIFY)
-	bldr.AddOp(txscript.OP_CHECKSIG)
-	return bldr.Script()
 }
 
 // GenerateUnknownWitness generates the maximum-sized witness public key script
 // consisting of a version push and a 40-byte data push.
 func GenerateUnknownWitness() ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
-
-	bldr.AddOp(txscript.OP_0)
 	witnessScript := make([]byte, 40)
-	bldr.AddData(witnessScript)
-	return bldr.Script()
+	return txscript.ScriptTemplate(
+		`OP_0 {{ hex .WitnessScript }}`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"WitnessScript": witnessScript,
+		}),
+	)
 }
 
 // GenMultiSigScript generates the non-p2sh'd multisig script for 2 of 2
@@ -164,15 +161,14 @@ func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 		aPub, bPub = bPub, aPub
 	}
 
-	bldr := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		MultiSigSize,
-	))
-	bldr.AddOp(txscript.OP_2)
-	bldr.AddData(aPub) // Add both pubkeys (sorted).
-	bldr.AddData(bPub)
-	bldr.AddOp(txscript.OP_2)
-	bldr.AddOp(txscript.OP_CHECKMULTISIG)
-	return bldr.Script()
+	return txscript.ScriptTemplate(
+		`
+		OP_2 {{ hex .pubA }} {{ hex .pubB }} OP_2 OP_CHECKMULTISIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"pubA": aPub,
+			"pubB": bPub,
+		}),
+	)
 }
 
 // GenFundingPkScript creates a redeem script, and its matching p2wsh
@@ -338,92 +334,88 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	revocationKey *btcec.PublicKey, paymentHash []byte,
 	confirmedSpend bool) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		OfferedHtlcScriptSizeConfirmed,
-	))
+	// Build the base script template
+	scriptTemplate := `
+	/* The opening operations are used to determine if this is the receiver
+	   of the HTLC attempting to sweep all the funds due to a contract
+	   breach. In this case, they'll place the revocation key at the top of
+	   the stack. */
+	OP_DUP OP_HASH160 {{ hex .RevKeyHash }} OP_EQUAL
+	OP_IF
+		/* If the hash matches, then this is the revocation clause. The 
+	           output can be spent if the check sig operation passes. */
+		OP_CHECKSIG
+	OP_ELSE
+		/* Otherwise, this may either be the receiver of the HTLC 
+	           claiming with the pre-image, or the sender of the HTLC 
+	           sweeping the output after  it has timed out. */
+		
+		/* We'll do a bit of set up by pushing the receiver's key on 
+	           the top of the stack. This will be needed later if we decide 
+	           that this is the sender activating the time out clause with 
+  		   the HTLC timeout transaction. */
+		{{ hex .ReceiverKey }}
+		
+		/* Atm, the top item of the stack is the receiverKey's so 
+	           we use a swap to expose what is either the payment pre-image 
+	           or a signature. */
+		OP_SWAP 
+		
+		/* With the top item swapped, check if it's 32 bytes. If so, 
+		   then this *may* be the payment pre-image. */
+		OP_SIZE 32 OP_EQUAL
+		
+		/* If it isn't then this might be the sender of the HTLC 
+	           activating the time out clause. */
+		OP_NOTIF
+			/* We'll drop the OP_IF return value off the top of 
+	                   the stack so we can reconstruct the multi-sig script 
+			   used as an off-chain covenant. If two valid 
+		           signatures are provided, then the output will be 
+		           deemed as spendable. */
+		       OP_DROP 2 OP_SWAP {{ hex .SenderKey }} 2 OP_CHECKMULTISIG
+		OP_ELSE
+			/* Otherwise, then the only other case is that this 
+		           is the receiver of the HTLC sweeping it on-chain 
+			   with the payment pre-image. */
+			
+			/* Hash the top item of the stack and compare it with 
+			   the hash160 of the payment hash, which is already 
+	                   the sha256 of the payment pre-image. By using this 
+		           little trick we're able to save space on-chain as 
+	                   the witness includes a 20-byte hash rather than a
+			   32-byte hash. */
+			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY
+			
+			/* This checks the receiver's signature so that a third 
+	                   party with knowledge of the payment preimage still 
+	                   cannot steal the output. */
+			OP_CHECKSIG
+		/* Close out the OP_IF statement above. */
+		OP_ENDIF 
+	`
 
-	// The opening operations are used to determine if this is the receiver
-	// of the HTLC attempting to sweep all the funds due to a contract
-	// breach. In this case, they'll place the revocation key at the top of
-	// the stack.
-	builder.AddOp(txscript.OP_DUP)
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(revocationKey.SerializeCompressed()))
-	builder.AddOp(txscript.OP_EQUAL)
-
-	// If the hash matches, then this is the revocation clause. The output
-	// can be spent if the check sig operation passes.
-	builder.AddOp(txscript.OP_IF)
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	// Otherwise, this may either be the receiver of the HTLC claiming with
-	// the pre-image, or the sender of the HTLC sweeping the output after
-	// it has timed out.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// We'll do a bit of set up by pushing the receiver's key on the top of
-	// the stack. This will be needed later if we decide that this is the
-	// sender activating the time out clause with the HTLC timeout
-	// transaction.
-	builder.AddData(receiverHtlcKey.SerializeCompressed())
-
-	// Atm, the top item of the stack is the receiverKey's so we use a swap
-	// to expose what is either the payment pre-image or a signature.
-	builder.AddOp(txscript.OP_SWAP)
-
-	// With the top item swapped, check if it's 32 bytes. If so, then this
-	// *may* be the payment pre-image.
-	builder.AddOp(txscript.OP_SIZE)
-	builder.AddInt64(32)
-	builder.AddOp(txscript.OP_EQUAL)
-
-	// If it isn't then this might be the sender of the HTLC activating the
-	// time out clause.
-	builder.AddOp(txscript.OP_NOTIF)
-
-	// We'll drop the OP_IF return value off the top of the stack so we can
-	// reconstruct the multi-sig script used as an off-chain covenant. If
-	// two valid signatures are provided, then the output will be deemed as
-	// spendable.
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddOp(txscript.OP_2)
-	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(senderHtlcKey.SerializeCompressed())
-	builder.AddOp(txscript.OP_2)
-	builder.AddOp(txscript.OP_CHECKMULTISIG)
-
-	// Otherwise, then the only other case is that this is the receiver of
-	// the HTLC sweeping it on-chain with the payment pre-image.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// Hash the top item of the stack and compare it with the hash160 of
-	// the payment hash, which is already the sha256 of the payment
-	// pre-image. By using this little trick we're able to save space
-	// on-chain as the witness includes a 20-byte hash rather than a
-	// 32-byte hash.
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(Ripemd160H(paymentHash))
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-
-	// This checks the receiver's signature so that a third party with
-	// knowledge of the payment preimage still cannot steal the output.
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	// Close out the OP_IF statement above.
-	builder.AddOp(txscript.OP_ENDIF)
-
-	// Add 1 block CSV delay if a confirmation is required for the
-	// non-revocation clauses.
+	// Add 1 block CSV delay if a confirmation is required.
 	if confirmedSpend {
-		builder.AddOp(txscript.OP_1)
-		builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-		builder.AddOp(txscript.OP_DROP)
+		scriptTemplate += ` 
+		/* Add 1 block CSV delay if a confirmation is required for the
+		   non-revocation clauses. */
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
 	}
 
-	// Close out the OP_IF statement at the top of the script.
-	builder.AddOp(txscript.OP_ENDIF)
+	// Close out the top level if statement.
+	scriptTemplate += ` OP_ENDIF`
 
-	return builder.Script()
+	// Use the ScriptTemplate function with the properly formatted template
+	return txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevKeyHash":        btcutil.Hash160(revocationKey.SerializeCompressed()), //nolint:ll
+			"ReceiverKey":       receiverHtlcKey.SerializeCompressed(),                //nolint:ll
+			"SenderKey":         senderHtlcKey.SerializeCompressed(),                  //nolint:ll
+			"PaymentHashRipemd": Ripemd160H(paymentHash),
+		}),
+	)
 }
 
 // SenderHtlcSpendRevokeWithKey constructs a valid witness allowing the receiver of an
@@ -557,16 +549,18 @@ func SenderHtlcSpendTimeout(receiverSig Signature,
 //	<local_key> OP_CHECKSIGVERIFY
 //	<remote_key> OP_CHECKSIG
 func SenderHTLCTapLeafTimeout(senderHtlcKey,
-	receiverHtlcKey *btcec.PublicKey) (txscript.TapLeaf, error) {
+	receiverHtlcKey *btcec.PublicKey,
+	_ ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	builder := txscript.NewScriptBuilder()
-
-	builder.AddData(schnorr.SerializePubKey(senderHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
-	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	timeoutLeafScript, err := builder.Script()
+	timeoutLeafScript, err := txscript.ScriptTemplate(
+		`
+		{{ hex .SenderKey }} OP_CHECKSIGVERIFY
+		{{ hex .ReceiverKey }} OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"SenderKey":   schnorr.SerializePubKey(senderHtlcKey),
+			"ReceiverKey": schnorr.SerializePubKey(receiverHtlcKey),
+		}),
+	)
 	if err != nil {
 		return txscript.TapLeaf{}, err
 	}
@@ -583,30 +577,43 @@ func SenderHTLCTapLeafTimeout(senderHtlcKey,
 //	<remote_htlcpubkey> OP_CHECKSIG
 //	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
-	paymentHash []byte) (txscript.TapLeaf, error) {
+	paymentHash []byte, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	builder := txscript.NewScriptBuilder()
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
 
-	// Check that the pre-image is 32 bytes as required.
-	builder.AddOp(txscript.OP_SIZE)
-	builder.AddInt64(32)
-	builder.AddOp(txscript.OP_EQUALVERIFY)
+	scriptTemplate := `
+		/* Check that the pre-image is 32 bytes as required. */
+		OP_SIZE 32 OP_EQUALVERIFY 
+		
+		/* Check that the specified pre-image matches what we hard code into
+		   the script. */
+		OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+		
+		/* Verify the remote party's signature, then make them wait 1 block
+		   after confirmation to properly sweep. */
+		{{ hex .ReceiverKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
 
-	// Check that the specified pre-image matches what we hard code into
-	// the script.
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(Ripemd160H(paymentHash))
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-
-	// Verify the remote party's signature, then make them wait 1 block
-	// after confirmation to properly sweep.
-	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-	builder.AddOp(txscript.OP_1)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	successLeafScript, err := builder.Script()
+	successLeafScript, err := txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"PaymentHashRipemd": Ripemd160H(paymentHash),
+			"ReceiverKey": schnorr.SerializePubKey(
+				receiverHtlcKey,
+			),
+			"ProdScript": opt.prodScript,
+		}),
+	)
 	if err != nil {
 		return txscript.TapLeaf{}, err
 	}
@@ -734,18 +741,19 @@ var _ TapscriptDescriptor = (*HtlcScriptTree)(nil)
 // the HTLC key for HTLCs on the sender's commitment.
 func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte, hType htlcType,
-	auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
+	auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
 	successTapLeaf, err := SenderHTLCTapLeafSuccess(
-		receiverHtlcKey, payHash,
+		receiverHtlcKey, payHash, opts...,
 	)
 	if err != nil {
 		return nil, err
 	}
 	timeoutTapLeaf, err := SenderHTLCTapLeafTimeout(
-		senderHtlcKey, receiverHtlcKey,
+		senderHtlcKey, receiverHtlcKey, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -987,101 +995,99 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
 	paymentHash []byte, confirmedSpend bool) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		AcceptedHtlcScriptSizeConfirmed,
-	))
-
-	// The opening operations are used to determine if this is the sender
-	// of the HTLC attempting to sweep all the funds due to a contract
-	// breach. In this case, they'll place the revocation key at the top of
-	// the stack.
-	builder.AddOp(txscript.OP_DUP)
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(btcutil.Hash160(revocationKey.SerializeCompressed()))
-	builder.AddOp(txscript.OP_EQUAL)
-
-	// If the hash matches, then this is the revocation clause. The output
-	// can be spent if the check sig operation passes.
-	builder.AddOp(txscript.OP_IF)
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	// Otherwise, this may either be the receiver of the HTLC starting the
-	// claiming process via the second level HTLC success transaction and
-	// the pre-image, or the sender of the HTLC sweeping the output after
-	// it has timed out.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// We'll do a bit of set up by pushing the sender's key on the top of
-	// the stack. This will be needed later if we decide that this is the
-	// receiver transitioning the output to the claim state using their
-	// second-level HTLC success transaction.
-	builder.AddData(senderHtlcKey.SerializeCompressed())
-
-	// Atm, the top item of the stack is the sender's key so we use a swap
-	// to expose what is either the payment pre-image or something else.
-	builder.AddOp(txscript.OP_SWAP)
-
-	// With the top item swapped, check if it's 32 bytes. If so, then this
-	// *may* be the payment pre-image.
-	builder.AddOp(txscript.OP_SIZE)
-	builder.AddInt64(32)
-	builder.AddOp(txscript.OP_EQUAL)
-
-	// If the item on the top of the stack is 32-bytes, then it is the
-	// proper size, so this indicates that the receiver of the HTLC is
-	// attempting to claim the output on-chain by transitioning the state
-	// of the HTLC to delay+claim.
-	builder.AddOp(txscript.OP_IF)
-
-	// Next we'll hash the item on the top of the stack, if it matches the
-	// payment pre-image, then we'll continue. Otherwise, we'll end the
-	// script here as this is the invalid payment pre-image.
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(Ripemd160H(paymentHash))
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-
-	// If the payment hash matches, then we'll also need to satisfy the
-	// multi-sig covenant by providing both signatures of the sender and
-	// receiver. If the convenient is met, then we'll allow the spending of
-	// this output, but only by the HTLC success transaction.
-	builder.AddOp(txscript.OP_2)
-	builder.AddOp(txscript.OP_SWAP)
-	builder.AddData(receiverHtlcKey.SerializeCompressed())
-	builder.AddOp(txscript.OP_2)
-	builder.AddOp(txscript.OP_CHECKMULTISIG)
-
-	// Otherwise, this might be the sender of the HTLC attempting to sweep
-	// it on-chain after the timeout.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// We'll drop the extra item (which is the output from evaluating the
-	// OP_EQUAL) above from the stack.
-	builder.AddOp(txscript.OP_DROP)
-
-	// With that item dropped off, we can now enforce the absolute
-	// lock-time required to timeout the HTLC. If the time has passed, then
-	// we'll proceed with a checksig to ensure that this is actually the
-	// sender of he original HTLC.
-	builder.AddInt64(int64(cltvExpiry))
-	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	// Close out the inner if statement.
-	builder.AddOp(txscript.OP_ENDIF)
+	scriptTemplate := `
+	/* The opening operations are used to determine if this is the sender
+	   of the HTLC attempting to sweep all the funds due to a contract
+	   breach. In this case, they'll place the revocation key at the top of
+	   the stack. */
+	OP_DUP OP_HASH160 {{ hex .RevKeyHash }} OP_EQUAL
+	OP_IF
+		/* If the hash matches, then this is the revocation clause. 
+		   The output can be spent if the check sig operation passes. */
+		OP_CHECKSIG
+	OP_ELSE
+		/* Otherwise, this may either be the receiver of the HTLC 
+		   starting the claiming process via the second level HTLC 
+	           success transaction and the pre-image, or the sender of the 
+	           HTLC sweeping the output after it has timed out. */
+		
+		/* We'll do a bit of set up by pushing the sender's key on the 
+		   top of the stack. This will be needed later if we decide 
+	           that this is the receiver transitioning the output to the 
+		   claim state using theirsecond-level HTLC success 
+	           transaction. */
+		{{ hex .SenderKey }}
+		
+		/* Atm, the top item of the stack is the sender's key so we 
+	           use a swap to expose what is either the payment pre-image 
+		   or something else. */
+		OP_SWAP 
+		
+		/* With the top item swapped, check if it's 32 bytes. If so, 
+		   then this *may* be the payment pre-image. */
+		OP_SIZE 32 OP_EQUAL
+		
+		/* If the item on the top of the stack is 32-bytes, then it is 
+		   the proper size, so this indicates that the receiver of the 
+		   HTLC is attempting to claim the output on-chain by 
+		   transitioning the state of the HTLC to delay+claim. */
+		OP_IF
+			/* Next we'll hash the item on the top of the stack, 
+			   if it matches the payment pre-image, then we'll 
+			   continue. Otherwise, we'll end the script here as 
+			   this is the invalid payment pre-image. */
+			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY
+			
+			/* If the payment hash matches, then we'll also need to 
+			   satisfy the multi-sig covenant by providing both 
+			   signatures of the sender and receiver. If the 
+			    convenient is met, then we'll allow the spending of
+			   this output, but only by the HTLC success 
+			   transaction. */
+		       OP_2 OP_SWAP {{ hex .ReceiverKey }} OP_2 OP_CHECKMULTISIG
+		OP_ELSE
+			/* Otherwise, this might be the sender of the HTLC 
+			   attempting to sweep it on-chain after the timeout. */
+			
+			/* We'll drop the extra item (which is the output 
+			   from evaluating the OP_EQUAL) above from the stack. */
+			OP_DROP 
+			
+			/* With that item dropped off, we can now enforce the 
+			   absolute lock-time required to timeout the HTLC. If 
+			   the time has passed, then we'll proceed with a 
+			   checksig to ensure that this is actually the
+			   sender of he original HTLC. */
+			{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
+			OP_CHECKSIG
+		OP_ENDIF /* Close out the inner if statement. */
+	`
 
 	// Add 1 block CSV delay for non-revocation clauses if confirmation is
 	// required.
 	if confirmedSpend {
-		builder.AddOp(txscript.OP_1)
-		builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-		builder.AddOp(txscript.OP_DROP)
+		scriptTemplate += ` 
+		/* Add 1 block CSV delay for non-revocation clauses if 
+		   confirmation is required. */
+		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
 	}
 
 	// Close out the outer if statement.
-	builder.AddOp(txscript.OP_ENDIF)
+	scriptTemplate += ` OP_ENDIF /* Close out the outer if statement. */`
 
-	return builder.Script()
+	// Use the ScriptTemplate function with the properly formatted template
+	return txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevKeyHash": btcutil.Hash160(
+				revocationKey.SerializeCompressed(),
+			),
+			"SenderKey":         senderHtlcKey.SerializeCompressed(),   //nolint:ll
+			"ReceiverKey":       receiverHtlcKey.SerializeCompressed(), //nolint:ll
+			"PaymentHashRipemd": Ripemd160H(paymentHash),
+			"CltvExpiry":        int64(cltvExpiry),
+		}),
+	)
 }
 
 // ReceiverHtlcSpendRedeem constructs a valid witness allowing the receiver of
@@ -1228,25 +1234,44 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 //	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //	<cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
-	cltvExpiry uint32) (txscript.TapLeaf, error) {
+	cltvExpiry uint32, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	builder := txscript.NewScriptBuilder()
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
 
-	// The first part of the script will verify a signature from the
-	// sender authorizing the spend (the timeout).
-	builder.AddData(schnorr.SerializePubKey(senderHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-	builder.AddOp(txscript.OP_1)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
+	scriptTemplate := `
+		/* The first part of the script will verify a signature from the
+		   sender authorizing the spend (the timeout). */
+		{{ hex .SenderKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_VERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
+		{{- end }}
+		
+		/* The second portion will ensure that the CLTV expiry on 
+	           the spending transaction is correct. */
+		{{ .CltvExpiry }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKLOCKTIMEVERIFY
+		{{- else }}
+			OP_CHECKLOCKTIMEVERIFY OP_DROP
+		{{- end }}`
 
-	// The second portion will ensure that the CLTV expiry on the spending
-	// transaction is correct.
-	builder.AddInt64(int64(cltvExpiry))
-	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	timeoutLeafScript, err := builder.Script()
+	timeoutLeafScript, err := txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"SenderKey":  schnorr.SerializePubKey(senderHtlcKey),
+			"CltvExpiry": int64(cltvExpiry),
+			"ProdScript": opt.prodScript,
+		}),
+	)
 	if err != nil {
 		return txscript.TapLeaf{}, err
 	}
@@ -1264,29 +1289,30 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 //	<sender_htlcpubkey> OP_CHECKSIG
 func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	senderHtlcKey *btcec.PublicKey,
-	paymentHash []byte) (txscript.TapLeaf, error) {
+	paymentHash []byte,
+	opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	builder := txscript.NewScriptBuilder()
-
-	// Check that the pre-image is 32 bytes as required.
-	builder.AddOp(txscript.OP_SIZE)
-	builder.AddInt64(32)
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-
-	// Check that the specified pre-image matches what we hard code into
-	// the script.
-	builder.AddOp(txscript.OP_HASH160)
-	builder.AddData(Ripemd160H(paymentHash))
-	builder.AddOp(txscript.OP_EQUALVERIFY)
-
-	// Verify the "2-of-2" multi-sig that requires both parties to sign
-	// off.
-	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
-	builder.AddData(schnorr.SerializePubKey(senderHtlcKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	successLeafScript, err := builder.Script()
+	successLeafScript, err := txscript.ScriptTemplate(
+		`
+		/* Check that the pre-image is 32 bytes as required. */
+		OP_SIZE 32 OP_EQUALVERIFY 
+		
+		/* Check that the specified pre-image matches what we hard code into
+		   the script. */
+		OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+		
+		/* Verify the "2-of-2" multi-sig that requires both parties to sign
+		   off. */
+		{{ hex .ReceiverKey }} OP_CHECKSIGVERIFY 
+		{{ hex .SenderKey }} OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"PaymentHashRipemd": Ripemd160H(paymentHash),
+			"ReceiverKey": schnorr.SerializePubKey(
+				receiverHtlcKey,
+			),
+			"SenderKey": schnorr.SerializePubKey(senderHtlcKey),
+		}),
+	)
 	if err != nil {
 		return txscript.TapLeaf{}, err
 	}
@@ -1298,18 +1324,19 @@ func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 // the HTLC key for HTLCs on the receiver's commitment.
 func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte, cltvExpiry uint32,
-	hType htlcType, auxLeaf AuxTapLeaf) (*HtlcScriptTree, error) {
+	hType htlcType, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
 	successTapLeaf, err := ReceiverHtlcTapLeafSuccess(
-		receiverHtlcKey, senderHtlcKey, payHash,
+		receiverHtlcKey, senderHtlcKey, payHash, opts...,
 	)
 	if err != nil {
 		return nil, err
 	}
 	timeoutTapLeaf, err := ReceiverHtlcTapLeafTimeout(
-		senderHtlcKey, cltvExpiry,
+		senderHtlcKey, cltvExpiry, opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -1547,43 +1574,37 @@ func ReceiverHTLCScriptTaprootRevoke(signer Signer, signDesc *SignDescriptor,
 func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		ToLocalScriptSize,
-	))
-
-	// If this is the revocation clause for this script is to be executed,
-	// the spender will push a 1, forcing us to hit the true clause of this
-	// if statement.
-	builder.AddOp(txscript.OP_IF)
-
-	// If this is the revocation case, then we'll push the revocation
-	// public key on the stack.
-	builder.AddData(revocationKey.SerializeCompressed())
-
-	// Otherwise, this is either the sender or receiver of the HTLC
-	// attempting to claim the HTLC output.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// In order to give the other party time to execute the revocation
-	// clause above, we require a relative timeout to pass before the
-	// output can be spent.
-	builder.AddInt64(int64(csvDelay))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	// If the relative timelock passes, then we'll add the delay key to the
-	// stack to ensure that we properly authenticate the spending party.
-	builder.AddData(delayKey.SerializeCompressed())
-
-	// Close out the if statement.
-	builder.AddOp(txscript.OP_ENDIF)
-
 	// In either case, we'll ensure that only either the party possessing
 	// the revocation private key, or the delay private key is able to
 	// spend this output.
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	return builder.Script()
+	return txscript.ScriptTemplate(
+		`
+		/* If this is the revocation clause for this script is to be 
+		   executed, the spender will push a 1, forcing us to hit the 
+	           true clause of this if statement. */
+		OP_IF
+			/* If this is the revocation case, then we'll push 
+		           the revocation public key on the stack. */
+			{{ hex .RevokeKey }}
+		OP_ELSE
+			/* Otherwise, this is either the sender or receiver 
+		           of the HTLC attempting to claim the HTLC output.
+			   In order to give the other party time to execute the 
+			   revocation clause above, we require a relative 
+		           timeout to pass before the output can be spent. */
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		
+			/* If the relative timelock passes, then we'll add the 
+		           delay key to the stack to ensure that we properly 
+		           authenticate the spending party. */
+			{{ hex .DelayKey }}
+		OP_ENDIF OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevokeKey": revocationKey.SerializeCompressed(),
+			"CsvDelay":  int64(csvDelay),
+			"DelayKey":  delayKey.SerializeCompressed(),
+		}),
+	)
 }
 
 // TODO(roasbeef): move all taproot stuff to new file?
@@ -1596,22 +1617,36 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 //	<local_delay_key> OP_CHECKSIG
 //	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
 func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
-	csvDelay uint32) (txscript.TapLeaf, error) {
+	csvDelay uint32, opts ...TaprootScriptOpt) (txscript.TapLeaf, error) {
 
-	builder := txscript.NewScriptBuilder()
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
 
 	// Ensure the proper party can sign for this output.
-	builder.AddData(schnorr.SerializePubKey(delayKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
 	// Assuming the above passes, then we'll now ensure that the CSV delay
 	// has been upheld, dropping the int we pushed on. If the sig above is
 	// valid, then a 1 will be left on the stack.
-	builder.AddInt64(int64(csvDelay))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
+	scriptTemplate := `
+		{{ hex .DelayKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
 
-	secondLevelLeafScript, err := builder.Script()
+	secondLevelLeafScript, err := txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"DelayKey":   schnorr.SerializePubKey(delayKey),
+			"CsvDelay":   int64(csvDelay),
+			"ProdScript": opt.prodScript,
+		}),
+	)
 	if err != nil {
 		return txscript.TapLeaf{}, err
 	}
@@ -1880,50 +1915,26 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay, cltvExpiry uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		ToLocalScriptSize + LeaseWitnessScriptSizeOverhead,
-	))
-
-	// If this is the revocation clause for this script is to be executed,
-	// the spender will push a 1, forcing us to hit the true clause of this
-	// if statement.
-	builder.AddOp(txscript.OP_IF)
-
-	// If this this is the revocation case, then we'll push the revocation
-	// public key on the stack.
-	builder.AddData(revocationKey.SerializeCompressed())
-
-	// Otherwise, this is either the sender or receiver of the HTLC
-	// attempting to claim the HTLC output.
-	builder.AddOp(txscript.OP_ELSE)
-
-	// The channel initiator always has the additional channel lease
-	// expiration constraint for outputs that pay to them which must be
-	// satisfied.
-	builder.AddInt64(int64(cltvExpiry))
-	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	// In order to give the other party time to execute the revocation
-	// clause above, we require a relative timeout to pass before the
-	// output can be spent.
-	builder.AddInt64(int64(csvDelay))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	// If the relative timelock passes, then we'll add the delay key to the
-	// stack to ensure that we properly authenticate the spending party.
-	builder.AddData(delayKey.SerializeCompressed())
-
-	// Close out the if statement.
-	builder.AddOp(txscript.OP_ENDIF)
-
-	// In either case, we'll ensure that only either the party possessing
-	// the revocation private key, or the delay private key is able to
-	// spend this output.
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	return builder.Script()
+	// Build a script template with conditional paths for revocation and
+	// normal spending If this is the revocation clause, the spender will
+	// push a 1, forcing the first path Otherwise, this is either the sender
+	// or receiver of the HTLC attempting to claim
+	return txscript.ScriptTemplate(
+		`
+		OP_IF
+			{{ hex .RevokeKey }}
+		OP_ELSE
+			{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP
+			{{ hex .DelayKey }}
+		OP_ENDIF OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevokeKey":  revocationKey.SerializeCompressed(),
+			"CltvExpiry": int64(cltvExpiry),
+			"CsvDelay":   int64(csvDelay),
+			"DelayKey":   delayKey.SerializeCompressed(),
+		}),
+	)
 }
 
 // HtlcSpendSuccess spends a second-level HTLC output. This function is to be
@@ -2065,32 +2076,30 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	// have divulged the revocation hash, allowing them to homomorphically
 	// derive the proper private key which corresponds to the revoke public
 	// key.
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		ToLocalScriptSize,
-	))
+	return txscript.ScriptTemplate(
+		`
+		OP_IF
+			/* If a valid signature using the revocation key is 
+		           presented, then allow an immediate spend provided 
+			   the proper signature. */
+			{{ hex .RevokeKey }}
+		OP_ELSE
+			/* Otherwise, we can re-claim our funds after a CSV 
+		           delay of 'csvTimeout' timeout blocks, and a valid 
+			   signature. */
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
+			{{ hex .SelfKey }}
+		OP_ENDIF
 
-	builder.AddOp(txscript.OP_IF)
-
-	// If a valid signature using the revocation key is presented, then
-	// allow an immediate spend provided the proper signature.
-	builder.AddData(revokeKey.SerializeCompressed())
-
-	builder.AddOp(txscript.OP_ELSE)
-
-	// Otherwise, we can re-claim our funds after a CSV delay of
-	// 'csvTimeout' timeout blocks, and a valid signature.
-	builder.AddInt64(int64(csvTimeout))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddData(selfKey.SerializeCompressed())
-
-	builder.AddOp(txscript.OP_ENDIF)
-
-	// Finally, we'll validate the signature against the public key that's
-	// left on the top of the stack.
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	return builder.Script()
+		/* Finally, we'll validate the signature against the public key 
+		   that's left on the top of the stack. */
+		OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevokeKey":  revokeKey.SerializeCompressed(),
+			"CsvTimeout": int64(csvTimeout),
+			"SelfKey":    selfKey.SerializeCompressed(),
+		}),
+	)
 }
 
 // CommitScriptTree holds the taproot output key (in this case the revocation
@@ -2173,22 +2182,52 @@ func (c *CommitScriptTree) Tree() ScriptTree {
 	return c.ScriptTree
 }
 
+// taprootScriptOpts is a set of options that modify the behavior of the way we
+// create taproot scripts.
+type taprootScriptOpts struct {
+	prodScript bool
+}
+
+// TaprootScriptOpt is a functional option that allows us to modify the behavior
+// of the taproot script creation.
+type TaprootScriptOpt func(*taprootScriptOpts)
+
+// defaultTaprootScriptOpt is the default set of options that we use when
+// creating taproot scripts.
+func defaultTaprootScriptOpt() *taprootScriptOpts {
+	return &taprootScriptOpts{
+		prodScript: false,
+	}
+}
+
+// WithProdScripts is a functional option that allows us to create scripts to
+// match the final version of the taproot channels.
+func WithProdScripts() func(*taprootScriptOpts) {
+	return func(o *taprootScriptOpts) {
+		o.prodScript = true
+	}
+}
+
 // NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
 // create and spend the commitment output for the local party.
 func NewLocalCommitScriptTree(csvTimeout uint32, selfKey,
-	revokeKey *btcec.PublicKey, auxLeaf AuxTapLeaf) (*CommitScriptTree,
-	error) {
+	revokeKey *btcec.PublicKey, auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*CommitScriptTree, error) {
 
 	// First, we'll need to construct the tapLeaf that'll be our delay CSV
 	// clause.
-	delayScript, err := TaprootLocalCommitDelayScript(csvTimeout, selfKey)
+	delayScript, err := TaprootLocalCommitDelayScript(
+		csvTimeout, selfKey, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, we'll need to construct the revocation path, which is just a
 	// simple checksig script.
-	revokeScript, err := TaprootLocalCommitRevokeScript(selfKey, revokeKey)
+	revokeScript, err := TaprootLocalCommitRevokeScript(
+		selfKey, revokeKey, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2228,30 +2267,48 @@ func NewLocalCommitScriptTree(csvTimeout uint32, selfKey,
 // TaprootLocalCommitDelayScript builds the tap leaf with the CSV delay script
 // for the to-local output.
 func TaprootLocalCommitDelayScript(csvTimeout uint32,
-	selfKey *btcec.PublicKey) ([]byte, error) {
+	selfKey *btcec.PublicKey, opts ...TaprootScriptOpt) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(selfKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-	builder.AddInt64(int64(csvTimeout))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
 
-	return builder.Script()
+	scriptTemplate := `
+		{{ hex .SelfKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
+
+	return txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"SelfKey":    schnorr.SerializePubKey(selfKey),
+			"CsvTimeout": int64(csvTimeout),
+			"ProdScript": opt.prodScript,
+		}),
+	)
 }
 
 // TaprootLocalCommitRevokeScript builds the tap leaf with the revocation path
 // for the to-local output.
-func TaprootLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey) (
-	[]byte, error) {
+func TaprootLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey,
+	opts ...TaprootScriptOpt) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(selfKey))
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddData(schnorr.SerializePubKey(revokeKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	return builder.Script()
+	return txscript.ScriptTemplate(
+		`
+		{{ hex .SelfKey }} OP_DROP 
+		{{ hex .RevokeKey }} OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"SelfKey":   schnorr.SerializePubKey(selfKey),
+			"RevokeKey": schnorr.SerializePubKey(revokeKey),
+		}),
+	)
 }
 
 // TaprootCommitScriptToSelf creates the taproot witness program that commits
@@ -2430,38 +2487,33 @@ func LeaseCommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey,
 	// have divulged the revocation hash, allowing them to homomorphically
 	// derive the proper private key which corresponds to the revoke public
 	// key.
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		ToLocalScriptSize + LeaseWitnessScriptSizeOverhead,
-	))
+	return txscript.ScriptTemplate(
+		`
+		OP_IF
+			/* If a valid signature using the revocation key is 
+		           presented, then allow an immediate spend provided 
+		           the proper signature. */
+			{{ hex .RevokeKey }}
+		OP_ELSE
+			/* Otherwise, we can re-claim our funds after once 
+		           the CLTV lease maturity has been met, along with 
+		           the CSV delay of 'csvTimeout'
+			   timeout blocks, and a valid signature. */
+			{{ .LeaseExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
+			{{ hex .SelfKey }}
+		OP_ENDIF
 
-	builder.AddOp(txscript.OP_IF)
-
-	// If a valid signature using the revocation key is presented, then
-	// allow an immediate spend provided the proper signature.
-	builder.AddData(revokeKey.SerializeCompressed())
-
-	builder.AddOp(txscript.OP_ELSE)
-
-	// Otherwise, we can re-claim our funds after once the CLTV lease
-	// maturity has been met, along with the CSV delay of 'csvTimeout'
-	// timeout blocks, and a valid signature.
-	builder.AddInt64(int64(leaseExpiry))
-	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	builder.AddInt64(int64(csvTimeout))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	builder.AddData(selfKey.SerializeCompressed())
-
-	builder.AddOp(txscript.OP_ENDIF)
-
-	// Finally, we'll validate the signature against the public key that's
-	// left on the top of the stack.
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	return builder.Script()
+		/* Finally, we'll validate the signature against the public 
+		   key that's left on the top of the stack. */
+		OP_CHECKSIG`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RevokeKey":   revokeKey.SerializeCompressed(),
+			"LeaseExpiry": int64(leaseExpiry),
+			"CsvTimeout":  int64(csvTimeout),
+			"SelfKey":     selfKey.SerializeCompressed(),
+		}),
+	)
 }
 
 // CommitSpendTimeout constructs a valid witness allowing the owner of a
@@ -2577,13 +2629,12 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 // p2wkh output spendable immediately, requiring no contestation period.
 func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and is spendable immediately.
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		P2WPKHSize,
-	))
-	builder.AddOp(txscript.OP_0)
-	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
-
-	return builder.Script()
+	return txscript.ScriptTemplate(
+		`OP_0 {{ hex .PKHash }}`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"PKHash": btcutil.Hash160(key.SerializeCompressed()),
+		}),
+	)
 }
 
 // CommitScriptToRemoteConfirmed constructs the script for the output on the
@@ -2599,36 +2650,48 @@ func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 //	<key> OP_CHECKSIGVERIFY
 //	1 OP_CHECKSEQUENCEVERIFY
 func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		ToRemoteConfirmedScriptSize,
-	))
-
-	// Only the given key can spend the output.
-	builder.AddData(key.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
-
-	// Check that the it has one confirmation.
-	builder.AddOp(txscript.OP_1)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-
-	return builder.Script()
+	// Only the given key can spend the output after one confirmation.
+	return txscript.ScriptTemplate(
+		`
+		{{ hex .Key }} OP_CHECKSIGVERIFY 
+		OP_1 OP_CHECKSEQUENCEVERIFY`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"Key": key.SerializeCompressed(),
+		}),
+	)
 }
 
 // NewRemoteCommitScriptTree constructs a new script tree for the remote party
 // to sweep their funds after a hard coded 1 block delay.
 func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
-	auxLeaf AuxTapLeaf) (*CommitScriptTree, error) {
+	auxLeaf AuxTapLeaf,
+	opts ...TaprootScriptOpt) (*CommitScriptTree, error) {
+
+	opt := defaultTaprootScriptOpt()
+	for _, o := range opts {
+		o(opt)
+	}
 
 	// First, construct the remote party's tapscript they'll use to sweep
 	// their outputs.
-	builder := txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(remoteKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-	builder.AddOp(txscript.OP_1)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
+	scriptTemplate := `
+		{{ hex .RemoteKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
 
-	remoteScript, err := builder.Script()
+	remoteScript, err := txscript.ScriptTemplate(
+		scriptTemplate,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"RemoteKey":  schnorr.SerializePubKey(remoteKey),
+			"ProdScript": opt.prodScript,
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2743,24 +2806,25 @@ func TaprootCommitRemoteSpend(signer Signer, signDesc *SignDescriptor,
 func LeaseCommitScriptToRemoteConfirmed(key *btcec.PublicKey,
 	leaseExpiry uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(45))
-
-	// Only the given key can spend the output.
-	builder.AddData(key.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
-
-	// The channel initiator always has the additional channel lease
-	// expiration constraint for outputs that pay to them which must be
-	// satisfied.
-	builder.AddInt64(int64(leaseExpiry))
-	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	// Check that it has one confirmation.
-	builder.AddOp(txscript.OP_1)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-
-	return builder.Script()
+	// This script adds lease expiration constraint in addition to the
+	// standard remote confirmed script requirements.
+	return txscript.ScriptTemplate(
+		`
+		/* Only the given key can spend the output. */
+		{{ hex .Key }} OP_CHECKSIGVERIFY 
+		
+		/* The channel initiator always has the additional channel lease
+		   expiration constraint for outputs that pay to them which 
+		   must be satisfied. */
+		{{ .LeaseExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP 
+		
+		/* Check that it has one confirmation. */
+		OP_1 OP_CHECKSEQUENCEVERIFY`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"Key":         key.SerializeCompressed(),
+			"LeaseExpiry": int64(leaseExpiry),
+		}),
+	)
 }
 
 // CommitSpendToRemoteConfirmed constructs a valid witness allowing a node to
@@ -2805,24 +2869,26 @@ func CommitSpendToRemoteConfirmed(signer Signer, signDesc *SignDescriptor,
 //	  OP_16 OP_CSV
 //	OP_ENDIF
 func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
-	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
-		AnchorScriptSize,
-	))
-
-	// Spend immediately with key.
-	builder.AddData(key.SerializeCompressed())
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	// Duplicate the value if true, since it will be consumed by the NOTIF.
-	builder.AddOp(txscript.OP_IFDUP)
-
-	// Otherwise spendable by anyone after 16 confirmations.
-	builder.AddOp(txscript.OP_NOTIF)
-	builder.AddOp(txscript.OP_16)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_ENDIF)
-
-	return builder.Script()
+	// Build the anchor script with two possible spending paths:
+	// 1. Spend immediately with key (the normal path)
+	// 2. Spend after 16 confirmations by anyone (the alternative path)
+	return txscript.ScriptTemplate(
+		`
+		/* Spend immediately with key. */
+		{{ hex .Key }} OP_CHECKSIG 
+		
+		/* Duplicate the value if true, since it will be consumed by 
+		   the NOTIF. */
+		OP_IFDUP 
+		
+		/* Otherwise spendable by anyone after 16 confirmations. */
+		OP_NOTIF 
+			OP_16 OP_CHECKSEQUENCEVERIFY 
+	        OP_ENDIF`,
+		txscript.WithScriptTemplateParams(TemplateParams{
+			"Key": key.SerializeCompressed(),
+		}),
+	)
 }
 
 // AnchorScriptTree holds all the contents needed to sweep a taproot anchor
@@ -2841,11 +2907,9 @@ func NewAnchorScriptTree(
 
 	// The main script used is just a OP_16 CSV (anyone can sweep after 16
 	// blocks).
-	builder := txscript.NewScriptBuilder()
-	builder.AddOp(txscript.OP_16)
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-
-	anchorScript, err := builder.Script()
+	anchorScript, err := txscript.ScriptTemplate(
+		`OP_16 OP_CHECKSEQUENCEVERIFY`,
+	)
 	if err != nil {
 		return nil, err
 	}

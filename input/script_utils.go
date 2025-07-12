@@ -584,35 +584,25 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 		o(opt)
 	}
 
-	var scriptTemplate string
-	switch {
-	case !opt.prodScript:
-		scriptTemplate = `
-			/* Check that the pre-image is 32 bytes as required. */
-			OP_SIZE 32 OP_EQUALVERIFY 
-			
-			/* Check that the specified pre-image matches what we 
-			   hard code into the script. */
-			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
-			
-			/* Verify the remote party's signature, then make them 
-		           wait 1 block after confirmation to properly sweep. */
-			{{ hex .ReceiverKey }} OP_CHECKSIG 
-			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
-	default:
-		scriptTemplate = `
-			/* Check that the pre-image is 32 bytes as required. */
-			OP_SIZE 32 OP_EQUALVERIFY 
-			
-			/* Check that the specified pre-image matches what we 
-		           hard code into the script. */
-			OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
-			
-			/* Verify the remote party's signature, then make them 
-		           wait 1 block after confirmation to properly sweep. */
-			{{ hex .ReceiverKey }} OP_CHECKSIGVERIFY
-			OP_1 OP_CHECKSEQUENCEVERIFY`
-	}
+	scriptTemplate := `
+		/* Check that the pre-image is 32 bytes as required. */
+		OP_SIZE 32 OP_EQUALVERIFY 
+		
+		/* Check that the specified pre-image matches what we hard code into
+		   the script. */
+		OP_HASH160 {{ hex .PaymentHashRipemd }} OP_EQUALVERIFY 
+		
+		/* Verify the remote party's signature, then make them wait 1 block
+		   after confirmation to properly sweep. */
+		{{ hex .ReceiverKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
 
 	successLeafScript, err := txscript.ScriptTemplate(
 		scriptTemplate,
@@ -621,6 +611,7 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 			"ReceiverKey": schnorr.SerializePubKey(
 				receiverHtlcKey,
 			),
+			"ProdScript": opt.prodScript,
 		}),
 	)
 	if err != nil {
@@ -1250,36 +1241,35 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 		o(opt)
 	}
 
-	var scriptTemplate string
-	switch {
-	case !opt.prodScript:
-		scriptTemplate = `
+	scriptTemplate := `
 		/* The first part of the script will verify a signature from the
 		   sender authorizing the spend (the timeout). */
-		{{ hex .SenderKey }} OP_CHECKSIG 
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
+		{{ hex .SenderKey }} 
 		
-		/* The second portion will ensure that the CLTV expiry on the spending
-		   transaction is correct. */
-		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY OP_DROP`
-
-	default:
-		scriptTemplate = `
-		/* The first part of the script will verify a signature from the
-		   sender authorizing the spend (the timeout). */
-		{{ hex .SenderKey }} OP_CHECKSIGVERIFY
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_VERIFY
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_VERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP 
+		{{- end }}
 		
-		/* The second portion will ensure that the CLTV expiry on the spending
-		   transaction is correct. */
-		{{ .CltvExpiry }} OP_CHECKLOCKTIMEVERIFY`
-	}
+		/* The second portion will ensure that the CLTV expiry on 
+	           the spending transaction is correct. */
+		{{ .CltvExpiry }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKLOCKTIMEVERIFY
+		{{- else }}
+			OP_CHECKLOCKTIMEVERIFY OP_DROP
+		{{- end }}`
 
 	timeoutLeafScript, err := txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"SenderKey":  schnorr.SerializePubKey(senderHtlcKey),
 			"CltvExpiry": int64(cltvExpiry),
+			"ProdScript": opt.prodScript,
 		}),
 	)
 	if err != nil {
@@ -1634,28 +1624,27 @@ func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
 		o(opt)
 	}
 
-	var scriptTemplate string
-	switch {
-	case !opt.prodScript:
-		scriptTemplate = `
-		{{ hex .DelayKey }} OP_CHECKSIG 
-		{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP`
-
-	default:
-		scriptTemplate = `
-		{{ hex .DelayKey }} OP_CHECKSIGVERIFY
-		{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY`
-	}
-
 	// Ensure the proper party can sign for this output.
 	// Assuming the above passes, then we'll now ensure that the CSV delay
 	// has been upheld, dropping the int we pushed on. If the sig above is
 	// valid, then a 1 will be left on the stack.
+	scriptTemplate := `
+		{{ hex .DelayKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			{{ .CsvDelay }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
+
 	secondLevelLeafScript, err := txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
-			"DelayKey": schnorr.SerializePubKey(delayKey),
-			"CsvDelay": int64(csvDelay),
+			"DelayKey":   schnorr.SerializePubKey(delayKey),
+			"CsvDelay":   int64(csvDelay),
+			"ProdScript": opt.prodScript,
 		}),
 	)
 	if err != nil {
@@ -2285,24 +2274,23 @@ func TaprootLocalCommitDelayScript(csvTimeout uint32,
 		o(opt)
 	}
 
-	var scriptTemplate string
-	switch {
-	case !opt.prodScript:
-		scriptTemplate = `
-		{{ hex .SelfKey }} OP_CHECKSIG 
-		{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP`
-
-	default:
-		scriptTemplate = `
-		{{ hex .SelfKey }} OP_CHECKSIGVERIFY
-		{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY`
-	}
+	scriptTemplate := `
+		{{ hex .SelfKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			{{ .CsvTimeout }} OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
 
 	return txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
 			"SelfKey":    schnorr.SerializePubKey(selfKey),
 			"CsvTimeout": int64(csvTimeout),
+			"ProdScript": opt.prodScript,
 		}),
 	)
 }
@@ -2684,24 +2672,24 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 		o(opt)
 	}
 
-	var scriptTemplate string
-	switch {
-	case !opt.prodScript:
-		scriptTemplate = `
-		{{ hex .RemoteKey }} OP_CHECKSIG 
-		OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP`
-	default:
-		scriptTemplate = `
-		{{ hex .RemoteKey }} OP_CHECKSIGVERIFY
-		OP_1 OP_CHECKSEQUENCEVERIFY`
-	}
-
 	// First, construct the remote party's tapscript they'll use to sweep
 	// their outputs.
+	scriptTemplate := `
+		{{ hex .RemoteKey }} 
+		
+		{{- if .ProdScript }}
+			OP_CHECKSIGVERIFY
+			OP_1 OP_CHECKSEQUENCEVERIFY
+		{{- else }}
+			OP_CHECKSIG 
+			OP_1 OP_CHECKSEQUENCEVERIFY OP_DROP
+		{{- end }}`
+
 	remoteScript, err := txscript.ScriptTemplate(
 		scriptTemplate,
 		txscript.WithScriptTemplateParams(TemplateParams{
-			"RemoteKey": schnorr.SerializePubKey(remoteKey),
+			"RemoteKey":  schnorr.SerializePubKey(remoteKey),
+			"ProdScript": opt.prodScript,
 		}),
 	)
 	if err != nil {

@@ -14,7 +14,11 @@ import (
 	"pgregory.net/rapid"
 )
 
-// RandChannelUpdate generates a random ChannelUpdate message using rapid's
+// charset contains valid UTF-8 characters that can be used to generate random
+// strings for testing purposes.
+const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// RandPartialSig generates a random ParialSig message using rapid's
 // generators.
 func RandPartialSig(t *rapid.T) *PartialSig {
 	// Generate random private key bytes
@@ -139,11 +143,11 @@ func RandNodeAlias(t *rapid.T) NodeAlias {
 	var alias NodeAlias
 	aliasLength := rapid.IntRange(0, 32).Draw(t, "aliasLength")
 
-	aliasBytes := rapid.StringN(
-		0, aliasLength, aliasLength,
+	aliasBytes := rapid.SliceOfN(
+		rapid.SampledFrom([]rune(charset)), aliasLength, aliasLength,
 	).Draw(t, "alias")
 
-	copy(alias[:], aliasBytes)
+	copy(alias[:], string(aliasBytes))
 
 	return alias
 }

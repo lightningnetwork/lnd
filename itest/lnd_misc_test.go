@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -1355,12 +1354,9 @@ func testGRPCNotFound(ht *lntest.HarnessTest) {
 		notFoundErr = codes.NotFound.String()
 		unknownPub  = "0286098b97bc843372b4426d4b276cea9aa2f48f0428d6" +
 			"f5b66ae101befc14f8b4"
-		rHash = make([]byte, 32)
+		rHash = ht.Random32Bytes()
 	)
 	unknownPubBytes, err := route.NewVertexFromStr(unknownPub)
-	require.NoError(ht, err)
-
-	_, err = rand.Read(rHash)
 	require.NoError(ht, err)
 
 	alice := ht.NewNode("Alice", []string{

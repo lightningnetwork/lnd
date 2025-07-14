@@ -214,26 +214,36 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 
 	msg := &ChannelAnnouncement2{
 		Signature: RandSignature(t),
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
-		),
-		Features: tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
-			*features,
-		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType4, ShortChannelID](
-			shortChanID,
-		),
-		Capacity: tlv.NewPrimitiveRecord[tlv.TlvType6, uint64](
-			capacity,
-		),
-		NodeID1: tlv.NewPrimitiveRecord[tlv.TlvType8, [33]byte](
-			nodeID1,
-		),
-		NodeID2: tlv.NewPrimitiveRecord[tlv.TlvType10, [33]byte](
-			nodeID2,
-		),
-		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
+		ChainHash: tlv.RecordT[tlv.TlvType0, chainhash.Hash]{
+			Val: chainHashObj,
+		},
+		Features: tlv.RecordT[tlv.TlvType2, RawFeatureVector]{
+			Val: *features,
+		},
+		ShortChannelID: tlv.RecordT[tlv.TlvType4, ShortChannelID]{
+			Val: shortChanID,
+		},
+		Capacity: tlv.RecordT[tlv.TlvType6, uint64]{
+			Val: capacity,
+		},
+		NodeID1: tlv.RecordT[tlv.TlvType8, [33]byte]{
+			Val: nodeID1,
+		},
+		NodeID2: tlv.RecordT[tlv.TlvType10, [33]byte]{
+			Val: nodeID2,
+		},
 	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(17) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+	msg.ExtraOpaqueData = RandExtraOpaqueData(t, ignoreRecords)
 
 	msg.Signature.ForceSchnorr()
 
@@ -511,38 +521,48 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	var chainHashObj chainhash.Hash
 	copy(chainHashObj[:], chainHash[:])
 
-	//nolint:ll
 	msg := &ChannelUpdate2{
 		Signature: RandSignature(t),
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
-			chainHashObj,
-		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
-			shortChanID,
-		),
-		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
-			blockHeight,
-		),
-		DisabledFlags: tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
-			disabledFlags,
-		),
-		CLTVExpiryDelta: tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
-			cltvExpiryDelta,
-		),
-		HTLCMinimumMsat: tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
-			htlcMinMsat,
-		),
-		HTLCMaximumMsat: tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
-			htlcMaxMsat,
-		),
-		FeeBaseMsat: tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
-			feeBaseMsat,
-		),
-		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
-			feeProportionalMillionths,
-		),
-		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
+		ChainHash: tlv.RecordT[tlv.TlvType0, chainhash.Hash]{
+			Val: chainHashObj,
+		},
+		ShortChannelID: tlv.RecordT[tlv.TlvType2, ShortChannelID]{
+			Val: shortChanID,
+		},
+		BlockHeight: tlv.RecordT[tlv.TlvType4, uint32]{
+			Val: blockHeight,
+		},
+		DisabledFlags: tlv.RecordT[
+			tlv.TlvType6, ChanUpdateDisableFlags]{
+			Val: disabledFlags,
+		},
+		CLTVExpiryDelta: tlv.RecordT[tlv.TlvType10, uint16]{
+			Val: cltvExpiryDelta,
+		},
+		HTLCMinimumMsat: tlv.RecordT[tlv.TlvType12, MilliSatoshi]{
+			Val: htlcMinMsat,
+		},
+		HTLCMaximumMsat: tlv.RecordT[tlv.TlvType14, MilliSatoshi]{
+			Val: htlcMaxMsat,
+		},
+		FeeBaseMsat: tlv.RecordT[tlv.TlvType16, uint32]{
+			Val: feeBaseMsat,
+		},
+		FeeProportionalMillionths: tlv.RecordT[tlv.TlvType18, uint32]{
+			Val: feeProportionalMillionths,
+		},
 	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(19) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+	msg.ExtraOpaqueData = RandExtraOpaqueData(t, ignoreRecords)
 
 	msg.Signature.ForceSchnorr()
 

@@ -802,17 +802,7 @@ func (da *DynAck) RandTestMessage(t *rapid.T) Message {
 		msg.LocalNonce = tlv.SomeRecordT(rec)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(15) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
-
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 14)
 
 	return msg
 }
@@ -883,17 +873,7 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 		msg.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(13) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
-
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 12)
 
 	return msg
 }
@@ -1011,21 +991,12 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		da.LocalNonce = tlv.SomeRecordT(rec)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(15) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
 	msg := &DynCommit{
 		DynPropose: *dp,
 		DynAck:     *da,
 	}
 
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 14)
 
 	return msg
 }

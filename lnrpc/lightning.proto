@@ -5119,7 +5119,8 @@ message CheckMacPermRequest {
     // If the list of permissions given is empty, then the macaroon is
     // considered valid only based on issuance authority and caveat validity.
     // An empty list of permissions is therefore equivalent to saying "skip
-    // checking permissions".
+    // checking permissions" (unless check_default_perms_from_full_method is
+    // specified).
     repeated MacaroonPermission permissions = 2;
 
     // The RPC method to check the macaroon against. This is only used if there
@@ -5129,6 +5130,15 @@ message CheckMacPermRequest {
     // first, extract the permissions for the method, and then pass them in the
     // `permissions` field above.
     string fullMethod = 3;
+
+    // If this field is set to true, then the permissions list above MUST be
+    // empty. The default permissions for the provided fullMethod will be used
+    // to check the macaroon. This is equivalent to looking up the permissions
+    // for a method in the `ListPermissions` RPC and then calling this RPC with
+    // the permission list returned from that call. Without this flag, the list
+    // of permissions must be non-empty for the check to actually perform a
+    // permission check.
+    bool check_default_perms_from_full_method = 4;
 }
 
 message CheckMacPermResponse {

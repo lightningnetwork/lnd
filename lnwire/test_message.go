@@ -59,7 +59,7 @@ func (a *AcceptChannel) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonce {
 		nonce := RandMusig2Nonce(t)
 		localNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 
@@ -242,7 +242,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var bitcoinKey1 [33]byte
 		copy(bitcoinKey1[:], RandPubKey(t).SerializeCompressed())
 		msg.BitcoinKey1 = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType12, [33]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType12](
 				bitcoinKey1,
 			),
 		)
@@ -252,7 +252,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var bitcoinKey2 [33]byte
 		copy(bitcoinKey2[:], RandPubKey(t).SerializeCompressed())
 		msg.BitcoinKey2 = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType14, [33]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType14](
 				bitcoinKey2,
 			),
 		)
@@ -263,7 +263,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var merkleRootHash [32]byte
 		copy(merkleRootHash[:], hash[:])
 		msg.MerkleRootHash = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType16, [32]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType16](
 				merkleRootHash,
 			),
 		)
@@ -309,14 +309,14 @@ func (c *ChannelReady) RandTestMessage(t *rapid.T) Message {
 	if includeAnnouncementNodeNonce {
 		nonce := RandMusig2Nonce(t)
 		msg.AnnouncementNodeNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType0, Musig2Nonce](nonce),
+			tlv.NewRecordT[tlv.TlvType0](nonce),
 		)
 	}
 
 	if includeAnnouncementBitcoinNonce {
 		nonce := RandMusig2Nonce(t)
 		msg.AnnouncementBitcoinNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Musig2Nonce](nonce),
+			tlv.NewRecordT[tlv.TlvType2](nonce),
 		)
 	}
 
@@ -431,7 +431,7 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 			FeeRate: inFeeProp,
 		}
 		inboundFee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType55555, Fee](fee),
+			tlv.NewRecordT[tlv.TlvType55555](fee),
 		)
 
 		var b bytes.Buffer
@@ -600,21 +600,21 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 	if includeCloserNoClosee {
 		sig := RandSignature(t)
 		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType1](sig),
 		)
 	}
 
 	if includeNoCloserClosee {
 		sig := RandSignature(t)
 		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType2](sig),
 		)
 	}
 
 	if includeCloserAndClosee {
 		sig := RandSignature(t)
 		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType3](sig),
 		)
 	}
 
@@ -660,21 +660,21 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 	if includeCloserNoClosee {
 		sig := RandSignature(t)
 		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType1](sig),
 		)
 	}
 
 	if includeNoCloserClosee {
 		sig := RandSignature(t)
 		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType2](sig),
 		)
 	}
 
 	if includeCloserAndClosee {
 		sig := RandSignature(t)
 		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType3](sig),
 		)
 	}
 
@@ -1223,7 +1223,7 @@ func (o *OpenChannel) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonce {
 		nonce := RandMusig2Nonce(t)
 		localNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 
@@ -1525,7 +1525,7 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 		copy(nonce[:], nonceBytes)
 
 		msg.LocalNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 

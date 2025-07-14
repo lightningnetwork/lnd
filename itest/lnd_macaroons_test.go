@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -315,6 +316,77 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 			)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "permission denied")
+		},
+	}, {
+		// Check that with the CheckMacaroonPermissions RPC, we can
+		// check that a macaroon follows the permissions of a given
+		// method.
+		name: "default permissions from full method",
+		run: func(ctxt context.Context, t *testing.T) {
+			// We test that the macaroon of the test client has
+			// all the permissions for calling the BakeMacaroon RPC.
+			mac, err := testNode.ReadMacaroon(
+				testNode.Cfg.AdminMacPath, wait.DefaultTimeout,
+			)
+			require.NoError(t, err)
+
+			macBytes, err := mac.MarshalBinary()
+			require.NoError(t, err)
+
+			rpcURI := "/lnrpc.Lightning/BakeMacaroon"
+			checkReq := &lnrpc.CheckMacPermRequest{
+				Macaroon:                        macBytes,
+				FullMethod:                      rpcURI,
+				CheckDefaultPermsFromFullMethod: true,
+			}
+
+			// Test that CheckMacaroonPermissions accurately
+			// characterizes macaroon as valid, since the admin
+			// macaroon should have all the permissions.
+			checkResp, err := testClient.CheckMacaroonPermissions(
+				ctxt, checkReq,
+			)
+			require.NoError(t, err)
+			require.Equal(t, checkResp.Valid, true)
+
+			// Check different error cases.
+			dummy := []*lnrpc.MacaroonPermission{{
+				Entity: "foo",
+			}}
+			_, err = testClient.CheckMacaroonPermissions(
+				ctxt, &lnrpc.CheckMacPermRequest{
+					Permissions:                     dummy,
+					CheckDefaultPermsFromFullMethod: true,
+				},
+			)
+			require.ErrorContains(
+				t, err, "cannot check default permissions "+
+					"from full method and from provided "+
+					"permission list at the same time",
+			)
+
+			_, err = testClient.CheckMacaroonPermissions(
+				ctxt, &lnrpc.CheckMacPermRequest{
+					FullMethod:                      "",
+					CheckDefaultPermsFromFullMethod: true,
+				},
+			)
+			require.ErrorContains(
+				t, err, "cannot check default permissions "+
+					"from full method without providing "+
+					"the full method name",
+			)
+
+			_, err = testClient.CheckMacaroonPermissions(
+				ctxt, &lnrpc.CheckMacPermRequest{
+					FullMethod:                      "baz",
+					CheckDefaultPermsFromFullMethod: true,
+				},
+			)
+			require.ErrorContains(
+				t, err, "no permissions found for full method "+
+					"baz",
+			)
 		},
 	}}
 

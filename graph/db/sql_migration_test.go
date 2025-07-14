@@ -58,6 +58,8 @@ func TestMigrateGraphToSQL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	dbFixture := NewTestDBFixture(t)
+
 	writeUpdate := func(t *testing.T, db *KVStore, object any) {
 		t.Helper()
 
@@ -324,7 +326,8 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			}
 
 			// Set up our destination SQL DB.
-			sql, ok := NewTestDB(t).(*SQLStore)
+			db := NewTestDBWithFixture(t, dbFixture)
+			sql, ok := db.(*SQLStore)
 			require.True(t, ok)
 
 			// Run the migration.

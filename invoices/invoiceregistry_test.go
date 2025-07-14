@@ -24,12 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var (
-	// htlcModifierMock is a mock implementation of the invoice HtlcModifier
-	// interface.
-	htlcModifierMock = &invpkg.MockHtlcModifier{}
-)
-
 // TestInvoiceRegistry is a master test which encompasses all tests using an
 // InvoiceDB instance. The purpose of this test is to be able to run all tests
 // with a custom DB instance, so that we can test the same logic with different
@@ -541,7 +535,7 @@ func testSettleHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock,
-		HtlcInterceptor:      htlcModifierMock,
+		HtlcInterceptor:      &invpkg.MockHtlcModifier{},
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -711,7 +705,7 @@ func testCancelHoldInvoice(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
-		HtlcInterceptor:      htlcModifierMock,
+		HtlcInterceptor:      &invpkg.MockHtlcModifier{},
 	}
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
 		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
@@ -917,7 +911,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	}
 
 	// Finally, test that we can properly fulfill a second keysend payment
-	// with a unique preiamge.
+	// with a unique preimage.
 	preimage2 := lntypes.Preimage{1, 2, 3, 4}
 	hash2 := preimage2.Hash()
 
@@ -1231,7 +1225,7 @@ func testInvoiceExpiryWithRegistry(t *testing.T,
 	cfg := invpkg.RegistryConfig{
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                testClock,
-		HtlcInterceptor:      htlcModifierMock,
+		HtlcInterceptor:      &invpkg.MockHtlcModifier{},
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -1342,7 +1336,7 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 		FinalCltvRejectDelta:        testFinalCltvRejectDelta,
 		Clock:                       testClock,
 		GcCanceledInvoicesOnStartup: true,
-		HtlcInterceptor:             htlcModifierMock,
+		HtlcInterceptor:             &invpkg.MockHtlcModifier{},
 	}
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -2009,7 +2003,7 @@ func testSpontaneousAmpPaymentImpl(
 	}
 
 	// Record the hodl channels of all HTLCs but the last one, which
-	// received its resolution directly from NotifyExistHopHtlc.
+	// received its resolution directly from NotifyExitHopHtlc.
 	hodlChans := make(map[lntypes.Preimage]chan interface{})
 	for i := 0; i < numShards; i++ {
 		isFinalShard := i == numShards-1

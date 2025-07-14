@@ -911,7 +911,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	}
 
 	// Finally, test that we can properly fulfill a second keysend payment
-	// with a unique preiamge.
+	// with a unique preimage.
 	preimage2 := lntypes.Preimage{1, 2, 3, 4}
 	hash2 := preimage2.Hash()
 
@@ -2003,7 +2003,7 @@ func testSpontaneousAmpPaymentImpl(
 	}
 
 	// Record the hodl channels of all HTLCs but the last one, which
-	// received its resolution directly from NotifyExistHopHtlc.
+	// received its resolution directly from NotifyExitHopHtlc.
 	hodlChans := make(map[lntypes.Preimage]chan interface{})
 	for i := 0; i < numShards; i++ {
 		isFinalShard := i == numShards-1

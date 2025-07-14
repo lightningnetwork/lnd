@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func openChannelDB(ht *lntest.HarnessTest, hn *node.HarnessNode) *channeldb.DB {
+func openKVBackend(ht *lntest.HarnessTest, hn *node.HarnessNode) kvdb.Backend {
 	sqlbase.Init(0)
 	var (
 		backend kvdb.Backend
@@ -53,14 +53,27 @@ func openChannelDB(ht *lntest.HarnessTest, hn *node.HarnessNode) *channeldb.DB {
 		require.NoError(ht, err)
 	}
 
-	db, err := channeldb.CreateWithBackend(backend)
-	require.NoError(ht, err)
-
-	return db
+	return backend
 }
 
 func openNativeSQLInvoiceDB(ht *lntest.HarnessTest,
 	hn *node.HarnessNode) invoices.InvoiceDB {
+
+	db := openNativeSQLDB(ht, hn)
+
+	executor := sqldb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) invoices.SQLInvoiceQueries {
+			return db.WithTx(tx)
+		},
+	)
+
+	return invoices.NewSQLStore(
+		executor, clock.NewDefaultClock(),
+	)
+}
+
+func openNativeSQLDB(ht *lntest.HarnessTest,
+	hn *node.HarnessNode) *sqldb.BaseDB {
 
 	var db *sqldb.BaseDB
 
@@ -90,15 +103,7 @@ func openNativeSQLInvoiceDB(ht *lntest.HarnessTest,
 		db = postgresStore.BaseDB
 	}
 
-	executor := sqldb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) invoices.SQLInvoiceQueries {
-			return db.WithTx(tx)
-		},
-	)
-
-	return invoices.NewSQLStore(
-		executor, clock.NewDefaultClock(),
-	)
+	return db
 }
 
 // clampTime truncates the time of the passed invoice to the microsecond level.
@@ -238,7 +243,8 @@ func testInvoiceMigration(ht *lntest.HarnessTest) {
 	require.NoError(ht, bob.Stop())
 
 	// Open the KV channel DB.
-	db := openChannelDB(ht, bob)
+	db, err := channeldb.CreateWithBackend(openKVBackend(ht, bob))
+	require.NoError(ht, err)
 
 	query := invoices.InvoiceQuery{
 		IndexOffset: 0,

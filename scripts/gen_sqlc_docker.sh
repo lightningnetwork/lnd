@@ -47,3 +47,25 @@ docker run \
   -v "$DIR/../:/build" \
   -w /build \
   "sqlc/sqlc:${SQLC_VERSION}" generate
+
+# Because we're using the Postgres dialect of sqlc, we can't use sqlc.slice()
+# normally, because sqlc just thinks it can pass the Golang slice directly to
+# the database driver. So it doesn't put the /*SLICE:<field_name>*/ workaround
+# comment into the actual SQL query. But we add the comment ourselves and now
+# just need to replace the '$X/*SLICE:<field_name>*/' placeholders with the
+# actual placeholder that's going to be replaced by the sqlc generated code.
+echo "Applying sqlc.slice() workaround..."
+for file in sqldb/sqlc/*.sql.go; do
+  echo "Patching $file"
+
+  # First, we replace the `$X/*SLICE:<field_name>*/` placeholders with
+  # the actual placeholder that sqlc will use: `/*SLICE:<field_name>*/?`.
+  sed -i.bak -E 's/\$([0-9]+)\/\*SLICE:([a-zA-Z_][a-zA-Z0-9_]*)\*\//\/\*SLICE:\2\*\/\?/g' "$file"
+
+  # Then, we replace the `strings.Repeat(",?", len(arg.<golang_name>))[1:]` with
+  # a function call that generates the correct number of placeholders:
+  # `makeQueryParams(len(queryParams), len(arg.<golang_name>))`.
+  sed -i.bak -E 's/strings\.Repeat\(",\?", len\(([^)]+)\)\)\[1:\]/makeQueryParams(len(queryParams), len(\1))/g' "$file"
+
+  rm "$file.bak"
+done

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -21,7 +22,9 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 )
 
 // testSphinxReplayPersistence verifies that replayed onion packets are
@@ -1343,4 +1346,52 @@ func testSendSelectedCoinsChannelReserve(ht *lntest.HarnessTest) {
 
 	// Alice should have one reserved UTXO now.
 	ht.AssertNumUTXOs(alice, 1)
+}
+
+// testGRPCNotFound verifies that the expected grpc NotFound status code is
+// returned when querying various rpc endpoints.
+func testGRPCNotFound(ht *lntest.HarnessTest) {
+	var (
+		notFoundErr = codes.NotFound.String()
+		unknownPub  = "0286098b97bc843372b4426d4b276cea9aa2f48f0428d6" +
+			"f5b66ae101befc14f8b4"
+		rHash = make([]byte, 32)
+	)
+	unknownPubBytes, err := route.NewVertexFromStr(unknownPub)
+	require.NoError(ht, err)
+
+	_, err = rand.Read(rHash)
+	require.NoError(ht, err)
+
+	alice := ht.NewNode("Alice", []string{
+		// We add this flag so that we can test the
+		// LookupHTLCResolutionAssertErr endpoint.
+		"--store-final-htlc-resolutions",
+	}).RPC
+
+	alice.GetChanInfoAssertErr(&lnrpc.ChanInfoRequest{
+		// Use a random channel ID that doesn't exist.
+		ChanId: 949807622323240961,
+	}, notFoundErr)
+
+	alice.GetNodeInfoAssertErr(&lnrpc.NodeInfoRequest{
+		// Use a random pubkey that doesn't exist.
+		PubKey: unknownPub,
+	}, notFoundErr)
+
+	alice.SendCustomMessageAssertErr(&lnrpc.SendCustomMessageRequest{
+		// Use a random pubkey that doesn't exist.
+		Peer: unknownPubBytes[:],
+		Data: []byte("test message"),
+	}, notFoundErr)
+
+	alice.LookupHTLCResolutionAssertErr(&lnrpc.LookupHtlcResolutionRequest{
+		ChanId:    400000,
+		HtlcIndex: 300,
+	}, notFoundErr)
+
+	alice.LookupInvoiceAssertErr(&lnrpc.PaymentHash{
+		// Use a random payment hash that doesn't exist.
+		RHash: rHash,
+	}, notFoundErr)
 }

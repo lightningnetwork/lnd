@@ -4,7 +4,7 @@
 */
 
 -- nodes stores all the nodes that we are aware of in the LN graph.
-CREATE TABLE IF NOT EXISTS nodes (
+CREATE TABLE IF NOT EXISTS graph_nodes (
     -- The db ID of the node. This will only be used DB level
     -- relations.
     id INTEGER PRIMARY KEY,
@@ -34,16 +34,16 @@ CREATE TABLE IF NOT EXISTS nodes (
 
 -- A node (identified by a public key) can only have one active node
 -- announcement per protocol.
-CREATE UNIQUE INDEX IF NOT EXISTS nodes_unique ON nodes (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_nodes_unique ON graph_nodes (
     pub_key, version
 );
-CREATE INDEX IF NOT EXISTS node_last_update_idx ON nodes(last_update);
+CREATE INDEX IF NOT EXISTS graph_node_last_update_idx ON graph_nodes(last_update);
 
 -- node_extra_types stores any extra TLV fields covered by a node announcement that
 -- we do not have an explicit column for in the nodes table.
-CREATE TABLE IF NOT EXISTS node_extra_types (
+CREATE TABLE IF NOT EXISTS graph_node_extra_types (
     -- The node id this TLV field belongs to.
-    node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
     -- The Type field.
     type BIGINT NOT NULL,
@@ -51,26 +51,26 @@ CREATE TABLE IF NOT EXISTS node_extra_types (
     -- The value field.
     value BLOB
 );
-CREATE UNIQUE INDEX IF NOT EXISTS node_extra_types_unique ON node_extra_types (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_node_extra_types_unique ON graph_node_extra_types (
     type, node_id
 );
 
 -- node_features contains the feature bits of a node.
-CREATE TABLE IF NOT EXISTS node_features (
+CREATE TABLE IF NOT EXISTS graph_node_features (
     -- The node id this feature belongs to.
-    node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
     -- The feature bit value.
     feature_bit INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS node_features_unique ON node_features (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_node_features_unique ON graph_node_features (
     node_id, feature_bit
 );
 
 -- node_addresses contains the advertised addresses of nodes.
-CREATE TABLE IF NOT EXISTS node_addresses (
+CREATE TABLE IF NOT EXISTS graph_node_addresses (
     -- The node id this feature belongs to.
-    node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
     -- An enum that represents the type of address. This will
     -- dictate how the address column should be parsed.
@@ -86,14 +86,14 @@ CREATE TABLE IF NOT EXISTS node_addresses (
     -- The advertised address of the node.
     address TEXT NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS node_addresses_unique ON node_addresses (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_node_addresses_unique ON graph_node_addresses (
     node_id, type, position
 );
 
-CREATE TABLE IF NOT EXISTS source_nodes (
-    node_id BIGINT NOT NULL REFERENCES nodes (id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS graph_source_nodes (
+    node_id BIGINT NOT NULL REFERENCES graph_nodes (id) ON DELETE CASCADE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS source_nodes_unique ON source_nodes (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_source_nodes_unique ON graph_source_nodes (
     node_id
 );
 
@@ -103,7 +103,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS source_nodes_unique ON source_nodes (
 */
 
 -- channels stores all teh channels that we are aware of in the graph.
-CREATE TABLE IF NOT EXISTS channels (
+CREATE TABLE IF NOT EXISTS graph_channels (
     -- The db ID of the channel.
     id INTEGER PRIMARY KEY,
 
@@ -113,13 +113,13 @@ CREATE TABLE IF NOT EXISTS channels (
     -- The channel id (short channel id) of the channel.
     scid BLOB NOT NULL,
 
-    -- A reference to a node in the nodes table for the node_1 node in
+    -- A reference to a node in the graph_nodes table for the node_1 node in
     -- the channel announcement.
-    node_id_1 BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id_1 BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
-    -- A reference to a node in the nodes table for the node_2 node in
+    -- A reference to a node in the graph_nodes table for the node_2 node in
     -- the channel announcement.
-    node_id_2 BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id_2 BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
     -- The outpoint of the funding transaction. We chose to store this
     -- in a string format for the sake of readability and user queries on
@@ -171,34 +171,34 @@ CREATE TABLE IF NOT EXISTS channels (
 );
 -- We'll want to lookup all the channels owned by a node, so we create
 -- indexes on the node_id_1 and node_id_2 columns.
-CREATE INDEX IF NOT EXISTS channels_node_id_1_idx ON channels(node_id_1);
-CREATE INDEX IF NOT EXISTS channels_node_id_2_idx ON channels(node_id_2);
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_1_idx ON graph_channels(node_id_1);
+CREATE INDEX IF NOT EXISTS graph_channels_node_id_2_idx ON graph_channels(node_id_2);
 
 -- A channel (identified by a short channel id) can only have one active
 -- channel announcement per protocol version. We also order the index by
 -- scid in descending order so that we have an idea of the latest channel
 -- announcement we know of.
-CREATE UNIQUE INDEX IF NOT EXISTS channels_unique ON channels(version, scid DESC);
-CREATE INDEX IF NOT EXISTS channels_version_outpoint_idx ON channels(version, outpoint);
+CREATE UNIQUE INDEX IF NOT EXISTS graph_channels_unique ON graph_channels(version, scid DESC);
+CREATE INDEX IF NOT EXISTS graph_channels_version_outpoint_idx ON graph_channels(version, outpoint);
 
 -- channel_features contains the feature bits of a channel.
-CREATE TABLE IF NOT EXISTS channel_features (
+CREATE TABLE IF NOT EXISTS graph_channel_features (
     -- The channel id this feature belongs to.
-    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    channel_id BIGINT NOT NULL REFERENCES graph_channels(id) ON DELETE CASCADE,
 
     -- The feature bit value.
     feature_bit INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS channel_features_unique ON channel_features (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_channel_features_unique ON graph_channel_features (
     channel_id, feature_bit
 );
 
 -- channel_extra_types stores any extra TLV fields covered by a channels
 -- announcement that we do not have an explicit column for in the channels
 -- table.
-CREATE TABLE IF NOT EXISTS channel_extra_types (
+CREATE TABLE IF NOT EXISTS graph_channel_extra_types (
     -- The channel id this TLV field belongs to.
-    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    channel_id BIGINT NOT NULL REFERENCES graph_channels(id) ON DELETE CASCADE,
 
     -- The Type field.
     type BIGINT NOT NULL,
@@ -206,7 +206,7 @@ CREATE TABLE IF NOT EXISTS channel_extra_types (
     -- The value field.
     value BLOB
 );
-CREATE UNIQUE INDEX IF NOT EXISTS channel_extra_types_unique ON channel_extra_types (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_channel_extra_types_unique ON graph_channel_extra_types (
     type, channel_id
 );
 
@@ -215,7 +215,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS channel_extra_types_unique ON channel_extra_ty
    ─────────────────────────────────────────────
 */
 
-CREATE TABLE IF NOT EXISTS channel_policies (
+CREATE TABLE IF NOT EXISTS graph_channel_policies (
     -- The db ID of the channel policy.
     id INTEGER PRIMARY KEY,
 
@@ -223,10 +223,10 @@ CREATE TABLE IF NOT EXISTS channel_policies (
     version SMALLINT NOT NULL,
 
     -- The DB ID of the channel that this policy is referencing.
-    channel_id BIGINT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+    channel_id BIGINT NOT NULL REFERENCES graph_channels(id) ON DELETE CASCADE,
 
     -- The DB ID of the node that created the policy update.
-    node_id BIGINT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+    node_id BIGINT NOT NULL REFERENCES graph_nodes(id) ON DELETE CASCADE,
 
     -- The number of blocks that the node will subtract from the expiry
     -- of an incoming HTLC.
@@ -290,17 +290,17 @@ CREATE TABLE IF NOT EXISTS channel_policies (
 );
 -- A node can only have a single live policy update for a channel on a
 -- given protocol at any given time.
-CREATE UNIQUE INDEX IF NOT EXISTS channel_policies_unique ON channel_policies (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_channel_policies_unique ON graph_channel_policies (
     channel_id, node_id, version
 );
-CREATE INDEX IF NOT EXISTS channel_policy_last_update_idx ON channel_policies(last_update);
+CREATE INDEX IF NOT EXISTS graph_channel_policy_last_update_idx ON graph_channel_policies(last_update);
 
 -- channel_policy_extra_types stores any extra TLV fields covered by a channel
 -- update that we do not have an explicit column for in the channel_policies
 -- table.
-CREATE TABLE IF NOT EXISTS channel_policy_extra_types (
+CREATE TABLE IF NOT EXISTS graph_channel_policy_extra_types (
     -- The channel_policy id this TLV field belongs to.
-    channel_policy_id BIGINT NOT NULL REFERENCES channel_policies(id) ON DELETE CASCADE,
+    channel_policy_id BIGINT NOT NULL REFERENCES graph_channel_policies(id) ON DELETE CASCADE,
 
     -- The Type field.
     type BIGINT NOT NULL,
@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS channel_policy_extra_types (
     -- The value field.
     value BLOB
 );
-CREATE UNIQUE INDEX IF NOT EXISTS channel_policy_extra_types_unique ON channel_policy_extra_types (
+CREATE UNIQUE INDEX IF NOT EXISTS graph_channel_policy_extra_types_unique ON graph_channel_policy_extra_types (
     type, channel_policy_id
 );
 
@@ -317,7 +317,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS channel_policy_extra_types_unique ON channel_p
    ─────────────────────────────────────────────
 */
 
-CREATE TABLE IF NOT EXISTS zombie_channels (
+CREATE TABLE IF NOT EXISTS graph_zombie_channels (
     -- The channel id (short channel id) of the channel.
     -- NOTE: we don't use a foreign key here to the `channels`
     -- table since we may delete the channel record once it
@@ -337,10 +337,10 @@ CREATE TABLE IF NOT EXISTS zombie_channels (
     -- will be able to resurrect the channel.
     node_key_2 BLOB
 );
-CREATE UNIQUE INDEX IF NOT EXISTS zombie_channels_channel_id_version_idx
-    ON zombie_channels(scid, version);
+CREATE UNIQUE INDEX IF NOT EXISTS graph_zombie_channels_channel_id_version_idx
+    ON graph_zombie_channels(scid, version);
 
-CREATE TABLE IF NOT EXISTS prune_log (
+CREATE TABLE IF NOT EXISTS graph_prune_log (
     -- The block height that the prune was performed at.
     -- NOTE: we don't use INTEGER PRIMARY KEY here since that would
     -- get transformed into an auto-incrementing type by our SQL type
@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS prune_log (
     block_hash BLOB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS closed_scids (
+CREATE TABLE IF NOT EXISTS graph_closed_scids (
     -- The short channel id of the channel.
     scid BLOB PRIMARY KEY
 );

@@ -58,17 +58,17 @@ type SQLQueries interface {
 		Node queries.
 	*/
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
-	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.Node, error)
+	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.GraphNode, error)
 	GetNodeIDByPubKey(ctx context.Context, arg sqlc.GetNodeIDByPubKeyParams) (int64, error)
-	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.Node, error)
-	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.Node, error)
+	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
+	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
 
-	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.NodeExtraType, error)
+	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeExtraType, error)
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
@@ -77,7 +77,7 @@ type SQLQueries interface {
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 
 	InsertNodeFeature(ctx context.Context, arg sqlc.InsertNodeFeatureParams) error
-	GetNodeFeatures(ctx context.Context, nodeID int64) ([]sqlc.NodeFeature, error)
+	GetNodeFeatures(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg sqlc.GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
 
@@ -92,7 +92,7 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
-	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.Channel, error)
+	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GraphChannel, error)
 	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
@@ -104,7 +104,7 @@ type SQLQueries interface {
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
-	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.Channel, error)
+	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannel(ctx context.Context, id int64) error
 
@@ -115,7 +115,7 @@ type SQLQueries interface {
 		Channel Policy table queries.
 	*/
 	UpsertEdgePolicy(ctx context.Context, arg sqlc.UpsertEdgePolicyParams) (int64, error)
-	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.ChannelPolicy, error)
+	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.GraphChannelPolicy, error)
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
@@ -126,7 +126,7 @@ type SQLQueries interface {
 		Zombie index queries.
 	*/
 	UpsertZombieChannel(ctx context.Context, arg sqlc.UpsertZombieChannelParams) error
-	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.ZombieChannel, error)
+	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.GraphZombieChannel, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
 	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)
@@ -134,7 +134,7 @@ type SQLQueries interface {
 	/*
 		Prune log table queries.
 	*/
-	GetPruneTip(ctx context.Context) (sqlc.PruneLog, error)
+	GetPruneTip(ctx context.Context) (sqlc.GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg sqlc.DeletePruneLogEntriesInRangeParams) error
@@ -788,7 +788,7 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 	cb func(tx NodeRTx) error, reset func()) error {
 
 	var lastID int64 = 0
-	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {
+	handleNode := func(db SQLQueries, dbNode sqlc.GraphNode) error {
 		node, err := buildNode(ctx, db, &dbNode)
 		if err != nil {
 			return fmt.Errorf("unable to build node(id=%d): %w",
@@ -1015,7 +1015,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 			// If we've already retrieved the info and policies for
 			// this edge, then we can skip it as we don't need to do
 			// so again.
-			chanIDInt := byteOrder.Uint64(row.Channel.Scid)
+			chanIDInt := byteOrder.Uint64(row.GraphChannel.Scid)
 			if _, ok := edgesSeen[chanIDInt]; ok {
 				continue
 			}
@@ -1029,15 +1029,15 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 			}
 
 			node1, node2, err := buildNodes(
-				ctx, db, row.Node, row.Node_2,
+				ctx, db, row.GraphNode, row.GraphNode_2,
 			)
 			if err != nil {
 				return err
 			}
 
 			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.Channel.ID,
-				row.Channel, node1.PubKeyBytes,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+				row.GraphChannel, node1.PubKeyBytes,
 				node2.PubKeyBytes,
 			)
 			if err != nil {
@@ -1144,8 +1144,8 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 
 				e, err := getAndBuildEdgeInfo(
 					ctx, db, s.cfg.ChainHash,
-					row.Channel.ID, row.Channel, node1,
-					node2,
+					row.GraphChannel.ID, row.GraphChannel,
+					node1, node2,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to build "+
@@ -1250,7 +1250,9 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 			return err
 		}
 
-		edge := buildCacheableChannelInfo(row.Channel, node1, node2)
+		edge := buildCacheableChannelInfo(
+			row.GraphChannel, node1, node2,
+		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
 		if err != nil {
@@ -1311,7 +1313,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 					return err
 				}
 
-				lastID = row.Channel.ID
+				lastID = row.GraphChannel.ID
 			}
 		}
 
@@ -1346,8 +1348,8 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 		}
 
 		edge, err := getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.Channel.ID, row.Channel,
-			node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+			row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1402,7 +1404,7 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 					return err
 				}
 
-				lastID = row.Channel.ID
+				lastID = row.GraphChannel.ID
 			}
 		}
 
@@ -1728,21 +1730,21 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 			}
 
 			node1, node2, err := buildNodeVertices(
-				row.Node.PubKey, row.Node_2.PubKey,
+				row.GraphNode.PubKey, row.GraphNode_2.PubKey,
 			)
 			if err != nil {
 				return err
 			}
 
 			info, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.Channel.ID,
-				row.Channel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+				row.GraphChannel, node1, node2,
 			)
 			if err != nil {
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.Channel.ID)
+			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
 			if err != nil {
 				return fmt.Errorf("unable to delete "+
 					"channel: %w", err)
@@ -1866,15 +1868,15 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		}
 
 		node1, node2, err := buildNodeVertices(
-			row.Node.PubKey, row.Node_2.PubKey,
+			row.GraphNode.PubKey, row.GraphNode_2.PubKey,
 		)
 		if err != nil {
 			return err
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.Channel.ID, row.Channel,
-			node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+			row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1945,8 +1947,8 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.Channel.ID, row.Channel,
-			node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+			row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -2187,7 +2189,7 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			}
 
 			node1, node2, err := buildNodes(
-				ctx, db, row.Node, row.Node_2,
+				ctx, db, row.GraphNode, row.GraphNode_2,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch nodes: %w",
@@ -2195,8 +2197,8 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			}
 
 			edge, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.Channel.ID,
-				row.Channel, node1.PubKeyBytes,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+				row.GraphChannel, node1.PubKeyBytes,
 				node2.PubKeyBytes,
 			)
 			if err != nil {
@@ -2385,14 +2387,14 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 			}
 
 			info, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.Channel.ID,
-				row.Channel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+				row.GraphChannel, node1, node2,
 			)
 			if err != nil {
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.Channel.ID)
+			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
 			if err != nil {
 				return fmt.Errorf("unable to delete "+
 					"channel: %w", err)
@@ -2621,14 +2623,14 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 			}
 
 			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.Channel.ID,
-				row.Channel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
+				row.GraphChannel, node1, node2,
 			)
 			if err != nil {
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.Channel.ID)
+			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
 			if err != nil {
 				return fmt.Errorf("unable to delete "+
 					"channel: %w", err)
@@ -2863,7 +2865,9 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 				err)
 		}
 
-		edge := buildCacheableChannelInfo(row.Channel, node1, node2)
+		edge := buildCacheableChannelInfo(
+			row.GraphChannel, node1, node2,
+		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
 		if err != nil {
@@ -3005,8 +3009,8 @@ func forEachNodeChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge, err := getAndBuildEdgeInfo(
-			ctx, db, chain, row.Channel.ID, row.Channel, node1,
-			node2,
+			ctx, db, chain, row.GraphChannel.ID, row.GraphChannel,
+			node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -3029,8 +3033,8 @@ func forEachNodeChannel(ctx context.Context, db SQLQueries,
 
 		// Determine the outgoing and incoming policy for this
 		// channel and node combo.
-		p1ToNode := row.Channel.NodeID2
-		p2ToNode := row.Channel.NodeID1
+		p1ToNode := row.GraphChannel.NodeID2
+		p2ToNode := row.GraphChannel.NodeID1
 		outPolicy, inPolicy := p1, p2
 		if (p1 != nil && p1ToNode == id) ||
 			(p2 != nil && p2ToNode != id) {
@@ -3167,7 +3171,7 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 // buildCacheableChannelInfo builds a models.CachedEdgeInfo instance from the
 // provided database channel row and the public keys of the two nodes
 // involved in the channel.
-func buildCacheableChannelInfo(dbChan sqlc.Channel, node1Pub,
+func buildCacheableChannelInfo(dbChan sqlc.GraphChannel, node1Pub,
 	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
@@ -3181,7 +3185,7 @@ func buildCacheableChannelInfo(dbChan sqlc.Channel, node1Pub,
 // buildNode constructs a LightningNode instance from the given database node
 // record. The node's features, addresses and extra signed fields are also
 // fetched from the database and set on the node.
-func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.Node) (
+func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.GraphNode) (
 	*models.LightningNode, error) {
 
 	if dbNode.Version != int16(ProtocolV1) {
@@ -3940,7 +3944,7 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 // provided dbChanRow and also fetches any other required information
 // to construct the edge info.
 func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
-	chain chainhash.Hash, dbChanID int64, dbChan sqlc.Channel, node1,
+	chain chainhash.Hash, dbChanID int64, dbChan sqlc.GraphChannel, node1,
 	node2 route.Vertex) (*models.ChannelEdgeInfo, error) {
 
 	if dbChan.Version != int16(ProtocolV1) {
@@ -4061,12 +4065,12 @@ func getChanFeaturesAndExtras(ctx context.Context, db SQLQueries,
 	return fv, extras, nil
 }
 
-// getAndBuildChanPolicies uses the given sqlc.ChannelPolicy and also retrieves
-// all the extra info required to build the complete models.ChannelEdgePolicy
-// types. It returns two policies, which may be nil if the provided
-// sqlc.ChannelPolicy records are nil.
+// getAndBuildChanPolicies uses the given sqlc.GraphChannelPolicy and also
+// retrieves all the extra info required to build the complete
+// models.ChannelEdgePolicy types. It returns two policies, which may be nil if
+// the provided sqlc.GraphChannelPolicy records are nil.
 func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
-	dbPol1, dbPol2 *sqlc.ChannelPolicy, channelID uint64, node1,
+	dbPol1, dbPol2 *sqlc.GraphChannelPolicy, channelID uint64, node1,
 	node2 route.Vertex) (*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
@@ -4132,8 +4136,8 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 }
 
 // buildChanPolicy builds a models.ChannelEdgePolicy instance from the
-// provided sqlc.ChannelPolicy and other required information.
-func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
+// provided sqlc.GraphChannelPolicy and other required information.
+func buildChanPolicy(dbPolicy sqlc.GraphChannelPolicy, channelID uint64,
 	extras map[uint64][]byte,
 	toNode route.Vertex) (*models.ChannelEdgePolicy, error) {
 
@@ -4185,7 +4189,7 @@ func buildChanPolicy(dbPolicy sqlc.ChannelPolicy, channelID uint64,
 // buildNodes builds the models.LightningNode instances for the
 // given row which is expected to be a sqlc type that contains node information.
 func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
-	dbNode2 sqlc.Node) (*models.LightningNode, *models.LightningNode,
+	dbNode2 sqlc.GraphNode) (*models.LightningNode, *models.LightningNode,
 	error) {
 
 	node1, err := buildNode(ctx, db, &dbNode1)
@@ -4201,23 +4205,23 @@ func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
 	return node1, node2, nil
 }
 
-// extractChannelPolicies extracts the sqlc.ChannelPolicy records from the give
+// extractChannelPolicies extracts the sqlc.GraphChannelPolicy records from the give
 // row which is expected to be a sqlc type that contains channel policy
 // information. It returns two policies, which may be nil if the policy
 // information is not present in the row.
 //
 //nolint:ll,dupl,funlen
-func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
-	error) {
+func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
+	*sqlc.GraphChannelPolicy, error) {
 
-	var policy1, policy2 *sqlc.ChannelPolicy
+	var policy1, policy2 *sqlc.GraphChannelPolicy
 	switch r := row.(type) {
 	case sqlc.GetChannelByOutpointWithPoliciesRow:
 		if r.Policy1ID.Valid {
-			policy1 = &sqlc.ChannelPolicy{
+			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,
 				Version:                 r.Policy1Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy1NodeID.Int64,
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
@@ -4234,10 +4238,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 			}
 		}
 		if r.Policy2ID.Valid {
-			policy2 = &sqlc.ChannelPolicy{
+			policy2 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy2ID.Int64,
 				Version:                 r.Policy2Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy2NodeID.Int64,
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,
@@ -4258,10 +4262,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 
 	case sqlc.GetChannelBySCIDWithPoliciesRow:
 		if r.Policy1ID.Valid {
-			policy1 = &sqlc.ChannelPolicy{
+			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,
 				Version:                 r.Policy1Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy1NodeID.Int64,
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
@@ -4278,10 +4282,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 			}
 		}
 		if r.Policy2ID.Valid {
-			policy2 = &sqlc.ChannelPolicy{
+			policy2 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy2ID.Int64,
 				Version:                 r.Policy2Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy2NodeID.Int64,
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,
@@ -4302,10 +4306,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 
 	case sqlc.GetChannelsByPolicyLastUpdateRangeRow:
 		if r.Policy1ID.Valid {
-			policy1 = &sqlc.ChannelPolicy{
+			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,
 				Version:                 r.Policy1Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy1NodeID.Int64,
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
@@ -4322,10 +4326,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 			}
 		}
 		if r.Policy2ID.Valid {
-			policy2 = &sqlc.ChannelPolicy{
+			policy2 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy2ID.Int64,
 				Version:                 r.Policy2Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy2NodeID.Int64,
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,
@@ -4346,10 +4350,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 
 	case sqlc.ListChannelsByNodeIDRow:
 		if r.Policy1ID.Valid {
-			policy1 = &sqlc.ChannelPolicy{
+			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,
 				Version:                 r.Policy1Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy1NodeID.Int64,
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
@@ -4366,10 +4370,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 			}
 		}
 		if r.Policy2ID.Valid {
-			policy2 = &sqlc.ChannelPolicy{
+			policy2 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy2ID.Int64,
 				Version:                 r.Policy2Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy2NodeID.Int64,
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,
@@ -4390,10 +4394,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 
 	case sqlc.ListChannelsWithPoliciesPaginatedRow:
 		if r.Policy1ID.Valid {
-			policy1 = &sqlc.ChannelPolicy{
+			policy1 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy1ID.Int64,
 				Version:                 r.Policy1Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy1NodeID.Int64,
 				Timelock:                r.Policy1Timelock.Int32,
 				FeePpm:                  r.Policy1FeePpm.Int64,
@@ -4410,10 +4414,10 @@ func extractChannelPolicies(row any) (*sqlc.ChannelPolicy, *sqlc.ChannelPolicy,
 			}
 		}
 		if r.Policy2ID.Valid {
-			policy2 = &sqlc.ChannelPolicy{
+			policy2 = &sqlc.GraphChannelPolicy{
 				ID:                      r.Policy2ID.Int64,
 				Version:                 r.Policy2Version.Int16,
-				ChannelID:               r.Channel.ID,
+				ChannelID:               r.GraphChannel.ID,
 				NodeID:                  r.Policy2NodeID.Int64,
 				Timelock:                r.Policy2Timelock.Int32,
 				FeePpm:                  r.Policy2FeePpm.Int64,

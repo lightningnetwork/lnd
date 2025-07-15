@@ -726,6 +726,8 @@ func (h *HarnessRPC) SubscribeChannelEvents() ChannelEventsClient {
 
 type CustomMessageClient lnrpc.Lightning_SubscribeCustomMessagesClient
 
+type OnionMessageClient lnrpc.Lightning_SubscribeOnionMessagesClient
+
 // SubscribeCustomMessages creates a subscription client for custom messages.
 func (h *HarnessRPC) SubscribeCustomMessages() (CustomMessageClient,
 	context.CancelFunc) {
@@ -756,6 +758,38 @@ func (h *HarnessRPC) SendCustomMessage(
 	h.NoError(err, "SendCustomMessage")
 
 	return resp
+}
+
+// SendOnionMessage makes a RPC call to the node's SendOnionMessage and
+// returns the response.
+func (h *HarnessRPC) SendOnionMessage(
+	req *lnrpc.SendOnionMessageRequest) *lnrpc.SendOnionMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendOnionMessage(ctxt, req)
+	h.NoError(err, "SendOnionMessage")
+
+	return resp
+}
+
+// SubscribeOnionMessages creates a subscription client for onion messages.
+func (h *HarnessRPC) SubscribeOnionMessages() (OnionMessageClient,
+	context.CancelFunc) {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+
+	req := &lnrpc.SubscribeOnionMessagesRequest{}
+
+	// SubscribeCustomMessages needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	stream, err := h.LN.SubscribeOnionMessages(ctxt, req)
+	h.NoError(err, "SubscribeOnionMessages")
+
+	return stream, cancel
 }
 
 // GetChanInfo makes a RPC call to the node's GetChanInfo and returns the

@@ -82,6 +82,9 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 					return nil
 				},
 			)
+		}, func() {
+			clear(edges)
+			numNodes = 0
 		})
 		require.NoError(ht, err)
 		require.Equal(ht, expNumNodes, numNodes)

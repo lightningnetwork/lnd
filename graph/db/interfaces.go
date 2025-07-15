@@ -40,7 +40,7 @@ type NodeTraverser interface {
 	// ForEachNodeDirectedChannel calls the callback for every channel of
 	// the given node.
 	ForEachNodeDirectedChannel(nodePub route.Vertex,
-		cb func(channel *DirectedChannel) error) error
+		cb func(channel *DirectedChannel) error, reset func()) error
 
 	// FetchNodeFeatures returns the features of the given node.
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
@@ -72,7 +72,8 @@ type V1Store interface { //nolint:interfacebloat
 	// the channel and the channel peer's node information.
 	ForEachSourceNodeChannel(ctx context.Context,
 		cb func(chanPoint wire.OutPoint, havePolicy bool,
-			otherNode *models.LightningNode) error) error
+			otherNode *models.LightningNode) error,
+		reset func()) error
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the
@@ -85,14 +86,14 @@ type V1Store interface { //nolint:interfacebloat
 	// Unknown policies are passed into the callback as nil values.
 	ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy) error) error
+			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
 	// DirectedChannel data to the call-back.
 	//
 	// NOTE: The callback contents MUST not be modified.
 	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error
+		chans map[uint64]*DirectedChannel) error, reset func()) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
@@ -101,14 +102,15 @@ type V1Store interface { //nolint:interfacebloat
 	// passed to the call-back are executed under the same read transaction
 	// and so, methods on the NodeTx object _MUST_ only be called from
 	// within the call-back.
-	ForEachNode(ctx context.Context, cb func(tx NodeRTx) error) error
+	ForEachNode(ctx context.Context, cb func(tx NodeRTx) error,
+		reset func()) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes
 	// in the graph, executing the passed callback with each node
 	// encountered. If the callback returns an error, then the transaction
 	// is aborted and the iteration stops early.
 	ForEachNodeCacheable(ctx context.Context, cb func(route.Vertex,
-		*lnwire.FeatureVector) error) error
+		*lnwire.FeatureVector) error, reset func()) error
 
 	// LookupAlias attempts to return the alias as advertised by the target
 	// node.
@@ -147,7 +149,7 @@ type V1Store interface { //nolint:interfacebloat
 	// GraphSession will provide the call-back with access to a
 	// NodeTraverser instance which can be used to perform queries against
 	// the channel graph.
-	GraphSession(cb func(graph NodeTraverser) error) error
+	GraphSession(cb func(graph NodeTraverser) error, reset func()) error
 
 	// ForEachChannel iterates through all the channel edges stored within
 	// the graph and invokes the passed callback for each edge. The callback
@@ -159,8 +161,8 @@ type V1Store interface { //nolint:interfacebloat
 	// pointer for that particular channel edge routing policy will be
 	// passed into the callback.
 	ForEachChannel(ctx context.Context, cb func(*models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error,
+		reset func()) error
 
 	// ForEachChannelCacheable iterates through all the channel edges stored
 	// within the graph and invokes the passed callback for each edge. The
@@ -175,8 +177,8 @@ type V1Store interface { //nolint:interfacebloat
 	// NOTE: this method is like ForEachChannel but fetches only the data
 	// required for the graph cache.
 	ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-		*models.CachedEdgePolicy,
-		*models.CachedEdgePolicy) error) error
+		*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+		reset func()) error
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies

@@ -6745,6 +6745,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		resp.Nodes = append(resp.Nodes, lnNode)
 
 		return nil
+	}, func() {
+		resp.Nodes = nil
 	})
 	if err != nil {
 		return nil, err
@@ -6768,6 +6770,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
+	}, func() {
+		resp.Edges = nil
 	})
 	if err != nil && !errors.Is(err, graphdb.ErrGraphNoEdgesFound) {
 		return nil, err
@@ -7046,7 +7050,8 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	err = graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
+	err = graph.ForEachNodeChannel(
+		ctx, node.PubKeyBytes,
 		func(edge *models.ChannelEdgeInfo,
 			c1, c2 *models.ChannelEdgePolicy) error {
 
@@ -7072,6 +7077,10 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			}
 
 			return nil
+		}, func() {
+			numChannels = 0
+			totalCapacity = 0
+			channels = nil
 		},
 	)
 	if err != nil {
@@ -7208,6 +7217,15 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		}
 
 		return nil
+	}, func() {
+		numChannels = 0
+		numNodes = 0
+		maxChanOut = 0
+		totalNetworkCapacity = 0
+		minChannelSize = math.MaxInt64
+		maxChannelSize = 0
+		allChans = nil
+		clear(seenChans)
 	})
 	if err != nil {
 		return nil, err
@@ -7728,7 +7746,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = channelGraph.ForEachNodeChannel(ctx, selfNode.PubKeyBytes,
+	err = channelGraph.ForEachNodeChannel(
+		ctx, selfNode.PubKeyBytes,
 		func(chanInfo *models.ChannelEdgeInfo,
 			edgePolicy, _ *models.ChannelEdgePolicy) error {
 
@@ -7766,6 +7785,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			})
 
 			return nil
+		}, func() {
+			feeReports = nil
 		},
 	)
 	if err != nil {

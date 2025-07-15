@@ -935,7 +935,8 @@ func TestEdgePolicyCRUD(t *testing.T) {
 				)
 
 				return nil
-			})
+			}, func() {},
+		)
 		require.NoError(t, err)
 	}
 
@@ -1330,7 +1331,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 		delete(expectedSrcChans, chanPoint)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Empty(t, expectedSrcChans)
 }
@@ -1373,7 +1374,7 @@ func TestGraphTraversal(t *testing.T) {
 		}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 
 	// Iterate through all the known channels within the graph DB, once
@@ -1385,7 +1386,7 @@ func TestGraphTraversal(t *testing.T) {
 
 		delete(chanIndex, ei.ChannelID)
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, chanIndex, 0)
 
@@ -1393,7 +1394,8 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = graph.ForEachNodeChannel(ctx, firstNode.PubKeyBytes,
+	err = graph.ForEachNodeChannel(
+		ctx, firstNode.PubKeyBytes,
 		func(_ *models.ChannelEdgeInfo, outEdge,
 			inEdge *models.ChannelEdgePolicy) error {
 
@@ -1424,7 +1426,8 @@ func TestGraphTraversal(t *testing.T) {
 			numNodeChans++
 
 			return nil
-		})
+		}, func() {},
+	)
 	require.NoError(t, err)
 	require.Equal(t, numChannels, numNodeChans)
 }
@@ -1451,7 +1454,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 		nodeMap[tx.Node().PubKeyBytes] = struct{}{}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, numNodes)
 
@@ -1466,6 +1469,8 @@ func TestGraphTraversalCacheable(t *testing.T) {
 		nodes = append(nodes, node)
 
 		return nil
+	}, func() {
+		nodes = nil
 	})
 	require.NoError(t, err)
 	require.Len(t, nodeMap, 0)
@@ -1485,7 +1490,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex, d.ChannelID)
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 
@@ -1494,7 +1499,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 			node, func(d *DirectedChannel) error {
 				delete(chanIndex2, d.ChannelID)
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 	}
@@ -1580,7 +1585,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
 		delete(nodeIndex, tx.Node().Alias)
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 	require.Len(t, nodeIndex, 0)
 
@@ -1669,22 +1674,19 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph,
 
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(context.Background(),
-		func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	err := graph.ForEachChannel(
+		context.Background(), func(*models.ChannelEdgeInfo,
+			*models.ChannelEdgePolicy,
 			*models.ChannelEdgePolicy) error {
 
 			numChans++
 			return nil
+		}, func() {
+			numChans = 0
 		},
-	); err != nil {
-		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: unable to scan channels: %v", line, err)
-	}
-	if numChans != n {
-		_, _, line, _ := runtime.Caller(1)
-		t.Fatalf("line %v: expected %v chans instead have %v", line,
-			n, numChans)
-	}
+	)
+	require.NoError(t, err)
+	require.Equal(t, n, numChans)
 }
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
@@ -1693,7 +1695,7 @@ func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 		numNodes++
 
 		return nil
-	})
+	}, func() {})
 	if err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan nodes: %v", line, err)
@@ -3146,7 +3148,8 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 		expectedOut bool) {
 
 		calls := 0
-		err := graph.ForEachNodeChannel(ctx, node.PubKeyBytes,
+		err := graph.ForEachNodeChannel(
+			ctx, node.PubKeyBytes,
 			func(_ *models.ChannelEdgeInfo, outEdge,
 				inEdge *models.ChannelEdgePolicy) error {
 
@@ -3169,14 +3172,10 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 				calls++
 
 				return nil
-			})
-		if err != nil {
-			t.Fatalf("unable to scan channels: %v", err)
-		}
-
-		if calls != 1 {
-			t.Fatalf("Expected only one callback call")
-		}
+			}, func() {},
+		)
+		require.NoError(t, err)
+		require.Equal(t, 1, calls)
 	}
 
 	checkPolicies(node2, false, false)
@@ -4230,6 +4229,8 @@ func BenchmarkForEachChannel(b *testing.B) {
 			nodes = append(nodes, node)
 
 			return nil
+		}, func() {
+			nodes = nil
 		})
 		require.NoError(b, err)
 
@@ -4250,7 +4251,7 @@ func BenchmarkForEachChannel(b *testing.B) {
 				return nil
 			}
 
-			err := graph.ForEachNodeChannel(ctx, n, cb)
+			err := graph.ForEachNodeChannel(ctx, n, cb, func() {})
 			require.NoError(b, err)
 		}
 	}
@@ -4297,7 +4298,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 				ch = c
 
 				return nil
-			},
+			}, func() {},
 		)
 		require.NoError(t, err)
 

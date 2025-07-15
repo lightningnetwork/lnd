@@ -727,7 +727,7 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.LightningNode) error) error {
+		otherNode *models.LightningNode) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
@@ -773,7 +773,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 				)
 			},
 		)
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
@@ -785,7 +785,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNode(ctx context.Context,
-	cb func(tx NodeRTx) error) error {
+	cb func(tx NodeRTx) error, reset func()) error {
 
 	var lastID int64 = 0
 	handleNode := func(db SQLQueries, dbNode sqlc.Node) error {
@@ -835,7 +835,7 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 		}
 
 		return nil
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // sqlGraphNodeTx is an implementation of the NodeRTx interface backed by the
@@ -907,13 +907,13 @@ func (s *sqlGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
 func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, reset func()) error {
 
 	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeDirectedChannel(ctx, db, nodePub, cb)
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // ForEachNodeCacheable iterates through all the stored vertices/nodes in the
@@ -923,7 +923,8 @@ func (s *SQLStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
 //
 // NOTE: This is a part of the V1Store interface.
 func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
-	cb func(route.Vertex, *lnwire.FeatureVector) error) error {
+	cb func(route.Vertex, *lnwire.FeatureVector) error,
+	reset func()) error {
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,
@@ -937,7 +938,7 @@ func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
 
 			return cb(nodePub, features)
 		})
-	}, sqldb.NoOpReset)
+	}, reset)
 	if err != nil {
 		return fmt.Errorf("unable to fetch nodes: %w", err)
 	}
@@ -957,7 +958,7 @@ func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error {
+		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
@@ -975,7 +976,7 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 		return forEachNodeChannel(
 			ctx, db, s.cfg.ChainHash, dbNode.ID, cb,
 		)
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
@@ -1104,8 +1105,8 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNodeCached(ctx context.Context,
-	cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error) error {
+	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
+	reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodeCacheable(ctx, db, func(nodeID int64,
@@ -1218,7 +1219,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 
 			return cb(nodePub, channels)
 		})
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // ForEachChannelCacheable iterates through all the channel edges stored
@@ -1234,8 +1235,8 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 // NOTE: this method is like ForEachChannel but fetches only the data
 // required for the graph cache.
 func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
-	*models.CachedEdgePolicy,
-	*models.CachedEdgePolicy) error) error {
+	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
 
 	ctx := context.TODO()
 
@@ -1315,7 +1316,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		}
 
 		return nil
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // ForEachChannel iterates through all the channel edges stored within the
@@ -1331,7 +1332,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error {
+		*models.ChannelEdgePolicy) error, reset func()) error {
 
 	handleChannel := func(db SQLQueries,
 		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {
@@ -1406,7 +1407,7 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 		}
 
 		return nil
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // FilterChannelRange returns the channel ID's of all known channels which were
@@ -2754,12 +2755,14 @@ func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 // instance which can be used to perform queries against the channel graph.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error) error {
+func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error,
+	reset func()) error {
+
 	var ctx = context.TODO()
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return cb(newSQLNodeTraverser(db, s.cfg.ChainHash))
-	}, sqldb.NoOpReset)
+	}, reset)
 }
 
 // sqlNodeTraverser implements the NodeTraverser interface but with a backing
@@ -2788,7 +2791,7 @@ func newSQLNodeTraverser(db SQLQueries,
 //
 // NOTE: Part of the NodeTraverser interface.
 func (s *sqlNodeTraverser) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+	cb func(channel *DirectedChannel) error, _ func()) error {
 
 	ctx := context.TODO()
 

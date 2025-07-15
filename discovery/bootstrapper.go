@@ -247,9 +247,9 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 				})
 			}
 
-			c.tried[nID] = struct{}{}
-
 			return errFound
+		}, func() {
+			a = nil
 		})
 		if err != nil && !errors.Is(err, errFound) {
 			return nil, err
@@ -280,6 +280,14 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 		// early.
 		if len(sampleAddrs) == 0 {
 			continue
+		}
+
+		for _, addr := range sampleAddrs {
+			nID := autopilot.NodeID(
+				addr.IdentityKey.SerializeCompressed(),
+			)
+
+			c.tried[nID] = struct{}{}
 		}
 
 		addrs = append(addrs, sampleAddrs...)

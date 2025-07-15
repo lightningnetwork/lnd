@@ -166,7 +166,7 @@ func (m *mockGraph) addChannel(id uint64, node1id, node2id byte,
 //
 // NOTE: Part of the Graph interface.
 func (m *mockGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
-	cb func(channel *graphdb.DirectedChannel) error) error {
+	cb func(channel *graphdb.DirectedChannel) error, _ func()) error {
 
 	// Look up the mock node.
 	node, ok := m.nodes[nodePub]
@@ -232,8 +232,8 @@ func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 // the channel graph.
 //
 // NOTE: Part of the GraphSessionFactory interface.
-func (m *mockGraph) GraphSession(
-	cb func(graph graphdb.NodeTraverser) error) error {
+func (m *mockGraph) GraphSession(cb func(graph graphdb.NodeTraverser) error,
+	_ func()) error {
 
 	return cb(m)
 }

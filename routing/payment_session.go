@@ -343,7 +343,11 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 	}
 
 	for {
-		err := p.graphSessFactory.GraphSession(findPath)
+		err := p.graphSessFactory.GraphSession(
+			findPath, func() {
+				path = nil
+			},
+		)
 		// If there is an error, and it is not a path finding error, we
 		// return it immediately.
 		if err != nil && !lnutils.ErrorAs[*pathFindingError](err) {

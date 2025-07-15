@@ -121,7 +121,7 @@ func (d *dbNode) ForEachChannel(ctx context.Context,
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
-	cb func(context.Context, Node) error) error {
+	cb func(context.Context, Node) error, reset func()) error {
 
 	return d.db.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
 		// We'll skip over any node that doesn't have any advertised
@@ -136,7 +136,7 @@ func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 		}
 
 		return cb(ctx, node)
-	})
+	}, reset)
 }
 
 // databaseChannelGraphCached wraps a channeldb.ChannelGraph instance with the
@@ -217,7 +217,7 @@ func (nc dbNodeCached) ForEachChannel(ctx context.Context,
 //
 // NOTE: Part of the autopilot.ChannelGraph interface.
 func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
-	cb func(context.Context, Node) error) error {
+	cb func(context.Context, Node) error, reset func()) error {
 
 	return dc.db.ForEachNodeCached(ctx, func(n route.Vertex,
 		channels map[uint64]*graphdb.DirectedChannel) error {
@@ -231,7 +231,7 @@ func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 			return cb(ctx, node)
 		}
 		return nil
-	})
+	}, reset)
 }
 
 // memNode is a purely in-memory implementation of the autopilot.Node

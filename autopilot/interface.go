@@ -85,7 +85,8 @@ type ChannelGraph interface {
 	// ForEachNode is a higher-order function that should be called once
 	// for each connected node within the channel graph. If the passed
 	// callback returns an error, then execution should be terminated.
-	ForEachNode(context.Context, func(context.Context, Node) error) error
+	ForEachNode(context.Context, func(context.Context, Node) error,
+		func()) error
 }
 
 // NodeScore is a tuple mapping a NodeID to a score indicating the preference
@@ -228,12 +229,13 @@ type GraphSource interface {
 	// the callback returns an error, then the transaction is aborted and
 	// the iteration stops early. Any operations performed on the NodeTx
 	// passed to the call-back are executed under the same read transaction.
-	ForEachNode(context.Context, func(graphdb.NodeRTx) error) error
+	ForEachNode(context.Context, func(graphdb.NodeRTx) error, func()) error
 
 	// ForEachNodeCached is similar to ForEachNode, but it utilizes the
 	// channel graph cache if one is available. It is less consistent than
 	// ForEachNode since any further calls are made across multiple
 	// transactions.
 	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
-		chans map[uint64]*graphdb.DirectedChannel) error) error
+		chans map[uint64]*graphdb.DirectedChannel) error,
+		reset func()) error
 }

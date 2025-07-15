@@ -603,6 +603,18 @@ service Lightning {
     */
     rpc LookupHtlcResolution (LookupHtlcResolutionRequest)
         returns (LookupHtlcResolutionResponse);
+
+    /* lncli: `updatechannelparams`
+    UpdateChannelParams is used to initiate a dynamic commitment negotiation,
+    allowing channel parameters to be updated. It takes a request that
+    specifies which param(s) to update, and returns a stream of responses.
+    During the upgrade, no other channel operation other than the upgrade
+    itself is allowed. Under the hood, the channel will be put in quiescent
+    first, negotiate the params with the peer, execute the upgrade, and exit
+    the quiescence automatically.
+    */
+    rpc UpdateChannelParams (UpdateChannelParamsRequest)
+        returns (stream UpdateChannelParamsResponse);
 }
 
 message LookupHtlcResolutionRequest {
@@ -617,6 +629,50 @@ message LookupHtlcResolutionResponse {
 
     // Offchain indicates whether the htlc was resolved off-chain or on-chain.
     bool offchain = 2;
+}
+
+// UpdateChannelParamsRequest defines a request to be used when upgrading the
+// channel. All its params are optional except the channel point. In addition,
+// at least one optional field must be set to make it a valid request.
+message UpdateChannelParamsRequest {
+    ChannelPoint channel_point = 1;
+
+    // The dust limit of the initiator's commitment tx.
+    optional uint64 dust_limit = 2;
+
+    // The maximum amount of coins in millisatoshis that can be pending in this
+    // channel.
+    optional uint64 max_value_in_flight = 3;
+
+    // The minimum amount of satoshis the initiator requires us to have at all
+    // times.
+    optional uint64 channel_reserve = 4;
+
+    // The smallest HTLC in millisatoshis that the initiator will accept.
+    optional uint64 min_htlc = 5;
+
+    /*
+    The number of blocks to use for the relative time lock in the
+    pay-to-self output of both commitment transactions.
+    */
+    optional uint32 csv_delay = 6;
+
+    // The total number of incoming HTLC's that the initiator will accept.
+    optional uint32 max_accepted_htlcs = 7;
+
+    // Custom records.
+    optional bytes extra_opaque_data = 9;
+}
+
+// Message for updating channel stream status.
+message UpdateChannelParamsResponse {
+    // Status of the channel stream
+    string status = 1;
+
+    // Error message if the operation is failed, optional.
+    //
+    // This field should only be populated if the status indicates an error.
+    string error = 2;
 }
 
 message SubscribeCustomMessagesRequest {

@@ -421,6 +421,15 @@ type LightningClient interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(ctx context.Context, in *LookupHtlcResolutionRequest, opts ...grpc.CallOption) (*LookupHtlcResolutionResponse, error)
+	// lncli: `updatechannelparams`
+	// UpdateChannelParams is used to initiate a dynamic commitment negotiation,
+	// allowing channel parameters to be updated. It takes a request that
+	// specifies which param(s) to update, and returns a stream of responses.
+	// During the upgrade, no other channel operation other than the upgrade
+	// itself is allowed. Under the hood, the channel will be put in quiescent
+	// first, negotiate the params with the peer, execute the upgrade, and exit
+	// the quiescence automatically.
+	UpdateChannelParams(ctx context.Context, in *UpdateChannelParamsRequest, opts ...grpc.CallOption) (Lightning_UpdateChannelParamsClient, error)
 }
 
 type lightningClient struct {
@@ -1342,6 +1351,38 @@ func (c *lightningClient) LookupHtlcResolution(ctx context.Context, in *LookupHt
 	return out, nil
 }
 
+func (c *lightningClient) UpdateChannelParams(ctx context.Context, in *UpdateChannelParamsRequest, opts ...grpc.CallOption) (Lightning_UpdateChannelParamsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[13], "/lnrpc.Lightning/UpdateChannelParams", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningUpdateChannelParamsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Lightning_UpdateChannelParamsClient interface {
+	Recv() (*UpdateChannelParamsResponse, error)
+	grpc.ClientStream
+}
+
+type lightningUpdateChannelParamsClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningUpdateChannelParamsClient) Recv() (*UpdateChannelParamsResponse, error) {
+	m := new(UpdateChannelParamsResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1749,6 +1790,15 @@ type LightningServer interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error)
+	// lncli: `updatechannelparams`
+	// UpdateChannelParams is used to initiate a dynamic commitment negotiation,
+	// allowing channel parameters to be updated. It takes a request that
+	// specifies which param(s) to update, and returns a stream of responses.
+	// During the upgrade, no other channel operation other than the upgrade
+	// itself is allowed. Under the hood, the channel will be put in quiescent
+	// first, negotiate the params with the peer, execute the upgrade, and exit
+	// the quiescence automatically.
+	UpdateChannelParams(*UpdateChannelParamsRequest, Lightning_UpdateChannelParamsServer) error
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1959,6 +2009,9 @@ func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesReq
 }
 func (UnimplementedLightningServer) LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlcResolution not implemented")
+}
+func (UnimplementedLightningServer) UpdateChannelParams(*UpdateChannelParamsRequest, Lightning_UpdateChannelParamsServer) error {
+	return status.Errorf(codes.Unimplemented, "method UpdateChannelParams not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3256,6 +3309,27 @@ func _Lightning_LookupHtlcResolution_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_UpdateChannelParams_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(UpdateChannelParamsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LightningServer).UpdateChannelParams(m, &lightningUpdateChannelParamsServer{stream})
+}
+
+type Lightning_UpdateChannelParamsServer interface {
+	Send(*UpdateChannelParamsResponse) error
+	grpc.ServerStream
+}
+
+type lightningUpdateChannelParamsServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningUpdateChannelParamsServer) Send(m *UpdateChannelParamsResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3552,6 +3626,11 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeCustomMessages",
 			Handler:       _Lightning_SubscribeCustomMessages_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "UpdateChannelParams",
+			Handler:       _Lightning_UpdateChannelParams_Handler,
 			ServerStreams: true,
 		},
 	},

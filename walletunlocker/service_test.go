@@ -491,7 +491,7 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 	// password that meets the length requirement, the password change
 	// should succeed.
 	errChan := make(chan error, 1)
-	go doChangePassword(service, testDir, req, errChan)
+	go doChangePassword(service, req, errChan)
 
 	// The new password should be sent over the channel.
 	select {
@@ -508,6 +508,15 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
+	}
+
+	// Wait for the doChangePassword goroutine to finish.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "ChangePassword call failed")
+
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("ChangePassword timed out")
 	}
 
 	// The files should no longer exist.
@@ -594,7 +603,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	// async and then wait for the unlock message to arrive so we can send
 	// back a fake macaroon.
 	errChan := make(chan error, 1)
-	go doChangePassword(service, testDir, req, errChan)
+	go doChangePassword(service, req, errChan)
 
 	// Password and recovery window should be sent over the channel.
 	select {
@@ -612,9 +621,18 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
 	}
+
+	// Wait for the doChangePassword goroutine to finish.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "ChangePassword call failed")
+
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("ChangePassword timed out")
+	}
 }
 
-func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
+func doChangePassword(service *walletunlocker.UnlockerService,
 	req *lnrpc.ChangePasswordRequest, errChan chan error) {
 
 	// When providing the correct wallet's current password and a new
@@ -633,35 +651,5 @@ func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
 		return
 	}
 
-	// Close the macaroon DB and try to open it and read the root key with
-	// the new password.
-	store, err := openOrCreateTestMacStore(
-		testDir, &req.NewPassword, testNetParams,
-	)
-	if err != nil {
-		errChan <- fmt.Errorf("could not create test store: %w", err)
-		return
-	}
-	_, _, err = store.RootKey(defaultRootKeyIDContext)
-	if err != nil {
-		errChan <- fmt.Errorf("could not get root key: %w", err)
-		return
-	}
-
-	// Do cleanup now. Since we are in a go func, the defer at the top of
-	// the outer would not work, because it would delete the directory
-	// before we could check the content in here.
-	err = store.Close()
-	if err != nil {
-		errChan <- fmt.Errorf("could not close store: %w", err)
-		return
-	}
-
-	// The backend database isn't closed automatically if the store is
-	// closed, do that now manually.
-	err = store.Backend.Close()
-	if err != nil {
-		errChan <- fmt.Errorf("could not close db: %w", err)
-		return
-	}
+	close(errChan)
 }

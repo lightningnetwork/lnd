@@ -46,6 +46,12 @@
   would not be able to decode persisted data in the utxo nursery and therefore
   would fail to start up.
 
+- [Added the missing `FundingTimeoutEvent` event type to the
+  `SubscribeChannelEvents`
+  RPC](https://github.com/lightningnetwork/lnd/pull/10079) to avoid the
+  `unexpected channel event update` error that lead to the termination of the
+  streaming RPC call.
+
 # New Features
 
 ## Functional Enhancements

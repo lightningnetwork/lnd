@@ -527,6 +527,12 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 			t.Fatal("file exists but it shouldn't")
 		}
 	}
+
+	// Close the old db first.
+	require.NoError(t, store.Backend.Close())
+
+	// Check that the new password can be used to open the db.
+	assertPasswordChanged(t, testDir, req.NewPassword)
 }
 
 // TestChangeWalletPasswordStateless checks that trying to change the password
@@ -630,6 +636,12 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("ChangePassword timed out")
 	}
+
+	// Close the old db first.
+	require.NoError(t, store.Backend.Close())
+
+	// Check that the new password can be used to open the db.
+	assertPasswordChanged(t, testDir, req.NewPassword)
 }
 
 func doChangePassword(service *walletunlocker.UnlockerService,
@@ -652,4 +664,22 @@ func doChangePassword(service *walletunlocker.UnlockerService,
 	}
 
 	close(errChan)
+}
+
+// assertPasswordChanged asserts that the new password can be used to open the
+// store.
+func assertPasswordChanged(t *testing.T, testDir string, newPassword []byte) {
+	// Open it and read the root key with the new password.
+	store, err := openOrCreateTestMacStore(
+		testDir, &newPassword, testNetParams,
+	)
+	require.NoError(t, err)
+
+	// Assert that we can read the root key.
+	_, _, err = store.RootKey(defaultRootKeyIDContext)
+	require.NoError(t, err)
+
+	// Close the db once done.
+	require.NoError(t, store.Close())
+	require.NoError(t, store.Backend.Close())
 }

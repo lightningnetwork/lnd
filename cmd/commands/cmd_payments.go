@@ -1158,10 +1158,11 @@ var queryRoutesCommand = cli.Command{
 			Name:  "use_mc",
 			Usage: "use mission control probabilities",
 		},
-		cli.Uint64Flag{
+		cli.StringSliceFlag{
 			Name: "outgoing_chan_id",
 			Usage: "(optional) the channel id of the channel " +
-				"that must be taken to the first hop",
+				"to use as the first hop. This flag can be " +
+				"specified multiple times in the same command.",
 		},
 		cli.StringSliceFlag{
 			Name: "ignore_pair",
@@ -1275,10 +1276,23 @@ func queryRoutes(ctx *cli.Context) error {
 		FinalCltvDelta:      int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl:   ctx.Bool("use_mc"),
 		CltvLimit:           uint32(ctx.Uint64(cltvLimitFlag.Name)),
-		OutgoingChanId:      ctx.Uint64("outgoing_chan_id"),
 		TimePref:            ctx.Float64(timePrefFlag.Name),
 		IgnoredPairs:        ignoredPairs,
 		BlindedPaymentPaths: blindedRoutes,
+	}
+
+	outgoingChanIds := ctx.StringSlice("outgoing_chan_id")
+	if len(outgoingChanIds) != 0 {
+		req.OutgoingChanIds = make([]uint64, len(outgoingChanIds))
+		for i, chanID := range outgoingChanIds {
+			id, err := strconv.ParseUint(chanID, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid outgoing_chan_id "+
+					"argument: %w", err)
+			}
+
+			req.OutgoingChanIds[i] = id
+		}
 	}
 
 	if ctx.IsSet("route_hints") {

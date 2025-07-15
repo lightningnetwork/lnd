@@ -140,7 +140,7 @@ func openOrCreateTestMacStore(tempDir string, pw *[]byte,
 	return store, nil
 }
 
-// TestGenSeedUserEntropy tests that the gen seed method generates a valid
+// TestGenSeed tests that the gen seed method generates a valid
 // cipher seed mnemonic phrase and user provided source of entropy.
 func TestGenSeed(t *testing.T) {
 	t.Parallel()
@@ -173,8 +173,8 @@ func TestGenSeed(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestGenSeedInvalidEntropy tests that the gen seed method generates a valid
-// cipher seed mnemonic pass phrase even when the user doesn't provide its own
+// TestGenSeedGenerateEntropy tests that the gen seed method generates a valid
+// cipher seed mnemonic passphrase even when the user doesn't provide its own
 // source of entropy.
 func TestGenSeedGenerateEntropy(t *testing.T) {
 	t.Parallel()
@@ -318,7 +318,7 @@ func TestInitWallet(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestInitWalletInvalidCipherSeed tests that if we attempt to create a wallet
+// TestCreateWalletInvalidEntropy tests that if we attempt to create a wallet
 // with an invalid cipher seed, then we'll receive an error.
 func TestCreateWalletInvalidEntropy(t *testing.T) {
 	t.Parallel()
@@ -344,7 +344,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestUnlockWallet checks that trying to unlock non-existing wallet fail, that
+// TestUnlockWallet checks that trying to unlock non-existing wallet fails, that
 // unlocking existing wallet with wrong passphrase fails, and that unlocking
 // existing wallet with correct passphrase succeeds.
 func TestUnlockWallet(t *testing.T) {
@@ -530,8 +530,8 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 }
 
 // TestChangeWalletPasswordStateless checks that trying to change the password
-// of an existing wallet that was initialized stateless works when when the
-// --stateless_init flat is set. Also checks that if no password is given,
+// of an existing wallet that was initialized stateless works when the
+// --stateless_init flag is set. Also checks that if no password is given,
 // the default password is used.
 func TestChangeWalletPasswordStateless(t *testing.T) {
 	t.Parallel()

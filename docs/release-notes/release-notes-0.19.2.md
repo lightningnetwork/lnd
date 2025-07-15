@@ -52,6 +52,12 @@
 - Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
   when we fail starting up LND before we startup the chanbackup sub-server.
 
+- [Added the missing `FundingTimeoutEvent` event type to the
+  `SubscribeChannelEvents`
+  RPC](https://github.com/lightningnetwork/lnd/pull/10079) to avoid the
+  `unexpected channel event update` error that lead to the termination of the
+  streaming RPC call.
+
 # New Features
 
 ## Functional Enhancements

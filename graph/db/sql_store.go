@@ -93,6 +93,7 @@ type SQLQueries interface {
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GraphChannel, error)
+	GetChannelsBySCIDs(ctx context.Context, arg sqlc.GetChannelsBySCIDsParams) ([]sqlc.GraphChannel, error)
 	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]sqlc.GetChannelsByOutpointsRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
@@ -2259,31 +2260,49 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 		ctx          = context.TODO()
 		newChanIDs   []uint64
 		knownZombies []ChannelUpdateInfo
+		infoLookup   = make(
+			map[uint64]ChannelUpdateInfo, len(chansInfo),
+		)
 	)
+
+	// We first build a lookup map of the channel ID's to the
+	// ChannelUpdateInfo. This allows us to quickly delete channels that we
+	// already know about.
+	for _, chanInfo := range chansInfo {
+		infoLookup[chanInfo.ShortChannelID.ToUint64()] = chanInfo
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		// The call-back function deletes known channels from
+		// infoLookup, so that we can later check which channels are
+		// zombies by only looking at the remaining channels in the set.
+		cb := func(ctx context.Context,
+			channel sqlc.GraphChannel) error {
+
+			delete(infoLookup, byteOrder.Uint64(channel.Scid))
+
+			return nil
+		}
+
+		err := s.forEachChanInSCIDList(ctx, db, cb, chansInfo)
+		if err != nil {
+			return fmt.Errorf("unable to iterate through "+
+				"channels: %w", err)
+		}
+
+		// We want to ensure that we deal with the channels in the
+		// same order that they were passed in, so we iterate over the
+		// original chansInfo slice and then check if that channel is
+		// still in the infoLookup map.
 		for _, chanInfo := range chansInfo {
 			channelID := chanInfo.ShortChannelID.ToUint64()
-			chanIDB := channelIDToBytes(channelID)
-
-			// TODO(elle): potentially optimize this by using
-			//  sqlc.slice() once that works for both SQLite and
-			//  Postgres.
-			_, err := db.GetChannelBySCID(
-				ctx, sqlc.GetChannelBySCIDParams{
-					Version: int16(ProtocolV1),
-					Scid:    chanIDB,
-				},
-			)
-			if err == nil {
+			if _, ok := infoLookup[channelID]; !ok {
 				continue
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
 			}
 
 			isZombie, err := db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
-					Scid:    chanIDB,
+					Scid:    channelIDToBytes(channelID),
 					Version: int16(ProtocolV1),
 				},
 			)
@@ -2305,12 +2324,48 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 	}, func() {
 		newChanIDs = nil
 		knownZombies = nil
+		// Rebuild the infoLookup map in case of a rollback.
+		for _, chanInfo := range chansInfo {
+			scid := chanInfo.ShortChannelID.ToUint64()
+			infoLookup[scid] = chanInfo
+		}
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to fetch channels: %w", err)
 	}
 
 	return newChanIDs, knownZombies, nil
+}
+
+// forEachChanInSCIDList is a helper method that executes a paged query
+// against the database to fetch all channels that match the passed
+// ChannelUpdateInfo slice. The callback function is called for each channel
+// that is found.
+func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
+	cb func(ctx context.Context, channel sqlc.GraphChannel) error,
+	chansInfo []ChannelUpdateInfo) error {
+
+	queryWrapper := func(ctx context.Context,
+		scids [][]byte) ([]sqlc.GraphChannel, error) {
+
+		return db.GetChannelsBySCIDs(
+			ctx, sqlc.GetChannelsBySCIDsParams{
+				Version: int16(ProtocolV1),
+				Scids:   scids,
+			},
+		)
+	}
+
+	chanIDConverter := func(chanInfo ChannelUpdateInfo) []byte {
+		channelID := chanInfo.ShortChannelID.ToUint64()
+
+		return channelIDToBytes(channelID)
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, chansInfo, chanIDConverter,
+		queryWrapper, cb,
+	)
 }
 
 // PruneGraphNodes is a garbage collection method which attempts to prune out

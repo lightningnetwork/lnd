@@ -1154,6 +1154,65 @@ func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsByS
 	return items, nil
 }
 
+const getChannelsBySCIDs = `-- name: GetChannelsBySCIDs :many
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM graph_channels
+WHERE version = $1
+  AND scid IN (/*SLICE:scids*/?)
+`
+
+type GetChannelsBySCIDsParams struct {
+	Version int16
+	Scids   [][]byte
+}
+
+func (q *Queries) GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDsParams) ([]GraphChannel, error) {
+	query := getChannelsBySCIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Version)
+	if len(arg.Scids) > 0 {
+		for _, v := range arg.Scids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scids*/?", makeQueryParams(len(queryParams), len(arg.Scids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphChannel
+	for rows.Next() {
+		var i GraphChannel
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.Scid,
+			&i.NodeID1,
+			&i.NodeID2,
+			&i.Outpoint,
+			&i.Capacity,
+			&i.BitcoinKey1,
+			&i.BitcoinKey2,
+			&i.Node1Signature,
+			&i.Node2Signature,
+			&i.Bitcoin1Signature,
+			&i.Bitcoin2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
 SELECT node_id, type, value
 FROM graph_node_extra_types

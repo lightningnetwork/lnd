@@ -169,3 +169,5 @@ http:
       get: "/v1/aliases/list"
     - selector: lnrpc.Lightning.LookupHtlcResolution
       get: "/v1/htlc-resolution/{chan_id}/{htlc_index}"
+    - selector: lnrpc.Lightning.UpdateChannelParams
+      post: "/v1/channels/params/{channel_point.funding_txid_str}/{channel_point.output_index}"

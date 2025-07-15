@@ -2577,6 +2577,61 @@ func local_request_Lightning_LookupHtlcResolution_0(ctx context.Context, marshal
 
 }
 
+var (
+	filter_Lightning_UpdateChannelParams_0 = &utilities.DoubleArray{Encoding: map[string]int{"channel_point": 0, "funding_txid_str": 1, "fundingTxidStr": 2, "output_index": 3, "outputIndex": 4}, Base: []int{1, 1, 1, 3, 2, 4, 0, 0, 0, 0}, Check: []int{0, 1, 2, 1, 2, 1, 3, 5, 4, 6}}
+)
+
+func request_Lightning_UpdateChannelParams_0(ctx context.Context, marshaler runtime.Marshaler, client LightningClient, req *http.Request, pathParams map[string]string) (Lightning_UpdateChannelParamsClient, runtime.ServerMetadata, error) {
+	var protoReq UpdateChannelParamsRequest
+	var metadata runtime.ServerMetadata
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["channel_point.funding_txid_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "channel_point.funding_txid_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "channel_point.funding_txid_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "channel_point.funding_txid_str", err)
+	}
+
+	val, ok = pathParams["channel_point.output_index"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "channel_point.output_index")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "channel_point.output_index", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "channel_point.output_index", err)
+	}
+
+	if err := req.ParseForm(); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if err := runtime.PopulateQueryParameters(&protoReq, req.Form, filter_Lightning_UpdateChannelParams_0); err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.UpdateChannelParams(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
 // RegisterLightningHandlerServer registers the http handlers for service Lightning to "mux".
 // UnaryRPC     :call LightningServer directly.
 // StreamingRPC :currently unsupported pending https://github.com/grpc/grpc-go/issues/906.
@@ -4065,6 +4120,13 @@ func RegisterLightningHandlerServer(ctx context.Context, mux *runtime.ServeMux, 
 
 		forward_Lightning_LookupHtlcResolution_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
+	})
+
+	mux.Handle("POST", pattern_Lightning_UpdateChannelParams_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
 	})
 
 	return nil
@@ -5604,6 +5666,28 @@ func RegisterLightningHandlerClient(ctx context.Context, mux *runtime.ServeMux, 
 
 	})
 
+	mux.Handle("POST", pattern_Lightning_UpdateChannelParams_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/lnrpc.Lightning/UpdateChannelParams", runtime.WithHTTPPathPattern("/v1/channels/params/{channel_point.funding_txid_str}/{channel_point.output_index}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Lightning_UpdateChannelParams_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Lightning_UpdateChannelParams_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -5743,6 +5827,8 @@ var (
 	pattern_Lightning_ListAliases_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "aliases", "list"}, ""))
 
 	pattern_Lightning_LookupHtlcResolution_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 1, 0, 4, 1, 5, 2, 1, 0, 4, 1, 5, 3}, []string{"v1", "htlc-resolution", "chan_id", "htlc_index"}, ""))
+
+	pattern_Lightning_UpdateChannelParams_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 1, 0, 4, 1, 5, 3, 1, 0, 4, 1, 5, 4}, []string{"v1", "channels", "params", "channel_point.funding_txid_str", "channel_point.output_index"}, ""))
 )
 
 var (
@@ -5881,4 +5967,6 @@ var (
 	forward_Lightning_ListAliases_0 = runtime.ForwardResponseMessage
 
 	forward_Lightning_LookupHtlcResolution_0 = runtime.ForwardResponseMessage
+
+	forward_Lightning_UpdateChannelParams_0 = runtime.ForwardResponseStream
 )

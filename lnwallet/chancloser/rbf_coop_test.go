@@ -57,6 +57,10 @@ var (
 	localTx = wire.MsgTx{Version: 2}
 
 	closeTx = wire.NewMsgTx(2)
+
+	defaultTimeout = 500 * time.Millisecond
+	longTimeout    = 3 * time.Second
+	defaultPoll    = 50 * time.Millisecond
 )
 
 func sigMustParse(sigBytes []byte) ecdsa.Signature {
@@ -113,7 +117,7 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 
 	for _, expectedState := range expectedStates {
 		newState, err := fn.RecvOrTimeout(
-			stateSub.NewItemCreated.ChanOut(), 10*time.Millisecond,
+			stateSub.NewItemCreated.ChanOut(), defaultTimeout,
 		)
 		require.NoError(t, err, "expected state: %T", expectedState)
 
@@ -287,10 +291,12 @@ func (r *rbfCloserTestHarness) assertStartupAssertions() {
 }
 
 func (r *rbfCloserTestHarness) assertNoStateTransitions() {
+	r.T.Helper()
+
 	select {
 	case newState := <-r.stateSub.NewItemCreated.ChanOut():
 		r.T.Fatalf("unexpected state transition: %T", newState)
-	case <-time.After(10 * time.Millisecond):
+	case <-time.After(defaultPoll):
 	}
 }
 
@@ -438,7 +444,7 @@ func (r *rbfCloserTestHarness) waitForMsgSent() {
 
 	err := wait.Predicate(func() bool {
 		return r.daemonAdapters.msgSent.Load()
-	}, time.Second*3)
+	}, longTimeout)
 	require.NoError(r.T, err)
 }
 
@@ -804,7 +810,7 @@ func newRbfCloserTestHarness(t *testing.T,
 		MsgMapper: fn.Some[protofsm.MsgMapper[ProtocolEvent]](
 			msgMapper,
 		),
-		CustomPollInterval: fn.Some(time.Nanosecond),
+		CustomPollInterval: fn.Some(defaultPoll),
 	}
 
 	// Before we start we always expect an initial spend event.

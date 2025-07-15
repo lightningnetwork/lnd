@@ -5315,6 +5315,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 	defer channelEventSub.Cancel()
 
 	for {
+		//nolint:ll
 		select {
 		// A new update has been sent by the channel router, we'll
 		// marshal it into the form expected by the gRPC client, then
@@ -5402,6 +5403,19 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 					Type: lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL,
 					Channel: &lnrpc.ChannelEventUpdate_FullyResolvedChannel{
 						FullyResolvedChannel: &lnrpc.ChannelPoint{
+							FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+								FundingTxidBytes: event.ChannelPoint.Hash[:],
+							},
+							OutputIndex: event.ChannelPoint.Index,
+						},
+					},
+				}
+
+			case channelnotifier.FundingTimeoutEvent:
+				update = &lnrpc.ChannelEventUpdate{
+					Type: lnrpc.ChannelEventUpdate_CHANNEL_FUNDING_TIMEOUT,
+					Channel: &lnrpc.ChannelEventUpdate_ChannelFundingTimeout{
+						ChannelFundingTimeout: &lnrpc.ChannelPoint{
 							FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
 								FundingTxidBytes: event.ChannelPoint.Hash[:],
 							},

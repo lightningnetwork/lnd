@@ -2973,6 +2973,7 @@ message ChannelEventUpdate {
         ChannelPoint inactive_channel = 4;
         PendingUpdate pending_open_channel = 6;
         ChannelPoint fully_resolved_channel = 7;
+        ChannelPoint channel_funding_timeout = 8;
     }
 
     enum UpdateType {
@@ -2982,6 +2983,7 @@ message ChannelEventUpdate {
         INACTIVE_CHANNEL = 3;
         PENDING_OPEN_CHANNEL = 4;
         FULLY_RESOLVED_CHANNEL = 5;
+        CHANNEL_FUNDING_TIMEOUT = 6;
     }
 
     UpdateType type = 5;

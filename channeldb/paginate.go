@@ -2,7 +2,7 @@ package channeldb
 
 import "github.com/lightningnetwork/lnd/kvdb"
 
-type paginator struct {
+type Paginator struct {
 	// cursor is the cursor which we are using to iterate through a bucket.
 	cursor kvdb.RCursor
 
@@ -16,12 +16,12 @@ type paginator struct {
 	totalItems uint64
 }
 
-// newPaginator returns a struct which can be used to query an indexed bucket
+// NewPaginator returns a struct which can be used to query an indexed bucket
 // in pages.
-func newPaginator(c kvdb.RCursor, reversed bool,
-	indexOffset, totalItems uint64) paginator {
+func NewPaginator(c kvdb.RCursor, reversed bool,
+	indexOffset, totalItems uint64) Paginator {
 
-	return paginator{
+	return Paginator{
 		cursor:      c,
 		reversed:    reversed,
 		indexOffset: indexOffset,
@@ -31,7 +31,7 @@ func newPaginator(c kvdb.RCursor, reversed bool,
 
 // keyValueForIndex seeks our cursor to a given index and returns the key and
 // value at that position.
-func (p paginator) keyValueForIndex(index uint64) ([]byte, []byte) {
+func (p Paginator) keyValueForIndex(index uint64) ([]byte, []byte) {
 	var keyIndex [8]byte
 	byteOrder.PutUint64(keyIndex[:], index)
 	return p.cursor.Seek(keyIndex[:])
@@ -39,7 +39,7 @@ func (p paginator) keyValueForIndex(index uint64) ([]byte, []byte) {
 
 // lastIndex returns the last value in our index, if our index is empty it
 // returns 0.
-func (p paginator) lastIndex() uint64 {
+func (p Paginator) lastIndex() uint64 {
 	keyIndex, _ := p.cursor.Last()
 	if keyIndex == nil {
 		return 0
@@ -51,7 +51,7 @@ func (p paginator) lastIndex() uint64 {
 // nextKey is a helper closure to determine what key we should use next when
 // we are iterating, depending on whether we are iterating forwards or in
 // reverse.
-func (p paginator) nextKey() ([]byte, []byte) {
+func (p Paginator) nextKey() ([]byte, []byte) {
 	if p.reversed {
 		return p.cursor.Prev()
 	}
@@ -62,7 +62,7 @@ func (p paginator) nextKey() ([]byte, []byte) {
 // up, taking into account that we may be paginating in reverse. The index
 // offset provided is *excusive* so we will start with the item after the offset
 // for forwards queries, and the item before the index for backwards queries.
-func (p paginator) cursorStart() ([]byte, []byte) {
+func (p Paginator) cursorStart() ([]byte, []byte) {
 	indexKey, indexValue := p.keyValueForIndex(p.indexOffset + 1)
 
 	// If the query is specifying reverse iteration, then we must
@@ -112,7 +112,7 @@ func (p paginator) cursorStart() ([]byte, []byte) {
 // to its set of return items (if desired) and return a boolean which indicates
 // whether the item was added. This is required to allow the paginator to
 // determine when the response has the maximum number of required items.
-func (p paginator) query(fetchAndAppend func(k, v []byte) (bool, error)) error {
+func (p Paginator) Query(fetchAndAppend func(k, v []byte) (bool, error)) error {
 	indexKey, indexValue := p.cursorStart()
 
 	var totalItems int

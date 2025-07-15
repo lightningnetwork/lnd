@@ -1,24 +1,15 @@
-package htlcswitch
+package paymentsdb
 
 import (
 	"errors"
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
 // defaultSequenceBatchSize specifies the window of sequence numbers that are
 // allocated for each write to disk made by the sequencer.
 const defaultSequenceBatchSize = 1000
-
-// Sequencer emits sequence numbers for locally initiated HTLCs. These are
-// only used internally for tracking pending payments, however they must be
-// unique in order to avoid circuit key collision in the circuit map.
-type Sequencer interface {
-	// NextID returns a unique sequence number for each invocation.
-	NextID() (uint64, error)
-}
 
 var (
 	// nextPaymentIDKey identifies the bucket that will keep track of the
@@ -34,7 +25,7 @@ var (
 // persistentSequencer is a concrete implementation of IDGenerator, that uses
 // channeldb to allocate sequence numbers.
 type persistentSequencer struct {
-	db *channeldb.DB
+	db kvdb.Backend
 
 	mu sync.Mutex
 
@@ -43,7 +34,7 @@ type persistentSequencer struct {
 }
 
 // NewPersistentSequencer initializes a new sequencer using a channeldb backend.
-func NewPersistentSequencer(db *channeldb.DB) (Sequencer, error) {
+func newPersistentSequencer(db kvdb.Backend) (Sequencer, error) {
 	g := &persistentSequencer{
 		db: db,
 	}

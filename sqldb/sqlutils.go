@@ -75,3 +75,12 @@ func SQLTime(t time.Time) sql.NullTime {
 func ExtractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
 	return T(num.Int16)
 }
+
+// SQLBool turns a boolean into the NullBool that sql/sqlc uses when a boolean
+// field can be permitted to be NULL.
+func SQLBool(b bool) sql.NullBool {
+	return sql.NullBool{
+		Bool:  b,
+		Valid: true,
+	}
+}

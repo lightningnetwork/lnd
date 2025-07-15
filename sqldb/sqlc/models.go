@@ -84,6 +84,52 @@ type ClosedScid struct {
 	Scid []byte
 }
 
+type DuplicatePayment struct {
+	ID             int64
+	PaymentID      int64
+	PaymentHash    []byte
+	PaymentRequest []byte
+	AmountMsat     int64
+	CreatedAt      time.Time
+	FailReason     sql.NullInt32
+}
+
+type DuplicatePaymentHtlcAttempt struct {
+	ID                 int64
+	AttemptIndex       int64
+	DuplicatePaymentID int64
+	SessionKey         []byte
+	AttemptTime        time.Time
+	PaymentHash        []byte
+	RouteTotalTimelock int32
+	RouteTotalAmount   int64
+	RouteSourceKey     []byte
+	FailureSourceIndex sql.NullInt32
+	HtlcFailReason     sql.NullInt32
+	FailureMsg         []byte
+	FailTime           sql.NullTime
+	SettlePreimage     []byte
+	SettleTime         sql.NullTime
+}
+
+type DuplicatePaymentRouteHop struct {
+	ID               int64
+	HtlcAttemptIndex int64
+	HopIndex         int32
+	PubKey           []byte
+	ChanID           string
+	OutgoingTimeLock int32
+	AmtToForward     int64
+	MetaData         []byte
+}
+
+type DuplicatePaymentRouteHopCustomRecord struct {
+	ID    int64
+	Key   int64
+	Value []byte
+	HopID int64
+}
+
 type Invoice struct {
 	ID                 int64
 	Hash               []byte
@@ -185,6 +231,75 @@ type NodeExtraType struct {
 type NodeFeature struct {
 	NodeID     int64
 	FeatureBit int32
+}
+
+type Payment struct {
+	ID                  int64
+	PaymentType         sql.NullInt32
+	PaymentRequest      []byte
+	AmountMsat          int64
+	CreatedAt           time.Time
+	PaymentHash         []byte
+	FailReason          sql.NullInt32
+	HasDuplicatePayment bool
+}
+
+type PaymentFirstHopCustomRecord struct {
+	ID        int64
+	Key       int64
+	Value     []byte
+	PaymentID int64
+}
+
+type PaymentHtlcAttempt struct {
+	ID                  int64
+	AttemptIndex        int64
+	PaymentID           int64
+	SessionKey          []byte
+	AttemptTime         time.Time
+	PaymentHash         []byte
+	RouteTotalTimelock  int32
+	RouteTotalAmount    int64
+	RouteFirstHopAmount sql.NullInt64
+	RouteSourceKey      []byte
+	FailureSourceIndex  sql.NullInt32
+	HtlcFailReason      sql.NullInt32
+	FailureMsg          []byte
+	FailTime            sql.NullTime
+	SettlePreimage      []byte
+	SettleTime          sql.NullTime
+}
+
+type PaymentRouteHop struct {
+	ID                  int64
+	HtlcAttemptIndex    int64
+	HopIndex            int32
+	PubKey              []byte
+	ChanID              string
+	OutgoingTimeLock    int32
+	AmtToForward        int64
+	MetaData            []byte
+	LegacyPayload       bool
+	MppPaymentAddr      []byte
+	MppTotalMsat        sql.NullInt64
+	AmpRootShare        []byte
+	AmpSetID            []byte
+	AmpChildIndex       sql.NullInt32
+	EncryptedData       []byte
+	BlindingPoint       []byte
+	BlindedPathTotalAmt sql.NullInt64
+}
+
+type PaymentRouteHopCustomRecord struct {
+	ID    int64
+	Key   int64
+	Value []byte
+	HopID int64
+}
+
+type PaymentSequence struct {
+	Name         string
+	CurrentValue int64
 }
 
 type PruneLog struct {

@@ -5,12 +5,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -104,7 +104,7 @@ func (e noRouteError) Error() string {
 }
 
 // FailureReason converts a path finding error into a payment-level failure.
-func (e noRouteError) FailureReason() channeldb.FailureReason {
+func (e noRouteError) FailureReason() pymtpkgDB.FailureReason {
 	switch e {
 	case
 		errNoTlvPayload,
@@ -114,13 +114,13 @@ func (e noRouteError) FailureReason() channeldb.FailureReason {
 		errUnknownRequiredFeature,
 		errMissingDependentFeature:
 
-		return channeldb.FailureReasonNoRoute
+		return pymtpkgDB.FailureReasonNoRoute
 
 	case errInsufficientBalance:
-		return channeldb.FailureReasonInsufficientBalance
+		return pymtpkgDB.FailureReasonInsufficientBalance
 
 	default:
-		return channeldb.FailureReasonError
+		return pymtpkgDB.FailureReasonError
 	}
 }
 

@@ -11,8 +11,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -47,13 +47,12 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	paymentDB := pymtpkgDB.NewTestDB(t)
+	pControl := NewControlTower(paymentDB)
 
 	// Subscription should fail when the payment is not known.
 	_, err := pControl.SubscribePayment(lntypes.Hash{1})
-	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+	require.ErrorIs(t, err, pymtpkgDB.ErrPaymentNotInitiated)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a
@@ -61,9 +60,8 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	paymentDB := pymtpkgDB.NewTestDB(t)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -92,7 +90,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Mark the payment as successful.
-	settleInfo := channeldb.HTLCSettleInfo{
+	settleInfo := pymtpkgDB.HTLCSettleInfo{
 		Preimage: preimg,
 	}
 	htlcAttempt, err := pControl.SettleAttempt(
@@ -116,19 +114,25 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	for i, s := range subscribers {
-		var result *channeldb.MPPayment
+		var (
+			result *pymtpkgDB.MPPayment
+			ok     bool
+		)
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*channeldb.MPPayment)
+				result, ok = item.(*pymtpkgDB.MPPayment)
+				require.True(t, ok, "unexpected type in "+
+					"payment update: %T", item)
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
 		}
 
-		require.Equalf(t, channeldb.StatusSucceeded, result.GetStatus(),
+		require.Equalf(t, pymtpkgDB.StatusSucceeded, result.GetStatus(),
 			"subscriber %v failed, want %s, got %s", i,
-			channeldb.StatusSucceeded, result.GetStatus())
+			pymtpkgDB.StatusSucceeded, result.GetStatus())
 
 		attempt, _ := result.TerminalInfo()
 		if attempt.Settle.Preimage != preimg {
@@ -180,9 +184,10 @@ func TestPaymentControlSubscribeFail(t *testing.T) {
 func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	paymentDB := pymtpkgDB.NewTestDB(
+		t, pymtpkgDB.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -212,7 +217,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mark the first payment as successful.
-	settleInfo1 := channeldb.HTLCSettleInfo{
+	settleInfo1 := pymtpkgDB.HTLCSettleInfo{
 		Preimage: preimg1,
 	}
 	htlcAttempt1, err := pControl.SettleAttempt(
@@ -225,7 +230,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	)
 
 	// Mark the second payment as successful.
-	settleInfo2 := channeldb.HTLCSettleInfo{
+	settleInfo2 := pymtpkgDB.HTLCSettleInfo{
 		Preimage: preimg2,
 	}
 	htlcAttempt2, err := pControl.SettleAttempt(
@@ -239,14 +244,18 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 
 	// The two payments will be asserted individually, store the last update
 	// for each payment.
-	results := make(map[lntypes.Hash]*channeldb.MPPayment)
+	results := make(map[lntypes.Hash]*pymtpkgDB.MPPayment)
 
 	// After exactly 6 updates both payments will/should have completed.
 	for i := 0; i < 6; i++ {
 		select {
 		case item := <-subscription.Updates():
-			id := item.(*channeldb.MPPayment).Info.PaymentIdentifier
-			results[id] = item.(*channeldb.MPPayment)
+			payment, ok := item.(*pymtpkgDB.MPPayment)
+			require.True(t, ok, "unexpected type in "+
+				"payment update: %T", item)
+			id := payment.Info.PaymentIdentifier
+			results[id] = payment
+
 		case <-time.After(testTimeout):
 			require.Fail(t, "timeout waiting for payment result")
 		}
@@ -254,7 +263,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 
 	result1 := results[info1.PaymentIdentifier]
 	require.Equal(
-		t, channeldb.StatusSucceeded, result1.GetStatus(),
+		t, pymtpkgDB.StatusSucceeded, result1.GetStatus(),
 		"unexpected payment state payment 1",
 	)
 
@@ -272,7 +281,7 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 
 	result2 := results[info2.PaymentIdentifier]
 	require.Equal(
-		t, channeldb.StatusSucceeded, result2.GetStatus(),
+		t, pymtpkgDB.StatusSucceeded, result2.GetStatus(),
 		"unexpected payment state payment 2",
 	)
 
@@ -293,9 +302,10 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	paymentDB := pymtpkgDB.NewTestDB(
+		t, pymtpkgDB.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -315,11 +325,15 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	select {
 	case update := <-subscription.Updates():
 		require.NotNil(t, update)
+		payment, ok := update.(*pymtpkgDB.MPPayment)
+		require.True(t, ok, "unexpected type in "+
+			"payment update: %T", update)
 		require.Equal(
 			t, info.PaymentIdentifier,
-			update.(*channeldb.MPPayment).Info.PaymentIdentifier,
+			payment.Info.PaymentIdentifier,
 		)
 		require.Len(t, subscription.Updates(), 0)
+
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
@@ -330,9 +344,10 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	paymentDB := pymtpkgDB.NewTestDB(
+		t, pymtpkgDB.WithKeepFailedPaymentAttempts(true),
+	)
+	pControl := NewControlTower(paymentDB)
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -383,8 +398,8 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	subscription2.Close()
 
 	// Register another update.
-	failInfo := channeldb.HTLCFailInfo{
-		Reason: channeldb.HTLCFailInternal,
+	failInfo := pymtpkgDB.HTLCFailInfo{
+		Reason: pymtpkgDB.HTLCFailInternal,
 	}
 	_, err = pControl.FailAttempt(
 		info.PaymentIdentifier, attempt.AttemptID, &failInfo,
@@ -399,9 +414,13 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db := initDB(t, keepFailedPaymentAttempts)
-
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	opts := []pymtpkgDB.OptionModifier{
+		pymtpkgDB.WithKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	}
+	paymentDB := pymtpkgDB.NewTestDB(t, opts...)
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -429,8 +448,8 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 		}
 
 		// Fail the payment attempt.
-		failInfo := channeldb.HTLCFailInfo{
-			Reason: channeldb.HTLCFailInternal,
+		failInfo := pymtpkgDB.HTLCFailInfo{
+			Reason: pymtpkgDB.HTLCFailInternal,
 		}
 		htlcAttempt, err := pControl.FailAttempt(
 			info.PaymentIdentifier, attempt.AttemptID, &failInfo,
@@ -445,7 +464,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 
 	// Mark the payment as failed.
 	err = pControl.FailPayment(
-		info.PaymentIdentifier, channeldb.FailureReasonTimeout,
+		info.PaymentIdentifier, pymtpkgDB.FailureReasonTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -462,17 +481,23 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	for i, s := range subscribers {
-		var result *channeldb.MPPayment
+		var (
+			result *pymtpkgDB.MPPayment
+			ok     bool
+		)
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*channeldb.MPPayment)
+				result, ok = item.(*pymtpkgDB.MPPayment)
+				require.True(t, ok, "unexpected type in "+
+					"payment update: %T", item)
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
 		}
 
-		if result.GetStatus() == channeldb.StatusSucceeded {
+		if result.GetStatus() == pymtpkgDB.StatusSucceeded {
 			t.Fatal("unexpected payment state")
 		}
 
@@ -497,11 +522,11 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 				len(result.HTLCs))
 		}
 
-		require.Equalf(t, channeldb.StatusFailed, result.GetStatus(),
+		require.Equalf(t, pymtpkgDB.StatusFailed, result.GetStatus(),
 			"subscriber %v failed, want %s, got %s", i,
-			channeldb.StatusFailed, result.GetStatus())
+			pymtpkgDB.StatusFailed, result.GetStatus())
 
-		if *result.FailureReason != channeldb.FailureReasonTimeout {
+		if *result.FailureReason != pymtpkgDB.FailureReasonTimeout {
 			t.Fatal("unexpected failure reason")
 		}
 
@@ -517,15 +542,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 }
 
-func initDB(t *testing.T, keepFailedPaymentAttempts bool) *channeldb.DB {
-	return channeldb.OpenForTesting(
-		t, t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
-	)
-}
-
-func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
+func genInfo() (*pymtpkgDB.PaymentCreationInfo, *pymtpkgDB.HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -538,14 +555,14 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	var hash lntypes.Hash
 	copy(hash[:], rhash[:])
 
-	attempt, err := channeldb.NewHtlcAttempt(
+	attempt, err := pymtpkgDB.NewHtlcAttempt(
 		1, priv, testRoute, time.Time{}, &hash,
 	)
 	if err != nil {
 		return nil, nil, lntypes.Preimage{}, err
 	}
 
-	return &channeldb.PaymentCreationInfo{
+	return &pymtpkgDB.PaymentCreationInfo{
 			PaymentIdentifier: rhash,
 			Value:             testRoute.ReceiverAmt(),
 			CreationTime:      time.Unix(time.Now().Unix(), 0),

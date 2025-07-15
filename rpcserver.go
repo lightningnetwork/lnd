@@ -71,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -5034,7 +5035,7 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
 	switch err {
 	// If the store does not know about the channel, we just log it.
-	case chanfitness.ErrChannelNotFound:
+	case chanfitness.ErrChannelNotFound, chanfitness.ErrPeerNotFound:
 		rpcsLog.Infof("channel: %v not found by channel event store",
 			outpoint)
 
@@ -5874,7 +5875,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		var attempt *channeldb.HTLCAttempt
+		var attempt *pymtpkgDB.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route, nil,
 		)
@@ -7475,7 +7476,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		}
 	}
 
-	query := channeldb.PaymentsQuery{
+	query := pymtpkgDB.Query{
 		IndexOffset:       req.IndexOffset,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,
@@ -7487,11 +7488,14 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 
 	// If the maximum number of payments wasn't specified, then we'll
 	// default to return the maximal number of payments representable.
+	//
+	// TODO(ziggie): Because we do pagination, we should limit this
+	// constant.
 	if req.MaxPayments == 0 {
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.paymentsDB.QueryPayments(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -7501,6 +7505,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		FirstIndexOffset: paymentsQuerySlice.FirstIndexOffset,
 		TotalNumPayments: paymentsQuerySlice.TotalCount,
 	}
+
+	duplicatePayments := paymentsQuerySlice.DuplicatePayments
 
 	for _, payment := range paymentsQuerySlice.Payments {
 		payment := payment
@@ -7513,6 +7519,27 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		paymentsResp.Payments = append(
 			paymentsResp.Payments, rpcPayment,
 		)
+
+		// For the kvstore duplicate payments, are handled differently.
+		if duplicatePayments == nil {
+			continue
+		}
+
+		identifier := payment.Info.PaymentIdentifier
+		if duplicatePayments, ok := duplicatePayments[identifier]; ok {
+			for _, duplicatePayment := range duplicatePayments {
+				rpcDuplicatePayment, err := r.routerBackend.MarshallPayment(duplicatePayment)
+				if err != nil {
+					return nil, err
+				}
+				paymentsResp.Payments = append(
+					paymentsResp.Payments, rpcDuplicatePayment,
+				)
+				// We increment the total number of payments to
+				// account for the duplicate payments.
+				paymentsResp.TotalNumPayments++
+			}
+		}
 	}
 
 	return paymentsResp, nil
@@ -7533,7 +7560,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.miscDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.paymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -7573,7 +7600,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	numDeletedPayments, err := r.server.miscDB.DeletePayments(
+	numDeletedPayments, err := r.server.paymentsDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {

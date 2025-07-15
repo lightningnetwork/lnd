@@ -12,11 +12,11 @@ import (
 
 const addSourceNode = `-- name: AddSourceNode :exec
 /* ─────────────────────────────────────────────
-   source_nodes table queries
+   graph_source_nodes table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO source_nodes (node_id)
+INSERT INTO graph_source_nodes (node_id)
 VALUES ($1)
 ON CONFLICT (node_id) DO NOTHING
 `
@@ -27,7 +27,7 @@ func (q *Queries) AddSourceNode(ctx context.Context, nodeID int64) error {
 }
 
 const addV1ChannelProof = `-- name: AddV1ChannelProof :execresult
-UPDATE channels
+UPDATE graph_channels
 SET node_1_signature = $2,
     node_2_signature = $3,
     bitcoin_1_signature = $4,
@@ -56,7 +56,7 @@ func (q *Queries) AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofPa
 
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
-FROM zombie_channels
+FROM graph_zombie_channels
 WHERE version = $1
 `
 
@@ -69,11 +69,11 @@ func (q *Queries) CountZombieChannels(ctx context.Context, version int16) (int64
 
 const createChannel = `-- name: CreateChannel :one
 /* ─────────────────────────────────────────────
-   channels table queries
+   graph_channels table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO channels (
+INSERT INTO graph_channels (
     version, scid, node_id_1, node_id_2,
     outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
     node_1_signature, node_2_signature, bitcoin_1_signature,
@@ -121,11 +121,11 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (i
 
 const createChannelExtraType = `-- name: CreateChannelExtraType :exec
 /* ─────────────────────────────────────────────
-   channel_extra_types table queries
+   graph_channel_extra_types table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO channel_extra_types (
+INSERT INTO graph_channel_extra_types (
     channel_id, type, value
 )
 VALUES ($1, $2, $3)
@@ -143,7 +143,7 @@ func (q *Queries) CreateChannelExtraType(ctx context.Context, arg CreateChannelE
 }
 
 const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM channels WHERE id = $1
+DELETE FROM graph_channels WHERE id = $1
 `
 
 func (q *Queries) DeleteChannel(ctx context.Context, id int64) error {
@@ -152,7 +152,7 @@ func (q *Queries) DeleteChannel(ctx context.Context, id int64) error {
 }
 
 const deleteChannelPolicyExtraTypes = `-- name: DeleteChannelPolicyExtraTypes :exec
-DELETE FROM channel_policy_extra_types
+DELETE FROM graph_channel_policy_extra_types
 WHERE channel_policy_id = $1
 `
 
@@ -162,7 +162,7 @@ func (q *Queries) DeleteChannelPolicyExtraTypes(ctx context.Context, channelPoli
 }
 
 const deleteExtraNodeType = `-- name: DeleteExtraNodeType :exec
-DELETE FROM node_extra_types
+DELETE FROM graph_node_extra_types
 WHERE node_id = $1
   AND type = $2
 `
@@ -178,7 +178,7 @@ func (q *Queries) DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTy
 }
 
 const deleteNode = `-- name: DeleteNode :exec
-DELETE FROM nodes
+DELETE FROM graph_nodes
 WHERE id = $1
 `
 
@@ -188,7 +188,7 @@ func (q *Queries) DeleteNode(ctx context.Context, id int64) error {
 }
 
 const deleteNodeAddresses = `-- name: DeleteNodeAddresses :exec
-DELETE FROM node_addresses
+DELETE FROM graph_node_addresses
 WHERE node_id = $1
 `
 
@@ -198,7 +198,7 @@ func (q *Queries) DeleteNodeAddresses(ctx context.Context, nodeID int64) error {
 }
 
 const deleteNodeByPubKey = `-- name: DeleteNodeByPubKey :execresult
-DELETE FROM nodes
+DELETE FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2
 `
@@ -213,7 +213,7 @@ func (q *Queries) DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKey
 }
 
 const deleteNodeFeature = `-- name: DeleteNodeFeature :exec
-DELETE FROM node_features
+DELETE FROM graph_node_features
 WHERE node_id = $1
   AND feature_bit = $2
 `
@@ -229,7 +229,7 @@ func (q *Queries) DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeaturePa
 }
 
 const deletePruneLogEntriesInRange = `-- name: DeletePruneLogEntriesInRange :exec
-DELETE FROM prune_log
+DELETE FROM graph_prune_log
 WHERE block_height >= $1
   AND block_height <= $2
 `
@@ -245,19 +245,19 @@ func (q *Queries) DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePr
 }
 
 const deleteUnconnectedNodes = `-- name: DeleteUnconnectedNodes :many
-DELETE FROM nodes
+DELETE FROM graph_nodes
 WHERE
     -- Ignore any of our source nodes.
     NOT EXISTS (
         SELECT 1
-        FROM source_nodes sn
-        WHERE sn.node_id = nodes.id
+        FROM graph_source_nodes sn
+        WHERE sn.node_id = graph_nodes.id
     )
     -- Select all nodes that do not have any channels.
     AND NOT EXISTS (
         SELECT 1
-        FROM channels c
-        WHERE c.node_id_1 = nodes.id OR c.node_id_2 = nodes.id
+        FROM graph_channels c
+        WHERE c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id
 ) RETURNING pub_key
 `
 
@@ -285,7 +285,7 @@ func (q *Queries) DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error) 
 }
 
 const deleteZombieChannel = `-- name: DeleteZombieChannel :execresult
-DELETE FROM zombie_channels
+DELETE FROM graph_zombie_channels
 WHERE scid = $1
 AND version = $2
 `
@@ -304,9 +304,9 @@ SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
     n1.pub_key AS node1_pub_key,
     n2.pub_key AS node2_pub_key
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
 WHERE c.scid = $1
   AND c.version = $2
 `
@@ -362,35 +362,35 @@ SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
     n1.pub_key AS node1_pubkey,
     n2.pub_key AS node2_pubkey
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
 WHERE c.outpoint = $1
 `
 
 type GetChannelByOutpointRow struct {
-	Channel     Channel
-	Node1Pubkey []byte
-	Node2Pubkey []byte
+	GraphChannel GraphChannel
+	Node1Pubkey  []byte
+	Node2Pubkey  []byte
 }
 
 func (q *Queries) GetChannelByOutpoint(ctx context.Context, outpoint string) (GetChannelByOutpointRow, error) {
 	row := q.db.QueryRowContext(ctx, getChannelByOutpoint, outpoint)
 	var i GetChannelByOutpointRow
 	err := row.Scan(
-		&i.Channel.ID,
-		&i.Channel.Version,
-		&i.Channel.Scid,
-		&i.Channel.NodeID1,
-		&i.Channel.NodeID2,
-		&i.Channel.Outpoint,
-		&i.Channel.Capacity,
-		&i.Channel.BitcoinKey1,
-		&i.Channel.BitcoinKey2,
-		&i.Channel.Node1Signature,
-		&i.Channel.Node2Signature,
-		&i.Channel.Bitcoin1Signature,
-		&i.Channel.Bitcoin2Signature,
+		&i.GraphChannel.ID,
+		&i.GraphChannel.Version,
+		&i.GraphChannel.Scid,
+		&i.GraphChannel.NodeID1,
+		&i.GraphChannel.NodeID2,
+		&i.GraphChannel.Outpoint,
+		&i.GraphChannel.Capacity,
+		&i.GraphChannel.BitcoinKey1,
+		&i.GraphChannel.BitcoinKey2,
+		&i.GraphChannel.Node1Signature,
+		&i.GraphChannel.Node2Signature,
+		&i.GraphChannel.Bitcoin1Signature,
+		&i.GraphChannel.Bitcoin2Signature,
 		&i.Node1Pubkey,
 		&i.Node2Pubkey,
 	)
@@ -437,12 +437,12 @@ SELECT
     cp2.message_flags AS policy_2_message_flags,
     cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy_2_signature
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
-    LEFT JOIN channel_policies cp1
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
         ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
-    LEFT JOIN channel_policies cp2
+    LEFT JOIN graph_channel_policies cp2
         ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
 WHERE c.outpoint = $1 AND c.version = $2
 `
@@ -453,7 +453,7 @@ type GetChannelByOutpointWithPoliciesParams struct {
 }
 
 type GetChannelByOutpointWithPoliciesRow struct {
-	Channel                        Channel
+	GraphChannel                   GraphChannel
 	Node1Pubkey                    []byte
 	Node2Pubkey                    []byte
 	Policy1ID                      sql.NullInt64
@@ -492,19 +492,19 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 	row := q.db.QueryRowContext(ctx, getChannelByOutpointWithPolicies, arg.Outpoint, arg.Version)
 	var i GetChannelByOutpointWithPoliciesRow
 	err := row.Scan(
-		&i.Channel.ID,
-		&i.Channel.Version,
-		&i.Channel.Scid,
-		&i.Channel.NodeID1,
-		&i.Channel.NodeID2,
-		&i.Channel.Outpoint,
-		&i.Channel.Capacity,
-		&i.Channel.BitcoinKey1,
-		&i.Channel.BitcoinKey2,
-		&i.Channel.Node1Signature,
-		&i.Channel.Node2Signature,
-		&i.Channel.Bitcoin1Signature,
-		&i.Channel.Bitcoin2Signature,
+		&i.GraphChannel.ID,
+		&i.GraphChannel.Version,
+		&i.GraphChannel.Scid,
+		&i.GraphChannel.NodeID1,
+		&i.GraphChannel.NodeID2,
+		&i.GraphChannel.Outpoint,
+		&i.GraphChannel.Capacity,
+		&i.GraphChannel.BitcoinKey1,
+		&i.GraphChannel.BitcoinKey2,
+		&i.GraphChannel.Node1Signature,
+		&i.GraphChannel.Node2Signature,
+		&i.GraphChannel.Bitcoin1Signature,
+		&i.GraphChannel.Bitcoin2Signature,
 		&i.Node1Pubkey,
 		&i.Node2Pubkey,
 		&i.Policy1ID,
@@ -542,7 +542,7 @@ func (q *Queries) GetChannelByOutpointWithPolicies(ctx context.Context, arg GetC
 }
 
 const getChannelBySCID = `-- name: GetChannelBySCID :one
-SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM channels
+SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature FROM graph_channels
 WHERE scid = $1 AND version = $2
 `
 
@@ -551,9 +551,9 @@ type GetChannelBySCIDParams struct {
 	Version int16
 }
 
-func (q *Queries) GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (Channel, error) {
+func (q *Queries) GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (GraphChannel, error) {
 	row := q.db.QueryRowContext(ctx, getChannelBySCID, arg.Scid, arg.Version)
-	var i Channel
+	var i GraphChannel
 	err := row.Scan(
 		&i.ID,
 		&i.Version,
@@ -612,12 +612,12 @@ SELECT
     cp2.channel_flags AS policy_2_channel_flags,
     cp2.signature AS policy2_signature
 
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
-    LEFT JOIN channel_policies cp1
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
         ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
-    LEFT JOIN channel_policies cp2
+    LEFT JOIN graph_channel_policies cp2
         ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
 WHERE c.scid = $1
   AND c.version = $2
@@ -629,9 +629,9 @@ type GetChannelBySCIDWithPoliciesParams struct {
 }
 
 type GetChannelBySCIDWithPoliciesRow struct {
-	Channel                        Channel
-	Node                           Node
-	Node_2                         Node
+	GraphChannel                   GraphChannel
+	GraphNode                      GraphNode
+	GraphNode_2                    GraphNode
 	Policy1ID                      sql.NullInt64
 	Policy1NodeID                  sql.NullInt64
 	Policy1Version                 sql.NullInt16
@@ -668,33 +668,33 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 	row := q.db.QueryRowContext(ctx, getChannelBySCIDWithPolicies, arg.Scid, arg.Version)
 	var i GetChannelBySCIDWithPoliciesRow
 	err := row.Scan(
-		&i.Channel.ID,
-		&i.Channel.Version,
-		&i.Channel.Scid,
-		&i.Channel.NodeID1,
-		&i.Channel.NodeID2,
-		&i.Channel.Outpoint,
-		&i.Channel.Capacity,
-		&i.Channel.BitcoinKey1,
-		&i.Channel.BitcoinKey2,
-		&i.Channel.Node1Signature,
-		&i.Channel.Node2Signature,
-		&i.Channel.Bitcoin1Signature,
-		&i.Channel.Bitcoin2Signature,
-		&i.Node.ID,
-		&i.Node.Version,
-		&i.Node.PubKey,
-		&i.Node.Alias,
-		&i.Node.LastUpdate,
-		&i.Node.Color,
-		&i.Node.Signature,
-		&i.Node_2.ID,
-		&i.Node_2.Version,
-		&i.Node_2.PubKey,
-		&i.Node_2.Alias,
-		&i.Node_2.LastUpdate,
-		&i.Node_2.Color,
-		&i.Node_2.Signature,
+		&i.GraphChannel.ID,
+		&i.GraphChannel.Version,
+		&i.GraphChannel.Scid,
+		&i.GraphChannel.NodeID1,
+		&i.GraphChannel.NodeID2,
+		&i.GraphChannel.Outpoint,
+		&i.GraphChannel.Capacity,
+		&i.GraphChannel.BitcoinKey1,
+		&i.GraphChannel.BitcoinKey2,
+		&i.GraphChannel.Node1Signature,
+		&i.GraphChannel.Node2Signature,
+		&i.GraphChannel.Bitcoin1Signature,
+		&i.GraphChannel.Bitcoin2Signature,
+		&i.GraphNode.ID,
+		&i.GraphNode.Version,
+		&i.GraphNode.PubKey,
+		&i.GraphNode.Alias,
+		&i.GraphNode.LastUpdate,
+		&i.GraphNode.Color,
+		&i.GraphNode.Signature,
+		&i.GraphNode_2.ID,
+		&i.GraphNode_2.Version,
+		&i.GraphNode_2.PubKey,
+		&i.GraphNode_2.Alias,
+		&i.GraphNode_2.LastUpdate,
+		&i.GraphNode_2.Color,
+		&i.GraphNode_2.Signature,
 		&i.Policy1ID,
 		&i.Policy1NodeID,
 		&i.Policy1Version,
@@ -736,7 +736,7 @@ SELECT
     cf.feature_bit AS feature_bit,
     NULL AS extra_key,
     NULL AS value
-FROM channel_features cf
+FROM graph_channel_features cf
 WHERE cf.channel_id = $1
 
 UNION ALL
@@ -747,7 +747,7 @@ SELECT
     0 AS feature_bit,
     cet.type AS extra_key,
     cet.value AS value
-FROM channel_extra_types cet
+FROM graph_channel_extra_types cet
 WHERE cet.channel_id = $1
 `
 
@@ -790,7 +790,7 @@ func (q *Queries) GetChannelFeaturesAndExtras(ctx context.Context, channelID int
 
 const getChannelPolicyByChannelAndNode = `-- name: GetChannelPolicyByChannelAndNode :one
 SELECT id, version, channel_id, node_id, timelock, fee_ppm, base_fee_msat, min_htlc_msat, max_htlc_msat, last_update, disabled, inbound_base_fee_msat, inbound_fee_rate_milli_msat, message_flags, channel_flags, signature
-FROM channel_policies
+FROM graph_channel_policies
 WHERE channel_id = $1
   AND node_id = $2
   AND version = $3
@@ -802,9 +802,9 @@ type GetChannelPolicyByChannelAndNodeParams struct {
 	Version   int16
 }
 
-func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetChannelPolicyByChannelAndNodeParams) (ChannelPolicy, error) {
+func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetChannelPolicyByChannelAndNodeParams) (GraphChannelPolicy, error) {
 	row := q.db.QueryRowContext(ctx, getChannelPolicyByChannelAndNode, arg.ChannelID, arg.NodeID, arg.Version)
-	var i ChannelPolicy
+	var i GraphChannelPolicy
 	err := row.Scan(
 		&i.ID,
 		&i.Version,
@@ -833,8 +833,8 @@ SELECT
     cp.node_id,
     cpet.type,
     cpet.value
-FROM channel_policies cp
-JOIN channel_policy_extra_types cpet
+FROM graph_channel_policies cp
+JOIN graph_channel_policy_extra_types cpet
 ON cp.id = cpet.channel_policy_id
 WHERE cp.id = $1 OR cp.id = $2
 `
@@ -921,12 +921,12 @@ SELECT
     cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
-    LEFT JOIN channel_policies cp1
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
         ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
-    LEFT JOIN channel_policies cp2
+    LEFT JOIN graph_channel_policies cp2
         ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
 WHERE c.version = $1
   AND (
@@ -949,9 +949,9 @@ type GetChannelsByPolicyLastUpdateRangeParams struct {
 }
 
 type GetChannelsByPolicyLastUpdateRangeRow struct {
-	Channel                        Channel
-	Node                           Node
-	Node_2                         Node
+	GraphChannel                   GraphChannel
+	GraphNode                      GraphNode
+	GraphNode_2                    GraphNode
 	Policy1ID                      sql.NullInt64
 	Policy1NodeID                  sql.NullInt64
 	Policy1Version                 sql.NullInt16
@@ -994,33 +994,33 @@ func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg Ge
 	for rows.Next() {
 		var i GetChannelsByPolicyLastUpdateRangeRow
 		if err := rows.Scan(
-			&i.Channel.ID,
-			&i.Channel.Version,
-			&i.Channel.Scid,
-			&i.Channel.NodeID1,
-			&i.Channel.NodeID2,
-			&i.Channel.Outpoint,
-			&i.Channel.Capacity,
-			&i.Channel.BitcoinKey1,
-			&i.Channel.BitcoinKey2,
-			&i.Channel.Node1Signature,
-			&i.Channel.Node2Signature,
-			&i.Channel.Bitcoin1Signature,
-			&i.Channel.Bitcoin2Signature,
-			&i.Node.ID,
-			&i.Node.Version,
-			&i.Node.PubKey,
-			&i.Node.Alias,
-			&i.Node.LastUpdate,
-			&i.Node.Color,
-			&i.Node.Signature,
-			&i.Node_2.ID,
-			&i.Node_2.Version,
-			&i.Node_2.PubKey,
-			&i.Node_2.Alias,
-			&i.Node_2.LastUpdate,
-			&i.Node_2.Color,
-			&i.Node_2.Signature,
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
+			&i.GraphNode.ID,
+			&i.GraphNode.Version,
+			&i.GraphNode.PubKey,
+			&i.GraphNode.Alias,
+			&i.GraphNode.LastUpdate,
+			&i.GraphNode.Color,
+			&i.GraphNode.Signature,
+			&i.GraphNode_2.ID,
+			&i.GraphNode_2.Version,
+			&i.GraphNode_2.PubKey,
+			&i.GraphNode_2.Alias,
+			&i.GraphNode_2.LastUpdate,
+			&i.GraphNode_2.Color,
+			&i.GraphNode_2.Signature,
 			&i.Policy1ID,
 			&i.Policy1NodeID,
 			&i.Policy1Version,
@@ -1069,9 +1069,9 @@ const getChannelsBySCIDRange = `-- name: GetChannelsBySCIDRange :many
 SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
     n1.pub_key AS node1_pub_key,
     n2.pub_key AS node2_pub_key
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
 WHERE scid >= $1
   AND scid < $2
 `
@@ -1082,9 +1082,9 @@ type GetChannelsBySCIDRangeParams struct {
 }
 
 type GetChannelsBySCIDRangeRow struct {
-	Channel     Channel
-	Node1PubKey []byte
-	Node2PubKey []byte
+	GraphChannel GraphChannel
+	Node1PubKey  []byte
+	Node2PubKey  []byte
 }
 
 func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error) {
@@ -1097,19 +1097,19 @@ func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsByS
 	for rows.Next() {
 		var i GetChannelsBySCIDRangeRow
 		if err := rows.Scan(
-			&i.Channel.ID,
-			&i.Channel.Version,
-			&i.Channel.Scid,
-			&i.Channel.NodeID1,
-			&i.Channel.NodeID2,
-			&i.Channel.Outpoint,
-			&i.Channel.Capacity,
-			&i.Channel.BitcoinKey1,
-			&i.Channel.BitcoinKey2,
-			&i.Channel.Node1Signature,
-			&i.Channel.Node2Signature,
-			&i.Channel.Bitcoin1Signature,
-			&i.Channel.Bitcoin2Signature,
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
 			&i.Node1PubKey,
 			&i.Node2PubKey,
 		); err != nil {
@@ -1128,19 +1128,19 @@ func (q *Queries) GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsByS
 
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
 SELECT node_id, type, value
-FROM node_extra_types
+FROM graph_node_extra_types
 WHERE node_id = $1
 `
 
-func (q *Queries) GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeExtraType, error) {
+func (q *Queries) GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphNodeExtraType, error) {
 	rows, err := q.db.QueryContext(ctx, getExtraNodeTypes, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []NodeExtraType
+	var items []GraphNodeExtraType
 	for rows.Next() {
-		var i NodeExtraType
+		var i GraphNodeExtraType
 		if err := rows.Scan(&i.NodeID, &i.Type, &i.Value); err != nil {
 			return nil, err
 		}
@@ -1157,8 +1157,8 @@ func (q *Queries) GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeEx
 
 const getNodeAddressesByPubKey = `-- name: GetNodeAddressesByPubKey :many
 SELECT a.type, a.address
-FROM nodes n
-LEFT JOIN node_addresses a ON a.node_id = n.id
+FROM graph_nodes n
+LEFT JOIN graph_node_addresses a ON a.node_id = n.id
 WHERE n.pub_key = $1 AND n.version = $2
 ORDER BY a.type ASC, a.position ASC
 `
@@ -1198,7 +1198,7 @@ func (q *Queries) GetNodeAddressesByPubKey(ctx context.Context, arg GetNodeAddre
 
 const getNodeByPubKey = `-- name: GetNodeByPubKey :one
 SELECT id, version, pub_key, alias, last_update, color, signature
-FROM nodes
+FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2
 `
@@ -1208,9 +1208,9 @@ type GetNodeByPubKeyParams struct {
 	Version int16
 }
 
-func (q *Queries) GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (Node, error) {
+func (q *Queries) GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (GraphNode, error) {
 	row := q.db.QueryRowContext(ctx, getNodeByPubKey, arg.PubKey, arg.Version)
-	var i Node
+	var i GraphNode
 	err := row.Scan(
 		&i.ID,
 		&i.Version,
@@ -1225,19 +1225,19 @@ func (q *Queries) GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams
 
 const getNodeFeatures = `-- name: GetNodeFeatures :many
 SELECT node_id, feature_bit
-FROM node_features
+FROM graph_node_features
 WHERE node_id = $1
 `
 
-func (q *Queries) GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeature, error) {
+func (q *Queries) GetNodeFeatures(ctx context.Context, nodeID int64) ([]GraphNodeFeature, error) {
 	rows, err := q.db.QueryContext(ctx, getNodeFeatures, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []NodeFeature
+	var items []GraphNodeFeature
 	for rows.Next() {
-		var i NodeFeature
+		var i GraphNodeFeature
 		if err := rows.Scan(&i.NodeID, &i.FeatureBit); err != nil {
 			return nil, err
 		}
@@ -1254,8 +1254,8 @@ func (q *Queries) GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeat
 
 const getNodeFeaturesByPubKey = `-- name: GetNodeFeaturesByPubKey :many
 SELECT f.feature_bit
-FROM nodes n
-    JOIN node_features f ON f.node_id = n.id
+FROM graph_nodes n
+    JOIN graph_node_features f ON f.node_id = n.id
 WHERE n.pub_key = $1
   AND n.version = $2
 `
@@ -1290,7 +1290,7 @@ func (q *Queries) GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeatur
 
 const getNodeIDByPubKey = `-- name: GetNodeIDByPubKey :one
 SELECT id
-FROM nodes
+FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2
 `
@@ -1309,7 +1309,7 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature
-FROM nodes
+FROM graph_nodes
 WHERE last_update >= $1
   AND last_update < $2
 `
@@ -1319,15 +1319,15 @@ type GetNodesByLastUpdateRangeParams struct {
 	EndTime   sql.NullInt64
 }
 
-func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error) {
+func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error) {
 	rows, err := q.db.QueryContext(ctx, getNodesByLastUpdateRange, arg.StartTime, arg.EndTime)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Node
+	var items []GraphNode
 	for rows.Next() {
-		var i Node
+		var i GraphNode
 		if err := rows.Scan(
 			&i.ID,
 			&i.Version,
@@ -1352,7 +1352,7 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 
 const getPruneHashByHeight = `-- name: GetPruneHashByHeight :one
 SELECT block_hash
-FROM prune_log
+FROM graph_prune_log
 WHERE block_height = $1
 `
 
@@ -1365,21 +1365,21 @@ func (q *Queries) GetPruneHashByHeight(ctx context.Context, blockHeight int64) (
 
 const getPruneTip = `-- name: GetPruneTip :one
 SELECT block_height, block_hash
-FROM prune_log
+FROM graph_prune_log
 ORDER BY block_height DESC
 LIMIT 1
 `
 
-func (q *Queries) GetPruneTip(ctx context.Context) (PruneLog, error) {
+func (q *Queries) GetPruneTip(ctx context.Context) (GraphPruneLog, error) {
 	row := q.db.QueryRowContext(ctx, getPruneTip)
-	var i PruneLog
+	var i GraphPruneLog
 	err := row.Scan(&i.BlockHeight, &i.BlockHash)
 	return i, err
 }
 
 const getPublicV1ChannelsBySCID = `-- name: GetPublicV1ChannelsBySCID :many
 SELECT id, version, scid, node_id_1, node_id_2, outpoint, capacity, bitcoin_key_1, bitcoin_key_2, node_1_signature, node_2_signature, bitcoin_1_signature, bitcoin_2_signature
-FROM channels
+FROM graph_channels
 WHERE node_1_signature IS NOT NULL
   AND scid >= $1
   AND scid < $2
@@ -1390,15 +1390,15 @@ type GetPublicV1ChannelsBySCIDParams struct {
 	EndScid   []byte
 }
 
-func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]Channel, error) {
+func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error) {
 	rows, err := q.db.QueryContext(ctx, getPublicV1ChannelsBySCID, arg.StartScid, arg.EndScid)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Channel
+	var items []GraphChannel
 	for rows.Next() {
-		var i Channel
+		var i GraphChannel
 		if err := rows.Scan(
 			&i.ID,
 			&i.Version,
@@ -1428,7 +1428,7 @@ func (q *Queries) GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1
 }
 
 const getSCIDByOutpoint = `-- name: GetSCIDByOutpoint :one
-SELECT scid from channels
+SELECT scid from graph_channels
 WHERE outpoint = $1 AND version = $2
 `
 
@@ -1446,8 +1446,8 @@ func (q *Queries) GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointPa
 
 const getSourceNodesByVersion = `-- name: GetSourceNodesByVersion :many
 SELECT sn.node_id, n.pub_key
-FROM source_nodes sn
-    JOIN nodes n ON sn.node_id = n.id
+FROM graph_source_nodes sn
+    JOIN graph_nodes n ON sn.node_id = n.id
 WHERE n.version = $1
 `
 
@@ -1481,8 +1481,8 @@ func (q *Queries) GetSourceNodesByVersion(ctx context.Context, version int16) ([
 
 const getV1DisabledSCIDs = `-- name: GetV1DisabledSCIDs :many
 SELECT c.scid
-FROM channels c
-    JOIN channel_policies cp ON cp.channel_id = c.id
+FROM graph_channels c
+    JOIN graph_channel_policies cp ON cp.channel_id = c.id
 WHERE cp.disabled = true
 AND c.version = 1
 GROUP BY c.scid
@@ -1518,7 +1518,7 @@ func (q *Queries) GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error) {
 
 const getZombieChannel = `-- name: GetZombieChannel :one
 SELECT scid, version, node_key_1, node_key_2
-FROM zombie_channels
+FROM graph_zombie_channels
 WHERE scid = $1
 AND version = $2
 `
@@ -1528,9 +1528,9 @@ type GetZombieChannelParams struct {
 	Version int16
 }
 
-func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (ZombieChannel, error) {
+func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error) {
 	row := q.db.QueryRowContext(ctx, getZombieChannel, arg.Scid, arg.Version)
-	var i ZombieChannel
+	var i GraphZombieChannel
 	err := row.Scan(
 		&i.Scid,
 		&i.Version,
@@ -1542,7 +1542,7 @@ func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelPara
 
 const highestSCID = `-- name: HighestSCID :one
 SELECT scid
-FROM channels
+FROM graph_channels
 WHERE version = $1
 ORDER BY scid DESC
 LIMIT 1
@@ -1557,11 +1557,11 @@ func (q *Queries) HighestSCID(ctx context.Context, version int16) ([]byte, error
 
 const insertChanPolicyExtraType = `-- name: InsertChanPolicyExtraType :exec
 /* ─────────────────────────────────────────────
-   channel_policy_extra_types table queries
+   graph_channel_policy_extra_types table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO channel_policy_extra_types (
+INSERT INTO graph_channel_policy_extra_types (
     channel_policy_id, type, value
 )
 VALUES ($1, $2, $3)
@@ -1580,11 +1580,11 @@ func (q *Queries) InsertChanPolicyExtraType(ctx context.Context, arg InsertChanP
 
 const insertChannelFeature = `-- name: InsertChannelFeature :exec
 /* ─────────────────────────────────────────────
-   channel_features table queries
+   graph_channel_features table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO channel_features (
+INSERT INTO graph_channel_features (
     channel_id, feature_bit
 ) VALUES (
     $1, $2
@@ -1603,11 +1603,11 @@ func (q *Queries) InsertChannelFeature(ctx context.Context, arg InsertChannelFea
 
 const insertClosedChannel = `-- name: InsertClosedChannel :exec
 /* ─────────────────────────────────────────────
-   closed_scid table queries
+   graph_closed_scid table queries
    ────────────────────────────────────────────-
 */
 
-INSERT INTO closed_scids (scid)
+INSERT INTO graph_closed_scids (scid)
 VALUES ($1)
 ON CONFLICT (scid) DO NOTHING
 `
@@ -1619,11 +1619,11 @@ func (q *Queries) InsertClosedChannel(ctx context.Context, scid []byte) error {
 
 const insertNodeAddress = `-- name: InsertNodeAddress :exec
 /* ─────────────────────────────────────────────
-   node_addresses table queries
-   ─────────────────────────────────────────────
+   graph_node_addresses table queries
+   ───────────────────────────────────��─────────
 */
 
-INSERT INTO node_addresses (
+INSERT INTO graph_node_addresses (
     node_id,
     type,
     address,
@@ -1652,11 +1652,11 @@ func (q *Queries) InsertNodeAddress(ctx context.Context, arg InsertNodeAddressPa
 
 const insertNodeFeature = `-- name: InsertNodeFeature :exec
 /* ─────────────────────────────────────────────
-   node_features table queries
+   graph_node_features table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO node_features (
+INSERT INTO graph_node_features (
     node_id, feature_bit
 ) VALUES (
     $1, $2
@@ -1676,7 +1676,7 @@ func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeaturePa
 const isClosedChannel = `-- name: IsClosedChannel :one
 SELECT EXISTS (
     SELECT 1
-    FROM closed_scids
+    FROM graph_closed_scids
     WHERE scid = $1
 )
 `
@@ -1691,8 +1691,8 @@ func (q *Queries) IsClosedChannel(ctx context.Context, scid []byte) (bool, error
 const isPublicV1Node = `-- name: IsPublicV1Node :one
 SELECT EXISTS (
     SELECT 1
-    FROM channels c
-    JOIN nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
     -- NOTE: we hard-code the version here since the clauses
     -- here that determine if a node is public is specific
     -- to the V1 gossip protocol. In V1, a node is public
@@ -1717,7 +1717,7 @@ func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, erro
 const isZombieChannel = `-- name: IsZombieChannel :one
 SELECT EXISTS (
     SELECT 1
-    FROM zombie_channels
+    FROM graph_zombie_channels
     WHERE scid = $1
     AND version = $2
 ) AS is_zombie
@@ -1777,12 +1777,12 @@ SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity
     cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy2_signature
 
-FROM channels c
-    JOIN nodes n1 ON c.node_id_1 = n1.id
-    JOIN nodes n2 ON c.node_id_2 = n2.id
-    LEFT JOIN channel_policies cp1
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
     ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
-    LEFT JOIN channel_policies cp2
+    LEFT JOIN graph_channel_policies cp2
     ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
 WHERE c.version = $1
   AND (c.node_id_1 = $2 OR c.node_id_2 = $2)
@@ -1794,7 +1794,7 @@ type ListChannelsByNodeIDParams struct {
 }
 
 type ListChannelsByNodeIDRow struct {
-	Channel                        Channel
+	GraphChannel                   GraphChannel
 	Node1Pubkey                    []byte
 	Node2Pubkey                    []byte
 	Policy1ID                      sql.NullInt64
@@ -1839,19 +1839,19 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 	for rows.Next() {
 		var i ListChannelsByNodeIDRow
 		if err := rows.Scan(
-			&i.Channel.ID,
-			&i.Channel.Version,
-			&i.Channel.Scid,
-			&i.Channel.NodeID1,
-			&i.Channel.NodeID2,
-			&i.Channel.Outpoint,
-			&i.Channel.Capacity,
-			&i.Channel.BitcoinKey1,
-			&i.Channel.BitcoinKey2,
-			&i.Channel.Node1Signature,
-			&i.Channel.Node2Signature,
-			&i.Channel.Bitcoin1Signature,
-			&i.Channel.Bitcoin2Signature,
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 			&i.Policy1ID,
@@ -1900,7 +1900,7 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 
 const listChannelsPaginated = `-- name: ListChannelsPaginated :many
 SELECT id, bitcoin_key_1, bitcoin_key_2, outpoint
-FROM channels c
+FROM graph_channels c
 WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
 LIMIT $3
@@ -1989,12 +1989,12 @@ SELECT
     cp2.channel_flags AS policy2_channel_flags,
     cp2.signature AS policy_2_signature
 
-FROM channels c
-JOIN nodes n1 ON c.node_id_1 = n1.id
-JOIN nodes n2 ON c.node_id_2 = n2.id
-LEFT JOIN channel_policies cp1
+FROM graph_channels c
+JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+LEFT JOIN graph_channel_policies cp1
     ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
-LEFT JOIN channel_policies cp2
+LEFT JOIN graph_channel_policies cp2
     ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
 WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
@@ -2008,7 +2008,7 @@ type ListChannelsWithPoliciesPaginatedParams struct {
 }
 
 type ListChannelsWithPoliciesPaginatedRow struct {
-	Channel                        Channel
+	GraphChannel                   GraphChannel
 	Node1Pubkey                    []byte
 	Node2Pubkey                    []byte
 	Policy1ID                      sql.NullInt64
@@ -2053,19 +2053,19 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 	for rows.Next() {
 		var i ListChannelsWithPoliciesPaginatedRow
 		if err := rows.Scan(
-			&i.Channel.ID,
-			&i.Channel.Version,
-			&i.Channel.Scid,
-			&i.Channel.NodeID1,
-			&i.Channel.NodeID2,
-			&i.Channel.Outpoint,
-			&i.Channel.Capacity,
-			&i.Channel.BitcoinKey1,
-			&i.Channel.BitcoinKey2,
-			&i.Channel.Node1Signature,
-			&i.Channel.Node2Signature,
-			&i.Channel.Bitcoin1Signature,
-			&i.Channel.Bitcoin2Signature,
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
 			&i.Node1Pubkey,
 			&i.Node2Pubkey,
 			&i.Policy1ID,
@@ -2114,7 +2114,7 @@ func (q *Queries) ListChannelsWithPoliciesPaginated(ctx context.Context, arg Lis
 
 const listNodeIDsAndPubKeys = `-- name: ListNodeIDsAndPubKeys :many
 SELECT id, pub_key
-FROM nodes
+FROM graph_nodes
 WHERE version = $1  AND id > $2
 ORDER BY id
 LIMIT $3
@@ -2156,7 +2156,7 @@ func (q *Queries) ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndP
 
 const listNodesPaginated = `-- name: ListNodesPaginated :many
 SELECT id, version, pub_key, alias, last_update, color, signature
-FROM nodes
+FROM graph_nodes
 WHERE version = $1 AND id > $2
 ORDER BY id
 LIMIT $3
@@ -2168,15 +2168,15 @@ type ListNodesPaginatedParams struct {
 	Limit   int32
 }
 
-func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]Node, error) {
+func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error) {
 	rows, err := q.db.QueryContext(ctx, listNodesPaginated, arg.Version, arg.ID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Node
+	var items []GraphNode
 	for rows.Next() {
-		var i Node
+		var i GraphNode
 		if err := rows.Scan(
 			&i.ID,
 			&i.Version,
@@ -2201,11 +2201,11 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 
 const upsertEdgePolicy = `-- name: UpsertEdgePolicy :one
 /* ─────────────────────────────────────────────
-   channel_policies table queries
+   graph_channel_policies table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO channel_policies (
+INSERT INTO graph_channel_policies (
     version, channel_id, node_id, timelock, fee_ppm,
     base_fee_msat, min_htlc_msat, last_update, disabled,
     max_htlc_msat, inbound_base_fee_msat,
@@ -2230,7 +2230,7 @@ ON CONFLICT (channel_id, node_id, version)
         message_flags = EXCLUDED.message_flags,
         channel_flags = EXCLUDED.channel_flags,
         signature = EXCLUDED.signature
-WHERE EXCLUDED.last_update > channel_policies.last_update
+WHERE EXCLUDED.last_update > graph_channel_policies.last_update
 RETURNING id
 `
 
@@ -2277,11 +2277,11 @@ func (q *Queries) UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyPara
 
 const upsertNode = `-- name: UpsertNode :one
 /* ─────────────────────────────────────────────
-   nodes table queries
-   ─────────────────────────────────────────────
+   graph_nodes table queries
+   ───────────────────────────��─────────────────
 */
 
-INSERT INTO nodes (
+INSERT INTO graph_nodes (
     version, pub_key, alias, last_update, color, signature
 ) VALUES (
     $1, $2, $3, $4, $5, $6
@@ -2294,8 +2294,8 @@ ON CONFLICT (pub_key, version)
         last_update = EXCLUDED.last_update,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE nodes.last_update IS NULL
-    OR EXCLUDED.last_update > nodes.last_update
+WHERE graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update > graph_nodes.last_update
 RETURNING id
 `
 
@@ -2324,11 +2324,11 @@ func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, 
 
 const upsertNodeExtraType = `-- name: UpsertNodeExtraType :exec
 /* ─────────────────────────────────────────────
-   node_extra_types table queries
+   graph_node_extra_types table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO node_extra_types (
+INSERT INTO graph_node_extra_types (
     node_id, type, value
 )
 VALUES ($1, $2, $3)
@@ -2350,12 +2350,12 @@ func (q *Queries) UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTy
 }
 
 const upsertPruneLogEntry = `-- name: UpsertPruneLogEntry :exec
-/* ─────────────────────────────────────────────
-    prune_log table queries
+/* ───────────────────────────���─────────────────
+    graph_prune_log table queries
     ─────────────────────────────────────────────
 */
 
-INSERT INTO prune_log (
+INSERT INTO graph_prune_log (
     block_height, block_hash
 ) VALUES (
     $1, $2
@@ -2376,18 +2376,18 @@ func (q *Queries) UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEnt
 
 const upsertZombieChannel = `-- name: UpsertZombieChannel :exec
 /* ─────────────────────────────────────────────
-   zombie_channels table queries
+   graph_zombie_channels table queries
    ─────────────────────────────────────────────
 */
 
-INSERT INTO zombie_channels (scid, version, node_key_1, node_key_2)
+INSERT INTO graph_zombie_channels (scid, version, node_key_1, node_key_2)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (scid, version)
 DO UPDATE SET
     -- If a conflict exists for the SCID and version pair, then we
     -- update the node keys.
-    node_key_1 = COALESCE(EXCLUDED.node_key_1, zombie_channels.node_key_1),
-    node_key_2 = COALESCE(EXCLUDED.node_key_2, zombie_channels.node_key_2)
+    node_key_1 = COALESCE(EXCLUDED.node_key_1, graph_zombie_channels.node_key_1),
+    node_key_2 = COALESCE(EXCLUDED.node_key_2, graph_zombie_channels.node_key_2)
 `
 
 type UpsertZombieChannelParams struct {

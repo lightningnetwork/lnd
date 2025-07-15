@@ -28,7 +28,7 @@ type AmpSubInvoiceHtlc struct {
 	Preimage   []byte
 }
 
-type Channel struct {
+type GraphChannel struct {
 	ID                int64
 	Version           int16
 	Scid              []byte
@@ -44,18 +44,18 @@ type Channel struct {
 	Bitcoin2Signature []byte
 }
 
-type ChannelExtraType struct {
+type GraphChannelExtraType struct {
 	ChannelID int64
 	Type      int64
 	Value     []byte
 }
 
-type ChannelFeature struct {
+type GraphChannelFeature struct {
 	ChannelID  int64
 	FeatureBit int32
 }
 
-type ChannelPolicy struct {
+type GraphChannelPolicy struct {
 	ID                      int64
 	Version                 int16
 	ChannelID               int64
@@ -74,14 +74,58 @@ type ChannelPolicy struct {
 	Signature               []byte
 }
 
-type ChannelPolicyExtraType struct {
+type GraphChannelPolicyExtraType struct {
 	ChannelPolicyID int64
 	Type            int64
 	Value           []byte
 }
 
-type ClosedScid struct {
+type GraphClosedScid struct {
 	Scid []byte
+}
+
+type GraphNode struct {
+	ID         int64
+	Version    int16
+	PubKey     []byte
+	Alias      sql.NullString
+	LastUpdate sql.NullInt64
+	Color      sql.NullString
+	Signature  []byte
+}
+
+type GraphNodeAddress struct {
+	NodeID   int64
+	Type     int16
+	Position int32
+	Address  string
+}
+
+type GraphNodeExtraType struct {
+	NodeID int64
+	Type   int64
+	Value  []byte
+}
+
+type GraphNodeFeature struct {
+	NodeID     int64
+	FeatureBit int32
+}
+
+type GraphPruneLog struct {
+	BlockHeight int64
+	BlockHash   []byte
+}
+
+type GraphSourceNode struct {
+	NodeID int64
+}
+
+type GraphZombieChannel struct {
+	Scid     []byte
+	Version  int16
+	NodeKey1 []byte
+	NodeKey2 []byte
 }
 
 type Invoice struct {
@@ -157,48 +201,4 @@ type InvoiceSequence struct {
 type MigrationTracker struct {
 	Version       int32
 	MigrationTime time.Time
-}
-
-type Node struct {
-	ID         int64
-	Version    int16
-	PubKey     []byte
-	Alias      sql.NullString
-	LastUpdate sql.NullInt64
-	Color      sql.NullString
-	Signature  []byte
-}
-
-type NodeAddress struct {
-	NodeID   int64
-	Type     int16
-	Position int32
-	Address  string
-}
-
-type NodeExtraType struct {
-	NodeID int64
-	Type   int64
-	Value  []byte
-}
-
-type NodeFeature struct {
-	NodeID     int64
-	FeatureBit int32
-}
-
-type PruneLog struct {
-	BlockHeight int64
-	BlockHash   []byte
-}
-
-type SourceNode struct {
-	NodeID int64
-}
-
-type ZombieChannel struct {
-	Scid     []byte
-	Version  int16
-	NodeKey1 []byte
-	NodeKey2 []byte
 }

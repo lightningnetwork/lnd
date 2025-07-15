@@ -37,15 +37,15 @@ type Querier interface {
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpoint(ctx context.Context, outpoint string) (GetChannelByOutpointRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)
-	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (Channel, error)
+	GetChannelBySCID(ctx context.Context, arg GetChannelBySCIDParams) (GraphChannel, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChannelBySCIDWithPoliciesParams) (GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]GetChannelFeaturesAndExtrasRow, error)
-	GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetChannelPolicyByChannelAndNodeParams) (ChannelPolicy, error)
+	GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetChannelPolicyByChannelAndNodeParams) (GraphChannelPolicy, error)
 	GetChannelPolicyExtraTypes(ctx context.Context, arg GetChannelPolicyExtraTypesParams) ([]GetChannelPolicyExtraTypesRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
-	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]NodeExtraType, error)
+	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphNodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields
 	// from different invoices. It is the caller's responsibility to ensure that
 	// we bubble up an error in those cases.
@@ -58,14 +58,14 @@ type Querier interface {
 	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error)
 	GetMigration(ctx context.Context, version int32) (time.Time, error)
 	GetNodeAddressesByPubKey(ctx context.Context, arg GetNodeAddressesByPubKeyParams) ([]GetNodeAddressesByPubKeyRow, error)
-	GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (Node, error)
-	GetNodeFeatures(ctx context.Context, nodeID int64) ([]NodeFeature, error)
+	GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (GraphNode, error)
+	GetNodeFeatures(ctx context.Context, nodeID int64) ([]GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error)
-	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]Node, error)
+	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
-	GetPruneTip(ctx context.Context) (PruneLog, error)
-	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]Channel, error)
+	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
+	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg GetSCIDByOutpointParams) ([]byte, error)
 	GetSourceNodesByVersion(ctx context.Context, version int16) ([]GetSourceNodesByVersionRow, error)
 	// NOTE: this is V1 specific since for V1, disabled is a
@@ -73,7 +73,7 @@ type Querier interface {
 	// structure will have a more complex disabled bit vector
 	// and so the query for V2 may differ.
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
-	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (ZombieChannel, error)
+	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
@@ -95,7 +95,7 @@ type Querier interface {
 	ListChannelsPaginated(ctx context.Context, arg ListChannelsPaginatedParams) ([]ListChannelsPaginatedRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg ListChannelsWithPoliciesPaginatedParams) ([]ListChannelsWithPoliciesPaginatedRow, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
-	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]Node, error)
+	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
 	OnAMPSubInvoiceCreated(ctx context.Context, arg OnAMPSubInvoiceCreatedParams) error

@@ -445,19 +445,19 @@ func migrateSingleChannel(ctx context.Context, sqlDB SQLQueries,
 	// Assert that the DB IDs for the channel and nodes are as expected
 	// given the inserted channel info.
 	err = sqldb.CompareRecords(
-		dbChanInfo.channelID, row.Channel.ID, "channel DB ID",
+		dbChanInfo.channelID, row.GraphChannel.ID, "channel DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node1ID, row.Node.ID, "node1 DB ID",
+		dbChanInfo.node1ID, row.GraphNode.ID, "node1 DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node2ID, row.Node_2.ID, "node2 DB ID",
+		dbChanInfo.node2ID, row.GraphNode_2.ID, "node2 DB ID",
 	)
 	if err != nil {
 		return err
@@ -647,14 +647,15 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	node1, node2, err := buildNodeVertices(
-		row.Node.PubKey, row.Node_2.PubKey,
+		row.GraphNode.PubKey, row.GraphNode_2.PubKey,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
 	edge, err := getAndBuildEdgeInfo(
-		ctx, db, chain, row.Channel.ID, row.Channel, node1, node2,
+		ctx, db, chain, row.GraphChannel.ID, row.GraphChannel, node1,
+		node2,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to build channel "+

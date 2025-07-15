@@ -198,6 +198,8 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
+require github.com/go-errors/errors v1.5.1
+
 // TODO(elle): remove once all the schemas and queries for the graph
 // store have been included in a tagged sqldb version.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb

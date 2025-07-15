@@ -1,4 +1,4 @@
-package channeldb
+package paymentsdb
 
 import (
 	"fmt"
@@ -235,13 +235,13 @@ func TestPaymentStatusActions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			require.ErrorIs(t, ps.initializable(), tc.initErr,
+			require.ErrorIs(t, ps.Initializable(), tc.initErr,
 				"initable under state %v", tc.status)
 
-			require.ErrorIs(t, ps.updatable(), tc.updateErr,
+			require.ErrorIs(t, ps.Updatable(), tc.updateErr,
 				"updatable under state %v", tc.status)
 
-			require.ErrorIs(t, ps.removable(), tc.removeErr,
+			require.ErrorIs(t, ps.Removable(), tc.removeErr,
 				"removable under state %v", tc.status)
 		})
 	}

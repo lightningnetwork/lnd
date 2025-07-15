@@ -9,13 +9,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -29,7 +29,7 @@ var ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
 // HTLC.
 type switchResult struct {
 	// attempt is the HTLC sent to the switch.
-	attempt *channeldb.HTLCAttempt
+	attempt *pymtpkgDB.HTLCAttempt
 
 	// result is sent from the switch which contains either a preimage if
 	// ths HTLC is settled or an error if it's failed.
@@ -59,7 +59,7 @@ type paymentLifecycle struct {
 	// an HTLC attempt, which is always mounted to `p.collectResultAsync`
 	// except in unit test, where we use a much simpler resultCollector to
 	// decouple the test flow for the payment lifecycle.
-	resultCollector func(attempt *channeldb.HTLCAttempt)
+	resultCollector func(attempt *pymtpkgDB.HTLCAttempt)
 }
 
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
@@ -347,13 +347,13 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		// user-provided timeout was reached, or the context was
 		// canceled, either to a manual cancellation or due to an
 		// unknown error.
-		var reason channeldb.FailureReason
+		var reason pymtpkgDB.FailureReason
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			reason = channeldb.FailureReasonTimeout
+			reason = pymtpkgDB.FailureReasonTimeout
 			log.Warnf("Payment attempt not completed before "+
 				"context timeout, id=%s", p.identifier.String())
 		} else {
-			reason = channeldb.FailureReasonCanceled
+			reason = pymtpkgDB.FailureReasonCanceled
 			log.Warnf("Payment attempt context canceled, id=%s",
 				p.identifier.String())
 		}
@@ -381,7 +381,7 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 // requestRoute is responsible for finding a route to be used to create an HTLC
 // attempt.
 func (p *paymentLifecycle) requestRoute(
-	ps *channeldb.MPPaymentState) (*route.Route, error) {
+	ps *pymtpkgDB.MPPaymentState) (*route.Route, error) {
 
 	remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
@@ -450,14 +450,14 @@ type attemptResult struct {
 	err error
 
 	// attempt is the attempt structure as recorded in the database.
-	attempt *channeldb.HTLCAttempt
+	attempt *pymtpkgDB.HTLCAttempt
 }
 
 // collectResultAsync launches a goroutine that will wait for the result of the
 // given HTLC attempt to be available then save its result in a map. Once
 // received, it will send the result returned from the switch to channel
 // `resultCollected`.
-func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
+func (p *paymentLifecycle) collectResultAsync(attempt *pymtpkgDB.HTLCAttempt) {
 	log.Debugf("Collecting result for attempt %v in payment %v",
 		attempt.AttemptID, p.identifier)
 
@@ -499,7 +499,7 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 // collectResult waits for the result of the given HTLC attempt to be sent by
 // the switch and returns it.
 func (p *paymentLifecycle) collectResult(
-	attempt *channeldb.HTLCAttempt) (*htlcswitch.PaymentResult, error) {
+	attempt *pymtpkgDB.HTLCAttempt) (*htlcswitch.PaymentResult, error) {
 
 	log.Tracef("Collecting result for attempt %v",
 		lnutils.SpewLogClosure(attempt))
@@ -576,7 +576,7 @@ func (p *paymentLifecycle) collectResult(
 // by using the route info provided. The `remainingAmt` is used to decide
 // whether this is the last attempt.
 func (p *paymentLifecycle) registerAttempt(rt *route.Route,
-	remainingAmt lnwire.MilliSatoshi) (*channeldb.HTLCAttempt, error) {
+	remainingAmt lnwire.MilliSatoshi) (*pymtpkgDB.HTLCAttempt, error) {
 
 	// If this route will consume the last remaining amount to send
 	// to the receiver, this will be our last shard (for now).
@@ -603,7 +603,7 @@ func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
 func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttempt, error) {
+	lastShard bool) (*pymtpkgDB.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
 	sessionKey, err := generateNewSessionKey()
@@ -643,7 +643,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 
 	// We now have all the information needed to populate the current
 	// attempt information.
-	return channeldb.NewHtlcAttempt(
+	return pymtpkgDB.NewHtlcAttempt(
 		attemptID, sessionKey, *rt, p.router.cfg.Clock.Now(), &hash,
 	)
 }
@@ -652,7 +652,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 // the payment. If this attempt fails, then we'll continue on to the next
 // available route.
 func (p *paymentLifecycle) sendAttempt(
-	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
+	attempt *pymtpkgDB.HTLCAttempt) (*attemptResult, error) {
 
 	log.Debugf("Sending HTLC attempt(id=%v, total_amt=%v, first_hop_amt=%d"+
 		") for payment %v", attempt.AttemptID,
@@ -789,7 +789,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 // failAttemptAndPayment fails both the payment and its attempt via the
 // router's control tower, which marks the payment as failed in db.
 func (p *paymentLifecycle) failPaymentAndAttempt(
-	attemptID uint64, reason *channeldb.FailureReason,
+	attemptID uint64, reason *pymtpkgDB.FailureReason,
 	sendErr error) (*attemptResult, error) {
 
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
@@ -818,10 +818,10 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
-func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
+func (p *paymentLifecycle) handleSwitchErr(attempt *pymtpkgDB.HTLCAttempt,
 	sendErr error) (*attemptResult, error) {
 
-	internalErrorReason := channeldb.FailureReasonError
+	internalErrorReason := pymtpkgDB.FailureReasonError
 	attemptID := attempt.AttemptID
 
 	// reportAndFail is a helper closure that reports the failure to the
@@ -864,7 +864,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	}
 
 	if errors.Is(sendErr, htlcswitch.ErrUnreadableFailureMessage) {
-		log.Warn("Unreadable failure when sending htlc: id=%v, hash=%v",
+		log.Warnf("Unreadable failure when sending htlc: id=%v, hash=%v",
 			attempt.AttemptID, attempt.Hash)
 
 		// Since this error message cannot be decrypted, we will send a
@@ -1025,34 +1025,34 @@ func (p *paymentLifecycle) failAttempt(attemptID uint64,
 
 // marshallError marshall an error as received from the switch to a structure
 // that is suitable for database storage.
-func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
-	response := &channeldb.HTLCFailInfo{
+func marshallError(sendError error, time time.Time) *pymtpkgDB.HTLCFailInfo {
+	response := &pymtpkgDB.HTLCFailInfo{
 		FailTime: time,
 	}
 
 	switch {
 	case errors.Is(sendError, htlcswitch.ErrPaymentIDNotFound):
-		response.Reason = channeldb.HTLCFailInternal
+		response.Reason = pymtpkgDB.HTLCFailInternal
 		return response
 
 	case errors.Is(sendError, htlcswitch.ErrUnreadableFailureMessage):
-		response.Reason = channeldb.HTLCFailUnreadable
+		response.Reason = pymtpkgDB.HTLCFailUnreadable
 		return response
 	}
 
 	var rtErr htlcswitch.ClearTextError
 	ok := errors.As(sendError, &rtErr)
 	if !ok {
-		response.Reason = channeldb.HTLCFailInternal
+		response.Reason = pymtpkgDB.HTLCFailInternal
 		return response
 	}
 
 	message := rtErr.WireMessage()
 	if message != nil {
-		response.Reason = channeldb.HTLCFailMessage
+		response.Reason = pymtpkgDB.HTLCFailMessage
 		response.Message = message
 	} else {
-		response.Reason = channeldb.HTLCFailUnknown
+		response.Reason = pymtpkgDB.HTLCFailUnknown
 	}
 
 	// If the ClearTextError received is a ForwardingError, the error
@@ -1077,7 +1077,7 @@ func marshallError(sendError error, time time.Time) *channeldb.HTLCFailInfo {
 // enabled, the `Hash` field in their HTLC attempts is nil. In that case, we use
 // the payment hash as the `attempt.Hash` as they are identical.
 func (p *paymentLifecycle) patchLegacyPaymentHash(
-	a channeldb.HTLCAttempt) channeldb.HTLCAttempt {
+	a pymtpkgDB.HTLCAttempt) pymtpkgDB.HTLCAttempt {
 
 	// Exit early if this is not a legacy attempt.
 	if a.Hash != nil {
@@ -1129,7 +1129,7 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 
 // reloadPayment returns the latest payment found in the db (control tower).
 func (p *paymentLifecycle) reloadPayment() (DBMPPayment,
-	*channeldb.MPPaymentState, error) {
+	*pymtpkgDB.MPPaymentState, error) {
 
 	// Read the db to get the latest state of the payment.
 	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
@@ -1149,7 +1149,7 @@ func (p *paymentLifecycle) reloadPayment() (DBMPPayment,
 
 // handleAttemptResult processes the result of an HTLC attempt returned from
 // the htlcswitch.
-func (p *paymentLifecycle) handleAttemptResult(attempt *channeldb.HTLCAttempt,
+func (p *paymentLifecycle) handleAttemptResult(attempt *pymtpkgDB.HTLCAttempt,
 	result *htlcswitch.PaymentResult) (*attemptResult, error) {
 
 	// If the result has an error, we need to further process it by failing
@@ -1174,7 +1174,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *channeldb.HTLCAttempt,
 	// move the shard to the settled state.
 	htlcAttempt, err := p.router.cfg.Control.SettleAttempt(
 		p.identifier, attempt.AttemptID,
-		&channeldb.HTLCSettleInfo{
+		&pymtpkgDB.HTLCSettleInfo{
 			Preimage:   result.Preimage,
 			SettleTime: p.router.cfg.Clock.Now(),
 		},
@@ -1199,7 +1199,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *channeldb.HTLCAttempt,
 // tower. An attemptResult is returned, indicating the final outcome of this
 // HTLC attempt.
 func (p *paymentLifecycle) collectAndHandleResult(
-	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
+	attempt *pymtpkgDB.HTLCAttempt) (*attemptResult, error) {
 
 	result, err := p.collectResult(attempt)
 	if err != nil {

@@ -1,6 +1,11 @@
-package channeldb
+package paymentsdb
 
-import "fmt"
+import (
+	"fmt"
+)
+
+// errPaymentStatusUnknown is returned when a payment has an unknown status.
+var errPaymentStatusUnknown = fmt.Errorf("unknown payment status")
 
 // PaymentStatus represent current status of payment.
 type PaymentStatus byte
@@ -26,9 +31,6 @@ const (
 	StatusFailed PaymentStatus = 4
 )
 
-// errPaymentStatusUnknown is returned when a payment has an unknown status.
-var errPaymentStatusUnknown = fmt.Errorf("unknown payment status")
-
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
@@ -49,10 +51,10 @@ func (ps PaymentStatus) String() string {
 	}
 }
 
-// initializable returns an error to specify whether initiating the payment
+// Initializable returns an error to specify whether initiating the payment
 // with its current status is allowed. A payment can only be initialized if it
 // hasn't been created yet or already failed.
-func (ps PaymentStatus) initializable() error {
+func (ps PaymentStatus) Initializable() error {
 	switch ps {
 	// The payment has been created already. We will disallow creating it
 	// again in case other goroutines have already been creating HTLCs for
@@ -75,14 +77,15 @@ func (ps PaymentStatus) initializable() error {
 		return nil
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf("%w: %v",
+			ErrUnknownPaymentStatus, ps)
 	}
 }
 
-// removable returns an error to specify whether deleting the payment with its
+// Removable returns an error to specify whether deleting the payment with its
 // current status is allowed. A payment cannot be safely deleted if it has
 // inflight HTLCs.
-func (ps PaymentStatus) removable() error {
+func (ps PaymentStatus) Removable() error {
 	switch ps {
 	// The payment has been created but has no HTLCs and can be removed.
 	case StatusInitiated:
@@ -103,13 +106,15 @@ func (ps PaymentStatus) removable() error {
 		return nil
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf(
+			"%w: %v", ErrUnknownPaymentStatus, ps,
+		)
 	}
 }
 
-// updatable returns an error to specify whether the payment's HTLCs can be
+// Updatable returns an error to specify whether the payment's HTLCs can be
 // updated. A payment can update its HTLCs when it has inflight HTLCs.
-func (ps PaymentStatus) updatable() error {
+func (ps PaymentStatus) Updatable() error {
 	switch ps {
 	// Newly created payments can be updated.
 	case StatusInitiated:
@@ -127,7 +132,9 @@ func (ps PaymentStatus) updatable() error {
 		return ErrPaymentAlreadyFailed
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf(
+			"%w: %v", ErrUnknownPaymentStatus, ps,
+		)
 	}
 }
 

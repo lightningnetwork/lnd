@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -924,6 +925,10 @@ type DatabaseInstances struct {
 	// InvoiceDB is the database that stores information about invoices.
 	InvoiceDB invoices.InvoiceDB
 
+	// PaymentDB is the database that stores all payment related
+	// information.
+	PaymentDB pymtpkgDB.PaymentDB
+
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
 
@@ -1048,9 +1053,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		channeldb.OptionKeepFailedPaymentAttempts(
-			cfg.KeepFailedPaymentAttempts,
-		),
 		channeldb.OptionStoreFinalHtlcResolutions(
 			cfg.StoreFinalHtlcResolutions,
 		),
@@ -1175,6 +1177,19 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 			return nil, nil, err
 		}
+
+		// Mount the payments DB for the SQL store.
+		sqlPaymentsExecutor := sqldb.NewTransactionExecutor(
+			baseDB, func(tx *sql.Tx) pymtpkgDB.SQLQueries {
+				return baseDB.WithTx(tx)
+			},
+		)
+		dbs.PaymentDB = pymtpkgDB.NewSQLStore(
+			sqlPaymentsExecutor, clock.NewDefaultClock(),
+			pymtpkgDB.WithKeepFailedPaymentAttempts(
+				cfg.KeepFailedPaymentAttempts,
+			),
+		)
 	} else {
 		// Check if the invoice bucket tombstone is set. If it is, we
 		// need to return and ask the user switch back to using the
@@ -1203,6 +1218,24 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Mount the payments DB for the KV store.
+		paymentsDBOptions := []pymtpkgDB.OptionModifier{
+			pymtpkgDB.WithKeepFailedPaymentAttempts(
+				cfg.KeepFailedPaymentAttempts,
+			),
+		}
+		kvPaymentsDB, err := pymtpkgDB.NewKVStore(
+			databaseBackends.ChanStateDB,
+			paymentsDBOptions...,
+		)
+		if err != nil {
+			cleanUp()
+			err = fmt.Errorf("unable to open payments DB: %w", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+		dbs.PaymentDB = kvPaymentsDB
 	}
 
 	dbs.GraphDB, err = graphdb.NewChannelGraph(graphStore, chanGraphOpts...)

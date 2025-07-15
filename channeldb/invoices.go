@@ -553,7 +553,7 @@ func (d *DB) QueryInvoices(_ context.Context, q invpkg.InvoiceQuery) (
 
 		// Create a paginator which reads from our add index bucket with
 		// the parameters provided by the invoice query.
-		paginator := newPaginator(
+		paginator := NewPaginator(
 			invoiceAddIndex.ReadCursor(), q.Reversed, q.IndexOffset,
 			q.NumMaxInvoices,
 		)
@@ -603,7 +603,7 @@ func (d *DB) QueryInvoices(_ context.Context, q invpkg.InvoiceQuery) (
 
 		// Query our paginator using accumulateInvoices to build up a
 		// set of invoices.
-		if err := paginator.query(accumulateInvoices); err != nil {
+		if err := paginator.Query(accumulateInvoices); err != nil {
 			return err
 		}
 

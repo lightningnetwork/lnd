@@ -8,3 +8,4 @@ sql:
         out: sqldb/sqlc
         package: sqlc
         emit_interface: true
+

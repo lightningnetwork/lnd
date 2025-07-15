@@ -65,6 +65,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	pymtpkgDB "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
@@ -334,6 +335,10 @@ type server struct {
 	miscDB *channeldb.DB
 
 	invoicesDB invoices.InvoiceDB
+
+	// paymentsDB is the DB that contains all functions for managing
+	// payments.
+	paymentsDB pymtpkgDB.PaymentDB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -678,6 +683,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
+		paymentsDB:     dbs.PaymentDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -1020,13 +1026,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 	s.currentNodeAnn = nodeAnn
 
-	// The router will get access to the payment ID sequencer, such that it
-	// can generate unique payment IDs.
-	sequencer, err := htlcswitch.NewPersistentSequencer(dbs.ChanStateDB)
-	if err != nil {
-		return nil, err
-	}
-
 	// Instantiate mission control with config from the sub server.
 	//
 	// TODO(joostjager): When we are further in the process of moving to sub
@@ -1127,9 +1126,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	paymentControl := channeldb.NewPaymentControl(dbs.ChanStateDB)
-
-	s.controlTower = routing.NewControlTower(paymentControl)
+	s.controlTower = routing.NewControlTower(dbs.PaymentDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning
@@ -1160,7 +1157,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MissionControl:     s.defaultMC,
 		SessionSource:      paymentSessionSource,
 		GetLink:            s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:      sequencer.NextID,
+		NextPaymentID:      dbs.PaymentDB.NextID,
 		PathFindingConfig:  pathFindingConfig,
 		Clock:              clock.NewDefaultClock(),
 		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,

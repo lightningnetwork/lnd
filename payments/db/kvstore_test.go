@@ -1,0 +1,907 @@
+//go:build !test_db_postgres && !test_db_sqlite
+
+package paymentsdb
+
+import (
+	"bytes"
+	"context"
+	"math"
+	"testing"
+	"time"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestLazySessionKeyDeserialize tests that we can read htlc attempt session
+// keys that were previously serialized as a private key as raw bytes.
+func TestLazySessionKeyDeserialize(t *testing.T) {
+	var b bytes.Buffer
+	priv, _ := btcec.NewPrivateKey()
+
+	// Serialize as a private key.
+	err := WriteElements(&b, priv)
+	require.NoError(t, err)
+
+	// Deserialize into [btcec.PrivKeyBytesLen]byte.
+	var sessionKey [btcec.PrivKeyBytesLen]byte
+	attempt := HTLCAttemptInfo{}
+	err = ReadElements(&b, &sessionKey)
+	require.NoError(t, err)
+	require.Zero(t, b.Len())
+
+	attempt.SetSessionKey(sessionKey)
+
+	sessionKeyRetrieved := attempt.SessionKey()
+	require.Equal(t, priv, sessionKeyRetrieved)
+}
+
+// fetchPaymentIndexEntry gets the payment hash for the sequence number provided
+// from our payment indexes bucket.
+func fetchPaymentIndexEntry(_ *testing.T, db kvdb.Backend,
+	sequenceNumber uint64) (*lntypes.Hash, error) {
+
+	var hash lntypes.Hash
+
+	if err := kvdb.View(db, func(tx walletdb.ReadTx) error {
+		indexBucket := tx.ReadBucket(paymentsIndexBucket)
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, sequenceNumber)
+
+		indexValue := indexBucket.Get(key)
+		if indexValue == nil {
+			return ErrNoSequenceNrIndex
+		}
+
+		r := bytes.NewReader(indexValue)
+
+		var err error
+		hash, err = deserializePaymentIndex(r)
+
+		return err
+	}, func() {
+		hash = lntypes.Hash{}
+	}); err != nil {
+		return nil, err
+	}
+
+	return &hash, nil
+}
+
+// assertNoIndex checks that an index for the sequence number provided does not
+// exist.
+func assertNoIndex(t *testing.T, p *KVStore, seqNr uint64) {
+	_, err := fetchPaymentIndexEntry(t, p.db, seqNr)
+	require.Equal(t, ErrNoSequenceNrIndex, err)
+}
+
+// assertPaymentIndex looks up the index for a payment in the db and checks
+// that its payment hash matches the expected hash passed in.
+func assertPaymentIndex(t *testing.T, p *KVStore,
+	expectedHash lntypes.Hash) {
+
+	// Lookup the payment so that we have its sequence number and check
+	// that is has correctly been indexed in the payment indexes bucket.
+	pmt, err := p.FetchPayment(expectedHash)
+	require.NoError(t, err)
+
+	hash, err := fetchPaymentIndexEntry(t, p.db, pmt.SequenceNum)
+	require.NoError(t, err)
+	assert.Equal(t, expectedHash, *hash)
+}
+
+// TestFetchPaymentWithSequenceNumber tests lookup of payments with their
+// sequence number. It sets up one payment with no duplicates, and another with
+// two duplicates in its duplicates bucket then uses these payments to test the
+// case where a specific duplicate is not found and the duplicates bucket is not
+// present when we expect it to be.
+func TestFetchPaymentWithSequenceNumber(t *testing.T) {
+	dbInterface := NewTestDB(t)
+	paymentDB, ok := dbInterface.(*KVStore)
+	require.True(t, ok)
+
+	// Generate a test payment which does not have duplicates.
+	noDuplicates, _, _, err := genInfo(t)
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = paymentDB.InitPayment(
+		noDuplicates.PaymentIdentifier, noDuplicates,
+	)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	noDuplicatesPayment, err := paymentDB.FetchPayment(
+		noDuplicates.PaymentIdentifier,
+	)
+	require.NoError(t, err)
+
+	// Generate a test payment which we will add duplicates to.
+	hasDuplicates, _, preimg, err := genInfo(t)
+	require.NoError(t, err)
+
+	// Create a new payment entry in the database.
+	err = paymentDB.InitPayment(
+		hasDuplicates.PaymentIdentifier, hasDuplicates,
+	)
+	require.NoError(t, err)
+
+	// Fetch the payment so we can get its sequence nr.
+	hasDuplicatesPayment, err := paymentDB.FetchPayment(
+		hasDuplicates.PaymentIdentifier,
+	)
+	require.NoError(t, err)
+
+	// We declare the sequence numbers used here so that we can reference
+	// them in tests.
+	var (
+		duplicateOneSeqNr = hasDuplicatesPayment.SequenceNum + 1
+		duplicateTwoSeqNr = hasDuplicatesPayment.SequenceNum + 2
+	)
+
+	// Add two duplicates to our second payment.
+	appendDuplicatePayment(
+		t, paymentDB.db, hasDuplicates.PaymentIdentifier, duplicateOneSeqNr, preimg,
+	)
+	appendDuplicatePayment(
+		t, paymentDB.db, hasDuplicates.PaymentIdentifier, duplicateTwoSeqNr, preimg,
+	)
+
+	tests := []struct {
+		name           string
+		paymentHash    lntypes.Hash
+		sequenceNumber uint64
+		expectedErr    error
+	}{
+		{
+			name:           "lookup payment without duplicates",
+			paymentHash:    noDuplicates.PaymentIdentifier,
+			sequenceNumber: noDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup payment with duplicates",
+			paymentHash:    hasDuplicates.PaymentIdentifier,
+			sequenceNumber: hasDuplicatesPayment.SequenceNum,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup first duplicate",
+			paymentHash:    hasDuplicates.PaymentIdentifier,
+			sequenceNumber: duplicateOneSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup second duplicate",
+			paymentHash:    hasDuplicates.PaymentIdentifier,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    nil,
+		},
+		{
+			name:           "lookup non-existent duplicate",
+			paymentHash:    hasDuplicates.PaymentIdentifier,
+			sequenceNumber: 999999,
+			expectedErr:    ErrDuplicateNotFound,
+		},
+		{
+			name:           "lookup duplicate, no duplicates bucket",
+			paymentHash:    noDuplicates.PaymentIdentifier,
+			sequenceNumber: duplicateTwoSeqNr,
+			expectedErr:    ErrNoDuplicateBucket,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			err := kvdb.Update(
+				paymentDB.db, func(tx walletdb.ReadWriteTx) error {
+					var seqNrBytes [8]byte
+					byteOrder.PutUint64(
+						seqNrBytes[:], test.sequenceNumber,
+					)
+
+					_, err := fetchPaymentWithSequenceNumber(
+						tx, test.paymentHash, seqNrBytes[:],
+					)
+					return err
+				}, func() {},
+			)
+			require.Equal(t, test.expectedErr, err)
+		})
+	}
+}
+
+// deletePayment removes a payment with paymentHash from the payments database.
+func deletePayment(t *testing.T, db kvdb.Backend, paymentHash lntypes.Hash,
+	seqNr uint64) {
+
+	t.Helper()
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		payments := tx.ReadWriteBucket(paymentsRootBucket)
+
+		// Delete the payment bucket.
+		err := payments.DeleteNestedBucket(paymentHash[:])
+		if err != nil {
+			return err
+		}
+
+		key := make([]byte, 8)
+		byteOrder.PutUint64(key, seqNr)
+
+		// Delete the index that references this payment.
+		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+		return indexes.Delete(key)
+	}, func() {})
+
+	if err != nil {
+		t.Fatalf("could not delete "+
+			"payment: %v", err)
+	}
+}
+
+// TestQueryPayments tests retrieval of payments with forwards and reversed
+// queries.
+func TestQueryPayments(t *testing.T) {
+	// Define table driven test for QueryPayments.
+	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
+	// Note that the payment with index 7 has the same payment hash as 6,
+	// and is stored in a nested bucket within payment 6 rather than being
+	// its own entry in the payments bucket. We do this to test retrieval
+	// of legacy payments.
+	tests := []struct {
+		name       string
+		query      Query
+		firstIndex uint64
+		lastIndex  uint64
+
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
+	}{
+		{
+			name: "IndexOffset at the end of the payments range",
+			query: Query{
+				IndexOffset:       7,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "query in forwards order, start at beginning",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in forwards order, start at end, overflow",
+			query: Query{
+				IndexOffset:       6,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "start at offset index outside of payments",
+			query: Query{
+				IndexOffset:       20,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "overflow in forwards order",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{5, 6, 7},
+		},
+		{
+			name: "start at offset index outside of payments, " +
+				"reversed order",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, start at end",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, starting in middle",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in reverse order, starting in middle, " +
+				"with underflow",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       5,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "all payments in reverse, order maintained",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
+		},
+		{
+			name: "exclude incomplete payments",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: false,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query payments at index gap",
+			query: Query{
+				IndexOffset:       1,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
+		},
+		{
+			name: "query payments reverse before index gap",
+			query: Query{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 5,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time at end, overflow",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 7,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query with start and end creation time",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dbInterface := NewTestDB(t)
+			paymentDB, ok := dbInterface.(*KVStore)
+			require.True(t, ok)
+
+			ctx := context.Background()
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
+
+			// Populate the database with a set of test payments.
+			// We create 6 original payments, deleting the payment
+			// at index 2 so that we cover the case where sequence
+			// numbers are missing. We also add a duplicate payment
+			// to the last payment added to test the legacy case
+			// where we have duplicates in the nested duplicates
+			// bucket.
+			nonDuplicatePayments := 6
+
+			for i := 0; i < nonDuplicatePayments; i++ {
+				// Generate a test payment.
+				info, _, preimg, err := genInfo(t)
+				if err != nil {
+					t.Fatalf("unable to create test "+
+						"payment: %v", err)
+				}
+				// Override creation time to allow for testing
+				// of CreationDateStart and CreationDateEnd.
+				info.CreationTime = time.Unix(int64(i+1), 0)
+
+				// Create a new payment entry in the database.
+				err = paymentDB.InitPayment(
+					info.PaymentIdentifier, info,
+				)
+				if err != nil {
+					t.Fatalf("unable to initialize "+
+						"payment in database: %v", err)
+				}
+
+				// Immediately delete the payment with index 2.
+				if i == 1 {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					deletePayment(t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum)
+				}
+
+				// If we are on the last payment entry, add a
+				// duplicate payment with sequence number equal
+				// to the parent payment + 1. Note that
+				// duplicate payments will always be succeeded.
+				if i == (nonDuplicatePayments - 1) {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					appendDuplicatePayment(
+						t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum+1,
+						preimg,
+					)
+				}
+			}
+
+			// Fetch all payments in the database.
+			// Use query payments instead
+			reponse, err := paymentDB.QueryPayments(
+				ctx, Query{
+					IndexOffset:       0,
+					MaxPayments:       math.MaxUint64,
+					IncludeIncomplete: true,
+				},
+			)
+			if err != nil {
+				t.Fatalf("payments could not be fetched from "+
+					"database: %v", err)
+			}
+			allPayments := reponse.Payments
+
+			if len(allPayments) != 6 {
+				t.Fatalf("Number of payments received does not "+
+					"match expected one. Got %v, want %v.",
+					len(allPayments), 6)
+			}
+
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.firstIndex != querySlice.FirstIndexOffset ||
+				tt.lastIndex != querySlice.LastIndexOffset {
+
+				t.Errorf("First or last index does not match "+
+					"expected index. Want (%d, %d), got (%d, %d).",
+					tt.firstIndex, tt.lastIndex,
+					querySlice.FirstIndexOffset,
+					querySlice.LastIndexOffset)
+			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Errorf("expected: %v payments, got: %v",
+					len(tt.expectedSeqNrs), len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.SequenceNum {
+					t.Errorf("sequence numbers do not match, "+
+						"got %v, want %v", q.SequenceNum, seqNr)
+				}
+			}
+		})
+	}
+}
+
+// appendDuplicatePayment adds a duplicate payment to an existing payment. Note
+// that this function requires a unique sequence number.
+//
+// This code is *only* intended to replicate legacy duplicate payments in lnd,
+// our current schema does not allow duplicates.
+func appendDuplicatePayment(t *testing.T, db kvdb.Backend,
+	paymentHash lntypes.Hash,
+	seqNr uint64, preImg lntypes.Preimage) {
+
+	err := kvdb.Update(db, func(tx walletdb.ReadWriteTx) error {
+		bucket, err := fetchPaymentBucketUpdate(
+			tx, paymentHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Create the duplicates bucket if it is not
+		// present.
+		dup, err := bucket.CreateBucketIfNotExists(
+			duplicatePaymentsBucket,
+		)
+		if err != nil {
+			return err
+		}
+
+		var sequenceKey [8]byte
+		byteOrder.PutUint64(sequenceKey[:], seqNr)
+
+		// Create duplicate payments for the two dup
+		// sequence numbers we've setup.
+		putDuplicatePayment(t, dup, sequenceKey[:], paymentHash, preImg)
+
+		// Finally, once we have created our entry we add an index for
+		// it.
+		err = createPaymentIndexEntry(tx, sequenceKey[:], paymentHash)
+		require.NoError(t, err)
+
+		return nil
+	}, func() {})
+	require.NoError(t, err, "could not create payment")
+}
+
+// TestDeleteNonInFlight checks that calling DeletePayments only
+// deletes payments from the database that are not in-flight.
+func TestDeleteNonInFlight(t *testing.T) {
+	t.Parallel()
+
+	dbInterface := NewTestDB(t)
+	paymentDB, ok := dbInterface.(*KVStore)
+	require.True(t, ok)
+
+	// Create a sequence number for duplicate payments that will not collide
+	// with the sequence numbers for the payments we create. These values
+	// start at 1, so 9999 is a safe bet for this test.
+	var duplicateSeqNr = 9999
+
+	payments := []struct {
+		failed       bool
+		success      bool
+		hasDuplicate bool
+	}{
+		{
+			failed:       true,
+			success:      false,
+			hasDuplicate: false,
+		},
+		{
+			failed:       false,
+			success:      true,
+			hasDuplicate: false,
+		},
+		{
+			failed:       false,
+			success:      false,
+			hasDuplicate: false,
+		},
+		{
+			failed:       false,
+			success:      true,
+			hasDuplicate: true,
+		},
+	}
+
+	var numSuccess, numInflight int
+
+	for _, p := range payments {
+		info, attempt, preimg, err := genInfo(t)
+		if err != nil {
+			t.Fatalf("unable to generate htlc message: %v", err)
+		}
+
+		// Sends base htlc message which initiate StatusInFlight.
+		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
+		if err != nil {
+			t.Fatalf("unable to send htlc message: %v", err)
+		}
+		_, err = paymentDB.RegisterAttempt(
+			info.PaymentIdentifier, attempt,
+		)
+		if err != nil {
+			t.Fatalf("unable to send htlc message: %v", err)
+		}
+
+		htlc := &htlcStatus{
+			HTLCAttemptInfo: attempt,
+		}
+
+		switch {
+		case p.failed:
+			// Fail the payment attempt.
+			htlcFailure := HTLCFailUnreadable
+			_, err := paymentDB.FailAttempt(
+				info.PaymentIdentifier, attempt.AttemptID,
+				&HTLCFailInfo{
+					Reason: htlcFailure,
+				},
+			)
+			if err != nil {
+				t.Fatalf("unable to fail htlc: %v", err)
+			}
+
+			// Fail the payment, which should moved it to Failed.
+			failReason := FailureReasonNoRoute
+			_, err = paymentDB.Fail(
+				info.PaymentIdentifier, failReason,
+			)
+			if err != nil {
+				t.Fatalf("unable to fail payment hash: %v", err)
+			}
+
+			// Verify the status is indeed Failed.
+			assertPaymentStatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusFailed,
+			)
+
+			htlc.failure = &htlcFailure
+			assertPaymentInfo(
+				t, paymentDB, info.PaymentIdentifier, info,
+				&failReason, htlc,
+			)
+
+		case p.success:
+			// Verifies that status was changed to StatusSucceeded.
+			_, err := paymentDB.SettleAttempt(
+				info.PaymentIdentifier, attempt.AttemptID,
+				&HTLCSettleInfo{
+					Preimage: preimg,
+				},
+			)
+			if err != nil {
+				t.Fatalf("error shouldn't have been "+
+					"received, got: %v", err)
+			}
+
+			assertPaymentStatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusSucceeded,
+			)
+
+			htlc.settle = &preimg
+			assertPaymentInfo(
+				t, paymentDB, info.PaymentIdentifier, info, nil,
+				htlc,
+			)
+
+			numSuccess++
+
+		default:
+			assertPaymentStatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusInFlight,
+			)
+			assertPaymentInfo(
+				t, paymentDB, info.PaymentIdentifier, info, nil,
+				htlc,
+			)
+
+			numInflight++
+		}
+
+		// If the payment is intended to have a duplicate payment, we
+		// add one.
+		if p.hasDuplicate {
+			appendDuplicatePayment(
+				t, paymentDB.db, info.PaymentIdentifier,
+				uint64(duplicateSeqNr), preimg,
+			)
+			duplicateSeqNr++
+			numSuccess++
+		}
+	}
+
+	// Delete all failed payments.
+	numPayments, err := paymentDB.DeletePayments(true, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments)
+
+	// This should leave the succeeded and in-flight payments.
+	//
+	// TODO(ziggie): Use query payments instead.
+	response, err := paymentDB.QueryPayments(
+		context.Background(), Query{
+			IndexOffset:       0,
+			MaxPayments:       uint64(len(payments)),
+			IncludeIncomplete: true,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbPayments := response.Payments
+
+	if len(dbPayments) != numSuccess+numInflight {
+		t.Fatalf("expected %d payments, got %d",
+			numSuccess+numInflight, len(dbPayments))
+	}
+
+	var s, i int
+	for _, p := range dbPayments {
+		t.Log("fetch payment has status", p.Status)
+		switch p.Status {
+		case StatusSucceeded:
+			s++
+		case StatusInFlight:
+			i++
+		}
+	}
+
+	if s != numSuccess {
+		t.Fatalf("expected %d succeeded payments , got %d",
+			numSuccess, s)
+	}
+	if i != numInflight {
+		t.Fatalf("expected %d in-flight payments, got %d",
+			numInflight, i)
+	}
+
+	// Now delete all payments except in-flight.
+	numPayments, err = paymentDB.DeletePayments(false, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, numPayments)
+
+	// This should leave the in-flight payment.
+	response, err = paymentDB.QueryPayments(
+		context.Background(), Query{
+			IndexOffset:       0,
+			MaxPayments:       uint64(len(payments)),
+			IncludeIncomplete: true,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbPayments = response.Payments
+
+	if len(dbPayments) != numInflight {
+		t.Fatalf("expected %d payments, got %d", numInflight,
+			len(dbPayments))
+	}
+
+	for _, p := range dbPayments {
+		if p.Status != StatusInFlight {
+			t.Fatalf("expected in-fligth status, got %v", p.Status)
+		}
+	}
+
+	// Finally, check that we only have a single index left in the payment
+	// index bucket.
+	var indexCount int
+	err = kvdb.View(paymentDB.db, func(tx walletdb.ReadTx) error {
+		index := tx.ReadBucket(paymentsIndexBucket)
+
+		return index.ForEach(func(k, v []byte) error {
+			indexCount++
+			return nil
+		})
+	}, func() { indexCount = 0 })
+	require.NoError(t, err)
+
+	require.Equal(t, 1, indexCount)
+}

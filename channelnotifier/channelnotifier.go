@@ -192,7 +192,7 @@ func (c *ChannelNotifier) NotifyFullyResolvedChannelEvent(
 	}
 }
 
-// NotifyFundingTimeoutEvent notifies the channelEventNotifier goroutine that
+// NotifyFundingTimeout notifies the channelEventNotifier goroutine that
 // a funding timeout has occurred for a certain channel point.
 func (c *ChannelNotifier) NotifyFundingTimeout(chanPoint wire.OutPoint) {
 	// Send this event to all channel event subscribers.

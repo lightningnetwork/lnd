@@ -630,12 +630,13 @@ func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
 	if !bytes.Equal(response.AdminMacaroon, testMac) {
 		errChan <- fmt.Errorf("mismatched macaroon: expected %x, got "+
 			"%x", testMac, response.AdminMacaroon)
+		return
 	}
 
 	// Close the macaroon DB and try to open it and read the root key with
 	// the new password.
 	store, err := openOrCreateTestMacStore(
-		testDir, &testPassword, testNetParams,
+		testDir, &req.NewPassword, testNetParams,
 	)
 	if err != nil {
 		errChan <- fmt.Errorf("could not create test store: %w", err)

@@ -17,7 +17,9 @@ type DynPropose struct {
 
 	// DustLimit, if not nil, proposes a change to the dust_limit_satoshis
 	// for the sender's commitment transaction.
-	DustLimit tlv.OptionalRecordT[tlv.TlvType0, btcutil.Amount]
+	DustLimit tlv.OptionalRecordT[
+		tlv.TlvType0, tlv.BigSizeT[btcutil.Amount],
+	]
 
 	// MaxValueInFlight, if not nil, proposes a change to the
 	// max_htlc_value_in_flight_msat limit of the sender.
@@ -29,7 +31,9 @@ type DynPropose struct {
 
 	// ChannelReserve, if not nil, proposes a change to the
 	// channel_reserve_satoshis requirement of the recipient.
-	ChannelReserve tlv.OptionalRecordT[tlv.TlvType6, btcutil.Amount]
+	ChannelReserve tlv.OptionalRecordT[
+		tlv.TlvType6, tlv.BigSizeT[btcutil.Amount],
+	]
 
 	// CsvDelay, if not nil, proposes a change to the to_self_delay
 	// requirement of the recipient.
@@ -70,14 +74,23 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	producers := dynProposeRecords(dp)
-
-	err := EncodeMessageExtraData(&dp.ExtraData, producers...)
+	// Create extra data records.
+	producers, err := dp.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, dp.ExtraData)
+	// Append the known records.
+	producers = append(producers, dynProposeRecords(dp)...)
+
+	// Encode all records.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynPropose stored in the passed io.Reader
@@ -98,17 +111,17 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 	}
 
 	// Prepare receiving buffers to be filled by TLV extraction.
-	var dustLimit tlv.RecordT[tlv.TlvType0, uint64]
-	var maxValue tlv.RecordT[tlv.TlvType2, uint64]
-	var htlcMin tlv.RecordT[tlv.TlvType4, uint64]
-	var reserve tlv.RecordT[tlv.TlvType6, uint64]
+	var dustLimit tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
+	var maxValue tlv.RecordT[tlv.TlvType2, MilliSatoshi]
+	var htlcMin tlv.RecordT[tlv.TlvType4, MilliSatoshi]
+	var reserve tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 	csvDelay := dp.CsvDelay.Zero()
 	maxHtlcs := dp.MaxAcceptedHTLCs.Zero()
 	chanType := dp.ChannelType.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(
-		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
-		&chanType,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &dustLimit, &maxValue, &htlcMin, &reserve,
+		&csvDelay, &maxHtlcs, &chanType,
 	)
 	if err != nil {
 		return err
@@ -116,39 +129,35 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[dp.DustLimit.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
-		rec.Val = btcutil.Amount(dustLimit.Val)
-		dp.DustLimit = tlv.SomeRecordT(rec)
+	if _, ok := knownRecords[dp.DustLimit.TlvType()]; ok {
+		dp.DustLimit = tlv.SomeRecordT(dustLimit)
 	}
-	if val, ok := typeMap[dp.MaxValueInFlight.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
-		rec.Val = MilliSatoshi(maxValue.Val)
-		dp.MaxValueInFlight = tlv.SomeRecordT(rec)
+
+	if _, ok := knownRecords[dp.MaxValueInFlight.TlvType()]; ok {
+		dp.MaxValueInFlight = tlv.SomeRecordT(maxValue)
 	}
-	if val, ok := typeMap[dp.HtlcMinimum.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
-		rec.Val = MilliSatoshi(htlcMin.Val)
-		dp.HtlcMinimum = tlv.SomeRecordT(rec)
+
+	if _, ok := knownRecords[dp.HtlcMinimum.TlvType()]; ok {
+		dp.HtlcMinimum = tlv.SomeRecordT(htlcMin)
 	}
-	if val, ok := typeMap[dp.ChannelReserve.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
-		rec.Val = btcutil.Amount(reserve.Val)
-		dp.ChannelReserve = tlv.SomeRecordT(rec)
+
+	if _, ok := knownRecords[dp.ChannelReserve.TlvType()]; ok {
+		dp.ChannelReserve = tlv.SomeRecordT(reserve)
 	}
-	if val, ok := typeMap[dp.CsvDelay.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.CsvDelay.TlvType()]; ok {
 		dp.CsvDelay = tlv.SomeRecordT(csvDelay)
 	}
-	if val, ok := typeMap[dp.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.MaxAcceptedHTLCs.TlvType()]; ok {
 		dp.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
 	}
-	if val, ok := typeMap[dp.ChannelType.TlvType()]; ok && val == nil {
+
+	if _, ok := knownRecords[dp.ChannelType.TlvType()]; ok {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
-	if len(tlvRecords) != 0 {
-		dp.ExtraData = tlvRecords
-	}
+	dp.ExtraData = extraData
 
 	return nil
 }
@@ -187,35 +196,27 @@ func dynProposeRecords(dp *DynPropose) []tlv.RecordProducer {
 	recordProducers := make([]tlv.RecordProducer, 0, 7)
 
 	dp.DustLimit.WhenSome(
-		func(dl tlv.RecordT[tlv.TlvType0, btcutil.Amount]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType0](
-				uint64(dl.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+		func(dl tlv.RecordT[tlv.TlvType0,
+			tlv.BigSizeT[btcutil.Amount]]) {
+
+			recordProducers = append(recordProducers, &dl)
 		},
 	)
 	dp.MaxValueInFlight.WhenSome(
 		func(mvif tlv.RecordT[tlv.TlvType2, MilliSatoshi]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType2](
-				uint64(mvif.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+			recordProducers = append(recordProducers, &mvif)
 		},
 	)
 	dp.HtlcMinimum.WhenSome(
 		func(hm tlv.RecordT[tlv.TlvType4, MilliSatoshi]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(hm.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+			recordProducers = append(recordProducers, &hm)
 		},
 	)
 	dp.ChannelReserve.WhenSome(
-		func(reserve tlv.RecordT[tlv.TlvType6, btcutil.Amount]) {
-			rec := tlv.NewPrimitiveRecord[tlv.TlvType6](
-				uint64(reserve.Val),
-			)
-			recordProducers = append(recordProducers, &rec)
+		func(reserve tlv.RecordT[tlv.TlvType6,
+			tlv.BigSizeT[btcutil.Amount]]) {
+
+			recordProducers = append(recordProducers, &reserve)
 		},
 	)
 	dp.CsvDelay.WhenSome(

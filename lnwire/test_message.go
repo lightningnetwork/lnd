@@ -792,15 +792,27 @@ var _ TestMessage = (*DynAck)(nil)
 // This is part of the TestMessage interface.
 func (da *DynAck) RandTestMessage(t *rapid.T) Message {
 	msg := &DynAck{
-		ChanID:    RandChannelID(t),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ChanID: RandChannelID(t),
 	}
 
 	includeLocalNonce := rapid.Bool().Draw(t, "includeLocalNonce")
-
 	if includeLocalNonce {
-		msg.LocalNonce = fn.Some(RandMusig2Nonce(t))
+		nonce := RandMusig2Nonce(t)
+		rec := tlv.NewRecordT[tlv.TlvType14](nonce)
+		msg.LocalNonce = tlv.SomeRecordT(rec)
 	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(15) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
 
 	return msg
 }
@@ -815,8 +827,7 @@ var _ TestMessage = (*DynPropose)(nil)
 // This is part of the TestMessage interface.
 func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	msg := &DynPropose{
-		ChanID:    RandChannelID(t),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ChanID: RandChannelID(t),
 	}
 
 	// Randomly decide which optional fields to include
@@ -833,9 +844,9 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 
 	// Generate random values for each included field
 	if includeDustLimit {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		msg.DustLimit = tlv.SomeRecordT(rec)
 	}
 
@@ -847,9 +858,9 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if includeChannelReserve {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		msg.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 
@@ -871,6 +882,18 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 		chanType.Val = *RandChannelType(t)
 		msg.ChannelType = tlv.SomeRecordT(chanType)
 	}
+
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(13) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
 
 	return msg
 }
@@ -942,9 +965,9 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 
 	// Generate random values for each included field
 	if includeDustLimit {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "dustLimit"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		dp.DustLimit = tlv.SomeRecordT(rec)
 	}
 
@@ -956,9 +979,9 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 	}
 
 	if includeChannelReserve {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
+		var rec tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 		val := btcutil.Amount(rapid.Uint32().Draw(t, "channelReserve"))
-		rec.Val = val
+		rec.Val = tlv.NewBigSizeT(val)
 		dp.ChannelReserve = tlv.SomeRecordT(rec)
 	}
 
@@ -981,17 +1004,30 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		dp.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
-	var extraData ExtraOpaqueData
-	randData := RandExtraOpaqueData(t, nil)
-	if len(randData) > 0 {
-		extraData = randData
+	includeLocalNonce := rapid.Bool().Draw(t, "includeLocalNonce")
+	if includeLocalNonce {
+		nonce := RandMusig2Nonce(t)
+		rec := tlv.NewRecordT[tlv.TlvType14](nonce)
+		da.LocalNonce = tlv.SomeRecordT(rec)
 	}
 
-	return &DynCommit{
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(15) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+	msg := &DynCommit{
 		DynPropose: *dp,
 		DynAck:     *da,
-		ExtraData:  extraData,
 	}
+
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+
+	return msg
 }
 
 // A compile time check to ensure FundingCreated implements the TestMessage

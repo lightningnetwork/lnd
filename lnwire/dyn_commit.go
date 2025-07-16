@@ -46,14 +46,28 @@ func (dc *DynCommit) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	var extra ExtraOpaqueData
-	err := extra.PackRecords(dynProposeRecords(&dc.DynPropose)...)
+	// Create extra data records.
+	producers, err := dc.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
-	dc.ExtraData = extra
 
-	return WriteBytes(w, dc.ExtraData)
+	// Append the known records.
+	producers = append(producers, dynProposeRecords(&dc.DynPropose)...)
+	dc.LocalNonce.WhenSome(
+		func(rec tlv.RecordT[tlv.TlvType14, Musig2Nonce]) {
+			producers = append(producers, &rec)
+		},
+	)
+
+	// Encode all known records.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized DynCommit stored in the passed io.Reader
@@ -75,17 +89,19 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 	}
 
 	// Prepare receiving buffers to be filled by TLV extraction.
-	var dustLimit tlv.RecordT[tlv.TlvType0, uint64]
-	var maxValue tlv.RecordT[tlv.TlvType2, uint64]
-	var htlcMin tlv.RecordT[tlv.TlvType4, uint64]
-	var reserve tlv.RecordT[tlv.TlvType6, uint64]
+	var dustLimit tlv.RecordT[tlv.TlvType0, tlv.BigSizeT[btcutil.Amount]]
+	var maxValue tlv.RecordT[tlv.TlvType2, MilliSatoshi]
+	var htlcMin tlv.RecordT[tlv.TlvType4, MilliSatoshi]
+	var reserve tlv.RecordT[tlv.TlvType6, tlv.BigSizeT[btcutil.Amount]]
 	csvDelay := dc.CsvDelay.Zero()
 	maxHtlcs := dc.MaxAcceptedHTLCs.Zero()
 	chanType := dc.ChannelType.Zero()
+	nonce := dc.LocalNonce.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(
-		&dustLimit, &maxValue, &htlcMin, &reserve, &csvDelay, &maxHtlcs,
-		&chanType,
+	// Parse all known records and extra data.
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &dustLimit, &maxValue, &htlcMin, &reserve,
+		&csvDelay, &maxHtlcs, &chanType, &nonce,
 	)
 	if err != nil {
 		return err
@@ -93,39 +109,32 @@ func (dc *DynCommit) Decode(r io.Reader, _ uint32) error {
 
 	// Check the results of the TLV Stream decoding and appropriately set
 	// message fields.
-	if val, ok := typeMap[dc.DustLimit.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType0, btcutil.Amount]
-		rec.Val = btcutil.Amount(dustLimit.Val)
-		dc.DustLimit = tlv.SomeRecordT(rec)
+	if _, ok := knownRecords[dc.DustLimit.TlvType()]; ok {
+		dc.DustLimit = tlv.SomeRecordT(dustLimit)
 	}
-	if val, ok := typeMap[dc.MaxValueInFlight.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType2, MilliSatoshi]
-		rec.Val = MilliSatoshi(maxValue.Val)
-		dc.MaxValueInFlight = tlv.SomeRecordT(rec)
+	if _, ok := knownRecords[dc.MaxValueInFlight.TlvType()]; ok {
+		dc.MaxValueInFlight = tlv.SomeRecordT(maxValue)
 	}
-	if val, ok := typeMap[dc.HtlcMinimum.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType4, MilliSatoshi]
-		rec.Val = MilliSatoshi(htlcMin.Val)
-		dc.HtlcMinimum = tlv.SomeRecordT(rec)
+	if _, ok := knownRecords[dc.HtlcMinimum.TlvType()]; ok {
+		dc.HtlcMinimum = tlv.SomeRecordT(htlcMin)
 	}
-	if val, ok := typeMap[dc.ChannelReserve.TlvType()]; ok && val == nil {
-		var rec tlv.RecordT[tlv.TlvType6, btcutil.Amount]
-		rec.Val = btcutil.Amount(reserve.Val)
-		dc.ChannelReserve = tlv.SomeRecordT(rec)
+	if _, ok := knownRecords[dc.ChannelReserve.TlvType()]; ok {
+		dc.ChannelReserve = tlv.SomeRecordT(reserve)
 	}
-	if val, ok := typeMap[dc.CsvDelay.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.CsvDelay.TlvType()]; ok {
 		dc.CsvDelay = tlv.SomeRecordT(csvDelay)
 	}
-	if val, ok := typeMap[dc.MaxAcceptedHTLCs.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.MaxAcceptedHTLCs.TlvType()]; ok {
 		dc.MaxAcceptedHTLCs = tlv.SomeRecordT(maxHtlcs)
 	}
-	if val, ok := typeMap[dc.ChannelType.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[dc.ChannelType.TlvType()]; ok {
 		dc.ChannelType = tlv.SomeRecordT(chanType)
 	}
-
-	if len(tlvRecords) != 0 {
-		dc.ExtraData = tlvRecords
+	if _, ok := knownRecords[dc.LocalNonce.TlvType()]; ok {
+		dc.LocalNonce = tlv.SomeRecordT(nonce)
 	}
+
+	dc.ExtraData = extraData
 
 	return nil
 }

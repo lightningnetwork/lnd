@@ -182,6 +182,9 @@ type SQLStoreConfig struct {
 	// ChainHash is the genesis hash for the chain that all the gossip
 	// messages in this store are aimed at.
 	ChainHash chainhash.Hash
+
+	// PaginationCfg is the configuration for paginated queries.
+	PaginationCfg *sqldb.PagedQueryConfig
 }
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries

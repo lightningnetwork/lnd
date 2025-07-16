@@ -19,7 +19,9 @@ func NewTestDB(t testing.TB) V1Store {
 
 // NewTestDBFixture creates a new sqldb.TestPgFixture for testing purposes.
 func NewTestDBFixture(t *testing.T) *sqldb.TestPgFixture {
-	pgFixture := sqldb.NewTestPgFixture(t, sqldb.DefaultPostgresFixtureLifetime)
+	pgFixture := sqldb.NewTestPgFixture(
+		t, sqldb.DefaultPostgresFixtureLifetime,
+	)
 	t.Cleanup(func() {
 		pgFixture.TearDown(t)
 	})
@@ -28,7 +30,9 @@ func NewTestDBFixture(t *testing.T) *sqldb.TestPgFixture {
 
 // NewTestDBWithFixture is a helper function that creates a SQLStore backed by a
 // SQL database for testing.
-func NewTestDBWithFixture(t testing.TB, pgFixture *sqldb.TestPgFixture) V1Store {
+func NewTestDBWithFixture(t testing.TB,
+	pgFixture *sqldb.TestPgFixture) V1Store {
+
 	var querier BatchedSQLQueries
 	if pgFixture == nil {
 		querier = newBatchQuerier(t)
@@ -38,7 +42,8 @@ func NewTestDBWithFixture(t testing.TB, pgFixture *sqldb.TestPgFixture) V1Store 
 
 	store, err := NewSQLStore(
 		&SQLStoreConfig{
-			ChainHash: *chaincfg.MainNetParams.GenesisHash,
+			ChainHash:     *chaincfg.MainNetParams.GenesisHash,
+			PaginationCfg: sqldb.DefaultPagedQueryConfig(),
 		}, querier,
 	)
 	require.NoError(t, err)

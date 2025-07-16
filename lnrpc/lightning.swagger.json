@@ -2988,7 +2988,8 @@
         "ACTIVE_CHANNEL",
         "INACTIVE_CHANNEL",
         "PENDING_OPEN_CHANNEL",
-        "FULLY_RESOLVED_CHANNEL"
+        "FULLY_RESOLVED_CHANNEL",
+        "CHANNEL_FUNDING_TIMEOUT"
       ],
       "default": "OPEN_CHANNEL"
     },
@@ -4419,6 +4420,9 @@
           "$ref": "#/definitions/lnrpcPendingUpdate"
         },
         "fully_resolved_channel": {
+          "$ref": "#/definitions/lnrpcChannelPoint"
+        },
+        "channel_funding_timeout": {
           "$ref": "#/definitions/lnrpcChannelPoint"
         },
         "type": {

@@ -1,3 +1,5 @@
+//go:build test_db_postgres || test_db_sqlite
+
 package sqldb
 
 import (
@@ -6,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -233,4 +236,80 @@ func TestExecutePagedQuery(t *testing.T) {
 		require.ErrorContains(t, err, "query failed for page "+
 			"starting at 2: second page failed")
 	})
+}
+
+// TestSQLSliceQueries tests ExecutePageQuery helper by first showing that a
+// query the /*SLICE:<field_name>*/ directive has a maximum number of
+// parameters it can handle, and then showing that the paginated version which
+// uses ExecutePagedQuery instead of a raw query can handle more parameters by
+// executing the query in pages.
+func TestSQLSliceQueries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	db := NewTestDB(t)
+
+	// Increase the number of query strings by an order of magnitude each
+	// iteration until we hit the limit of the backing DB.
+	//
+	// NOTE: from testing, the following limits have been noted:
+	// 	- for Postgres, the limit is 65535 parameters.
+	//	- for SQLite, the limit is 32766 parameters.
+	x := 10
+	var queryParams []string
+	for {
+		for len(queryParams) < x {
+			queryParams = append(
+				queryParams,
+				fmt.Sprintf("%d", len(queryParams)),
+			)
+		}
+
+		_, err := db.GetChannelsByOutpoints(ctx, queryParams)
+		if err != nil {
+			if isSQLite {
+				require.ErrorContains(
+					t, err, "SQL logic error: too many "+
+						"SQL variables",
+				)
+			} else {
+				require.ErrorContains(
+					t, err, "extended protocol limited "+
+						"to 65535 parameters",
+				)
+			}
+			break
+		}
+
+		x *= 10
+
+		// Just to make sure that the test doesn't carry on too long,
+		// we assert that we don't exceed a reasonable limit.
+		require.LessOrEqual(t, x, 100000)
+	}
+
+	// Now that we have found the limit that the raw query can handle, we
+	// switch to the wrapped version which will perform the query in pages
+	// so that the limit is not hit. We use the same number of query params
+	// that caused the error above.
+	queryWrapper := func(ctx context.Context,
+		pageOutpoints []string) ([]sqlc.GetChannelsByOutpointsRow,
+		error) {
+
+		return db.GetChannelsByOutpoints(ctx, pageOutpoints)
+	}
+
+	err := ExecutePagedQuery(
+		ctx,
+		DefaultPagedQueryConfig(),
+		queryParams,
+		func(s string) string {
+			return s
+		},
+		queryWrapper,
+		func(context.Context, sqlc.GetChannelsByOutpointsRow) error {
+			return nil
+		},
+	)
+	require.NoError(t, err)
 }

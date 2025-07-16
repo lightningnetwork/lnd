@@ -358,46 +358,6 @@ func (q *Queries) GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAn
 	return i, err
 }
 
-const getChannelByOutpoint = `-- name: GetChannelByOutpoint :one
-SELECT
-    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
-    n1.pub_key AS node1_pubkey,
-    n2.pub_key AS node2_pubkey
-FROM graph_channels c
-    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
-    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
-WHERE c.outpoint = $1
-`
-
-type GetChannelByOutpointRow struct {
-	GraphChannel GraphChannel
-	Node1Pubkey  []byte
-	Node2Pubkey  []byte
-}
-
-func (q *Queries) GetChannelByOutpoint(ctx context.Context, outpoint string) (GetChannelByOutpointRow, error) {
-	row := q.db.QueryRowContext(ctx, getChannelByOutpoint, outpoint)
-	var i GetChannelByOutpointRow
-	err := row.Scan(
-		&i.GraphChannel.ID,
-		&i.GraphChannel.Version,
-		&i.GraphChannel.Scid,
-		&i.GraphChannel.NodeID1,
-		&i.GraphChannel.NodeID2,
-		&i.GraphChannel.Outpoint,
-		&i.GraphChannel.Capacity,
-		&i.GraphChannel.BitcoinKey1,
-		&i.GraphChannel.BitcoinKey2,
-		&i.GraphChannel.Node1Signature,
-		&i.GraphChannel.Node2Signature,
-		&i.GraphChannel.Bitcoin1Signature,
-		&i.GraphChannel.Bitcoin2Signature,
-		&i.Node1Pubkey,
-		&i.Node2Pubkey,
-	)
-	return i, err
-}
-
 const getChannelByOutpointWithPolicies = `-- name: GetChannelByOutpointWithPolicies :one
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,

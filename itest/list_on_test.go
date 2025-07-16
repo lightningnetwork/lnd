@@ -47,6 +47,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendSelectedCoinsChannelReserve,
 	},
 	{
+		Name:     "reorg notifications",
+		TestFunc: testReorgNotifications,
+	},
+	{
 		Name:     "disconnecting target peer",
 		TestFunc: testDisconnectingTargetPeer,
 	},

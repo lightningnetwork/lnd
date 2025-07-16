@@ -167,6 +167,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateNodeAnnouncement,
 	},
 	{
+		Name:     "self node announcement persistence",
+		TestFunc: testSelfNodeAnnouncementPersistence,
+	},
+	{
 		Name:     "list payments",
 		TestFunc: testListPayments,
 	},

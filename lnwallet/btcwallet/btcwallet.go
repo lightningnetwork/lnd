@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -981,11 +980,11 @@ func (b *BtcWallet) CreateSimpleTx(inputs fn.Set[wire.OutPoint],
 	}
 
 	// Add the optional inputs to the transaction.
-	optFunc := wallet.WithCustomSelectUtxos(inputs.ToSlice())
+	optFunc := base.WithCustomSelectUtxos(inputs.ToSlice())
 
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		strategy, dryRun, []wallet.TxCreateOption{optFunc}...,
+		strategy, dryRun, []base.TxCreateOption{optFunc}...,
 	)
 }
 

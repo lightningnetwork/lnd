@@ -369,14 +369,23 @@ func TestParse32Bytes(t *testing.T) {
 func TestParseDescription(t *testing.T) {
 	t.Parallel()
 
+	testNonUTF8StrData, _ := bech32.ConvertBits([]byte(testNonUTF8Str), 8,
+		5, true)
 	testCupOfCoffeeData, _ := bech32.ConvertBits([]byte(testCupOfCoffee), 8, 5, true)
 	testPleaseConsiderData, _ := bech32.ConvertBits([]byte(testPleaseConsider), 8, 5, true)
 
 	tests := []struct {
-		data   []byte
-		valid  bool
-		result *string
+		data        []byte
+		valid       bool
+		result      *string
+		expectedErr error
 	}{
+		{
+			data:        testNonUTF8StrData,
+			valid:       false,
+			expectedErr: ErrInvalidUTF8Description,
+			result:      nil,
+		},
 		{
 			data:   []byte{},
 			valid:  true,
@@ -398,6 +407,10 @@ func TestParseDescription(t *testing.T) {
 		description, err := parseDescription(test.data)
 		if (err == nil) != test.valid {
 			t.Errorf("description decoding test %d failed: %v", i, err)
+			return
+		}
+		if err != nil && !test.valid {
+			require.ErrorIs(t, err, test.expectedErr)
 			return
 		}
 		if test.valid && !reflect.DeepEqual(description, test.result) {
@@ -685,18 +698,22 @@ func TestParseRouteHint(t *testing.T) {
 	testDoubleHopData, _ = bech32.ConvertBits(testDoubleHopData, 8, 5, true)
 
 	tests := []struct {
-		data   []byte
-		valid  bool
-		result []HopHint
+		data        []byte
+		valid       bool
+		result      []HopHint
+		expectedErr error
 	}{
 		{
-			data:  []byte{0x0, 0x0, 0x0, 0x0},
-			valid: false, // data too short, not multiple of 51 bytes
+			data: []byte{0x0, 0x0, 0x0, 0x0},
+			// data too short, not multiple of 51 bytes
+			valid:       false,
+			expectedErr: ErrLengthNotMultipleOfHopHint,
 		},
 		{
-			data:   []byte{},
-			valid:  true,
-			result: []HopHint{},
+			data:        []byte{},
+			valid:       false,
+			result:      []HopHint{},
+			expectedErr: ErrEmptyRouteHint,
 		},
 		{
 			data:   testSingleHopData,
@@ -704,8 +721,11 @@ func TestParseRouteHint(t *testing.T) {
 			result: testSingleHop,
 		},
 		{
-			data:  append(testSingleHopData, 0x0),
-			valid: false, // data too long, not multiple of 51 bytes
+			data: append(testSingleHopData,
+				[]byte{0x0, 0x0}...),
+			// data too long, not multiple of 51 bytes
+			valid:       false,
+			expectedErr: ErrLengthNotMultipleOfHopHint,
 		},
 		{
 			data:   testDoubleHopData,
@@ -718,6 +738,10 @@ func TestParseRouteHint(t *testing.T) {
 		routeHint, err := parseRouteHint(test.data)
 		if (err == nil) != test.valid {
 			t.Errorf("routing info decoding test %d failed: %v", i, err)
+			return
+		}
+		if err != nil && !test.valid {
+			require.ErrorIs(t, err, test.expectedErr)
 			return
 		}
 		if test.valid {

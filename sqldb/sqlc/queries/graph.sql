@@ -231,6 +231,17 @@ WHERE scid >= @start_scid
 SELECT * FROM graph_channels
 WHERE scid = $1 AND version = $2;
 
+-- name: GetChannelsByOutpoints :many
+SELECT
+    sqlc.embed(c),
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+WHERE c.outpoint IN
+    (sqlc.slice('outpoints')/*SLICE:outpoints*/);
+
 -- name: GetChannelByOutpoint :one
 SELECT
     sqlc.embed(c),

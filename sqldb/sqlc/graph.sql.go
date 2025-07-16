@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"strings"
 )
 
 const addSourceNode = `-- name: AddSourceNode :exec
@@ -867,6 +868,73 @@ func (q *Queries) GetChannelPolicyExtraTypes(ctx context.Context, arg GetChannel
 			&i.NodeID,
 			&i.Type,
 			&i.Value,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChannelsByOutpoints = `-- name: GetChannelsByOutpoints :many
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+    n1.pub_key AS node1_pubkey,
+    n2.pub_key AS node2_pubkey
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+WHERE c.outpoint IN
+    (/*SLICE:outpoints*/?)
+`
+
+type GetChannelsByOutpointsRow struct {
+	GraphChannel GraphChannel
+	Node1Pubkey  []byte
+	Node2Pubkey  []byte
+}
+
+func (q *Queries) GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]GetChannelsByOutpointsRow, error) {
+	query := getChannelsByOutpoints
+	var queryParams []interface{}
+	if len(outpoints) > 0 {
+		for _, v := range outpoints {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:outpoints*/?", makeQueryParams(len(queryParams), len(outpoints)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:outpoints*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChannelsByOutpointsRow
+	for rows.Next() {
+		var i GetChannelsByOutpointsRow
+		if err := rows.Scan(
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
+			&i.Node1Pubkey,
+			&i.Node2Pubkey,
 		); err != nil {
 			return nil, err
 		}

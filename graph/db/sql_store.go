@@ -93,7 +93,7 @@ type SQLQueries interface {
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GraphChannel, error)
-	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
+	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]sqlc.GetChannelsByOutpointsRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
@@ -2365,22 +2365,9 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		prunedNodes []route.Vertex
 	)
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		for _, outpoint := range spentOutputs {
-			// TODO(elle): potentially optimize this by using
-			//  sqlc.slice() once that works for both SQLite and
-			//  Postgres.
-			//
-			// NOTE: this fetches channels for all protocol
-			// versions.
-			row, err := db.GetChannelByOutpoint(
-				ctx, outpoint.String(),
-			)
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			} else if err != nil {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
-			}
+		// Define the callback function for processing each channel.
+		channelCallback := func(ctx context.Context,
+			row sqlc.GetChannelsByOutpointsRow) error {
 
 			node1, node2, err := buildNodeVertices(
 				row.Node1Pubkey, row.Node2Pubkey,
@@ -2404,9 +2391,19 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 			}
 
 			closedChans = append(closedChans, info)
+
+			return nil
 		}
 
-		err := db.UpsertPruneLogEntry(
+		err := s.forEachChanInOutpoints(
+			ctx, db, spentOutputs, channelCallback,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channels by "+
+				"outpoints: %w", err)
+		}
+
+		err = db.UpsertPruneLogEntry(
 			ctx, sqlc.UpsertPruneLogEntryParams{
 				BlockHash:   blockHash[:],
 				BlockHeight: int64(blockHeight),
@@ -2440,6 +2437,35 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	}
 
 	return closedChans, prunedNodes, nil
+}
+
+// forEachChanInOutpoints is a helper function that executes a paginated
+// query to fetch channels by their outpoints and applies the given call-back
+// to each.
+//
+// NOTE: this fetches channels for all protocol versions.
+func (s *SQLStore) forEachChanInOutpoints(ctx context.Context, db SQLQueries,
+	outpoints []*wire.OutPoint, cb func(ctx context.Context,
+		row sqlc.GetChannelsByOutpointsRow) error) error {
+
+	// Create a wrapper that uses the transaction's db instance to execute
+	// the query.
+	queryWrapper := func(ctx context.Context,
+		pageOutpoints []string) ([]sqlc.GetChannelsByOutpointsRow,
+		error) {
+
+		return db.GetChannelsByOutpoints(ctx, pageOutpoints)
+	}
+
+	// Define the conversion function from Outpoint to string.
+	outpointToString := func(outpoint *wire.OutPoint) string {
+		return outpoint.String()
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, outpoints, outpointToString,
+		queryWrapper, cb,
+	)
 }
 
 // ChannelView returns the verifiable edge information for each active channel

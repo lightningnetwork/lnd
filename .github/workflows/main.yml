@@ -599,9 +599,10 @@ jobs:
   # Notify about the completion of all coverage collecting jobs.
   finish:
     name: Send coverage report
-    if: ${{ always() }}
+    if: ${{ !cancelled() }}
     needs: [unit-test, basic-integration-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Send coverage
         uses: coverallsapp/github-action@v2

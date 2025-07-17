@@ -6477,7 +6477,7 @@
         }
       }
     },
-    "lnrpcOnionMessage": {
+    "lnrpcOnionMessageUpdate": {
       "type": "object",
       "properties": {
         "peer": {
@@ -6494,6 +6494,23 @@
           "type": "string",
           "format": "byte",
           "description": "Onion is the raw serialized Sphinx onion packet containing the per-hop\nencrypted routing information used to relay this message through the\nnetwork in a privacy-preserving manner."
+        },
+        "reply_path": {
+          "$ref": "#/definitions/lnrpcBlindedPath",
+          "description": "reply_path is the blinded path that should be used when replying to a\nreceived message."
+        },
+        "encrypted_recipient_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "encrypted_recipient_data is the encrypted data that contains the\nforwarding information for an onion message. It contains either\nnext_node_id or short_channel_id for each non-final node. It MAY contain\nthe path_id for the final node."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom onion message tlv records. These are customized fields that are\nnot defined by LND and cannot be extracted."
         }
       }
     },

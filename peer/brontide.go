@@ -682,7 +682,7 @@ func NewBrontide(cfg Config) *Brontide {
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 		startReady:         make(chan struct{}),
-		log:                peerLog.WithPrefix(logPrefix),
+		log:                NewPrefixLogger(peerLog, logPrefix),
 		msgRouter:          msgRouter,
 		globalMsgRouter:    globalMsgRouter,
 		cg:                 fn.NewContextGuard(),

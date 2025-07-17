@@ -126,6 +126,8 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          # Use the same cache from unit test job to save time.
+          key-prefix: unit-test
 
       - name: fetch and rebase on ${{ github.base_ref }}
         uses: ./.github/actions/rebase
@@ -152,6 +154,8 @@ jobs:
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          # Use the same cache from unit test job to save time.
+          key-prefix: unit-test
 
       - name: lint
         run: GOGC=50 make lint

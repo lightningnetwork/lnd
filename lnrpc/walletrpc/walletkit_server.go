@@ -843,12 +843,10 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 func (w *WalletKit) EstimateFee(ctx context.Context,
 	req *EstimateFeeRequest) (*EstimateFeeResponse, error) {
 
-	switch {
-	// A confirmation target of zero doesn't make any sense. Similarly, we
-	// reject confirmation targets of 1 as they're unreasonable.
-	case req.ConfTarget == 0 || req.ConfTarget == 1:
+	// A confirmation target of zero or lower doesn't make any sense.
+	if req.ConfTarget <= 0 {
 		return nil, fmt.Errorf("confirmation target must be greater " +
-			"than 1")
+			"than 0")
 	}
 
 	satPerKw, err := w.cfg.FeeEstimator.EstimateFeePerKW(

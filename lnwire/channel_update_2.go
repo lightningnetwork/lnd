@@ -98,7 +98,7 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 func (c *ChannelUpdate2) DecodeTLVRecords(r io.Reader) error {
 	// First extract into extra opaque data.
 	var tlvRecords ExtraOpaqueData
-	if err := ReadElements(r, &tlvRecords); err != nil {
+	if err := ReadElement(r, &tlvRecords); err != nil {
 		return err
 	}
 
@@ -106,10 +106,10 @@ func (c *ChannelUpdate2) DecodeTLVRecords(r io.Reader) error {
 		chainHash  = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		secondPeer = tlv.ZeroRecordT[tlv.TlvType8, TrueBoolean]()
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
-		&secondPeer, &c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
-		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &chainHash, &c.ShortChannelID, &c.BlockHeight,
+		&c.DisabledFlags, &secondPeer, &c.CLTVExpiryDelta,
+		&c.HTLCMinimumMsat, &c.HTLCMaximumMsat, &c.FeeBaseMsat,
 		&c.FeeProportionalMillionths,
 	)
 	if err != nil {
@@ -118,41 +118,39 @@ func (c *ChannelUpdate2) DecodeTLVRecords(r io.Reader) error {
 
 	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
 	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
-	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
+	if _, ok := knownRecords[c.ChainHash.TlvType()]; ok {
 		c.ChainHash.Val = chainHash.Val
 	}
 
 	// The presence of the second_peer tlv type indicates "true".
-	if _, ok := typeMap[c.SecondPeer.TlvType()]; ok {
+	if _, ok := knownRecords[c.SecondPeer.TlvType()]; ok {
 		c.SecondPeer = tlv.SomeRecordT(secondPeer)
 	}
 
 	// If the CLTV expiry delta was not encoded, then set it to the default
 	// value.
-	if _, ok := typeMap[c.CLTVExpiryDelta.TlvType()]; !ok {
+	if _, ok := knownRecords[c.CLTVExpiryDelta.TlvType()]; !ok {
 		c.CLTVExpiryDelta.Val = defaultCltvExpiryDelta
 	}
 
 	// If the HTLC Minimum msat was not encoded, then set it to the default
 	// value.
-	if _, ok := typeMap[c.HTLCMinimumMsat.TlvType()]; !ok {
+	if _, ok := knownRecords[c.HTLCMinimumMsat.TlvType()]; !ok {
 		c.HTLCMinimumMsat.Val = defaultHtlcMinMsat
 	}
 
 	// If the base fee was not encoded, then set it to the default value.
-	if _, ok := typeMap[c.FeeBaseMsat.TlvType()]; !ok {
+	if _, ok := knownRecords[c.FeeBaseMsat.TlvType()]; !ok {
 		c.FeeBaseMsat.Val = defaultFeeBaseMsat
 	}
 
 	// If the proportional fee was not encoded, then set it to the default
 	// value.
-	if _, ok := typeMap[c.FeeProportionalMillionths.TlvType()]; !ok {
+	if _, ok := knownRecords[c.FeeProportionalMillionths.TlvType()]; !ok {
 		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:ll
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraOpaqueData = tlvRecords
-	}
+	c.ExtraOpaqueData = extraData
 
 	return c.ExtraOpaqueData.ValidateTLV()
 }
@@ -167,70 +165,75 @@ func (c *ChannelUpdate2) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	_, err = c.DataToSign()
+	tlvRecords, err := c.DataToSign()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraOpaqueData)
+	return WriteBytes(w, tlvRecords)
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed. For the ChannelUpdate2 message, this includes the serialised TLV
 // records.
 func (c *ChannelUpdate2) DataToSign() ([]byte, error) {
+	producers, err := c.ExtraOpaqueData.RecordProducers()
+	if err != nil {
+		return nil, err
+	}
+
 	// The chain-hash record is only included if it is _not_ equal to the
 	// bitcoin mainnet genisis block hash.
-	var recordProducers []tlv.RecordProducer
 	if !c.ChainHash.Val.IsEqual(chaincfg.MainNetParams.GenesisHash) {
 		hash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		hash.Val = c.ChainHash.Val
 
-		recordProducers = append(recordProducers, &hash)
+		producers = append(producers, &hash)
 	}
 
-	recordProducers = append(recordProducers,
+	producers = append(producers,
 		&c.ShortChannelID, &c.BlockHeight,
 	)
 
 	// Only include the disable flags if any bit is set.
 	if !c.DisabledFlags.Val.IsEnabled() {
-		recordProducers = append(recordProducers, &c.DisabledFlags)
+		producers = append(producers, &c.DisabledFlags)
 	}
 
 	// We only need to encode the second peer boolean if it is true
 	c.SecondPeer.WhenSome(func(r tlv.RecordT[tlv.TlvType8, TrueBoolean]) {
-		recordProducers = append(recordProducers, &r)
+		producers = append(producers, &r)
 	})
 
 	// We only encode the cltv expiry delta if it is not equal to the
 	// default.
 	if c.CLTVExpiryDelta.Val != defaultCltvExpiryDelta {
-		recordProducers = append(recordProducers, &c.CLTVExpiryDelta)
+		producers = append(producers, &c.CLTVExpiryDelta)
 	}
 
 	if c.HTLCMinimumMsat.Val != defaultHtlcMinMsat {
-		recordProducers = append(recordProducers, &c.HTLCMinimumMsat)
+		producers = append(producers, &c.HTLCMinimumMsat)
 	}
 
-	recordProducers = append(recordProducers, &c.HTLCMaximumMsat)
+	producers = append(producers, &c.HTLCMaximumMsat)
 
 	if c.FeeBaseMsat.Val != defaultFeeBaseMsat {
-		recordProducers = append(recordProducers, &c.FeeBaseMsat)
+		producers = append(producers, &c.FeeBaseMsat)
 	}
 
 	if c.FeeProportionalMillionths.Val != defaultFeeProportionalMillionths {
-		recordProducers = append(
-			recordProducers, &c.FeeProportionalMillionths,
+		producers = append(
+			producers, &c.FeeProportionalMillionths,
 		)
 	}
 
-	err := EncodeMessageExtraData(&c.ExtraOpaqueData, recordProducers...)
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.ExtraOpaqueData, nil
+	return tlvData, nil
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

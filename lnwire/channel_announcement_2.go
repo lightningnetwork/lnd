@@ -86,7 +86,7 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 func (c *ChannelAnnouncement2) DecodeTLVRecords(r io.Reader) error {
 	// First extract into extra opaque data.
 	var tlvRecords ExtraOpaqueData
-	if err := ReadElements(r, &tlvRecords); err != nil {
+	if err := ReadElement(r, &tlvRecords); err != nil {
 		return err
 	}
 
@@ -96,9 +96,11 @@ func (c *ChannelAnnouncement2) DecodeTLVRecords(r io.Reader) error {
 		btcKey2        = tlv.ZeroRecordT[tlv.TlvType14, [33]byte]()
 		merkleRootHash = tlv.ZeroRecordT[tlv.TlvType16, [32]byte]()
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&chainHash, &c.Features, &c.ShortChannelID, &c.Capacity,
-		&c.NodeID1, &c.NodeID2, &btcKey1, &btcKey2, &merkleRootHash,
+
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &chainHash, &c.Features,
+		&c.ShortChannelID, &c.Capacity, &c.NodeID1, &c.NodeID2,
+		&btcKey1, &btcKey2, &merkleRootHash,
 	)
 	if err != nil {
 		return err
@@ -106,25 +108,23 @@ func (c *ChannelAnnouncement2) DecodeTLVRecords(r io.Reader) error {
 
 	// By default, the chain-hash is the bitcoin mainnet genesis block hash.
 	c.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
-	if _, ok := typeMap[c.ChainHash.TlvType()]; ok {
+	if _, ok := knownRecords[c.ChainHash.TlvType()]; ok {
 		c.ChainHash.Val = chainHash.Val
 	}
 
-	if _, ok := typeMap[c.BitcoinKey1.TlvType()]; ok {
+	if _, ok := knownRecords[c.BitcoinKey1.TlvType()]; ok {
 		c.BitcoinKey1 = tlv.SomeRecordT(btcKey1)
 	}
 
-	if _, ok := typeMap[c.BitcoinKey2.TlvType()]; ok {
+	if _, ok := knownRecords[c.BitcoinKey2.TlvType()]; ok {
 		c.BitcoinKey2 = tlv.SomeRecordT(btcKey2)
 	}
 
-	if _, ok := typeMap[c.MerkleRootHash.TlvType()]; ok {
+	if _, ok := knownRecords[c.MerkleRootHash.TlvType()]; ok {
 		c.MerkleRootHash = tlv.SomeRecordT(merkleRootHash)
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraOpaqueData = tlvRecords
-	}
+	c.ExtraOpaqueData = extraData
 
 	return c.ExtraOpaqueData.ValidateTLV()
 }
@@ -138,52 +138,56 @@ func (c *ChannelAnnouncement2) Encode(w *bytes.Buffer, _ uint32) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.DataToSign()
+
+	tlvRecords, err := c.DataToSign()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraOpaqueData)
+	return WriteBytes(w, tlvRecords)
 }
 
-// DataToSign encodes the data to be signed into the ExtraOpaqueData member and
-// returns it.
+// DataToSign encodes the data to be signed and returns it.
 func (c *ChannelAnnouncement2) DataToSign() ([]byte, error) {
+	producers, err := c.ExtraOpaqueData.RecordProducers()
+	if err != nil {
+		return nil, err
+	}
+
 	// The chain-hash record is only included if it is _not_ equal to the
 	// bitcoin mainnet genisis block hash.
-	var recordProducers []tlv.RecordProducer
 	if !c.ChainHash.Val.IsEqual(chaincfg.MainNetParams.GenesisHash) {
 		hash := tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		hash.Val = c.ChainHash.Val
-
-		recordProducers = append(recordProducers, &hash)
+		producers = append(producers, &hash)
 	}
 
-	recordProducers = append(recordProducers,
+	producers = append(producers,
 		&c.Features, &c.ShortChannelID, &c.Capacity, &c.NodeID1,
 		&c.NodeID2,
 	)
 
 	c.BitcoinKey1.WhenSome(func(key tlv.RecordT[tlv.TlvType12, [33]byte]) {
-		recordProducers = append(recordProducers, &key)
+		producers = append(producers, &key)
 	})
 
 	c.BitcoinKey2.WhenSome(func(key tlv.RecordT[tlv.TlvType14, [33]byte]) {
-		recordProducers = append(recordProducers, &key)
+		producers = append(producers, &key)
 	})
 
 	c.MerkleRootHash.WhenSome(
 		func(hash tlv.RecordT[tlv.TlvType16, [32]byte]) {
-			recordProducers = append(recordProducers, &hash)
+			producers = append(producers, &hash)
 		},
 	)
 
-	err := EncodeMessageExtraData(&c.ExtraOpaqueData, recordProducers...)
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return nil, err
 	}
 
-	return c.ExtraOpaqueData, nil
+	return tlvData, nil
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

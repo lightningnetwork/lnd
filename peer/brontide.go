@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
@@ -682,7 +683,7 @@ func NewBrontide(cfg Config) *Brontide {
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
 		startReady:         make(chan struct{}),
-		log:                peerLog.WithPrefix(logPrefix),
+		log:                build.NewPrefixLogger(peerLog, logPrefix),
 		msgRouter:          msgRouter,
 		globalMsgRouter:    globalMsgRouter,
 		cg:                 fn.NewContextGuard(),

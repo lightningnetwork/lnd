@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -210,8 +211,8 @@ func NewStateMachine[Event any, Env Environment](
 
 	return StateMachine[Event, Env]{
 		cfg: cfg,
-		log: log.WithPrefix(
-			fmt.Sprintf("FSM(%v):", cfg.Env.Name()),
+		log: build.NewPrefixLogger(
+			log, fmt.Sprintf("FSM(%v):", cfg.Env.Name()),
 		),
 		events:         make(chan Event, 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),

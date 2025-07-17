@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -34,7 +35,7 @@ func NewBeat(epoch chainntnfs.BlockEpoch) *Beat {
 
 	// Create a customized logger for the blockbeat.
 	logPrefix := fmt.Sprintf("Height[%6d]:", b.Height())
-	b.log = clog.WithPrefix(logPrefix)
+	b.log = build.NewPrefixLogger(clog, logPrefix)
 
 	return b
 }

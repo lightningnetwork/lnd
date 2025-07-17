@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -418,7 +419,7 @@ func (m *MissionController) initMissionControl(namespace string) (
 		),
 		store:          store,
 		estimator:      cfg.Estimator,
-		log:            log.WithPrefix(fmt.Sprintf("[%s]:", namespace)),
+		log:            build.NewPrefixLogger(log, fmt.Sprintf("[%s]:", namespace)),
 		onConfigUpdate: cfg.OnConfigUpdate,
 	}
 

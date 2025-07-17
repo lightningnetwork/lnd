@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -152,7 +153,7 @@ func (r *contractResolverKit) initLogger(prefix string) {
 	logPrefix := fmt.Sprintf("ChannelArbitrator(%v): %s:", r.ChanPoint,
 		prefix)
 
-	r.log = log.WithPrefix(logPrefix)
+	r.log = build.NewPrefixLogger(log, logPrefix)
 }
 
 // IsResolved returns true if the stored state in the resolve is fully

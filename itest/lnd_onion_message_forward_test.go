@@ -116,7 +116,7 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 			msgClient, cancel := carol.RPC.SubscribeOnionMessages()
 			defer cancel()
 
-			messages := make(chan *lnrpc.OnionMessage)
+			messages := make(chan *lnrpc.OnionMessageUpdate)
 			go func() {
 				for {
 					msg, err := msgClient.Recv()
@@ -148,6 +148,15 @@ func testOnionMessageForwarding(ht *lntest.HarnessTest) {
 					ht, expectedPeer, msg.Peer,
 					"unexpected peer",
 				)
+
+				// Verify final payload if provided.
+				for _, fp := range finalPayloads {
+					tlvType := uint64(fp.TLVType)
+					require.Equal(
+						ht, fp.Value,
+						msg.CustomRecords[tlvType],
+					)
+				}
 
 			case <-time.After(lntest.DefaultTimeout):
 				ht.Fatalf("carol did not receive onion message")

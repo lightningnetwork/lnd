@@ -24,7 +24,7 @@ func testOnionMessage(ht *lntest.HarnessTest) {
 	defer cancel()
 
 	// Create a channel to receive onion messages on.
-	messages := make(chan *lnrpc.OnionMessage)
+	messages := make(chan *lnrpc.OnionMessageUpdate)
 	go func() {
 		for {
 			// If we fail to receive, just exit. The test should

@@ -1369,7 +1369,7 @@ func (c *lightningClient) SubscribeOnionMessages(ctx context.Context, in *Subscr
 }
 
 type Lightning_SubscribeOnionMessagesClient interface {
-	Recv() (*OnionMessage, error)
+	Recv() (*OnionMessageUpdate, error)
 	grpc.ClientStream
 }
 
@@ -1377,8 +1377,8 @@ type lightningSubscribeOnionMessagesClient struct {
 	grpc.ClientStream
 }
 
-func (x *lightningSubscribeOnionMessagesClient) Recv() (*OnionMessage, error) {
-	m := new(OnionMessage)
+func (x *lightningSubscribeOnionMessagesClient) Recv() (*OnionMessageUpdate, error) {
+	m := new(OnionMessageUpdate)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -3346,7 +3346,7 @@ func _Lightning_SubscribeOnionMessages_Handler(srv interface{}, stream grpc.Serv
 }
 
 type Lightning_SubscribeOnionMessagesServer interface {
-	Send(*OnionMessage) error
+	Send(*OnionMessageUpdate) error
 	grpc.ServerStream
 }
 
@@ -3354,7 +3354,7 @@ type lightningSubscribeOnionMessagesServer struct {
 	grpc.ServerStream
 }
 
-func (x *lightningSubscribeOnionMessagesServer) Send(m *OnionMessage) error {
+func (x *lightningSubscribeOnionMessagesServer) Send(m *OnionMessageUpdate) error {
 	return x.ServerStream.SendMsg(m)
 }
 

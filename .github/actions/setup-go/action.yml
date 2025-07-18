@@ -24,6 +24,16 @@ runs:
         go-version: '${{ inputs.go-version }}'
         cache: 'false'
 
+    # When we run go build or go test, the Go compiler calculates a signature
+    # for each package based on the content of its `.go` source files, its
+    # dependencies, and the compiler flags. It then checks the restored build
+    # cache for an entry matching that exact signature to speed up the jobs.
+    # - Cache Hit: If an entry exists (meaning the source files and
+    #   dependencies haven't changed), it reuses the compiled artifact directly
+    #   from the cache.  
+    # - Cache Miss: If no entry exists (because we changed a line of code), it
+    #   recompiles that specific package and stores the new result in the cache
+    #   for the next time.
     - name: go cache
       if: ${{ inputs.use-build-cache == 'yes' }}
       uses: actions/cache@v4
@@ -38,11 +48,31 @@ runs:
           ~/.cache/go-build
           ~/Library/Caches/go-build
           ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+
+        # The key is used to create and later look up the cache. It's made of
+        # four parts:  
+        # - The base part is made from the OS name, Go version and a
+        #   job-specified key prefix. Example: `linux-go-1.23.10-unit-test-`.
+        #   It ensures that a job running on Linux with Go 1.23 only looks for
+        #   caches from the same environment.
+        # - The unique part is the `hashFiles('**/go.sum')`, which calculates a
+        #   hash (a fingerprint) of the go.sum file. 
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ hashFiles('**/go.sum') }}
+
+        # The restore-keys provides a list of fallback keys. If no cache
+        # matches the key exactly, the action will look for a cache where the
+        # key starts with one of the restore-keys. The action searches the
+        # restore-keys list in order and restores the most recently created
+        # cache that matches the prefix. Once the job is done, a new cache is
+        # created and saved using the new key. 
         restore-keys: |
-          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-
           ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-
 
+    # The complete, downloaded source code of all our dependencies (the
+    # libraries lnd project imports). This prevents the go command from having
+    # to re-download every dependency from the internet on every single job
+    # run. It's like having a local library of all the third-party code lnd
+    # needs.
     - name: go module cache
       if: ${{ inputs.use-build-cache == 'no' }}
       uses: actions/cache@v4
@@ -50,9 +80,8 @@ runs:
         # Just the module download cache.
         path: |
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-no-build-cache-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-no-build-cache-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-no-build-cache-${{ github.job }}-
           ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-no-build-cache-
 
     - name: set GOPATH

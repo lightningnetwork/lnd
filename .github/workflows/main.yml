@@ -11,6 +11,12 @@ on:
     branches:
       - "master"
 
+permissions:
+  # Required to manage and delete caches.
+  actions: write
+  # Default permission for checking out code.
+  contents: read
+
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.
   group: ${{ github.event.pull_request.number || github.ref }}
@@ -37,60 +43,67 @@ env:
   GO_VERSION: 1.23.10
 
 jobs:
-  ########################
-  # SQLC code gen check 
-  ########################
-  sqlc-check:
-    name: Sqlc check
+  static-checks:
+    name: Static Checks
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
+        with:
+          # Needed for some checks.
+          fetch-depth: 0
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Setup Go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          use-build-cache: 'no'
 
-      - name: docker image cache
+      ########################
+      # sample configuration check
+      ########################
+      - name: Check default values in sample-lnd.conf file
+        run: make sample-conf-check
+
+      ########################
+      # Check code and RPC format
+      ########################
+      - name: Check code format
+        run: make fmt-check
+
+      - name: Check go modules tidiness 
+        run: make tidy-module-check
+
+      - name: Lint proto files
+        run: make protolint
+
+      ########################
+      # SQLC code gen check 
+      ########################
+      - name: Docker image cache
         uses: satackey/action-docker-layer-caching@v0.0.11
         # Ignore the failure of a step and avoid terminating the job.
         continue-on-error: true
 
-      - name: Generate sql models
+      - name: Check SQL models
         run: make sqlc-check
 
-  ########################
-  # RPC and mobile compilation check
-  ########################
-  rpc-check:
-    name: RPC and mobile compilation check
-    runs-on: ubuntu-latest
-    steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: run check
+      ########################
+      # RPC and mobile compilation check
+      ########################
+      - name: Check RPC format
         run: make rpc-check
 
-      - name: run JSON/WASM stub compilation check
+      - name: Check JSON/WASM stub compilation
         run: make rpc-js-compile
 
-      - name: build mobile RPC bindings
+      - name: Check mobile RPC bindings
         run: make mobile-rpc
 
-      - name: build mobile specific code
+      - name: Check mobile specific code
         run: go build --tags="mobile" ./mobile
 
   ########################
@@ -98,21 +111,23 @@ jobs:
   ########################
   check-commits:
     if: github.event_name == 'pull_request'
-    name: check commits
+    name: Check commits
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
+          # Use the same cache from unit test job to save time.
+          key-prefix: unit-test
 
       - name: fetch and rebase on ${{ github.base_ref }}
         uses: ./.github/actions/rebase
@@ -124,30 +139,23 @@ jobs:
   # lint code
   ########################
   lint:
-    name: lint code
+    name: Lint code
     runs-on: ubuntu-latest
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
       - name: git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
       - name: setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
-
-      - name: check code format
-        run: make fmt-check
-
-      - name: check go modules tidiness 
-        run: make tidy-module-check
-
-      - name: lint proto files
-        run: make protolint
+          # Use the same cache from unit test job to save time.
+          key-prefix: unit-test
 
       - name: lint
         run: GOGC=50 make lint
@@ -156,7 +164,7 @@ jobs:
   # cross compilation
   ########################
   cross-compile:
-    name: cross compilation
+    name: Cross compilation
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -170,48 +178,27 @@ jobs:
           - name: arm
             sys: darwin-arm64 freebsd-arm linux-armv6 linux-armv7 linux-arm64 windows-arm
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: cross-compile
           use-build-cache: 'no'
 
-      - name: build release for all architectures
+      - name: Build release for all architectures
         run: make release sys="${{ matrix.sys }}"
-
-  ########################
-  # sample configuration check
-  ########################
-  sample-conf-check:
-    name: sample configuration check
-    runs-on: ubuntu-latest
-    steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
-        uses: actions/checkout@v4
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: check default values in sample-lnd.conf file
-        run: make sample-conf-check
 
   ########################
   # run unit tests
   ########################
   unit-test:
-    name: run unit tests
+    name: Run unit tests
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -228,37 +215,37 @@ jobs:
           - unit-module
 
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: fetch and rebase on ${{ github.base_ref }}
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: git checkout fuzzing seeds
+      - name: Git checkout fuzzing seeds
         uses: actions/checkout@v4
         with:
           repository: lightninglabs/lnd-fuzz
           path: lnd-fuzz
 
-      - name: rsync fuzzing seeds
+      - name: Rsync fuzzing seeds
         run: rsync -a --ignore-existing lnd-fuzz/ ./
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: unit-test
 
-      - name: install bitcoind
+      - name: Install bitcoind
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
-      - name: run ${{ matrix.unit_type }}
+      - name: Run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
 
       - name: Clean coverage
@@ -280,7 +267,7 @@ jobs:
   # run integration tests with TRANCHES
   ########################
   basic-integration-test:
-    name: basic itests
+    name: Run basic itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
@@ -297,28 +284,28 @@ jobs:
           - name: neutrino
             args: backend=neutrino cover=1
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: fetch and rebase on ${{ github.base_ref }}
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
-      - name: install bitcoind
+      - name: Install bitcoind
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
-      - name: run ${{ matrix.name }}
+      - name: Run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
@@ -352,7 +339,7 @@ jobs:
   # run integration tests with SMALL_TRANCHES
   ########################
   integration-test:
-    name: itests
+    name: Run itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
@@ -377,25 +364,28 @@ jobs:
           - name: bitcoind-postgres-nativesql-experiment
             args: backend=bitcoind dbbackend=postgres nativesql=true tags=test_native_sql
     steps:
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: fetch and rebase on ${{ github.base_ref }}
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
-      - name: install bitcoind
+      - name: Install bitcoind
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
-      - name: run ${{ matrix.name }}
+      - name: Run ${{ matrix.name }}
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} ${{ matrix.args }} shuffleseed=${{ github.run_id }}${{ strategy.job-index }}
 
       - name: Clean coverage
@@ -430,29 +420,29 @@ jobs:
   # run windows integration test
   ########################
   windows-integration-test:
-    name: windows itest
+    name: Run windows itest
     runs-on: windows-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: fetch and rebase on ${{ github.base_ref }}
+      - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
-      - name: run itest
+      - name: Run itest
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} windows=1 shuffleseed=${{ github.run_id }}
         
-      - name: kill any remaining lnd processes
+      - name: Kill any remaining lnd processes
         if: ${{ failure() }}
         shell: powershell
         run: taskkill /IM lnd-itest.exe /T /F
@@ -474,26 +464,26 @@ jobs:
   # run macOS integration test
   ########################
   macos-integration-test:
-    name: macOS itest
+    name: Run macOS itest
     runs-on: macos-14
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: fetch and rebase on ${{ github.base_ref }}
+      - name: Fetch and rebase on ${{ github.base_ref }}
         if: github.event_name == 'pull_request'
         uses: ./.github/actions/rebase
 
-      - name: setup go ${{ env.GO_VERSION }}
+      - name: Setup go ${{ env.GO_VERSION }}
         uses: ./.github/actions/setup-go
         with:
           go-version: '${{ env.GO_VERSION }}'
           key-prefix: integration-test
 
-      - name: run itest
+      - name: Run itest
         run: make itest-parallel tranches=${{ env.SMALL_TRANCHES }} shuffleseed=${{ github.run_id }}
 
       - name: Zip log files on failure
@@ -513,7 +503,7 @@ jobs:
   # check pinned dependencies
   ########################
   dep-pin:
-    name: check pinned dependencies
+    name: Check pinned dependencies
     runs-on: ubuntu-latest
     strategy:
       # Allow other tests in the matrix to continue if one fails.
@@ -524,53 +514,95 @@ jobs:
           - github.com/golang/protobuf v1.5.3
 
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
 
-      - name: ensure dependencies at correct version
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Ensure dependencies at correct version
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
 
   ########################
   # check PR updates release notes
   ########################
   milestone-check:
-    name: check release notes updated
+    name: Check release notes updated
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
-      - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache
-
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
 
-      - name: release notes check
+      - name: Clean up runner space
+        uses: ./.github/actions/cleanup-space
+
+      - name: Release notes check
         run: scripts/check-release-notes.sh
 
   ########################
   # Backwards Compatibility Test
   ########################
-  backwards-compatability-test:
-    name: backwards compatability test
+  backwards-compatibility-test:
+    name: Backwards compatibility test
     runs-on: ubuntu-latest
     steps:
-      - name: git checkout
+      - name: Git checkout
         uses: actions/checkout@v4
 
       - name: 🐳 Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 🛡️ backwards compatibility test
+      - name: 🛡️ Backwards compatibility test
         run: make backwards-compat-test
+
+  #########################################
+  # Auto Cache Cleanup on Pull Requests
+  #########################################
+  auto-cleanup-cache:
+    name: Cache Cleanup
+    runs-on: ubuntu-latest
+
+    # This condition checks for pull requests from authors with write access.
+    if: >-
+      contains('OWNER, MEMBER, COLLABORATOR', github.event.pull_request.author_association)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Delete caches older than 12 hours
+        continue-on-error: true
+        env:
+          # GITHUB_TOKEN is required for the gh CLI.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Finding caches not used in the last 12 hours..."
+
+          # Get the current time and the cutoff time (12 hours ago) in Unix
+          # timestamp format.
+          cutoff_timestamp=$(date -d "12 hours ago" +%s)
+
+          # Use gh and jq to parse caches. Delete any cache last accessed
+          # before the cutoff time.
+          gh cache list --json key,lastAccessedAt | jq -r '.[] |
+          select(.lastAccessedAt != null) | "\(.lastAccessedAt) \(.key)"' |
+          while read -r last_accessed_at key; do
+            last_accessed_timestamp=$(date -d "$last_accessed_at" +%s)
+
+            if (( last_accessed_timestamp < cutoff_timestamp )); then
+              echo "Deleting old cache. Key: $key, Last Used: $last_accessed_at"
+              gh cache delete "$key"
+            fi
+          done
 
   # Notify about the completion of all coverage collecting jobs.
   finish:
-    if: ${{ always() }}
+    name: Send coverage report
+    if: ${{ !cancelled() }}
     needs: [unit-test, basic-integration-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Send coverage
         uses: coverallsapp/github-action@v2

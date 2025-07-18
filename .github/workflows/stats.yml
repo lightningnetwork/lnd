@@ -4,12 +4,21 @@ on:
   pull_request:
     types: [opened]
 
+permissions:
+  # Required to post stats as comments.
+  actions: write
+  # Default permission for checking out code.
+  contents: read
+
 jobs:
   stats:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
+
+    # Check if the PR is from the base repo (not a fork). Only the
+    # collaborators have the permission to create a side branch from the base
+    # repo, so this implicitly restricts who can run this job.
+    if: github.event.pull_request.head.repo.fork == false
+
     steps:
       - name: Run pull request stats
         uses: flowwer-dev/pull-request-stats@v2.11.0

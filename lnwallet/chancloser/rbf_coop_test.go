@@ -2003,12 +2003,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect, false,
-		)
-
-		// We should terminate in the negotiation state.
-		closeHarness.assertStateTransitions(
-			&ClosingNegotiation{},
+			noDustExpect, true,
 		)
 	})
 
@@ -2050,7 +2045,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			true, true,
 		)
 	})
 

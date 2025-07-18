@@ -511,7 +511,7 @@ jobs:
       matrix:
         pinned_dep:
           - google.golang.org/grpc v1.59.0
-          - github.com/golang/protobuf v1.5.3
+          - github.com/golang/protobuf v1.5.4
 
     steps:
       - name: Git checkout

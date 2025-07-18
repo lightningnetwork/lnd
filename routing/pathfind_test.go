@@ -4062,3 +4062,104 @@ func TestFindBlindedPaths(t *testing.T) {
 		"eve,bob,frank,alice,dave",
 	})
 }
+
+// TestQueryRoutesWithMPPRecord tests that when a payment_addr is provided
+// in the route request, the resulting route includes an MPP record in the
+// final hop.
+func TestQueryRoutesWithMPPRecord(t *testing.T) {
+	t.Parallel()
+
+	// Create test pubkeys.
+	var (
+		alice  = route.Vertex{1}
+		bob    = route.Vertex{2}
+		target = route.Vertex{3}
+	)
+
+	// Create a simple path.
+	testPath := []*unifiedEdge{
+		{
+			policy: &models.CachedEdgePolicy{
+				ChannelID: 1,
+				ToNodePubKey: func() route.Vertex {
+					return bob
+				},
+				ToNodeFeatures: lnwire.EmptyFeatureVector(),
+			},
+			capacity: btcutil.SatoshiPerBitcoin,
+		},
+		{
+			policy: &models.CachedEdgePolicy{
+				ChannelID: 2,
+				ToNodePubKey: func() route.Vertex {
+					return target
+				},
+				ToNodeFeatures: lnwire.NewFeatureVector(
+					lnwire.NewRawFeatureVector(
+						lnwire.PaymentAddrOptional,
+					),
+					lnwire.Features,
+				),
+			},
+			capacity: btcutil.SatoshiPerBitcoin,
+		},
+	}
+
+	var (
+		paymentAmt     = lnwire.NewMSatFromSatoshis(100)
+		finalHopCLTV   = uint16(42)
+		startingHeight = uint32(100)
+	)
+
+	// Create a 32-byte payment address.
+	var paymentAddr [32]byte
+	for i := range paymentAddr {
+		paymentAddr[i] = byte(i)
+	}
+
+	// First test: route without payment_addr should not have MPP record.
+	route, err := newRoute(
+		alice, testPath, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			totalAmt:  paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+			// No payment_addr
+		}, nil,
+	)
+	require.NoError(t, err, "unable to create route")
+
+	// Verify that the last hop has no MPP record.
+	lastHop := route.Hops[len(route.Hops)-1]
+	require.Nil(t, lastHop.MPP,
+		"MPP record should not be present without payment_addr")
+
+	// Second test: route with payment_addr should have MPP record.
+	routeWithMPP, err := newRoute(
+		alice, testPath, startingHeight,
+		finalHopParams{
+			amt:         paymentAmt,
+			totalAmt:    paymentAmt,
+			cltvDelta:   finalHopCLTV,
+			records:     nil,
+			paymentAddr: fn.Some(paymentAddr),
+		}, nil,
+	)
+	require.NoError(t, err, "unable to create route")
+
+	// Verify that the last hop has MPP record.
+	lastHopWithMPP := routeWithMPP.Hops[len(routeWithMPP.Hops)-1]
+	require.NotNil(t, lastHopWithMPP.MPP,
+		"MPP record should be present with payment_addr")
+
+	// Verify MPP record contents.
+	require.Equal(t, paymentAmt, lastHopWithMPP.MPP.TotalMsat())
+	require.Equal(t, paymentAddr, lastHopWithMPP.MPP.PaymentAddr())
+
+	// Verify that non-final hops don't have MPP records.
+	for i := 0; i < len(routeWithMPP.Hops)-1; i++ {
+		require.Nil(t, routeWithMPP.Hops[i].MPP,
+			"MPP record should only be on final hop")
+	}
+}

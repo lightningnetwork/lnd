@@ -564,10 +564,11 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 	route, err := newRoute(
 		req.Source, path, uint32(currentHeight),
 		finalHopParams{
-			amt:       req.Amount,
-			totalAmt:  req.Amount,
-			cltvDelta: req.FinalExpiry,
-			records:   req.CustomRecords,
+			amt:         req.Amount,
+			totalAmt:    req.Amount,
+			cltvDelta:   req.FinalExpiry,
+			records:     req.CustomRecords,
+			paymentAddr: req.Restrictions.PaymentAddr,
 		}, req.BlindedPathSet,
 	)
 	if err != nil {

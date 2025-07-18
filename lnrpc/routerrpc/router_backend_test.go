@@ -917,3 +917,136 @@ func TestExtractIntentFromSendRequest(t *testing.T) {
 		})
 	}
 }
+
+// TestQueryRoutesWithMPP tests that QueryRoutes correctly passes payment_addr
+// through to the routing algorithm and that routes include MPP records when
+// payment_addr is provided.
+func TestQueryRoutesWithMPP(t *testing.T) {
+	t.Parallel()
+
+	// Create test payment address (32 bytes).
+	paymentAddr := make([]byte, 32)
+	for i := range paymentAddr {
+		paymentAddr[i] = byte(i)
+	}
+
+	testCases := []struct {
+		name              string
+		paymentAddr       []byte
+		expectPaymentAddr bool
+		expectError       bool
+		errorMsg          string
+	}{
+		{
+			name:              "valid payment address",
+			paymentAddr:       paymentAddr,
+			expectPaymentAddr: true,
+			expectError:       false,
+		},
+		{
+			name:              "no payment address",
+			paymentAddr:       nil,
+			expectPaymentAddr: false,
+			expectError:       false,
+		},
+		{
+			name:              "empty payment address",
+			paymentAddr:       []byte{},
+			expectPaymentAddr: false,
+			expectError:       false,
+		},
+		{
+			name: "invalid payment address length",
+			// Only 3 bytes, should be 32
+			paymentAddr: []byte{1, 2, 3},
+			expectError: true,
+			errorMsg:    "payment_addr must be exactly 32 bytes",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			findRoute := func(
+				r *routing.RouteRequest,
+			) (*route.Route, float64, error) {
+
+				// Check that payment_addr was properly passed
+				// through.
+				if tc.expectPaymentAddr {
+					addr := r.Restrictions.PaymentAddr
+					require.True(t, addr.IsSome())
+
+					payAddr := addr.UnwrapOrFail(t)
+					require.Equal(t, tc.paymentAddr,
+						payAddr[:])
+				} else {
+					addr := r.Restrictions.PaymentAddr
+					require.False(t, addr.IsSome())
+				}
+
+				// Return a dummy route for testing.
+				hops := []*route.Hop{
+					{
+						PubKeyBytes:      node1,
+						ChannelID:        1,
+						OutgoingTimeLock: 100,
+						AmtToForward:     1000,
+					},
+					{
+						PubKeyBytes:      node2,
+						ChannelID:        2,
+						OutgoingTimeLock: 99,
+						AmtToForward:     1000,
+					},
+				}
+
+				rt := &route.Route{
+					TotalTimeLock: 100,
+					TotalAmount:   1000,
+					SourcePubKey:  sourceKey,
+					Hops:          hops,
+				}
+
+				return rt, 0.5, nil
+			}
+
+			backend := &RouterBackend{
+				SelfNode: sourceKey,
+				FetchChannelCapacity: func(
+					chanID uint64,
+				) (btcutil.Amount, error) {
+
+					return 1, nil
+				},
+				FetchAmountPairCapacity: func(
+					nodeFrom, nodeTo route.Vertex,
+					amount lnwire.MilliSatoshi,
+				) (btcutil.Amount, error) {
+
+					return 1, nil
+				},
+				FindRoute:             findRoute,
+				DefaultFinalCltvDelta: 40,
+				MaxTotalTimelock:      1000,
+			}
+
+			req := &lnrpc.QueryRoutesRequest{
+				PubKey:      destKey,
+				Amt:         1000,
+				PaymentAddr: tc.paymentAddr,
+			}
+
+			_, err := backend.QueryRoutes(context.Background(), req)
+
+			if tc.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

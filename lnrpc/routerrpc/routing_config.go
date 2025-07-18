@@ -44,6 +44,9 @@ type RoutingConfig struct {
 
 	// FeeEstimationTimeout is the maximum time to wait for routing fees to be estimated.
 	FeeEstimationTimeout time.Duration `long:"fee-estimation-timeout" description:"the maximum time to wait for routing fees to be estimated by payment probes"`
+
+	// MPPConfig defines parameters for MPP enforcement.
+	MPPConfig *MPPConfig `group:"mpp" namespace:"mpp" description:"configuration for MPP (Multi-Path Payment) enforcement"`
 }
 
 // AprioriConfig defines parameters for the apriori probability.
@@ -88,4 +91,33 @@ type BimodalConfig struct {
 	// DecayTime is the scale for the exponential information decay over
 	// time for previous successes or failures.
 	DecayTime time.Duration `long:"decaytime" description:"Describes the information decay of knowledge about previous successes and failures in channels."`
+}
+
+// MPPConfig defines parameters for MPP (Multi-Path Payment) enforcement.
+//
+//nolint:ll
+type MPPConfig struct {
+	// EnforcementMode sets the global MPP enforcement mode.
+	EnforcementMode string `long:"enforcement-mode" choice:"legacy" choice:"warn" choice:"enforce" description:"Global MPP enforcement mode. Legacy disables validation, warn logs warnings, enforce rejects non-compliant payments."`
+
+	// QueryRoutesMode overrides enforcement mode for QueryRoutes RPC.
+	QueryRoutesMode string `long:"queryroutes-mode" choice:"legacy" choice:"warn" choice:"enforce" description:"Override enforcement mode for QueryRoutes RPC calls."`
+
+	// SendToRouteMode overrides enforcement mode for SendToRoute RPC.
+	SendToRouteMode string `long:"sendtoroute-mode" choice:"legacy" choice:"warn" choice:"enforce" description:"Override enforcement mode for SendToRoute RPC calls."`
+
+	// BuildRouteMode overrides enforcement mode for BuildRoute RPC.
+	BuildRouteMode string `long:"buildroute-mode" choice:"legacy" choice:"warn" choice:"enforce" description:"Override enforcement mode for BuildRoute RPC calls."`
+
+	// MetricsEnabled controls whether MPP validation metrics are collected.
+	MetricsEnabled bool `long:"metrics-enabled" description:"Enable collection of MPP validation metrics for monitoring and alerting."`
+
+	// EmergencyOverride forces legacy mode when enabled, bypassing all validation.
+	EmergencyOverride bool `long:"emergency-override" description:"Emergency override to disable all MPP validation. Use only in case of critical issues."`
+
+	// GracePeriodDays specifies the number of days before auto-upgrading from legacy to warn mode.
+	GracePeriodDays int `long:"grace-period-days" description:"Number of days grace period before automatically upgrading from legacy to warn mode. Set to 0 to disable."`
+
+	// DisableAutoUpgrade prevents automatic mode upgrades based on time.
+	DisableAutoUpgrade bool `long:"disable-auto-upgrade" description:"Disable automatic enforcement mode upgrades based on time or grace periods."`
 }

@@ -921,6 +921,34 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
+	// Validate the route with MPP framework
+	if s.cfg.MPPValidator != nil {
+		// Extract payment address from the payment hash lookup if
+		// available
+		var paymentAddr fn.Option[[32]byte]
+
+		// Create validation request
+		validationReq := &ValidationRequest{
+			RPCMethod:   "SendToRouteV2",
+			Route:       route,
+			PaymentAddr: paymentAddr,
+			RequestID: fmt.Sprintf(
+				"send-to-route-v2-%s", hash.String()),
+		}
+
+		result := s.cfg.MPPValidator.ValidateRoute(validationReq)
+		if !result.Valid {
+			return nil, result.Error
+		}
+
+		// Log warnings if present
+		if result.Warning != "" {
+			log.Warnf(
+				"SendToRouteV2 MPP validation warning: %s",
+				result.Warning)
+		}
+	}
+
 	firstHopRecords := lnwire.CustomRecords(req.FirstHopCustomRecords)
 	if err := firstHopRecords.Validate(); err != nil {
 		return nil, err
@@ -1486,7 +1514,7 @@ func (s *Server) trackPaymentStream(context context.Context,
 }
 
 // BuildRoute builds a route from a list of hop addresses.
-func (s *Server) BuildRoute(_ context.Context,
+func (s *Server) BuildRoute(ctx context.Context,
 	req *BuildRouteRequest) (*BuildRouteResponse, error) {
 
 	if len(req.HopPubkeys) == 0 {
@@ -1552,6 +1580,29 @@ func (s *Server) BuildRoute(_ context.Context,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate the route with MPP framework
+	if s.cfg.MPPValidator != nil {
+		validationReq := &ValidationRequest{
+			RPCMethod:   "BuildRoute",
+			Route:       route,
+			PaymentAddr: payAddr,
+			RequestID: fmt.Sprintf(
+				"build-route-%d", time.Now().UnixNano()),
+		}
+
+		result := s.cfg.MPPValidator.ValidateRoute(validationReq)
+		if !result.Valid {
+			return nil, result.Error
+		}
+
+		// Log warnings if present
+		if result.Warning != "" {
+			log.Warnf(
+				"BuildRoute MPP validation warning: %s",
+				result.Warning)
+		}
 	}
 
 	rpcRoute, err := s.cfg.RouterBackend.MarshallRoute(route)

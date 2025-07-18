@@ -413,6 +413,20 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		BlindedPaymentPathSet: blindedPathSet,
 	}
 
+	// If a payment address is provided, validate it and add it to the
+	// restrictions. Payment address must be exactly 32 bytes when provided.
+	if len(in.PaymentAddr) > 0 {
+		if len(in.PaymentAddr) != 32 {
+			return nil, fmt.Errorf(
+				"payment_addr must be exactly 32 bytes, got %d",
+				len(in.PaymentAddr))
+		}
+
+		var paymentAddr [32]byte
+		copy(paymentAddr[:], in.PaymentAddr)
+		restrictions.PaymentAddr = fn.Some(paymentAddr)
+	}
+
 	// We set the outgoing channel restrictions if the user provides a
 	// list of channel ids. We also handle the case where the user
 	// provides the deprecated `OutgoingChanId` field.

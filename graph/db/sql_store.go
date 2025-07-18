@@ -93,9 +93,11 @@ type SQLQueries interface {
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GraphChannel, error)
-	GetChannelByOutpoint(ctx context.Context, outpoint string) (sqlc.GetChannelByOutpointRow, error)
+	GetChannelsBySCIDs(ctx context.Context, arg sqlc.GetChannelsBySCIDsParams) ([]sqlc.GraphChannel, error)
+	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]sqlc.GetChannelsByOutpointsRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
+	GetChannelsBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelsBySCIDWithPoliciesParams) ([]sqlc.GetChannelsBySCIDWithPoliciesRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]sqlc.GetChannelFeaturesAndExtrasRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
@@ -106,7 +108,7 @@ type SQLQueries interface {
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg sqlc.GetPublicV1ChannelsBySCIDParams) ([]sqlc.GraphChannel, error)
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
-	DeleteChannel(ctx context.Context, id int64) error
+	DeleteChannels(ctx context.Context, ids []int64) error
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
@@ -182,6 +184,9 @@ type SQLStoreConfig struct {
 	// ChainHash is the genesis hash for the chain that all the gossip
 	// messages in this store are aimed at.
 	ChainHash chainhash.Hash
+
+	// PaginationCfg is the configuration for paginated queries.
+	PaginationCfg *sqldb.PagedQueryConfig
 }
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
@@ -1708,26 +1713,26 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
+	// Keep track of which channels we end up finding so that we can
+	// correctly return ErrEdgeNotFound if we do not find a channel.
+	chanLookup := make(map[uint64]struct{}, len(chanIDs))
+	for _, chanID := range chanIDs {
+		chanLookup[chanID] = struct{}{}
+	}
+
 	var (
 		ctx     = context.TODO()
 		deleted []*models.ChannelEdgeInfo
 	)
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		for _, chanID := range chanIDs {
-			chanIDB := channelIDToBytes(chanID)
+		chanIDsToDelete := make([]int64, 0, len(chanIDs))
+		chanCallBack := func(ctx context.Context,
+			row sqlc.GetChannelsBySCIDWithPoliciesRow) error {
 
-			row, err := db.GetChannelBySCIDWithPolicies(
-				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
-					Scid:    chanIDB,
-					Version: int16(ProtocolV1),
-				},
-			)
-			if errors.Is(err, sql.ErrNoRows) {
-				return ErrEdgeNotFound
-			} else if err != nil {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
-			}
+			// Deleting the entry from the map indicates that we
+			// have found the channel.
+			scid := byteOrder.Uint64(row.GraphChannel.Scid)
+			delete(chanLookup, scid)
 
 			node1, node2, err := buildNodeVertices(
 				row.GraphNode.PubKey, row.GraphNode_2.PubKey,
@@ -1744,16 +1749,13 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
-			if err != nil {
-				return fmt.Errorf("unable to delete "+
-					"channel: %w", err)
-			}
-
 			deleted = append(deleted, info)
+			chanIDsToDelete = append(
+				chanIDsToDelete, row.GraphChannel.ID,
+			)
 
 			if !markZombie {
-				continue
+				return nil
 			}
 
 			nodeKey1, nodeKey2 := info.NodeKey1Bytes,
@@ -1781,7 +1783,7 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 			err = db.UpsertZombieChannel(
 				ctx, sqlc.UpsertZombieChannelParams{
 					Version:  int16(ProtocolV1),
-					Scid:     chanIDB,
+					Scid:     channelIDToBytes(scid),
 					NodeKey1: nodeKey1[:],
 					NodeKey2: nodeKey2[:],
 				},
@@ -1790,11 +1792,29 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 				return fmt.Errorf("unable to mark channel as "+
 					"zombie: %w", err)
 			}
+
+			return nil
 		}
 
-		return nil
+		err := s.forEachChanWithPoliciesInSCIDList(
+			ctx, db, chanCallBack, chanIDs,
+		)
+		if err != nil {
+			return err
+		}
+
+		if len(chanLookup) > 0 {
+			return ErrEdgeNotFound
+		}
+
+		return s.deleteChannels(ctx, db, chanIDsToDelete)
 	}, func() {
 		deleted = nil
+
+		// Re-fill the lookup map.
+		for _, chanID := range chanIDs {
+			chanLookup[chanID] = struct{}{}
+		}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to delete channel edges: %w",
@@ -2166,27 +2186,11 @@ func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 	var (
 		ctx   = context.TODO()
-		edges []ChannelEdge
+		edges = make(map[uint64]ChannelEdge)
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		for _, chanID := range chanIDs {
-			chanIDB := channelIDToBytes(chanID)
-
-			// TODO(elle): potentially optimize this by using
-			//  sqlc.slice() once that works for both SQLite and
-			//  Postgres.
-			row, err := db.GetChannelBySCIDWithPolicies(
-				ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
-					Scid:    chanIDB,
-					Version: int16(ProtocolV1),
-				},
-			)
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			} else if err != nil {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
-			}
+		chanCallBack := func(ctx context.Context,
+			row sqlc.GetChannelsBySCIDWithPoliciesRow) error {
 
 			node1, node2, err := buildNodes(
 				ctx, db, row.GraphNode, row.GraphNode_2,
@@ -2221,24 +2225,64 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 					"policies: %w", err)
 			}
 
-			edges = append(edges, ChannelEdge{
+			edges[edge.ChannelID] = ChannelEdge{
 				Info:    edge,
 				Policy1: p1,
 				Policy2: p2,
 				Node1:   node1,
 				Node2:   node2,
-			})
+			}
+
+			return nil
 		}
 
-		return nil
+		return s.forEachChanWithPoliciesInSCIDList(
+			ctx, db, chanCallBack, chanIDs,
+		)
 	}, func() {
-		edges = nil
+		clear(edges)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch channels: %w", err)
 	}
 
-	return edges, nil
+	res := make([]ChannelEdge, 0, len(edges))
+	for _, chanID := range chanIDs {
+		edge, ok := edges[chanID]
+		if !ok {
+			continue
+		}
+
+		res = append(res, edge)
+	}
+
+	return res, nil
+}
+
+// forEachChanWithPoliciesInSCIDList is a wrapper around the
+// GetChannelsBySCIDWithPolicies query that allows us to iterate through
+// channels in a paginated manner.
+func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
+	db SQLQueries, cb func(ctx context.Context,
+		row sqlc.GetChannelsBySCIDWithPoliciesRow) error,
+	chanIDs []uint64) error {
+
+	queryWrapper := func(ctx context.Context,
+		scids [][]byte) ([]sqlc.GetChannelsBySCIDWithPoliciesRow,
+		error) {
+
+		return db.GetChannelsBySCIDWithPolicies(
+			ctx, sqlc.GetChannelsBySCIDWithPoliciesParams{
+				Version: int16(ProtocolV1),
+				Scids:   scids,
+			},
+		)
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, chanIDs, channelIDToBytes,
+		queryWrapper, cb,
+	)
 }
 
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan
@@ -2256,31 +2300,49 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 		ctx          = context.TODO()
 		newChanIDs   []uint64
 		knownZombies []ChannelUpdateInfo
+		infoLookup   = make(
+			map[uint64]ChannelUpdateInfo, len(chansInfo),
+		)
 	)
+
+	// We first build a lookup map of the channel ID's to the
+	// ChannelUpdateInfo. This allows us to quickly delete channels that we
+	// already know about.
+	for _, chanInfo := range chansInfo {
+		infoLookup[chanInfo.ShortChannelID.ToUint64()] = chanInfo
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		// The call-back function deletes known channels from
+		// infoLookup, so that we can later check which channels are
+		// zombies by only looking at the remaining channels in the set.
+		cb := func(ctx context.Context,
+			channel sqlc.GraphChannel) error {
+
+			delete(infoLookup, byteOrder.Uint64(channel.Scid))
+
+			return nil
+		}
+
+		err := s.forEachChanInSCIDList(ctx, db, cb, chansInfo)
+		if err != nil {
+			return fmt.Errorf("unable to iterate through "+
+				"channels: %w", err)
+		}
+
+		// We want to ensure that we deal with the channels in the
+		// same order that they were passed in, so we iterate over the
+		// original chansInfo slice and then check if that channel is
+		// still in the infoLookup map.
 		for _, chanInfo := range chansInfo {
 			channelID := chanInfo.ShortChannelID.ToUint64()
-			chanIDB := channelIDToBytes(channelID)
-
-			// TODO(elle): potentially optimize this by using
-			//  sqlc.slice() once that works for both SQLite and
-			//  Postgres.
-			_, err := db.GetChannelBySCID(
-				ctx, sqlc.GetChannelBySCIDParams{
-					Version: int16(ProtocolV1),
-					Scid:    chanIDB,
-				},
-			)
-			if err == nil {
+			if _, ok := infoLookup[channelID]; !ok {
 				continue
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
 			}
 
 			isZombie, err := db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
-					Scid:    chanIDB,
+					Scid:    channelIDToBytes(channelID),
 					Version: int16(ProtocolV1),
 				},
 			)
@@ -2302,12 +2364,48 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 	}, func() {
 		newChanIDs = nil
 		knownZombies = nil
+		// Rebuild the infoLookup map in case of a rollback.
+		for _, chanInfo := range chansInfo {
+			scid := chanInfo.ShortChannelID.ToUint64()
+			infoLookup[scid] = chanInfo
+		}
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to fetch channels: %w", err)
 	}
 
 	return newChanIDs, knownZombies, nil
+}
+
+// forEachChanInSCIDList is a helper method that executes a paged query
+// against the database to fetch all channels that match the passed
+// ChannelUpdateInfo slice. The callback function is called for each channel
+// that is found.
+func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
+	cb func(ctx context.Context, channel sqlc.GraphChannel) error,
+	chansInfo []ChannelUpdateInfo) error {
+
+	queryWrapper := func(ctx context.Context,
+		scids [][]byte) ([]sqlc.GraphChannel, error) {
+
+		return db.GetChannelsBySCIDs(
+			ctx, sqlc.GetChannelsBySCIDsParams{
+				Version: int16(ProtocolV1),
+				Scids:   scids,
+			},
+		)
+	}
+
+	chanIDConverter := func(chanInfo ChannelUpdateInfo) []byte {
+		channelID := chanInfo.ShortChannelID.ToUint64()
+
+		return channelIDToBytes(channelID)
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, chansInfo, chanIDConverter,
+		queryWrapper, cb,
+	)
 }
 
 // PruneGraphNodes is a garbage collection method which attempts to prune out
@@ -2362,22 +2460,11 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		prunedNodes []route.Vertex
 	)
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		for _, outpoint := range spentOutputs {
-			// TODO(elle): potentially optimize this by using
-			//  sqlc.slice() once that works for both SQLite and
-			//  Postgres.
-			//
-			// NOTE: this fetches channels for all protocol
-			// versions.
-			row, err := db.GetChannelByOutpoint(
-				ctx, outpoint.String(),
-			)
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			} else if err != nil {
-				return fmt.Errorf("unable to fetch channel: %w",
-					err)
-			}
+		var chansToDelete []int64
+
+		// Define the callback function for processing each channel.
+		channelCallback := func(ctx context.Context,
+			row sqlc.GetChannelsByOutpointsRow) error {
 
 			node1, node2, err := buildNodeVertices(
 				row.Node1Pubkey, row.Node2Pubkey,
@@ -2394,16 +2481,28 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
-			if err != nil {
-				return fmt.Errorf("unable to delete "+
-					"channel: %w", err)
-			}
-
 			closedChans = append(closedChans, info)
+			chansToDelete = append(
+				chansToDelete, row.GraphChannel.ID,
+			)
+
+			return nil
 		}
 
-		err := db.UpsertPruneLogEntry(
+		err := s.forEachChanInOutpoints(
+			ctx, db, spentOutputs, channelCallback,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch channels by "+
+				"outpoints: %w", err)
+		}
+
+		err = s.deleteChannels(ctx, db, chansToDelete)
+		if err != nil {
+			return fmt.Errorf("unable to delete channels: %w", err)
+		}
+
+		err = db.UpsertPruneLogEntry(
 			ctx, sqlc.UpsertPruneLogEntryParams{
 				BlockHash:   blockHash[:],
 				BlockHeight: int64(blockHeight),
@@ -2437,6 +2536,56 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	}
 
 	return closedChans, prunedNodes, nil
+}
+
+// forEachChanInOutpoints is a helper function that executes a paginated
+// query to fetch channels by their outpoints and applies the given call-back
+// to each.
+//
+// NOTE: this fetches channels for all protocol versions.
+func (s *SQLStore) forEachChanInOutpoints(ctx context.Context, db SQLQueries,
+	outpoints []*wire.OutPoint, cb func(ctx context.Context,
+		row sqlc.GetChannelsByOutpointsRow) error) error {
+
+	// Create a wrapper that uses the transaction's db instance to execute
+	// the query.
+	queryWrapper := func(ctx context.Context,
+		pageOutpoints []string) ([]sqlc.GetChannelsByOutpointsRow,
+		error) {
+
+		return db.GetChannelsByOutpoints(ctx, pageOutpoints)
+	}
+
+	// Define the conversion function from Outpoint to string.
+	outpointToString := func(outpoint *wire.OutPoint) string {
+		return outpoint.String()
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, outpoints, outpointToString,
+		queryWrapper, cb,
+	)
+}
+
+func (s *SQLStore) deleteChannels(ctx context.Context, db SQLQueries,
+	dbIDs []int64) error {
+
+	// Create a wrapper that uses the transaction's db instance to execute
+	// the query.
+	queryWrapper := func(ctx context.Context, ids []int64) ([]any, error) {
+		return nil, db.DeleteChannels(ctx, ids)
+	}
+
+	idConverter := func(id int64) int64 {
+		return id
+	}
+
+	return sqldb.ExecutePagedQuery(
+		ctx, s.cfg.PaginationCfg, dbIDs, idConverter,
+		queryWrapper, func(ctx context.Context, _ any) error {
+			return nil
+		},
+	)
 }
 
 // ChannelView returns the verifiable edge information for each active channel
@@ -2614,7 +2763,8 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 			return fmt.Errorf("unable to fetch channels: %w", err)
 		}
 
-		for _, row := range rows {
+		chanIDsToDelete := make([]int64, len(rows))
+		for i, row := range rows {
 			node1, node2, err := buildNodeVertices(
 				row.Node1PubKey, row.Node2PubKey,
 			)
@@ -2630,13 +2780,13 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 				return err
 			}
 
-			err = db.DeleteChannel(ctx, row.GraphChannel.ID)
-			if err != nil {
-				return fmt.Errorf("unable to delete "+
-					"channel: %w", err)
-			}
-
+			chanIDsToDelete[i] = row.GraphChannel.ID
 			removedChans = append(removedChans, channel)
+		}
+
+		err = s.deleteChannels(ctx, db, chanIDsToDelete)
+		if err != nil {
+			return fmt.Errorf("unable to delete channels: %w", err)
 		}
 
 		return db.DeletePruneLogEntriesInRange(
@@ -4216,6 +4366,50 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 
 	var policy1, policy2 *sqlc.GraphChannelPolicy
 	switch r := row.(type) {
+	case sqlc.GetChannelsBySCIDWithPoliciesRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.GetChannelByOutpointWithPoliciesRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{

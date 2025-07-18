@@ -47,3 +47,39 @@ docker run \
   -v "$DIR/../:/build" \
   -w /build \
   "sqlc/sqlc:${SQLC_VERSION}" generate
+
+# Because we're using the Postgres dialect of sqlc, we can't use sqlc.slice()
+# normally, because sqlc just thinks it can pass the Golang slice directly to
+# the database driver. So it doesn't put the /*SLICE:<field_name>*/ workaround
+# comment into the actual SQL query. But we add the comment ourselves and now
+# just need to replace the '$X/*SLICE:<field_name>*/' placeholders with the
+# actual placeholder that's going to be replaced by the sqlc generated code.
+echo "Applying sqlc.slice() workaround..."
+for file in sqldb/sqlc/*.sql.go; do
+  echo "Patching $file"
+
+  # First, we replace the `$X/*SLICE:<field_name>*/` placeholders with
+  # the actual placeholder that sqlc will use: `/*SLICE:<field_name>*/?`.
+  sed -i.bak -E 's/\$([0-9]+)\/\*SLICE:([a-zA-Z_][a-zA-Z0-9_]*)\*\//\/\*SLICE:\2\*\/\?/g' "$file"
+
+  # Use perl for more complex multi-line replacement with function signature
+  # detection. This script will:
+  # 1. Detect if the function returns just error or (something, error)
+  # 2. Use appropriate return statement in error handling
+
+  perl -i.bak -pe '
+    BEGIN { $return_stmt = "nil, err"; }
+    # Detect function signature - if it only returns error, use "return err"
+    if (/^func.*\) error \{/) {
+      $return_stmt = "err";
+    }
+    # If it returns (something, error), use "return nil, err"
+    elsif (/^func.*\) \([^,)]+, error\) \{/) {
+      $return_stmt = "nil, err";
+    }
+    # Perform the replacement with the appropriate return statement
+    s/query = strings\.Replace\(query, "\/\*SLICE:([a-zA-Z_][a-zA-Z0-9_]*)\*\/\?", strings\.Repeat\(",\?", len\(([^)]+)\)\)\[1:\], 1\)/params, err := makeQueryParams(len(queryParams), len($2))\n\t\tif err != nil {\n\t\t\treturn $return_stmt\n\t\t}\n\t\tquery = strings.Replace(query, "\/\*SLICE:$1\*\/\?", params, 1)/g;
+  ' "$file"
+
+  rm "$file.bak"
+done

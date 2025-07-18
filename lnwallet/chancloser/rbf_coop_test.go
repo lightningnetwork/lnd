@@ -128,7 +128,7 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 	select {
 	case newState := <-stateSub.NewItemCreated.ChanOut():
 		t.Fatalf("unexpected state transition: %v", newState)
-	default:
+	case <-time.After(defaultPoll):
 	}
 }
 
@@ -701,14 +701,20 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	}
 
 	// Our outer state should transition to ClosingNegotiation state.
-	r.assertStateTransitions(&ClosingNegotiation{})
+	transitions := []RbfState{
+		&ClosingNegotiation{},
+	}
 
 	// If this is an iteration, then we'll go from ClosePending ->
 	// RemoteCloseStart -> ClosePending. So we'll assert an extra transition
 	// here.
 	if iteration {
-		r.assertStateTransitions(&ClosingNegotiation{})
+		transitions = append(transitions, &ClosingNegotiation{})
 	}
+
+	// Now that we know how many state transitions to expect, we'll wait
+	// for them.
+	r.assertStateTransitions(transitions...)
 
 	// If we examine the final resting state, we should see that the we're
 	// now in the ClosePending state for the remote peer.
@@ -1734,7 +1740,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
-	// If our balance, is dust, then the remote party should send a
+	// If our balance is dust, then the remote party should send a
 	// signature that doesn't include our output.
 	t.Run("recv_offer_err_closer_no_closee", func(t *testing.T) {
 		// We'll modify our local balance to be dust.

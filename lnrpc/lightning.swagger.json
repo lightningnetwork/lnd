@@ -1532,6 +1532,14 @@
               "format": "uint64"
             },
             "collectionFormat": "multi"
+          },
+          {
+            "name": "payment_addr",
+            "description": "An optional payment address to be included in the MPP record for the\npayment. If present, an MPP record will be included in the final hop\nof the returned route. This should be a 32-byte value when encoded.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [
@@ -1683,6 +1691,11 @@
                     "format": "uint64"
                   },
                   "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used."
+                },
+                "payment_addr": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "An optional payment address to be included in the MPP record for the\npayment. If present, an MPP record will be included in the final hop\nof the returned route. This should be a 32-byte value when encoded."
                 }
               }
             }

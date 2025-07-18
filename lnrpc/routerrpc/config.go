@@ -1,6 +1,8 @@
 package routerrpc
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
@@ -51,6 +53,9 @@ type Config struct {
 	// AliasMgr is the alias manager instance that is used to handle all the
 	// SCID alias related information for channels.
 	AliasMgr *aliasmgr.Manager
+
+	// MPPValidator validates MPP record requirements for payments.
+	MPPValidator *MPPValidator
 }
 
 // DefaultConfig defines the config defaults.
@@ -75,6 +80,13 @@ func DefaultConfig() *Config {
 			DecayTime:  routing.DefaultBimodalDecayTime,
 		},
 		FeeEstimationTimeout: routing.DefaultFeeEstimationTimeout,
+		MPPConfig: &MPPConfig{
+			EnforcementMode:    "warn",
+			MetricsEnabled:     true,
+			EmergencyOverride:  false,
+			GracePeriodDays:    90,
+			DisableAutoUpgrade: false,
+		},
 	}
 
 	return &Config{
@@ -103,5 +115,68 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 			DecayTime:  cfg.BimodalConfig.DecayTime,
 		},
 		FeeEstimationTimeout: cfg.FeeEstimationTimeout,
+		MPPConfig: &MPPConfig{
+			EnforcementMode:    cfg.MPPConfig.EnforcementMode,
+			QueryRoutesMode:    cfg.MPPConfig.QueryRoutesMode,
+			SendToRouteMode:    cfg.MPPConfig.SendToRouteMode,
+			BuildRouteMode:     cfg.MPPConfig.BuildRouteMode,
+			MetricsEnabled:     cfg.MPPConfig.MetricsEnabled,
+			EmergencyOverride:  cfg.MPPConfig.EmergencyOverride,
+			GracePeriodDays:    cfg.MPPConfig.GracePeriodDays,
+			DisableAutoUpgrade: cfg.MPPConfig.DisableAutoUpgrade,
+		},
 	}
+}
+
+// GetMPPValidationConfig converts the routing config MPP settings to
+// MPPValidationConfig.
+func GetMPPValidationConfig(cfg *RoutingConfig) (*MPPValidationConfig, error) {
+	if cfg.MPPConfig == nil {
+		return DefaultMPPValidationConfig(), nil
+	}
+
+	// Parse global enforcement mode
+	globalMode, err := ParseEnforcementMode(cfg.MPPConfig.EnforcementMode)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid global enforcement mode: %w", err)
+	}
+
+	// Parse per-RPC modes
+	perRPCModes := make(map[string]EnforcementMode)
+
+	if cfg.MPPConfig.QueryRoutesMode != "" {
+		mode, err := ParseEnforcementMode(cfg.MPPConfig.QueryRoutesMode)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid QueryRoutes enforcement mode: %w", err)
+		}
+		perRPCModes["QueryRoutes"] = mode
+	}
+
+	if cfg.MPPConfig.SendToRouteMode != "" {
+		mode, err := ParseEnforcementMode(cfg.MPPConfig.SendToRouteMode)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid SendToRoute enforcement mode: %w", err)
+		}
+		perRPCModes["SendToRoute"] = mode
+	}
+
+	if cfg.MPPConfig.BuildRouteMode != "" {
+		mode, err := ParseEnforcementMode(cfg.MPPConfig.BuildRouteMode)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"invalid BuildRoute enforcement mode: %w", err)
+		}
+		perRPCModes["BuildRoute"] = mode
+	}
+
+	return &MPPValidationConfig{
+		GlobalMode:        globalMode,
+		PerRPCModes:       perRPCModes,
+		EmergencyOverride: cfg.MPPConfig.EmergencyOverride,
+		MetricsEnabled:    cfg.MPPConfig.MetricsEnabled,
+		GracePeriodDays:   cfg.MPPConfig.GracePeriodDays,
+	}, nil
 }

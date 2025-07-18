@@ -569,8 +569,9 @@ WHERE c.version = $1 AND c.id > $2
 ORDER BY c.id
 LIMIT $3;
 
--- name: DeleteChannel :exec
-DELETE FROM graph_channels WHERE id = $1;
+-- name: DeleteChannels :exec
+DELETE FROM graph_channels
+WHERE id IN (sqlc.slice('ids')/*SLICE:ids*/);
 
 /* ─────────────────────────────────────────────
    graph_channel_features table queries

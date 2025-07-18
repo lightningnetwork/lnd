@@ -143,15 +143,6 @@ func (q *Queries) CreateChannelExtraType(ctx context.Context, arg CreateChannelE
 	return err
 }
 
-const deleteChannel = `-- name: DeleteChannel :exec
-DELETE FROM graph_channels WHERE id = $1
-`
-
-func (q *Queries) DeleteChannel(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, deleteChannel, id)
-	return err
-}
-
 const deleteChannelPolicyExtraTypes = `-- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM graph_channel_policy_extra_types
 WHERE channel_policy_id = $1
@@ -159,6 +150,26 @@ WHERE channel_policy_id = $1
 
 func (q *Queries) DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteChannelPolicyExtraTypes, channelPolicyID)
+	return err
+}
+
+const deleteChannels = `-- name: DeleteChannels :exec
+DELETE FROM graph_channels
+WHERE id IN (/*SLICE:ids*/?)
+`
+
+func (q *Queries) DeleteChannels(ctx context.Context, ids []int64) error {
+	query := deleteChannels
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", makeQueryParams(len(queryParams), len(ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
 	return err
 }
 

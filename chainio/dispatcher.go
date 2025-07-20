@@ -348,7 +348,8 @@ func notifyAndWait(b Blockbeat, c Consumer, timeout time.Duration) error {
 	select {
 	case err := <-errChan:
 		if err == nil {
-			break
+			b.logger().Debugf("Consumer[%s] processed block in %v", c.Name(), time.Since(start))
+			return nil
 		}
 
 		return fmt.Errorf("%s got err in ProcessBlock: %w", c.Name(),
@@ -359,8 +360,5 @@ func notifyAndWait(b Blockbeat, c Consumer, timeout time.Duration) error {
 			ErrProcessBlockTimeout)
 	}
 
-	b.logger().Debugf("Consumer[%s] processed block in %v", c.Name(),
-		time.Since(start))
-
-	return nil
+	// unreachable
 }

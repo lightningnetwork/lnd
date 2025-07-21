@@ -919,21 +919,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 
-	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses.
-	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	selfAddrs = append(selfAddrs, externalIPs...)
-
 	// Set the self node which represents our node in the graph.
-	err = s.setSelfNode(ctx, selfAddrs, serializedPubKey)
+	err = s.setSelfNode(ctx, externalIPStrings, serializedPubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -5555,13 +5542,13 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 // determining values such as color and alias, the method prioritizes values
 // set in the config, then values previously persisted on disk, and finally
 // falls back to the defaults.
-func (s *server) setSelfNode(ctx context.Context, selfAddrs []net.Addr,
+func (s *server) setSelfNode(ctx context.Context, externalIPStrings []string,
 	serializedPubKey [33]byte) error {
 
 	var (
 		color          color.RGBA
 		alias          = s.cfg.Alias
-		addrs          = selfAddrs
+		addrs          []net.Addr
 		nodeLastUpdate = time.Now()
 		err            error
 	)
@@ -5572,6 +5559,15 @@ func (s *server) setSelfNode(ctx context.Context, selfAddrs []net.Addr,
 	color, err = lncfg.ParseHexColor(s.cfg.Color)
 	if err != nil {
 		return fmt.Errorf("unable to parse color: %w", err)
+	}
+
+	// Normalize the external IP strings to net.Addr.
+	addrs, err = lncfg.NormalizeAddresses(
+		externalIPStrings, strconv.Itoa(defaultPeerPort),
+		s.cfg.net.ResolveTCPAddr,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to normalize addresses: %w", err)
 	}
 
 	// To avoid having duplicate addresses, we'll only add addresses from

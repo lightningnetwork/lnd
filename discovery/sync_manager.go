@@ -25,8 +25,9 @@ const (
 	// network as possible.
 	DefaultHistoricalSyncInterval = time.Hour
 
-	// filterSemaSize is the capacity of gossipFilterSema.
-	filterSemaSize = 5
+	// DefaultFilterConcurrency is the default maximum number of concurrent
+	// gossip filter applications that can be processed.
+	DefaultFilterConcurrency = 5
 
 	// DefaultMsgBytesBurst is the allotted burst in bytes we'll permit.
 	// This is the most that can be sent in a given go. Requests beyond
@@ -136,6 +137,10 @@ type SyncManagerCfg struct {
 	// AllotedMsgBytesBurst is the amount of burst bytes we'll permit, if
 	// we've exceeded the hard upper limit.
 	AllotedMsgBytesBurst uint64
+
+	// FilterConcurrency is the maximum number of concurrent gossip filter
+	// applications that can be processed. If not set, defaults to 5.
+	FilterConcurrency int
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -207,8 +212,13 @@ type SyncManager struct {
 // newSyncManager constructs a new SyncManager backed by the given config.
 func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
 
-	filterSema := make(chan struct{}, filterSemaSize)
-	for i := 0; i < filterSemaSize; i++ {
+	filterConcurrency := cfg.FilterConcurrency
+	if filterConcurrency == 0 {
+		filterConcurrency = DefaultFilterConcurrency
+	}
+
+	filterSema := make(chan struct{}, filterConcurrency)
+	for i := 0; i < filterConcurrency; i++ {
 		filterSema <- struct{}{}
 	}
 

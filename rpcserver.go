@@ -8787,9 +8787,26 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	}, nil
 }
 
-// CheckMacaroonPermissions checks the caveats and permissions of a macaroon.
+// CheckMacaroonPermissions checks whether the provided macaroon contains all
+// the provided permissions. If the macaroon is valid (e.g. all caveats are
+// satisfied), and all permissions provided in the request are met, then
+// this RPC returns true.
 func (r *rpcServer) CheckMacaroonPermissions(ctx context.Context,
 	req *lnrpc.CheckMacPermRequest) (*lnrpc.CheckMacPermResponse, error) {
+
+	// Sanity-check the input parameters to eliminate impossible
+	// combinations.
+	switch {
+	case len(req.Permissions) > 0 && req.CheckDefaultPermsFromFullMethod:
+		return nil, fmt.Errorf("cannot check default permissions " +
+			"from full method and from provided permission list " +
+			"at the same time")
+
+	case len(req.FullMethod) == 0 && req.CheckDefaultPermsFromFullMethod:
+		return nil, fmt.Errorf("cannot check default permissions " +
+			"from full method without providing the full method " +
+			"name")
+	}
 
 	// Turn grpc macaroon permission into bakery.Op for the server to
 	// process.
@@ -8799,6 +8816,22 @@ func (r *rpcServer) CheckMacaroonPermissions(ctx context.Context,
 			Entity: perm.Entity,
 			Action: perm.Action,
 		}
+	}
+
+	// If the user wants to check the default permissions for the
+	// full method, then we'll use the interceptor chain to obtain the
+	// default permissions for the full method. This overwrites the
+	// user-provided permissions parsed above, but those are required to be
+	// empty anyway if the flag is turned on.
+	if req.CheckDefaultPermsFromFullMethod {
+		allPerms := r.interceptorChain.Permissions()
+		methodPerms, ok := allPerms[req.FullMethod]
+		if !ok {
+			return nil, fmt.Errorf("no permissions found for "+
+				"full method %s", req.FullMethod)
+		}
+
+		permissions = methodPerms
 	}
 
 	err := r.macService.CheckMacAuth(

@@ -384,9 +384,10 @@ type LightningClient interface {
 	// ListPermissions lists all RPC method URIs and their required macaroon
 	// permissions to access them.
 	ListPermissions(ctx context.Context, in *ListPermissionsRequest, opts ...grpc.CallOption) (*ListPermissionsResponse, error)
-	// CheckMacaroonPermissions checks whether a request follows the constraints
-	// imposed on the macaroon and that the macaroon is authorized to follow the
-	// provided permissions.
+	// CheckMacaroonPermissions checks whether the provided macaroon contains all
+	// the provided permissions. If the macaroon is valid (e.g. all caveats are
+	// satisfied), and all permissions provided in the request are met, then
+	// this RPC returns true.
 	CheckMacaroonPermissions(ctx context.Context, in *CheckMacPermRequest, opts ...grpc.CallOption) (*CheckMacPermResponse, error)
 	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
 	// gRPC middleware is software component external to lnd that aims to add
@@ -1712,9 +1713,10 @@ type LightningServer interface {
 	// ListPermissions lists all RPC method URIs and their required macaroon
 	// permissions to access them.
 	ListPermissions(context.Context, *ListPermissionsRequest) (*ListPermissionsResponse, error)
-	// CheckMacaroonPermissions checks whether a request follows the constraints
-	// imposed on the macaroon and that the macaroon is authorized to follow the
-	// provided permissions.
+	// CheckMacaroonPermissions checks whether the provided macaroon contains all
+	// the provided permissions. If the macaroon is valid (e.g. all caveats are
+	// satisfied), and all permissions provided in the request are met, then
+	// this RPC returns true.
 	CheckMacaroonPermissions(context.Context, *CheckMacPermRequest) (*CheckMacPermResponse, error)
 	// RegisterRPCMiddleware adds a new gRPC middleware to the interceptor chain. A
 	// gRPC middleware is software component external to lnd that aims to add

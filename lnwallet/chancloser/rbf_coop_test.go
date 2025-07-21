@@ -825,9 +825,12 @@ func newRbfCloserTestHarness(t *testing.T,
 	).Return(nil)
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
-	chanCloser.Start(ctx)
 
+	// We register our subscriber before starting the state machine, to make
+	// sure we don't miss any events.
 	harness.stateSub = chanCloser.RegisterStateEvents()
+
+	chanCloser.Start(ctx)
 
 	harness.chanCloser = &chanCloser
 

@@ -183,13 +183,13 @@ func PaymentFlags() []cli.Flag {
 		cancelableFlag,
 		cltvLimitFlag,
 		lastHopFlag,
-		cli.Int64SliceFlag{
+		cli.StringSliceFlag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
 				"use for the first hop of the payment; can " +
 				"be specified multiple times in the same " +
 				"command",
-			Value: &cli.Int64Slice{},
+			Value: &cli.StringSlice{},
 		},
 		cli.BoolFlag{
 			Name:  "force, f",
@@ -521,12 +521,11 @@ func SendPaymentRequest(ctx *cli.Context, req *routerrpc.SendPaymentRequest,
 
 	lnClient := lnrpc.NewLightningClient(lnConn)
 
-	outChan := ctx.Int64Slice("outgoing_chan_id")
-	if len(outChan) != 0 {
-		req.OutgoingChanIds = make([]uint64, len(outChan))
-		for i, c := range outChan {
-			req.OutgoingChanIds[i] = uint64(c)
-		}
+	var err error
+	outChan := ctx.StringSlice("outgoing_chan_id")
+	req.OutgoingChanIds, err = parseChanIDs(outChan)
+	if err != nil {
+		return fmt.Errorf("unable to decode outgoing_chan_ids: %w", err)
 	}
 
 	if ctx.IsSet(lastHopFlag.Name) {

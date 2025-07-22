@@ -3033,15 +3033,28 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// Check that the ChanUpdate is not too far into the future, this could
 	// reveal some faulty implementation therefore we log an error.
 	if time.Until(timestamp) > graph.DefaultChannelPruneExpiry {
-		log.Errorf("Skewed timestamp (%v) for edge policy of "+
-			"short_chan_id(%v), timestamp too far in the future: "+
-			"peer=%v, msg=%s, is_remote=%v", timestamp.Unix(),
-			shortChanID, nMsg.peer, nMsg.msg.MsgType(),
-			nMsg.isRemote,
-		)
-
-		nMsg.err <- fmt.Errorf("skewed timestamp of edge policy, "+
+		err := fmt.Errorf("skewed timestamp of edge policy, "+
 			"timestamp too far in the future: %v", timestamp.Unix())
+
+		// If this is a channel_update from us, we'll just ignore it.
+		if !nMsg.isRemote {
+			nMsg.err <- err
+			return nil, false
+		}
+
+		log.Errorf("Increasing ban score for peer=%v due to bad "+
+			"channel_update with short_chan_id(%v): timestamp(%v) "+
+			"too far in the future", nMsg.peer, shortChanID,
+			timestamp.Unix())
+
+		// Increment the peer's ban score if they are skewed channel
+		// updates.
+		dcErr := d.handleBadPeer(nMsg.peer)
+		if dcErr != nil {
+			err = dcErr
+		}
+
+		nMsg.err <- err
 
 		return nil, false
 	}

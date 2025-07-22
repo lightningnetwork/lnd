@@ -720,6 +720,7 @@ func DefaultConfig() Config {
 			MsgRateBytes:          discovery.DefaultMsgBytesPerSecond,
 			MsgBurstBytes:         discovery.DefaultMsgBytesBurst,
 			FilterConcurrency:     discovery.DefaultFilterConcurrency,
+			PeerMsgRateBytes:      discovery.DefaultPeerMsgBytesPerSecond,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,

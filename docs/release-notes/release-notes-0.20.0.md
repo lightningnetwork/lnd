@@ -79,10 +79,22 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   finish under this timeout value. Consider using a larger timeout value if you
   have a slow network.
 
+* The default value for `gossip.msg-rate-bytes` has been
+  [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
+  1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
+
 * Added [`deletecanceledinvoices`](
   https://github.com/lightningnetwork/lnd/pull/9625) RPC to allow the removal of
   a canceled invoice. Supports deleting a canceled invoice by providing its
   payment hash.
+
+* A [new config](https://github.com/lightningnetwork/lnd/pull/10103) value
+  `gossip.peer-msg-rate-bytes=102400` is introduced to allow limiting the
+  outgoing bandwidth used by each peer when processing gossip-related messages.
+  Note this is different from `gossip.msg-rate-bytes`, as this new config
+  controls the bandwidth per peer, while `msg-rate-bytes` controls the gossip as
+  a whole. This new config prevents a single misbehaving peer from using up all
+  the bandwidth.
 
 ## lncli Additions
 

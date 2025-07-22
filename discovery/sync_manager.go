@@ -200,7 +200,7 @@ type SyncManager struct {
 	gossipFilterSema chan struct{}
 
 	// rateLimiter dictates the frequency with which we will reply to gossip
-	// queries from a peer. This is used to delay responses to peers to
+	// queries from all peers. This is used to delay responses to peers to
 	// prevent DOS vulnerabilities if they are spamming with an unreasonable
 	// number of queries.
 	rateLimiter *rate.Limiter
@@ -555,8 +555,8 @@ func (m *SyncManager) isPinnedSyncer(s *GossipSyncer) bool {
 
 // deriveRateLimitReservation will take the current message and derive a
 // reservation that can be used to wait on the rate limiter.
-func (m *SyncManager) deriveRateLimitReservation(msg lnwire.Message,
-) (*rate.Reservation, error) {
+func deriveRateLimitReservation(rl *rate.Limiter,
+	msg lnwire.Message) (*rate.Reservation, error) {
 
 	var (
 		msgSize uint32
@@ -576,12 +576,12 @@ func (m *SyncManager) deriveRateLimitReservation(msg lnwire.Message,
 		msgSize = assumedMsgSize
 	}
 
-	return m.rateLimiter.ReserveN(time.Now(), int(msgSize)), nil
+	return rl.ReserveN(time.Now(), int(msgSize)), nil
 }
 
 // waitMsgDelay takes a delay, and waits until it has finished.
-func (m *SyncManager) waitMsgDelay(ctx context.Context, peerPub [33]byte,
-	limitReservation *rate.Reservation) error {
+func waitMsgDelay(ctx context.Context, peerPub [33]byte,
+	limitReservation *rate.Reservation, quit <-chan struct{}) error {
 
 	// If we've already replied a handful of times, we will start to delay
 	// responses back to the remote peer. This can help prevent DOS attacks
@@ -603,7 +603,7 @@ func (m *SyncManager) waitMsgDelay(ctx context.Context, peerPub [33]byte,
 
 			return ErrGossipSyncerExiting
 
-		case <-m.quit:
+		case <-quit:
 			limitReservation.Cancel()
 
 			return ErrGossipSyncerExiting
@@ -615,15 +615,15 @@ func (m *SyncManager) waitMsgDelay(ctx context.Context, peerPub [33]byte,
 
 // maybeRateLimitMsg takes a message, and may wait a period of time to rate
 // limit the msg.
-func (m *SyncManager) maybeRateLimitMsg(ctx context.Context, peerPub [33]byte,
-	msg lnwire.Message) error {
+func maybeRateLimitMsg(ctx context.Context, rl *rate.Limiter, peerPub [33]byte,
+	msg lnwire.Message, quit <-chan struct{}) error {
 
-	delay, err := m.deriveRateLimitReservation(msg)
+	delay, err := deriveRateLimitReservation(rl, msg)
 	if err != nil {
 		return nil
 	}
 
-	return m.waitMsgDelay(ctx, peerPub, delay)
+	return waitMsgDelay(ctx, peerPub, delay, quit)
 }
 
 // sendMessages sends a set of messages to the remote peer.
@@ -631,9 +631,13 @@ func (m *SyncManager) sendMessages(ctx context.Context, sync bool,
 	peer lnpeer.Peer, nodeID route.Vertex, msgs ...lnwire.Message) error {
 
 	for _, msg := range msgs {
-		if err := m.maybeRateLimitMsg(ctx, nodeID, msg); err != nil {
+		err := maybeRateLimitMsg(
+			ctx, m.rateLimiter, nodeID, msg, m.quit,
+		)
+		if err != nil {
 			return err
 		}
+
 		if err := peer.SendMessageLazy(sync, msg); err != nil {
 			return err
 		}

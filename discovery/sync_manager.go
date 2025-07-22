@@ -663,15 +663,10 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		encodingType:  encoding,
 		chunkSize:     encodingTypeToChunkSize[encoding],
 		batchSize:     requestBatchSize,
-		sendToPeer: func(ctx context.Context,
+		sendMsg: func(ctx context.Context, sync bool,
 			msgs ...lnwire.Message) error {
 
-			return m.sendMessages(ctx, false, peer, nodeID, msgs...)
-		},
-		sendToPeerSync: func(ctx context.Context,
-			msgs ...lnwire.Message) error {
-
-			return m.sendMessages(ctx, true, peer, nodeID, msgs...)
+			return m.sendMessages(ctx, sync, peer, nodeID, msgs...)
 		},
 		ignoreHistoricalFilters:  m.cfg.IgnoreHistoricalFilters,
 		bestHeight:               m.cfg.BestHeight,

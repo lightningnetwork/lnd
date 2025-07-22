@@ -200,13 +200,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		noSyncChannels:         !syncChannels,
 		noReplyQueries:         !replyQueries,
 		noTimestampQueryOption: !timestamps,
-		sendToPeer: func(_ context.Context,
-			msgs ...lnwire.Message) error {
-
-			msgChan <- msgs
-			return nil
-		},
-		sendToPeerSync: func(_ context.Context,
+		sendMsg: func(_ context.Context, _ bool,
 			msgs ...lnwire.Message) error {
 
 			msgChan <- msgs
@@ -392,16 +386,21 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	// We'll then instruct the gossiper to filter this set of messages.
 	syncer.FilterGossipMsgs(ctx, msgs...)
 
-	// Out of all the messages we sent in, we should only get 2 of them
+	// Out of all the messages we sent in, we should only get 3 of them
 	// back.
-	select {
-	case <-time.After(time.Second * 15):
-		t.Fatalf("no msgs received")
+	msgReceived := make([]lnwire.Message, 0, 3)
+	for {
+		select {
+		case <-time.After(time.Second * 1):
+			t.Fatalf("timeout receiving msg, want 3 msgs, got %v "+
+				"messages: %v", len(msgReceived), msgReceived)
 
-	case msgs := <-msgChan:
-		if len(msgs) != 3 {
-			t.Fatalf("expected 3 messages instead got %v "+
-				"messages: %v", len(msgs), spew.Sdump(msgs))
+		case msgs := <-msgChan:
+			msgReceived = append(msgReceived, msgs...)
+		}
+
+		if len(msgReceived) == 3 {
+			break
 		}
 	}
 

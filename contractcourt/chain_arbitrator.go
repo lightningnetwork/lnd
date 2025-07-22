@@ -465,6 +465,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 				channel.ShortChanID(), htlc,
 			)
 		},
+		NotifyChannelResolved: func() {
+			c.notifyChannelResolved(chanPoint)
+		},
 	}
 
 	// The final component needed is an arbitrator log that the arbitrator
@@ -478,14 +481,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	)
 	if err != nil {
 		return nil, err
-	}
-
-	arbCfg.MarkChannelResolved = func() error {
-		if c.cfg.NotifyFullyResolvedChannel != nil {
-			c.cfg.NotifyFullyResolvedChannel(chanPoint)
-		}
-
-		return c.ResolveContract(chanPoint)
 	}
 
 	// Finally, we'll need to construct a series of htlc Sets based on all
@@ -1399,19 +1394,15 @@ func (c *ChainArbitrator) loadPendingCloseChannels() error {
 					closeChanInfo.ShortChanID, htlc,
 				)
 			},
+			NotifyChannelResolved: func() {
+				c.notifyChannelResolved(chanPoint)
+			},
 		}
 		chanLog, err := newBoltArbitratorLog(
 			c.chanSource.Backend, arbCfg, c.cfg.ChainHash, chanPoint,
 		)
 		if err != nil {
 			return err
-		}
-		arbCfg.MarkChannelResolved = func() error {
-			if c.cfg.NotifyFullyResolvedChannel != nil {
-				c.cfg.NotifyFullyResolvedChannel(chanPoint)
-			}
-
-			return c.ResolveContract(chanPoint)
 		}
 
 		// We create an empty map of HTLC's here since it's possible

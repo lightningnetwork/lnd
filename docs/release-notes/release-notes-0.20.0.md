@@ -41,6 +41,10 @@
   logger's derived via `WithPrefix` did not inherit change log level changes 
   from their parent loggers. 
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10102) a case that we may
+  send unnecessary `channel_announcement` and `node_announcement` messages when
+  replying to a `gossip_timestamp_filter` query.
+
 # New Features
 
 ## Functional Enhancements

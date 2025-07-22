@@ -140,7 +140,7 @@ func openOrCreateTestMacStore(tempDir string, pw *[]byte,
 	return store, nil
 }
 
-// TestGenSeedUserEntropy tests that the gen seed method generates a valid
+// TestGenSeed tests that the gen seed method generates a valid
 // cipher seed mnemonic phrase and user provided source of entropy.
 func TestGenSeed(t *testing.T) {
 	t.Parallel()
@@ -173,8 +173,8 @@ func TestGenSeed(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestGenSeedInvalidEntropy tests that the gen seed method generates a valid
-// cipher seed mnemonic pass phrase even when the user doesn't provide its own
+// TestGenSeedGenerateEntropy tests that the gen seed method generates a valid
+// cipher seed mnemonic passphrase even when the user doesn't provide its own
 // source of entropy.
 func TestGenSeedGenerateEntropy(t *testing.T) {
 	t.Parallel()
@@ -318,7 +318,7 @@ func TestInitWallet(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestInitWalletInvalidCipherSeed tests that if we attempt to create a wallet
+// TestCreateWalletInvalidEntropy tests that if we attempt to create a wallet
 // with an invalid cipher seed, then we'll receive an error.
 func TestCreateWalletInvalidEntropy(t *testing.T) {
 	t.Parallel()
@@ -344,7 +344,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestUnlockWallet checks that trying to unlock non-existing wallet fail, that
+// TestUnlockWallet checks that trying to unlock non-existing wallet fails, that
 // unlocking existing wallet with wrong passphrase fails, and that unlocking
 // existing wallet with correct passphrase succeeds.
 func TestUnlockWallet(t *testing.T) {
@@ -491,7 +491,7 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 	// password that meets the length requirement, the password change
 	// should succeed.
 	errChan := make(chan error, 1)
-	go doChangePassword(service, testDir, req, errChan)
+	go doChangePassword(service, req, errChan)
 
 	// The new password should be sent over the channel.
 	select {
@@ -510,6 +510,15 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 		t.Fatalf("password not received")
 	}
 
+	// Wait for the doChangePassword goroutine to finish.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "ChangePassword call failed")
+
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("ChangePassword timed out")
+	}
+
 	// The files should no longer exist.
 	for _, tempFile := range tempFiles {
 		f, err := os.Open(tempFile)
@@ -518,11 +527,17 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 			t.Fatal("file exists but it shouldn't")
 		}
 	}
+
+	// Close the old db first.
+	require.NoError(t, store.Backend.Close())
+
+	// Check that the new password can be used to open the db.
+	assertPasswordChanged(t, testDir, req.NewPassword)
 }
 
 // TestChangeWalletPasswordStateless checks that trying to change the password
-// of an existing wallet that was initialized stateless works when when the
-// --stateless_init flat is set. Also checks that if no password is given,
+// of an existing wallet that was initialized stateless works when the
+// --stateless_init flag is set. Also checks that if no password is given,
 // the default password is used.
 func TestChangeWalletPasswordStateless(t *testing.T) {
 	t.Parallel()
@@ -594,7 +609,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	// async and then wait for the unlock message to arrive so we can send
 	// back a fake macaroon.
 	errChan := make(chan error, 1)
-	go doChangePassword(service, testDir, req, errChan)
+	go doChangePassword(service, req, errChan)
 
 	// Password and recovery window should be sent over the channel.
 	select {
@@ -612,9 +627,24 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
 	}
+
+	// Wait for the doChangePassword goroutine to finish.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "ChangePassword call failed")
+
+	case <-time.After(defaultTestTimeout):
+		t.Fatalf("ChangePassword timed out")
+	}
+
+	// Close the old db first.
+	require.NoError(t, store.Backend.Close())
+
+	// Check that the new password can be used to open the db.
+	assertPasswordChanged(t, testDir, req.NewPassword)
 }
 
-func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
+func doChangePassword(service *walletunlocker.UnlockerService,
 	req *lnrpc.ChangePasswordRequest, errChan chan error) {
 
 	// When providing the correct wallet's current password and a new
@@ -630,37 +660,26 @@ func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
 	if !bytes.Equal(response.AdminMacaroon, testMac) {
 		errChan <- fmt.Errorf("mismatched macaroon: expected %x, got "+
 			"%x", testMac, response.AdminMacaroon)
+		return
 	}
 
-	// Close the macaroon DB and try to open it and read the root key with
-	// the new password.
+	close(errChan)
+}
+
+// assertPasswordChanged asserts that the new password can be used to open the
+// store.
+func assertPasswordChanged(t *testing.T, testDir string, newPassword []byte) {
+	// Open it and read the root key with the new password.
 	store, err := openOrCreateTestMacStore(
-		testDir, &testPassword, testNetParams,
+		testDir, &newPassword, testNetParams,
 	)
-	if err != nil {
-		errChan <- fmt.Errorf("could not create test store: %w", err)
-		return
-	}
+	require.NoError(t, err)
+
+	// Assert that we can read the root key.
 	_, _, err = store.RootKey(defaultRootKeyIDContext)
-	if err != nil {
-		errChan <- fmt.Errorf("could not get root key: %w", err)
-		return
-	}
+	require.NoError(t, err)
 
-	// Do cleanup now. Since we are in a go func, the defer at the top of
-	// the outer would not work, because it would delete the directory
-	// before we could check the content in here.
-	err = store.Close()
-	if err != nil {
-		errChan <- fmt.Errorf("could not close store: %w", err)
-		return
-	}
-
-	// The backend database isn't closed automatically if the store is
-	// closed, do that now manually.
-	err = store.Backend.Close()
-	if err != nil {
-		errChan <- fmt.Errorf("could not close db: %w", err)
-		return
-	}
+	// Close the db once done.
+	require.NoError(t, store.Close())
+	require.NoError(t, store.Backend.Close())
 }

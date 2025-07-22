@@ -35,9 +35,14 @@ const (
 	DefaultMsgBytesBurst = 2 * 100 * 1_024
 
 	// DefaultMsgBytesPerSecond is the max bytes/s we'll permit for outgoing
-	// messages. Once tokens (bytes) have been taken from the bucket,
-	// they'll be refilled at this rate.
+	// messages for all the peers. Once tokens (bytes) have been taken from
+	// the bucket, they'll be refilled at this rate.
 	DefaultMsgBytesPerSecond = 100 * 1_024
+
+	// DefaultPeerMsgBytesPerSecond is the max bytes/s we'll permit for
+	// outgoing messages for a single peer. Once tokens (bytes) have been
+	// taken from the bucket, they'll be refilled at this rate.
+	DefaultPeerMsgBytesPerSecond = 50 * 1_024
 
 	// assumedMsgSize is the assumed size of a message if we can't compute
 	// its serialized size. This comes out to 1 KB.

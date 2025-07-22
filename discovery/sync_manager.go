@@ -146,6 +146,11 @@ type SyncManagerCfg struct {
 	// FilterConcurrency is the maximum number of concurrent gossip filter
 	// applications that can be processed. If not set, defaults to 5.
 	FilterConcurrency int
+
+	// PeerMsgBytesPerSecond is the allotted bandwidth rate, expressed in
+	// bytes/second that a single gossip syncer can consume. Once we exceed
+	// this rate, message sending will block until we're below the rate.
+	PeerMsgBytesPerSecond uint64
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -674,6 +679,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
 		noTimestampQueryOption:   m.cfg.NoTimestampQueries,
 		isStillZombieChannel:     m.cfg.IsStillZombieChannel,
+		msgBytesPerSecond:        m.cfg.PeerMsgBytesPerSecond,
 	}, m.gossipFilterSema)
 
 	// Gossip syncers are initialized by default in a PassiveSync type

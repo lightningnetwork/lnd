@@ -41,6 +41,8 @@ type Gossip struct {
 	FilterConcurrency int `long:"filter-concurrency" description:"The maximum number of concurrent gossip filter applications that can be processed. If not set, defaults to 5."`
 
 	BanThreshold uint64 `long:"ban-threshold" description:"The score at which a peer is banned. A peer's ban score is incremented for each invalid gossip message. Invalid messages include those with bad signatures, stale timestamps, excessive updates, or invalid chain data. Once the score reaches this threshold, the peer is banned. Set to 0 to disable banning."`
+
+	PeerMsgRateBytes uint64 `long:"peer-msg-rate-bytes" description:"The peer-specific rate of outbound gossip messages, expressed in bytes per second. This setting controls the long-term average speed of gossip traffic sent from your node. The rate limit is applied to each peer. If the rate of outgoing messages exceeds this value, lnd will start to queue and delay messages sending to that peer to stay within the limit."`
 }
 
 // Parse the pubkeys for the pinned syncers.
@@ -70,6 +72,12 @@ func (g *Gossip) Validate() error {
 	if g.MsgBurstBytes < lnwire.MaxSliceLength {
 		return fmt.Errorf("msg-burst-bytes=%v must be at least %v",
 			g.MsgBurstBytes, lnwire.MaxSliceLength)
+	}
+
+	if g.MsgRateBytes < g.PeerMsgRateBytes {
+		return fmt.Errorf("msg-rate-bytes=%v must be at greater than "+
+			"peer-msg-rate-bytes=%v", g.MsgRateBytes,
+			g.PeerMsgRateBytes)
 	}
 
 	return nil

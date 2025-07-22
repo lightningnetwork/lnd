@@ -74,8 +74,13 @@ func (g *Gossip) Validate() error {
 			g.MsgBurstBytes, lnwire.MaxSliceLength)
 	}
 
-	if g.MsgRateBytes < g.PeerMsgRateBytes {
-		return fmt.Errorf("msg-rate-bytes=%v must be at greater than "+
+	if g.MsgBurstBytes <= g.MsgRateBytes {
+		return fmt.Errorf("msg-burst-bytes=%v must be greater than "+
+			"msg-rate-bytes=%v", g.MsgBurstBytes, g.MsgRateBytes)
+	}
+
+	if g.MsgRateBytes <= g.PeerMsgRateBytes {
+		return fmt.Errorf("msg-rate-bytes=%v must be greater than "+
 			"peer-msg-rate-bytes=%v", g.MsgRateBytes,
 			g.PeerMsgRateBytes)
 	}

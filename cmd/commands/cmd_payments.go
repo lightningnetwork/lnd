@@ -1281,17 +1281,9 @@ func queryRoutes(ctx *cli.Context) error {
 	}
 
 	outgoingChanIds := ctx.StringSlice("outgoing_chan_id")
-	if len(outgoingChanIds) != 0 {
-		req.OutgoingChanIds = make([]uint64, len(outgoingChanIds))
-		for i, chanID := range outgoingChanIds {
-			id, err := strconv.ParseUint(chanID, 10, 64)
-			if err != nil {
-				return fmt.Errorf("invalid outgoing_chan_id "+
-					"argument: %w", err)
-			}
-
-			req.OutgoingChanIds[i] = id
-		}
+	req.OutgoingChanIds, err = parseChanIDs(outgoingChanIds)
+	if err != nil {
+		return fmt.Errorf("unable to decode outgoing_chan_id: %w", err)
 	}
 
 	if ctx.IsSet("route_hints") {

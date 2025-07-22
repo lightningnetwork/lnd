@@ -33,6 +33,10 @@
   known TLV fields were incorrectly encoded into the `ExtraData` field of
   messages in the dynamic commitment set.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10102) a case that we may
+  send unnecessary `channel_announcement` and `node_announcement` messages when
+  replying a `gossip_timestamp_filter` query.
+
 # New Features
 
 ## Functional Enhancements

@@ -17,6 +17,7 @@ import (
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"golang.org/x/time/rate"
 )
 
 // SyncerType encapsulates the different types of syncing mechanisms for a
@@ -285,6 +286,11 @@ type gossipSyncerCfg struct {
 	// updates for a channel and returns true if the channel should be
 	// considered a zombie based on these timestamps.
 	isStillZombieChannel func(time.Time, time.Time) bool
+
+	// msgBytesPerSecond is the allotted bandwidth rate, expressed in
+	// bytes/second that this gossip syncer can consume. Once we exceed this
+	// rate, message sending will block until we're below the rate.
+	msgBytesPerSecond uint64
 }
 
 // GossipSyncer is a struct that handles synchronizing the channel graph state
@@ -387,11 +393,26 @@ type GossipSyncer struct {
 	// allows contexts that either block or cancel on those depending on
 	// the use case.
 	cg *fn.ContextGuard
+
+	// rateLimiter dictates the frequency with which we will reply to gossip
+	// queries to this peer.
+	rateLimiter *rate.Limiter
 }
 
 // newGossipSyncer returns a new instance of the GossipSyncer populated using
 // the passed config.
 func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
+	bytesPerSecond := cfg.msgBytesPerSecond
+	if bytesPerSecond == 0 {
+		bytesPerSecond = DefaultPeerMsgBytesPerSecond
+	}
+	bytesBurst := 2 * bytesPerSecond
+
+	// We'll use this rate limiter to limit this single peer.
+	rateLimiter := rate.NewLimiter(
+		rate.Limit(bytesPerSecond), int(bytesBurst),
+	)
+
 	return &GossipSyncer{
 		cfg:                cfg,
 		syncTransitionReqs: make(chan *syncTransitionReq),
@@ -400,6 +421,7 @@ func newGossipSyncer(cfg gossipSyncerCfg, sema chan struct{}) *GossipSyncer {
 		queryMsgs:          make(chan lnwire.Message, syncerBufferSize),
 		syncerSema:         sema,
 		cg:                 fn.NewContextGuard(),
+		rateLimiter:        rateLimiter,
 	}
 }
 

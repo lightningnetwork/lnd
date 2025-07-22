@@ -2598,7 +2598,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 	if closed {
 		err = fmt.Errorf("ignoring closed channel %v", scid)
-		log.Error(err)
 
 		// If this is an announcement from us, we'll just ignore it.
 		if !nMsg.isRemote {
@@ -2606,23 +2605,14 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			return nil, false
 		}
 
+		log.Warnf("Increasing ban score for peer=%v due to outdated "+
+			"channel announcement for channel %v", nMsg.peer, scid)
+
 		// Increment the peer's ban score if they are sending closed
 		// channel announcements.
-		d.banman.incrementBanScore(nMsg.peer.PubKey())
-
-		// If the peer is banned and not a channel peer, we'll
-		// disconnect them.
-		shouldDc, dcErr := d.ShouldDisconnect(nMsg.peer.IdentityKey())
+		dcErr := d.handleBadPeer(nMsg.peer)
 		if dcErr != nil {
-			log.Errorf("failed to check if we should disconnect "+
-				"peer: %v", dcErr)
-			nMsg.err <- dcErr
-
-			return nil, false
-		}
-
-		if shouldDc {
-			nMsg.peer.Disconnect(ErrPeerBanned)
+			err = dcErr
 		}
 
 		nMsg.err <- err
@@ -3839,6 +3829,29 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 
 	return *fundingPoint, btcutil.Amount(chanUtxo.Value), fundingPkScript,
 		nil
+}
+
+// handleBadPeer takes a misbehaving peer and increases its ban score. Once
+// increased, it will disconnect the peer if its ban score has reached
+// `banThreshold` and it doesn't have a channel with us.
+func (d *AuthenticatedGossiper) handleBadPeer(peer lnpeer.Peer) error {
+	// Increment the peer's ban score for misbehavior.
+	d.banman.incrementBanScore(peer.PubKey())
+
+	// If the peer is banned and not a channel peer, we'll disconnect them.
+	shouldDc, dcErr := d.ShouldDisconnect(peer.IdentityKey())
+	if dcErr != nil {
+		log.Errorf("failed to check if we should disconnect peer: %v",
+			dcErr)
+
+		return dcErr
+	}
+
+	if shouldDc {
+		peer.Disconnect(ErrPeerBanned)
+	}
+
+	return nil
 }
 
 // makeFundingScript is used to make the funding script for both segwit v0 and

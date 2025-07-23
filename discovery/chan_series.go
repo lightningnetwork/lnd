@@ -120,6 +120,10 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
+
+	// nodesFromChan records the nodes seen from the channels.
+	nodesFromChan := make(map[[33]byte]struct{}, len(chansInHorizon)*2)
+
 	for _, channel := range chansInHorizon {
 		// If the channel hasn't been fully advertised yet, or is a
 		// private channel, then we'll skip it as we can't construct a
@@ -181,6 +185,10 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 		// Append the all the msgs to the slice.
 		updates = append(updates, chanUpdates...)
+
+		// Record the nodes seen.
+		nodesFromChan[channel.Info.NodeKey1Bytes] = struct{}{}
+		nodesFromChan[channel.Info.NodeKey2Bytes] = struct{}{}
 	}
 
 	// Next, we'll send out all the node announcements that have an update
@@ -192,8 +200,15 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
+
 	for _, nodeAnn := range nodeAnnsInHorizon {
-		nodeAnn := nodeAnn
+		// If this node has not been seen in the above channels, we can
+		// skip sending its NodeAnnouncement.
+		if _, seen := nodesFromChan[nodeAnn.PubKeyBytes]; !seen {
+			log.Debugf("Skipping forwarding as node %x not found "+
+				"in channel announcement", nodeAnn.PubKeyBytes)
+			continue
+		}
 
 		// Ensure we only forward nodes that are publicly advertised to
 		// prevent leaking information about nodes.

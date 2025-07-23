@@ -33,6 +33,10 @@
   known TLV fields were incorrectly encoded into the `ExtraData` field of
   messages in the dynamic commitment set.
 
+- [Fix](https://github.com/lightningnetwork/lnd/pull/10107) a bug where child 
+  logger's derived via `WithPrefix` did not inherit change log level changes 
+  from their parent loggers. 
+
 # New Features
 
 ## Functional Enhancements

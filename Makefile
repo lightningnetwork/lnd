@@ -286,6 +286,16 @@ flakehunter-unit:
 	@$(call print, "Flake hunting unit test.")
 	scripts/unit-test-flake-hunter.sh ${pkg} ${case}
 
+#? flakehunter-unit-all: Run all unit tests continuously until one fails
+flakehunter-unit-all: $(BTCD_BIN)
+	@$(call print, "Flake hunting unit tests.")
+	while [ $$? -eq 0 ]; do make unit; done
+
+#? flakehunter-unit-race: Run all unit tests in race detector mode continuously until one fails
+flakehunter-unit-race: $(BTCD_BIN)
+	@$(call print, "Flake hunting unit tests in race detector mode.")
+	while [ $$? -eq 0 ]; do make unit-race; done
+
 #? flakehunter-itest-parallel: Run the integration tests continuously until one fails, running up to ITEST_PARALLELISM test tranches in parallel (default 4)
 flakehunter-itest-parallel:
 	@$(call print, "Flake hunting ${backend} integration tests in parallel.")

@@ -225,16 +225,16 @@ type CloseSigner interface {
 	// balance in the created state.
 	CreateCloseProposal(proposedFee btcutil.Amount,
 		localDeliveryScript []byte, remoteDeliveryScript []byte,
-		closeOpt ...lnwallet.ChanCloseOpt,
-	) (
-		input.Signature, *wire.MsgTx, btcutil.Amount, error)
+		closeOpt ...lnwallet.ChanCloseOpt) (input.Signature,
+		*wire.MsgTx, btcutil.Amount, error)
 
 	// CompleteCooperativeClose persistently "completes" the cooperative
 	// close by producing a fully signed co-op close transaction.
 	CompleteCooperativeClose(localSig, remoteSig input.Signature,
 		localDeliveryScript, remoteDeliveryScript []byte,
-		proposedFee btcutil.Amount, closeOpt ...lnwallet.ChanCloseOpt,
-	) (*wire.MsgTx, btcutil.Amount, error)
+		proposedFee btcutil.Amount,
+		closeOpt ...lnwallet.ChanCloseOpt) (*wire.MsgTx, btcutil.Amount,
+		error)
 }
 
 // ChanStateObserver is an interface used to observe state changes that occur
@@ -579,8 +579,8 @@ type ErrStateCantPayForFee struct {
 }
 
 // NewErrStateCantPayForFee returns a new NewErrStateCantPayForFee error.
-func NewErrStateCantPayForFee(localBalance, attemptedFee btcutil.Amount,
-) *ErrStateCantPayForFee {
+func NewErrStateCantPayForFee(localBalance,
+	attemptedFee btcutil.Amount) *ErrStateCantPayForFee {
 
 	return &ErrStateCantPayForFee{
 		localBalance: localBalance,
@@ -621,8 +621,9 @@ type CloseChannelTerms struct {
 // DeriveCloseTxOuts takes the close terms, and returns the local and remote tx
 // out for the close transaction. If an output is dust, then it'll be nil.
 func (c *CloseChannelTerms) DeriveCloseTxOuts() (*wire.TxOut, *wire.TxOut) {
-	//nolint:ll
-	deriveTxOut := func(balance btcutil.Amount, pkScript []byte) *wire.TxOut {
+	deriveTxOut := func(balance btcutil.Amount,
+		pkScript []byte) *wire.TxOut {
+
 		// We'll base the existence of the output on our normal dust
 		// check.
 		dustLimit := lnwallet.DustLimitForSize(len(pkScript))
@@ -710,10 +711,10 @@ func (l *LocalCloseStart) IsTerminal() bool {
 	return false
 }
 
-// protocolStateaSealed indicates that this struct is a ProtocolEvent instance.
+// protocolStateSealed indicates that this struct is a ProtocolEvent instance.
 func (l *LocalCloseStart) protocolStateSealed() {}
 
-// LocalOfferSent is the state we transition to after we reveiver the
+// LocalOfferSent is the state we transition to after we receiver the
 // SendOfferEvent in the LocalCloseStart state. With this state we send our
 // offer to the remote party, then await a sig from them which concludes the
 // local cooperative close process.

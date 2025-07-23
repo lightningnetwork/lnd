@@ -49,12 +49,18 @@ var (
 	remoteSigBytes = fromHex("304502210082235e21a2300022738dabb8e1bbd9d1" +
 		"9cfb1e7ab8c30a23b0afbb8d178abcf3022024bf68e256c534ddfaf966b" +
 		"f908deb944305596f7bdcc38d69acad7f9c868724")
-	remoteSig     = sigMustParse(remoteSigBytes)
-	remoteWireSig = mustWireSig(&remoteSig)
+	remoteSig            = sigMustParse(remoteSigBytes)
+	remoteWireSig        = mustWireSig(&remoteSig)
+	remoteSigRecordType3 = newSigTlv[tlv.TlvType3](remoteWireSig)
+	remoteSigRecordType1 = newSigTlv[tlv.TlvType1](remoteWireSig)
 
 	localTx = wire.MsgTx{Version: 2}
 
 	closeTx = wire.NewMsgTx(2)
+
+	defaultTimeout = 500 * time.Millisecond
+	longTimeout    = 3 * time.Second
+	defaultPoll    = 50 * time.Millisecond
 )
 
 func sigMustParse(sigBytes []byte) ecdsa.Signature {
@@ -111,7 +117,7 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 
 	for _, expectedState := range expectedStates {
 		newState, err := fn.RecvOrTimeout(
-			stateSub.NewItemCreated.ChanOut(), 10*time.Millisecond,
+			stateSub.NewItemCreated.ChanOut(), defaultTimeout,
 		)
 		require.NoError(t, err, "expected state: %T", expectedState)
 
@@ -122,7 +128,7 @@ func assertStateTransitions[Event any, Env protofsm.Environment](
 	select {
 	case newState := <-stateSub.NewItemCreated.ChanOut():
 		t.Fatalf("unexpected state transition: %v", newState)
-	default:
+	case <-time.After(defaultPoll):
 	}
 }
 
@@ -285,10 +291,12 @@ func (r *rbfCloserTestHarness) assertStartupAssertions() {
 }
 
 func (r *rbfCloserTestHarness) assertNoStateTransitions() {
+	r.T.Helper()
+
 	select {
 	case newState := <-r.stateSub.NewItemCreated.ChanOut():
 		r.T.Fatalf("unexpected state transition: %T", newState)
-	case <-time.After(10 * time.Millisecond):
+	case <-time.After(defaultPoll):
 	}
 }
 
@@ -436,7 +444,7 @@ func (r *rbfCloserTestHarness) waitForMsgSent() {
 
 	err := wait.Predicate(func() bool {
 		return r.daemonAdapters.msgSent.Load()
-	}, time.Second*3)
+	}, longTimeout)
 	require.NoError(r.T, err)
 }
 
@@ -642,7 +650,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	// We'll now send in the send offer event, which should trigger 1/2 of
 	// the RBF loop, ending us in the LocalOfferSent state.
 	r.expectHalfSignerIteration(
-		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+		initEvent, balanceAfterClose, absoluteFee, dustExpect,
 		iteration,
 	)
 
@@ -693,14 +701,20 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	}
 
 	// Our outer state should transition to ClosingNegotiation state.
-	r.assertStateTransitions(&ClosingNegotiation{})
+	transitions := []RbfState{
+		&ClosingNegotiation{},
+	}
 
 	// If this is an iteration, then we'll go from ClosePending ->
 	// RemoteCloseStart -> ClosePending. So we'll assert an extra transition
 	// here.
 	if iteration {
-		r.assertStateTransitions(&ClosingNegotiation{})
+		transitions = append(transitions, &ClosingNegotiation{})
 	}
+
+	// Now that we know how many state transitions to expect, we'll wait
+	// for them.
+	r.assertStateTransitions(transitions...)
 
 	// If we examine the final resting state, we should see that the we're
 	// now in the ClosePending state for the remote peer.
@@ -802,7 +816,7 @@ func newRbfCloserTestHarness(t *testing.T,
 		MsgMapper: fn.Some[protofsm.MsgMapper[ProtocolEvent]](
 			msgMapper,
 		),
-		CustomPollInterval: fn.Some(time.Nanosecond),
+		CustomPollInterval: fn.Some(defaultPoll),
 	}
 
 	// Before we start we always expect an initial spend event.
@@ -811,9 +825,12 @@ func newRbfCloserTestHarness(t *testing.T,
 	).Return(nil)
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
-	chanCloser.Start(ctx)
 
+	// We register our subscriber before starting the state machine, to make
+	// sure we don't miss any events.
 	harness.stateSub = chanCloser.RegisterStateEvents()
+
+	chanCloser.Start(ctx)
 
 	harness.chanCloser = &chanCloser
 
@@ -1284,9 +1301,8 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 
 		// We'll modify the starting balance to be 3x the required fee
 		// to ensure that we can pay for the fee.
-		flushEvent.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
-			absoluteFee * 3,
-		)
+		localBalanceMSat := lnwire.NewMSatFromSatoshis(absoluteFee * 3)
+		flushEvent.ShutdownBalances.LocalBalance = localBalanceMSat
 
 		testName := fmt.Sprintf("local_can_pay_for_fee/"+
 			"fresh_flush=%v", isFreshFlush)
@@ -1304,7 +1320,8 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 			defer closeHarness.stopAndAssert()
 
 			localBalance := flushEvent.ShutdownBalances.LocalBalance
-			balanceAfterClose := localBalance.ToSatoshis() - absoluteFee //nolint:ll
+			balanceAfterClose := localBalance.ToSatoshis() -
+				absoluteFee
 
 			// If this is a fresh flush, then we expect the state
 			// to be marked on disk.
@@ -1353,9 +1370,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1467,9 +1482,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 					CloserNoClosee: newSigTlv[tlv.TlvType1](
 						remoteWireSig,
 					),
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1564,9 +1577,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1732,7 +1743,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
-	// If our balance, is dust, then the remote party should send a
+	// If our balance is dust, then the remote party should send a
 	// signature that doesn't include our output.
 	t.Run("recv_offer_err_closer_no_closee", func(t *testing.T) {
 		// We'll modify our local balance to be dust.
@@ -1764,9 +1775,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1792,9 +1801,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: localAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserNoClosee: remoteSigRecordType1,
 				},
 			},
 		}
@@ -1840,9 +1847,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -1886,9 +1891,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				CloserScript: remoteAddr,
 				CloseeScript: remoteAddr,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserNoClosee: remoteSigRecordType1,
 				},
 			},
 		}
@@ -1937,9 +1940,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -2005,12 +2006,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// initiate a new local sig).
 		closeHarness.assertSingleRbfIteration(
 			localOffer, balanceAfterClose, absoluteFee,
-			noDustExpect, false,
-		)
-
-		// We should terminate in the negotiation state.
-		closeHarness.assertStateTransitions(
-			&ClosingNegotiation{},
+			noDustExpect, true,
 		)
 	})
 
@@ -2040,9 +2036,7 @@ func TestRbfCloseErr(t *testing.T) {
 				FeeSatoshis:  absoluteFee,
 				LockTime:     1,
 				ClosingSigs: lnwire.ClosingSigs{
-					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
-						remoteWireSig,
-					),
+					CloserAndClosee: remoteSigRecordType3,
 				},
 			},
 		}
@@ -2054,7 +2048,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			true, true,
 		)
 	})
 

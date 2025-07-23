@@ -25,6 +25,10 @@
   messages simultaneously. The fix ensures only a single goroutine processes the
   backlog at any given time using an atomic flag.
 
+- [Fix](https://github.com/lightningnetwork/lnd/pull/10107) a bug where child
+  logger's derived via `WithPrefix` did not inherit change log level changes
+  from their parent loggers.
+
 # New Features
 
 ## Functional Enhancements
@@ -67,5 +71,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Elle Mouton
 * Olaoluwa Osuntokun
 * Yong Yu

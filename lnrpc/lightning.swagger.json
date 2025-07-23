@@ -1874,6 +1874,36 @@
           "Lightning"
         ]
       },
+      "delete": {
+        "summary": "lncli: `deletecanceledinvoice`\nDeleteCanceledInvoice removes a canceled invoice from the database. If the\ninvoice is not in the canceled state, an error will be returned.",
+        "operationId": "Lightning_DeleteCanceledInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcDelCanceledInvoiceResp"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "invoice_hash",
+            "description": "Invoice payment hash to delete.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      },
       "post": {
         "summary": "lncli: `addinvoice`\nAddInvoice attempts to add a new invoice to the invoice database. Any\nduplicated invoices are rejected, therefore all invoices *must* have a\nunique payment preimage.",
         "operationId": "Lightning_AddInvoice",
@@ -4854,6 +4884,15 @@
       "properties": {
         "sub_systems": {
           "type": "string"
+        }
+      }
+    },
+    "lnrpcDelCanceledInvoiceResp": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
         }
       }
     },

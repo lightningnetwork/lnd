@@ -33,6 +33,10 @@
   known TLV fields were incorrectly encoded into the `ExtraData` field of
   messages in the dynamic commitment set.
 
+- Fixed a [deadlock](https://github.com/lightningnetwork/lnd/pull/10108) that
+  can cause contract resolvers to be stuck at marking the channel force close as
+  being complete.
+
 # New Features
 
 ## Functional Enhancements

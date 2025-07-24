@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS graph_channels (
 -- indexes on the node_id_1 and node_id_2 columns.
 CREATE INDEX IF NOT EXISTS graph_channels_node_id_1_idx ON graph_channels(node_id_1);
 CREATE INDEX IF NOT EXISTS graph_channels_node_id_2_idx ON graph_channels(node_id_2);
+CREATE INDEX IF NOT EXISTS graph_channels_version_id_idx ON graph_channels(version, id);
 
 -- A channel (identified by a short channel id) can only have one active
 -- channel announcement per protocol version. We also order the index by

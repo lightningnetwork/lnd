@@ -602,3 +602,102 @@ func BenchmarkCacheLoading(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkForEachNode benchmarks the ForEachNode method of the ChannelGraph
+// by iterating over all nodes in the graph and executing a no-op function for
+// each node. This is useful to measure the performance of iterating over
+// nodes in the graph.
+//
+// NOTE: this is to be run against a local graph database. It can be run
+// either against a kvdb-bbolt channel.db file, or a kvdb-sqlite channel.sqlite
+// file or a postgres connection containing the channel graph in kvdb format and
+// finally, it can be run against a native SQL sqlite or postgres database.
+func BenchmarkForEachNode(b *testing.B) {
+	ctx := context.Background()
+
+	tests := []dbConnection{
+		kvdbBBoltConn,
+		kvdbSqliteConn,
+		nativeSQLSqliteConn,
+		kvdbPostgresConn,
+		nativeSQLPostgresConn,
+	}
+
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			graph, err := NewChannelGraph(
+				test.open(b), WithUseGraphCache(false),
+			)
+			require.NoError(b, err)
+			require.NoError(b, graph.Start())
+
+			// Reset timer to exclude setup time.
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				err = graph.ForEachNode(
+					ctx, func(_ NodeRTx) error {
+						return nil
+					}, func() {},
+				)
+				require.NoError(b, err)
+
+				b.StopTimer()
+				require.NoError(b, graph.Stop())
+				b.StartTimer()
+			}
+		})
+	}
+}
+
+// BenchmarkForEachChannelAndPolicy benchmarks the ForEachChannel method of the
+// ChannelGraph by iterating over all channels and their policies in the graph
+// and executing a no-op function for each channel and policy. This is useful
+// to measure the performance of iterating over channels and policies in the
+// graph.
+//
+// NOTE: this is to be run against a local graph database. It can be run
+// either against a kvdb-bbolt channel.db file, or a kvdb-sqlite channel.sqlite
+// file or a postgres connection containing the channel graph in kvdb format and
+// finally, it can be run against a native SQL sqlite or postgres database.
+func BenchmarkForEachChannelAndPolicy(b *testing.B) {
+	ctx := context.Background()
+
+	tests := []dbConnection{
+		kvdbBBoltConn,
+		kvdbSqliteConn,
+		nativeSQLSqliteConn,
+		kvdbPostgresConn,
+		nativeSQLPostgresConn,
+	}
+
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			graph, err := NewChannelGraph(
+				test.open(b), WithUseGraphCache(false),
+			)
+			require.NoError(b, err)
+			require.NoError(b, graph.Start())
+
+			// Reset timer to exclude setup time.
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				//nolint:ll
+				err = graph.ForEachChannel(
+					ctx, func(_ *models.ChannelEdgeInfo,
+						_ *models.ChannelEdgePolicy,
+						_ *models.ChannelEdgePolicy) error {
+
+						return nil
+					}, func() {},
+				)
+				require.NoError(b, err)
+
+				b.StopTimer()
+				require.NoError(b, graph.Stop())
+				b.StartTimer()
+			}
+		})
+	}
+}

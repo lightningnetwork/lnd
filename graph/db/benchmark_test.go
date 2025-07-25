@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"sync"
@@ -618,5 +619,75 @@ func BenchmarkCacheLoading(b *testing.B) {
 				require.NoError(b, graph.populateCache(ctx))
 			}
 		})
+	}
+}
+
+// BenchmarkGraphReadMethods benchmarks various read calls of various V1Store
+// implementations.
+//
+// NOTE: this is to be run against a local graph database. It can be run
+// either against a kvdb-bbolt channel.db file, or a kvdb-sqlite channel.sqlite
+// file or a postgres connection containing the channel graph in kvdb format and
+// finally, it can be run against a native SQL sqlite or postgres database.
+//
+// NOTE: the TestPopulateDBs test helper can be used to populate a set of test
+// DBs from a single source db.
+func BenchmarkGraphReadMethods(b *testing.B) {
+	ctx := context.Background()
+
+	backends := []dbConnection{
+		kvdbBBoltConn,
+		kvdbSqliteConn,
+		nativeSQLSqliteConn,
+		kvdbPostgresConn,
+		nativeSQLPostgresConn,
+	}
+
+	tests := []struct {
+		name string
+		fn   func(b testing.TB, store V1Store)
+	}{
+		{
+			name: "ForEachNode",
+			fn: func(b testing.TB, store V1Store) {
+				err := store.ForEachNode(
+					ctx, func(_ NodeRTx) error {
+						return nil
+					}, func() {},
+				)
+				require.NoError(b, err)
+			},
+		},
+		{
+			name: "ForEachChannel",
+			fn: func(b testing.TB, store V1Store) {
+				//nolint:ll
+				err := store.ForEachChannel(
+					ctx, func(_ *models.ChannelEdgeInfo,
+						_ *models.ChannelEdgePolicy,
+						_ *models.ChannelEdgePolicy) error {
+
+						return nil
+					}, func() {},
+				)
+				require.NoError(b, err)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		for _, db := range backends {
+			name := fmt.Sprintf("%s-%s", test.name, db.name)
+			b.Run(name, func(b *testing.B) {
+				store := db.open(b)
+
+				// Reset timer to exclude setup time.
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					test.fn(b, store)
+				}
+			})
+		}
 	}
 }

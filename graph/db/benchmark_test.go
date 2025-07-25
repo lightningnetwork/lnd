@@ -580,3 +580,43 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 
 	t.Logf("Done syncing %d channels", total)
 }
+
+// BenchmarkCacheLoading benchmarks how long it takes to load the in-memory
+// graph cache from a populated database.
+//
+// NOTE: this is to be run against a local graph database. It can be run
+// either against a kvdb-bbolt channel.db file, or a kvdb-sqlite channel.sqlite
+// file or a postgres connection containing the channel graph in kvdb format and
+// finally, it can be run against a native SQL sqlite or postgres database.
+//
+// NOTE: the TestPopulateDBs test helper can be used to populate a set of test
+// DBs from a single source db.
+func BenchmarkCacheLoading(b *testing.B) {
+	ctx := context.Background()
+
+	tests := []dbConnection{
+		kvdbBBoltConn,
+		kvdbSqliteConn,
+		nativeSQLSqliteConn,
+		kvdbPostgresConn,
+		nativeSQLPostgresConn,
+	}
+
+	for _, test := range tests {
+		b.Run(test.name, func(b *testing.B) {
+			store := test.open(b)
+
+			// Reset timer to exclude setup time.
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				b.StopTimer()
+				graph, err := NewChannelGraph(store)
+				require.NoError(b, err)
+				b.StartTimer()
+
+				require.NoError(b, graph.populateCache(ctx))
+			}
+		})
+	}
+}

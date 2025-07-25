@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"golang.org/x/time/rate"
 )
 
 // MigrateGraphToSQL migrates the graph store from a KV backend to a SQL
@@ -115,6 +116,12 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 	var (
 		count   uint64
 		skipped uint64
+
+		t0    = time.Now()
+		chunk uint64
+		s     = rate.Sometimes{
+			Interval: 10 * time.Second,
+		}
 	)
 
 	// Loop through each node in the KV store and insert it into the SQL
@@ -146,6 +153,7 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		count++
+		chunk++
 
 		// TODO(elle): At this point, we should check the loaded node
 		// to see if we should extract any DNS addresses from its
@@ -203,9 +211,25 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 			},
 		)
 
-		return sqldb.CompareRecords(
+		err = sqldb.CompareRecords(
 			node, migratedNode, fmt.Sprintf("node %x", pub),
 		)
+		if err != nil {
+			return fmt.Errorf("node mismatch after migration "+
+				"for node %x: %w", pub, err)
+		}
+
+		s.Do(func() {
+			elapsed := time.Since(t0).Seconds()
+			ratePerSec := float64(chunk) / elapsed
+			log.Debugf("Migrated %d nodes (%.2f nodes/sec)",
+				count, ratePerSec)
+
+			t0 = time.Now()
+			chunk = 0
+		})
+
+		return nil
 	}, func() {
 		// No reset is needed since if a retry occurs, the entire
 		// migration will be retried from the start.
@@ -224,6 +248,8 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 // SQL database.
 func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	sqlDB SQLQueries) error {
+
+	log.Debugf("Migrating source node from KV to SQL")
 
 	sourceNode, err := sourceNode(kvdb)
 	if errors.Is(err, ErrSourceNodeNotSet) {
@@ -302,6 +328,12 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		skippedChanCount   uint64
 		policyCount        uint64
 		skippedPolicyCount uint64
+
+		t0    = time.Now()
+		chunk uint64
+		s     = rate.Sometimes{
+			Interval: 10 * time.Second,
+		}
 	)
 	migChanPolicy := func(policy *models.ChannelEdgePolicy) error {
 		// If the policy is nil, we can skip it.
@@ -385,6 +417,16 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 			return fmt.Errorf("could not migrate channel %d: %w",
 				scid, err)
 		}
+
+		s.Do(func() {
+			elapsed := time.Since(t0).Seconds()
+			ratePerSec := float64(chunk) / elapsed
+			log.Debugf("Migrated %d channels (%.2f channels/sec)",
+				channelCount, ratePerSec)
+
+			t0 = time.Now()
+			chunk = 0
+		})
 
 		return nil
 	}, func() {
@@ -544,6 +586,12 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		count          uint64
 		pruneTipHeight uint32
 		pruneTipHash   chainhash.Hash
+
+		t0    = time.Now()
+		chunk uint64
+		s     = rate.Sometimes{
+			Interval: 10 * time.Second,
+		}
 	)
 
 	// migrateSinglePruneEntry is a helper function that inserts a single
@@ -595,6 +643,17 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 					"prune log entry at height %d: %w",
 					height, err)
 			}
+
+			s.Do(func() {
+				elapsed := time.Since(t0).Seconds()
+				ratePerSec := float64(chunk) / elapsed
+				log.Debugf("Migrated %d prune log "+
+					"entries (%.2f entries/sec)",
+					count, ratePerSec)
+
+				t0 = time.Now()
+				chunk = 0
+			})
 
 			return nil
 		},
@@ -715,7 +774,15 @@ func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
 func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 	sqlDB SQLQueries) error {
 
-	var count uint64
+	var (
+		count uint64
+
+		t0    = time.Now()
+		chunk uint64
+		s     = rate.Sometimes{
+			Interval: 10 * time.Second,
+		}
+	)
 	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
 		count++
 
@@ -738,6 +805,16 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 			return fmt.Errorf("channel %s should be closed, "+
 				"but is not", scid)
 		}
+
+		s.Do(func() {
+			elapsed := time.Since(t0).Seconds()
+			ratePerSec := float64(chunk) / elapsed
+			log.Debugf("Migrated %d closed scids "+
+				"(%.2f entries/sec)", count, ratePerSec)
+
+			t0 = time.Now()
+			chunk = 0
+		})
 
 		return nil
 	}
@@ -766,7 +843,15 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 	sqlDB SQLQueries) error {
 
-	var count uint64
+	var (
+		count uint64
+
+		t0    = time.Now()
+		chunk uint64
+		s     = rate.Sometimes{
+			Interval: 10 * time.Second,
+		}
+	)
 	err := forEachZombieEntry(kvBackend, func(chanID uint64, pubKey1,
 		pubKey2 [33]byte) error {
 
@@ -819,6 +904,16 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 			return fmt.Errorf("channel %d should be "+
 				"a zombie, but is not", chanID)
 		}
+
+		s.Do(func() {
+			elapsed := time.Since(t0).Seconds()
+			ratePerSec := float64(chunk) / elapsed
+			log.Debugf("Migrated %d zombie index entries "+
+				"(%.2f entries/sec)", count, ratePerSec)
+
+			t0 = time.Now()
+			chunk = 0
+		})
 
 		return nil
 	})

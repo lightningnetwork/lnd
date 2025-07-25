@@ -32,12 +32,12 @@ const (
 	// This is the most that can be sent in a given go. Requests beyond
 	// this, will block indefinitely. Once tokens (bytes are depleted),
 	// they'll be refilled at the DefaultMsgBytesPerSecond rate.
-	DefaultMsgBytesBurst = 2 * 100 * 1_024
+	DefaultMsgBytesBurst = 2 * 1000 * 1_024
 
 	// DefaultMsgBytesPerSecond is the max bytes/s we'll permit for outgoing
 	// messages. Once tokens (bytes) have been taken from the bucket,
 	// they'll be refilled at this rate.
-	DefaultMsgBytesPerSecond = 100 * 1_024
+	DefaultMsgBytesPerSecond = 1000 * 1_024
 
 	// assumedMsgSize is the assumed size of a message if we can't compute
 	// its serialized size. This comes out to 1 KB.

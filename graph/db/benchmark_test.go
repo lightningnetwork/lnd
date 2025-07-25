@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -132,6 +134,12 @@ var (
 // connectNativePostgres creates a V1Store instance backed by a native Postgres
 // database for testing purposes.
 func connectNativePostgres(t testing.TB, dsn string) V1Store {
+	return newSQLStore(t, sqlPostgres(t, dsn))
+}
+
+// sqlPostgres creates a sqldb.DB instance backed by a native Postgres database
+// for testing purposes.
+func sqlPostgres(t testing.TB, dsn string) BatchedSQLQueries {
 	store, err := sqldb.NewPostgresStore(&sqldb.PostgresConfig{
 		Dsn:            dsn,
 		MaxConnections: testMaxPostgresConnections,
@@ -141,12 +149,18 @@ func connectNativePostgres(t testing.TB, dsn string) V1Store {
 		require.NoError(t, store.Close())
 	})
 
-	return newSQLStore(t, store)
+	return newSQLExecutor(t, store)
 }
 
 // connectNativeSQLite creates a V1Store instance backed by a native SQLite
 // database for testing purposes.
 func connectNativeSQLite(t testing.TB, dbPath, file string) V1Store {
+	return newSQLStore(t, sqlSQLite(t, dbPath, file))
+}
+
+// sqlSQLite creates a sqldb.DB instance backed by a native SQLite database for
+// testing purposes.
+func sqlSQLite(t testing.TB, dbPath, file string) BatchedSQLQueries {
 	store, err := sqldb.NewSqliteStore(
 		&sqldb.SqliteConfig{
 			MaxConnections: testMaxSQLiteConnections,
@@ -160,12 +174,12 @@ func connectNativeSQLite(t testing.TB, dbPath, file string) V1Store {
 		require.NoError(t, store.Close())
 	})
 
-	return newSQLStore(t, store)
+	return newSQLExecutor(t, store)
 }
 
-// connectKVDBPostgres creates a V1Store instance backed by a kvdb-postgres
+// kvdbPostgres creates a kvdb.Backend instance backed by a kvdb-postgres
 // database for testing purposes.
-func connectKVDBPostgres(t testing.TB, dsn string) V1Store {
+func kvdbPostgres(t testing.TB, dsn string) kvdb.Backend {
 	kvStore, err := kvdb.Open(
 		kvdb.PostgresBackendName, context.Background(),
 		&postgres.Config{
@@ -181,12 +195,18 @@ func connectKVDBPostgres(t testing.TB, dsn string) V1Store {
 		require.NoError(t, kvStore.Close())
 	})
 
-	return newKVStore(t, kvStore)
+	return kvStore
 }
 
-// connectKVDBSqlite creates a V1Store instance backed by a kvdb-sqlite
+// connectKVDBPostgres creates a V1Store instance backed by a kvdb-postgres
 // database for testing purposes.
-func connectKVDBSqlite(t testing.TB, dbPath, fileName string) V1Store {
+func connectKVDBPostgres(t testing.TB, dsn string) V1Store {
+	return newKVStore(t, kvdbPostgres(t, dsn))
+}
+
+// kvdbSqlite creates a kvdb.Backend instance backed by a kvdb-sqlite
+// database for testing purposes.
+func kvdbSqlite(t testing.TB, dbPath, fileName string) kvdb.Backend {
 	sqlbase.Init(testMaxSQLiteConnections)
 	kvStore, err := kvdb.Open(
 		kvdb.SqliteBackendName, context.Background(),
@@ -201,7 +221,13 @@ func connectKVDBSqlite(t testing.TB, dbPath, fileName string) V1Store {
 	)
 	require.NoError(t, err)
 
-	return newKVStore(t, kvStore)
+	return kvStore
+}
+
+// connectKVDBSqlite creates a V1Store instance backed by a kvdb-sqlite
+// database for testing purposes.
+func connectKVDBSqlite(t testing.TB, dbPath, fileName string) V1Store {
+	return newKVStore(t, kvdbSqlite(t, dbPath, fileName))
 }
 
 // connectBBoltDB creates a new BBolt database connection for testing.
@@ -230,26 +256,30 @@ func newKVStore(t testing.TB, backend kvdb.Backend) V1Store {
 	return store
 }
 
-// newSQLStore creates a new SQLStore instance for testing using a provided
-// sqldb.DB instance.
-func newSQLStore(t testing.TB, db sqldb.DB) V1Store {
+// newSQLExecutor creates a new BatchedSQLQueries instance for testing using a
+// provided sqldb.DB instance.
+func newSQLExecutor(t testing.TB, db sqldb.DB) BatchedSQLQueries {
 	err := db.ApplyAllMigrations(
 		context.Background(), sqldb.GetMigrations(),
 	)
 	require.NoError(t, err)
 
-	graphExecutor := sqldb.NewTransactionExecutor(
+	return sqldb.NewTransactionExecutor(
 		db.GetBaseDB(), func(tx *sql.Tx) SQLQueries {
 			return db.GetBaseDB().WithTx(tx)
 		},
 	)
+}
 
+// newSQLStore creates a new SQLStore instance for testing using a provided
+// sqldb.DB instance.
+func newSQLStore(t testing.TB, db BatchedSQLQueries) V1Store {
 	store, err := NewSQLStore(
 		&SQLStoreConfig{
 			ChainHash:     dbTestChain,
 			PaginationCfg: testSQLPaginationCfg,
 		},
-		graphExecutor, testStoreOptions...,
+		db, testStoreOptions...,
 	)
 	require.NoError(t, err)
 
@@ -379,6 +409,51 @@ func TestPopulateDBs(t *testing.T) {
 				"%d, %d", destDB.name, numChan, numPol)
 		})
 	}
+}
+
+// TestPopulateViaMigration is a helper test that can be used to populate a
+// local native SQL graph from a kvdb-sql graph using the migration logic.
+//
+// NOTE: the testPostgres variable can be set to true to test with a
+// postgres backend instead of the kvdb-sqlite backend.
+//
+// NOTE: this is a helper test and is not run by default.
+//
+// TODO(elle): this test reveals tht there may be an issue with the postgres
+// migration as it is super slow.
+func TestPopulateViaMigration(t *testing.T) {
+	t.Skipf("Skipping local helper test")
+
+	// Set this to true if you want to test with a postgres backend.
+	// By default, we use a kvdb-sqlite backend.
+	testPostgres := false
+
+	ctx := context.Background()
+
+	// Set up a logger so we can see the migration progress.
+	logger := btclog.NewDefaultHandler(os.Stdout)
+	UseLogger(btclog.NewSLogger(logger))
+	log.SetLevel(btclog.LevelDebug)
+
+	var (
+		srcKVDB = kvdbSqlite(t, kvdbSqlitePath, kvdbSqliteFile)
+		dstSQL  = sqlSQLite(t, nativeSQLSqlitePath, nativeSQLSqliteFile)
+	)
+	if testPostgres {
+		srcKVDB = kvdbPostgres(t, kvdbPostgresDNS)
+		dstSQL = sqlPostgres(t, nativeSQLPostgresDNS)
+	}
+
+	// Use the graph migration to populate the SQL graph from the
+	// kvdb graph.
+	err := dstSQL.ExecTx(
+		ctx, sqldb.WriteTxOpt(), func(queries SQLQueries) error {
+			return MigrateGraphToSQL(
+				ctx, srcKVDB, queries, dbTestChain,
+			)
+		}, func() {},
+	)
+	require.NoError(t, err)
 }
 
 // syncGraph synchronizes the source graph with the destination graph by

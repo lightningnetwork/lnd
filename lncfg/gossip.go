@@ -37,6 +37,8 @@ type Gossip struct {
 	MsgRateBytes uint64 `long:"msg-rate-bytes" description:"The maximum number of bytes of gossip messages that will be sent per second. This is a global limit that applies to all peers."`
 
 	MsgBurstBytes uint64 `long:"msg-burst-bytes" description:"The maximum number of bytes of gossip messages that will be sent in a burst. This is a global limit that applies to all peers. This value should be set to something greater than 130 KB"`
+
+	PeerMsgRateBytes uint64 `long:"peer-msg-rate-bytes" description:"The peer-specific rate of outbound gossip messages, expressed in bytes per second. This setting controls the long-term average speed of gossip traffic sent from your node. The rate limit is applied to each peer. If the rate of outgoing messages exceeds this value, lnd will start to queue and delay messages sending to that peer to stay within the limit."`
 }
 
 // Parse the pubkeys for the pinned syncers.
@@ -66,6 +68,17 @@ func (g *Gossip) Validate() error {
 	if g.MsgBurstBytes < lnwire.MaxSliceLength {
 		return fmt.Errorf("msg-burst-bytes=%v must be at least %v",
 			g.MsgBurstBytes, lnwire.MaxSliceLength)
+	}
+
+	if g.MsgBurstBytes <= g.MsgRateBytes {
+		return fmt.Errorf("msg-burst-bytes=%v must be greater than "+
+			"msg-rate-bytes=%v", g.MsgBurstBytes, g.MsgRateBytes)
+	}
+
+	if g.MsgRateBytes <= g.PeerMsgRateBytes {
+		return fmt.Errorf("msg-rate-bytes=%v must be greater than "+
+			"peer-msg-rate-bytes=%v", g.MsgRateBytes,
+			g.PeerMsgRateBytes)
 	}
 
 	return nil

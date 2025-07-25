@@ -434,3 +434,61 @@ func TestParseBlockHeightInputs(t *testing.T) {
 		})
 	}
 }
+
+// TestParseChanIDs tests the parseChanIDs function with various
+// valid and invalid input values and verifies the output.
+func TestParseChanIDs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		chanIDs     []string
+		expected    []uint64
+		expectedErr bool
+	}{
+		{
+			name: "valid chan ids",
+			chanIDs: []string{
+				"1499733860352000", "17592186044552773633",
+			},
+			expected: []uint64{
+				1499733860352000, 17592186044552773633,
+			},
+			expectedErr: false,
+		},
+		{
+			name: "invalid chan id",
+			chanIDs: []string{
+				"channel id",
+			},
+			expected:    []uint64{},
+			expectedErr: true,
+		},
+		{
+			name: "negative chan id",
+			chanIDs: []string{
+				"-10000",
+			},
+			expected:    []uint64{},
+			expectedErr: true,
+		},
+		{
+			name:        "empty chan ids",
+			chanIDs:     []string{},
+			expected:    nil,
+			expectedErr: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			chanIDs, err := parseChanIDs(tc.chanIDs)
+			if tc.expectedErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, chanIDs)
+		})
+	}
+}

@@ -217,6 +217,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 		},
 		markGraphSynced:          func() {},
 		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
+		timestampQueueSize:       10,
 	}
 
 	syncerSema := make(chan struct{}, 1)

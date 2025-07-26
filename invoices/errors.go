@@ -14,6 +14,9 @@ var (
 	// canceled.
 	ErrInvoiceAlreadyCanceled = errors.New("invoice already canceled")
 
+	// ErrInvoiceNotCanceled is returned when the invoice is not canceled.
+	ErrInvoiceNotCanceled = errors.New("invoice not canceled")
+
 	// ErrInvoiceAlreadyAccepted is returned when the invoice is already
 	// accepted.
 	ErrInvoiceAlreadyAccepted = errors.New("invoice already accepted")
@@ -32,6 +35,10 @@ var (
 	// ErrInvoicePreimageMismatch is returned when the preimage doesn't
 	// match the invoice hash.
 	ErrInvoicePreimageMismatch = errors.New("preimage does not match")
+
+	// ErrNoInvoiceHash is returned when an invoice hash is expected, and
+	// none is provided.
+	ErrNoInvoiceHash = errors.New("invoice hash must be provided")
 
 	// ErrHTLCPreimageMissing is returned when trying to accept/settle an
 	// AMP HTLC but the HTLC-level preimage has not been set.

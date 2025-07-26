@@ -243,6 +243,10 @@ type LightningClient interface {
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.
 	SubscribeInvoices(ctx context.Context, in *InvoiceSubscription, opts ...grpc.CallOption) (Lightning_SubscribeInvoicesClient, error)
+	// lncli: `deletecanceledinvoice`
+	// DeleteCanceledInvoice removes a canceled invoice from the database. If the
+	// invoice is not in the canceled state, an error will be returned.
+	DeleteCanceledInvoice(ctx context.Context, in *DelCanceledInvoiceReq, opts ...grpc.CallOption) (*DelCanceledInvoiceResp, error)
 	// lncli: `decodepayreq`
 	// DecodePayReq takes an encoded payment request string and attempts to decode
 	// it, returning a full description of the conditions encoded within the
@@ -973,6 +977,15 @@ func (x *lightningSubscribeInvoicesClient) Recv() (*Invoice, error) {
 	return m, nil
 }
 
+func (c *lightningClient) DeleteCanceledInvoice(ctx context.Context, in *DelCanceledInvoiceReq, opts ...grpc.CallOption) (*DelCanceledInvoiceResp, error) {
+	out := new(DelCanceledInvoiceResp)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DeleteCanceledInvoice", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *lightningClient) DecodePayReq(ctx context.Context, in *PayReqString, opts ...grpc.CallOption) (*PayReq, error) {
 	out := new(PayReq)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/DecodePayReq", in, out, opts...)
@@ -1572,6 +1585,10 @@ type LightningServer interface {
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.
 	SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error
+	// lncli: `deletecanceledinvoice`
+	// DeleteCanceledInvoice removes a canceled invoice from the database. If the
+	// invoice is not in the canceled state, an error will be returned.
+	DeleteCanceledInvoice(context.Context, *DelCanceledInvoiceReq) (*DelCanceledInvoiceResp, error)
 	// lncli: `decodepayreq`
 	// DecodePayReq takes an encoded payment request string and attempts to decode
 	// it, returning a full description of the conditions encoded within the
@@ -1868,6 +1885,9 @@ func (UnimplementedLightningServer) LookupInvoice(context.Context, *PaymentHash)
 }
 func (UnimplementedLightningServer) SubscribeInvoices(*InvoiceSubscription, Lightning_SubscribeInvoicesServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeInvoices not implemented")
+}
+func (UnimplementedLightningServer) DeleteCanceledInvoice(context.Context, *DelCanceledInvoiceReq) (*DelCanceledInvoiceResp, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteCanceledInvoice not implemented")
 }
 func (UnimplementedLightningServer) DecodePayReq(context.Context, *PayReqString) (*PayReq, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DecodePayReq not implemented")
@@ -2683,6 +2703,24 @@ func (x *lightningSubscribeInvoicesServer) Send(m *Invoice) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Lightning_DeleteCanceledInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DelCanceledInvoiceReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).DeleteCanceledInvoice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/DeleteCanceledInvoice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).DeleteCanceledInvoice(ctx, req.(*DelCanceledInvoiceReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Lightning_DecodePayReq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PayReqString)
 	if err := dec(in); err != nil {
@@ -3376,6 +3414,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LookupInvoice",
 			Handler:    _Lightning_LookupInvoice_Handler,
+		},
+		{
+			MethodName: "DeleteCanceledInvoice",
+			Handler:    _Lightning_DeleteCanceledInvoice_Handler,
 		},
 		{
 			MethodName: "DecodePayReq",

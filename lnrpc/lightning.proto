@@ -341,6 +341,13 @@ service Lightning {
     */
     rpc SubscribeInvoices (InvoiceSubscription) returns (stream Invoice);
 
+    /* lncli: `deletecanceledinvoice`
+    DeleteCanceledInvoice removes a canceled invoice from the database. If the
+    invoice is not in the canceled state, an error will be returned.
+    */
+    rpc DeleteCanceledInvoice (DelCanceledInvoiceReq)
+        returns (DelCanceledInvoiceResp);
+
     /* lncli: `decodepayreq`
     DecodePayReq takes an encoded payment request string and attempts to decode
     it, returning a full description of the conditions encoded within the
@@ -4232,6 +4239,16 @@ message InvoiceSubscription {
     they weren't connected to the streaming RPC.
     */
     uint64 settle_index = 2;
+}
+
+message DelCanceledInvoiceReq {
+    // Invoice payment hash to delete.
+    string invoice_hash = 1;
+}
+
+message DelCanceledInvoiceResp {
+    // The status of the delete operation.
+    string status = 1;
 }
 
 enum PaymentFailureReason {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/proto"
 )
 
 var AddInvoiceCommand = cli.Command{
@@ -438,5 +439,58 @@ func decodePayReq(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var deleteCanceledInvoiceCommand = cli.Command{
+	Name:      "deletecanceledinvoice",
+	Category:  "Invoices",
+	Usage:     "Delete a canceled invoice from the database.",
+	ArgsUsage: "invoice_hash",
+	Description: `
+	This command deletes a canceled invoice from the database. Note that
+	expired invoices are automatically moved to the canceled state.
+	Once canceled, they can be deleted using this command.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "invoice_hash",
+			Usage: "the invoice hash to be deleted",
+		},
+	},
+	Action: actionDecorator(deleteCanceledInvoice),
+}
+
+func deleteCanceledInvoice(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	var (
+		invoiceHash string
+		err         error
+		resp        proto.Message
+	)
+
+	switch {
+	case ctx.IsSet("invoice_hash"):
+		invoiceHash = ctx.String("invoice_hash")
+	case ctx.Args().Present():
+		invoiceHash = ctx.Args().First()
+	default:
+		return fmt.Errorf("invoice_hash argument missing")
+	}
+
+	req := &lnrpc.DelCanceledInvoiceReq{
+		InvoiceHash: invoiceHash,
+	}
+
+	resp, err = client.DeleteCanceledInvoice(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printJSON(resp)
+
 	return nil
 }

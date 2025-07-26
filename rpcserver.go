@@ -467,6 +467,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "info",
 			Action: "read",
 		}},
+		"/lnrpc.Lightning/DeleteCanceledInvoice": {{
+			Entity: "invoices",
+			Action: "write",
+		}},
 		"/lnrpc.Lightning/ListPayments": {{
 			Entity: "offchain",
 			Action: "read",
@@ -7548,6 +7552,45 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 	}
 
 	return paymentsResp, nil
+}
+
+// DeleteCanceledInvoice remove a canceled invoice from the database.
+func (r *rpcServer) DeleteCanceledInvoice(ctx context.Context,
+	req *lnrpc.DelCanceledInvoiceReq) (*lnrpc.DelCanceledInvoiceResp,
+	error) {
+
+	if req.InvoiceHash == "" {
+		return nil, invoices.ErrNoInvoiceHash
+	}
+
+	hash, err := lntypes.MakeHashFromStr(req.InvoiceHash)
+	if err != nil {
+		return nil, err
+	}
+
+	invoice, err := r.server.invoices.LookupInvoice(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+
+	if invoice.State != invoices.ContractCanceled {
+		return nil, invoices.ErrInvoiceNotCanceled
+	}
+
+	err = r.server.invoicesDB.DeleteInvoice(ctx,
+		[]invoices.InvoiceDeleteRef{
+			{
+				PayHash:  hash,
+				AddIndex: invoice.AddIndex,
+			},
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.DelCanceledInvoiceResp{Status: fmt.Sprintf("canceled "+
+		"invoice deleted successfully: invoice hash %v", hash)}, nil
 }
 
 // DeletePayment deletes a payment from the DB given its payment hash. If

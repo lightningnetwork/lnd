@@ -134,12 +134,11 @@ INSERT INTO graph_node_addresses (
     $1, $2, $3, $4
  );
 
--- name: GetNodeAddressesByPubKey :many
-SELECT a.type, a.address
-FROM graph_nodes n
-LEFT JOIN graph_node_addresses a ON a.node_id = n.id
-WHERE n.pub_key = $1 AND n.version = $2
-ORDER BY a.type ASC, a.position ASC;
+-- name: GetNodeAddresses :many
+SELECT type, address
+FROM graph_node_addresses
+WHERE node_id = $1
+ORDER BY type ASC, position ASC;
 
 -- name: GetNodesByLastUpdateRange :many
 SELECT *

@@ -59,7 +59,7 @@ type Querier interface {
 	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
 	GetKVInvoicePaymentHashByAddIndex(ctx context.Context, addIndex int64) ([]byte, error)
 	GetMigration(ctx context.Context, version int32) (time.Time, error)
-	GetNodeAddressesByPubKey(ctx context.Context, arg GetNodeAddressesByPubKeyParams) ([]GetNodeAddressesByPubKeyRow, error)
+	GetNodeAddresses(ctx context.Context, nodeID int64) ([]GetNodeAddressesRow, error)
 	GetNodeByPubKey(ctx context.Context, arg GetNodeByPubKeyParams) (GraphNode, error)
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)

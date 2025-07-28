@@ -1438,33 +1438,27 @@ func (q *Queries) GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphN
 	return items, nil
 }
 
-const getNodeAddressesByPubKey = `-- name: GetNodeAddressesByPubKey :many
-SELECT a.type, a.address
-FROM graph_nodes n
-LEFT JOIN graph_node_addresses a ON a.node_id = n.id
-WHERE n.pub_key = $1 AND n.version = $2
-ORDER BY a.type ASC, a.position ASC
+const getNodeAddresses = `-- name: GetNodeAddresses :many
+SELECT type, address
+FROM graph_node_addresses
+WHERE node_id = $1
+ORDER BY type ASC, position ASC
 `
 
-type GetNodeAddressesByPubKeyParams struct {
-	PubKey  []byte
-	Version int16
+type GetNodeAddressesRow struct {
+	Type    int16
+	Address string
 }
 
-type GetNodeAddressesByPubKeyRow struct {
-	Type    sql.NullInt16
-	Address sql.NullString
-}
-
-func (q *Queries) GetNodeAddressesByPubKey(ctx context.Context, arg GetNodeAddressesByPubKeyParams) ([]GetNodeAddressesByPubKeyRow, error) {
-	rows, err := q.db.QueryContext(ctx, getNodeAddressesByPubKey, arg.PubKey, arg.Version)
+func (q *Queries) GetNodeAddresses(ctx context.Context, nodeID int64) ([]GetNodeAddressesRow, error) {
+	rows, err := q.db.QueryContext(ctx, getNodeAddresses, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetNodeAddressesByPubKeyRow
+	var items []GetNodeAddressesRow
 	for rows.Next() {
-		var i GetNodeAddressesByPubKeyRow
+		var i GetNodeAddressesRow
 		if err := rows.Scan(&i.Type, &i.Address); err != nil {
 			return nil, err
 		}

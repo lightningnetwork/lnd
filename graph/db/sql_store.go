@@ -73,7 +73,7 @@ type SQLQueries interface {
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
 	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
-	GetNodeAddressesByPubKey(ctx context.Context, arg sqlc.GetNodeAddressesByPubKeyParams) ([]sqlc.GetNodeAddressesByPubKeyRow, error)
+	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 
 	InsertNodeFeature(ctx context.Context, arg sqlc.InsertNodeFeatureParams) error
@@ -321,10 +321,21 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 		known     bool
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		var err error
-		known, addresses, err = getNodeAddresses(
-			ctx, db, nodePub.SerializeCompressed(),
+		// First, check if the node exists and get its DB ID if it
+		// does.
+		dbID, err := db.GetNodeIDByPubKey(
+			ctx, sqlc.GetNodeIDByPubKeyParams{
+				Version: int16(ProtocolV1),
+				PubKey:  nodePub.SerializeCompressed(),
+			},
 		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+
+		known = true
+
+		addresses, err = getNodeAddresses(ctx, db, dbID)
 		if err != nil {
 			return fmt.Errorf("unable to fetch node addresses: %w",
 				err)
@@ -3381,7 +3392,7 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.GraphNode) (
 	}
 
 	// Fetch the node's addresses.
-	_, node.Addresses, err = getNodeAddresses(ctx, db, pub[:])
+	node.Addresses, err = getNodeAddresses(ctx, db, dbNode.ID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node(%d) "+
 			"addresses: %w", dbNode.ID, err)
@@ -3685,42 +3696,26 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 	return nil
 }
 
-// getNodeAddresses fetches the addresses for a node with the given public key.
-func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
-	[]net.Addr, error) {
+// getNodeAddresses fetches the addresses for a node with the given DB ID.
+func getNodeAddresses(ctx context.Context, db SQLQueries, id int64) ([]net.Addr,
+	error) {
 
-	// GetNodeAddressesByPubKey ensures that the addresses for a given type
-	// are returned in the same order as they were inserted.
-	rows, err := db.GetNodeAddressesByPubKey(
-		ctx, sqlc.GetNodeAddressesByPubKeyParams{
-			Version: int16(ProtocolV1),
-			PubKey:  nodePub,
-		},
-	)
+	// GetNodeAddresses ensures that the addresses for a given type are
+	// returned in the same order as they were inserted.
+	rows, err := db.GetNodeAddresses(ctx, id)
 	if err != nil {
-		return false, nil, err
-	}
-
-	// GetNodeAddressesByPubKey uses a left join so there should always be
-	// at least one row returned if the node exists even if it has no
-	// addresses.
-	if len(rows) == 0 {
-		return false, nil, nil
+		return nil, err
 	}
 
 	addresses := make([]net.Addr, 0, len(rows))
-	for _, addr := range rows {
-		if !(addr.Type.Valid && addr.Address.Valid) {
-			continue
-		}
+	for _, row := range rows {
+		address := row.Address
 
-		address := addr.Address.String
-
-		switch dbAddressType(addr.Type.Int16) {
+		switch dbAddressType(row.Type) {
 		case addressTypeIPv4:
 			tcp, err := net.ResolveTCPAddr("tcp4", address)
 			if err != nil {
-				return false, nil, nil
+				return nil, err
 			}
 			tcp.IP = tcp.IP.To4()
 
@@ -3729,21 +3724,20 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		case addressTypeIPv6:
 			tcp, err := net.ResolveTCPAddr("tcp6", address)
 			if err != nil {
-				return false, nil, nil
+				return nil, err
 			}
 			addresses = append(addresses, tcp)
 
 		case addressTypeTorV3, addressTypeTorV2:
 			service, portStr, err := net.SplitHostPort(address)
 			if err != nil {
-				return false, nil, fmt.Errorf("unable to "+
-					"split tor v3 address: %v",
-					addr.Address)
+				return nil, fmt.Errorf("unable to "+
+					"split tor v3 address: %v", address)
 			}
 
 			port, err := strconv.Atoi(portStr)
 			if err != nil {
-				return false, nil, err
+				return nil, err
 			}
 
 			addresses = append(addresses, &tor.OnionAddr{
@@ -3754,8 +3748,8 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		case addressTypeOpaque:
 			opaque, err := hex.DecodeString(address)
 			if err != nil {
-				return false, nil, fmt.Errorf("unable to "+
-					"decode opaque address: %v", addr)
+				return nil, fmt.Errorf("unable to "+
+					"decode opaque address: %v", address)
 			}
 
 			addresses = append(addresses, &lnwire.OpaqueAddrs{
@@ -3763,8 +3757,8 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 			})
 
 		default:
-			return false, nil, fmt.Errorf("unknown address "+
-				"type: %v", addr.Type)
+			return nil, fmt.Errorf("unknown address type: %v",
+				row.Type)
 		}
 	}
 
@@ -3774,7 +3768,7 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		addresses = nil
 	}
 
-	return true, addresses, nil
+	return addresses, nil
 }
 
 // upsertNodeExtraSignedFields updates the node's extra signed fields in the

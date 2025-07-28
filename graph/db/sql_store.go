@@ -103,6 +103,7 @@ type SQLQueries interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
@@ -1247,8 +1248,8 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 	ctx := context.TODO()
 
-	handleChannel := func(db SQLQueries,
-		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {
+	handleChannel := func(
+		row sqlc.ListChannelsWithPoliciesForCachePaginatedRow) error {
 
 		node1, node2, err := buildNodeVertices(
 			row.Node1Pubkey, row.Node2Pubkey,
@@ -1258,7 +1259,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel, node1, node2,
+			row.Scid, row.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -1299,8 +1300,8 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		lastID := int64(-1)
 		for {
 			//nolint:ll
-			rows, err := db.ListChannelsWithPoliciesPaginated(
-				ctx, sqlc.ListChannelsWithPoliciesPaginatedParams{
+			rows, err := db.ListChannelsWithPoliciesForCachePaginated(
+				ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
 					Version: int16(ProtocolV1),
 					ID:      lastID,
 					Limit:   pageSize,
@@ -1315,12 +1316,12 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 			}
 
 			for _, row := range rows {
-				err := handleChannel(db, row)
+				err := handleChannel(row)
 				if err != nil {
 					return err
 				}
 
-				lastID = row.GraphChannel.ID
+				lastID = row.ID
 			}
 		}
 
@@ -3018,7 +3019,8 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel, node1, node2,
+			row.GraphChannel.Scid, row.GraphChannel.Capacity.Int64,
+			node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -3321,16 +3323,15 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 }
 
 // buildCacheableChannelInfo builds a models.CachedEdgeInfo instance from the
-// provided database channel row and the public keys of the two nodes
-// involved in the channel.
-func buildCacheableChannelInfo(dbChan sqlc.GraphChannel, node1Pub,
+// provided parameters.
+func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
-		ChannelID:     byteOrder.Uint64(dbChan.Scid),
+		ChannelID:     byteOrder.Uint64(scid),
 		NodeKey1Bytes: node1Pub,
 		NodeKey2Bytes: node2Pub,
-		Capacity:      btcutil.Amount(dbChan.Capacity.Int64),
+		Capacity:      btcutil.Amount(capacity),
 	}
 }
 
@@ -4368,6 +4369,38 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 
 	var policy1, policy2 *sqlc.GraphChannelPolicy
 	switch r := row.(type) {
+	case sqlc.ListChannelsWithPoliciesForCachePaginatedRow:
+		if r.Policy1Timelock.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+			}
+		}
+		if r.Policy2Timelock.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.GetChannelsBySCIDWithPoliciesRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{

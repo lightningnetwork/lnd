@@ -1188,7 +1188,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 				var cachedInPolicy *models.CachedEdgePolicy
 				if inPolicy != nil {
 					cachedInPolicy = models.NewCachedPolicy(
-						p2,
+						inPolicy,
 					)
 					cachedInPolicy.ToNodePubKey =
 						toNodeCallback
@@ -1197,11 +1197,13 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 				}
 
 				var inboundFee lnwire.Fee
-				outPolicy.InboundFee.WhenSome(
-					func(fee lnwire.Fee) {
-						inboundFee = fee
-					},
-				)
+				if outPolicy != nil {
+					outPolicy.InboundFee.WhenSome(
+						func(fee lnwire.Fee) {
+							inboundFee = fee
+						},
+					)
+				}
 
 				directedChannel := &DirectedChannel{
 					ChannelID: e.ChannelID,
@@ -1209,7 +1211,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 						e.NodeKey1Bytes,
 					OtherNode:    e.NodeKey2Bytes,
 					Capacity:     e.Capacity,
-					OutPolicySet: p1 != nil,
+					OutPolicySet: outPolicy != nil,
 					InPolicy:     cachedInPolicy,
 					InboundFee:   inboundFee,
 				}

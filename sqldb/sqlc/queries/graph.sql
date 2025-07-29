@@ -275,27 +275,6 @@ FROM graph_channels c
 WHERE c.scid = $1
   AND c.version = $2;
 
--- name: GetChannelFeaturesAndExtras :many
-SELECT
-    cf.channel_id,
-    true AS is_feature,
-    cf.feature_bit AS feature_bit,
-    NULL AS extra_key,
-    NULL AS value
-FROM graph_channel_features cf
-WHERE cf.channel_id = $1
-
-UNION ALL
-
-SELECT
-    cet.channel_id,
-    false AS is_feature,
-    0 AS feature_bit,
-    cet.type AS extra_key,
-    cet.value AS value
-FROM graph_channel_extra_types cet
-WHERE cet.channel_id = $1;
-
 -- name: GetSCIDByOutpoint :one
 SELECT scid from graph_channels
 WHERE outpoint = $1 AND version = $2;
@@ -785,18 +764,6 @@ SELECT
 FROM graph_channel_policy_extra_types
 WHERE channel_policy_id IN (sqlc.slice('policy_ids')/*SLICE:policy_ids*/)
 ORDER BY channel_policy_id, type;
-
--- name: GetChannelPolicyExtraTypes :many
-SELECT
-    cp.id AS policy_id,
-    cp.channel_id,
-    cp.node_id,
-    cpet.type,
-    cpet.value
-FROM graph_channel_policies cp
-JOIN graph_channel_policy_extra_types cpet
-ON cp.id = cpet.channel_policy_id
-WHERE cp.id = $1 OR cp.id = $2;
 
 -- name: GetV1DisabledSCIDs :many
 SELECT c.scid

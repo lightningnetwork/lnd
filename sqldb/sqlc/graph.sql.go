@@ -744,65 +744,6 @@ func (q *Queries) GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([
 	return items, nil
 }
 
-const getChannelFeaturesAndExtras = `-- name: GetChannelFeaturesAndExtras :many
-SELECT
-    cf.channel_id,
-    true AS is_feature,
-    cf.feature_bit AS feature_bit,
-    NULL AS extra_key,
-    NULL AS value
-FROM graph_channel_features cf
-WHERE cf.channel_id = $1
-
-UNION ALL
-
-SELECT
-    cet.channel_id,
-    false AS is_feature,
-    0 AS feature_bit,
-    cet.type AS extra_key,
-    cet.value AS value
-FROM graph_channel_extra_types cet
-WHERE cet.channel_id = $1
-`
-
-type GetChannelFeaturesAndExtrasRow struct {
-	ChannelID  int64
-	IsFeature  bool
-	FeatureBit int32
-	ExtraKey   interface{}
-	Value      interface{}
-}
-
-func (q *Queries) GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]GetChannelFeaturesAndExtrasRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChannelFeaturesAndExtras, channelID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetChannelFeaturesAndExtrasRow
-	for rows.Next() {
-		var i GetChannelFeaturesAndExtrasRow
-		if err := rows.Scan(
-			&i.ChannelID,
-			&i.IsFeature,
-			&i.FeatureBit,
-			&i.ExtraKey,
-			&i.Value,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getChannelFeaturesBatch = `-- name: GetChannelFeaturesBatch :many
 SELECT
     channel_id,
@@ -881,61 +822,6 @@ func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetC
 		&i.Signature,
 	)
 	return i, err
-}
-
-const getChannelPolicyExtraTypes = `-- name: GetChannelPolicyExtraTypes :many
-SELECT
-    cp.id AS policy_id,
-    cp.channel_id,
-    cp.node_id,
-    cpet.type,
-    cpet.value
-FROM graph_channel_policies cp
-JOIN graph_channel_policy_extra_types cpet
-ON cp.id = cpet.channel_policy_id
-WHERE cp.id = $1 OR cp.id = $2
-`
-
-type GetChannelPolicyExtraTypesParams struct {
-	ID   int64
-	ID_2 int64
-}
-
-type GetChannelPolicyExtraTypesRow struct {
-	PolicyID  int64
-	ChannelID int64
-	NodeID    int64
-	Type      int64
-	Value     []byte
-}
-
-func (q *Queries) GetChannelPolicyExtraTypes(ctx context.Context, arg GetChannelPolicyExtraTypesParams) ([]GetChannelPolicyExtraTypesRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChannelPolicyExtraTypes, arg.ID, arg.ID_2)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetChannelPolicyExtraTypesRow
-	for rows.Next() {
-		var i GetChannelPolicyExtraTypesRow
-		if err := rows.Scan(
-			&i.PolicyID,
-			&i.ChannelID,
-			&i.NodeID,
-			&i.Type,
-			&i.Value,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getChannelPolicyExtraTypesBatch = `-- name: GetChannelPolicyExtraTypesBatch :many

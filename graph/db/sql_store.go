@@ -33,7 +33,10 @@ import (
 
 // pageSize is the limit for the number of records that can be returned
 // in a paginated query. This can be tuned after some benchmarks.
-const pageSize = 2000
+//
+// TODO(elle): make this configurable & have different defaults for SQLite and
+// Postgres.
+const pageSize = 10000
 
 // ProtocolVersion is an enum that defines the gossip protocol version of a
 // message.

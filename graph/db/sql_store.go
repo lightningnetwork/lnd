@@ -554,14 +554,16 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 			return fmt.Errorf("unable to fetch nodes: %w", err)
 		}
 
-		for _, dbNode := range dbNodes {
-			node, err := buildNode(ctx, db, &dbNode)
-			if err != nil {
-				return fmt.Errorf("unable to build node: %w",
-					err)
-			}
+		err = forEachNodeInBatch(
+			ctx, s.cfg.PaginationCfg, db, dbNodes,
+			func(_ int64, node *models.LightningNode) error {
+				nodes = append(nodes, *node)
 
-			nodes = append(nodes, *node)
+				return nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build nodes: %w", err)
 		}
 
 		return nil

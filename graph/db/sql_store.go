@@ -69,15 +69,18 @@ type SQLQueries interface {
 	DeleteNode(ctx context.Context, id int64) error
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeExtraType, error)
+	GetNodeExtraTypesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeExtraType, error)
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
 	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
 	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
+	GetNodeAddressesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 
 	InsertNodeFeature(ctx context.Context, arg sqlc.InsertNodeFeatureParams) error
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeFeature, error)
+	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg sqlc.GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
 
@@ -4671,4 +4674,156 @@ func channelIDToBytes(channelID uint64) []byte {
 	byteOrder.PutUint64(chanIDB[:], channelID)
 
 	return chanIDB[:]
+}
+
+// batchNodeData holds all the related data for a batch of nodes.
+type batchNodeData struct {
+	// features is a map from a DB node ID to the feature bits for that
+	// node.
+	features map[int64][]int
+
+	// addresses is a map from a DB node ID to the node's addresses.
+	addresses map[int64][]nodeAddress
+
+	// extraFields is a map from a DB node ID to the extra signed fields
+	// for that node.
+	extraFields map[int64]map[uint64][]byte
+}
+
+// nodeAddress holds the address type, position and address string for a
+// node. This is used to batch the fetching of node addresses.
+type nodeAddress struct {
+	addrType dbAddressType
+	position int32
+	address  string
+}
+
+// batchLoadNodeData loads all related data for a batch of node IDs using the
+// provided SQLQueries interface. It returns a batchNodeData instance containing
+// the node features, addresses and extra signed fields.
+func batchLoadNodeData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+	db SQLQueries, nodeIDs []int64) (*batchNodeData, error) {
+
+	// Batch load the node features.
+	features, err := batchLoadNodeFeaturesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node "+
+			"features: %w", err)
+	}
+
+	// Batch load the node addresses.
+	addrs, err := batchLoadNodeAddressesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node "+
+			"addresses: %w", err)
+	}
+
+	// Batch load the node extra signed fields.
+	extraTypes, err := batchLoadNodeExtraTypesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node extra "+
+			"signed fields: %w", err)
+	}
+
+	return &batchNodeData{
+		features:    features,
+		addresses:   addrs,
+		extraFields: extraTypes,
+	}, nil
+}
+
+// batchLoadNodeFeaturesHelper loads node features for a batch of node IDs
+// using ExecutePagedQuery wrapper around the GetNodeFeaturesBatch query.
+func batchLoadNodeFeaturesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64][]int, error) {
+
+	features := make(map[int64][]int)
+
+	return features, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) ([]sqlc.GraphNodeFeature,
+			error) {
+
+			return db.GetNodeFeaturesBatch(ctx, ids)
+		},
+		func(ctx context.Context, feature sqlc.GraphNodeFeature) error {
+			features[feature.NodeID] = append(
+				features[feature.NodeID],
+				int(feature.FeatureBit),
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadNodeAddressesHelper loads node addresses using ExecutePagedQuery
+// wrapper around the GetNodeAddressesBatch query. It returns a map from
+// node ID to a slice of nodeAddress structs.
+func batchLoadNodeAddressesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64][]nodeAddress, error) {
+
+	addrs := make(map[int64][]nodeAddress)
+
+	return addrs, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress,
+			error) {
+
+			return db.GetNodeAddressesBatch(ctx, ids)
+		},
+		func(ctx context.Context, addr sqlc.GraphNodeAddress) error {
+			addrs[addr.NodeID] = append(
+				addrs[addr.NodeID], nodeAddress{
+					addrType: dbAddressType(addr.Type),
+					position: addr.Position,
+					address:  addr.Address,
+				},
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadNodeExtraTypesHelper loads node extra type bytes for a batch of
+// node IDs using ExecutePagedQuery wrapper around the GetNodeExtraTypesBatch
+// query.
+func batchLoadNodeExtraTypesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64]map[uint64][]byte, error) {
+
+	extraFields := make(map[int64]map[uint64][]byte)
+
+	callback := func(ctx context.Context,
+		field sqlc.GraphNodeExtraType) error {
+
+		if extraFields[field.NodeID] == nil {
+			extraFields[field.NodeID] = make(map[uint64][]byte)
+		}
+		extraFields[field.NodeID][uint64(field.Type)] = field.Value
+
+		return nil
+	}
+
+	return extraFields, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) (
+			[]sqlc.GraphNodeExtraType, error) {
+
+			return db.GetNodeExtraTypesBatch(ctx, ids)
+		},
+		callback,
+	)
 }

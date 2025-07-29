@@ -1054,9 +1054,8 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 			}
 
 			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-				row.GraphChannel, node1.PubKeyBytes,
-				node2.PubKeyBytes,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel,
+				node1.PubKeyBytes, node2.PubKeyBytes,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to build channel "+
@@ -1162,8 +1161,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context,
 
 				e, err := getAndBuildEdgeInfo(
 					ctx, db, s.cfg.ChainHash,
-					row.GraphChannel.ID, row.GraphChannel,
-					node1, node2,
+					row.GraphChannel, node1, node2,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to build "+
@@ -1368,8 +1366,8 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 		}
 
 		edge, err := getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-			row.GraphChannel, node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
+			node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1757,8 +1755,8 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 			}
 
 			info, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-				row.GraphChannel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel,
+				node1, node2,
 			)
 			if err != nil {
 				return err
@@ -1910,8 +1908,8 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-			row.GraphChannel, node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
+			node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1982,8 +1980,8 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-			row.GraphChannel, node1, node2,
+			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
+			node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -2216,9 +2214,8 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			}
 
 			edge, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-				row.GraphChannel, node1.PubKeyBytes,
-				node2.PubKeyBytes,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel,
+				node1.PubKeyBytes, node2.PubKeyBytes,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to build "+
@@ -2489,8 +2486,8 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 			}
 
 			info, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-				row.GraphChannel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel,
+				node1, node2,
 			)
 			if err != nil {
 				return err
@@ -2788,8 +2785,8 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 			}
 
 			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel.ID,
-				row.GraphChannel, node1, node2,
+				ctx, db, s.cfg.ChainHash, row.GraphChannel,
+				node1, node2,
 			)
 			if err != nil {
 				return err
@@ -3175,8 +3172,7 @@ func forEachNodeChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge, err := getAndBuildEdgeInfo(
-			ctx, db, chain, row.GraphChannel.ID, row.GraphChannel,
-			node1, node2,
+			ctx, db, chain, row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -4086,7 +4082,7 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 // provided dbChanRow and also fetches any other required information
 // to construct the edge info.
 func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
-	chain chainhash.Hash, dbChanID int64, dbChan sqlc.GraphChannel, node1,
+	chain chainhash.Hash, dbChan sqlc.GraphChannel, node1,
 	node2 route.Vertex) (*models.ChannelEdgeInfo, error) {
 
 	// NOTE: getAndBuildEdgeInfo is only used to load the data for a single

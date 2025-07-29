@@ -1,11 +1,13 @@
 package itest
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"os"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -13,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -1390,4 +1393,203 @@ func testGRPCNotFound(ht *lntest.HarnessTest) {
 		// Use a random payment hash that doesn't exist.
 		RHash: rHash,
 	}, notFoundErr)
+}
+
+// testReorgNotifications tests that RegisterSpendNtfn behaves as expected
+// during a reorg. A reorg notification is produced after a reorg affects the
+// block which has produced a spending notification for this registration.
+func testReorgNotifications(ht *lntest.HarnessTest) {
+	ctxb := context.Background()
+	const timeout = wait.DefaultTimeout
+
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	const tx1Amount = 1_000_000
+
+	// Alice will send coins to herself, Bob will watch spending and
+	// confirmation of the transaction. We make sure that a node can watch
+	// transactions which are not a part of its wallet.
+	respAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	txid1Str := alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:        respAddr.Address,
+		Amount:      tx1Amount,
+		SatPerVbyte: 2,
+	}).Txid
+	txid1, err := chainhash.NewHashFromStr(txid1Str)
+	require.NoError(ht, err)
+	tx1 := ht.AssertTxInMempool(*txid1)
+
+	// Find the output of tx1.
+	tx1OutIndex := -1
+	for i, txOut := range tx1.TxOut {
+		if txOut.Value == tx1Amount {
+			tx1OutIndex = i
+		}
+	}
+	require.NotEqual(ht, -1, tx1OutIndex)
+	tx1op := wire.OutPoint{
+		Hash:  *txid1,
+		Index: uint32(tx1OutIndex),
+	}
+	tx1opLnrpc := &lnrpc.OutPoint{
+		TxidStr:     txid1Str,
+		OutputIndex: uint32(tx1OutIndex),
+	}
+	tx1opChainrpc := &chainrpc.Outpoint{
+		Hash:  txid1[:],
+		Index: uint32(tx1OutIndex),
+	}
+	pkscript := tx1.TxOut[tx1OutIndex].PkScript
+
+	// Now fee bump the output of the first transaction.
+	alice.RPC.BumpFee(&walletrpc.BumpFeeRequest{
+		Outpoint:    tx1opLnrpc,
+		Immediate:   true,
+		SatPerVbyte: 20,
+	})
+
+	// Now find the fee bump tx.
+	listSweepsReq := &walletrpc.ListSweepsRequest{
+		Verbose: true,
+
+		// startHeight -1 means include only unconfirmed.
+		StartHeight: -1,
+	}
+
+	var tx2aLnrpc *lnrpc.Transaction
+	require.NoError(ht, wait.NoError(func() error {
+		sweepsResp := alice.RPC.ListSweeps(listSweepsReq)
+		sweepsDetails := sweepsResp.GetTransactionDetails()
+		if sweepsDetails == nil {
+			return fmt.Errorf("no sweep details")
+		}
+		if len(sweepsDetails.Transactions) != 1 {
+			return fmt.Errorf("got %d sweeps, want %d",
+				len(sweepsDetails.Transactions), 1)
+		}
+		tx2aLnrpc = sweepsDetails.Transactions[0]
+
+		return nil
+	}, defaultTimeout))
+
+	require.Len(ht, tx2aLnrpc.PreviousOutpoints, 1)
+	require.Equal(
+		ht, tx1op.String(), tx2aLnrpc.PreviousOutpoints[0].Outpoint,
+	)
+	txid2a, err := chainhash.NewHashFromStr(tx2aLnrpc.TxHash)
+	require.NoError(ht, err)
+	tx2a := ht.AssertTxInMempool(*txid2a)
+
+	// Fee bump the output of the first transaction again with a higher fee
+	// rate to get RBF transaction tx2b.
+	alice.RPC.BumpFee(&walletrpc.BumpFeeRequest{
+		Outpoint:    tx1opLnrpc,
+		Immediate:   true,
+		SatPerVbyte: 200,
+	})
+
+	var tx2bLnrpc *lnrpc.Transaction
+	require.NoError(ht, wait.NoError(func() error {
+		sweepsResp := alice.RPC.ListSweeps(listSweepsReq)
+		sweepsDetails := sweepsResp.GetTransactionDetails()
+		if sweepsDetails == nil {
+			return fmt.Errorf("no sweep details")
+		}
+		for _, tx := range sweepsDetails.Transactions {
+			if tx.TxHash != tx2aLnrpc.TxHash {
+				tx2bLnrpc = tx
+				break
+			}
+		}
+		if tx2bLnrpc == nil {
+			return fmt.Errorf("tx2aLnrpc hasn't been replaced yet")
+		}
+
+		return nil
+	}, defaultTimeout))
+
+	require.Len(ht, tx2bLnrpc.PreviousOutpoints, 1)
+	require.Equal(
+		ht, tx1op.String(), tx2bLnrpc.PreviousOutpoints[0].Outpoint,
+	)
+	txid2b, err := chainhash.NewHashFromStr(tx2bLnrpc.TxHash)
+	require.NoError(ht, err)
+	tx2b := ht.AssertTxInMempool(*txid2b)
+
+	// Mine tx1 only.
+	ht.Miner().MineBlockWithTxes([]*btcutil.Tx{btcutil.NewTx(tx1)})
+
+	// Bob starts watching spending of tx1op.
+	spendClient := bob.RPC.RegisterSpendNtfn(&chainrpc.SpendRequest{
+		Outpoint:   tx1opChainrpc,
+		Script:     pkscript,
+		HeightHint: ht.CurrentHeight(),
+	})
+
+	ctx, cancel := context.WithTimeout(ctxb, timeout)
+	defer cancel()
+
+	// receiveSpendNotification tries to receive a spend notification from
+	// a spend client until the context expires.
+	receiveSpendNotification := func() (*chainrpc.SpendEvent, error) {
+		var (
+			msg     *chainrpc.SpendEvent
+			recvErr error
+		)
+
+		received := make(chan struct{})
+		go func() {
+			msg, recvErr = spendClient.Recv()
+			close(received)
+		}()
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("spending notification expired")
+
+		case <-received:
+			return msg, recvErr
+		}
+	}
+
+	// Mine tx2b.
+	block1 := ht.Miner().MineBlockWithTxes(
+		[]*btcutil.Tx{btcutil.NewTx(tx2b)},
+	)
+
+	// Make sure RegisterSpendNtfn noticed the spending.
+	spendMsg, err := receiveSpendNotification()
+	require.NoError(ht, err)
+	spendDetails := spendMsg.GetSpend()
+	require.NotNil(ht, spendDetails)
+	require.Equal(ht, txid2b[:], spendDetails.SpendingTxHash)
+
+	// Reorg block1.
+	blockHash1 := block1.Header.BlockHash()
+	require.NoError(ht, ht.Miner().Client.InvalidateBlock(&blockHash1))
+
+	// Mine empty blocks to evict block1 in bitcoin backend (e.g. bitcoind).
+	ht.Miner().MineEmptyBlocks(2)
+
+	// Make sure RegisterSpendNtfn noticed the reorg. Transaction tx2b was
+	// just unconfirmed.
+	ctx, cancel = context.WithTimeout(ctxb, timeout)
+	defer cancel()
+	spendMsg, err = receiveSpendNotification()
+	require.NoError(ht, err)
+	require.NotNil(ht, spendMsg.GetReorg())
+
+	// Mine tx2a to confirm a different version of spending.
+	ht.Miner().MineBlockWithTxes([]*btcutil.Tx{btcutil.NewTx(tx2a)})
+
+	// Make sure RegisterSpendNtfn noticed the spending.
+	ctx, cancel = context.WithTimeout(ctxb, timeout)
+	defer cancel()
+	spendMsg, err = receiveSpendNotification()
+	require.NoError(ht, err)
+	spendDetails = spendMsg.GetSpend()
+	require.NotNil(ht, spendDetails)
+	require.Equal(ht, txid2a[:], spendDetails.SpendingTxHash)
 }

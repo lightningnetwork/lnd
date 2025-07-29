@@ -1354,7 +1354,7 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
 
-	handleChannel := func(db SQLQueries,
+	handleChannel := func(db SQLQueries, batchData *batchChannelData,
 		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {
 
 		node1, node2, err := buildNodeVertices(
@@ -1365,9 +1365,9 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 				err)
 		}
 
-		edge, err := getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
-			node2,
+		edge, err := buildEdgeInfoWithBatchData(
+			s.cfg.ChainHash, row.GraphChannel, node1, node2,
+			batchData,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1380,8 +1380,8 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 				"policies: %w", err)
 		}
 
-		p1, p2, err := getAndBuildChanPolicies(
-			ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+		p1, p2, err := buildChanPoliciesWithBatchData(
+			dbPol1, dbPol2, edge.ChannelID, node1, node2, batchData,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel "+
@@ -1416,8 +1416,44 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 				break
 			}
 
+			// Collect the channel & policy IDs that we want to
+			// do a batch collection for.
+			var (
+				channelIDs = make([]int64, len(rows))
+				policyIDs  = make([]int64, 0, len(rows)*2)
+			)
+			for i, row := range rows {
+				channelIDs[i] = row.GraphChannel.ID
+
+				// Extract policy IDs from the row
+				dbPol1, dbPol2, err := extractChannelPolicies(
+					row,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to extract "+
+						"channel policies: %w", err)
+				}
+
+				if dbPol1 != nil {
+					policyIDs = append(policyIDs, dbPol1.ID)
+				}
+
+				if dbPol2 != nil {
+					policyIDs = append(policyIDs, dbPol2.ID)
+				}
+			}
+
+			batchData, err := batchLoadChannelData(
+				ctx, s.cfg.PaginationCfg, db, channelIDs,
+				policyIDs,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to batch load "+
+					"channel data: %w", err)
+			}
+
 			for _, row := range rows {
-				err := handleChannel(db, row)
+				err := handleChannel(db, batchData, row)
 				if err != nil {
 					return err
 				}
@@ -4865,6 +4901,31 @@ func batchLoadNodeExtraTypesHelper(ctx context.Context,
 		},
 		callback,
 	)
+}
+
+// buildChanPoliciesWithBatchData builds two models.ChannelEdgePolicy instances
+// from the provided sqlc.GraphChannelPolicy records and the
+// provided batchChannelData.
+func buildChanPoliciesWithBatchData(dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
+	channelID uint64, node1, node2 route.Vertex,
+	batchData *batchChannelData) (*models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	pol1, err := buildChanPolicyWithBatchData(
+		dbPol1, channelID, node2, batchData,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to build policy1: %w", err)
+	}
+
+	pol2, err := buildChanPolicyWithBatchData(
+		dbPol2, channelID, node1, batchData,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to build policy2: %w", err)
+	}
+
+	return pol1, pol2, nil
 }
 
 // buildChanPolicyWithBatchData builds a models.ChannelEdgePolicy instance from

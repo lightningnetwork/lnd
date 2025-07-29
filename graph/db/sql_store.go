@@ -807,26 +807,22 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 func (s *SQLStore) ForEachNode(ctx context.Context,
 	cb func(tx NodeRTx) error, reset func()) error {
 
-	var lastID int64 = 0
-	handleNode := func(db SQLQueries, dbNode sqlc.GraphNode) error {
-		node, err := buildNode(ctx, db, &dbNode)
-		if err != nil {
-			return fmt.Errorf("unable to build node(id=%d): %w",
-				dbNode.ID, err)
-		}
-
-		err = cb(
-			newSQLGraphNodeTx(db, s.cfg.ChainHash, dbNode.ID, node),
-		)
-		if err != nil {
-			return fmt.Errorf("callback failed for node(id=%d): %w",
-				dbNode.ID, err)
-		}
-
-		return nil
-	}
+	var lastID int64
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		nodeCB := func(dbID int64, node *models.LightningNode) error {
+			err := cb(newSQLGraphNodeTx(
+				db, s.cfg.ChainHash, dbID, node,
+			))
+			if err != nil {
+				return fmt.Errorf("callback failed for "+
+					"node(id=%d): %w", dbID, err)
+			}
+			lastID = dbID
+
+			return nil
+		}
+
 		for {
 			nodes, err := db.ListNodesPaginated(
 				ctx, sqlc.ListNodesPaginatedParams{
@@ -844,13 +840,12 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 				break
 			}
 
-			for _, dbNode := range nodes {
-				err = handleNode(db, dbNode)
-				if err != nil {
-					return err
-				}
-
-				lastID = dbNode.ID
+			err = forEachNodeInBatch(
+				ctx, s.cfg.PaginationCfg, db, nodes, nodeCB,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to iterate over "+
+					"nodes: %w", err)
 			}
 		}
 
@@ -3440,6 +3435,40 @@ func buildNodeWithBatchData(dbNode *sqlc.GraphNode,
 	}
 
 	return node, nil
+}
+
+// forEachNodeInBatch fetches all nodes in the provided batch, builds them
+// with the preloaded data, and executes the provided callback for each node.
+func forEachNodeInBatch(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+	db SQLQueries, nodes []sqlc.GraphNode,
+	cb func(dbID int64, node *models.LightningNode) error) error {
+
+	// Extract node IDs for batch loading.
+	nodeIDs := make([]int64, len(nodes))
+	for i, node := range nodes {
+		nodeIDs[i] = node.ID
+	}
+
+	// Batch load all related data for this page.
+	batchData, err := batchLoadNodeData(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return fmt.Errorf("unable to batch load node data: %w", err)
+	}
+
+	for _, dbNode := range nodes {
+		node, err := buildNodeWithBatchData(&dbNode, batchData)
+		if err != nil {
+			return fmt.Errorf("unable to build node(id=%d): %w",
+				dbNode.ID, err)
+		}
+
+		if err := cb(dbNode.ID, node); err != nil {
+			return fmt.Errorf("callback failed for node(id=%d): %w",
+				dbNode.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // getNodeFeatures fetches the feature bits and constructs the feature vector

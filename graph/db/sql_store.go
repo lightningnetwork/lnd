@@ -115,7 +115,9 @@ type SQLQueries interface {
 	DeleteChannels(ctx context.Context, ids []int64) error
 
 	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
+	GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelExtraType, error)
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
+	GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelFeature, error)
 
 	/*
 		Channel Policy table queries.
@@ -126,6 +128,7 @@ type SQLQueries interface {
 
 	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypes(ctx context.Context, arg sqlc.GetChannelPolicyExtraTypesParams) ([]sqlc.GetChannelPolicyExtraTypesRow, error)
+	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]sqlc.GetChannelPolicyExtraTypesBatchRow, error)
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 
 	/*
@@ -4899,5 +4902,165 @@ func batchLoadNodeExtraTypesHelper(ctx context.Context,
 			return db.GetNodeExtraTypesBatch(ctx, ids)
 		},
 		callback,
+	)
+}
+
+// batchChannelData holds all the related data for a batch of channels.
+type batchChannelData struct {
+	// chanFeatures is a map from DB channel ID to a slice of feature bits.
+	chanfeatures map[int64][]int
+
+	// chanExtras is a map from DB channel ID to a map of TLV type to
+	// extra signed field bytes.
+	chanExtraTypes map[int64]map[uint64][]byte
+
+	// policyExtras is a map from DB channel policy ID to a map of TLV type
+	// to extra signed field bytes.
+	policyExtras map[int64]map[uint64][]byte
+}
+
+// batchLoadChannelData loads all related data for batches of channels and
+// policies.
+func batchLoadChannelData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+	db SQLQueries, channelIDs []int64,
+	policyIDs []int64) (*batchChannelData, error) {
+
+	batchData := &batchChannelData{
+		chanfeatures:   make(map[int64][]int),
+		chanExtraTypes: make(map[int64]map[uint64][]byte),
+		policyExtras:   make(map[int64]map[uint64][]byte),
+	}
+
+	// Batch load channel features and extras
+	var err error
+	if len(channelIDs) > 0 {
+		batchData.chanfeatures, err = batchLoadChannelFeaturesHelper(
+			ctx, cfg, db, channelIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to batch load "+
+				"channel features: %w", err)
+		}
+
+		batchData.chanExtraTypes, err = batchLoadChannelExtrasHelper(
+			ctx, cfg, db, channelIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to batch load "+
+				"channel extras: %w", err)
+		}
+	}
+
+	if len(policyIDs) > 0 {
+		policyExtras, err := batchLoadChannelPolicyExtrasHelper(
+			ctx, cfg, db, policyIDs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to batch load "+
+				"policy extras: %w", err)
+		}
+		batchData.policyExtras = policyExtras
+	}
+
+	return batchData, nil
+}
+
+// batchLoadChannelFeaturesHelper loads channel features for a batch of
+// channel IDs using ExecutePagedQuery wrapper around the
+// GetChannelFeaturesBatch query. It returns a map from DB channel ID to a
+// slice of feature bits.
+func batchLoadChannelFeaturesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	channelIDs []int64) (map[int64][]int, error) {
+
+	features := make(map[int64][]int)
+
+	return features, sqldb.ExecutePagedQuery(
+		ctx, cfg, channelIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context,
+			ids []int64) ([]sqlc.GraphChannelFeature, error) {
+
+			return db.GetChannelFeaturesBatch(ctx, ids)
+		},
+		func(ctx context.Context,
+			feature sqlc.GraphChannelFeature) error {
+
+			features[feature.ChannelID] = append(
+				features[feature.ChannelID],
+				int(feature.FeatureBit),
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadChannelExtrasHelper loads channel extra types for a batch of
+// channel IDs using ExecutePagedQuery wrapper around the GetChannelExtrasBatch
+// query. It returns a map from DB channel ID to a map of TLV type to extra
+// signed field bytes.
+func batchLoadChannelExtrasHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	channelIDs []int64) (map[int64]map[uint64][]byte, error) {
+
+	extras := make(map[int64]map[uint64][]byte)
+
+	cb := func(ctx context.Context,
+		extra sqlc.GraphChannelExtraType) error {
+
+		if extras[extra.ChannelID] == nil {
+			extras[extra.ChannelID] = make(map[uint64][]byte)
+		}
+		extras[extra.ChannelID][uint64(extra.Type)] = extra.Value
+
+		return nil
+	}
+
+	return extras, sqldb.ExecutePagedQuery(
+		ctx, cfg, channelIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context,
+			ids []int64) ([]sqlc.GraphChannelExtraType, error) {
+
+			return db.GetChannelExtrasBatch(ctx, ids)
+		}, cb,
+	)
+}
+
+// batchLoadChannelPolicyExtrasHelper loads channel policy extra types for a
+// batch of policy IDs using ExecutePagedQuery wrapper around the
+// GetChannelPolicyExtraTypesBatch query. It returns a map from DB policy ID to
+// a map of TLV type to extra signed field bytes.
+func batchLoadChannelPolicyExtrasHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	policyIDs []int64) (map[int64]map[uint64][]byte, error) {
+
+	extras := make(map[int64]map[uint64][]byte)
+
+	return extras, sqldb.ExecutePagedQuery(
+		ctx, cfg, policyIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) (
+			[]sqlc.GetChannelPolicyExtraTypesBatchRow, error) {
+
+			return db.GetChannelPolicyExtraTypesBatch(ctx, ids)
+		},
+		func(ctx context.Context,
+			row sqlc.GetChannelPolicyExtraTypesBatchRow) error {
+
+			if extras[row.PolicyID] == nil {
+				extras[row.PolicyID] = make(map[uint64][]byte)
+			}
+			extras[row.PolicyID][uint64(row.Type)] = row.Value
+
+			return nil
+		},
 	)
 }

@@ -203,7 +203,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(
 		root, blindedpath.Subsystem, interceptor, blindedpath.UseLogger,
 	)
-	AddV1SubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
+	AddSubLogger(root, graphdb.Subsystem, interceptor, graphdb.UseLogger)
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)

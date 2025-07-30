@@ -1212,8 +1212,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 //  4. Alice force closes the channel.
 //
 // Test:
-//  1. Alice's anchor sweeping is not attempted, instead, it should be swept
-//     together with her to_local output using the no deadline path.
+//  1. Alice's CPFP-anchor sweeping is not attempted, instead, it should be
+//     swept using the no deadline path and failed due it's not economical.
 //  2. Bob would also sweep his anchor and to_local outputs separately due to
 //     they have different deadline heights, which means only the to_local
 //     sweeping tx will succeed as the anchor sweeping is not economical.
@@ -1229,10 +1229,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// config.
 	deadline := uint32(1000)
 
-	// deadlineA is the deadline used for Alice, since her commit output is
-	// offered to the sweeper at CSV-1. With a deadline of 1000, her actual
-	// width of her fee func is CSV+1000-1. Given we are using a CSV of 2
-	// here, her fee func deadline then becomes 1001.
+	// deadlineA is the deadline used for Alice, given that,
+	// - the force close tx is broadcast at height 445, her inputs are
+	//   registered at the same height, so her to_local and anchor outputs
+	//   have a deadline height of 1445.
+	// - the force close tx is mined at 446, which means her anchor output
+	//   now has a deadline delta of (1445-446) = 999 blocks.
+	// - for her to_local output, with a deadline of 1000, the width of the
+	//   fee func is CSV+1000-1. Given we are using a CSV of 2 here, her fee
+	//   func deadline then becomes 1001.
 	deadlineA := deadline + 1
 
 	// deadlineB is the deadline used for Bob, the actual deadline used by
@@ -1254,6 +1259,11 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
 	ht.SetFeeEstimateWithConf(startFeeRate, deadlineB)
+
+	// Set up the starting fee for Alice's anchor sweeping. With this low
+	// fee rate, her anchor sweeping should be attempted and failed due to
+	// dust output generated in the sweeping tx.
+	ht.SetFeeEstimateWithConf(startFeeRate, deadline-1)
 
 	// toLocalCSV is the CSV delay for Alice's to_local output. We use a
 	// small value to save us from mining blocks.
@@ -1415,10 +1425,10 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// With Alice's starting fee rate being validated, we now calculate her
 	// ending fee rate and fee rate delta.
 	//
-	// Alice sweeps two inputs - anchor and commit, so the starting budget
-	// should come from the sum of these two. However, due to the value
-	// being too large, the actual ending fee rate used should be the
-	// sweeper's max fee rate configured.
+	// Alice sweeps the to_local input, so the starting budget should come
+	// from the to_local balance. However, due to the value being too large,
+	// the actual ending fee rate used should be the sweeper's max fee rate
+	// configured.
 	aliceTxWeight := uint64(ht.CalculateTxWeight(aliceSweepTx))
 	aliceEndingFeeRate := sweep.DefaultMaxFeeRate.FeePerKWeight()
 	aliceFeeRateDelta := (aliceEndingFeeRate - aliceStartingFeeRate) /
@@ -1495,10 +1505,10 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 		}
 
 		// We should see two txns in the mempool:
-		// - Alice's sweeping tx, which sweeps both her anchor and
-		//   commit outputs, using the increased fee rate.
-		// - Bob's previous sweeping tx, which sweeps both his anchor
-		//   and commit outputs, at the possible increased fee rate.
+		// - Alice's sweeping tx, which sweeps her commit output, using
+		//   the increased fee rate.
+		// - Bob's previous sweeping tx, which sweeps his commit output,
+		//   at the possible increased fee rate.
 		txns := ht.GetNumTxsFromMempool(2)
 
 		// Assume the first tx is Alice's sweeping tx, if the second tx
@@ -1565,6 +1575,11 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// Mine a block to confirm both sweeping txns, this is needed to clean
 	// up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
+
+	// Finally, assert that both Alice and Bob still have the anchor
+	// outputs, which cannot be swept due to it being uneconomical.
+	ht.AssertNumPendingSweeps(alice, 1)
+	ht.AssertNumPendingSweeps(bob, 1)
 }
 
 // testBumpForceCloseFee tests that when a force close transaction, in

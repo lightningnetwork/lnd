@@ -350,6 +350,9 @@
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
     },
+    "switchrpcCleanStoreResponse": {
+      "type": "object"
+    },
     "switchrpcErrorCode": {
       "type": "string",
       "enum": [

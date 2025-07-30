@@ -36,6 +36,12 @@ service Switch {
     BuildOnion attempts to build an onion packet for the specified route.
     */
     rpc BuildOnion (BuildOnionRequest) returns (BuildOnionResponse);
+
+    /*
+    CleanStore deletes all attempt results except those specified in
+    keep_attempt_ids.
+    */
+    rpc CleanStore (CleanStoreRequest) returns (CleanStoreResponse);
 }
 
 message SendOnionRequest {
@@ -202,4 +208,13 @@ message BuildOnionResponse {
     // The serialized public keys of all nodes along the route for the
     // constructed onion.
     repeated bytes hop_pubkeys = 3;
+}
+
+message CleanStoreRequest {
+    // The attempt IDs to keep. All other attempts in the namespace will be
+    // deleted.
+    repeated uint64 keep_attempt_ids = 1;
+}
+
+message CleanStoreResponse {
 }

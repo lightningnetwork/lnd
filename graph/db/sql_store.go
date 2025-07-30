@@ -73,7 +73,7 @@ type SQLQueries interface {
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
 	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
-	GetNodeAddressesByPubKey(ctx context.Context, arg sqlc.GetNodeAddressesByPubKeyParams) ([]sqlc.GetNodeAddressesByPubKeyRow, error)
+	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 
 	InsertNodeFeature(ctx context.Context, arg sqlc.InsertNodeFeatureParams) error
@@ -103,6 +103,7 @@ type SQLQueries interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
 	ListChannelsWithPoliciesPaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesPaginatedParams) ([]sqlc.ListChannelsWithPoliciesPaginatedRow, error)
+	ListChannelsWithPoliciesForCachePaginated(ctx context.Context, arg sqlc.ListChannelsWithPoliciesForCachePaginatedParams) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow, error)
 	ListChannelsPaginated(ctx context.Context, arg sqlc.ListChannelsPaginatedParams) ([]sqlc.ListChannelsPaginatedRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg sqlc.GetChannelsByPolicyLastUpdateRangeParams) ([]sqlc.GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg sqlc.GetChannelByOutpointWithPoliciesParams) (sqlc.GetChannelByOutpointWithPoliciesRow, error)
@@ -320,10 +321,21 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 		known     bool
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		var err error
-		known, addresses, err = getNodeAddresses(
-			ctx, db, nodePub.SerializeCompressed(),
+		// First, check if the node exists and get its DB ID if it
+		// does.
+		dbID, err := db.GetNodeIDByPubKey(
+			ctx, sqlc.GetNodeIDByPubKeyParams{
+				Version: int16(ProtocolV1),
+				PubKey:  nodePub.SerializeCompressed(),
+			},
 		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+
+		known = true
+
+		addresses, err = getNodeAddresses(ctx, db, dbID)
 		if err != nil {
 			return fmt.Errorf("unable to fetch node addresses: %w",
 				err)
@@ -1247,8 +1259,8 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 	ctx := context.TODO()
 
-	handleChannel := func(db SQLQueries,
-		row sqlc.ListChannelsWithPoliciesPaginatedRow) error {
+	handleChannel := func(
+		row sqlc.ListChannelsWithPoliciesForCachePaginatedRow) error {
 
 		node1, node2, err := buildNodeVertices(
 			row.Node1Pubkey, row.Node2Pubkey,
@@ -1258,7 +1270,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel, node1, node2,
+			row.Scid, row.Capacity.Int64, node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -1299,8 +1311,8 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 		lastID := int64(-1)
 		for {
 			//nolint:ll
-			rows, err := db.ListChannelsWithPoliciesPaginated(
-				ctx, sqlc.ListChannelsWithPoliciesPaginatedParams{
+			rows, err := db.ListChannelsWithPoliciesForCachePaginated(
+				ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
 					Version: int16(ProtocolV1),
 					ID:      lastID,
 					Limit:   pageSize,
@@ -1315,12 +1327,12 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 			}
 
 			for _, row := range rows {
-				err := handleChannel(db, row)
+				err := handleChannel(row)
 				if err != nil {
 					return err
 				}
 
-				lastID = row.GraphChannel.ID
+				lastID = row.ID
 			}
 		}
 
@@ -3018,7 +3030,8 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 		}
 
 		edge := buildCacheableChannelInfo(
-			row.GraphChannel, node1, node2,
+			row.GraphChannel.Scid, row.GraphChannel.Capacity.Int64,
+			node1, node2,
 		)
 
 		dbPol1, dbPol2, err := extractChannelPolicies(row)
@@ -3321,16 +3334,15 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 }
 
 // buildCacheableChannelInfo builds a models.CachedEdgeInfo instance from the
-// provided database channel row and the public keys of the two nodes
-// involved in the channel.
-func buildCacheableChannelInfo(dbChan sqlc.GraphChannel, node1Pub,
+// provided parameters.
+func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 	node2Pub route.Vertex) *models.CachedEdgeInfo {
 
 	return &models.CachedEdgeInfo{
-		ChannelID:     byteOrder.Uint64(dbChan.Scid),
+		ChannelID:     byteOrder.Uint64(scid),
 		NodeKey1Bytes: node1Pub,
 		NodeKey2Bytes: node2Pub,
-		Capacity:      btcutil.Amount(dbChan.Capacity.Int64),
+		Capacity:      btcutil.Amount(capacity),
 	}
 }
 
@@ -3380,7 +3392,7 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.GraphNode) (
 	}
 
 	// Fetch the node's addresses.
-	_, node.Addresses, err = getNodeAddresses(ctx, db, pub[:])
+	node.Addresses, err = getNodeAddresses(ctx, db, dbNode.ID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch node(%d) "+
 			"addresses: %w", dbNode.ID, err)
@@ -3684,42 +3696,26 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 	return nil
 }
 
-// getNodeAddresses fetches the addresses for a node with the given public key.
-func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
-	[]net.Addr, error) {
+// getNodeAddresses fetches the addresses for a node with the given DB ID.
+func getNodeAddresses(ctx context.Context, db SQLQueries, id int64) ([]net.Addr,
+	error) {
 
-	// GetNodeAddressesByPubKey ensures that the addresses for a given type
-	// are returned in the same order as they were inserted.
-	rows, err := db.GetNodeAddressesByPubKey(
-		ctx, sqlc.GetNodeAddressesByPubKeyParams{
-			Version: int16(ProtocolV1),
-			PubKey:  nodePub,
-		},
-	)
+	// GetNodeAddresses ensures that the addresses for a given type are
+	// returned in the same order as they were inserted.
+	rows, err := db.GetNodeAddresses(ctx, id)
 	if err != nil {
-		return false, nil, err
-	}
-
-	// GetNodeAddressesByPubKey uses a left join so there should always be
-	// at least one row returned if the node exists even if it has no
-	// addresses.
-	if len(rows) == 0 {
-		return false, nil, nil
+		return nil, err
 	}
 
 	addresses := make([]net.Addr, 0, len(rows))
-	for _, addr := range rows {
-		if !(addr.Type.Valid && addr.Address.Valid) {
-			continue
-		}
+	for _, row := range rows {
+		address := row.Address
 
-		address := addr.Address.String
-
-		switch dbAddressType(addr.Type.Int16) {
+		switch dbAddressType(row.Type) {
 		case addressTypeIPv4:
 			tcp, err := net.ResolveTCPAddr("tcp4", address)
 			if err != nil {
-				return false, nil, nil
+				return nil, err
 			}
 			tcp.IP = tcp.IP.To4()
 
@@ -3728,21 +3724,20 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		case addressTypeIPv6:
 			tcp, err := net.ResolveTCPAddr("tcp6", address)
 			if err != nil {
-				return false, nil, nil
+				return nil, err
 			}
 			addresses = append(addresses, tcp)
 
 		case addressTypeTorV3, addressTypeTorV2:
 			service, portStr, err := net.SplitHostPort(address)
 			if err != nil {
-				return false, nil, fmt.Errorf("unable to "+
-					"split tor v3 address: %v",
-					addr.Address)
+				return nil, fmt.Errorf("unable to "+
+					"split tor v3 address: %v", address)
 			}
 
 			port, err := strconv.Atoi(portStr)
 			if err != nil {
-				return false, nil, err
+				return nil, err
 			}
 
 			addresses = append(addresses, &tor.OnionAddr{
@@ -3753,8 +3748,8 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		case addressTypeOpaque:
 			opaque, err := hex.DecodeString(address)
 			if err != nil {
-				return false, nil, fmt.Errorf("unable to "+
-					"decode opaque address: %v", addr)
+				return nil, fmt.Errorf("unable to "+
+					"decode opaque address: %v", address)
 			}
 
 			addresses = append(addresses, &lnwire.OpaqueAddrs{
@@ -3762,8 +3757,8 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 			})
 
 		default:
-			return false, nil, fmt.Errorf("unknown address "+
-				"type: %v", addr.Type)
+			return nil, fmt.Errorf("unknown address type: %v",
+				row.Type)
 		}
 	}
 
@@ -3773,7 +3768,7 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, nodePub []byte) (bool,
 		addresses = nil
 	}
 
-	return true, addresses, nil
+	return addresses, nil
 }
 
 // upsertNodeExtraSignedFields updates the node's extra signed fields in the
@@ -4368,6 +4363,38 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 
 	var policy1, policy2 *sqlc.GraphChannelPolicy
 	switch r := row.(type) {
+	case sqlc.ListChannelsWithPoliciesForCachePaginatedRow:
+		if r.Policy1Timelock.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+			}
+		}
+		if r.Policy2Timelock.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	case sqlc.GetChannelsBySCIDWithPoliciesRow:
 		if r.Policy1ID.Valid {
 			policy1 = &sqlc.GraphChannelPolicy{

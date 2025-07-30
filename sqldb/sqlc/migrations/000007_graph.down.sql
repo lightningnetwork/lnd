@@ -9,6 +9,7 @@ DROP INDEX IF EXISTS graph_channels_node_id_1_idx;
 DROP INDEX IF EXISTS graph_channels_node_id_2_idx;
 DROP INDEX IF EXISTS graph_channels_unique;
 DROP INDEX IF EXISTS graph_channels_version_outpoint_idx;
+DROP INDEX IF EXISTS graph_channels_version_id_idx;
 DROP INDEX IF EXISTS graph_channel_features_unique;
 DROP INDEX IF EXISTS graph_channel_extra_types_unique;
 DROP INDEX IF EXISTS graph_channel_policies_unique;

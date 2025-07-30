@@ -45,8 +45,9 @@ var (
 
 // Params contains the parameters that control the sweeping process.
 type Params struct {
-	// ExclusiveGroup is an identifier that, if set, prevents other inputs
-	// with the same identifier from being batched together.
+	// ExclusiveGroup is an identifier that, if set, ensures this input is
+	// swept in a transaction by itself, and not batched with any other
+	// inputs.
 	ExclusiveGroup *uint64
 
 	// DeadlineHeight specifies an absolute block height that this input

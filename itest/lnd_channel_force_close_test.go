@@ -978,15 +978,6 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 		Outpoint:       commitSweep.Outpoint,
 		AmountSat:      uint64(aliceBalance),
 	}
-	op = fmt.Sprintf("%v:%v", anchorSweep.Outpoint.TxidStr,
-		anchorSweep.Outpoint.OutputIndex)
-	aliceReports[op] = &lnrpc.Resolution{
-		ResolutionType: lnrpc.ResolutionType_ANCHOR,
-		Outcome:        lnrpc.ResolutionOutcome_CLAIMED,
-		SweepTxid:      sweepTxid.String(),
-		Outpoint:       anchorSweep.Outpoint,
-		AmountSat:      uint64(anchorSweep.AmountSat),
-	}
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
@@ -1101,8 +1092,9 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 
 	// Since Alice had numInvoices (6) htlcs extended to Carol before force
 	// closing, we expect Alice to broadcast an htlc timeout txn for each
-	// one.
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	// one. In addition, the anchor input is still pending due to it's
+	// uneconomical to sweep.
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Wait for them all to show up in the mempool
 	htlcTxid := ht.AssertNumTxsInMempool(1)[0]
@@ -1198,7 +1190,9 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	numBlocks := int(htlcCsvMaturityHeight - uint32(curHeight) - 1)
 	ht.MineEmptyBlocks(numBlocks)
 
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	// We should see numInvoices HTLC sweeps plus the uneconomical anchor
+	// sweep.
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Fetch the htlc sweep transaction from the mempool.
 	htlcSweepTx := ht.GetNumTxsFromMempool(1)[0]
@@ -1220,7 +1214,7 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
 
-	ht.AssertNumPendingSweeps(alice, numInvoices)
+	ht.AssertNumPendingSweeps(alice, numInvoices+1)
 
 	// Ensure the htlc sweep transaction only has one input for each htlc
 	// Alice extended before force closing.

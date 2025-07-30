@@ -831,3 +831,29 @@ func (h *HarnessRPC) SubscribePeerEvents(
 
 	return resp
 }
+
+// DeleteCanceledInvoice makes a RPC call to the node's DeleteCanceledInvoice
+// and asserts.
+func (h *HarnessRPC) DeleteCanceledInvoice(
+	req *lnrpc.DelCanceledInvoiceReq) *lnrpc.DelCanceledInvoiceResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.DeleteCanceledInvoice(ctxt, req)
+	h.NoError(err, "DeleteCanceledInvoice")
+
+	return resp
+}
+
+// DeleteCanceledInvoiceAssertErr makes a RPC call to the node's
+// DeleteCanceledInvoice and asserts if an RPC error is returned.
+func (h *HarnessRPC) DeleteCanceledInvoiceAssertErr(
+	req *lnrpc.DelCanceledInvoiceReq, errStr string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.DeleteCanceledInvoice(ctxt, req)
+	require.ErrorContains(h, err, errStr)
+}

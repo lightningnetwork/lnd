@@ -83,6 +83,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
 
 
+* Added [`deletecanceledinvoices`](
+  https://github.com/lightningnetwork/lnd/pull/9625) RPC to allow the removal of
+  a canceled invoice. Supports deleting a canceled invoice by providing its
+  payment hash.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the

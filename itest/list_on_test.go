@@ -727,6 +727,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "grpc not found",
 		TestFunc: testGRPCNotFound,
 	},
+	{
+		Name:     "delete canceled invoice",
+		TestFunc: testDeleteCanceledInvoice,
+	},
 }
 
 // appendPrefixed is used to add a prefix to each test name in the subtests

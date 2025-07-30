@@ -59,7 +59,7 @@ var (
 
 	// testSQLPaginationCfg is used to configure the pagination settings for
 	// the SQL stores we open for testing.
-	testSQLPaginationCfg = sqldb.DefaultPagedQueryConfig()
+	testSQLPaginationCfg = sqldb.DefaultQueryConfig()
 
 	// testSqlitePragmaOpts is a set of SQLite pragma options that we apply
 	// to the SQLite databases we open for testing.
@@ -277,8 +277,8 @@ func newSQLExecutor(t testing.TB, db sqldb.DB) BatchedSQLQueries {
 func newSQLStore(t testing.TB, db BatchedSQLQueries) V1Store {
 	store, err := NewSQLStore(
 		&SQLStoreConfig{
-			ChainHash:     dbTestChain,
-			PaginationCfg: testSQLPaginationCfg,
+			ChainHash: dbTestChain,
+			QueryCfg:  testSQLPaginationCfg,
 		},
 		db, testStoreOptions...,
 	)

@@ -12,17 +12,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestExecutePagedQuery tests the ExecutePagedQuery function which processes
+// TestExecuteBatchQuery tests the ExecuteBatchQuery function which processes
 // items in pages, allowing for efficient querying and processing of large
 // datasets.
-func TestExecutePagedQuery(t *testing.T) {
+func TestExecuteBatchQuery(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		var (
-			cfg        = DefaultPagedQueryConfig()
+			cfg        = DefaultQueryConfig()
 			inputItems []int
 		)
 
@@ -44,7 +44,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.NoError(t, err)
@@ -55,8 +55,8 @@ func TestExecutePagedQuery(t *testing.T) {
 			convertedItems  []string
 			callbackResults []string
 			inputItems      = []int{1, 2, 3, 4, 5}
-			cfg             = &PagedQueryConfig{
-				PageSize: 10,
+			cfg             = &QueryConfig{
+				MaxBatchSize: 10,
 			}
 		)
 
@@ -81,7 +81,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.NoError(t, err)
@@ -104,8 +104,8 @@ func TestExecutePagedQuery(t *testing.T) {
 			pageSizes      []int
 			allResults     []string
 			inputItems     = []int{1, 2, 3, 4, 5, 6, 7, 8}
-			cfg            = &PagedQueryConfig{
-				PageSize: 3,
+			cfg            = &QueryConfig{
+				MaxBatchSize: 3,
 			}
 		)
 
@@ -131,7 +131,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.NoError(t, err)
@@ -144,7 +144,7 @@ func TestExecutePagedQuery(t *testing.T) {
 
 	t.Run("query function error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultPagedQueryConfig()
+			cfg        = DefaultQueryConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -165,7 +165,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.ErrorContains(t, err, "query failed for page "+
@@ -174,7 +174,7 @@ func TestExecutePagedQuery(t *testing.T) {
 
 	t.Run("callback error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultPagedQueryConfig()
+			cfg        = DefaultQueryConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -195,7 +195,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.ErrorContains(t, err, "callback failed for result: "+
@@ -205,8 +205,8 @@ func TestExecutePagedQuery(t *testing.T) {
 	t.Run("query error in second page is propagated", func(t *testing.T) {
 		var (
 			inputItems = []int{1, 2, 3, 4}
-			cfg        = &PagedQueryConfig{
-				PageSize: 2,
+			cfg        = &QueryConfig{
+				MaxBatchSize: 2,
 			}
 			queryCallCount int
 		)
@@ -230,7 +230,7 @@ func TestExecutePagedQuery(t *testing.T) {
 			return nil
 		}
 
-		err := ExecutePagedQuery(
+		err := ExecuteBatchQuery(
 			ctx, cfg, inputItems, convertFunc, queryFunc, callback,
 		)
 		require.ErrorContains(t, err, "query failed for page "+
@@ -238,10 +238,10 @@ func TestExecutePagedQuery(t *testing.T) {
 	})
 }
 
-// TestSQLSliceQueries tests ExecutePageQuery helper by first showing that a
+// TestSQLSliceQueries tests ExecuteBatchQuery helper by first showing that a
 // query the /*SLICE:<field_name>*/ directive has a maximum number of
 // parameters it can handle, and then showing that the paginated version which
-// uses ExecutePagedQuery instead of a raw query can handle more parameters by
+// uses ExecuteBatchQuery instead of a raw query can handle more parameters by
 // executing the query in pages.
 func TestSQLSliceQueries(t *testing.T) {
 	t.Parallel()
@@ -299,9 +299,9 @@ func TestSQLSliceQueries(t *testing.T) {
 		return db.GetChannelsByOutpoints(ctx, pageOutpoints)
 	}
 
-	err := ExecutePagedQuery(
+	err := ExecuteBatchQuery(
 		ctx,
-		DefaultPagedQueryConfig(),
+		DefaultQueryConfig(),
 		queryParams,
 		func(s string) string {
 			return s

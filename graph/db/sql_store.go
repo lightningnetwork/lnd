@@ -193,8 +193,8 @@ type SQLStoreConfig struct {
 	// messages in this store are aimed at.
 	ChainHash chainhash.Hash
 
-	// PaginationCfg is the configuration for paginated queries.
-	PaginationCfg *sqldb.PagedQueryConfig
+	// QueryConfig holds configuration values for SQL queries.
+	QueryCfg *sqldb.QueryConfig
 }
 
 // NewSQLStore creates a new SQLStore instance given an open BatchedSQLQueries
@@ -559,7 +559,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 		}
 
 		err = forEachNodeInBatch(
-			ctx, s.cfg.PaginationCfg, db, dbNodes,
+			ctx, s.cfg.QueryCfg, db, dbNodes,
 			func(_ int64, node *models.LightningNode) error {
 				nodes = append(nodes, *node)
 
@@ -847,7 +847,7 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 			}
 
 			err = forEachNodeInBatch(
-				ctx, s.cfg.PaginationCfg, db, nodes, nodeCB,
+				ctx, s.cfg.QueryCfg, db, nodes, nodeCB,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to iterate over "+
@@ -1447,7 +1447,7 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 			}
 
 			batchData, err := batchLoadChannelData(
-				ctx, s.cfg.PaginationCfg, db, channelIDs,
+				ctx, s.cfg.QueryCfg, db, channelIDs,
 				policyIDs,
 			)
 			if err != nil {
@@ -2330,9 +2330,9 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 		)
 	}
 
-	return sqldb.ExecutePagedQuery(
-		ctx, s.cfg.PaginationCfg, chanIDs, channelIDToBytes,
-		queryWrapper, cb,
+	return sqldb.ExecuteBatchQuery(
+		ctx, s.cfg.QueryCfg, chanIDs, channelIDToBytes, queryWrapper,
+		cb,
 	)
 }
 
@@ -2453,9 +2453,9 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 		return channelIDToBytes(channelID)
 	}
 
-	return sqldb.ExecutePagedQuery(
-		ctx, s.cfg.PaginationCfg, chansInfo, chanIDConverter,
-		queryWrapper, cb,
+	return sqldb.ExecuteBatchQuery(
+		ctx, s.cfg.QueryCfg, chansInfo, chanIDConverter, queryWrapper,
+		cb,
 	)
 }
 
@@ -2612,8 +2612,8 @@ func (s *SQLStore) forEachChanInOutpoints(ctx context.Context, db SQLQueries,
 		return outpoint.String()
 	}
 
-	return sqldb.ExecutePagedQuery(
-		ctx, s.cfg.PaginationCfg, outpoints, outpointToString,
+	return sqldb.ExecuteBatchQuery(
+		ctx, s.cfg.QueryCfg, outpoints, outpointToString,
 		queryWrapper, cb,
 	)
 }
@@ -2631,8 +2631,8 @@ func (s *SQLStore) deleteChannels(ctx context.Context, db SQLQueries,
 		return id
 	}
 
-	return sqldb.ExecutePagedQuery(
-		ctx, s.cfg.PaginationCfg, dbIDs, idConverter,
+	return sqldb.ExecuteBatchQuery(
+		ctx, s.cfg.QueryCfg, dbIDs, idConverter,
 		queryWrapper, func(ctx context.Context, _ any) error {
 			return nil
 		},
@@ -3391,7 +3391,7 @@ func buildNode(ctx context.Context, db SQLQueries,
 	// NOTE: buildNode is only used to load the data for a single node, and
 	// so no paged queries will be performed. This means that it's ok to
 	// used pass in default config values here.
-	cfg := sqldb.DefaultPagedQueryConfig()
+	cfg := sqldb.DefaultQueryConfig()
 
 	data, err := batchLoadNodeData(ctx, cfg, db, []int64{dbNode.ID})
 	if err != nil {
@@ -3477,7 +3477,7 @@ func buildNodeWithBatchData(dbNode *sqlc.GraphNode,
 
 // forEachNodeInBatch fetches all nodes in the provided batch, builds them
 // with the preloaded data, and executes the provided callback for each node.
-func forEachNodeInBatch(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+func forEachNodeInBatch(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, nodes []sqlc.GraphNode,
 	cb func(dbID int64, node *models.LightningNode) error) error {
 
@@ -4127,7 +4127,7 @@ func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
 	// NOTE: getAndBuildEdgeInfo is only used to load the data for a single
 	// edge, and so no paged queries will be performed. This means that
 	// it's ok to used pass in default config values here.
-	cfg := sqldb.DefaultPagedQueryConfig()
+	cfg := sqldb.DefaultQueryConfig()
 
 	data, err := batchLoadChannelData(ctx, cfg, db, []int64{dbChan.ID}, nil)
 	if err != nil {
@@ -4255,7 +4255,7 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 	// a maximum of two policies, and so no paged queries will be
 	// performed (unless the page size is one). So it's ok to use
 	// the default config values here.
-	cfg := sqldb.DefaultPagedQueryConfig()
+	cfg := sqldb.DefaultQueryConfig()
 
 	batchData, err := batchLoadChannelData(ctx, cfg, db, nil, policyIDs)
 	if err != nil {
@@ -4779,7 +4779,7 @@ type nodeAddress struct {
 // batchLoadNodeData loads all related data for a batch of node IDs using the
 // provided SQLQueries interface. It returns a batchNodeData instance containing
 // the node features, addresses and extra signed fields.
-func batchLoadNodeData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+func batchLoadNodeData(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, nodeIDs []int64) (*batchNodeData, error) {
 
 	// Batch load the node features.
@@ -4811,14 +4811,14 @@ func batchLoadNodeData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
 }
 
 // batchLoadNodeFeaturesHelper loads node features for a batch of node IDs
-// using ExecutePagedQuery wrapper around the GetNodeFeaturesBatch query.
+// using ExecuteBatchQuery wrapper around the GetNodeFeaturesBatch query.
 func batchLoadNodeFeaturesHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	nodeIDs []int64) (map[int64][]int, error) {
 
 	features := make(map[int64][]int)
 
-	return features, sqldb.ExecutePagedQuery(
+	return features, sqldb.ExecuteBatchQuery(
 		ctx, cfg, nodeIDs,
 		func(id int64) int64 {
 			return id
@@ -4839,16 +4839,16 @@ func batchLoadNodeFeaturesHelper(ctx context.Context,
 	)
 }
 
-// batchLoadNodeAddressesHelper loads node addresses using ExecutePagedQuery
+// batchLoadNodeAddressesHelper loads node addresses using ExecuteBatchQuery
 // wrapper around the GetNodeAddressesBatch query. It returns a map from
 // node ID to a slice of nodeAddress structs.
 func batchLoadNodeAddressesHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	nodeIDs []int64) (map[int64][]nodeAddress, error) {
 
 	addrs := make(map[int64][]nodeAddress)
 
-	return addrs, sqldb.ExecutePagedQuery(
+	return addrs, sqldb.ExecuteBatchQuery(
 		ctx, cfg, nodeIDs,
 		func(id int64) int64 {
 			return id
@@ -4873,10 +4873,10 @@ func batchLoadNodeAddressesHelper(ctx context.Context,
 }
 
 // batchLoadNodeExtraTypesHelper loads node extra type bytes for a batch of
-// node IDs using ExecutePagedQuery wrapper around the GetNodeExtraTypesBatch
+// node IDs using ExecuteBatchQuery wrapper around the GetNodeExtraTypesBatch
 // query.
 func batchLoadNodeExtraTypesHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	nodeIDs []int64) (map[int64]map[uint64][]byte, error) {
 
 	extraFields := make(map[int64]map[uint64][]byte)
@@ -4892,7 +4892,7 @@ func batchLoadNodeExtraTypesHelper(ctx context.Context,
 		return nil
 	}
 
-	return extraFields, sqldb.ExecutePagedQuery(
+	return extraFields, sqldb.ExecuteBatchQuery(
 		ctx, cfg, nodeIDs,
 		func(id int64) int64 {
 			return id
@@ -4967,7 +4967,7 @@ type batchChannelData struct {
 
 // batchLoadChannelData loads all related data for batches of channels and
 // policies.
-func batchLoadChannelData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+func batchLoadChannelData(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, channelIDs []int64,
 	policyIDs []int64) (*batchChannelData, error) {
 
@@ -5012,16 +5012,16 @@ func batchLoadChannelData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
 }
 
 // batchLoadChannelFeaturesHelper loads channel features for a batch of
-// channel IDs using ExecutePagedQuery wrapper around the
+// channel IDs using ExecuteBatchQuery wrapper around the
 // GetChannelFeaturesBatch query. It returns a map from DB channel ID to a
 // slice of feature bits.
 func batchLoadChannelFeaturesHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	channelIDs []int64) (map[int64][]int, error) {
 
 	features := make(map[int64][]int)
 
-	return features, sqldb.ExecutePagedQuery(
+	return features, sqldb.ExecuteBatchQuery(
 		ctx, cfg, channelIDs,
 		func(id int64) int64 {
 			return id
@@ -5045,11 +5045,11 @@ func batchLoadChannelFeaturesHelper(ctx context.Context,
 }
 
 // batchLoadChannelExtrasHelper loads channel extra types for a batch of
-// channel IDs using ExecutePagedQuery wrapper around the GetChannelExtrasBatch
+// channel IDs using ExecuteBatchQuery wrapper around the GetChannelExtrasBatch
 // query. It returns a map from DB channel ID to a map of TLV type to extra
 // signed field bytes.
 func batchLoadChannelExtrasHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	channelIDs []int64) (map[int64]map[uint64][]byte, error) {
 
 	extras := make(map[int64]map[uint64][]byte)
@@ -5065,7 +5065,7 @@ func batchLoadChannelExtrasHelper(ctx context.Context,
 		return nil
 	}
 
-	return extras, sqldb.ExecutePagedQuery(
+	return extras, sqldb.ExecuteBatchQuery(
 		ctx, cfg, channelIDs,
 		func(id int64) int64 {
 			return id
@@ -5079,16 +5079,16 @@ func batchLoadChannelExtrasHelper(ctx context.Context,
 }
 
 // batchLoadChannelPolicyExtrasHelper loads channel policy extra types for a
-// batch of policy IDs using ExecutePagedQuery wrapper around the
+// batch of policy IDs using ExecuteBatchQuery wrapper around the
 // GetChannelPolicyExtraTypesBatch query. It returns a map from DB policy ID to
 // a map of TLV type to extra signed field bytes.
 func batchLoadChannelPolicyExtrasHelper(ctx context.Context,
-	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	cfg *sqldb.QueryConfig, db SQLQueries,
 	policyIDs []int64) (map[int64]map[uint64][]byte, error) {
 
 	extras := make(map[int64]map[uint64][]byte)
 
-	return extras, sqldb.ExecutePagedQuery(
+	return extras, sqldb.ExecuteBatchQuery(
 		ctx, cfg, policyIDs,
 		func(id int64) int64 {
 			return id

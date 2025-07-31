@@ -39,6 +39,8 @@ type Gossip struct {
 	MsgBurstBytes uint64 `long:"msg-burst-bytes" description:"The maximum burst of outbound gossip data, in bytes, that can be sent at once. This works in conjunction with gossip.msg-rate-bytes as part of a token bucket rate-limiting scheme. This value represents the size of the token bucket. It allows for short, high-speed bursts of traffic, with the long-term rate controlled by gossip.msg-rate-bytes. This value must be larger than the maximum lightning message size (~65KB) to allow sending large gossip messages."`
 
 	FilterConcurrency int `long:"filter-concurrency" description:"The maximum number of concurrent gossip filter applications that can be processed. If not set, defaults to 5."`
+
+	BanThreshold uint64 `long:"ban-threshold" description:"The score at which a peer is banned. A peer's ban score is incremented for each invalid gossip message. Invalid messages include those with bad signatures, stale timestamps, excessive updates, or invalid chain data. Once the score reaches this threshold, the peer is banned."`
 }
 
 // Parse the pubkeys for the pinned syncers.

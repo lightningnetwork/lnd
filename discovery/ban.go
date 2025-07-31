@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"time"
 
@@ -150,6 +151,13 @@ type banman struct {
 
 // newBanman creates a new banman with the default maxBannedPeers.
 func newBanman(banThreshold uint64) *banman {
+	// If the ban threshold is set to 0, we'll use the max value to
+	// effectively disable banning.
+	if banThreshold == 0 {
+		log.Warn("Banning is disabled due to zero banThreshold")
+		banThreshold = math.MaxUint64
+	}
+
 	return &banman{
 		peerBanIndex: lru.NewCache[[33]byte, *cachedBanInfo](
 			maxBannedPeers,

@@ -1256,7 +1256,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 	ctx := context.TODO()
 
-	handleChannel := func(
+	handleChannel := func(_ context.Context,
 		row sqlc.ListChannelsWithPoliciesForCachePaginatedRow) error {
 
 		node1, node2, err := buildNodeVertices(
@@ -1282,43 +1282,34 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 			return err
 		}
 
-		if err := cb(edge, pol1, pol2); err != nil {
-			return err
-		}
+		return cb(edge, pol1, pol2)
+	}
 
-		return nil
+	extractCursor := func(
+		row sqlc.ListChannelsWithPoliciesForCachePaginatedRow) int64 {
+
+		return row.ID
 	}
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		lastID := int64(-1)
-		for {
-			//nolint:ll
-			rows, err := db.ListChannelsWithPoliciesForCachePaginated(
+		//nolint:ll
+		queryFunc := func(ctx context.Context, lastID int64,
+			limit int32) ([]sqlc.ListChannelsWithPoliciesForCachePaginatedRow,
+			error) {
+
+			return db.ListChannelsWithPoliciesForCachePaginated(
 				ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
 					Version: int16(ProtocolV1),
 					ID:      lastID,
-					Limit:   s.cfg.QueryCfg.MaxPageSize,
+					Limit:   limit,
 				},
 			)
-			if err != nil {
-				return err
-			}
-
-			if len(rows) == 0 {
-				break
-			}
-
-			for _, row := range rows {
-				err := handleChannel(row)
-				if err != nil {
-					return err
-				}
-
-				lastID = row.ID
-			}
 		}
 
-		return nil
+		return sqldb.ExecutePaginatedQuery(
+			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+			extractCursor, handleChannel,
+		)
 	}, reset)
 }
 

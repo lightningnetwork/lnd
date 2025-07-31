@@ -1305,6 +1305,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		Estimator:  cc.FeeEstimator,
 		Notifier:   cc.ChainNotifier,
 		AuxSweeper: s.implCfg.AuxSweeper,
+		ChainIO:    cc.ChainIO,
 	})
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{

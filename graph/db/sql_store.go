@@ -3094,39 +3094,34 @@ func forEachNodeCacheable(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries,
 	cb func(nodeID int64, nodePub route.Vertex) error) error {
 
-	lastID := int64(-1)
+	handleNode := func(_ context.Context,
+		node sqlc.ListNodeIDsAndPubKeysRow) error {
 
-	for {
-		nodes, err := db.ListNodeIDsAndPubKeys(
+		var pub route.Vertex
+		copy(pub[:], node.PubKey)
+
+		return cb(node.ID, pub)
+	}
+
+	queryFunc := func(ctx context.Context, lastID int64,
+		limit int32) ([]sqlc.ListNodeIDsAndPubKeysRow, error) {
+
+		return db.ListNodeIDsAndPubKeys(
 			ctx, sqlc.ListNodeIDsAndPubKeysParams{
 				Version: int16(ProtocolV1),
 				ID:      lastID,
-				Limit:   cfg.MaxPageSize,
+				Limit:   limit,
 			},
 		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch nodes: %w", err)
-		}
-
-		if len(nodes) == 0 {
-			break
-		}
-
-		for _, node := range nodes {
-			var pub route.Vertex
-			copy(pub[:], node.PubKey)
-
-			if err := cb(node.ID, pub); err != nil {
-				return fmt.Errorf("forEachNodeCacheable "+
-					"callback failed for node(id=%d): %w",
-					node.ID, err)
-			}
-
-			lastID = node.ID
-		}
 	}
 
-	return nil
+	extractCursor := func(row sqlc.ListNodeIDsAndPubKeysRow) int64 {
+		return row.ID
+	}
+
+	return sqldb.ExecutePaginatedQuery(
+		ctx, cfg, int64(-1), queryFunc, extractCursor, handleNode,
+	)
 }
 
 // forEachNodeChannel iterates through all channels of a node, executing

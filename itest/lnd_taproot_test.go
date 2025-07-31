@@ -90,6 +90,8 @@ func testTaprootImportScripts(ht *lntest.HarnessTest) {
 	testTaprootImportTapscriptPartialReveal(ht, alice)
 	testTaprootImportTapscriptRootHashOnly(ht, alice)
 	testTaprootImportTapscriptFullKey(ht, alice)
+
+	testTaprootImportTapscriptFullKeyFundPsbt(ht, alice)
 }
 
 // testTaprootSendCoinsKeySpendBip86 tests sending to and spending from
@@ -1357,6 +1359,134 @@ func testTaprootImportTapscriptFullKey(ht *lntest.HarnessTest,
 		ht, alice, utxo, p2trOutpoint, internalKey, derivationPath,
 		rootHash[:],
 	)
+}
+
+// testTaprootImportTapscriptFullKeyFundPsbt tests importing p2tr script
+// addresses for which we only know the full Taproot key. We also test that we
+// can use such an imported script to fund a PSBT.
+func testTaprootImportTapscriptFullKeyFundPsbt(ht *lntest.HarnessTest,
+	alice *node.HarnessNode) {
+
+	// For the next step, we need a public key. Let's use a special family
+	// for this.
+	_, internalKey, derivationPath := deriveInternalKey(ht, alice)
+
+	// Let's create a taproot script output now. This is a hash lock with a
+	// simple preimage of "foobar".
+	leaf1 := testScriptHashLock(ht.T, []byte("foobar"))
+
+	tapscript := input.TapscriptFullTree(internalKey, leaf1)
+	rootHash := leaf1.TapHash()
+	taprootKey, err := tapscript.TaprootKey()
+	require.NoError(ht, err)
+
+	// Import the scripts and make sure we get the same address back as we
+	// calculated ourselves.
+	req := &walletrpc.ImportTapscriptRequest{
+		InternalPublicKey: schnorr.SerializePubKey(taprootKey),
+		Script: &walletrpc.ImportTapscriptRequest_FullKeyOnly{
+			FullKeyOnly: true,
+		},
+	}
+	importResp := alice.RPC.ImportTapscript(req)
+
+	calculatedAddr, err := btcutil.NewAddressTaproot(
+		schnorr.SerializePubKey(taprootKey), harnessNetParams,
+	)
+	require.NoError(ht, err)
+	require.Equal(ht, calculatedAddr.String(), importResp.P2TrAddress)
+
+	// Send some coins to the generated tapscript address.
+	p2trOutpoint, p2trPkScript := sendToTaprootOutput(ht, alice, taprootKey)
+
+	p2trOutputRPC := &lnrpc.OutPoint{
+		TxidBytes:   p2trOutpoint.Hash[:],
+		OutputIndex: p2trOutpoint.Index,
+	}
+	ht.AssertUTXOInWallet(alice, p2trOutputRPC, "imported")
+	ht.AssertWalletAccountBalance(alice, "imported", testAmount, 0)
+
+	// We now fund a PSBT that spends the imported tapscript address.
+	utxo := &wire.TxOut{
+		Value:    testAmount,
+		PkScript: p2trPkScript,
+	}
+	_, sweepPkScript := newAddrWithScript(
+		ht, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	)
+
+	output := &wire.TxOut{
+		PkScript: sweepPkScript,
+		Value:    1,
+	}
+	packet, err := psbt.New(
+		[]*wire.OutPoint{&p2trOutpoint}, []*wire.TxOut{output}, 2, 0,
+		[]uint32{0},
+	)
+	require.NoError(ht, err)
+
+	// We have everything we need to know to sign the PSBT.
+	in := &packet.Inputs[0]
+	in.Bip32Derivation = []*psbt.Bip32Derivation{{
+		PubKey:    internalKey.SerializeCompressed(),
+		Bip32Path: derivationPath,
+	}}
+	in.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{{
+		XOnlyPubKey: schnorr.SerializePubKey(internalKey),
+		Bip32Path:   derivationPath,
+	}}
+	in.SighashType = txscript.SigHashDefault
+	in.TaprootMerkleRoot = rootHash[:]
+	in.WitnessUtxo = utxo
+
+	var buf bytes.Buffer
+	require.NoError(ht, packet.Serialize(&buf))
+
+	change := &walletrpc.PsbtCoinSelect_ExistingOutputIndex{
+		ExistingOutputIndex: 0,
+	}
+	fundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: &walletrpc.PsbtCoinSelect{
+				Psbt:         buf.Bytes(),
+				ChangeOutput: change,
+			},
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 1,
+		},
+	})
+
+	// Sign the manually funded PSBT now.
+	signResp := alice.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	})
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(ht, err)
+
+	// We should be able to finalize the PSBT and extract the sweep TX now.
+	err = psbt.MaybeFinalizeAll(signedPacket)
+	require.NoError(ht, err)
+
+	sweepTx, err := psbt.Extract(signedPacket)
+	require.NoError(ht, err)
+
+	buf.Reset()
+	err = sweepTx.Serialize(&buf)
+	require.NoError(ht, err)
+
+	// Publish the sweep transaction and then mine it as well.
+	alice.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: buf.Bytes(),
+	})
+
+	// Mine one block which should contain the sweep transaction.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTxHash := sweepTx.TxHash()
+	ht.AssertTxInBlock(block, sweepTxHash)
 }
 
 // clearWalletImportedTapscriptBalance manually assembles and then attempts to

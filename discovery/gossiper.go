@@ -399,6 +399,10 @@ type Config struct {
 	// MsgBurstBytes is the allotted burst amount in bytes. This is the
 	// number of starting tokens in our token bucket algorithm.
 	MsgBurstBytes uint64
+
+	// BanThreshold is the score used to decide whether a given peer is
+	// banned or not.
+	BanThreshold uint64
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -582,7 +586,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 			maxRejectedUpdates,
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
-		banman:                newBanman(DefaultBanThreshold),
+		banman:                newBanman(cfg.BanThreshold),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)

@@ -43,6 +43,10 @@
 
 # New Features
 
+- Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
+allows sending HTLCs to the remote party without shifting the balances of the
+channel.
+
 ## Functional Enhancements
 
 ## RPC Additions

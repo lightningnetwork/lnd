@@ -28,6 +28,10 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerAccountImport,
 	},
 	{
+		Name:     "tapscript import",
+		TestFunc: testRemoteSignerTapscriptImport,
+	},
+	{
 		Name:     "channel open",
 		TestFunc: testRemoteSignerChannelOpen,
 	},
@@ -221,6 +225,24 @@ func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
 				tt, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 				carol, wo,
 			)
+		},
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerTapscriptImport(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
+		name:      "tapscript import",
+		sendCoins: true,
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
+			testTaprootImportTapscriptFullTree(ht, wo)
+			testTaprootImportTapscriptPartialReveal(ht, wo)
+			testTaprootImportTapscriptRootHashOnly(ht, wo)
+			testTaprootImportTapscriptFullKey(ht, wo)
+
+			testTaprootImportTapscriptFullKeyFundPsbt(ht, wo)
 		},
 	}
 

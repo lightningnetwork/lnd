@@ -364,6 +364,12 @@ func (n *testNode) RemovePendingChannel(_ lnwire.ChannelID) error {
 	return nil
 }
 
+func (n *testNode) RecordProofSent(chanID lnwire.ChannelID) {}
+
+func (n *testNode) HasSentProof(chanID lnwire.ChannelID) bool {
+	return false
+}
+
 func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,

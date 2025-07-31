@@ -191,6 +191,10 @@ reader of a payment request.
   record](https://github.com/lightningnetwork/lnd/pull/9897) on the 
   `channel_update` message and handle it explicitly throughout the code base 
   instead of extracting it from the TLV stream at various call-sites.
+* Re-send the [AnnouncementSignature max 
+  once](https://github.com/lightningnetwork/lnd/pull/9957) per (re)connection 
+  when we already have the full proof and our peer sends us their signature 
+  announcement.
 
 * [Require invoices to include a payment address or blinded paths](https://github.com/lightningnetwork/lnd/pull/9752) 
   to comply with updated BOLT 11 specifications before sending payments.

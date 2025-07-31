@@ -81,3 +81,9 @@ func (m *MockPeer) RemoteFeatures() *lnwire.FeatureVector {
 }
 
 func (m *MockPeer) Disconnect(err error) {}
+
+func (s *MockPeer) RecordProofSent(chanID lnwire.ChannelID) {}
+
+func (s *MockPeer) HasSentProof(chanID lnwire.ChannelID) bool {
+	return false
+}

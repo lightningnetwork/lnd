@@ -23,7 +23,9 @@ type PagedQueryConfig struct {
 // DefaultPagedQueryConfig returns a default configuration
 func DefaultPagedQueryConfig() *PagedQueryConfig {
 	return &PagedQueryConfig{
-		PageSize: 1000,
+		// TODO(elle): make configurable & have different defaults
+		// for SQLite and Postgres.
+		PageSize: 250,
 	}
 }
 

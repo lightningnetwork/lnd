@@ -114,6 +114,12 @@ FROM graph_nodes n
 WHERE n.pub_key = $1
   AND n.version = $2;
 
+-- name: GetNodeFeaturesBatch :many
+SELECT node_id, feature_bit
+FROM graph_node_features
+WHERE node_id IN (sqlc.slice('ids')/*SLICE:ids*/)
+ORDER BY node_id, feature_bit;
+
 -- name: DeleteNodeFeature :exec
 DELETE FROM graph_node_features
 WHERE node_id = $1
@@ -139,6 +145,12 @@ SELECT type, address
 FROM graph_node_addresses
 WHERE node_id = $1
 ORDER BY type ASC, position ASC;
+
+-- name: GetNodeAddressesBatch :many
+SELECT node_id, type, position, address
+FROM graph_node_addresses
+WHERE node_id IN (sqlc.slice('ids')/*SLICE:ids*/)
+ORDER BY node_id, type, position;
 
 -- name: GetNodesByLastUpdateRange :many
 SELECT *
@@ -169,6 +181,12 @@ ON CONFLICT (type, node_id)
 SELECT *
 FROM graph_node_extra_types
 WHERE node_id = $1;
+
+-- name: GetNodeExtraTypesBatch :many
+SELECT node_id, type, value
+FROM graph_node_extra_types
+WHERE node_id IN (sqlc.slice('ids')/*SLICE:ids*/)
+ORDER BY node_id, type;
 
 -- name: DeleteExtraNodeType :exec
 DELETE FROM graph_node_extra_types

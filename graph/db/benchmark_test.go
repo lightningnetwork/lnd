@@ -673,6 +673,15 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 				require.NoError(b, err)
 			},
 		},
+		{
+			name: "NodeUpdatesInHorizon",
+			fn: func(b testing.TB, store V1Store) {
+				_, err := store.NodeUpdatesInHorizon(
+					time.Unix(0, 0), time.Now(),
+				)
+				require.NoError(b, err)
+			},
+		},
 	}
 
 	for _, test := range tests {

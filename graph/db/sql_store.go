@@ -69,15 +69,18 @@ type SQLQueries interface {
 	DeleteNode(ctx context.Context, id int64) error
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeExtraType, error)
+	GetNodeExtraTypesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeExtraType, error)
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
 	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
 	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
+	GetNodeAddressesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 
 	InsertNodeFeature(ctx context.Context, arg sqlc.InsertNodeFeatureParams) error
 	GetNodeFeatures(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeFeature, error)
+	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg sqlc.GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	DeleteNodeFeature(ctx context.Context, arg sqlc.DeleteNodeFeatureParams) error
 
@@ -551,14 +554,16 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 			return fmt.Errorf("unable to fetch nodes: %w", err)
 		}
 
-		for _, dbNode := range dbNodes {
-			node, err := buildNode(ctx, db, &dbNode)
-			if err != nil {
-				return fmt.Errorf("unable to build node: %w",
-					err)
-			}
+		err = forEachNodeInBatch(
+			ctx, s.cfg.PaginationCfg, db, dbNodes,
+			func(_ int64, node *models.LightningNode) error {
+				nodes = append(nodes, *node)
 
-			nodes = append(nodes, *node)
+				return nil
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build nodes: %w", err)
 		}
 
 		return nil
@@ -804,26 +809,22 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 func (s *SQLStore) ForEachNode(ctx context.Context,
 	cb func(tx NodeRTx) error, reset func()) error {
 
-	var lastID int64 = 0
-	handleNode := func(db SQLQueries, dbNode sqlc.GraphNode) error {
-		node, err := buildNode(ctx, db, &dbNode)
-		if err != nil {
-			return fmt.Errorf("unable to build node(id=%d): %w",
-				dbNode.ID, err)
-		}
-
-		err = cb(
-			newSQLGraphNodeTx(db, s.cfg.ChainHash, dbNode.ID, node),
-		)
-		if err != nil {
-			return fmt.Errorf("callback failed for node(id=%d): %w",
-				dbNode.ID, err)
-		}
-
-		return nil
-	}
+	var lastID int64
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		nodeCB := func(dbID int64, node *models.LightningNode) error {
+			err := cb(newSQLGraphNodeTx(
+				db, s.cfg.ChainHash, dbID, node,
+			))
+			if err != nil {
+				return fmt.Errorf("callback failed for "+
+					"node(id=%d): %w", dbID, err)
+			}
+			lastID = dbID
+
+			return nil
+		}
+
 		for {
 			nodes, err := db.ListNodesPaginated(
 				ctx, sqlc.ListNodesPaginatedParams{
@@ -841,13 +842,12 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 				break
 			}
 
-			for _, dbNode := range nodes {
-				err = handleNode(db, dbNode)
-				if err != nil {
-					return err
-				}
-
-				lastID = dbNode.ID
+			err = forEachNodeInBatch(
+				ctx, s.cfg.PaginationCfg, db, nodes, nodeCB,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to iterate over "+
+					"nodes: %w", err)
 			}
 		}
 
@@ -3349,8 +3349,29 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 // buildNode constructs a LightningNode instance from the given database node
 // record. The node's features, addresses and extra signed fields are also
 // fetched from the database and set on the node.
-func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.GraphNode) (
-	*models.LightningNode, error) {
+func buildNode(ctx context.Context, db SQLQueries,
+	dbNode *sqlc.GraphNode) (*models.LightningNode, error) {
+
+	// NOTE: buildNode is only used to load the data for a single node, and
+	// so no paged queries will be performed. This means that it's ok to
+	// used pass in default config values here.
+	cfg := sqldb.DefaultPagedQueryConfig()
+
+	data, err := batchLoadNodeData(ctx, cfg, db, []int64{dbNode.ID})
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node data: %w",
+			err)
+	}
+
+	return buildNodeWithBatchData(dbNode, data)
+}
+
+// buildNodeWithBatchData builds a models.LightningNode instance
+// from the provided sqlc.GraphNode and batchNodeData. If the node does have
+// features/addresses/extra fields, then the corresponding fields are expected
+// to be present in the batchNodeData.
+func buildNodeWithBatchData(dbNode *sqlc.GraphNode,
+	batchData *batchNodeData) (*models.LightningNode, error) {
 
 	if dbNode.Version != int16(ProtocolV1) {
 		return nil, fmt.Errorf("unsupported node version: %d",
@@ -3384,38 +3405,72 @@ func buildNode(ctx context.Context, db SQLQueries, dbNode *sqlc.GraphNode) (
 		}
 	}
 
-	// Fetch the node's features.
-	node.Features, err = getNodeFeatures(ctx, db, dbNode.ID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch node(%d) "+
-			"features: %w", dbNode.ID, err)
+	// Use preloaded features.
+	if features, exists := batchData.features[dbNode.ID]; exists {
+		fv := lnwire.EmptyFeatureVector()
+		for _, bit := range features {
+			fv.Set(lnwire.FeatureBit(bit))
+		}
+		node.Features = fv
 	}
 
-	// Fetch the node's addresses.
-	node.Addresses, err = getNodeAddresses(ctx, db, dbNode.ID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch node(%d) "+
-			"addresses: %w", dbNode.ID, err)
+	// Use preloaded addresses.
+	addresses, exists := batchData.addresses[dbNode.ID]
+	if exists && len(addresses) > 0 {
+		node.Addresses, err = buildNodeAddresses(addresses)
+		if err != nil {
+			return nil, fmt.Errorf("unable to build addresses "+
+				"for node(%d): %w", dbNode.ID, err)
+		}
 	}
 
-	// Fetch the node's extra signed fields.
-	extraTLVMap, err := getNodeExtraSignedFields(ctx, db, dbNode.ID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch node(%d) "+
-			"extra signed fields: %w", dbNode.ID, err)
-	}
-
-	recs, err := lnwire.CustomRecords(extraTLVMap).Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("unable to serialize extra signed "+
-			"fields: %w", err)
-	}
-
-	if len(recs) != 0 {
-		node.ExtraOpaqueData = recs
+	// Use preloaded extra fields.
+	if extraFields, exists := batchData.extraFields[dbNode.ID]; exists {
+		recs, err := lnwire.CustomRecords(extraFields).Serialize()
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize extra "+
+				"signed fields: %w", err)
+		}
+		if len(recs) != 0 {
+			node.ExtraOpaqueData = recs
+		}
 	}
 
 	return node, nil
+}
+
+// forEachNodeInBatch fetches all nodes in the provided batch, builds them
+// with the preloaded data, and executes the provided callback for each node.
+func forEachNodeInBatch(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+	db SQLQueries, nodes []sqlc.GraphNode,
+	cb func(dbID int64, node *models.LightningNode) error) error {
+
+	// Extract node IDs for batch loading.
+	nodeIDs := make([]int64, len(nodes))
+	for i, node := range nodes {
+		nodeIDs[i] = node.ID
+	}
+
+	// Batch load all related data for this page.
+	batchData, err := batchLoadNodeData(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return fmt.Errorf("unable to batch load node data: %w", err)
+	}
+
+	for _, dbNode := range nodes {
+		node, err := buildNodeWithBatchData(&dbNode, batchData)
+		if err != nil {
+			return fmt.Errorf("unable to build node(id=%d): %w",
+				dbNode.ID, err)
+		}
+
+		if err := cb(dbNode.ID, node); err != nil {
+			return fmt.Errorf("callback failed for node(id=%d): %w",
+				dbNode.ID, err)
+		}
+	}
+
+	return nil
 }
 
 // getNodeFeatures fetches the feature bits and constructs the feature vector
@@ -3435,25 +3490,6 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 	}
 
 	return features, nil
-}
-
-// getNodeExtraSignedFields fetches the extra signed fields for a node with the
-// given DB ID.
-func getNodeExtraSignedFields(ctx context.Context, db SQLQueries,
-	nodeID int64) (map[uint64][]byte, error) {
-
-	fields, err := db.GetExtraNodeTypes(ctx, nodeID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get node(%d) extra "+
-			"signed fields: %w", nodeID, err)
-	}
-
-	extraFields := make(map[uint64][]byte)
-	for _, field := range fields {
-		extraFields[uint64(field.Type)] = field.Value
-	}
-
-	return extraFields, nil
 }
 
 // upsertNode upserts the node record into the database. If the node already
@@ -3711,55 +3747,13 @@ func getNodeAddresses(ctx context.Context, db SQLQueries, id int64) ([]net.Addr,
 	for _, row := range rows {
 		address := row.Address
 
-		switch dbAddressType(row.Type) {
-		case addressTypeIPv4:
-			tcp, err := net.ResolveTCPAddr("tcp4", address)
-			if err != nil {
-				return nil, err
-			}
-			tcp.IP = tcp.IP.To4()
-
-			addresses = append(addresses, tcp)
-
-		case addressTypeIPv6:
-			tcp, err := net.ResolveTCPAddr("tcp6", address)
-			if err != nil {
-				return nil, err
-			}
-			addresses = append(addresses, tcp)
-
-		case addressTypeTorV3, addressTypeTorV2:
-			service, portStr, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, fmt.Errorf("unable to "+
-					"split tor v3 address: %v", address)
-			}
-
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				return nil, err
-			}
-
-			addresses = append(addresses, &tor.OnionAddr{
-				OnionService: service,
-				Port:         port,
-			})
-
-		case addressTypeOpaque:
-			opaque, err := hex.DecodeString(address)
-			if err != nil {
-				return nil, fmt.Errorf("unable to "+
-					"decode opaque address: %v", address)
-			}
-
-			addresses = append(addresses, &lnwire.OpaqueAddrs{
-				Payload: opaque,
-			})
-
-		default:
-			return nil, fmt.Errorf("unknown address type: %v",
-				row.Type)
+		addr, err := parseAddress(dbAddressType(row.Type), address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse address "+
+				"for node(%d): %v: %w", id, address, err)
 		}
+
+		addresses = append(addresses, addr)
 	}
 
 	// If we have no addresses, then we'll return nil instead of an
@@ -4671,4 +4665,239 @@ func channelIDToBytes(channelID uint64) []byte {
 	byteOrder.PutUint64(chanIDB[:], channelID)
 
 	return chanIDB[:]
+}
+
+// buildNodeAddresses converts a slice of nodeAddress into a slice of net.Addr.
+func buildNodeAddresses(addresses []nodeAddress) ([]net.Addr, error) {
+	if len(addresses) == 0 {
+		return nil, nil
+	}
+
+	result := make([]net.Addr, 0, len(addresses))
+	for _, addr := range addresses {
+		netAddr, err := parseAddress(addr.addrType, addr.address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse address %s "+
+				"of type %d: %w", addr.address, addr.addrType,
+				err)
+		}
+		if netAddr != nil {
+			result = append(result, netAddr)
+		}
+	}
+
+	// If we have no valid addresses, return nil instead of empty slice.
+	if len(result) == 0 {
+		return nil, nil
+	}
+
+	return result, nil
+}
+
+// parseAddress parses the given address string based on the address type
+// and returns a net.Addr instance. It supports IPv4, IPv6, Tor v2, Tor v3,
+// and opaque addresses.
+func parseAddress(addrType dbAddressType, address string) (net.Addr, error) {
+	switch addrType {
+	case addressTypeIPv4:
+		tcp, err := net.ResolveTCPAddr("tcp4", address)
+		if err != nil {
+			return nil, err
+		}
+
+		tcp.IP = tcp.IP.To4()
+
+		return tcp, nil
+
+	case addressTypeIPv6:
+		tcp, err := net.ResolveTCPAddr("tcp6", address)
+		if err != nil {
+			return nil, err
+		}
+
+		return tcp, nil
+
+	case addressTypeTorV3, addressTypeTorV2:
+		service, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to split tor "+
+				"address: %v", address)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		return &tor.OnionAddr{
+			OnionService: service,
+			Port:         port,
+		}, nil
+
+	case addressTypeOpaque:
+		opaque, err := hex.DecodeString(address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode opaque "+
+				"address: %v", address)
+		}
+
+		return &lnwire.OpaqueAddrs{
+			Payload: opaque,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown address type: %v", addrType)
+	}
+}
+
+// batchNodeData holds all the related data for a batch of nodes.
+type batchNodeData struct {
+	// features is a map from a DB node ID to the feature bits for that
+	// node.
+	features map[int64][]int
+
+	// addresses is a map from a DB node ID to the node's addresses.
+	addresses map[int64][]nodeAddress
+
+	// extraFields is a map from a DB node ID to the extra signed fields
+	// for that node.
+	extraFields map[int64]map[uint64][]byte
+}
+
+// nodeAddress holds the address type, position and address string for a
+// node. This is used to batch the fetching of node addresses.
+type nodeAddress struct {
+	addrType dbAddressType
+	position int32
+	address  string
+}
+
+// batchLoadNodeData loads all related data for a batch of node IDs using the
+// provided SQLQueries interface. It returns a batchNodeData instance containing
+// the node features, addresses and extra signed fields.
+func batchLoadNodeData(ctx context.Context, cfg *sqldb.PagedQueryConfig,
+	db SQLQueries, nodeIDs []int64) (*batchNodeData, error) {
+
+	// Batch load the node features.
+	features, err := batchLoadNodeFeaturesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node "+
+			"features: %w", err)
+	}
+
+	// Batch load the node addresses.
+	addrs, err := batchLoadNodeAddressesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node "+
+			"addresses: %w", err)
+	}
+
+	// Batch load the node extra signed fields.
+	extraTypes, err := batchLoadNodeExtraTypesHelper(ctx, cfg, db, nodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("unable to batch load node extra "+
+			"signed fields: %w", err)
+	}
+
+	return &batchNodeData{
+		features:    features,
+		addresses:   addrs,
+		extraFields: extraTypes,
+	}, nil
+}
+
+// batchLoadNodeFeaturesHelper loads node features for a batch of node IDs
+// using ExecutePagedQuery wrapper around the GetNodeFeaturesBatch query.
+func batchLoadNodeFeaturesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64][]int, error) {
+
+	features := make(map[int64][]int)
+
+	return features, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) ([]sqlc.GraphNodeFeature,
+			error) {
+
+			return db.GetNodeFeaturesBatch(ctx, ids)
+		},
+		func(ctx context.Context, feature sqlc.GraphNodeFeature) error {
+			features[feature.NodeID] = append(
+				features[feature.NodeID],
+				int(feature.FeatureBit),
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadNodeAddressesHelper loads node addresses using ExecutePagedQuery
+// wrapper around the GetNodeAddressesBatch query. It returns a map from
+// node ID to a slice of nodeAddress structs.
+func batchLoadNodeAddressesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64][]nodeAddress, error) {
+
+	addrs := make(map[int64][]nodeAddress)
+
+	return addrs, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress,
+			error) {
+
+			return db.GetNodeAddressesBatch(ctx, ids)
+		},
+		func(ctx context.Context, addr sqlc.GraphNodeAddress) error {
+			addrs[addr.NodeID] = append(
+				addrs[addr.NodeID], nodeAddress{
+					addrType: dbAddressType(addr.Type),
+					position: addr.Position,
+					address:  addr.Address,
+				},
+			)
+
+			return nil
+		},
+	)
+}
+
+// batchLoadNodeExtraTypesHelper loads node extra type bytes for a batch of
+// node IDs using ExecutePagedQuery wrapper around the GetNodeExtraTypesBatch
+// query.
+func batchLoadNodeExtraTypesHelper(ctx context.Context,
+	cfg *sqldb.PagedQueryConfig, db SQLQueries,
+	nodeIDs []int64) (map[int64]map[uint64][]byte, error) {
+
+	extraFields := make(map[int64]map[uint64][]byte)
+
+	callback := func(ctx context.Context,
+		field sqlc.GraphNodeExtraType) error {
+
+		if extraFields[field.NodeID] == nil {
+			extraFields[field.NodeID] = make(map[uint64][]byte)
+		}
+		extraFields[field.NodeID][uint64(field.Type)] = field.Value
+
+		return nil
+	}
+
+	return extraFields, sqldb.ExecutePagedQuery(
+		ctx, cfg, nodeIDs,
+		func(id int64) int64 {
+			return id
+		},
+		func(ctx context.Context, ids []int64) (
+			[]sqlc.GraphNodeExtraType, error) {
+
+			return db.GetNodeExtraTypesBatch(ctx, ids)
+		},
+		callback,
+	)
 }

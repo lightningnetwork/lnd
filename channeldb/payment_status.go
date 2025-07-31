@@ -24,6 +24,10 @@ const (
 	// StatusFailed is the status where a payment has been initiated and a
 	// failure result has come back.
 	StatusFailed PaymentStatus = 4
+
+	// StatusTracked is the status where a payment has been tracked before
+	// being initialized.
+	StatusTracked PaymentStatus = 5
 )
 
 // errPaymentStatusUnknown is returned when a payment has an unknown status.
@@ -43,6 +47,9 @@ func (ps PaymentStatus) String() string {
 
 	case StatusFailed:
 		return "Failed"
+
+	case StatusTracked:
+		return "Tracked"
 
 	default:
 		return "Unknown"
@@ -74,6 +81,11 @@ func (ps PaymentStatus) initializable() error {
 	case StatusFailed:
 		return nil
 
+	// The payment has been tracked before it was initialized. We don't
+	// allow retrying such payments.
+	case StatusTracked:
+		return ErrAlreadyTracked
+
 	default:
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
 	}
@@ -102,6 +114,10 @@ func (ps PaymentStatus) removable() error {
 	case StatusFailed:
 		return nil
 
+	// Tracked payments are allowed to be removed.
+	case StatusTracked:
+		return nil
+
 	default:
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
 	}
@@ -125,6 +141,9 @@ func (ps PaymentStatus) updatable() error {
 
 	case StatusFailed:
 		return ErrPaymentAlreadyFailed
+
+	case StatusTracked:
+		return ErrAlreadyTracked
 
 	default:
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
@@ -165,6 +184,8 @@ func (ps PaymentStatus) updatable() error {
 // When `inflight` and `settled` are false, `htlc failed` is true yet `payment
 // failed` is false, this indicates all the payment's HTLCs have occurred a
 // temporarily failure and the payment is still in-flight.
+//
+// If failure reason is FailureReasonTracked, the status is StatusTracked.
 func decidePaymentStatus(htlcs []HTLCAttempt,
 	reason *FailureReason) (PaymentStatus, error) {
 
@@ -178,6 +199,10 @@ func decidePaymentStatus(htlcs []HTLCAttempt,
 	// If we have a failure reason, the payment is failed.
 	if reason != nil {
 		paymentFailed = true
+
+		if *reason == FailureReasonTracked {
+			return StatusTracked, nil
+		}
 	}
 
 	// Go through all HTLCs for this payment, check whether we have any

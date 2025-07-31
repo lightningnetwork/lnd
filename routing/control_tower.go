@@ -91,9 +91,11 @@ type ControlTower interface {
 
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. A first update with the current state of the payment is always
-	// sent out immediately.
-	SubscribePayment(paymentHash lntypes.Hash) (ControlTowerSubscriber,
-		error)
+	// sent out immediately. If preventSubsequentPayment is set and the
+	// payment hasn't started yet, it will be blocked in the future. This is
+	// useful to enforce the order of requests.
+	SubscribePayment(paymentHash lntypes.Hash,
+		preventSubsequentPayment bool) (ControlTowerSubscriber, error)
 
 	// SubscribeAllPayments subscribes to updates for all payments. A first
 	// update with the current state of every inflight payment is always
@@ -309,16 +311,26 @@ func (p *controlTower) FetchInFlightPayments() ([]*channeldb.MPPayment, error) {
 
 // SubscribePayment subscribes to updates for the payment with the given hash. A
 // first update with the current state of the payment is always sent out
-// immediately.
-func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
-	ControlTowerSubscriber, error) {
+// immediately. If preventSubsequentPayment is set and the payment hasn't
+// started yet, it will be blocked in the future. This is useful to enforce the
+// order of requests.
+func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash,
+	preventSubsequentPayment bool) (ControlTowerSubscriber, error) {
 
 	// Take lock before querying the db to prevent missing or duplicating an
 	// update.
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.FetchPayment(paymentHash)
+	var (
+		payment *channeldb.MPPayment
+		err     error
+	)
+	if preventSubsequentPayment {
+		payment, err = p.db.FetchOrIndalidatePayment(paymentHash)
+	} else {
+		payment, err = p.db.FetchPayment(paymentHash)
+	}
 	if err != nil {
 		return nil, err
 	}

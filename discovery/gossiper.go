@@ -2716,15 +2716,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					key, &cachedReject{},
 				)
 
-				// Increment the peer's ban score. We check
-				// isRemote so we don't actually ban the peer in
-				// case of a local bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
-
 			case errors.Is(err, ErrChannelSpent):
 				key := newRejectCacheKey(
 					scid.ToUint64(),
@@ -2748,23 +2739,19 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					return nil, false
 				}
 
-				// Increment the peer's ban score. We check
-				// isRemote so we don't accidentally ban
-				// ourselves in case of a bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
-
 			default:
 				// Otherwise, this is just a regular rejected
-				// edge.
+				// edge. We won't increase the ban score for the
+				// remote peer.
 				key := newRejectCacheKey(
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+				nMsg.err <- err
+
+				return nil, false
 			}
 
 			if !nMsg.isRemote {
@@ -2775,19 +2762,15 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				return nil, false
 			}
 
-			shouldDc, dcErr := d.ShouldDisconnect(
-				nMsg.peer.IdentityKey(),
-			)
+			log.Warnf("Increasing ban score for peer=%v due to "+
+				"invalid channel announcement for channel %v",
+				nMsg.peer, scid)
+
+			// Increment the peer's ban score if they are sending
+			// us invalid channel announcements.
+			dcErr := d.handleBadPeer(nMsg.peer)
 			if dcErr != nil {
-				log.Errorf("failed to check if we should "+
-					"disconnect peer: %v", dcErr)
-				nMsg.err <- dcErr
-
-				return nil, false
-			}
-
-			if shouldDc {
-				nMsg.peer.Disconnect(ErrPeerBanned)
+				err = dcErr
 			}
 
 			nMsg.err <- err

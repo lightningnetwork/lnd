@@ -96,6 +96,12 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   a canceled invoice. Supports deleting a canceled invoice by providing its
   payment hash.
 
+* A [new config](https://github.com/lightningnetwork/lnd/pull/10102)
+  `gossip.ban-threshold` is added to allow users to configure the ban score
+  threshold for peers. When a peer's ban score exceeds this value, they will be
+  disconnected and banned. Setting the value to 0 effectively disables banning
+  by setting the threshold to the maximum possible value. 
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the

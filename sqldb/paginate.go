@@ -157,3 +157,99 @@ func ExecutePaginatedQuery[C any, T any](ctx context.Context, cfg *QueryConfig,
 
 	return nil
 }
+
+// CollectAndBatchDataQueryFunc represents a function that batch loads
+// additional data for collected identifiers, returning the batch data that
+// applies to all items.
+type CollectAndBatchDataQueryFunc[ID any, BatchData any] func(context.Context,
+	[]ID) (BatchData, error)
+
+// ItemWithBatchDataProcessFunc represents a function that processes individual
+// items along with shared batch data.
+type ItemWithBatchDataProcessFunc[T any, BatchData any] func(context.Context,
+	T, BatchData) error
+
+// CollectFunc represents a function that extracts an identifier from a
+// paginated item.
+type CollectFunc[T any, ID any] func(T) (ID, error)
+
+// ExecuteCollectAndBatchWithSharedDataQuery implements a page-by-page
+// processing pattern where each page is immediately processed with batch-loaded
+// data before moving to the next page.
+//
+// It:
+// 1. Fetches a page of items using cursor-based pagination
+// 2. Collects identifiers from that page and batch loads shared data
+// 3. Processes each item in the page with the shared batch data
+// 4. Moves to the next page and repeats
+//
+// Parameters:
+// - initialCursor: starting cursor for pagination
+// - pageQueryFunc: fetches a page of items
+// - extractPageCursor: extracts cursor from paginated item for next page
+// - collectFunc: extracts identifier from paginated item
+// - batchDataFunc: batch loads shared data from collected IDs for one page
+// - processItem: processes each item with the shared batch data
+func ExecuteCollectAndBatchWithSharedDataQuery[C any, T any, I any, D any](
+	ctx context.Context, cfg *QueryConfig, initialCursor C,
+	pageQueryFunc PagedQueryFunc[C, T],
+	extractPageCursor CursorExtractFunc[T, C],
+	collectFunc CollectFunc[T, I],
+	batchDataFunc CollectAndBatchDataQueryFunc[I, D],
+	processItem ItemWithBatchDataProcessFunc[T, D]) error {
+
+	cursor := initialCursor
+
+	for {
+		// Step 1: Fetch the next page of items.
+		items, err := pageQueryFunc(ctx, cursor, cfg.MaxPageSize)
+		if err != nil {
+			return fmt.Errorf("failed to fetch page with "+
+				"cursor %v: %w", cursor, err)
+		}
+
+		// If no items returned, we're done.
+		if len(items) == 0 {
+			break
+		}
+
+		// Step 2: Collect identifiers from this page and batch load
+		// data.
+		pageIDs := make([]I, len(items))
+		for i, item := range items {
+			pageIDs[i], err = collectFunc(item)
+			if err != nil {
+				return fmt.Errorf("failed to collect "+
+					"identifier from item: %w", err)
+			}
+		}
+
+		// Batch load shared data for this page.
+		batchData, err := batchDataFunc(ctx, pageIDs)
+		if err != nil {
+			return fmt.Errorf("failed to load batch data for "+
+				"page: %w", err)
+		}
+
+		// Step 3: Process each item in this page with the shared batch
+		// data.
+		for _, item := range items {
+			err := processItem(ctx, item, batchData)
+			if err != nil {
+				return fmt.Errorf("failed to process item "+
+					"with batch data: %w", err)
+			}
+
+			// Update cursor for next page.
+			cursor = extractPageCursor(item)
+		}
+
+		// If the number of items is less than the max page size,
+		// we assume there are no more items to fetch.
+		if len(items) < int(cfg.MaxPageSize) {
+			break
+		}
+	}
+
+	return nil
+}

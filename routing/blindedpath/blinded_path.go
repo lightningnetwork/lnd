@@ -438,7 +438,13 @@ func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 			}
 		}
 
-		if policy.MinHTLCMsat > cfg.ValueMsat {
+		// If the payment amount is 0, means the sender is deciding the
+		// amount, so we don't need to check the min HTLC value while
+		// building the path. Payment would fail if there is no
+		// route with the min HTLC value from the sender's perspective.
+		isZeroAmount := cfg.ValueMsat == 0
+
+		if !isZeroAmount && policy.MinHTLCMsat > cfg.ValueMsat {
 			return nil, 0, 0, fmt.Errorf("%w: minHTLC of hop "+
 				"policy larger than payment amt: sentAmt(%v), "+
 				"minHTLC(%v)", errInvalidBlindedPath,
@@ -450,12 +456,13 @@ func collectRelayInfo(cfg *BuildBlindedPathCfg, path *candidatePath) (
 			return nil, 0, 0, err
 		}
 
-		// We only use the new buffered policy if the new minHTLC value
-		// does not violate the sender amount.
+		// We only use the new buffered policy if:
+		// 1) Sender amount is 0, or
+		// 2) The new minHTLC value does not violate the sender amount.
 		//
 		// NOTE: We don't check this for maxHTLC, because the payment
 		// amount can always be splitted using MPP.
-		if bufferPolicy.MinHTLCMsat <= cfg.ValueMsat {
+		if isZeroAmount || bufferPolicy.MinHTLCMsat <= cfg.ValueMsat {
 			policy = bufferPolicy
 		}
 

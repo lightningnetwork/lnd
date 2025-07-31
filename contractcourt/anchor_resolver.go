@@ -222,6 +222,8 @@ func (c *anchorResolver) Launch() error {
 		c.broadcastHeight, nil,
 	)
 
+	exclusiveGroup := c.ShortChanID.ToUint64()
+
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
@@ -233,6 +235,10 @@ func (c *anchorResolver) Launch() error {
 			// There's no rush to sweep the anchor, so we use a nil
 			// deadline here.
 			DeadlineHeight: fn.None[int32](),
+
+			// Use the chan id as the exclusive group. This prevents
+			// any of the anchors from being batched together.
+			ExclusiveGroup: &exclusiveGroup,
 		},
 	)
 

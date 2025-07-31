@@ -1224,8 +1224,8 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 //  4. Alice force closes the channel.
 //
 // Test:
-//  1. Alice's anchor sweeping is not attempted, instead, it should be swept
-//     together with her to_local output using the no deadline path.
+//  1. Alice's CPFP-anchor sweeping is not attempted, instead, it should be
+//     swept using the no deadline path and failed due it's not economical.
 //  2. Bob would also sweep his anchor and to_local outputs separately due to
 //     they have different deadline heights, which means only the to_local
 //     sweeping tx will succeed as the anchor sweeping is not economical.
@@ -1241,10 +1241,15 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// config.
 	deadline := uint32(1000)
 
-	// deadlineA is the deadline used for Alice, since her commit output is
-	// offered to the sweeper at CSV-1. With a deadline of 1000, her actual
-	// width of her fee func is CSV+1000-1. Given we are using a CSV of 2
-	// here, her fee func deadline then becomes 1001.
+	// deadlineA is the deadline used for Alice, given that,
+	// - the force close tx is broadcast at height 445, her inputs are
+	//   registered at the same height, so her to_local and anchor outputs
+	//   have a deadline height of 1445.
+	// - the force close tx is mined at 446, which means her anchor output
+	//   now has a deadline delta of (1445-446) = 999 blocks.
+	// - for her to_local output, with a deadline of 1000, the width of the
+	//   fee func is CSV+1000-1. Given we are using a CSV of 2 here, her fee
+	//   func deadline then becomes 1001.
 	deadlineA := deadline + 1
 
 	// deadlineB is the deadline used for Bob, the actual deadline used by
@@ -1266,6 +1271,11 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// Set up the fee estimator to return the testing fee rate when the
 	// conf target is the deadline.
 	ht.SetFeeEstimateWithConf(startFeeRate, deadlineB)
+
+	// Set up the starting fee for Alice's anchor sweeping. With this low
+	// fee rate, her anchor sweeping should be attempted and failed due to
+	// dust output generated in the sweeping tx.
+	ht.SetFeeEstimateWithConf(startFeeRate, deadline-1)
 
 	// toLocalCSV is the CSV delay for Alice's to_local output. We use a
 	// small value to save us from mining blocks.

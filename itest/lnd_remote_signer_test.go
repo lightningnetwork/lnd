@@ -328,6 +328,11 @@ func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
 			// that aren't in the wallet. But we also want to make
 			// sure we can fund and then sign PSBTs from our wallet.
 			runFundAndSignPsbt(ht, wo)
+
+			// We also have a more specific funding test that does
+			// a pay-join payment with Carol.
+			ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+			runFundPsbt(ht, wo, carol)
 		},
 	}
 

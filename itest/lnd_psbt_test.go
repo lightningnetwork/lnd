@@ -1060,6 +1060,14 @@ func testFundPsbt(ht *lntest.HarnessTest) {
 	alice := ht.NewNodeWithCoins("Alice", nil)
 	bob := ht.NewNodeWithCoins("Bob", nil)
 
+	runFundPsbt(ht, alice, bob)
+}
+
+// runFundPsbt tests the FundPsbt RPC use case where we want to fund a PSBT
+// that already has an input specified. This is a pay-join scenario where Bob
+// wants to send Alice some coins, but he wants to do so in a way that doesn't
+// reveal the full amount he is sending.
+func runFundPsbt(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// We test a pay-join between Alice and Bob. Bob wants to send Alice
 	// 5 million Satoshis in a non-obvious way. So Bob selects a UTXO that's
 	// bigger than 5 million Satoshis and expects the change minus the send

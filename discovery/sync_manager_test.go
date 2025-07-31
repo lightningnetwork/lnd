@@ -748,7 +748,7 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 		}
 
 		// First message should have no delay as it fits within burst.
-		delay1, err := sm.deriveRateLimitReservation(msg)
+		delay1, err := deriveRateLimitReservation(sm.rateLimiter, msg)
 		require.NoError(t, err)
 		require.Equal(
 			t, time.Duration(0), delay1.Delay(), "first message "+
@@ -757,7 +757,7 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 
 		// Second message should have a non-zero delay as the token
 		// bucket is now depleted.
-		delay2, err := sm.deriveRateLimitReservation(msg)
+		delay2, err := deriveRateLimitReservation(sm.rateLimiter, msg)
 		require.NoError(t, err)
 		require.True(
 			t, delay2.Delay() > 0, "second message should have "+
@@ -766,7 +766,7 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 
 		// Third message should have an even longer delay since the
 		// token bucket is still refilling at a constant rate.
-		delay3, err := sm.deriveRateLimitReservation(msg)
+		delay3, err := deriveRateLimitReservation(sm.rateLimiter, msg)
 		require.NoError(t, err)
 		require.True(t, delay3.Delay() > delay2.Delay(), "third "+
 			"message should have longer delay than second: %s > %s",
@@ -798,7 +798,7 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 
 		// The error should propagate through
 		// deriveRateLimitReservation.
-		_, err := sm.deriveRateLimitReservation(msg)
+		_, err := deriveRateLimitReservation(sm.rateLimiter, msg)
 		require.Error(t, err)
 		require.Equal(
 			t, errMsg, err, "Error should be propagated unchanged",
@@ -815,7 +815,7 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 		initialMsg := &TestSizeableMessage{
 			size: uint32(bytesBurst),
 		}
-		_, err := sm.deriveRateLimitReservation(initialMsg)
+		_, err := deriveRateLimitReservation(sm.rateLimiter, initialMsg)
 		require.NoError(t, err)
 
 		// Now send two messages of different sizes and compare their
@@ -828,18 +828,22 @@ func TestDeriveRateLimitReservation(t *testing.T) {
 		}
 
 		// Send the small message first.
-		smallDelay, err := sm.deriveRateLimitReservation(smallMsg)
+		smallDelay, err := deriveRateLimitReservation(
+			sm.rateLimiter, smallMsg,
+		)
 		require.NoError(t, err)
 
 		// Reset the limiter to the same state, then empty the bucket.
 		sm.rateLimiter = rate.NewLimiter(
 			rate.Limit(bytesPerSec), int(bytesBurst),
 		)
-		_, err = sm.deriveRateLimitReservation(initialMsg)
+		_, err = deriveRateLimitReservation(sm.rateLimiter, initialMsg)
 		require.NoError(t, err)
 
 		// Now send the large message.
-		largeDelay, err := sm.deriveRateLimitReservation(largeMsg)
+		largeDelay, err := deriveRateLimitReservation(
+			sm.rateLimiter, largeMsg,
+		)
 		require.NoError(t, err)
 
 		// The large message should have a longer delay than the small

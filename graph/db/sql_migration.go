@@ -713,8 +713,7 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	edge, err := getAndBuildEdgeInfo(
-		ctx, db, chain, row.GraphChannel.ID, row.GraphChannel, node1,
-		node2,
+		ctx, db, chain, row.GraphChannel, node1, node2,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to build channel "+

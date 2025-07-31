@@ -275,27 +275,6 @@ FROM graph_channels c
 WHERE c.scid = $1
   AND c.version = $2;
 
--- name: GetChannelFeaturesAndExtras :many
-SELECT
-    cf.channel_id,
-    true AS is_feature,
-    cf.feature_bit AS feature_bit,
-    NULL AS extra_key,
-    NULL AS value
-FROM graph_channel_features cf
-WHERE cf.channel_id = $1
-
-UNION ALL
-
-SELECT
-    cet.channel_id,
-    false AS is_feature,
-    0 AS feature_bit,
-    cet.type AS extra_key,
-    cet.value AS value
-FROM graph_channel_extra_types cet
-WHERE cet.channel_id = $1;
-
 -- name: GetSCIDByOutpoint :one
 SELECT scid from graph_channels
 WHERE outpoint = $1 AND version = $2;
@@ -647,6 +626,14 @@ INSERT INTO graph_channel_features (
     $1, $2
 );
 
+-- name: GetChannelFeaturesBatch :many
+SELECT
+    channel_id,
+    feature_bit
+FROM graph_channel_features
+WHERE channel_id IN (sqlc.slice('chan_ids')/*SLICE:chan_ids*/)
+ORDER BY channel_id, feature_bit;
+
 /* ─────────────────────────────────────────────
    graph_channel_extra_types table queries
    ─────────────────────────────────────────────
@@ -657,6 +644,15 @@ INSERT INTO graph_channel_extra_types (
     channel_id, type, value
 )
 VALUES ($1, $2, $3);
+
+-- name: GetChannelExtrasBatch :many
+SELECT
+    channel_id,
+    type,
+    value
+FROM graph_channel_extra_types
+WHERE channel_id IN (sqlc.slice('chan_ids')/*SLICE:chan_ids*/)
+ORDER BY channel_id, type;
 
 /* ─────────────────────────────────────────────
    graph_channel_policies table queries
@@ -760,17 +756,14 @@ INSERT INTO graph_channel_policy_extra_types (
 )
 VALUES ($1, $2, $3);
 
--- name: GetChannelPolicyExtraTypes :many
+-- name: GetChannelPolicyExtraTypesBatch :many
 SELECT
-    cp.id AS policy_id,
-    cp.channel_id,
-    cp.node_id,
-    cpet.type,
-    cpet.value
-FROM graph_channel_policies cp
-JOIN graph_channel_policy_extra_types cpet
-ON cp.id = cpet.channel_policy_id
-WHERE cp.id = $1 OR cp.id = $2;
+    channel_policy_id as policy_id,
+    type,
+    value
+FROM graph_channel_policy_extra_types
+WHERE channel_policy_id IN (sqlc.slice('policy_ids')/*SLICE:policy_ids*/)
+ORDER BY channel_policy_id, type;
 
 -- name: GetV1DisabledSCIDs :many
 SELECT c.scid

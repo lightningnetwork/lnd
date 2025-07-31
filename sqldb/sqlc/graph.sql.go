@@ -701,52 +701,78 @@ func (q *Queries) GetChannelBySCIDWithPolicies(ctx context.Context, arg GetChann
 	return i, err
 }
 
-const getChannelFeaturesAndExtras = `-- name: GetChannelFeaturesAndExtras :many
+const getChannelExtrasBatch = `-- name: GetChannelExtrasBatch :many
 SELECT
-    cf.channel_id,
-    true AS is_feature,
-    cf.feature_bit AS feature_bit,
-    NULL AS extra_key,
-    NULL AS value
-FROM graph_channel_features cf
-WHERE cf.channel_id = $1
-
-UNION ALL
-
-SELECT
-    cet.channel_id,
-    false AS is_feature,
-    0 AS feature_bit,
-    cet.type AS extra_key,
-    cet.value AS value
-FROM graph_channel_extra_types cet
-WHERE cet.channel_id = $1
+    channel_id,
+    type,
+    value
+FROM graph_channel_extra_types
+WHERE channel_id IN (/*SLICE:chan_ids*/?)
+ORDER BY channel_id, type
 `
 
-type GetChannelFeaturesAndExtrasRow struct {
-	ChannelID  int64
-	IsFeature  bool
-	FeatureBit int32
-	ExtraKey   interface{}
-	Value      interface{}
-}
-
-func (q *Queries) GetChannelFeaturesAndExtras(ctx context.Context, channelID int64) ([]GetChannelFeaturesAndExtrasRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChannelFeaturesAndExtras, channelID)
+func (q *Queries) GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([]GraphChannelExtraType, error) {
+	query := getChannelExtrasBatch
+	var queryParams []interface{}
+	if len(chanIds) > 0 {
+		for _, v := range chanIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:chan_ids*/?", makeQueryParams(len(queryParams), len(chanIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:chan_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetChannelFeaturesAndExtrasRow
+	var items []GraphChannelExtraType
 	for rows.Next() {
-		var i GetChannelFeaturesAndExtrasRow
-		if err := rows.Scan(
-			&i.ChannelID,
-			&i.IsFeature,
-			&i.FeatureBit,
-			&i.ExtraKey,
-			&i.Value,
-		); err != nil {
+		var i GraphChannelExtraType
+		if err := rows.Scan(&i.ChannelID, &i.Type, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getChannelFeaturesBatch = `-- name: GetChannelFeaturesBatch :many
+SELECT
+    channel_id,
+    feature_bit
+FROM graph_channel_features
+WHERE channel_id IN (/*SLICE:chan_ids*/?)
+ORDER BY channel_id, feature_bit
+`
+
+func (q *Queries) GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]GraphChannelFeature, error) {
+	query := getChannelFeaturesBatch
+	var queryParams []interface{}
+	if len(chanIds) > 0 {
+		for _, v := range chanIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:chan_ids*/?", makeQueryParams(len(queryParams), len(chanIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:chan_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphChannelFeature
+	for rows.Next() {
+		var i GraphChannelFeature
+		if err := rows.Scan(&i.ChannelID, &i.FeatureBit); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -798,48 +824,42 @@ func (q *Queries) GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetC
 	return i, err
 }
 
-const getChannelPolicyExtraTypes = `-- name: GetChannelPolicyExtraTypes :many
+const getChannelPolicyExtraTypesBatch = `-- name: GetChannelPolicyExtraTypesBatch :many
 SELECT
-    cp.id AS policy_id,
-    cp.channel_id,
-    cp.node_id,
-    cpet.type,
-    cpet.value
-FROM graph_channel_policies cp
-JOIN graph_channel_policy_extra_types cpet
-ON cp.id = cpet.channel_policy_id
-WHERE cp.id = $1 OR cp.id = $2
+    channel_policy_id as policy_id,
+    type,
+    value
+FROM graph_channel_policy_extra_types
+WHERE channel_policy_id IN (/*SLICE:policy_ids*/?)
+ORDER BY channel_policy_id, type
 `
 
-type GetChannelPolicyExtraTypesParams struct {
-	ID   int64
-	ID_2 int64
+type GetChannelPolicyExtraTypesBatchRow struct {
+	PolicyID int64
+	Type     int64
+	Value    []byte
 }
 
-type GetChannelPolicyExtraTypesRow struct {
-	PolicyID  int64
-	ChannelID int64
-	NodeID    int64
-	Type      int64
-	Value     []byte
-}
-
-func (q *Queries) GetChannelPolicyExtraTypes(ctx context.Context, arg GetChannelPolicyExtraTypesParams) ([]GetChannelPolicyExtraTypesRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChannelPolicyExtraTypes, arg.ID, arg.ID_2)
+func (q *Queries) GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]GetChannelPolicyExtraTypesBatchRow, error) {
+	query := getChannelPolicyExtraTypesBatch
+	var queryParams []interface{}
+	if len(policyIds) > 0 {
+		for _, v := range policyIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:policy_ids*/?", makeQueryParams(len(queryParams), len(policyIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:policy_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetChannelPolicyExtraTypesRow
+	var items []GetChannelPolicyExtraTypesBatchRow
 	for rows.Next() {
-		var i GetChannelPolicyExtraTypesRow
-		if err := rows.Scan(
-			&i.PolicyID,
-			&i.ChannelID,
-			&i.NodeID,
-			&i.Type,
-			&i.Value,
-		); err != nil {
+		var i GetChannelPolicyExtraTypesBatchRow
+		if err := rows.Scan(&i.PolicyID, &i.Type, &i.Value); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -44,7 +44,6 @@ type Gossip struct {
 }
 
 // Parse the pubkeys for the pinned syncers.
-
 func (g *Gossip) Parse() error {
 	pinnedSyncers := make(discovery.PinnedSyncers)
 	for _, pubkeyStr := range g.PinnedSyncersRaw {

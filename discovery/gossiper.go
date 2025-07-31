@@ -2701,7 +2701,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// ShortChannelID is an alias, then we'll skip validation as it will
 	// not map to a legitimate tx. This is not a DoS vector as only we can
 	// add an alias ChannelAnnouncement from the gossiper.
-	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) { //nolint:nestif
+	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) {
 		op, capacity, script, err := d.validateFundingTransaction(
 			ctx, ann, tapscriptRoot,
 		)

@@ -2510,6 +2510,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 // methods that acquire the cache mutex along with the DB mutex.
 func TestStressTestChannelGraphAPI(t *testing.T) {
 	t.Parallel()
+
+	if testing.Short() {
+		t.Skipf("Skipping test in short mode")
+	}
+
 	ctx := context.Background()
 
 	graph := MakeTestGraph(t)

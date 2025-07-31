@@ -121,6 +121,12 @@ ifneq ($(nocache),)
 TEST_FLAGS += -test.count=1
 endif
 
+# If the short flag is added, then any unit tests marked with "testing.Short()"
+# will be skipped.
+ifneq ($(short),)
+TEST_FLAGS += -short
+endif
+
 GOLIST := $(GOCC) list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is

@@ -41,6 +41,13 @@
   [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
   1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
 
+- Previously, when sweeping non-time sensitive anchor outputs, they might be
+  grouped with other non-time sensitive outputs such as `to_local` outputs,
+  which potentially allow the sweeping tx to be pinned. This is now
+  [fixed](https://github.com/lightningnetwork/lnd/pull/10117) by moving sweeping
+  anchors into its own tx, which means the anchor outputs won't be swept in a
+  high fee environment.
+
 ## RPC Additions
 
 ## lncli Additions

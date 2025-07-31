@@ -12,12 +12,14 @@ import (
 func TestPurgeBanEntries(t *testing.T) {
 	t.Parallel()
 
-	b := newBanman()
+	testBanThreshold := uint64(10)
+
+	b := newBanman(testBanThreshold)
 
 	// Ban a peer by repeatedly incrementing its ban score.
 	peer1 := [33]byte{0x00}
 
-	for i := 0; i < banThreshold; i++ {
+	for range testBanThreshold {
 		b.incrementBanScore(peer1)
 	}
 

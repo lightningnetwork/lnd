@@ -13,14 +13,13 @@ import (
 )
 
 const (
+	// DefaultBanThreshold is the default value to be used for banThreshold.
+	DefaultBanThreshold = 100
+
 	// maxBannedPeers limits the maximum number of banned pubkeys that
 	// we'll store.
 	// TODO(eugene): tune.
 	maxBannedPeers = 10_000
-
-	// banThreshold is the point at which non-channel peers will be banned.
-	// TODO(eugene): tune.
-	banThreshold = 100
 
 	// banTime is the amount of time that the non-channel peer will be
 	// banned for. Channel announcements from channel peers will be dropped
@@ -126,7 +125,7 @@ func (c *cachedBanInfo) Size() (uint64, error) {
 }
 
 // isBanned returns true if the ban score is greater than the ban threshold.
-func (c *cachedBanInfo) isBanned() bool {
+func (c *cachedBanInfo) isBanned(banThreshold uint64) bool {
 	return c.score >= banThreshold
 }
 
@@ -144,15 +143,19 @@ type banman struct {
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+
+	// banThreshold is the point at which non-channel peers will be banned.
+	banThreshold uint64
 }
 
 // newBanman creates a new banman with the default maxBannedPeers.
-func newBanman() *banman {
+func newBanman(banThreshold uint64) *banman {
 	return &banman{
 		peerBanIndex: lru.NewCache[[33]byte, *cachedBanInfo](
 			maxBannedPeers,
 		),
-		quit: make(chan struct{}),
+		quit:         make(chan struct{}),
+		banThreshold: banThreshold,
 	}
 }
 
@@ -193,7 +196,7 @@ func (b *banman) purgeBanEntries() {
 	keysToRemove := make([][33]byte, 0)
 
 	sweepEntries := func(pubkey [33]byte, banInfo *cachedBanInfo) bool {
-		if banInfo.isBanned() {
+		if banInfo.isBanned(b.banThreshold) {
 			// If the peer is banned, check if the ban timer has
 			// expired.
 			if banInfo.lastUpdate.Add(banTime).Before(time.Now()) {
@@ -227,7 +230,7 @@ func (b *banman) isBanned(pubkey [33]byte) bool {
 		return false
 
 	default:
-		return banInfo.isBanned()
+		return banInfo.isBanned(b.banThreshold)
 	}
 }
 

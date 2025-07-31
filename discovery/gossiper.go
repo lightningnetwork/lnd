@@ -586,7 +586,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 			maxRejectedUpdates,
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
-		banman:                newBanman(),
+		banman:                newBanman(DefaultBanThreshold),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)

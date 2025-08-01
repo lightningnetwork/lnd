@@ -719,6 +719,7 @@ func DefaultConfig() Config {
 			AnnouncementConf:      discovery.DefaultProofMatureDelta,
 			MsgRateBytes:          discovery.DefaultMsgBytesPerSecond,
 			MsgBurstBytes:         discovery.DefaultMsgBytesBurst,
+			FilterConcurrency:     discovery.DefaultFilterConcurrency,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,

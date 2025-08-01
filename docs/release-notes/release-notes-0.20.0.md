@@ -41,6 +41,10 @@
   logger's derived via `WithPrefix` did not inherit change log level changes 
   from their parent loggers. 
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10072) an issue where
+  known TLV fields were incorrectly encoded into the `ExtraData` field of
+  messages in the gossip set.
+
 # New Features
 
 ## Functional Enhancements

@@ -29,6 +29,9 @@ var (
 	// ErrNilOnionAddress is returned when the supplied address is nil.
 	ErrNilOnionAddress = errors.New("cannot write nil onion address")
 
+	// ErrNilDNSAddress is returned when the supplied address is nil.
+	ErrNilDNSAddress = errors.New("cannot write nil DNS address")
+
 	// ErrNilNetAddress is returned when a nil value is used in []net.Addr.
 	ErrNilNetAddress = errors.New("cannot write nil address")
 
@@ -364,6 +367,30 @@ func WriteOnionAddr(buf *bytes.Buffer, addr *tor.OnionAddr) error {
 	return WriteUint16(buf, uint16(addr.Port))
 }
 
+// WriteDNSAddr appends the DNS address to the provided buffer.
+func WriteDNSAddr(buf *bytes.Buffer, addr *DNSAddr) error {
+	if addr == nil {
+		return ErrNilDNSAddress
+	}
+
+	// Write the DNS address type descriptor.
+	if err := buf.WriteByte(byte(dnsHostnameAddr)); err != nil {
+		return err
+	}
+
+	// Write the DNS hostname address length.
+	if err := buf.WriteByte(byte(len(addr.Hostname))); err != nil {
+		return err
+	}
+
+	// Write the DNS Hostname address.
+	if _, err := buf.WriteString(addr.Hostname); err != nil {
+		return err
+	}
+
+	return WriteUint16(buf, addr.Port)
+}
+
 // WriteOpaqueAddrs appends the payload of the given OpaqueAddrs to buffer.
 func WriteOpaqueAddrs(buf *bytes.Buffer, addr *OpaqueAddrs) error {
 	if addr == nil {
@@ -383,6 +410,7 @@ func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
 	buffer := make([]byte, 0, MaxMsgBody)
 	addrBuf := bytes.NewBuffer(buffer)
 
+	var dnsAddrIncluded bool
 	for _, address := range addresses {
 		switch a := address.(type) {
 		case *net.TCPAddr:
@@ -393,6 +421,14 @@ func WriteNetAddrs(buf *bytes.Buffer, addresses []net.Addr) error {
 			if err := WriteOnionAddr(addrBuf, a); err != nil {
 				return err
 			}
+		case *DNSAddr:
+			if dnsAddrIncluded {
+				return ErrMultipleDNSAddresses
+			}
+			if err := WriteDNSAddr(addrBuf, a); err != nil {
+				return err
+			}
+			dnsAddrIncluded = true
 		case *OpaqueAddrs:
 			if err := WriteOpaqueAddrs(addrBuf, a); err != nil {
 				return err

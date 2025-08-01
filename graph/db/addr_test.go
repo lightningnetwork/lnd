@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -153,5 +154,173 @@ func TestAddrSerialization(t *testing.T) {
 		}
 
 		require.Equal(t, test.expAddr, addr)
+	}
+}
+
+// TestDecodeDNSHostnameAddress ensures correct decoding of DNS net address from
+// its binary representation if it was originally under opaque address type.
+func TestDecodeDNSHostnameAddress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		data      []byte
+		expected  net.Addr
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "ValidAddressDecodesCorrectly",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				0x26, 0x07, // port 9735 in big-endian
+			},
+			expected: &lnwire.DNSAddr{
+				Hostname: "example.com",
+				Port:     9735,
+			},
+			expectErr: false,
+		},
+		{
+			name: "AddressWithNonASCIICharacterReturnsOpaqueAddr",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'é', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				0x26, 0x07, // port 9735 in big-endian
+			},
+			expected: &lnwire.OpaqueAddrs{
+				Payload: []uint8{
+					0xe9, 0x78, 0x61, 0x6d, 0x70, 0x6c,
+					0x65, 0x2e, 0x63, 0x6f, 0x6d, 0x26,
+					0x7,
+				},
+			},
+		},
+		{
+			name: "ValidAddressWithNonStandardPortDecodesCorrectly",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x13, // payload length: 19
+				'l', 'i', 'g', 'h', 't', 'n', 'i', 'n', 'g',
+				'.', 'n', 'e', 't', 'w', 'o', 'r', 'k',
+				0x04, 0xD2, // port 1234 in big-endian
+			},
+			expected: &lnwire.DNSAddr{
+				Hostname: "lightning.network",
+				Port:     1234,
+			},
+			expectErr: false,
+		},
+		{
+			name:      "EmptyDataReturnsError",
+			data:      []byte{},
+			expectErr: true,
+			errMsg:    "EOF",
+		},
+		{
+			name:      "IncompleteDataWithoutLengthReturnsError",
+			data:      []byte{byte(opaqueAddrs)},
+			expectErr: true,
+			errMsg:    "EOF",
+		},
+		{
+			name: "IncompleteDataWithoutHostnameReturnsError",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // Length of host that isn't there
+			},
+			expectErr: true,
+			errMsg:    "EOF",
+		},
+		{
+			name: "IncompleteDataWithoutPortReturnsError",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				// Missing port
+			},
+			expectErr: true,
+			errMsg: "expected to read 13 bytes for payload, " +
+				"but got 11 bytes",
+		},
+		{
+			name: "IncompleteDataWithPartialHostnameReturnsError",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c',
+				0x26, 0x07,
+			},
+			expectErr: true,
+			errMsg: "expected to read 13 bytes for payload, " +
+				"but got 11 bytes",
+		},
+		{
+			name: "IncompleteDataWithPartialPortReturnsError",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				0x2, // Only 1 byte of port
+			},
+			expectErr: true,
+			errMsg: "expected to read 13 bytes for payload, " +
+				"but got 12 bytes",
+		},
+		{
+			name: "ExcessiveDataDecodesCorrectlyAndIgnoresExcess",
+			data: []byte{
+				byte(opaqueAddrs),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				0x26, 0x07,
+				// Extra data
+				0x01, 0x02, 0x03,
+			},
+			expected: &lnwire.DNSAddr{
+				Hostname: "example.com",
+				Port:     9735,
+			},
+			expectErr: false,
+		},
+		{
+			name: "UnknownAddressTypeReturnsError",
+			data: []byte{
+				byte(0xFF),
+				0x00, 0x0D, // payload length: 13
+				'e', 'x', 'a', 'm', 'p', 'l', 'e',
+				'.', 'c', 'o', 'm',
+				0x26, 0x07, // port 9735 in big-endian
+			},
+			expected: &lnwire.DNSAddr{
+				Hostname: "example.com",
+				Port:     9735,
+			},
+			expectErr: true,
+			errMsg:    ErrUnknownAddressType.Error(),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := bytes.NewReader(tc.data)
+			addr, err := DeserializeAddr(r)
+			if tc.expectErr {
+				require.ErrorContains(t, err, tc.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, addr)
+		})
 	}
 }

@@ -579,6 +579,22 @@ func isIP(host string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil
 }
+
+// parseDNSAddr parses a raw DNS addressand assert it of type DNSAddr.
+func parseDNSAddr(rawAddress string, netCfg tor.Net) (*lnwire.DNSAddr, error) {
+	addr, err := parseAddr(rawAddress, netCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the parsed address is a DNS address.
+	dnsAddr, ok := addr.(*lnwire.DNSAddr)
+	if !ok {
+		return nil, fmt.Errorf("expected DNS hostname address, got "+
+			"%T", addr)
+	}
+
+	return dnsAddr, nil
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -950,8 +966,19 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	// Determine the length of network addresses taking into the
+	// consideration the external DNS address if exists.
+	addrsLen := len(externalIPs)
+	if cfg.ExternalDNSAddress != nil {
+		addrsLen++
+	}
+
+	selfAddrs := make([]net.Addr, 0, addrsLen)
 	selfAddrs = append(selfAddrs, externalIPs...)
+
+	if cfg.ExternalDNSAddress != nil {
+		selfAddrs = append(selfAddrs, cfg.ExternalDNSAddress)
+	}
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within

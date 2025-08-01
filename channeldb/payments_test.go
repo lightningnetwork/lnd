@@ -530,7 +530,9 @@ func TestQueryPayments(t *testing.T) {
 				info.CreationTime = time.Unix(int64(i+1), 0)
 
 				// Create a new payment entry in the database.
-				err = paymentDB.InitPayment(info.PaymentIdentifier, info)
+				err = paymentDB.InitPayment(
+					info.PaymentIdentifier, info,
+				)
 				if err != nil {
 					t.Fatalf("unable to initialize "+
 						"payment in database: %v", err)
@@ -625,7 +627,9 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = paymentDB.InitPayment(noDuplicates.PaymentIdentifier, noDuplicates)
+	err = paymentDB.InitPayment(
+		noDuplicates.PaymentIdentifier, noDuplicates,
+	)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.
@@ -639,7 +643,9 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = paymentDB.InitPayment(hasDuplicates.PaymentIdentifier, hasDuplicates)
+	err = paymentDB.InitPayment(
+		hasDuplicates.PaymentIdentifier, hasDuplicates,
+	)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.

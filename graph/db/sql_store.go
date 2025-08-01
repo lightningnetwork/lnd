@@ -3681,6 +3681,7 @@ const (
 	addressTypeIPv6   dbAddressType = 2
 	addressTypeTorV2  dbAddressType = 3
 	addressTypeTorV3  dbAddressType = 4
+	addressTypeDNS    dbAddressType = 5
 	addressTypeOpaque dbAddressType = math.MaxInt8
 )
 
@@ -3708,6 +3709,7 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 		addressTypeIPv6:   {},
 		addressTypeTorV2:  {},
 		addressTypeTorV3:  {},
+		addressTypeDNS:    {},
 		addressTypeOpaque: {},
 	}
 	addAddr := func(t dbAddressType, addr net.Addr) {
@@ -3736,6 +3738,13 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 				return fmt.Errorf("invalid length for a tor " +
 					"address")
 			}
+
+		case *lnwire.DNSAddr:
+			// Validate it is a valid DNS address.
+			if err := addr.Validate(); err != nil {
+				return err
+			}
+			addAddr(addressTypeDNS, addr)
 
 		case *lnwire.OpaqueAddrs:
 			addAddr(addressTypeOpaque, addr)
@@ -4736,6 +4745,24 @@ func parseAddress(addrType dbAddressType, address string) (net.Addr, error) {
 		return &tor.OnionAddr{
 			OnionService: service,
 			Port:         port,
+		}, nil
+
+	case addressTypeDNS:
+		host, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to "+
+				"split tor dns address: %v",
+				address)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		return &lnwire.DNSAddr{
+			Hostname: host,
+			Port:     uint16(port),
 		}, nil
 
 	case addressTypeOpaque:

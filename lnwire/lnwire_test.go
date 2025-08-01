@@ -141,7 +141,13 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 		Port:         9065,
 	}
 
-	// Now add an address with an unknown type.
+	// Add a DNS hostname address.
+	dnsAddr := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	// Now add an opaque address (unknown yet to LND).
 	var newAddrType addressType = math.MaxUint8
 	data := make([]byte, 0, 16)
 	data = append(data, uint8(newAddrType))
@@ -149,9 +155,10 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 		Payload: data,
 	}
 
+	// Construct all network addresses.
 	buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
 	err := WriteNetAddrs(
-		buffer, []net.Addr{tcpAddr, onionAddr, opaqueAddrs},
+		buffer, []net.Addr{tcpAddr, onionAddr, dnsAddr, opaqueAddrs},
 	)
 	require.NoError(t, err)
 
@@ -159,10 +166,11 @@ func TestDecodeUnknownAddressType(t *testing.T) {
 	var addrs []net.Addr
 	err = ReadElement(buffer, &addrs)
 	require.NoError(t, err)
-	require.Len(t, addrs, 3)
+	require.Len(t, addrs, 4)
 	require.Equal(t, tcpAddr.String(), addrs[0].String())
 	require.Equal(t, onionAddr.String(), addrs[1].String())
-	require.Equal(t, hex.EncodeToString(data), addrs[2].String())
+	require.Equal(t, dnsAddr.String(), addrs[2].String())
+	require.Equal(t, hex.EncodeToString(data), addrs[3].String())
 }
 
 func TestMaxOutPointIndex(t *testing.T) {
@@ -246,4 +254,41 @@ func TestLightningWireProtocol(t *testing.T) {
 			)
 		}))
 	}
+}
+
+// TestMultipleDNSAddressesConstraintEnforcement ensures that the constraint of
+// only allowing a single DNS address is enforced during both encoding (write)
+// and decoding (read) operations, as required by Bolt-07 specifications.
+func TestMultipleDNSAddressesConstraintEnforcement(t *testing.T) {
+	t.Parallel()
+	dnsAddr1 := &DNSAddr{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	dnsAddr2 := &DNSAddr{
+		Hostname: "example.org",
+		Port:     8080,
+	}
+
+	t.Run("encoding", func(t *testing.T) {
+		buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+		err := WriteNetAddrs(
+			buffer, []net.Addr{dnsAddr1, dnsAddr2},
+		)
+		require.ErrorIs(t, err, ErrMultipleDNSAddresses)
+	})
+
+	t.Run("decoding", func(t *testing.T) {
+		buffer := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+		addrBuf := bytes.NewBuffer(make([]byte, 0, MaxMsgBody))
+
+		require.NoError(t, WriteDNSAddr(addrBuf, dnsAddr1))
+		require.NoError(t, WriteDNSAddr(addrBuf, dnsAddr2))
+		require.NoError(t, writeDataWithLength(buffer, addrBuf.Bytes()))
+
+		var addrs []net.Addr
+		err := ReadElement(buffer, &addrs)
+		require.ErrorIs(t, err, ErrMultipleDNSAddresses)
+	})
 }

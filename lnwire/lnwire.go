@@ -26,6 +26,25 @@ const (
 	// This is two less than the MaxSliceLength as each message has a 2
 	// byte type that precedes the message body.
 	MaxMsgBody = 65533
+
+	// noAddrLength is the length of a no address (empty).
+	noAddrLength = 0
+
+	// tcp4AddrLength is the length of an IPv4 address
+	// (4 bytes IP + 2 bytes port).
+	tcp4AddrLength = 6
+
+	// tcp6AddrLength is the length of an IPv6 address
+	// (16 bytes IP + 2 bytes port).
+	tcp6AddrLength = 18
+
+	// OnionV2AddrLength is the length of a version 2 Tor onion service
+	// address.
+	OnionV2AddrLength = 12
+
+	// OnionV3AddrLength is the length of a version 3 Tor onion service
+	// address (35 bytes decoded onion + 2 bytes port).
+	OnionV3AddrLength = 37
 )
 
 // PkScript is simple type definition which represents a raw serialized public
@@ -56,21 +75,8 @@ const (
 
 // AddrLen returns the number of bytes that it takes to encode the target
 // address.
-func (a addressType) AddrLen() uint16 {
-	switch a {
-	case noAddr:
-		return 0
-	case tcp4Addr:
-		return 6
-	case tcp6Addr:
-		return 18
-	case v2OnionAddr:
-		return 12
-	case v3OnionAddr:
-		return 37
-	default:
-		return 0
-	}
+func (a addressType) AddrLen(length uint16) uint16 {
+	return length
 }
 
 // WriteElement is a one-stop shop to write the big endian representation of
@@ -743,7 +749,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 			var address net.Addr
 			switch aType := addressType(descriptor[0]); aType {
 			case noAddr:
-				addrBytesRead += aType.AddrLen()
+				addrBytesRead += aType.AddrLen(noAddrLength)
 				continue
 
 			case tcp4Addr:
@@ -761,7 +767,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 					IP:   net.IP(ip[:]),
 					Port: int(binary.BigEndian.Uint16(port[:])),
 				}
-				addrBytesRead += aType.AddrLen()
+				addrBytesRead += aType.AddrLen(tcp4AddrLength)
 
 			case tcp6Addr:
 				var ip [16]byte
@@ -778,7 +784,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 					IP:   net.IP(ip[:]),
 					Port: int(binary.BigEndian.Uint16(port[:])),
 				}
-				addrBytesRead += aType.AddrLen()
+				addrBytesRead += aType.AddrLen(tcp6AddrLength)
 
 			case v2OnionAddr:
 				var h [tor.V2DecodedLen]byte
@@ -799,7 +805,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 					OnionService: onionService,
 					Port:         port,
 				}
-				addrBytesRead += aType.AddrLen()
+				addrBytesRead += aType.AddrLen(
+					OnionV2AddrLength,
+				)
 
 			case v3OnionAddr:
 				var h [tor.V3DecodedLen]byte
@@ -820,7 +828,9 @@ func ReadElement(r io.Reader, element interface{}) error {
 					OnionService: onionService,
 					Port:         port,
 				}
-				addrBytesRead += aType.AddrLen()
+				addrBytesRead += aType.AddrLen(
+					OnionV3AddrLength,
+				)
 
 			default:
 				// If we don't understand this address type,

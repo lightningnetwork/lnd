@@ -1,6 +1,7 @@
 package graphdb
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -147,6 +148,33 @@ func encodeOpaqueAddrs(w io.Writer, addr *lnwire.OpaqueAddrs) error {
 	return err
 }
 
+// DeserializeDNSAddress reads a DNS address from reader with given host length.
+func DeserializeDNSAddress(r io.Reader, hostLen int) (*lnwire.DNSAddr, error) {
+	hostname := make([]byte, hostLen)
+	if _, err := r.Read(hostname); err != nil {
+		return nil, err
+	}
+
+	var port [2]byte
+	n, err := r.Read(port[:])
+	if err != nil {
+		return nil, err
+	}
+	if n != 2 {
+		return nil, fmt.Errorf("expected to read 2 bytes for "+
+			"port, but got %d bytes", n)
+	}
+
+	address, err := lnwire.NewDNSAddr(
+		string(hostname), binary.BigEndian.Uint16(port[:]),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return address, nil
+}
+
 // DeserializeAddr reads the serialized raw representation of an address and
 // deserializes it into the actual address. This allows us to avoid address
 // resolution within the channeldb package.
@@ -238,13 +266,29 @@ func DeserializeAddr(r io.Reader) (net.Addr, error) {
 		}
 
 		// Read the payload.
-		payload := make([]byte, binary.BigEndian.Uint16(l[:]))
-		if _, err := r.Read(payload); err != nil {
+		payloadLen := int(binary.BigEndian.Uint16(l[:]))
+		payload := make([]byte, payloadLen)
+		n, err := r.Read(payload)
+		if err != nil {
 			return nil, err
 		}
+		if n != payloadLen {
+			return nil, fmt.Errorf("expected to read %d bytes for "+
+				"payload, but got %d bytes", payloadLen, n)
+		}
 
-		address = &lnwire.OpaqueAddrs{
-			Payload: payload,
+		// Attempt to parse this opaque address as a DNS address that
+		// might have been under this bucket. If parsing fails, we treat
+		// it as a genuine opaque address that LND doesn't yet
+		// recognize.
+		reader := bytes.NewReader(payload)
+		address, err = DeserializeDNSAddress(reader, payloadLen-2)
+		if err != nil {
+			// On deserialization failure, return as standard opaque
+			// address.
+			return &lnwire.OpaqueAddrs{
+				Payload: payload,
+			}, nil
 		}
 
 	default:

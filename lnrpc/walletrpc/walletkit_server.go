@@ -1555,9 +1555,9 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	// Estimate the fee by the target number of blocks to confirmation.
 	case req.GetTargetConf() != 0:
 		targetConf := req.GetTargetConf()
-		if targetConf < 2 {
+		if targetConf < 1 {
 			return nil, fmt.Errorf("confirmation target must be " +
-				"greater than 1")
+				"greater than 0")
 		}
 
 		feeSatPerKW, err = w.cfg.FeeEstimator.EstimateFeePerKW(

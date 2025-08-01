@@ -516,7 +516,7 @@ func TestQueryPayments(t *testing.T) {
 			// where we have duplicates in the nested duplicates
 			// bucket.
 			nonDuplicatePayments := 6
-			pControl := NewKVPaymentsDB(db)
+			paymentDB := NewKVPaymentsDB(db)
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
@@ -530,7 +530,7 @@ func TestQueryPayments(t *testing.T) {
 				info.CreationTime = time.Unix(int64(i+1), 0)
 
 				// Create a new payment entry in the database.
-				err = pControl.InitPayment(info.PaymentIdentifier, info)
+				err = paymentDB.InitPayment(info.PaymentIdentifier, info)
 				if err != nil {
 					t.Fatalf("unable to initialize "+
 						"payment in database: %v", err)
@@ -538,7 +538,7 @@ func TestQueryPayments(t *testing.T) {
 
 				// Immediately delete the payment with index 2.
 				if i == 1 {
-					pmt, err := pControl.FetchPayment(
+					pmt, err := paymentDB.FetchPayment(
 						info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
@@ -552,13 +552,13 @@ func TestQueryPayments(t *testing.T) {
 				// to the parent payment + 1. Note that
 				// duplicate payments will always be succeeded.
 				if i == (nonDuplicatePayments - 1) {
-					pmt, err := pControl.FetchPayment(
+					pmt, err := paymentDB.FetchPayment(
 						info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
 
 					appendDuplicatePayment(
-						t, pControl.db,
+						t, paymentDB.db,
 						info.PaymentIdentifier,
 						pmt.SequenceNum+1,
 						preimg,
@@ -618,18 +618,18 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
-	pControl := NewKVPaymentsDB(db)
+	paymentDB := NewKVPaymentsDB(db)
 
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, _, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = pControl.InitPayment(noDuplicates.PaymentIdentifier, noDuplicates)
+	err = paymentDB.InitPayment(noDuplicates.PaymentIdentifier, noDuplicates)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.
-	noDuplicatesPayment, err := pControl.FetchPayment(
+	noDuplicatesPayment, err := paymentDB.FetchPayment(
 		noDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)
@@ -639,11 +639,11 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
-	err = pControl.InitPayment(hasDuplicates.PaymentIdentifier, hasDuplicates)
+	err = paymentDB.InitPayment(hasDuplicates.PaymentIdentifier, hasDuplicates)
 	require.NoError(t, err)
 
 	// Fetch the payment so we can get its sequence nr.
-	hasDuplicatesPayment, err := pControl.FetchPayment(
+	hasDuplicatesPayment, err := paymentDB.FetchPayment(
 		hasDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)

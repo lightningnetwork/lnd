@@ -1253,8 +1253,8 @@ func fundPsbtCoinSelect(t testing.TB, node *node.HarnessNode,
 		Template: &walletrpc.FundPsbtRequest_CoinSelect{
 			CoinSelect: cs,
 		},
-		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: 50,
+		Fees: &walletrpc.FundPsbtRequest_TargetConf{
+			TargetConf: 1,
 		},
 	})
 

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1592,4 +1593,50 @@ func testReorgNotifications(ht *lntest.HarnessTest) {
 	spendDetails = spendMsg.GetSpend()
 	require.NotNil(ht, spendDetails)
 	require.Equal(ht, txid2a[:], spendDetails.SpendingTxHash)
+}
+
+// testEstimateFee tests walletrpc.EstimateFee API.
+func testEstimateFee(ht *lntest.HarnessTest) {
+	alice := ht.NewNode("Alice", nil)
+
+	ctx := context.Background()
+
+	testCases := []struct {
+		name        string
+		confTarget  int32
+		errContains string
+	}{
+		{
+			name:       "conf target 1",
+			confTarget: 1,
+		},
+		{
+			name:        "conf target 0",
+			confTarget:  0,
+			errContains: "must be greater than 0",
+		},
+		{
+			name:        "conf target -1",
+			confTarget:  -1,
+			errContains: "must be greater than 0",
+		},
+	}
+
+	for _, tc := range testCases {
+		ht.Run(tc.name, func(t *testing.T) {
+			req := &walletrpc.EstimateFeeRequest{
+				ConfTarget: tc.confTarget,
+			}
+			resp, err := alice.RPC.WalletKit.EstimateFee(ctx, req)
+
+			if tc.errContains != "" {
+				require.ErrorContains(t, err, tc.errContains)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotZero(t, resp.SatPerKw)
+			require.NotZero(t, resp.MinRelayFeeSatPerKw)
+		})
+	}
 }

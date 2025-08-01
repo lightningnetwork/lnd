@@ -516,7 +516,7 @@ func TestQueryPayments(t *testing.T) {
 			// where we have duplicates in the nested duplicates
 			// bucket.
 			nonDuplicatePayments := 6
-			pControl := NewPaymentControl(db)
+			pControl := NewKVPaymentsDB(db)
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
@@ -618,7 +618,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, _, err := genInfo(t)

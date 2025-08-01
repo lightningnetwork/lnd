@@ -54,16 +54,16 @@ func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
 	}, &attempt.HTLCAttemptInfo, preimage, nil
 }
 
-// TestPaymentControlSwitchFail checks that payment status returns to Failed
+// TestKVPaymentsDBSwitchFail checks that payment status returns to Failed
 // status after failing, and that InitPayment allows another HTLC for the
 // same payment hash.
-func TestPaymentControlSwitchFail(t *testing.T) {
+func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -191,15 +191,15 @@ func TestPaymentControlSwitchFail(t *testing.T) {
 	}
 }
 
-// TestPaymentControlSwitchDoubleSend checks the ability of payment control to
+// TestKVPaymentsDBSwitchDoubleSend checks the ability of payment control to
 // prevent double sending of htlc message, when message is in StatusInFlight.
-func TestPaymentControlSwitchDoubleSend(t *testing.T) {
+func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -261,15 +261,15 @@ func TestPaymentControlSwitchDoubleSend(t *testing.T) {
 	}
 }
 
-// TestPaymentControlSuccessesWithoutInFlight checks that the payment
+// TestKVPaymentsDBSuccessesWithoutInFlight checks that the payment
 // control will disallow calls to Success when no payment is in flight.
-func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
+func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	info, _, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -286,15 +286,15 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 	}
 }
 
-// TestPaymentControlFailsWithoutInFlight checks that a strict payment
+// TestKVPaymentsDBFailsWithoutInFlight checks that a strict payment
 // control will disallow calls to Fail when no payment is in flight.
-func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
+func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	info, _, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -306,9 +306,9 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	}
 }
 
-// TestPaymentControlDeleteNonInFlight checks that calling DeletePayments only
+// TestKVPaymentsDBDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
-func TestPaymentControlDeleteNonInFlight(t *testing.T) {
+func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
@@ -319,7 +319,7 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	// start at 1, so 9999 is a safe bet for this test.
 	var duplicateSeqNr = 9999
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	payments := []struct {
 		failed       bool
@@ -513,15 +513,15 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-// TestPaymentControlDeletePayments tests that DeletePayments correctly deletes
+// TestKVPaymentsDBDeletePayments tests that DeletePayments correctly deletes
 // information about completed payments from the database.
-func TestPaymentControlDeletePayments(t *testing.T) {
+func TestKVPaymentsDBDeletePayments(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	// Register three payments:
 	// 1. A payment with two failed attempts.
@@ -574,15 +574,15 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 	assertPayments(t, db, payments[2:])
 }
 
-// TestPaymentControlDeleteSinglePayment tests that DeletePayment correctly
+// TestKVPaymentsDBDeleteSinglePayment tests that DeletePayment correctly
 // deletes information about a completed payment from the database.
-func TestPaymentControlDeleteSinglePayment(t *testing.T) {
+func TestKVPaymentsDBDeleteSinglePayment(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	// Register four payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -660,9 +660,9 @@ func TestPaymentControlDeleteSinglePayment(t *testing.T) {
 	assertPayments(t, db, payments[3:])
 }
 
-// TestPaymentControlMultiShard checks the ability of payment control to
+// TestKVPaymentsDBMultiShard checks the ability of payment control to
 // have multiple in-flight HTLCs for a single payment.
-func TestPaymentControlMultiShard(t *testing.T) {
+func TestKVPaymentsDBMultiShard(t *testing.T) {
 	t.Parallel()
 
 	// We will register three HTLC attempts, and always fail the second
@@ -687,7 +687,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 			t.Fatalf("unable to init db: %v", err)
 		}
 
-		pControl := NewPaymentControl(db)
+		pControl := NewKVPaymentsDB(db)
 
 		info, attempt, preimg, err := genInfo(t)
 		if err != nil {
@@ -945,13 +945,13 @@ func TestPaymentControlMultiShard(t *testing.T) {
 	}
 }
 
-func TestPaymentControlMPPRecordValidation(t *testing.T) {
+func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
 	t.Parallel()
 
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	info, attempt, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -1044,7 +1044,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	require.NoError(t, err, "unable to init db")
 	db.keepFailedPaymentAttempts = keepFailedPaymentAttempts
 
-	pControl := NewPaymentControl(db)
+	pControl := NewKVPaymentsDB(db)
 
 	// Register three payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -1116,7 +1116,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 
 // assertPaymentStatus retrieves the status of the payment referred to by hash
 // and compares it with the expected state.
-func assertPaymentStatus(t *testing.T, p *PaymentControl,
+func assertPaymentStatus(t *testing.T, p *KVPaymentsDB,
 	hash lntypes.Hash, expStatus PaymentStatus) {
 
 	t.Helper()
@@ -1143,7 +1143,7 @@ type htlcStatus struct {
 
 // assertPaymentInfo retrieves the payment referred to by hash and verifies the
 // expected values.
-func assertPaymentInfo(t *testing.T, p *PaymentControl, hash lntypes.Hash,
+func assertPaymentInfo(t *testing.T, p *KVPaymentsDB, hash lntypes.Hash,
 	c *PaymentCreationInfo, f *FailureReason, a *htlcStatus) {
 
 	t.Helper()
@@ -1210,7 +1210,7 @@ func assertPaymentInfo(t *testing.T, p *PaymentControl, hash lntypes.Hash,
 
 // fetchPaymentIndexEntry gets the payment hash for the sequence number provided
 // from our payment indexes bucket.
-func fetchPaymentIndexEntry(_ *testing.T, p *PaymentControl,
+func fetchPaymentIndexEntry(_ *testing.T, p *KVPaymentsDB,
 	sequenceNumber uint64) (*lntypes.Hash, error) {
 
 	var hash lntypes.Hash
@@ -1241,7 +1241,7 @@ func fetchPaymentIndexEntry(_ *testing.T, p *PaymentControl,
 
 // assertPaymentIndex looks up the index for a payment in the db and checks
 // that its payment hash matches the expected hash passed in.
-func assertPaymentIndex(t *testing.T, p *PaymentControl,
+func assertPaymentIndex(t *testing.T, p *KVPaymentsDB,
 	expectedHash lntypes.Hash) {
 
 	// Lookup the payment so that we have its sequence number and check
@@ -1256,7 +1256,7 @@ func assertPaymentIndex(t *testing.T, p *PaymentControl,
 
 // assertNoIndex checks that an index for the sequence number provided does not
 // exist.
-func assertNoIndex(t *testing.T, p *PaymentControl, seqNr uint64) {
+func assertNoIndex(t *testing.T, p *KVPaymentsDB, seqNr uint64) {
 	_, err := fetchPaymentIndexEntry(t, p, seqNr)
 	require.Equal(t, errNoSequenceNrIndex, err)
 }
@@ -1272,7 +1272,7 @@ type payment struct {
 // createTestPayments registers payments depending on the provided statuses in
 // the payments slice. Each payment will receive one failed HTLC and another
 // HTLC depending on the final status of the payment provided.
-func createTestPayments(t *testing.T, p *PaymentControl, payments []*payment) {
+func createTestPayments(t *testing.T, p *KVPaymentsDB, payments []*payment) {
 	attemptID := uint64(0)
 
 	for i := 0; i < len(payments); i++ {

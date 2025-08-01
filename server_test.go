@@ -3,9 +3,11 @@ package lnd
 import (
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -212,6 +214,87 @@ func TestParseAddress(t *testing.T) {
 			}(),
 			expectErr: true,
 			errMsg:    "resolve error",
+		},
+		{
+			name:    "DNSHostnameWithExplicitPortReturnsAddr",
+			address: "example.com:8080",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:8080",
+				)
+				mockExpectation.Return(
+					&net.TCPAddr{}, nil,
+				)
+
+				return mockNet
+			}(),
+			expected: &lnwire.DNSAddr{
+				Hostname: "example.com",
+				Port:     8080,
+			},
+			expectErr: false,
+		},
+		{
+			name:    "DNSHostnameWithoutPortReturnsAddrWithPort",
+			address: "example.com",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:9735",
+				)
+				mockExpectation.Return(
+					&net.TCPAddr{}, nil,
+				)
+
+				return mockNet
+			}(),
+			expected: &lnwire.DNSAddr{
+				Hostname: "example.com",
+				Port:     defaultPeerPort,
+			},
+			expectErr: false,
+		},
+		{
+			name:    "DNSHostnameWithZeroPortReturnsError",
+			address: "example.com:0",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:0",
+				)
+				mockExpectation.Return(
+					&net.TCPAddr{}, nil,
+				)
+
+				return mockNet
+			}(),
+			expectErr: true,
+			errMsg:    lnwire.ErrZeroPort.Error(),
+		},
+		{
+			name:      "EmptyDNSAddressReturnsError",
+			address:   "",
+			netCfg:    nil,
+			expectErr: true,
+			errMsg:    lnwire.ErrEmptyDNSHostname.Error(),
+		},
+		{
+			name:      "DNSHostnameTooLongReturnsError",
+			address:   strings.Repeat("a", 256),
+			netCfg:    nil,
+			expectErr: true,
+			errMsg:    "exceeds maximum length of 255 characters",
+		},
+		{
+			name:      "DNSHostnameWithNonASCIIcharsReturnsError",
+			address:   "éxample.com",
+			netCfg:    nil,
+			expectErr: true,
+			errMsg:    "contains invalid character",
 		},
 	}
 

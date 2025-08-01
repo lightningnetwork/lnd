@@ -33,10 +33,14 @@
   https://github.com/lightningnetwork/lnd/pull/9993) are returned when receiving
   empty route hints or a non-UTF-8-encoded description.
 
-- [Fixed](https://github.com/lightningnetwork/lnd/pull/10027) an issue where
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10140) an issue where
   known TLV fields were incorrectly encoded into the `ExtraData` field of
   messages in the dynamic commitment set.
 
+
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10072) an issue where
+  known TLV fields were incorrectly encoded into the `ExtraData` field of
+  messages in the gossip set.
 
 # New Features
 

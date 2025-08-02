@@ -1405,7 +1405,9 @@ func createTestPayments(t *testing.T, p *KVPaymentsDB, payments []*payment) {
 // indices for the slice asserts that exactly the same payments in the
 // slice for the provided indices exist when fetching payments from the
 // database.
-func assertPayments(t *testing.T, paymentDB *KVPaymentsDB, payments []*payment) {
+func assertPayments(t *testing.T, paymentDB *KVPaymentsDB,
+	payments []*payment) {
+
 	t.Helper()
 
 	dbPayments, err := paymentDB.FetchPayments()
@@ -1544,7 +1546,9 @@ func testSerializeRoute(t *testing.T, route route.Route) {
 }
 
 // deletePayment removes a payment with paymentHash from the payments database.
-func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64) {
+func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
+	seqNr uint64) {
+
 	t.Helper()
 
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
@@ -1561,6 +1565,7 @@ func deletePayment(t *testing.T, db *DB, paymentHash lntypes.Hash, seqNr uint64)
 
 		// Delete the index that references this payment.
 		indexes := tx.ReadWriteBucket(paymentsIndexBucket)
+
 		return indexes.Delete(key)
 	}, func() {})
 
@@ -1622,10 +1627,12 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Add two duplicates to our second payment.
 	appendDuplicatePayment(
-		t, db, hasDuplicates.PaymentIdentifier, duplicateOneSeqNr, preimg,
+		t, db, hasDuplicates.PaymentIdentifier, duplicateOneSeqNr,
+		preimg,
 	)
 	appendDuplicatePayment(
-		t, db, hasDuplicates.PaymentIdentifier, duplicateTwoSeqNr, preimg,
+		t, db, hasDuplicates.PaymentIdentifier, duplicateTwoSeqNr,
+		preimg,
 	)
 
 	tests := []struct {
@@ -1665,7 +1672,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 			expectedErr:    ErrDuplicateNotFound,
 		},
 		{
-			name:           "lookup duplicate, no duplicates bucket",
+			name: "lookup duplicate, no duplicates " +
+				"bucket",
 			paymentHash:    noDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateTwoSeqNr,
 			expectedErr:    ErrNoDuplicateBucket,
@@ -1680,12 +1688,15 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 				db, func(tx walletdb.ReadWriteTx) error {
 					var seqNrBytes [8]byte
 					byteOrder.PutUint64(
-						seqNrBytes[:], test.sequenceNumber,
+						seqNrBytes[:],
+						test.sequenceNumber,
 					)
 
+					//nolint:ll
 					_, err := fetchPaymentWithSequenceNumber(
 						tx, test.paymentHash, seqNrBytes[:],
 					)
+
 					return err
 				}, func() {},
 			)

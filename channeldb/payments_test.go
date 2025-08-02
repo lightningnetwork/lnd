@@ -432,9 +432,9 @@ func TestQueryPayments(t *testing.T) {
 			}
 
 			if len(allPayments) != 6 {
-				t.Fatalf("Number of payments received does not "+
-					"match expected one. Got %v, want %v.",
-					len(allPayments), 6)
+				t.Fatalf("Number of payments received does "+
+					"not match expected one. Got %v, "+
+					"want %v.", len(allPayments), 6)
 			}
 
 			querySlice, err := paymentDB.QueryPayments(tt.query)
@@ -445,7 +445,8 @@ func TestQueryPayments(t *testing.T) {
 				tt.lastIndex != querySlice.LastIndexOffset {
 
 				t.Errorf("First or last index does not match "+
-					"expected index. Want (%d, %d), got (%d, %d).",
+					"expected index. Want (%d, %d), "+
+					"got (%d, %d).",
 					tt.firstIndex, tt.lastIndex,
 					querySlice.FirstIndexOffset,
 					querySlice.LastIndexOffset)
@@ -453,14 +454,16 @@ func TestQueryPayments(t *testing.T) {
 
 			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
 				t.Errorf("expected: %v payments, got: %v",
-					len(tt.expectedSeqNrs), len(querySlice.Payments))
+					len(tt.expectedSeqNrs),
+					len(querySlice.Payments))
 			}
 
 			for i, seqNr := range tt.expectedSeqNrs {
 				q := querySlice.Payments[i]
 				if seqNr != q.SequenceNum {
-					t.Errorf("sequence numbers do not match, "+
-						"got %v, want %v", q.SequenceNum, seqNr)
+					t.Errorf("sequence numbers do not "+
+						"match, got %v, want %v",
+						q.SequenceNum, seqNr)
 				}
 			}
 		})

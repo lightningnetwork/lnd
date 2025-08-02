@@ -28,18 +28,12 @@ var (
 		"319d18e949ddfa2965fb6caa1bf0314f882d7")
 	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a" +
 		"88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar          = new(btcec.ModNScalar)
-	testSScalar          = new(btcec.ModNScalar)
-	_                    = testRScalar.SetByteSlice(testRBytes)
-	_                    = testSScalar.SetByteSlice(testSBytes)
-	testSig              = ecdsa.NewSignature(testRScalar, testSScalar)
-	testSchnorrSigStr, _ = hex.DecodeString("04E7F9037658A92AFEB4F2" +
-		"5BAE5339E3DDCA81A353493827D26F16D92308E49E2A25E9220867" +
-		"8A2DF86970DA91B03A8AF8815A8A60498B358DAF560B347AA557")
-	testSchnorrSig, _ = NewSigFromSchnorrRawSignature(testSchnorrSigStr)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 )
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 // generateRandomBytes returns a slice of n random bytes.
 func generateRandomBytes(n int) ([]byte, error) {

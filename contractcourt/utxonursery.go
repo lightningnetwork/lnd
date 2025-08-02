@@ -160,12 +160,6 @@ import (
 
 var byteOrder = binary.BigEndian
 
-const (
-	// kgtnOutputConfTarget is the default confirmation target we'll use for
-	// sweeps of CSV delayed outputs.
-	kgtnOutputConfTarget = 6
-)
-
 var (
 	// ErrContractNotFound is returned when the nursery is unable to
 	// retrieve information about a queried contract.

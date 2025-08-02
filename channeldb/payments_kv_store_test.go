@@ -469,12 +469,12 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	}
 
 	// Delete all failed payments.
-	numPayments, err := db.DeletePayments(true, false)
+	numPayments, err := paymentDB.DeletePayments(true, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
 	// This should leave the succeeded and in-flight payments.
-	dbPayments, err := db.FetchPayments()
+	dbPayments, err := paymentDB.FetchPayments()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,12 +505,12 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	}
 
 	// Now delete all payments except in-flight.
-	numPayments, err = db.DeletePayments(false, false)
+	numPayments, err = paymentDB.DeletePayments(false, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, numPayments)
 
 	// This should leave the in-flight payment.
-	dbPayments, err = db.FetchPayments()
+	dbPayments, err = paymentDB.FetchPayments()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,40 +567,40 @@ func TestKVPaymentsDBDeletePayments(t *testing.T) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for failed payments only.
-	numPayments, err := db.DeletePayments(true, true)
+	numPayments, err := paymentDB.DeletePayments(true, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, numPayments)
 
 	// The failed payment is the only altered one.
 	payments[0].htlcs = 0
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Delete failed attempts for all payments.
-	numPayments, err = db.DeletePayments(false, true)
+	numPayments, err = paymentDB.DeletePayments(false, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, numPayments)
 
 	// The failed attempts should be deleted, except for the in-flight
 	// payment, that shouldn't be altered until it has completed.
 	payments[1].htlcs = 1
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Now delete all failed payments.
-	numPayments, err = db.DeletePayments(true, false)
+	numPayments, err = paymentDB.DeletePayments(true, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
-	assertPayments(t, db, payments[1:])
+	assertPayments(t, paymentDB, payments[1:])
 
 	// Finally delete all completed payments.
-	numPayments, err = db.DeletePayments(false, false)
+	numPayments, err = paymentDB.DeletePayments(false, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
-	assertPayments(t, db, payments[2:])
+	assertPayments(t, paymentDB, payments[2:])
 }
 
 // TestKVPaymentsDBDeleteSinglePayment tests that DeletePayment correctly
@@ -639,55 +639,55 @@ func TestKVPaymentsDBDeleteSinglePayment(t *testing.T) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for first payment only.
-	require.NoError(t, db.DeletePayment(payments[0].id, true))
+	require.NoError(t, paymentDB.DeletePayment(payments[0].id, true))
 
 	// The first payment is the only altered one as its failed HTLC should
 	// have been removed but is still present as payment.
 	payments[0].htlcs = 0
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Delete the first payment completely.
-	require.NoError(t, db.DeletePayment(payments[0].id, false))
+	require.NoError(t, paymentDB.DeletePayment(payments[0].id, false))
 
 	// The first payment should have been deleted.
-	assertPayments(t, db, payments[1:])
+	assertPayments(t, paymentDB, payments[1:])
 
 	// Now delete the second payment completely.
-	require.NoError(t, db.DeletePayment(payments[1].id, false))
+	require.NoError(t, paymentDB.DeletePayment(payments[1].id, false))
 
 	// The Second payment should have been deleted.
-	assertPayments(t, db, payments[2:])
+	assertPayments(t, paymentDB, payments[2:])
 
 	// Delete failed HTLC attempts for the third payment.
-	require.NoError(t, db.DeletePayment(payments[2].id, true))
+	require.NoError(t, paymentDB.DeletePayment(payments[2].id, true))
 
 	// Only the successful HTLC attempt should be left for the third
 	// payment.
 	payments[2].htlcs = 1
-	assertPayments(t, db, payments[2:])
+	assertPayments(t, paymentDB, payments[2:])
 
 	// Now delete the third payment completely.
-	require.NoError(t, db.DeletePayment(payments[2].id, false))
+	require.NoError(t, paymentDB.DeletePayment(payments[2].id, false))
 
 	// Only the last payment should be left.
-	assertPayments(t, db, payments[3:])
+	assertPayments(t, paymentDB, payments[3:])
 
 	// Deleting HTLC attempts from InFlight payments should not work and an
 	// error returned.
-	require.Error(t, db.DeletePayment(payments[3].id, true))
+	require.Error(t, paymentDB.DeletePayment(payments[3].id, true))
 
 	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, db, payments[3:])
+	assertPayments(t, paymentDB, payments[3:])
 
 	// Finally deleting the InFlight payment should also not work and an
 	// error returned.
-	require.Error(t, db.DeletePayment(payments[3].id, false))
+	require.Error(t, paymentDB.DeletePayment(payments[3].id, false))
 
 	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, db, payments[3:])
+	assertPayments(t, paymentDB, payments[3:])
 }
 
 // TestKVPaymentsDBMultiShard checks the ability of payment control to
@@ -1113,7 +1113,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Calling DeleteFailedAttempts on a failed payment should delete all
 	// HTLCs.
@@ -1123,7 +1123,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	if !keepFailedPaymentAttempts {
 		payments[0].htlcs = 0
 	}
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Calling DeleteFailedAttempts on an in-flight payment should return
 	// an error.
@@ -1137,7 +1137,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 
 	// Since DeleteFailedAttempts returned an error, we should expect the
 	// payment to be unchanged.
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	// Cleaning up a successful payment should remove failed htlcs.
 	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[2].id))
@@ -1146,7 +1146,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	if !keepFailedPaymentAttempts {
 		payments[2].htlcs = 1
 	}
-	assertPayments(t, db, payments)
+	assertPayments(t, paymentDB, payments)
 
 	if keepFailedPaymentAttempts {
 		// DeleteFailedAttempts is ignored, even for non-existent
@@ -1405,10 +1405,10 @@ func createTestPayments(t *testing.T, p *KVPaymentsDB, payments []*payment) {
 // indices for the slice asserts that exactly the same payments in the
 // slice for the provided indices exist when fetching payments from the
 // database.
-func assertPayments(t *testing.T, db *DB, payments []*payment) {
+func assertPayments(t *testing.T, paymentDB *KVPaymentsDB, payments []*payment) {
 	t.Helper()
 
-	dbPayments, err := db.FetchPayments()
+	dbPayments, err := paymentDB.FetchPayments()
 	require.NoError(t, err, "could not fetch payments from db")
 
 	// Make sure that the number of fetched payments is the same

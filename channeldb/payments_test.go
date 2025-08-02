@@ -357,9 +357,11 @@ func TestQueryPayments(t *testing.T) {
 				t.Fatalf("unable to init db: %v", err)
 			}
 
+			paymentDB := NewKVPaymentsDB(db)
+
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
-			resp, err := db.QueryPayments(tt.query)
+			resp, err := paymentDB.QueryPayments(tt.query)
 			require.NoError(t, err)
 			require.Len(t, resp.Payments, 0)
 
@@ -371,7 +373,6 @@ func TestQueryPayments(t *testing.T) {
 			// where we have duplicates in the nested duplicates
 			// bucket.
 			nonDuplicatePayments := 6
-			paymentDB := NewKVPaymentsDB(db)
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
@@ -424,7 +425,7 @@ func TestQueryPayments(t *testing.T) {
 			}
 
 			// Fetch all payments in the database.
-			allPayments, err := db.FetchPayments()
+			allPayments, err := paymentDB.FetchPayments()
 			if err != nil {
 				t.Fatalf("payments could not be fetched from "+
 					"database: %v", err)
@@ -436,7 +437,7 @@ func TestQueryPayments(t *testing.T) {
 					len(allPayments), 6)
 			}
 
-			querySlice, err := db.QueryPayments(tt.query)
+			querySlice, err := paymentDB.QueryPayments(tt.query)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

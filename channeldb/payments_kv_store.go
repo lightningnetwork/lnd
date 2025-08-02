@@ -367,7 +367,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
 	if !p.db.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
-		err := p.db.DeletePayment(hash, failedHtlcsOnly)
+		err := p.DeletePayment(hash, failedHtlcsOnly)
 		if err != nil {
 			return err
 		}
@@ -958,10 +958,10 @@ func htlcBucketKey(prefix, id []byte) []byte {
 // FetchPayments returns all sent payments found in the DB.
 //
 // nolint: dupl
-func (d *DB) FetchPayments() ([]*MPPayment, error) {
+func (p *KVPaymentsDB) FetchPayments() ([]*MPPayment, error) {
 	var payments []*MPPayment
 
-	err := kvdb.View(d, func(tx kvdb.RTx) error {
+	err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
 			return nil
@@ -1196,10 +1196,10 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
+func (p *KVPaymentsDB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 	var resp PaymentsResponse
 
-	if err := kvdb.View(d, func(tx kvdb.RTx) error {
+	if err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
 		paymentsBucket := tx.ReadBucket(paymentsRootBucket)
 		if paymentsBucket == nil {
@@ -1413,10 +1413,10 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (d *DB) DeletePayment(paymentHash lntypes.Hash,
+func (p *KVPaymentsDB) DeletePayment(paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
 
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+	return kvdb.Update(p.db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
@@ -1505,9 +1505,9 @@ func (d *DB) DeletePayment(paymentHash lntypes.Hash,
 // failedHtlcsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts. The method returns the number of deleted payments, which is always
 // 0 if failedHtlcsOnly is set.
-func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int, error) {
+func (p *KVPaymentsDB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int, error) {
 	var numPayments int
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
+	err := kvdb.Update(p.db, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil

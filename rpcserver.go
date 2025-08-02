@@ -7527,7 +7527,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.miscDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(query)
 	if err != nil {
 		return nil, err
 	}
@@ -7608,7 +7608,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.miscDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.kvPaymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -7648,7 +7648,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	numDeletedPayments, err := r.server.miscDB.DeletePayments(
+	numDeletedPayments, err := r.server.kvPaymentsDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {

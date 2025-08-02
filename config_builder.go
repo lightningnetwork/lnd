@@ -924,6 +924,10 @@ type DatabaseInstances struct {
 	// InvoiceDB is the database that stores information about invoices.
 	InvoiceDB invoices.InvoiceDB
 
+	// KVPaymentsDB is the database that stores all payment related
+	// information.
+	KVPaymentsDB *channeldb.KVPaymentsDB
+
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
 
@@ -1214,6 +1218,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		return nil, nil, err
 	}
+
+	// Mount the payments DB which is only KV for now.
+	//
+	// TODO(ziggie): Add support for SQL payments DB.
+	kvPaymentsDB := channeldb.NewKVPaymentsDB(
+		dbs.ChanStateDB,
+	)
+	dbs.KVPaymentsDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

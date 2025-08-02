@@ -49,7 +49,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	db := initDB(t, false)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Subscription should fail when the payment is not known.
 	_, err := pControl.SubscribePayment(lntypes.Hash{1})
@@ -63,7 +63,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	db := initDB(t, false)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -156,33 +156,33 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 }
 
-// TestPaymentControlSubscribeFail tests that payment updates for a
+// TestKVPaymentsDBSubscribeFail tests that payment updates for a
 // failed payment are properly sent to subscribers.
-func TestPaymentControlSubscribeFail(t *testing.T) {
+func TestKVPaymentsDBSubscribeFail(t *testing.T) {
 	t.Parallel()
 
 	t.Run("register attempt, keep failed payments", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, true, true)
+		testKVPaymentsDBSubscribeFail(t, true, true)
 	})
 	t.Run("register attempt, delete failed payments", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, true, false)
+		testKVPaymentsDBSubscribeFail(t, true, false)
 	})
 	t.Run("no register attempt, keep failed payments", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, false, true)
+		testKVPaymentsDBSubscribeFail(t, false, true)
 	})
 	t.Run("no register attempt, delete failed payments", func(t *testing.T) {
-		testPaymentControlSubscribeFail(t, false, false)
+		testKVPaymentsDBSubscribeFail(t, false, false)
 	})
 }
 
-// TestPaymentControlSubscribeAllSuccess tests that multiple payments are
+// TestKVPaymentsDBSubscribeAllSuccess tests that multiple payments are
 // properly sent to subscribers of TrackPayments.
-func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
+func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -288,14 +288,14 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	require.Equal(t, attempt2.Route, htlc2.Route, "unexpected htlc route.")
 }
 
-// TestPaymentControlSubscribeAllImmediate tests whether already inflight
+// TestKVPaymentsDBSubscribeAllImmediate tests whether already inflight
 // payments are reported at the start of the SubscribeAllPayments subscription.
-func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
+func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -325,14 +325,14 @@ func TestPaymentControlSubscribeAllImmediate(t *testing.T) {
 	}
 }
 
-// TestPaymentControlUnsubscribeSuccess tests that when unsubscribed, there are
+// TestKVPaymentsDBUnsubscribeSuccess tests that when unsubscribed, there are
 // no more notifications to that specific subscription.
-func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
+func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t, true)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -396,12 +396,12 @@ func TestPaymentControlUnsubscribeSuccess(t *testing.T) {
 	require.Len(t, subscription2.Updates(), 0)
 }
 
-func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
+func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
 	db := initDB(t, keepFailedPaymentAttempts)
 
-	pControl := NewControlTower(channeldb.NewPaymentControl(db))
+	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()

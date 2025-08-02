@@ -265,14 +265,19 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		// Add inbound fee to get to the amount that is sent over the
 		// local channel.
 		amt := netAmtReceived + lnwire.MilliSatoshi(inboundFee)
-
 		// Check valid amount range for the channel. We skip this test
+
 		// for payments with custom HTLC data, as the amount sent on
 		// the BTC layer may differ from the amount that is actually
 		// forwarded in custom channels.
-		if bandwidthHints.firstHopCustomBlob().IsNone() &&
-			!edge.amtInRange(amt) {
-
+		//
+		// TODO(ziggie): Introduce a Method on the traffic shaper which
+		// decides whether we wanna do the range check, but if we skip
+		// it and the switch fails the payment we need to make sure we
+		// do not end up in an endless loop, I think we need to skip
+		// the `CheckHTLCTransit` check on the switch side as well if we
+		// skip this one.
+		if !edge.amtInRange(amt) {
 			log.Debugf("Amount %v not in range for edge %v",
 				netAmtReceived, edge.policy.ChannelID)
 

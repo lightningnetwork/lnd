@@ -7528,7 +7528,9 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(
+		ctx, query,
+	)
 	if err != nil {
 		return nil, err
 	}

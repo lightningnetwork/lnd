@@ -98,15 +98,10 @@ func (d *dbNode) ForEachChannel(ctx context.Context,
 			return nil
 		}
 
-		node, err := d.tx.FetchNode(ep.ToNode)
-		if err != nil {
-			return err
-		}
-
 		edge := ChannelEdge{
 			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
 			Capacity: ei.Capacity,
-			Peer:     node.Node().PubKeyBytes,
+			Peer:     ep.ToNode,
 		}
 
 		return cb(ctx, edge)

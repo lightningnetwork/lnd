@@ -865,23 +865,6 @@ func (s *sqlGraphNodeTx) ForEachChannel(cb func(*models.ChannelEdgeInfo,
 	return forEachNodeChannel(ctx, s.db, s.cfg, s.id, cb)
 }
 
-// FetchNode fetches the node with the given pub key under the same transaction
-// used to fetch the current node. The returned node is also a NodeRTx and any
-// operations on that NodeRTx will also be done under the same transaction.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (s *sqlGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
-	ctx := context.TODO()
-
-	id, node, err := getNodeByPubKey(ctx, s.db, nodePub)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch V1 node(%x): %w",
-			nodePub, err)
-	}
-
-	return newSQLGraphNodeTx(s.db, s.cfg, id, node), nil
-}
-
 // ForEachNodeDirectedChannel iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration

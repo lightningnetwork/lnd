@@ -4902,20 +4902,6 @@ func (c *chanGraphNodeTx) Node() *models.LightningNode {
 	return c.node
 }
 
-// FetchNode fetches the node with the given pub key under the same transaction
-// used to fetch the current node. The returned node is also a NodeRTx and any
-// operations on that NodeRTx will also be done under the same transaction.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (c *chanGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
-	node, err := c.db.FetchLightningNodeTx(c.tx, nodePub)
-	if err != nil {
-		return nil, err
-	}
-
-	return newChanGraphNodeTx(c.tx, c.db, node), nil
-}
-
 // ForEachChannel can be used to iterate over the node's channels under
 // the same transaction used to fetch the node.
 //

@@ -25,12 +25,6 @@ type NodeRTx interface {
 	// the same transaction used to fetch the node.
 	ForEachChannel(func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error) error
-
-	// FetchNode fetches the node with the given pub key under the same
-	// transaction used to fetch the current node. The returned node is also
-	// a NodeRTx and any operations on that NodeRTx will also be done under
-	// the same transaction.
-	FetchNode(node route.Vertex) (NodeRTx, error)
 }
 
 // NodeTraverser is an abstract read only interface that provides information

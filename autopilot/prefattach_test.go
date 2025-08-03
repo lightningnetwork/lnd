@@ -742,16 +742,4 @@ func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
 	)
 }
 
-func (t *testNodeTx) FetchNode(pub route.Vertex) (graphdb.NodeRTx, error) {
-	node, err := t.db.db.FetchLightningNode(context.Background(), pub)
-	if err != nil {
-		return nil, err
-	}
-
-	return &testNodeTx{
-		db:   t.db,
-		node: node,
-	}, nil
-}
-
 var _ graphdb.NodeRTx = (*testNodeTx)(nil)

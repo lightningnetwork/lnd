@@ -51,7 +51,9 @@ func ChannelGraphFromDatabase(db GraphSource) ChannelGraph {
 // channeldb.LightningNode. The wrapper method implement the autopilot.Node
 // interface.
 type dbNode struct {
-	tx graphdb.NodeRTx
+	tx    graphdb.NodeRTx
+	pub   [33]byte
+	addrs []net.Addr
 }
 
 // A compile time assertion to ensure dbNode meets the autopilot.Node
@@ -64,7 +66,7 @@ var _ Node = (*dbNode)(nil)
 //
 // NOTE: Part of the autopilot.Node interface.
 func (d *dbNode) PubKey() [33]byte {
-	return d.tx.Node().PubKeyBytes
+	return d.pub
 }
 
 // Addrs returns a slice of publicly reachable public TCP addresses that the
@@ -72,7 +74,7 @@ func (d *dbNode) PubKey() [33]byte {
 //
 // NOTE: Part of the autopilot.Node interface.
 func (d *dbNode) Addrs() []net.Addr {
-	return d.tx.Node().Addresses
+	return d.addrs
 }
 
 // ForEachChannel is a higher-order function that will be used to iterate
@@ -125,11 +127,54 @@ func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 		}
 
 		node := &dbNode{
-			tx: nodeTx,
+			tx:    nodeTx,
+			pub:   nodeTx.Node().PubKeyBytes,
+			addrs: nodeTx.Node().Addresses,
 		}
 
 		return cb(ctx, node)
 	}, reset)
+}
+
+// ForEachNodesChannels iterates through all connected nodes, and for each node,
+// all the channels that connect to it. The passed callback will be called with
+// the context, the Node itself, and a slice of ChannelEdge that connect to the
+// node.
+//
+// NOTE: Part of the autopilot.ChannelGraph interface.
+func (d *databaseChannelGraph) ForEachNodesChannels(ctx context.Context,
+	cb func(context.Context, Node, []*ChannelEdge) error,
+	reset func()) error {
+
+	return d.db.ForEachNodeCached(
+		ctx, true, func(ctx context.Context, node route.Vertex,
+			addrs []net.Addr,
+			chans map[uint64]*graphdb.DirectedChannel) error {
+
+			// We'll skip over any node that doesn't have any
+			// advertised addresses. As we won't be able to reach
+			// them to actually open any channels.
+			if len(addrs) == 0 {
+				return nil
+			}
+
+			edges := make([]*ChannelEdge, 0, len(chans))
+			for _, channel := range chans {
+				edges = append(edges, &ChannelEdge{
+					ChanID: lnwire.NewShortChanIDFromInt(
+						channel.ChannelID,
+					),
+					Capacity: channel.Capacity,
+					Peer:     channel.OtherNode,
+				})
+			}
+
+			return cb(ctx, &dbNode{
+				pub:   node,
+				addrs: addrs,
+			}, edges)
+		}, reset,
+	)
 }
 
 // databaseChannelGraphCached wraps a channeldb.ChannelGraph instance with the
@@ -221,6 +266,44 @@ func (dc *databaseChannelGraphCached) ForEachNode(ctx context.Context,
 			}
 
 			return cb(ctx, node)
+		}
+
+		return nil
+	}, reset)
+}
+
+// ForEachNodesChannels iterates through all connected nodes, and for each node,
+// all the channels that connect to it. The passed callback will be called with
+// the context, the Node itself, and a slice of ChannelEdge that connect to the
+// node.
+//
+// NOTE: Part of the autopilot.ChannelGraph interface.
+func (dc *databaseChannelGraphCached) ForEachNodesChannels(ctx context.Context,
+	cb func(context.Context, Node, []*ChannelEdge) error,
+	reset func()) error {
+
+	return dc.db.ForEachNodeCached(ctx, false, func(ctx context.Context,
+		n route.Vertex, _ []net.Addr,
+		channels map[uint64]*graphdb.DirectedChannel) error {
+
+		edges := make([]*ChannelEdge, 0, len(channels))
+		for cid, channel := range channels {
+			edges = append(edges, &ChannelEdge{
+				ChanID:   lnwire.NewShortChanIDFromInt(cid),
+				Capacity: channel.Capacity,
+				Peer:     channel.OtherNode,
+			})
+		}
+
+		if len(channels) > 0 {
+			node := dbNodeCached{
+				node:     n,
+				channels: channels,
+			}
+
+			if err := cb(ctx, node, edges); err != nil {
+				return err
+			}
 		}
 
 		return nil

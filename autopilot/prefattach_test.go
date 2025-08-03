@@ -606,6 +606,29 @@ func (m *memChannelGraph) ForEachNode(ctx context.Context,
 	return nil
 }
 
+// ForEachNodesChannels iterates through all connected nodes, and for each node,
+// all the channels that connect to it. The passed callback will be called with
+// the context, the Node itself, and a slice of ChannelEdge that connect to the
+// node.
+//
+// NOTE: Part of the autopilot.ChannelGraph interface.
+func (m *memChannelGraph) ForEachNodesChannels(ctx context.Context,
+	cb func(context.Context, Node, []*ChannelEdge) error, _ func()) error {
+
+	for _, node := range m.graph {
+		edges := make([]*ChannelEdge, 0, len(node.chans))
+		for i := range node.chans {
+			edges = append(edges, &node.chans[i])
+		}
+
+		if err := cb(ctx, node, edges); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // randChanID generates a new random channel ID.
 func randChanID() lnwire.ShortChannelID {
 	id := atomic.AddUint64(&chanIDCounter, 1)

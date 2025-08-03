@@ -87,6 +87,14 @@ type ChannelGraph interface {
 	// callback returns an error, then execution should be terminated.
 	ForEachNode(context.Context, func(context.Context, Node) error,
 		func()) error
+
+	// ForEachNodesChannels iterates through all connected nodes, and for
+	// each node, all the channels that connect to it. The passed callback
+	// will be called with the context, the Node itself, and a slice of
+	// ChannelEdge that connect to the node.
+	ForEachNodesChannels(ctx context.Context,
+		cb func(context.Context, Node, []*ChannelEdge) error,
+		reset func()) error
 }
 
 // NodeScore is a tuple mapping a NodeID to a score indicating the preference

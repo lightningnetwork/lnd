@@ -175,8 +175,8 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// The candidates should be amongst the two edges
 			// created above.
 			for nodeID, candidate := range candidates {
-				edge1Pub := edge1.Peer.PubKey()
-				edge2Pub := edge2.Peer.PubKey()
+				edge1Pub := edge1.Peer
+				edge2Pub := edge2.Peer
 
 				switch {
 				case bytes.Equal(nodeID[:], edge1Pub[:]):
@@ -228,7 +228,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			)
 			require.NoError(t1, err)
 
-			peerPubBytes := edge1.Peer.PubKey()
+			peerPubBytes := edge1.Peer
 			peerPub, err := btcec.ParsePubKey(peerPubBytes[:])
 			require.NoError(t1, err)
 
@@ -535,18 +535,12 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	return &ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{tx: &testNodeTx{
-				db:   d,
-				node: vertex1,
-			}},
+			Peer:     vertex1.PubKeyBytes,
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{tx: &testNodeTx{
-				db:   d,
-				node: vertex2,
-			}},
+			Peer:     vertex2.PubKeyBytes,
 		},
 		nil
 }
@@ -692,14 +686,14 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	edge1 := ChannelEdge{
 		ChanID:   randChanID(),
 		Capacity: capacity,
-		Peer:     vertex2,
+		Peer:     vertex2.PubKey(),
 	}
 	vertex1.chans = append(vertex1.chans, edge1)
 
 	edge2 := ChannelEdge{
 		ChanID:   randChanID(),
 		Capacity: capacity,
-		Peer:     vertex1,
+		Peer:     vertex1.PubKey(),
 	}
 	vertex2.chans = append(vertex2.chans, edge2)
 

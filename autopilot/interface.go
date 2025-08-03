@@ -72,7 +72,7 @@ type ChannelEdge struct {
 
 	// Peer is the peer that this channel creates an edge to in the channel
 	// graph.
-	Peer Node
+	Peer route.Vertex
 }
 
 // ChannelGraph in an interface that represents a traversable channel graph.

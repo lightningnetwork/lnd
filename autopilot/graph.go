@@ -106,9 +106,7 @@ func (d *dbNode) ForEachChannel(ctx context.Context,
 		edge := ChannelEdge{
 			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
 			Capacity: ei.Capacity,
-			Peer: &dbNode{
-				tx: node,
-			},
+			Peer:     node.Node().PubKeyBytes,
 		}
 
 		return cb(ctx, edge)
@@ -198,9 +196,7 @@ func (nc dbNodeCached) ForEachChannel(ctx context.Context,
 		edge := ChannelEdge{
 			ChanID:   lnwire.NewShortChanIDFromInt(cid),
 			Capacity: channel.Capacity,
-			Peer: dbNodeCached{
-				node: channel.OtherNode,
-			},
+			Peer:     channel.OtherNode,
 		}
 
 		if err := cb(ctx, edge); err != nil {

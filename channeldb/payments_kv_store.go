@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1206,8 +1207,8 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
-func (p *KVPaymentsDB) QueryPayments(query PaymentsQuery) (PaymentsResponse,
-	error) {
+func (p *KVPaymentsDB) QueryPayments(_ context.Context,
+	query PaymentsQuery) (PaymentsResponse, error) {
 
 	var resp PaymentsResponse
 

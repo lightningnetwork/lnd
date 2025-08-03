@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -228,9 +229,9 @@ type GraphSource interface {
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
-	// the iteration stops early. Any operations performed on the NodeTx
-	// passed to the call-back are executed under the same read transaction.
-	ForEachNode(context.Context, func(graphdb.NodeRTx) error, func()) error
+	// the iteration stops early.
+	ForEachNode(context.Context, func(*models.LightningNode) error,
+		func()) error
 
 	// ForEachNodeCached is similar to ForEachNode, but it utilizes the
 	// channel graph cache if one is available. It is less consistent than

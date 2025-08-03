@@ -741,26 +741,3 @@ func (m *memChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 
 	return newPub, nil
 }
-
-type testNodeTx struct {
-	db   *testDBGraph
-	node *models.LightningNode
-}
-
-func (t *testNodeTx) Node() *models.LightningNode {
-	return t.node
-}
-
-func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	return t.db.db.ForEachNodeChannel(context.Background(),
-		t.node.PubKeyBytes, func(edge *models.ChannelEdgeInfo, policy1,
-			policy2 *models.ChannelEdgePolicy) error {
-
-			return f(edge, policy1, policy2)
-		}, func() {},
-	)
-}
-
-var _ graphdb.NodeRTx = (*testNodeTx)(nil)

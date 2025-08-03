@@ -799,58 +799,22 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
 // executing the passed callback with each node encountered. If the callback
 // returns an error, then the transaction is aborted and the iteration stops
-// early. Any operations performed on the NodeTx passed to the call-back are
-// executed under the same read transaction and so, methods on the NodeTx object
-// _MUST_ only be called from within the call-back.
+// early.
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNode(ctx context.Context,
-	cb func(tx NodeRTx) error, reset func()) error {
+	cb func(node *models.LightningNode) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodePaginated(
 			ctx, s.cfg.QueryCfg, db,
-			ProtocolV1,
-			func(ctx context.Context, dbNodeID int64,
+			ProtocolV1, func(_ context.Context, _ int64,
 				node *models.LightningNode) error {
 
-				return cb(newSQLGraphNodeTx(
-					db, s.cfg, dbNodeID, node,
-				))
+				return cb(node)
 			},
 		)
 	}, reset)
-}
-
-// sqlGraphNodeTx is an implementation of the NodeRTx interface backed by the
-// SQLStore and a SQL transaction.
-type sqlGraphNodeTx struct {
-	db   SQLQueries
-	id   int64
-	node *models.LightningNode
-	cfg  *SQLStoreConfig
-}
-
-// A compile-time constraint to ensure sqlGraphNodeTx implements the NodeRTx
-// interface.
-var _ NodeRTx = (*sqlGraphNodeTx)(nil)
-
-func newSQLGraphNodeTx(db SQLQueries, cfg *SQLStoreConfig,
-	id int64, node *models.LightningNode) *sqlGraphNodeTx {
-
-	return &sqlGraphNodeTx{
-		db:   db,
-		cfg:  cfg,
-		id:   id,
-		node: node,
-	}
-}
-
-// Node returns the raw information of the node.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (s *sqlGraphNodeTx) Node() *models.LightningNode {
-	return s.node
 }
 
 // ForEachNodeDirectedChannel iterates through all channels of a given node,

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -83,17 +84,17 @@ func (d *dbNode) Addrs() []net.Addr {
 func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error, reset func()) error {
 
-	return d.db.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
+	return d.db.ForEachNode(ctx, func(n *models.LightningNode) error {
 		// We'll skip over any node that doesn't have any advertised
 		// addresses. As we won't be able to reach them to actually
 		// open any channels.
-		if len(nodeTx.Node().Addresses) == 0 {
+		if len(n.Addresses) == 0 {
 			return nil
 		}
 
 		node := &dbNode{
-			pub:   nodeTx.Node().PubKeyBytes,
-			addrs: nodeTx.Node().Addresses,
+			pub:   n.PubKeyBytes,
+			addrs: n.Addresses,
 		}
 
 		return cb(ctx, node)

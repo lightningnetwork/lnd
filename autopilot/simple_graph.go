@@ -50,20 +50,17 @@ func NewSimpleGraph(ctx context.Context, g ChannelGraph) (*SimpleGraph, error) {
 
 	// Iterate over each node and each channel and update the adj and the
 	// node index.
-	err := g.ForEachNode(ctx, func(ctx context.Context, node Node) error {
+	err := g.ForEachNodesChannels(ctx, func(_ context.Context,
+		node Node, channels []*ChannelEdge) error {
+
 		u := getNodeIndex(node.PubKey())
 
-		return node.ForEachChannel(
-			ctx, func(_ context.Context,
-				edge ChannelEdge) error {
+		for _, edge := range channels {
+			v := getNodeIndex(edge.Peer)
+			adj[u] = append(adj[u], v)
+		}
 
-				v := getNodeIndex(edge.Peer)
-
-				adj[u] = append(adj[u], v)
-
-				return nil
-			},
-		)
+		return nil
 	}, func() {
 		clear(adj)
 		clear(nodes)

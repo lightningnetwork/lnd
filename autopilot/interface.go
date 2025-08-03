@@ -31,13 +31,6 @@ type Node interface {
 	// Addrs returns a slice of publicly reachable public TCP addresses
 	// that the peer is known to be listening on.
 	Addrs() []net.Addr
-
-	// ForEachChannel is a higher-order function that will be used to
-	// iterate through all edges emanating from/to the target node. For
-	// each active channel, this function should be called with the
-	// populated ChannelEdge that describes the active channel.
-	ForEachChannel(context.Context, func(context.Context,
-		ChannelEdge) error) error
 }
 
 // LocalChannel is a simple struct which contains relevant details of a

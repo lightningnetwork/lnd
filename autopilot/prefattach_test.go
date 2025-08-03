@@ -242,25 +242,23 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			numNodes := 0
 			twoChans := false
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(
-				ctx, func(ctx context.Context, n Node) error {
+			err = graph.ForEachNodesChannels(
+				ctx, func(_ context.Context, node Node,
+					edges []*ChannelEdge) error {
+
 					numNodes++
-					nodes[n.PubKey()] = struct{}{}
+					nodes[node.PubKey()] = struct{}{}
 					numChans := 0
-					err := n.ForEachChannel(ctx,
-						func(_ context.Context, c ChannelEdge) error { //nolint:ll
-							numChans++
-							return nil
-						},
-					)
-					if err != nil {
-						return err
+
+					for range edges {
+						numChans++
 					}
 
 					twoChans = twoChans || (numChans == 2)
 
 					return nil
-				}, func() {
+				},
+				func() {
 					numNodes = 0
 					twoChans = false
 					clear(nodes)

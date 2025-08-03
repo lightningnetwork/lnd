@@ -20,11 +20,6 @@ import (
 type NodeRTx interface {
 	// Node returns the raw information of the node.
 	Node() *models.LightningNode
-
-	// ForEachChannel can be used to iterate over the node's channels under
-	// the same transaction used to fetch the node.
-	ForEachChannel(func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error
 }
 
 // NodeTraverser is an abstract read only interface that provides information

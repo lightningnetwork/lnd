@@ -853,18 +853,6 @@ func (s *sqlGraphNodeTx) Node() *models.LightningNode {
 	return s.node
 }
 
-// ForEachChannel can be used to iterate over the node's channels under the same
-// transaction used to fetch the node.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (s *sqlGraphNodeTx) ForEachChannel(cb func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	ctx := context.TODO()
-
-	return forEachNodeChannel(ctx, s.db, s.cfg, s.id, cb)
-}
-
 // ForEachNodeDirectedChannel iterates through all channels of a given node,
 // executing the passed callback on the directed edge representing the channel
 // and its incoming policy. If the callback returns an error, then the iteration

@@ -4906,24 +4906,3 @@ func newChanGraphNodeTx(tx kvdb.RTx, db *KVStore,
 func (c *chanGraphNodeTx) Node() *models.LightningNode {
 	return c.node
 }
-
-// ForEachChannel can be used to iterate over the node's channels under
-// the same transaction used to fetch the node.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	return c.db.forEachNodeChannelTx(
-		c.tx, c.node.PubKeyBytes,
-		func(_ kvdb.RTx, info *models.ChannelEdgeInfo, policy1,
-			policy2 *models.ChannelEdgePolicy) error {
-
-			return f(info, policy1, policy2)
-		},
-		// NOTE: We don't need to reset anything here as the caller is
-		// expected to pass in the reset function to the ForEachNode
-		// method that constructed the chanGraphNodeTx.
-		func() {},
-	)
-}

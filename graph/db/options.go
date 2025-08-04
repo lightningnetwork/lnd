@@ -20,6 +20,58 @@ const (
 	DefaultPreAllocCacheNumNodes = 15000
 )
 
+// Option is a functional option used to change the per-call confirmation.
+type Option func(*config)
+
+// config holds the configuration for graph operations.
+type config struct {
+	// chanUpdateIterBatchSize is the batch size to use when reading out
+	// channel updates to send a peer a backlog.
+	chanUpdateIterBatchSize int
+
+	// nodeUpdateIterBatchSize is the batch size to use when reading out
+	// node updates to send to a peer backlog.
+	nodeUpdateIterBatchSize int
+
+	// iterPublicNodes is used to make an iterator that only iterates over
+	// public nodes.
+	iterPublicNodes bool
+}
+
+// defaultConfig returns the default configuration.
+func defaultConfig() *config {
+	return &config{
+		chanUpdateIterBatchSize: 1_000,
+		nodeUpdateIterBatchSize: 1_000,
+	}
+}
+
+// WithChanUpdateSize sets the batch size for chan upd iterators.
+func WithChanUpdateSize(size int) Option {
+	return func(cfg *config) {
+		if size > 0 {
+			cfg.chanUpdateIterBatchSize = size
+		}
+	}
+}
+
+// WithNodeUpdateIterBatchSize set the batch size for node ann iterators.
+func WithNodeUpdateIterBatchSize(size int) Option {
+	return func(cfg *config) {
+		if size > 0 {
+			cfg.nodeUpdateIterBatchSize = size
+		}
+	}
+}
+
+// WithIterPublicNodesOnly is used to create an iterator that only iterates over
+// public nodes.
+func WithIterPublicNodesOnly() Option {
+	return func(cfg *config) {
+		cfg.iterPublicNodes = true
+	}
+}
+
 // chanGraphOptions holds parameters for tuning and customizing the
 // ChannelGraph.
 type chanGraphOptions struct {

@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -121,12 +120,8 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
-	chansInHorizon := fn.Collect(chansInHorizonIter)
 
-	// nodesFromChan records the nodes seen from the channels.
-	nodesFromChan := make(map[[33]byte]struct{}, len(chansInHorizon)*2)
-
-	for _, channel := range chansInHorizon {
+	for channel := range chansInHorizonIter {
 		// If the channel hasn't been fully advertised yet, or is a
 		// private channel, then we'll skip it as we can't construct a
 		// full authentication proof if one is requested.
@@ -187,47 +182,19 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 		// Append the all the msgs to the slice.
 		updates = append(updates, chanUpdates...)
-
-		// Record the nodes seen.
-		nodesFromChan[channel.Info.NodeKey1Bytes] = struct{}{}
-		nodesFromChan[channel.Info.NodeKey2Bytes] = struct{}{}
 	}
 
 	// Next, we'll send out all the node announcements that have an update
 	// within the horizon as well. We send these second to ensure that they
 	// follow any active channels they have.
 	nodeAnnsInHorizon, err := c.graph.NodeUpdatesInHorizon(
-		startTime, endTime,
+		startTime, endTime, graphdb.WithIterPublicNodesOnly(),
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	for nodeAnn := range nodeAnnsInHorizon {
-		// If this node has not been seen in the above channels, we can
-		// skip sending its NodeAnnouncement.
-		if _, seen := nodesFromChan[nodeAnn.PubKeyBytes]; !seen {
-			log.Debugf("Skipping forwarding as node %x not found "+
-				"in channel announcement", nodeAnn.PubKeyBytes)
-			continue
-		}
-
-		// Ensure we only forward nodes that are publicly advertised to
-		// prevent leaking information about nodes.
-		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)
-		if err != nil {
-			log.Errorf("Unable to determine if node %x is "+
-				"advertised: %v", nodeAnn.PubKeyBytes, err)
-			continue
-		}
-
-		if !isNodePublic {
-			log.Tracef("Skipping forwarding announcement for "+
-				"node %x due to being unadvertised",
-				nodeAnn.PubKeyBytes)
-			continue
-		}
-
 		nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
 		if err != nil {
 			return nil, err

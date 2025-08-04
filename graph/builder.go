@@ -599,7 +599,7 @@ func (b *Builder) pruneZombieChans() error {
 			"chans: %v", err)
 	}
 
-	for _, u := range oldEdges {
+	for u := range oldEdges {
 		err = filterPruneChans(u.Info, u.Policy1, u.Policy2)
 		if err != nil {
 			return fmt.Errorf("error filtering channels to "+

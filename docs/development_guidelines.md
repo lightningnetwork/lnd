@@ -230,9 +230,13 @@ value, err := bar(
 )
 ```
 
-As long as the visual symmetry of the opening and closing parentheses is
-preserved, arguments that would otherwise introduce a new level of indentation
-are allowed to be written in a more compact form.
+As long as the visual symmetry of the opening and closing parentheses (or curly
+braces) is preserved, arguments that would otherwise introduce a new level of
+indentation are allowed to be written in a more compact form.
+Visual symmetry here means that when two or more opening parentheses or curly
+braces are on the same line, then they must also be closed on the same line.
+And the closing line needs to have the same indentation level as the opening
+line.
 
 Example with inline struct creation:
 
@@ -252,6 +256,13 @@ Example with inline struct creation:
 		Memo:      "invoice",
 		ValueMsat: int64(oneUnitMilliSat - 1),
 	})
+```
+
+**WRONG**
+```go
+	response, err := node.AddInvoice(ctx, &lnrpc.Invoice{
+		Memo:      "invoice",
+		ValueMsat: int64(oneUnitMilliSat - 1)})
 ```
 
 Example with nested function call:

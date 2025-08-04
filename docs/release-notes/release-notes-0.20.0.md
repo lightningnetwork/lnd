@@ -45,6 +45,10 @@
 
 ## Functional Enhancements
 
+* RPCs `walletrpc.EstimateFee` and `walletrpc.FundPsbt` now
+   [allow](https://github.com/lightningnetwork/lnd/pull/10087)
+  `conf_target=1`. Previously they required `conf_target >= 2`.
+
 ## RPC Additions
 * When querying [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813)
 logs, the response now include the incoming and outgoing htlc indices of the payment 

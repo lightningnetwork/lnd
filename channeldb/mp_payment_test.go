@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -65,35 +66,35 @@ func TestRegistrable(t *testing.T) {
 			// Test inflight status with settled HTLC but no failed
 			// payment.
 			status:         StatusInFlight,
-			registryErr:    ErrPaymentPendingSettled,
+			registryErr:    paymentsdb.ErrPaymentPendingSettled,
 			hasSettledHTLC: true,
 		},
 		{
 			// Test inflight status with no settled HTLC but failed
 			// payment.
 			status:        StatusInFlight,
-			registryErr:   ErrPaymentPendingFailed,
+			registryErr:   paymentsdb.ErrPaymentPendingFailed,
 			paymentFailed: true,
 		},
 		{
 			// Test error state with settled HTLC and failed
 			// payment.
 			status:         0,
-			registryErr:    ErrUnknownPaymentStatus,
+			registryErr:    paymentsdb.ErrUnknownPaymentStatus,
 			hasSettledHTLC: true,
 			paymentFailed:  true,
 		},
 		{
 			status:      StatusSucceeded,
-			registryErr: ErrPaymentAlreadySucceeded,
+			registryErr: paymentsdb.ErrPaymentAlreadySucceeded,
 		},
 		{
 			status:      StatusFailed,
-			registryErr: ErrPaymentAlreadyFailed,
+			registryErr: paymentsdb.ErrPaymentAlreadyFailed,
 		},
 		{
 			status:      0,
-			registryErr: ErrUnknownPaymentStatus,
+			registryErr: paymentsdb.ErrUnknownPaymentStatus,
 		},
 	}
 
@@ -149,7 +150,7 @@ func TestPaymentSetState(t *testing.T) {
 				},
 			},
 			totalAmt:    1,
-			errExpected: ErrSentExceedsTotal,
+			errExpected: paymentsdb.ErrSentExceedsTotal,
 		},
 		{
 			// Test that when the htlc is failed, the fee is not
@@ -294,7 +295,7 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusSucceeded,
 			remainingAmt: 1000,
 			needWait:     false,
-			expectedErr:  ErrPaymentInternal,
+			expectedErr:  paymentsdb.ErrPaymentInternal,
 		},
 		{
 			// Payment is in terminal state, no need to wait.
@@ -309,7 +310,7 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusInitiated,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  ErrPaymentInternal,
+			expectedErr:  paymentsdb.ErrPaymentInternal,
 		},
 		{
 			// With zero remainingAmt we must wait for the results.
@@ -330,21 +331,21 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusFailed,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  ErrPaymentInternal,
+			expectedErr:  paymentsdb.ErrPaymentInternal,
 		},
 		{
 			// Payment is in an unknown status, return an error.
 			status:       0,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  ErrUnknownPaymentStatus,
+			expectedErr:  paymentsdb.ErrUnknownPaymentStatus,
 		},
 		{
 			// Payment is in an unknown status, return an error.
 			status:       0,
 			remainingAmt: 1000,
 			needWait:     false,
-			expectedErr:  ErrUnknownPaymentStatus,
+			expectedErr:  paymentsdb.ErrUnknownPaymentStatus,
 		},
 	}
 
@@ -397,7 +398,7 @@ func TestAllowMoreAttempts(t *testing.T) {
 			status:       StatusInitiated,
 			remainingAmt: 0,
 			allowMore:    false,
-			expectedErr:  ErrPaymentInternal,
+			expectedErr:  paymentsdb.ErrPaymentInternal,
 		},
 		{
 			// With zero remainingAmt we don't allow more HTLC
@@ -505,7 +506,7 @@ func TestAllowMoreAttempts(t *testing.T) {
 			remainingAmt:   1000,
 			hasSettledHTLC: true,
 			allowMore:      false,
-			expectedErr:    ErrPaymentInternal,
+			expectedErr:    paymentsdb.ErrPaymentInternal,
 		},
 		{
 			// With the payment failed with no inflight HTLCs, we

@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
@@ -1133,8 +1134,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
-	case mpp != nil && errors.Is(err, channeldb.ErrPaymentInFlight):
-	case mpp != nil && errors.Is(err, channeldb.ErrPaymentExists):
+	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentInFlight):
+	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentExists):
 
 	// Any other error is not tolerated.
 	case err != nil:

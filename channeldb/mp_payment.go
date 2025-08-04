@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -349,12 +350,12 @@ func (m *MPPayment) Registrable() error {
 	// are settled HTLCs or the payment is failed. If we already have
 	// settled HTLCs, we won't allow adding more HTLCs.
 	if m.State.HasSettledHTLC {
-		return ErrPaymentPendingSettled
+		return paymentsdb.ErrPaymentPendingSettled
 	}
 
 	// If the payment is already failed, we won't allow adding more HTLCs.
 	if m.State.PaymentFailed {
-		return ErrPaymentPendingFailed
+		return paymentsdb.ErrPaymentPendingFailed
 	}
 
 	// Otherwise we can add more HTLCs.
@@ -371,8 +372,8 @@ func (m *MPPayment) setState() error {
 	// Sanity check we haven't sent a value larger than the payment amount.
 	totalAmt := m.Info.Value
 	if sentAmt > totalAmt {
-		return fmt.Errorf("%w: sent=%v, total=%v", ErrSentExceedsTotal,
-			sentAmt, totalAmt)
+		return fmt.Errorf("%w: sent=%v, total=%v",
+			paymentsdb.ErrSentExceedsTotal, sentAmt, totalAmt)
 	}
 
 	// Get any terminal info for this payment.
@@ -451,7 +452,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		case StatusSucceeded:
 			return false, fmt.Errorf("%w: parts of the payment "+
 				"already succeeded but still have remaining "+
-				"amount %v", ErrPaymentInternal,
+				"amount %v", paymentsdb.ErrPaymentInternal,
 				m.State.RemainingAmt)
 
 		// The payment is failed and we have no inflight HTLCs, no need
@@ -462,7 +463,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		// Unknown payment status.
 		default:
 			return false, fmt.Errorf("%w: %s",
-				ErrUnknownPaymentStatus, m.Status)
+				paymentsdb.ErrUnknownPaymentStatus, m.Status)
 		}
 	}
 
@@ -472,7 +473,8 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// When the payment is newly created, yet the payment has no remaining
 	// amount, return an error.
 	case StatusInitiated:
-		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+		return false, fmt.Errorf("%w: %v",
+			paymentsdb.ErrPaymentInternal, m.Status)
 
 	// If the payment is inflight, we must wait.
 	//
@@ -493,12 +495,13 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// marked as failed with a reason, which means the remainingAmt must
 	// not be zero because our sentAmt is zero.
 	case StatusFailed:
-		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+		return false, fmt.Errorf("%w: %v",
+			paymentsdb.ErrPaymentInternal, m.Status)
 
 	// Unknown payment status.
 	default:
-		return false, fmt.Errorf("%w: %s", ErrUnknownPaymentStatus,
-			m.Status)
+		return false, fmt.Errorf("%w: %s",
+			paymentsdb.ErrUnknownPaymentStatus, m.Status)
 	}
 }
 
@@ -528,7 +531,8 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 		// remainingAmt, return an error.
 		if m.Status == StatusInitiated {
 			return false, fmt.Errorf("%w: initiated payment has "+
-				"zero remainingAmt", ErrPaymentInternal)
+				"zero remainingAmt",
+				paymentsdb.ErrPaymentInternal)
 		}
 
 		// Otherwise, exit early since all other statuses with zero
@@ -544,8 +548,8 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 	// as the preimage is received. In this case, return an error state.
 	if m.Status == StatusSucceeded {
 		return false, fmt.Errorf("%w: payment already succeeded but "+
-			"still have remaining amount %v", ErrPaymentInternal,
-			m.State.RemainingAmt)
+			"still have remaining amount %v",
+			paymentsdb.ErrPaymentInternal, m.State.RemainingAmt)
 	}
 
 	// Now check if we can register a new HTLC.

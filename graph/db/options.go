@@ -20,6 +20,60 @@ const (
 	DefaultPreAllocCacheNumNodes = 15000
 )
 
+// IteratorOption is a functional option used to change the per-call
+// configuration for iterators.
+type IteratorOption func(*iterConfig)
+
+// iterConfig holds the configuration for graph operations.
+type iterConfig struct {
+	// chanUpdateIterBatchSize is the batch size to use when reading out
+	// channel updates to send a peer a backlog.
+	chanUpdateIterBatchSize int
+
+	// nodeUpdateIterBatchSize is the batch size to use when reading out
+	// node updates to send to a peer backlog.
+	nodeUpdateIterBatchSize int
+
+	// iterPublicNodes is used to make an iterator that only iterates over
+	// public nodes.
+	iterPublicNodes bool
+}
+
+// defaultIteratorConfig returns the default configuration.
+func defaultIteratorConfig() *iterConfig {
+	return &iterConfig{
+		chanUpdateIterBatchSize: 1_000,
+		nodeUpdateIterBatchSize: 1_000,
+	}
+}
+
+// WithChanUpdateIterBatchSize sets the batch size for channel update
+// iterators.
+func WithChanUpdateIterBatchSize(size int) IteratorOption {
+	return func(cfg *iterConfig) {
+		if size > 0 {
+			cfg.chanUpdateIterBatchSize = size
+		}
+	}
+}
+
+// WithNodeUpdateIterBatchSize set the batch size for node ann iterators.
+func WithNodeUpdateIterBatchSize(size int) IteratorOption {
+	return func(cfg *iterConfig) {
+		if size > 0 {
+			cfg.nodeUpdateIterBatchSize = size
+		}
+	}
+}
+
+// WithIterPublicNodesOnly is used to create an iterator that only iterates over
+// public nodes.
+func WithIterPublicNodesOnly() IteratorOption {
+	return func(cfg *iterConfig) {
+		cfg.iterPublicNodes = true
+	}
+}
+
 // chanGraphOptions holds parameters for tuning and customizing the
 // ChannelGraph.
 type chanGraphOptions struct {

@@ -206,6 +206,9 @@ require (
 // store have been included in a tagged sqldb version.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
+// Replace fn package to use local version with iterator Collect function.
+replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
+
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 

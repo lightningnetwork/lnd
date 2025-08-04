@@ -32,8 +32,8 @@ func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,
 
 	return graphdb.NewSQLStore(
 		&graphdb.SQLStoreConfig{
-			ChainHash:     *d.cfg.ActiveNetParams.GenesisHash,
-			PaginationCfg: sqldb.DefaultPagedQueryConfig(),
+			ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+			QueryCfg:  sqldb.DefaultQueryConfig(),
 		},
 		graphExecutor, opts...,
 	)

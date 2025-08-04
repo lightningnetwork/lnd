@@ -1,6 +1,10 @@
 package channeldb
 
-import "fmt"
+import (
+	"fmt"
+
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+)
 
 // PaymentStatus represent current status of payment.
 type PaymentStatus byte
@@ -58,24 +62,25 @@ func (ps PaymentStatus) initializable() error {
 	// again in case other goroutines have already been creating HTLCs for
 	// it.
 	case StatusInitiated:
-		return ErrPaymentExists
+		return paymentsdb.ErrPaymentExists
 
 	// We already have an InFlight payment on the network. We will disallow
 	// any new payments.
 	case StatusInFlight:
-		return ErrPaymentInFlight
+		return paymentsdb.ErrPaymentInFlight
 
 	// The payment has been attempted and is succeeded so we won't allow
 	// creating it again.
 	case StatusSucceeded:
-		return ErrAlreadyPaid
+		return paymentsdb.ErrAlreadyPaid
 
 	// We allow retrying failed payments.
 	case StatusFailed:
 		return nil
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf("%w: %v", paymentsdb.ErrUnknownPaymentStatus,
+			ps)
 	}
 }
 
@@ -91,7 +96,7 @@ func (ps PaymentStatus) removable() error {
 	// There are still inflight HTLCs and the payment needs to wait for the
 	// final outcomes.
 	case StatusInFlight:
-		return ErrPaymentInFlight
+		return paymentsdb.ErrPaymentInFlight
 
 	// The payment has been attempted and is succeeded and is allowed to be
 	// removed.
@@ -103,7 +108,8 @@ func (ps PaymentStatus) removable() error {
 		return nil
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf("%w: %v", paymentsdb.ErrUnknownPaymentStatus,
+			ps)
 	}
 }
 
@@ -121,13 +127,14 @@ func (ps PaymentStatus) updatable() error {
 
 	// If the payment has a terminal condition, we won't allow any updates.
 	case StatusSucceeded:
-		return ErrPaymentAlreadySucceeded
+		return paymentsdb.ErrPaymentAlreadySucceeded
 
 	case StatusFailed:
-		return ErrPaymentAlreadyFailed
+		return paymentsdb.ErrPaymentAlreadyFailed
 
 	default:
-		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+		return fmt.Errorf("%w: %v", paymentsdb.ErrUnknownPaymentStatus,
+			ps)
 	}
 }
 

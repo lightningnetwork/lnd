@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lntypes"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -197,33 +198,33 @@ func TestPaymentStatusActions(t *testing.T) {
 	}{
 		{
 			status:    StatusInitiated,
-			initErr:   ErrPaymentExists,
+			initErr:   paymentsdb.ErrPaymentExists,
 			updateErr: nil,
 			removeErr: nil,
 		},
 		{
 			status:    StatusInFlight,
-			initErr:   ErrPaymentInFlight,
+			initErr:   paymentsdb.ErrPaymentInFlight,
 			updateErr: nil,
-			removeErr: ErrPaymentInFlight,
+			removeErr: paymentsdb.ErrPaymentInFlight,
 		},
 		{
 			status:    StatusSucceeded,
-			initErr:   ErrAlreadyPaid,
-			updateErr: ErrPaymentAlreadySucceeded,
+			initErr:   paymentsdb.ErrAlreadyPaid,
+			updateErr: paymentsdb.ErrPaymentAlreadySucceeded,
 			removeErr: nil,
 		},
 		{
 			status:    StatusFailed,
 			initErr:   nil,
-			updateErr: ErrPaymentAlreadyFailed,
+			updateErr: paymentsdb.ErrPaymentAlreadyFailed,
 			removeErr: nil,
 		},
 		{
 			status:    0,
-			initErr:   ErrUnknownPaymentStatus,
-			updateErr: ErrUnknownPaymentStatus,
-			removeErr: ErrUnknownPaymentStatus,
+			initErr:   paymentsdb.ErrUnknownPaymentStatus,
+			updateErr: paymentsdb.ErrUnknownPaymentStatus,
+			removeErr: paymentsdb.ErrUnknownPaymentStatus,
 		},
 	}
 

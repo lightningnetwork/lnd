@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -193,7 +194,7 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	// Attempt a final payment, which should now fail since the prior
 	// payment succeed.
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	if !errors.Is(err, ErrAlreadyPaid) {
+	if !errors.Is(err, paymentsdb.ErrAlreadyPaid) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }
@@ -228,7 +229,7 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	// payment hash, should result in error indicating that payment has
 	// already been sent.
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	require.ErrorIs(t, err, ErrPaymentExists)
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentExists)
 
 	// Record an attempt.
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
@@ -246,7 +247,7 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 
 	// Sends base htlc message which initiate StatusInFlight.
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	if !errors.Is(err, ErrPaymentInFlight) {
+	if !errors.Is(err, paymentsdb.ErrPaymentInFlight) {
 		t.Fatalf("payment control wrong behaviour: " +
 			"double sending must trigger ErrPaymentInFlight error")
 	}
@@ -269,7 +270,7 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	)
 
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	if !errors.Is(err, ErrAlreadyPaid) {
+	if !errors.Is(err, paymentsdb.ErrAlreadyPaid) {
 		t.Fatalf("unable to send htlc message: %v", err)
 	}
 }
@@ -294,9 +295,7 @@ func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
 			Preimage: preimg,
 		},
 	)
-	if err != ErrPaymentNotInitiated {
-		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentNotInitiated)
 }
 
 // TestKVPaymentsDBFailsWithoutInFlight checks that a strict payment
@@ -314,9 +313,7 @@ func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 
 	// Calling Fail should return an error.
 	_, err = paymentDB.Fail(info.PaymentIdentifier, FailureReasonNoRoute)
-	if err != ErrPaymentNotInitiated {
-		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentNotInitiated)
 }
 
 // TestKVPaymentsDBDeleteNonInFlight checks that calling DeletePayments only
@@ -780,7 +777,7 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 		b := *attempt
 		b.AttemptID = 3
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-		require.ErrorIs(t, err, ErrValueExceedsAmt)
+		require.ErrorIs(t, err, paymentsdb.ErrValueExceedsAmt)
 
 		// Fail the second attempt.
 		a := attempts[1]
@@ -880,9 +877,13 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 		b.AttemptID = 3
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
 		if test.settleFirst {
-			require.ErrorIs(t, err, ErrPaymentPendingSettled)
+			require.ErrorIs(
+				t, err, paymentsdb.ErrPaymentPendingSettled,
+			)
 		} else {
-			require.ErrorIs(t, err, ErrPaymentPendingFailed)
+			require.ErrorIs(
+				t, err, paymentsdb.ErrPaymentPendingFailed,
+			)
 		}
 
 		assertPaymentStatus(
@@ -951,21 +952,21 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 		// settled.
 		case test.settleFirst && !test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
+			registerErr = paymentsdb.ErrPaymentAlreadySucceeded
 
 		case !test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
+			registerErr = paymentsdb.ErrPaymentAlreadySucceeded
 
 		// If both failed, we end up in a failed status.
 		case !test.settleFirst && !test.settleLast:
 			finalStatus = StatusFailed
-			registerErr = ErrPaymentAlreadyFailed
+			registerErr = paymentsdb.ErrPaymentAlreadyFailed
 
 		// Otherwise, the payment has a succeed status.
 		case test.settleFirst && test.settleLast:
 			finalStatus = StatusSucceeded
-			registerErr = ErrPaymentAlreadySucceeded
+			registerErr = paymentsdb.ErrPaymentAlreadySucceeded
 		}
 
 		assertPaymentStatus(
@@ -1021,27 +1022,21 @@ func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
 	b.AttemptID = 1
 	b.Route.FinalHop().MPP = nil
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	if err != ErrMPPayment {
-		t.Fatalf("expected ErrMPPayment, got: %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrMPPayment)
 
 	// Try to register attempt one with a different payment address.
 	b.Route.FinalHop().MPP = record.NewMPP(
 		info.Value, [32]byte{2},
 	)
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	if err != ErrMPPPaymentAddrMismatch {
-		t.Fatalf("expected ErrMPPPaymentAddrMismatch, got: %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrMPPPaymentAddrMismatch)
 
 	// Try registering one with a different total amount.
 	b.Route.FinalHop().MPP = record.NewMPP(
 		info.Value/2, [32]byte{1},
 	)
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	if err != ErrMPPTotalAmountMismatch {
-		t.Fatalf("expected ErrMPPTotalAmountMismatch, got: %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrMPPTotalAmountMismatch)
 
 	// Create and init a new payment. This time we'll check that we cannot
 	// register an MPP attempt if we already registered a non-MPP one.
@@ -1063,9 +1058,7 @@ func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
 	)
 
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	if err != ErrNonMPPayment {
-		t.Fatalf("expected ErrNonMPPayment, got: %v", err)
-	}
+	require.ErrorIs(t, err, paymentsdb.ErrNonMPPayment)
 }
 
 // TestDeleteFailedAttempts checks that DeleteFailedAttempts properly removes
@@ -1171,7 +1164,7 @@ func assertPaymentStatus(t *testing.T, p *KVPaymentsDB,
 	t.Helper()
 
 	payment, err := p.FetchPayment(hash)
-	if errors.Is(err, ErrPaymentNotInitiated) {
+	if errors.Is(err, paymentsdb.ErrPaymentNotInitiated) {
 		return
 	}
 	if err != nil {
@@ -1271,7 +1264,7 @@ func fetchPaymentIndexEntry(_ *testing.T, p *KVPaymentsDB,
 
 		indexValue := indexBucket.Get(key)
 		if indexValue == nil {
-			return errNoSequenceNrIndex
+			return paymentsdb.ErrNoSequenceNrIndex
 		}
 
 		r := bytes.NewReader(indexValue)
@@ -1307,7 +1300,7 @@ func assertPaymentIndex(t *testing.T, p *KVPaymentsDB,
 // exist.
 func assertNoIndex(t *testing.T, p *KVPaymentsDB, seqNr uint64) {
 	_, err := fetchPaymentIndexEntry(t, p, seqNr)
-	require.Equal(t, errNoSequenceNrIndex, err)
+	require.Equal(t, paymentsdb.ErrNoSequenceNrIndex, err)
 }
 
 // payment is a helper structure that holds basic information on a test payment,
@@ -1669,14 +1662,14 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 			name:           "lookup non-existent duplicate",
 			paymentHash:    hasDuplicates.PaymentIdentifier,
 			sequenceNumber: 999999,
-			expectedErr:    ErrDuplicateNotFound,
+			expectedErr:    paymentsdb.ErrDuplicateNotFound,
 		},
 		{
 			name: "lookup duplicate, no duplicates " +
 				"bucket",
 			paymentHash:    noDuplicates.PaymentIdentifier,
 			sequenceNumber: duplicateTwoSeqNr,
-			expectedErr:    ErrNoDuplicateBucket,
+			expectedErr:    paymentsdb.ErrNoDuplicateBucket,
 		},
 	}
 

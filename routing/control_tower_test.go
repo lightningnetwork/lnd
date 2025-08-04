@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +54,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	// Subscription should fail when the payment is not known.
 	_, err := pControl.SubscribePayment(lntypes.Hash{1})
-	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentNotInitiated)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a

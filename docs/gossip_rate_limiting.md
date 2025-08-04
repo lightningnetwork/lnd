@@ -62,6 +62,25 @@ Large routing nodes handling many simultaneous peer connections might benefit
 from increasing this value to 10 or 15, while resource-constrained nodes should
 keep it at the default or even reduce it slightly.
 
+### Preventing Spam: gossip.ban-threshold
+
+To protect your node from spam and misbehaving peers, LND uses a ban score
+system controlled by `gossip.ban-threshold`. Each time a peer sends a gossip
+message that is considered invalid, its ban score is incremented. Once the score
+reaches this threshold, the peer is banned for a default of 48 hours, and your
+node will no longer process gossip messages from them.
+
+A gossip message can be considered invalid for several reasons, including:
+- Invalid signature on the announcement.
+- Stale timestamp, older than what we already have.
+- Too many channel updates for the same channel in a short period.
+- Announcing a channel that is not found on-chain.
+- Announcing a channel that has already been closed.
+- Announcing a channel with an invalid proof.
+
+The default value is 100. Setting this value to 0 disables banning completely,
+which is not recommended for most operators.
+
 ### Understanding Connection Limits: num-restricted-slots
 
 The `num-restricted-slots` configuration deserves special attention because it

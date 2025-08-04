@@ -120,7 +120,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
-	for _, channel := range chansInHorizon {
+	for channel := range chansInHorizon {
 		// If the channel hasn't been fully advertised yet, or is a
 		// private channel, then we'll skip it as we can't construct a
 		// full authentication proof if one is requested.
@@ -163,30 +163,12 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	// within the horizon as well. We send these second to ensure that they
 	// follow any active channels they have.
 	nodeAnnsInHorizon, err := c.graph.NodeUpdatesInHorizon(
-		startTime, endTime,
+		startTime, endTime, graphdb.WithIterPublicNodesOnly(),
 	)
 	if err != nil {
 		return nil, err
 	}
-	for _, nodeAnn := range nodeAnnsInHorizon {
-		nodeAnn := nodeAnn
-
-		// Ensure we only forward nodes that are publicly advertised to
-		// prevent leaking information about nodes.
-		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)
-		if err != nil {
-			log.Errorf("Unable to determine if node %x is "+
-				"advertised: %v", nodeAnn.PubKeyBytes, err)
-			continue
-		}
-
-		if !isNodePublic {
-			log.Tracef("Skipping forwarding announcement for "+
-				"node %x due to being unadvertised",
-				nodeAnn.PubKeyBytes)
-			continue
-		}
-
+	for nodeAnn := range nodeAnnsInHorizon {
 		nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
 		if err != nil {
 			return nil, err

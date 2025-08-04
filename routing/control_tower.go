@@ -151,7 +151,7 @@ func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
 // controlTower is persistent implementation of ControlTower to restrict
 // double payment sending.
 type controlTower struct {
-	db *channeldb.PaymentControl
+	db *channeldb.KVPaymentsDB
 
 	// subscriberIndex is used to provide a unique id for each subscriber
 	// to all payments. This is used to easily remove the subscriber when
@@ -168,7 +168,7 @@ type controlTower struct {
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db *channeldb.PaymentControl) ControlTower {
+func NewControlTower(db *channeldb.KVPaymentsDB) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(

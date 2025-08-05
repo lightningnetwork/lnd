@@ -472,12 +472,30 @@ WHERE c.version = @version
        OR
        (cp2.last_update >= @start_time AND cp2.last_update < @end_time)
   )
+  -- Pagination using compound cursor (max_update_time, id).
+  -- We use COALESCE with -1 as sentinel since timestamps are always positive.
+  AND (
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END > COALESCE(sqlc.narg('last_update_time'), -1))
+       OR 
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END = COALESCE(sqlc.narg('last_update_time'), -1) 
+       AND c.id > COALESCE(sqlc.narg('last_id'), -1))
+  )
 ORDER BY
     CASE
         WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
             THEN COALESCE(cp1.last_update, 0)
         ELSE COALESCE(cp2.last_update, 0)
-        END ASC;
+    END ASC,
+    c.id ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: GetChannelByOutpointWithPolicies :one
 SELECT

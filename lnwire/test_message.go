@@ -699,7 +699,9 @@ func (c *ClosingSigned) RandTestMessage(t *rapid.T) Message {
 		FeeSatoshis: btcutil.Amount(
 			rapid.Int64Range(0, 1000000).Draw(t, "feeSatoshis"),
 		),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64((PartialSigType)(nil).TypeVal()),
+		),
 	}
 
 	if usePartialSig {

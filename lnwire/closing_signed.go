@@ -81,19 +81,19 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 	}
 
 	partialSig := c.PartialSig.Zero()
-	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &partialSig,
+	)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[c.PartialSig.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[c.PartialSig.TlvType()]; ok {
 		c.PartialSig = tlv.SomeRecordT(partialSig)
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraData = tlvRecords
-	}
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -103,11 +103,19 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w *bytes.Buffer, pver uint32) error {
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	// Get producers from extra data.
+	producers, err := c.ExtraData.RecordProducers()
+	if err != nil {
+		return err
+	}
+
 	c.PartialSig.WhenSome(func(sig PartialSigTLV) {
-		recordProducers = append(recordProducers, &sig)
+		producers = append(producers, &sig)
 	})
-	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
@@ -124,7 +132,7 @@ func (c *ClosingSigned) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	return WriteBytes(w, tlvData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

@@ -1143,18 +1143,39 @@ WHERE c.version = $1
        OR
        (cp2.last_update >= $2 AND cp2.last_update < $3)
   )
+  -- Pagination using compound cursor (max_update_time, id).
+  -- We use COALESCE with -1 as sentinel since timestamps are always positive.
+  AND (
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END > COALESCE($4, -1))
+       OR 
+       (CASE
+           WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
+               THEN COALESCE(cp1.last_update, 0)
+           ELSE COALESCE(cp2.last_update, 0)
+       END = COALESCE($4, -1) 
+       AND c.id > COALESCE($5, -1))
+  )
 ORDER BY
     CASE
         WHEN COALESCE(cp1.last_update, 0) >= COALESCE(cp2.last_update, 0)
             THEN COALESCE(cp1.last_update, 0)
         ELSE COALESCE(cp2.last_update, 0)
-        END ASC
+    END ASC,
+    c.id ASC
+LIMIT COALESCE($6, 999999999)
 `
 
 type GetChannelsByPolicyLastUpdateRangeParams struct {
-	Version   int16
-	StartTime sql.NullInt64
-	EndTime   sql.NullInt64
+	Version        int16
+	StartTime      sql.NullInt64
+	EndTime        sql.NullInt64
+	LastUpdateTime sql.NullInt64
+	LastID         sql.NullInt64
+	MaxResults     interface{}
 }
 
 type GetChannelsByPolicyLastUpdateRangeRow struct {
@@ -1194,7 +1215,14 @@ type GetChannelsByPolicyLastUpdateRangeRow struct {
 }
 
 func (q *Queries) GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error) {
-	rows, err := q.db.QueryContext(ctx, getChannelsByPolicyLastUpdateRange, arg.Version, arg.StartTime, arg.EndTime)
+	rows, err := q.db.QueryContext(ctx, getChannelsByPolicyLastUpdateRange,
+		arg.Version,
+		arg.StartTime,
+		arg.EndTime,
+		arg.LastUpdateTime,
+		arg.LastID,
+		arg.MaxResults,
+	)
 	if err != nil {
 		return nil, err
 	}

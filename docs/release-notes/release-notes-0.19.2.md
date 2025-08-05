@@ -113,5 +113,10 @@ much more slowly.
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Calvin Zachman 
+* George Tsagkarelis
 * hieblmi
+* Oliver Gugger
 * Yong Yu
+* Ziggie

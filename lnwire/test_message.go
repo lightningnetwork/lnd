@@ -350,7 +350,9 @@ func (a *ChannelReestablish) RandTestMessage(t *rapid.T) Message {
 		),
 		LastRemoteCommitSecret:    RandPaymentPreimage(t),
 		LocalUnrevokedCommitPoint: RandPubKey(t),
-		ExtraData:                 RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(nonceRecordType), uint64(CRDynHeight),
+		),
 	}
 
 	// Randomly decide whether to include optional fields

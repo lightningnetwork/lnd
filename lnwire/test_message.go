@@ -573,7 +573,7 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 		),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		ExtraData:    RandExtraRecords(t, 1, 2, 3),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")
@@ -633,7 +633,7 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		ChannelID:    RandChannelID(t),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		ExtraData:    RandExtraRecords(t, 1, 2, 3),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")

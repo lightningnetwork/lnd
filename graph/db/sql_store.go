@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"math"
 	"net"
@@ -541,42 +542,89 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 // announcements.
 //
 // NOTE: This is part of the V1Store interface.
-func (s *SQLStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.LightningNode, error) {
+func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
+	opts ...Option) (iter.Seq[models.LightningNode], error) {
 
-	ctx := context.TODO()
-
-	var nodes []models.LightningNode
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbNodes, err := db.GetNodesByLastUpdateRange(
-			ctx, sqlc.GetNodesByLastUpdateRangeParams{
-				StartTime: sqldb.SQLInt64(startTime.Unix()),
-				EndTime:   sqldb.SQLInt64(endTime.Unix()),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch nodes: %w", err)
-		}
-
-		err = forEachNodeInBatch(
-			ctx, s.cfg.PaginationCfg, db, dbNodes,
-			func(_ int64, node *models.LightningNode) error {
-				nodes = append(nodes, *node)
-
-				return nil
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to build nodes: %w", err)
-		}
-
-		return nil
-	}, sqldb.NoOpReset)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
+	// Apply options.
+	cfg := defaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
 	}
 
-	return nodes, nil
+	return func(yield func(models.LightningNode) bool) {
+		var (
+			ctx            = context.TODO()
+			lastUpdateTime sql.NullInt64
+			lastPubKey     = make([]byte, 33)
+			hasMore        = true
+		)
+
+		// Each iteration, we'll read a batch amount of nodes, yield
+		// them, then decide is we have more or not.
+		for hasMore {
+			var batch []models.LightningNode
+
+			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+				rows, err := db.GetNodesByLastUpdateRange(
+					ctx, sqlc.GetNodesByLastUpdateRangeParams{
+						StartTime:  sqldb.SQLInt64(startTime.Unix()),
+						EndTime:    sqldb.SQLInt64(endTime.Unix()),
+						LastUpdate: lastUpdateTime,
+						LastPubKey: lastPubKey,
+						OnlyPublic: sql.NullBool{Bool: cfg.iterPublicNodes, Valid: true},
+						MaxResults: sql.NullInt32{
+							Int32: int32(cfg.nodeUpdateIterBatchSize),
+							Valid: true,
+						},
+					},
+				)
+				if err != nil {
+					return err
+				}
+
+				hasMore = len(rows) == cfg.nodeUpdateIterBatchSize
+
+				err = forEachNodeInBatch(
+					ctx, s.cfg.PaginationCfg, db, rows,
+					func(_ int64, node *models.LightningNode) error {
+						batch = append(batch, *node)
+
+						// Update pagination cursors
+						// based on the last processed
+						// node.
+						lastUpdateTime = sql.NullInt64{
+							Int64: node.LastUpdate.Unix(),
+							Valid: true,
+						}
+						lastPubKey = node.PubKeyBytes[:]
+
+						return nil
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("unable to build nodes: %w", err)
+				}
+
+				return nil
+			}, sqldb.NoOpReset)
+
+			if err != nil {
+				log.Errorf("NodeUpdatesInHorizon batch error: %v", err)
+				return
+			}
+
+			for _, node := range batch {
+				if !yield(node) {
+					return
+				}
+			}
+
+			// If the batch didn't yield anything, then we're done.
+			if len(batch) == 0 {
+				break
+			}
+		}
+	}, nil
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An

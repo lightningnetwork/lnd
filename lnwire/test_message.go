@@ -420,16 +420,10 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 	// By default, our extra opaque data will just be random TLV but if we
 	// include an inbound fee, then we will also set the record in the
 	// extra opaque data.
-	var (
-		customRecords, _ = RandCustomRecords(t, nil, false)
-		inboundFee       tlv.OptionalRecordT[tlv.TlvType55555, Fee]
-	)
+	var inboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+
 	includeInboundFee := rapid.Bool().Draw(t, "includeInboundFee")
 	if includeInboundFee {
-		if customRecords == nil {
-			customRecords = make(CustomRecords)
-		}
-
 		inFeeBase := int32(
 			rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase"),
 		)
@@ -448,12 +442,7 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 		feeRecord := fee.Record()
 		err := feeRecord.Encode(&b)
 		require.NoError(t, err)
-
-		customRecords[uint64(FeeRecordType)] = b.Bytes()
 	}
-
-	extraBytes, err := customRecords.Serialize()
-	require.NoError(t, err)
 
 	return &ChannelUpdate1{
 		Signature:      RandSignature(t),
@@ -478,7 +467,7 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 		),
 		HtlcMaximumMsat: maxHtlc,
 		InboundFee:      inboundFee,
-		ExtraOpaqueData: extraBytes,
+		ExtraOpaqueData: RandExtraRecords(t, uint64(FeeRecordType)),
 	}
 }
 

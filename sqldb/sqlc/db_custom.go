@@ -126,3 +126,24 @@ func (r GetChannelsByOutpointsRow) Node1Pub() []byte {
 func (r GetChannelsByOutpointsRow) Node2Pub() []byte {
 	return r.Node2Pubkey
 }
+
+// Channel returns the GraphChannel associated with this interface.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDRangeRow) Channel() GraphChannel {
+	return r.GraphChannel
+}
+
+// Node1Pub returns the public key of the first node as a byte slice.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDRangeRow) Node1Pub() []byte {
+	return r.Node1PubKey
+}
+
+// Node2Pub returns the public key of the second node as a byte slice.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDRangeRow) Node2Pub() []byte {
+	return r.Node2PubKey
+}

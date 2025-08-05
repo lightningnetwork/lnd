@@ -2627,26 +2627,28 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 			return fmt.Errorf("unable to fetch channels: %w", err)
 		}
 
-		chanIDsToDelete := make([]int64, len(rows))
-		for i, row := range rows {
-			node1, node2, err := buildNodeVertices(
-				row.Node1PubKey, row.Node2PubKey,
+		if len(rows) == 0 {
+			// No channels to disconnect, but still clean up prune
+			// log.
+			return db.DeletePruneLogEntriesInRange(
+				ctx, sqlc.DeletePruneLogEntriesInRangeParams{
+					StartHeight: int64(height),
+					EndHeight: int64(
+						endShortChanID.BlockHeight,
+					),
+				},
 			)
-			if err != nil {
-				return err
-			}
-
-			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel,
-				node1, node2,
-			)
-			if err != nil {
-				return err
-			}
-
-			chanIDsToDelete[i] = row.GraphChannel.ID
-			removedChans = append(removedChans, channel)
 		}
+
+		// Batch build all channel edges for disconnection.
+		channelEdges, chanIDsToDelete, err := batchBuildChannelInfo(
+			ctx, s.cfg, db, rows,
+		)
+		if err != nil {
+			return err
+		}
+
+		removedChans = channelEdges
 
 		err = s.deleteChannels(ctx, db, chanIDsToDelete)
 		if err != nil {

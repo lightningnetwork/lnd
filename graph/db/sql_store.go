@@ -1048,122 +1048,215 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	}, reset)
 }
 
-// ChanUpdatesInHorizon returns all the known channel edges which have at least
-// one edge that has an update timestamp within the specified horizon.
-//
-// NOTE: This is part of the V1Store interface.
-func (s *SQLStore) ChanUpdatesInHorizon(startTime,
-	endTime time.Time) ([]ChannelEdge, error) {
+// extractMaxUpdateTime returns the maximum of the two policy update times.
+// This is used for pagination cursor tracking.
+func extractMaxUpdateTime(row sqlc.GetChannelsByPolicyLastUpdateRangeRow) int64 {
+	if row.Policy1LastUpdate.Valid && row.Policy2LastUpdate.Valid {
+		return max(row.Policy1LastUpdate.Int64, row.Policy2LastUpdate.Int64)
+	} else if row.Policy1LastUpdate.Valid {
+		return row.Policy1LastUpdate.Int64
+	} else if row.Policy2LastUpdate.Valid {
+		return row.Policy2LastUpdate.Int64
+	}
+	return 0
+}
+
+// buildChannelFromRow constructs a ChannelEdge from a database row.
+// This includes building the nodes, channel info, and policies.
+func (s *SQLStore) buildChannelFromRow(ctx context.Context, db SQLQueries,
+	row sqlc.GetChannelsByPolicyLastUpdateRangeRow) (ChannelEdge, error) {
+
+	node1, node2, err := buildNodes(
+		ctx, db, row.GraphNode, row.GraphNode_2,
+	)
+	if err != nil {
+		return ChannelEdge{}, err
+	}
+
+	channel, err := getAndBuildEdgeInfo(
+		ctx, db, s.cfg.ChainHash,
+		row.GraphChannel, node1.PubKeyBytes,
+		node2.PubKeyBytes,
+	)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build "+
+			"channel info: %w", err)
+	}
+
+	dbPol1, dbPol2, err := extractChannelPolicies(row)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to extract "+
+			"channel policies: %w", err)
+	}
+
+	p1, p2, err := getAndBuildChanPolicies(
+		ctx, db, dbPol1, dbPol2, channel.ChannelID,
+		node1.PubKeyBytes, node2.PubKeyBytes,
+	)
+	if err != nil {
+		return ChannelEdge{}, fmt.Errorf("unable to build "+
+			"channel policies: %w", err)
+	}
+
+	return ChannelEdge{
+		Info:    channel,
+		Policy1: p1,
+		Policy2: p2,
+		Node1:   node1,
+		Node2:   node2,
+	}, nil
+}
+
+// updateChanCacheBatch updates the channel cache with multiple edges at once.
+// This method acquires the cache lock only once for the entire batch.
+func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
+	if len(edgesToCache) == 0 {
+		return
+	}
 
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 
-	var (
-		ctx = context.TODO()
-		// To ensure we don't return duplicate ChannelEdges, we'll use
-		// an additional map to keep track of the edges already seen to
-		// prevent re-adding it.
-		edgesSeen    = make(map[uint64]struct{})
-		edgesToCache = make(map[uint64]ChannelEdge)
-		edges        []ChannelEdge
-		hits         int
-	)
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		rows, err := db.GetChannelsByPolicyLastUpdateRange(
-			ctx, sqlc.GetChannelsByPolicyLastUpdateRangeParams{
-				Version:   int16(ProtocolV1),
-				StartTime: sqldb.SQLInt64(startTime.Unix()),
-				EndTime:   sqldb.SQLInt64(endTime.Unix()),
-			},
+	for chanID, edge := range edgesToCache {
+		s.chanCache.insert(chanID, edge)
+	}
+}
+
+// ChanUpdatesInHorizon returns all the known channel edges which have at least
+// one edge that has an update timestamp within the specified horizon.
+//
+// Iterator Lifecycle:
+// 1. Initialize state (edgesSeen map, cache tracking, pagination cursors)
+// 2. Query batch of channels with policies in time range
+// 3. For each channel: check if seen, check cache, or build from DB
+// 4. Yield channels to caller
+// 5. Update cache after successful batch
+// 6. Repeat with updated pagination cursor until no more results
+//
+// NOTE: This is part of the V1Store interface.
+func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
+	opts ...Option) (iter.Seq[ChannelEdge], error) {
+
+	// Apply options.
+	cfg := defaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return func(yield func(ChannelEdge) bool) {
+
+		var (
+			ctx            = context.TODO()
+			edgesSeen      = make(map[uint64]struct{})
+			edgesToCache   = make(map[uint64]ChannelEdge)
+			hits           int
+			total          int
+			lastUpdateTime sql.NullInt64
+			lastID         sql.NullInt64
+			hasMore        = true
 		)
-		if err != nil {
-			return err
+
+		// Each iteration, we'll read a batch amount of channel updates
+		// (consulting the cache along the way), yield them, then loop
+		// back to decide if we have any more updates to read out.
+		for hasMore {
+			var batch []ChannelEdge
+
+			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+				rows, err := db.GetChannelsByPolicyLastUpdateRange(
+					ctx, sqlc.GetChannelsByPolicyLastUpdateRangeParams{
+						Version:        int16(ProtocolV1),
+						StartTime:      sqldb.SQLInt64(startTime.Unix()),
+						EndTime:        sqldb.SQLInt64(endTime.Unix()),
+						LastUpdateTime: lastUpdateTime,
+						LastID:         lastID,
+						MaxResults: sql.NullInt32{
+							Int32: int32(cfg.chanUpdateIterBatchSize),
+							Valid: true,
+						},
+					},
+				)
+				if err != nil {
+					return err
+				}
+
+				hasMore = len(rows) == cfg.chanUpdateIterBatchSize
+
+				for _, row := range rows {
+					// Update pagination cursor.
+					lastUpdateTime = sql.NullInt64{
+						Int64: extractMaxUpdateTime(row),
+						Valid: true,
+					}
+					lastID = sql.NullInt64{
+						Int64: row.GraphChannel.ID,
+						Valid: true,
+					}
+
+					// Skip if we've already processed this channel.
+					chanIDInt := byteOrder.Uint64(row.GraphChannel.Scid)
+					if _, ok := edgesSeen[chanIDInt]; ok {
+						continue
+					}
+
+					// Check cache first.
+					if channel, ok := s.chanCache.get(chanIDInt); ok {
+						hits++
+						total++
+						edgesSeen[chanIDInt] = struct{}{}
+						batch = append(batch, channel)
+						continue
+					}
+
+					chanEdge, err := s.buildChannelFromRow(ctx, db, row)
+					if err != nil {
+						return err
+					}
+
+					edgesSeen[chanIDInt] = struct{}{}
+					edgesToCache[chanIDInt] = chanEdge
+
+					batch = append(batch, chanEdge)
+
+					total++
+				}
+
+				return nil
+			}, func() {
+				batch = nil
+			})
+
+			if err != nil {
+				log.Errorf("ChanUpdatesInHorizon batch error: %v", err)
+				return
+			}
+
+			for _, edge := range batch {
+				if !yield(edge) {
+					return
+				}
+			}
+
+			// Update cache after successful batch yield, setting
+			// the cache lock only once for the entire batch.
+			s.updateChanCacheBatch(edgesToCache)
+			edgesToCache = make(map[uint64]ChannelEdge)
+
+			// If the batch didn't yield anything, then we're done.
+			if len(batch) == 0 {
+				break
+			}
 		}
 
-		for _, row := range rows {
-			// If we've already retrieved the info and policies for
-			// this edge, then we can skip it as we don't need to do
-			// so again.
-			chanIDInt := byteOrder.Uint64(row.GraphChannel.Scid)
-			if _, ok := edgesSeen[chanIDInt]; ok {
-				continue
-			}
-
-			if channel, ok := s.chanCache.get(chanIDInt); ok {
-				hits++
-				edgesSeen[chanIDInt] = struct{}{}
-				edges = append(edges, channel)
-
-				continue
-			}
-
-			node1, node2, err := buildNodes(
-				ctx, db, row.GraphNode, row.GraphNode_2,
-			)
-			if err != nil {
-				return err
-			}
-
-			channel, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel,
-				node1.PubKeyBytes, node2.PubKeyBytes,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to build channel "+
-					"info: %w", err)
-			}
-
-			dbPol1, dbPol2, err := extractChannelPolicies(row)
-			if err != nil {
-				return fmt.Errorf("unable to extract channel "+
-					"policies: %w", err)
-			}
-
-			p1, p2, err := getAndBuildChanPolicies(
-				ctx, db, dbPol1, dbPol2, channel.ChannelID,
-				node1.PubKeyBytes, node2.PubKeyBytes,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to build channel "+
-					"policies: %w", err)
-			}
-
-			edgesSeen[chanIDInt] = struct{}{}
-			chanEdge := ChannelEdge{
-				Info:    channel,
-				Policy1: p1,
-				Policy2: p2,
-				Node1:   node1,
-				Node2:   node2,
-			}
-			edges = append(edges, chanEdge)
-			edgesToCache[chanIDInt] = chanEdge
+		if total > 0 {
+			log.Debugf("ChanUpdatesInHorizon hit percentage: "+
+				"%.2f (%d/%d)", float64(hits)*100/float64(total),
+				hits, total)
+		} else {
+			log.Debugf("ChanUpdatesInHorizon returned no edges "+
+				"in horizon (%s, %s)", startTime, endTime)
 		}
-
-		return nil
-	}, func() {
-		edgesSeen = make(map[uint64]struct{})
-		edgesToCache = make(map[uint64]ChannelEdge)
-		edges = nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channels: %w", err)
-	}
-
-	// Insert any edges loaded from disk into the cache.
-	for chanid, channel := range edgesToCache {
-		s.chanCache.insert(chanid, channel)
-	}
-
-	if len(edges) > 0 {
-		log.Debugf("ChanUpdatesInHorizon hit percentage: %.2f (%d/%d)",
-			float64(hits)*100/float64(len(edges)), hits, len(edges))
-	} else {
-		log.Debugf("ChanUpdatesInHorizon returned no edges in "+
-			"horizon (%s, %s)", startTime, endTime)
-	}
-
-	return edges, nil
+	}, nil
 }
 
 // ForEachNodeCached is similar to forEachNode, but it returns DirectedChannel

@@ -22,6 +22,8 @@ type ChannelReady struct {
 	// next commitment transaction for the channel.
 	NextPerCommitmentPoint *btcec.PublicKey
 
+	// NOTE: The following fields are TLV records.
+	//
 	// AliasScid is an alias ShortChannelID used to refer to the underlying
 	// channel. It can be used instead of the confirmed on-chain
 	// ShortChannelID for forwarding.
@@ -95,8 +97,8 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 		nodeNonce  = tlv.ZeroRecordT[tlv.TlvType0, Musig2Nonce]()
 		btcNonce   = tlv.ZeroRecordT[tlv.TlvType2, Musig2Nonce]()
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&btcNonce, &aliasScid, &nodeNonce, &localNonce,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &btcNonce, &aliasScid, &nodeNonce, &localNonce,
 	)
 	if err != nil {
 		return err
@@ -104,24 +106,20 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 
 	// We'll only set AliasScid if the corresponding TLV type was included
 	// in the stream.
-	if val, ok := typeMap[AliasScidRecordType]; ok && val == nil {
+	if _, ok := knownRecords[AliasScidRecordType]; ok {
 		c.AliasScid = &aliasScid
 	}
-	if val, ok := typeMap[c.NextLocalNonce.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[c.NextLocalNonce.TlvType()]; ok {
 		c.NextLocalNonce = tlv.SomeRecordT(localNonce)
 	}
-	val, ok := typeMap[c.AnnouncementBitcoinNonce.TlvType()]
-	if ok && val == nil {
+	if _, ok := knownRecords[c.AnnouncementBitcoinNonce.TlvType()]; ok {
 		c.AnnouncementBitcoinNonce = tlv.SomeRecordT(btcNonce)
 	}
-	val, ok = typeMap[c.AnnouncementNodeNonce.TlvType()]
-	if ok && val == nil {
+	if _, ok := knownRecords[c.AnnouncementNodeNonce.TlvType()]; ok {
 		c.AnnouncementNodeNonce = tlv.SomeRecordT(nodeNonce)
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraData = tlvRecords
-	}
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -140,31 +138,38 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	// We'll only encode the AliasScid in a TLV segment if it exists.
-	recordProducers := make([]tlv.RecordProducer, 0, 4)
-	if c.AliasScid != nil {
-		recordProducers = append(recordProducers, c.AliasScid)
-	}
-	c.NextLocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
-		recordProducers = append(recordProducers, &localNonce)
-	})
-	c.AnnouncementBitcoinNonce.WhenSome(
-		func(nonce tlv.RecordT[tlv.TlvType2, Musig2Nonce]) {
-			recordProducers = append(recordProducers, &nonce)
-		},
-	)
-	c.AnnouncementNodeNonce.WhenSome(
-		func(nonce tlv.RecordT[tlv.TlvType0, Musig2Nonce]) {
-			recordProducers = append(recordProducers, &nonce)
-		},
-	)
-
-	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	// Get producers from extra data.
+	producers, err := c.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	// We'll only encode the AliasScid in a TLV segment if it exists.
+	if c.AliasScid != nil {
+		producers = append(producers, c.AliasScid)
+	}
+	c.NextLocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		producers = append(producers, &localNonce)
+	})
+	c.AnnouncementBitcoinNonce.WhenSome(
+		func(nonce tlv.RecordT[tlv.TlvType2, Musig2Nonce]) {
+			producers = append(producers, &nonce)
+		},
+	)
+	c.AnnouncementNodeNonce.WhenSome(
+		func(nonce tlv.RecordT[tlv.TlvType0, Musig2Nonce]) {
+			producers = append(producers, &nonce)
+		},
+	)
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

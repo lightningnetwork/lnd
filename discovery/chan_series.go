@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -114,12 +115,13 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 	// First, we'll query for all the set of channels that have an update
 	// that falls within the specified horizon.
-	chansInHorizon, err := c.graph.ChanUpdatesInHorizon(
+	chansInHorizonIter, err := c.graph.ChanUpdatesInHorizon(
 		startTime, endTime,
 	)
 	if err != nil {
 		return nil, err
 	}
+	chansInHorizon := fn.Collect(chansInHorizonIter)
 
 	// nodesFromChan records the nodes seen from the channels.
 	nodesFromChan := make(map[[33]byte]struct{}, len(chansInHorizon)*2)

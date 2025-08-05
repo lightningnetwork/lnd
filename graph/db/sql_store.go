@@ -933,7 +933,8 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) ChanUpdatesInHorizon(startTime,
-	endTime time.Time) ([]ChannelEdge, error) {
+	endTime time.Time,
+	opts ...IteratorOption) (iter.Seq[ChannelEdge], error) {
 
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
@@ -1033,7 +1034,13 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime,
 			"horizon (%s, %s)", startTime, endTime)
 	}
 
-	return edges, nil
+	return func(yield func(ChannelEdge) bool) {
+		for _, edge := range edges {
+			if !yield(edge) {
+				return
+			}
+		}
+	}, nil
 }
 
 // ForEachNodeCached is similar to forEachNode, but it returns DirectedChannel

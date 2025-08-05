@@ -2028,10 +2028,11 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
-	chanUpdates, err := graph.ChanUpdatesInHorizon(
+	chanUpdatesIter, err := graph.ChanUpdatesInHorizon(
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
 	require.NoError(t, err, "unable to updates for updates")
+	chanUpdates := fn.Collect(chanUpdatesIter)
 	if len(chanUpdates) != 0 {
 		t.Fatalf("expected 0 chan updates, instead got %v",
 			len(chanUpdates))
@@ -2144,12 +2145,13 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		},
 	}
 	for _, queryCase := range queryCases {
-		resp, err := graph.ChanUpdatesInHorizon(
+		respIter, err := graph.ChanUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
 		if err != nil {
 			t.Fatalf("unable to query for updates: %v", err)
 		}
+		resp := fn.Collect(respIter)
 
 		if len(resp) != len(queryCase.resp) {
 			t.Fatalf("expected %v chans, got %v chans",

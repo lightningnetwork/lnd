@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -152,8 +153,9 @@ type DB interface {
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time) (
-		[]graphdb.ChannelEdge, error)
+	ChanUpdatesInHorizon(startTime, endTime time.Time,
+		opts ...graphdb.IteratorOption) (
+		iter.Seq[graphdb.ChannelEdge], error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the
 	// database and marks them as zombies. This ensures that we're unable to

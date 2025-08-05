@@ -239,6 +239,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testWumboChannels,
 	},
 	{
+		Name:     "max htlc path payment",
+		TestFunc: testMaxHtlcPathPayment,
+	},
+	{
 		Name:     "max htlc pathfind",
 		TestFunc: testMaxHtlcPathfind,
 	},

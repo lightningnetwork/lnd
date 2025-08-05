@@ -410,6 +410,8 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		channelCount++
+		chunk++
+
 		err = migrateSingleChannel(
 			ctx, sqlDB, channel, policy1, policy2, migChanPolicy,
 		)

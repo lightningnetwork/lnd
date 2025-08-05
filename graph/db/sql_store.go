@@ -1680,7 +1680,8 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 				}
 
 				nodeKey1, nodeKey2 = makeZombiePubkeys(
-					info, e1UpdateTime, e2UpdateTime,
+					info.NodeKey1Bytes, info.NodeKey2Bytes,
+					e1UpdateTime, e2UpdateTime,
 				)
 			}
 

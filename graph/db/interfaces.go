@@ -2,6 +2,7 @@ package graphdb
 
 import (
 	"context"
+	"iter"
 	"net"
 	"time"
 
@@ -124,8 +125,8 @@ type V1Store interface { //nolint:interfacebloat
 	// an update timestamp within the passed range. This method can be used
 	// by two nodes to quickly determine if they have the same set of up to
 	// date node announcements.
-	NodeUpdatesInHorizon(startTime,
-		endTime time.Time) ([]models.LightningNode, error)
+	NodeUpdatesInHorizon(startTime, endTime time.Time,
+		opts ...Option) (iter.Seq[models.LightningNode], error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then

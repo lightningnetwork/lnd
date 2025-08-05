@@ -220,8 +220,8 @@ type V1Store interface { //nolint:interfacebloat
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time) ([]ChannelEdge,
-		error)
+	ChanUpdatesInHorizon(startTime, endTime time.Time,
+		opts ...IteratorOption) (iter.Seq[ChannelEdge], error)
 
 	// FilterKnownChanIDs takes a set of channel IDs and return the subset
 	// of chan ID's that we don't know and are not known zombies of the

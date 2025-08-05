@@ -71,3 +71,37 @@ func (r GetChannelsByPolicyLastUpdateRangeRow) Node1() GraphNode {
 func (r GetChannelsByPolicyLastUpdateRangeRow) Node2() GraphNode {
 	return r.GraphNode_2
 }
+
+// ChannelAndNodeIDs is an interface that provides access to a channel and its
+// two node public keys.
+type ChannelAndNodeIDs interface {
+	// Channel returns the GraphChannel associated with this interface.
+	Channel() GraphChannel
+
+	// Node1Pub returns the public key of the first node as a byte slice.
+	Node1Pub() []byte
+
+	// Node2Pub returns the public key of the second node as a byte slice.
+	Node2Pub() []byte
+}
+
+// Channel returns the GraphChannel associated with this interface.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDWithPoliciesRow) Channel() GraphChannel {
+	return r.GraphChannel
+}
+
+// Node1Pub returns the public key of the first node as a byte slice.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDWithPoliciesRow) Node1Pub() []byte {
+	return r.GraphNode.PubKey
+}
+
+// Node2Pub returns the public key of the second node as a byte slice.
+//
+// NOTE: This method is part of the ChannelAndNodeIDs interface.
+func (r GetChannelsBySCIDWithPoliciesRow) Node2Pub() []byte {
+	return r.GraphNode_2.PubKey
+}

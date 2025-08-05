@@ -3231,7 +3231,7 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 		return 0, nil, fmt.Errorf("unable to fetch node: %w", err)
 	}
 
-	node, err := buildNode(ctx, db, &dbNode)
+	node, err := buildNode(ctx, db, dbNode)
 	if err != nil {
 		return 0, nil, fmt.Errorf("unable to build node: %w", err)
 	}
@@ -3256,7 +3256,7 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 // record. The node's features, addresses and extra signed fields are also
 // fetched from the database and set on the node.
 func buildNode(ctx context.Context, db SQLQueries,
-	dbNode *sqlc.GraphNode) (*models.LightningNode, error) {
+	dbNode sqlc.GraphNode) (*models.LightningNode, error) {
 
 	// NOTE: buildNode is only used to load the data for a single node, and
 	// so no paged queries will be performed. This means that it's ok to
@@ -3276,7 +3276,7 @@ func buildNode(ctx context.Context, db SQLQueries,
 // from the provided sqlc.GraphNode and batchNodeData. If the node does have
 // features/addresses/extra fields, then the corresponding fields are expected
 // to be present in the batchNodeData.
-func buildNodeWithBatchData(dbNode *sqlc.GraphNode,
+func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	batchData *batchNodeData) (*models.LightningNode, error) {
 
 	if dbNode.Version != int16(ProtocolV1) {
@@ -3364,7 +3364,7 @@ func forEachNodeInBatch(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	for _, dbNode := range nodes {
-		node, err := buildNodeWithBatchData(&dbNode, batchData)
+		node, err := buildNodeWithBatchData(dbNode, batchData)
 		if err != nil {
 			return fmt.Errorf("unable to build node(id=%d): %w",
 				dbNode.ID, err)
@@ -4235,12 +4235,12 @@ func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
 	dbNode2 sqlc.GraphNode) (*models.LightningNode, *models.LightningNode,
 	error) {
 
-	node1, err := buildNode(ctx, db, &dbNode1)
+	node1, err := buildNode(ctx, db, dbNode1)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	node2, err := buildNode(ctx, db, &dbNode2)
+	node2, err := buildNode(ctx, db, dbNode2)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -5090,7 +5090,7 @@ func forEachNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
 	processItem := func(ctx context.Context, dbNode sqlc.GraphNode,
 		batchData *batchNodeData) error {
 
-		node, err := buildNodeWithBatchData(&dbNode, batchData)
+		node, err := buildNodeWithBatchData(dbNode, batchData)
 		if err != nil {
 			return fmt.Errorf("unable to build "+
 				"node(id=%d): %w", dbNode.ID, err)

@@ -553,46 +553,99 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 // announcements.
 //
 // NOTE: This is part of the V1Store interface.
-func (s *SQLStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time,
+func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 	opts ...IteratorOption) (iter.Seq[models.Node], error) {
 
-	ctx := context.TODO()
-
-	var nodes []models.Node
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbNodes, err := db.GetNodesByLastUpdateRange(
-			ctx, sqlc.GetNodesByLastUpdateRangeParams{
-				StartTime: sqldb.SQLInt64(startTime.Unix()),
-				EndTime:   sqldb.SQLInt64(endTime.Unix()),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to fetch nodes: %w", err)
-		}
-
-		err = forEachNodeInBatch(
-			ctx, s.cfg.QueryCfg, db, dbNodes,
-			func(_ int64, node *models.Node) error {
-				nodes = append(nodes, *node)
-
-				return nil
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("unable to build nodes: %w", err)
-		}
-
-		return nil
-	}, sqldb.NoOpReset)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
+	cfg := defaultIteratorConfig()
+	for _, opt := range opts {
+		opt(cfg)
 	}
 
 	return func(yield func(models.Node) bool) {
-		for _, node := range nodes {
-			if !yield(node) {
+		var (
+			ctx            = context.TODO()
+			lastUpdateTime sql.NullInt64
+			lastPubKey     = make([]byte, 33)
+			hasMore        = true
+		)
+
+		// Each iteration, we'll read a batch amount of nodes, yield
+		// them, then decide is we have more or not.
+		for hasMore {
+			var batch []models.Node
+
+			//nolint:ll
+			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+				//nolint:ll
+				params := sqlc.GetNodesByLastUpdateRangeParams{
+					StartTime: sqldb.SQLInt64(
+						startTime.Unix(),
+					),
+					EndTime: sqldb.SQLInt64(
+						endTime.Unix(),
+					),
+					LastUpdate: lastUpdateTime,
+					LastPubKey: lastPubKey,
+					OnlyPublic: sql.NullBool{
+						Bool:  cfg.iterPublicNodes,
+						Valid: true,
+					},
+					MaxResults: sqldb.SQLInt32(
+						cfg.nodeUpdateIterBatchSize,
+					),
+				}
+				rows, err := db.GetNodesByLastUpdateRange(
+					ctx, params,
+				)
+				if err != nil {
+					return err
+				}
+
+				hasMore = len(rows) == cfg.nodeUpdateIterBatchSize
+
+				err = forEachNodeInBatch(
+					ctx, s.cfg.QueryCfg, db, rows,
+					func(_ int64, node *models.Node) error {
+						batch = append(batch, *node)
+
+						// Update pagination cursors
+						// based on the last processed
+						// node.
+						lastUpdateTime = sql.NullInt64{
+							Int64: node.LastUpdate.
+								Unix(),
+							Valid: true,
+						}
+						lastPubKey = node.PubKeyBytes[:]
+
+						return nil
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("unable to build "+
+						"nodes: %w", err)
+				}
+
+				return nil
+			}, func() {
+				batch = []models.Node{}
+			})
+
+			if err != nil {
+				log.Errorf("NodeUpdatesInHorizon batch "+
+					"error: %v", err)
 				return
+			}
+
+			for _, node := range batch {
+				if !yield(node) {
+					return
+				}
+			}
+
+			// If the batch didn't yield anything, then we're done.
+			if len(batch) == 0 {
+				break
 			}
 		}
 	}, nil

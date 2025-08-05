@@ -164,7 +164,35 @@ ORDER BY node_id, type, position;
 SELECT *
 FROM graph_nodes
 WHERE last_update >= @start_time
-  AND last_update < @end_time;
+  AND last_update <= @end_time
+  -- Pagination: We use (last_update, pub_key) as a compound cursor.
+  -- This ensures stable ordering and allows us to resume from where we left off.
+  -- We use COALESCE with -1 as sentinel since timestamps are always positive.
+  AND (
+    -- Include rows with last_update greater than cursor (or all rows if cursor is -1)
+    last_update > COALESCE(sqlc.narg('last_update'), -1)
+    OR 
+    -- For rows with same last_update, use pub_key as tiebreaker
+    (last_update = COALESCE(sqlc.narg('last_update'), -1) 
+     AND pub_key > sqlc.narg('last_pub_key'))
+  )
+  -- Optional filter for public nodes only
+  AND (
+    -- If only_public is false or not provided, include all nodes
+    COALESCE(sqlc.narg('only_public'), FALSE) IS FALSE
+    OR 
+    -- For V1 protocol, a node is public if it has at least one public channel.
+    -- A public channel has bitcoin_1_signature set (channel announcement received).
+    EXISTS (
+      SELECT 1
+      FROM graph_channels c
+      WHERE c.version = 1
+        AND c.bitcoin_1_signature IS NOT NULL
+        AND (c.node_id_1 = graph_nodes.id OR c.node_id_2 = graph_nodes.id)
+    )
+  )
+ORDER BY last_update ASC, pub_key ASC
+LIMIT COALESCE(sqlc.narg('max_results'), 999999999);
 
 -- name: DeleteNodeAddresses :exec
 DELETE FROM graph_node_addresses

@@ -2055,55 +2055,40 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 		edges = make(map[uint64]ChannelEdge)
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		// First, collect all channel rows.
+		var channelRows []sqlc.GetChannelsBySCIDWithPoliciesRow
 		chanCallBack := func(ctx context.Context,
 			row sqlc.GetChannelsBySCIDWithPoliciesRow) error {
 
-			node1, node2, err := buildNodes(
-				ctx, db, row.GraphNode, row.GraphNode_2,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to fetch nodes: %w",
-					err)
-			}
-
-			edge, err := getAndBuildEdgeInfo(
-				ctx, db, s.cfg.ChainHash, row.GraphChannel,
-				node1.PubKeyBytes, node2.PubKeyBytes,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to build "+
-					"channel info: %w", err)
-			}
-
-			dbPol1, dbPol2, err := extractChannelPolicies(row)
-			if err != nil {
-				return fmt.Errorf("unable to extract channel "+
-					"policies: %w", err)
-			}
-
-			p1, p2, err := getAndBuildChanPolicies(
-				ctx, db, dbPol1, dbPol2, edge.ChannelID,
-				node1.PubKeyBytes, node2.PubKeyBytes,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to build channel "+
-					"policies: %w", err)
-			}
-
-			edges[edge.ChannelID] = ChannelEdge{
-				Info:    edge,
-				Policy1: p1,
-				Policy2: p2,
-				Node1:   node1,
-				Node2:   node2,
-			}
-
+			channelRows = append(channelRows, row)
 			return nil
 		}
 
-		return s.forEachChanWithPoliciesInSCIDList(
+		err := s.forEachChanWithPoliciesInSCIDList(
 			ctx, db, chanCallBack, chanIDs,
 		)
+		if err != nil {
+			return err
+		}
+
+		if len(channelRows) == 0 {
+			return nil
+		}
+
+		// Batch build all channel edges.
+		chans, err := batchBuildChannelEdges(
+			ctx, s.cfg, db, channelRows,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to build channel edges: %w",
+				err)
+		}
+
+		for _, c := range chans {
+			edges[c.Info.ChannelID] = c
+		}
+
+		return err
 	}, func() {
 		clear(edges)
 	})
@@ -4197,25 +4182,6 @@ func buildChanPolicy(dbPolicy sqlc.GraphChannelPolicy, channelID uint64,
 		InboundFee:                inboundFee,
 		ExtraOpaqueData:           recs,
 	}, nil
-}
-
-// buildNodes builds the models.LightningNode instances for the
-// given row which is expected to be a sqlc type that contains node information.
-func buildNodes(ctx context.Context, db SQLQueries, dbNode1,
-	dbNode2 sqlc.GraphNode) (*models.LightningNode, *models.LightningNode,
-	error) {
-
-	node1, err := buildNode(ctx, db, dbNode1)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	node2, err := buildNode(ctx, db, dbNode2)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return node1, node2, nil
 }
 
 // extractChannelPolicies extracts the sqlc.GraphChannelPolicy records from the give

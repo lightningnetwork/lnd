@@ -106,6 +106,20 @@ func (r GetChannelsBySCIDWithPoliciesRow) Node2Pub() []byte {
 	return r.GraphNode_2.PubKey
 }
 
+// Node1 returns the first GraphNode associated with this channel.
+//
+// NOTE: This method is part of the ChannelAndNodes interface.
+func (r GetChannelsBySCIDWithPoliciesRow) Node1() GraphNode {
+	return r.GraphNode
+}
+
+// Node2 returns the second GraphNode associated with this channel.
+//
+// NOTE: This method is part of the ChannelAndNodes interface.
+func (r GetChannelsBySCIDWithPoliciesRow) Node2() GraphNode {
+	return r.GraphNode_2
+}
+
 // Channel returns the GraphChannel associated with this interface.
 //
 // NOTE: This method is part of the ChannelAndNodeIDs interface.

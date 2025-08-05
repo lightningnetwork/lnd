@@ -98,7 +98,12 @@ func (a *AcceptChannel) RandTestMessage(t *rapid.T) Message {
 		ChannelType:           channelType,
 		LeaseExpiry:           leaseExpiry,
 		LocalNonce:            localNonce,
-		ExtraData:             RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(DeliveryAddrType),
+			uint64(ChannelTypeRecordType),
+			uint64(LeaseExpiryRecordType),
+			uint64(nonceRecordType),
+		),
 	}
 }
 

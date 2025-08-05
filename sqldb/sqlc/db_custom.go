@@ -37,3 +37,37 @@ func makeQueryParams(numTotalArgs, numListArgs int) string {
 
 	return b.String()
 }
+
+// ChannelAndNodes is an interface that provides access to a channel and its
+// two nodes.
+type ChannelAndNodes interface {
+	// Channel returns the GraphChannel associated with this interface.
+	Channel() GraphChannel
+
+	// Node1 returns the first GraphNode associated with this channel.
+	Node1() GraphNode
+
+	// Node2 returns the second GraphNode associated with this channel.
+	Node2() GraphNode
+}
+
+// Channel returns the GraphChannel associated with this interface.
+//
+// NOTE: This method is part of the ChannelAndNodes interface.
+func (r GetChannelsByPolicyLastUpdateRangeRow) Channel() GraphChannel {
+	return r.GraphChannel
+}
+
+// Node1 returns the first GraphNode associated with this channel.
+//
+// NOTE: This method is part of the ChannelAndNodes interface.
+func (r GetChannelsByPolicyLastUpdateRangeRow) Node1() GraphNode {
+	return r.GraphNode
+}
+
+// Node2 returns the second GraphNode associated with this channel.
+//
+// NOTE: This method is part of the ChannelAndNodes interface.
+func (r GetChannelsByPolicyLastUpdateRangeRow) Node2() GraphNode {
+	return r.GraphNode_2
+}

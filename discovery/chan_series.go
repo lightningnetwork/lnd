@@ -201,7 +201,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		return nil, err
 	}
 
-	for _, nodeAnn := range nodeAnnsInHorizon {
+	for nodeAnn := range nodeAnnsInHorizon {
 		// If this node has not been seen in the above channels, we can
 		// skip sending its NodeAnnouncement.
 		if _, seen := nodesFromChan[nodeAnn.PubKeyBytes]; !seen {

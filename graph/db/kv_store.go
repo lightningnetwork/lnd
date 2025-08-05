@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"math"
 	"net"
 	"sort"
@@ -2194,57 +2195,175 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 	return edgesInHorizon, nil
 }
 
-// NodeUpdatesInHorizon returns all the known lightning node which have an
-// update timestamp within the passed range. This method can be used by two
-// nodes to quickly determine if they have the same set of up to date node
-// announcements.
-func (c *KVStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.Node, error) {
+// nodeUpdatesIterator maintains state for iterating through node updates.
+//
+// Iterator Lifecycle:
+// 1. Initialize state with start/end time, batch size, and filtering options
+// 2. Fetch batch using pagination cursor (lastSeenKey)
+// 3. Filter nodes if publicNodesOnly is set
+// 4. Update lastSeenKey to the last processed node's index key
+// 5. Repeat until we exceed endTime or no more nodes exist
+type nodeUpdatesIterator struct {
+	// batchSize is the amount of node updates to read at a single time.
+	batchSize int
 
-	var nodesInHorizon []models.Node
+	// startTime is the start time of the iteration request.
+	startTime time.Time
+
+	// endTime is the end time of the iteration request.
+	endTime time.Time
+
+	// lastSeenKey is the last index key seen. This is used to resume
+	// iteration.
+	lastSeenKey []byte
+
+	// publicNodesOnly filters to only return public nodes if true.
+	publicNodesOnly bool
+
+	// total tracks total nodes processed.
+	total int
+}
+
+// newNodeUpdatesIterator makes a new node updates iterator.
+func newNodeUpdatesIterator(batchSize int, startTime, endTime time.Time,
+	publicNodesOnly bool) *nodeUpdatesIterator {
+
+	return &nodeUpdatesIterator{
+		batchSize:       batchSize,
+		startTime:       startTime,
+		endTime:         endTime,
+		lastSeenKey:     nil,
+		publicNodesOnly: publicNodesOnly,
+	}
+}
+
+// fetchNextNodeBatch fetches the next batch of node announcements using the
+// iterator state.
+func (c *KVStore) fetchNextNodeBatch(
+	state *nodeUpdatesIterator) ([]models.Node, bool, error) {
+
+	var (
+		nodeBatch []models.Node
+		hasMore   bool
+	)
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodesNotFound
 		}
-
+		ourPubKey := nodes.Get(sourceKey)
+		if ourPubKey == nil && state.publicNodesOnly {
+			// If we're filtering for public nodes only but don't
+			// have a source node set, we can't determine if nodes
+			// are public. A node is considered public if it has at
+			// least one channel with our node (the source node).
+			return ErrSourceNodeNotSet
+		}
 		nodeUpdateIndex := nodes.NestedReadBucket(nodeUpdateIndexBucket)
 		if nodeUpdateIndex == nil {
 			return ErrGraphNodesNotFound
 		}
 
-		// We'll now obtain a cursor to perform a range query within
-		// the index to find all node announcements within the horizon.
+		// We'll now obtain a cursor to perform a range query within the
+		// index to find all node announcements within the horizon. The
+		// nodeUpdateIndex key format is: [8 bytes timestamp][33 bytes
+		// node pubkey] This allows efficient range queries by time
+		// while maintaining a stable sort order for nodes with the same
+		// timestamp.
 		updateCursor := nodeUpdateIndex.ReadCursor()
 
 		var startTimeBytes, endTimeBytes [8 + 33]byte
 		byteOrder.PutUint64(
-			startTimeBytes[:8], uint64(startTime.Unix()),
+			startTimeBytes[:8], uint64(state.startTime.Unix()),
 		)
 		byteOrder.PutUint64(
-			endTimeBytes[:8], uint64(endTime.Unix()),
+			endTimeBytes[:8], uint64(state.endTime.Unix()),
 		)
 
-		// With our start and end times constructed, we'll step through
-		// the index collecting info for each node within the time
-		// range.
-		//
-		//nolint:ll
-		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
-			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
+		// If we have a last seen key (existing iteration), then that'll
+		// be our starting point. Otherwise, we'll seek to the start
+		// time.
+		var indexKey []byte
+		if state.lastSeenKey != nil {
+			indexKey, _ = updateCursor.Seek(state.lastSeenKey)
+
+			if bytes.Equal(indexKey, state.lastSeenKey) {
+				indexKey, _ = updateCursor.Next()
+			}
+		} else {
+			indexKey, _ = updateCursor.Seek(startTimeBytes[:])
+		}
+
+		// Now we'll read items up to the batch size, exiting early if
+		// we exceed the ending time.
+		var lastProcessedKey []byte
+		for len(nodeBatch) < state.batchSize && indexKey != nil {
+			// Extract the timestamp from the index key (first 8
+			// bytes). Only compare timestamps, not the full key
+			// with pubkey.
+			keyTimestamp := byteOrder.Uint64(indexKey[:8])
+			endTimestamp := uint64(state.endTime.Unix())
+			if keyTimestamp > endTimestamp {
+				break
+			}
+
 			nodePub := indexKey[8:]
 			node, err := fetchLightningNode(nodes, nodePub)
 			if err != nil {
 				return err
 			}
 
-			nodesInHorizon = append(nodesInHorizon, node)
+			if state.publicNodesOnly {
+				nodeIsPublic, err := c.isPublic(
+					tx, node.PubKeyBytes, ourPubKey,
+				)
+				if err != nil {
+					return err
+				}
+				if !nodeIsPublic {
+					indexKey, _ = updateCursor.Next()
+					continue
+				}
+			}
+
+			nodeBatch = append(nodeBatch, node)
+			state.total++
+
+			// Remember the last key we actually processed. We'll
+			// use this to update the last seen key below.
+			if lastProcessedKey == nil {
+				lastProcessedKey = make([]byte, len(indexKey))
+			}
+			copy(lastProcessedKey, indexKey)
+
+			// Advance the iterator to the next entry.
+			indexKey, _ = updateCursor.Next()
+		}
+
+		// If we haven't yet crossed the endTime, then we still
+		// have more entries to deliver.
+		if indexKey != nil {
+			keyTimestamp := byteOrder.Uint64(indexKey[:8])
+			endTimestamp := uint64(state.endTime.Unix())
+			if keyTimestamp <= endTimestamp {
+				hasMore = true
+			}
+		}
+
+		// Update the cursor to the last key we actually processed.
+		if lastProcessedKey != nil {
+			if state.lastSeenKey == nil {
+				state.lastSeenKey = make(
+					[]byte, len(lastProcessedKey),
+				)
+			}
+			copy(state.lastSeenKey, lastProcessedKey)
 		}
 
 		return nil
 	}, func() {
-		nodesInHorizon = nil
+		nodeBatch = nil
 	})
 	switch {
 	case errors.Is(err, ErrGraphNoEdgesFound):
@@ -2253,10 +2372,53 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 		break
 
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	}
 
-	return nodesInHorizon, nil
+	return nodeBatch, hasMore, nil
+}
+
+// NodeUpdatesInHorizon returns all the known lightning node which have an
+// update timestamp within the passed range.
+func (c *KVStore) NodeUpdatesInHorizon(startTime,
+	endTime time.Time,
+	opts ...IteratorOption) (iter.Seq[models.Node], error) {
+
+	cfg := defaultIteratorConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return func(yield func(models.Node) bool) {
+		// Initialize iterator state.
+		state := newNodeUpdatesIterator(
+			cfg.nodeUpdateIterBatchSize,
+			startTime, endTime,
+			cfg.iterPublicNodes,
+		)
+
+		for {
+			nodeAnns, hasMore, err := c.fetchNextNodeBatch(state)
+			if err != nil {
+				log.Errorf("unable to read node updates in "+
+					"horizon: %v", err)
+
+				return
+			}
+
+			for _, node := range nodeAnns {
+				if !yield(node) {
+					return
+				}
+			}
+
+			// If we we're done, then we can just break out here
+			// now.
+			if !hasMore || len(nodeAnns) == 0 {
+				break
+			}
+		}
+	}, nil
 }
 
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan

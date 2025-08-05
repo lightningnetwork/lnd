@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"iter"
 	"maps"
 	"math"
 	"net"
@@ -553,7 +554,8 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.Node, error) {
+	endTime time.Time,
+	opts ...IteratorOption) (iter.Seq[models.Node], error) {
 
 	ctx := context.TODO()
 
@@ -587,7 +589,13 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 		return nil, fmt.Errorf("unable to fetch nodes: %w", err)
 	}
 
-	return nodes, nil
+	return func(yield func(models.Node) bool) {
+		for _, node := range nodes {
+			if !yield(node) {
+				return
+			}
+		}
+	}, nil
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An

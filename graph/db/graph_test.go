@@ -2263,9 +2263,11 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		},
 	}
 	for _, queryCase := range queryCases {
-		resp, err := graph.NodeUpdatesInHorizon(
+		respIter, err := graph.NodeUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
+
+		resp := fn.Collect(respIter)
 		require.NoError(t, err)
 		require.Len(t, resp, len(queryCase.resp))
 
@@ -3507,11 +3509,12 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	// update time of our test node.
 	startTime := time.Unix(9, 0)
 	endTime := node1.LastUpdate.Add(time.Minute)
-	nodesInHorizon, err := graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizonIter, err := graph.NodeUpdatesInHorizon(startTime, endTime)
 	require.NoError(t, err, "unable to fetch nodes in horizon")
 
 	// We should only have a single node, and that node should exactly
 	// match the node we just inserted.
+	nodesInHorizon := fn.Collect(nodesInHorizonIter)
 	if len(nodesInHorizon) != 1 {
 		t.Fatalf("should have 1 nodes instead have: %v",
 			len(nodesInHorizon))
@@ -3525,10 +3528,10 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 
 	// Now that the node has been deleted, we'll again query the nodes in
 	// the horizon. This time we should have no nodes at all.
-	nodesInHorizon, err = graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizonIter, err = graph.NodeUpdatesInHorizon(startTime, endTime)
 	require.NoError(t, err, "unable to fetch nodes in horizon")
 
-	if len(nodesInHorizon) != 0 {
+	if len(fn.Collect(nodesInHorizonIter)) != 0 {
 		t.Fatalf("should have zero nodes instead have: %v",
 			len(nodesInHorizon))
 	}

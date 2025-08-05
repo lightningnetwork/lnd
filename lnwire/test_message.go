@@ -289,7 +289,10 @@ func (c *ChannelReady) RandTestMessage(t *rapid.T) Message {
 	msg := &ChannelReady{
 		ChanID:                 RandChannelID(t),
 		NextPerCommitmentPoint: RandPubKey(t),
-		ExtraData:              RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(AliasScidRecordType),
+			uint64(nonceRecordType), 0, 2,
+		),
 	}
 
 	includeAliasScid := rapid.Bool().Draw(t, "includeAliasScid")

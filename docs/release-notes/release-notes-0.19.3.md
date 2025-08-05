@@ -25,6 +25,10 @@
   messages simultaneously. The fix ensures only a single goroutine processes the
   backlog at any given time using an atomic flag.
 
+- [Fixed a bug in `btcwallet` that caused issues with Tapscript addresses being
+  imported in a watch-only (e.g. remote-signing)
+  setup](https://github.com/lightningnetwork/lnd/pull/10119).
+
 # New Features
 
 ## Functional Enhancements
@@ -71,4 +75,5 @@
 # Contributors (Alphabetical Order)
 
 * Olaoluwa Osuntokun
+* Oliver Gugger
 * Yong Yu

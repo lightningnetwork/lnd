@@ -2320,6 +2320,190 @@ func (q *Queries) ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNo
 	return items, nil
 }
 
+const listChannelsForNodeIDs = `-- name: ListChannelsForNodeIDs :many
+SELECT c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+       n1.pub_key AS node1_pubkey,
+       n2.pub_key AS node2_pubkey,
+
+       -- Policy 1
+       -- TODO(elle): use sqlc.embed to embed policy structs
+       --  once this issue is resolved:
+       --  https://github.com/sqlc-dev/sqlc/issues/2997
+       cp1.id AS policy1_id,
+       cp1.node_id AS policy1_node_id,
+       cp1.version AS policy1_version,
+       cp1.timelock AS policy1_timelock,
+       cp1.fee_ppm AS policy1_fee_ppm,
+       cp1.base_fee_msat AS policy1_base_fee_msat,
+       cp1.min_htlc_msat AS policy1_min_htlc_msat,
+       cp1.max_htlc_msat AS policy1_max_htlc_msat,
+       cp1.last_update AS policy1_last_update,
+       cp1.disabled AS policy1_disabled,
+       cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+       cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+       cp1.message_flags AS policy1_message_flags,
+       cp1.channel_flags AS policy1_channel_flags,
+       cp1.signature AS policy1_signature,
+
+       -- Policy 2
+       cp2.id AS policy2_id,
+       cp2.node_id AS policy2_node_id,
+       cp2.version AS policy2_version,
+       cp2.timelock AS policy2_timelock,
+       cp2.fee_ppm AS policy2_fee_ppm,
+       cp2.base_fee_msat AS policy2_base_fee_msat,
+       cp2.min_htlc_msat AS policy2_min_htlc_msat,
+       cp2.max_htlc_msat AS policy2_max_htlc_msat,
+       cp2.last_update AS policy2_last_update,
+       cp2.disabled AS policy2_disabled,
+       cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+       cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+       cp2.message_flags AS policy2_message_flags,
+       cp2.channel_flags AS policy2_channel_flags,
+       cp2.signature AS policy2_signature
+
+FROM graph_channels c
+         JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+         JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+         LEFT JOIN graph_channel_policies cp1
+                   ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+         LEFT JOIN graph_channel_policies cp2
+                   ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.version = $1
+  AND (c.node_id_1 IN (/*SLICE:node1_ids*/?)
+   OR c.node_id_2 IN (/*SLICE:node2_ids*/?))
+`
+
+type ListChannelsForNodeIDsParams struct {
+	Version  int16
+	Node1Ids []int64
+	Node2Ids []int64
+}
+
+type ListChannelsForNodeIDsRow struct {
+	GraphChannel                   GraphChannel
+	Node1Pubkey                    []byte
+	Node2Pubkey                    []byte
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
+	Policy1Signature               []byte
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
+	Policy2Signature               []byte
+}
+
+func (q *Queries) ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error) {
+	query := listChannelsForNodeIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Version)
+	if len(arg.Node1Ids) > 0 {
+		for _, v := range arg.Node1Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:node1_ids*/?", makeQueryParams(len(queryParams), len(arg.Node1Ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:node1_ids*/?", "NULL", 1)
+	}
+	if len(arg.Node2Ids) > 0 {
+		for _, v := range arg.Node2Ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:node2_ids*/?", makeQueryParams(len(queryParams), len(arg.Node2Ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:node2_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChannelsForNodeIDsRow
+	for rows.Next() {
+		var i ListChannelsForNodeIDsRow
+		if err := rows.Scan(
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
+			&i.Node1Pubkey,
+			&i.Node2Pubkey,
+			&i.Policy1ID,
+			&i.Policy1NodeID,
+			&i.Policy1Version,
+			&i.Policy1Timelock,
+			&i.Policy1FeePpm,
+			&i.Policy1BaseFeeMsat,
+			&i.Policy1MinHtlcMsat,
+			&i.Policy1MaxHtlcMsat,
+			&i.Policy1LastUpdate,
+			&i.Policy1Disabled,
+			&i.Policy1InboundBaseFeeMsat,
+			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
+			&i.Policy1Signature,
+			&i.Policy2ID,
+			&i.Policy2NodeID,
+			&i.Policy2Version,
+			&i.Policy2Timelock,
+			&i.Policy2FeePpm,
+			&i.Policy2BaseFeeMsat,
+			&i.Policy2MinHtlcMsat,
+			&i.Policy2MaxHtlcMsat,
+			&i.Policy2LastUpdate,
+			&i.Policy2Disabled,
+			&i.Policy2InboundBaseFeeMsat,
+			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
+			&i.Policy2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChannelsPaginated = `-- name: ListChannelsPaginated :many
 SELECT id, bitcoin_key_1, bitcoin_key_2, outpoint
 FROM graph_channels c

@@ -19,6 +19,8 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
@@ -643,6 +645,10 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 		nativeSQLPostgresConn,
 	}
 
+	// We use a counter to make sure that any call-back is doing something
+	// useful, otherwise the compiler may optimize it away in the future.
+	var counter int64
+
 	tests := []struct {
 		name string
 		fn   func(b testing.TB, store V1Store)
@@ -652,6 +658,11 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store V1Store) {
 				err := store.ForEachNode(
 					ctx, func(_ NodeRTx) error {
+						// Increment the counter to
+						// ensure the callback is doing
+						// something.
+						counter++
+
 						return nil
 					}, func() {},
 				)
@@ -667,6 +678,11 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 						_ *models.ChannelEdgePolicy,
 						_ *models.ChannelEdgePolicy) error {
 
+						// Increment the counter to
+						// ensure the callback is doing
+						// something.
+						counter++
+
 						return nil
 					}, func() {},
 				)
@@ -678,6 +694,43 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store V1Store) {
 				_, err := store.NodeUpdatesInHorizon(
 					time.Unix(0, 0), time.Now(),
+				)
+				require.NoError(b, err)
+			},
+		},
+		{
+			name: "ForEachNodeCacheable",
+			fn: func(b testing.TB, store V1Store) {
+				err := store.ForEachNodeCacheable(
+					ctx, func(_ route.Vertex,
+						_ *lnwire.FeatureVector) error {
+
+						// Increment the counter to
+						// ensure the callback is doing
+						// something.
+						counter++
+
+						return nil
+					}, func() {},
+				)
+				require.NoError(b, err)
+			},
+		},
+		{
+			name: "ForEachNodeCached",
+			fn: func(b testing.TB, store V1Store) {
+				//nolint:ll
+				err := store.ForEachNodeCached(
+					ctx, func(route.Vertex,
+						map[uint64]*DirectedChannel) error {
+
+						// Increment the counter to
+						// ensure the callback is doing
+						// something.
+						counter++
+
+						return nil
+					}, func() {},
 				)
 				require.NoError(b, err)
 			},

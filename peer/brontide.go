@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -404,8 +405,8 @@ type Config struct {
 	RequestAlias func() (lnwire.ShortChannelID, error)
 
 	// AddLocalAlias persists an alias to an underlying alias store.
-	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip, liveUpdate bool) error
+	AddLocalAlias func(alias, base lnwire.ShortChannelID, gossip,
+		liveUpdate bool, opts ...aliasmgr.AddLocalAliasOption) error
 
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.

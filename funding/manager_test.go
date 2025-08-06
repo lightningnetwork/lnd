@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
@@ -162,7 +163,8 @@ func (m *mockAliasMgr) GetPeerAlias(lnwire.ChannelID) (lnwire.ShortChannelID,
 }
 
 func (m *mockAliasMgr) AddLocalAlias(lnwire.ShortChannelID,
-	lnwire.ShortChannelID, bool, bool) error {
+	lnwire.ShortChannelID, bool, bool,
+	...aliasmgr.AddLocalAliasOption) error {
 
 	return nil
 }

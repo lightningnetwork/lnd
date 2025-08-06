@@ -175,8 +175,8 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 			// The candidates should be amongst the two edges
 			// created above.
 			for nodeID, candidate := range candidates {
-				edge1Pub := edge1.Peer.PubKey()
-				edge2Pub := edge2.Peer.PubKey()
+				edge1Pub := edge1.Peer
+				edge2Pub := edge2.Peer
 
 				switch {
 				case bytes.Equal(nodeID[:], edge1Pub[:]):
@@ -228,7 +228,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			)
 			require.NoError(t1, err)
 
-			peerPubBytes := edge1.Peer.PubKey()
+			peerPubBytes := edge1.Peer
 			peerPub, err := btcec.ParsePubKey(peerPubBytes[:])
 			require.NoError(t1, err)
 
@@ -242,25 +242,23 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 			numNodes := 0
 			twoChans := false
 			nodes := make(map[NodeID]struct{})
-			err = graph.ForEachNode(
-				ctx, func(ctx context.Context, n Node) error {
+			err = graph.ForEachNodesChannels(
+				ctx, func(_ context.Context, node Node,
+					edges []*ChannelEdge) error {
+
 					numNodes++
-					nodes[n.PubKey()] = struct{}{}
+					nodes[node.PubKey()] = struct{}{}
 					numChans := 0
-					err := n.ForEachChannel(ctx,
-						func(_ context.Context, c ChannelEdge) error { //nolint:ll
-							numChans++
-							return nil
-						},
-					)
-					if err != nil {
-						return err
+
+					for range edges {
+						numChans++
 					}
 
 					twoChans = twoChans || (numChans == 2)
 
 					return nil
-				}, func() {
+				},
+				func() {
 					numNodes = 0
 					twoChans = false
 					clear(nodes)
@@ -535,18 +533,12 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	return &ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{tx: &testNodeTx{
-				db:   d,
-				node: vertex1,
-			}},
+			Peer:     vertex1.PubKeyBytes,
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: &dbNode{tx: &testNodeTx{
-				db:   d,
-				node: vertex2,
-			}},
+			Peer:     vertex2.PubKeyBytes,
 		},
 		nil
 }
@@ -605,6 +597,29 @@ func (m *memChannelGraph) ForEachNode(ctx context.Context,
 
 	for _, node := range m.graph {
 		if err := cb(ctx, node); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ForEachNodesChannels iterates through all connected nodes, and for each node,
+// all the channels that connect to it. The passed callback will be called with
+// the context, the Node itself, and a slice of ChannelEdge that connect to the
+// node.
+//
+// NOTE: Part of the autopilot.ChannelGraph interface.
+func (m *memChannelGraph) ForEachNodesChannels(ctx context.Context,
+	cb func(context.Context, Node, []*ChannelEdge) error, _ func()) error {
+
+	for _, node := range m.graph {
+		edges := make([]*ChannelEdge, 0, len(node.chans))
+		for i := range node.chans {
+			edges = append(edges, &node.chans[i])
+		}
+
+		if err := cb(ctx, node, edges); err != nil {
 			return err
 		}
 	}
@@ -692,14 +707,14 @@ func (m *memChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	edge1 := ChannelEdge{
 		ChanID:   randChanID(),
 		Capacity: capacity,
-		Peer:     vertex2,
+		Peer:     vertex2.PubKey(),
 	}
 	vertex1.chans = append(vertex1.chans, edge1)
 
 	edge2 := ChannelEdge{
 		ChanID:   randChanID(),
 		Capacity: capacity,
-		Peer:     vertex1,
+		Peer:     vertex1.PubKey(),
 	}
 	vertex2.chans = append(vertex2.chans, edge2)
 
@@ -726,38 +741,3 @@ func (m *memChannelGraph) addRandNode() (*btcec.PublicKey, error) {
 
 	return newPub, nil
 }
-
-type testNodeTx struct {
-	db   *testDBGraph
-	node *models.LightningNode
-}
-
-func (t *testNodeTx) Node() *models.LightningNode {
-	return t.node
-}
-
-func (t *testNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	return t.db.db.ForEachNodeChannel(context.Background(),
-		t.node.PubKeyBytes, func(edge *models.ChannelEdgeInfo, policy1,
-			policy2 *models.ChannelEdgePolicy) error {
-
-			return f(edge, policy1, policy2)
-		}, func() {},
-	)
-}
-
-func (t *testNodeTx) FetchNode(pub route.Vertex) (graphdb.NodeRTx, error) {
-	node, err := t.db.db.FetchLightningNode(context.Background(), pub)
-	if err != nil {
-		return nil, err
-	}
-
-	return &testNodeTx{
-		db:   t.db,
-		node: node,
-	}, nil
-}
-
-var _ graphdb.NodeRTx = (*testNodeTx)(nil)

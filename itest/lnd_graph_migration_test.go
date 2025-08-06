@@ -3,12 +3,13 @@ package itest
 import (
 	"context"
 	"database/sql"
+	"net"
 
 	"github.com/lightningnetwork/lnd"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
-	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
@@ -69,19 +70,18 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 			numNodes int
 			edges    = make(map[uint64]bool)
 		)
-		err := db.ForEachNode(ctx, func(tx graphdb.NodeRTx) error {
+		err := db.ForEachNodeCached(ctx, false, func(_ context.Context,
+			_ route.Vertex, _ []net.Addr,
+			chans map[uint64]*graphdb.DirectedChannel) error {
+
 			numNodes++
 
 			// For each node, also count the number of edges.
-			return tx.ForEachChannel(
-				func(info *models.ChannelEdgeInfo,
-					_ *models.ChannelEdgePolicy,
-					_ *models.ChannelEdgePolicy) error {
+			for _, ch := range chans {
+				edges[ch.ChannelID] = true
+			}
 
-					edges[info.ChannelID] = true
-					return nil
-				},
-			)
+			return nil
 		}, func() {
 			clear(edges)
 			numNodes = 0

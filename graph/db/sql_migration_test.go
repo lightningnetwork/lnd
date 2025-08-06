@@ -395,23 +395,24 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 	nodes := make([]*models.LightningNode, 0)
 
-	err := store.ForEachNode(context.Background(), func(tx NodeRTx) error {
-		node := tx.Node()
+	err := store.ForEachNode(context.Background(),
+		func(node *models.LightningNode) error {
 
-		// Call PubKey to ensure the objects cached pubkey is set so that
-		// the objects can be compared as a whole.
-		_, err := node.PubKey()
-		require.NoError(t, err)
+			// Call PubKey to ensure the objects cached pubkey is set so that
+			// the objects can be compared as a whole.
+			_, err := node.PubKey()
+			require.NoError(t, err)
 
-		// Sort the addresses to ensure a consistent order.
-		sortAddrs(node.Addresses)
+			// Sort the addresses to ensure a consistent order.
+			sortAddrs(node.Addresses)
 
-		nodes = append(nodes, node)
+			nodes = append(nodes, node)
 
-		return nil
-	}, func() {
-		nodes = nil
-	})
+			return nil
+		}, func() {
+			nodes = nil
+		},
+	)
 	require.NoError(t, err)
 
 	// Sort the nodes by their public key to ensure a consistent order.

@@ -14,25 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// NodeRTx represents transaction object with an underlying node associated that
-// can be used to make further queries to the graph under the same transaction.
-// This is useful for consistency during graph traversal and queries.
-type NodeRTx interface {
-	// Node returns the raw information of the node.
-	Node() *models.LightningNode
-
-	// ForEachChannel can be used to iterate over the node's channels under
-	// the same transaction used to fetch the node.
-	ForEachChannel(func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error
-
-	// FetchNode fetches the node with the given pub key under the same
-	// transaction used to fetch the current node. The returned node is also
-	// a NodeRTx and any operations on that NodeRTx will also be done under
-	// the same transaction.
-	FetchNode(node route.Vertex) (NodeRTx, error)
-}
-
 // NodeTraverser is an abstract read only interface that provides information
 // about nodes and their edges. The interface is about providing fast read-only
 // access to the graph and so if a cache is available, it should be used.
@@ -89,20 +70,24 @@ type V1Store interface { //nolint:interfacebloat
 			*models.ChannelEdgePolicy) error, reset func()) error
 
 	// ForEachNodeCached is similar to forEachNode, but it returns
-	// DirectedChannel data to the call-back.
+	// DirectedChannel data to the call-back. If withAddrs is true, then
+	// the call-back will also be provided with the addresses associated
+	// with the node. The address retrieval will likely result in an
+	// additional round-trip to the database, so it should only be used if
+	// the addresses are actually needed.
 	//
 	// NOTE: The callback contents MUST not be modified.
-	ForEachNodeCached(ctx context.Context, cb func(node route.Vertex,
-		chans map[uint64]*DirectedChannel) error, reset func()) error
+	ForEachNodeCached(ctx context.Context, withAddrs bool,
+		cb func(ctx context.Context, node route.Vertex,
+			addrs []net.Addr,
+			chans map[uint64]*DirectedChannel) error,
+		reset func()) error
 
 	// ForEachNode iterates through all the stored vertices/nodes in the
 	// graph, executing the passed callback with each node encountered. If
 	// the callback returns an error, then the transaction is aborted and
-	// the iteration stops early. Any operations performed on the NodeTx
-	// passed to the call-back are executed under the same read transaction
-	// and so, methods on the NodeTx object _MUST_ only be called from
-	// within the call-back.
-	ForEachNode(ctx context.Context, cb func(tx NodeRTx) error,
+	// the iteration stops early.
+	ForEachNode(ctx context.Context, cb func(*models.LightningNode) error,
 		reset func()) error
 
 	// ForEachNodeCacheable iterates through all the stored vertices/nodes

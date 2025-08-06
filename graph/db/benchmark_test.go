@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path"
 	"sync"
@@ -337,12 +338,15 @@ func TestPopulateDBs(t *testing.T) {
 	// graph.
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
-		err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
-			numNodes++
-			return nil
-		}, func() {
-			numNodes = 0
-		})
+		err := graph.ForEachNode(
+			ctx, func(node *models.LightningNode) error {
+				numNodes++
+
+				return nil
+			}, func() {
+				numNodes = 0
+			},
+		)
 		require.NoError(t, err)
 
 		return numNodes
@@ -486,18 +490,12 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	err := src.ForEachNode(ctx, func(tx NodeRTx) error {
+	err := src.ForEachNode(ctx, func(node *models.LightningNode) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()
 
-			// NOTE: even though the transaction (tx) may have
-			// already been aborted, it is still ok to use the
-			// Node() result since that is a static object that
-			// is not affected by the transaction state.
-			err := dest.AddLightningNode(
-				ctx, tx.Node(), batch.LazyAdd(),
-			)
+			err := dest.AddLightningNode(ctx, node, batch.LazyAdd())
 			require.NoError(t, err)
 
 			mu.Lock()
@@ -657,7 +655,8 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			name: "ForEachNode",
 			fn: func(b testing.TB, store V1Store) {
 				err := store.ForEachNode(
-					ctx, func(_ NodeRTx) error {
+					ctx,
+					func(_ *models.LightningNode) error {
 						// Increment the counter to
 						// ensure the callback is doing
 						// something.
@@ -721,7 +720,9 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store V1Store) {
 				//nolint:ll
 				err := store.ForEachNodeCached(
-					ctx, func(route.Vertex,
+					ctx, false, func(context.Context,
+						route.Vertex,
+						[]net.Addr,
 						map[uint64]*DirectedChannel) error {
 
 						// Increment the counter to

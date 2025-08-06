@@ -674,9 +674,9 @@ func (c *KVStore) FetchNodeFeatures(nodePub route.Vertex) (
 // data to the call-back.
 //
 // NOTE: The callback contents MUST not be modified.
-func (c *KVStore) ForEachNodeCached(_ context.Context,
-	cb func(node route.Vertex, chans map[uint64]*DirectedChannel) error,
-	reset func()) error {
+func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
+	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
+		chans map[uint64]*DirectedChannel) error, reset func()) error {
 
 	// Otherwise call back to a version that uses the database directly.
 	// We'll iterate over each node, then the set of channels for each
@@ -736,7 +736,12 @@ func (c *KVStore) ForEachNodeCached(_ context.Context,
 			return err
 		}
 
-		return cb(node.PubKeyBytes, channels)
+		var addrs []net.Addr
+		if withAddrs {
+			addrs = node.Addresses
+		}
+
+		return cb(ctx, node.PubKeyBytes, addrs, channels)
 	}, reset)
 }
 
@@ -795,16 +800,16 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 // ForEachNode iterates through all the stored vertices/nodes in the graph,
 // executing the passed callback with each node encountered. If the callback
 // returns an error, then the transaction is aborted and the iteration stops
-// early. Any operations performed on the NodeTx passed to the call-back are
-// executed under the same read transaction and so, methods on the NodeTx object
-// _MUST_ only be called from within the call-back.
+// early.
+//
+// NOTE: this is part of the V1Store interface.
 func (c *KVStore) ForEachNode(_ context.Context,
-	cb func(tx NodeRTx) error, reset func()) error {
+	cb func(*models.LightningNode) error, reset func()) error {
 
 	return forEachNode(c.db, func(tx kvdb.RTx,
 		node *models.LightningNode) error {
 
-		return cb(newChanGraphNodeTx(tx, c, node))
+		return cb(node)
 	}, reset)
 }
 
@@ -4871,68 +4876,4 @@ func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy,
 	}
 
 	return edge, nil
-}
-
-// chanGraphNodeTx is an implementation of the NodeRTx interface backed by the
-// KVStore and a kvdb.RTx.
-type chanGraphNodeTx struct {
-	tx   kvdb.RTx
-	db   *KVStore
-	node *models.LightningNode
-}
-
-// A compile-time constraint to ensure chanGraphNodeTx implements the NodeRTx
-// interface.
-var _ NodeRTx = (*chanGraphNodeTx)(nil)
-
-func newChanGraphNodeTx(tx kvdb.RTx, db *KVStore,
-	node *models.LightningNode) *chanGraphNodeTx {
-
-	return &chanGraphNodeTx{
-		tx:   tx,
-		db:   db,
-		node: node,
-	}
-}
-
-// Node returns the raw information of the node.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (c *chanGraphNodeTx) Node() *models.LightningNode {
-	return c.node
-}
-
-// FetchNode fetches the node with the given pub key under the same transaction
-// used to fetch the current node. The returned node is also a NodeRTx and any
-// operations on that NodeRTx will also be done under the same transaction.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (c *chanGraphNodeTx) FetchNode(nodePub route.Vertex) (NodeRTx, error) {
-	node, err := c.db.FetchLightningNodeTx(c.tx, nodePub)
-	if err != nil {
-		return nil, err
-	}
-
-	return newChanGraphNodeTx(c.tx, c.db, node), nil
-}
-
-// ForEachChannel can be used to iterate over the node's channels under
-// the same transaction used to fetch the node.
-//
-// NOTE: This is a part of the NodeRTx interface.
-func (c *chanGraphNodeTx) ForEachChannel(f func(*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
-
-	return c.db.forEachNodeChannelTx(
-		c.tx, c.node.PubKeyBytes,
-		func(_ kvdb.RTx, info *models.ChannelEdgeInfo, policy1,
-			policy2 *models.ChannelEdgePolicy) error {
-
-			return f(info, policy1, policy2)
-		},
-		// NOTE: We don't need to reset anything here as the caller is
-		// expected to pass in the reset function to the ForEachNode
-		// method that constructed the chanGraphNodeTx.
-		func() {},
-	)
 }

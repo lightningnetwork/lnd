@@ -252,6 +252,24 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
+
+	// Also check that the withAddr param of ForEachNodeCached correctly
+	// returns the addresses we expect for this node.
+	err = graph.ForEachNodeCached(
+		ctx, true, func(ctx context.Context, node route.Vertex,
+			addrs []net.Addr,
+			chans map[uint64]*DirectedChannel) error {
+
+			if node != dbNode.PubKeyBytes {
+				return nil
+			}
+
+			require.Equal(t, expAddrs, addrs)
+
+			return nil
+		}, func() {},
+	)
+	require.NoError(t, err)
 }
 
 // TestPartialNode checks that we can add and retrieve a LightningNode where
@@ -1359,7 +1377,8 @@ func TestGraphTraversal(t *testing.T) {
 	// set of channels (to force the fall back), we should find all the
 	// channel as well as the nodes included.
 	graph.graphCache = nil
-	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
+	err := graph.ForEachNodeCached(ctx, false, func(_ context.Context,
+		node route.Vertex, _ []net.Addr,
 		chans map[uint64]*DirectedChannel) error {
 
 		if _, ok := nodeIndex[node]; !ok {
@@ -1450,8 +1469,8 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
-		nodeMap[tx.Node().PubKeyBytes] = struct{}{}
+	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+		nodeMap[n.PubKeyBytes] = struct{}{}
 
 		return nil
 	}, func() {})
@@ -1582,8 +1601,8 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(ctx, func(tx NodeRTx) error {
-		delete(nodeIndex, tx.Node().Alias)
+	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+		delete(nodeIndex, n.Alias)
 		return nil
 	}, func() {})
 	require.NoError(t, err)
@@ -1691,11 +1710,12 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
-	err := graph.ForEachNode(context.Background(), func(tx NodeRTx) error {
-		numNodes++
+	err := graph.ForEachNode(context.Background(),
+		func(_ *models.LightningNode) error {
+			numNodes++
 
-		return nil
-	}, func() {})
+			return nil
+		}, func() {})
 	if err != nil {
 		_, _, line, _ := runtime.Caller(1)
 		t.Fatalf("line %v: unable to scan nodes: %v", line, err)

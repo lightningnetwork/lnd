@@ -6757,8 +6757,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// First iterate through all the known nodes (connected or unconnected
 	// within the graph), collating their current state into the RPC
 	// response.
-	err := graph.ForEachNode(ctx, func(nodeTx graphdb.NodeRTx) error {
-		lnNode := marshalNode(nodeTx.Node())
+	err := graph.ForEachNode(ctx, func(node *models.LightningNode) error {
+		lnNode := marshalNode(node)
 
 		resp.Nodes = append(resp.Nodes, lnNode)
 
@@ -7183,7 +7183,8 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 	// network, tallying up the total number of nodes, and also gathering
 	// each node so we can measure the graph diameter and degree stats
 	// below.
-	err := graph.ForEachNodeCached(ctx, func(node route.Vertex,
+	err := graph.ForEachNodeCached(ctx, false, func(ctx context.Context,
+		node route.Vertex, _ []net.Addr,
 		edges map[uint64]*graphdb.DirectedChannel) error {
 
 		// Increment the total number of nodes with each iteration.

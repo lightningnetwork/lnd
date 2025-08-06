@@ -54,4 +54,7 @@ http:
     - selector: routerrpc.Router.XDeleteLocalChanAliases
       post: "/v2/router/x/deletealiases"
       body: "*"
+    - selector: routerrpc.Router.XFindBaseLocalChanAlias
+      post: "/v2/router/x/findbasealias"
+      body: "*"
 

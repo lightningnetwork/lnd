@@ -20,6 +20,10 @@
 
 # Bug Fixes
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10097) a deadlock that
+  could occur when multiple goroutines attempted to send gossip filter backlog
+  messages simultaneously. The fix ensures only a single goroutine processes the
+  backlog at any given time using an atomic flag.
 
 # New Features
 
@@ -31,13 +35,11 @@
 
 ## RPC Additions
 
-
 ## lncli Additions
 
 # Improvements
 
 ## Functional Updates
-
 
 ## RPC Updates
 
@@ -45,11 +47,9 @@
 
 ## Code Health
 
-
 ## Breaking Changes
 
 ## Performance Improvements
-
 
 ## Deprecations
 
@@ -67,4 +67,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Olaoluwa Osuntokun
 * Yong Yu

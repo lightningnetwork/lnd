@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/monitoring"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -207,6 +208,10 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)
+	AddSubLogger(
+		root, paymentsdb.Subsystem, interceptor, paymentsdb.UseLogger,
+	)
+
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

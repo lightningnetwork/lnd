@@ -25,6 +25,14 @@
   messages simultaneously. The fix ensures only a single goroutine processes the
   backlog at any given time using an atomic flag.
 
+- [Fix](https://github.com/lightningnetwork/lnd/pull/10107) a bug where child
+  logger's derived via `WithPrefix` did not inherit change log level changes
+  from their parent loggers.
+
+- Fixed a [deadlock](https://github.com/lightningnetwork/lnd/pull/10108) that
+  can cause contract resolvers to be stuck at marking the channel force close as
+  being complete.
+
 - [Fixed a bug in `btcwallet` that caused issues with Tapscript addresses being
   imported in a watch-only (e.g. remote-signing)
   setup](https://github.com/lightningnetwork/lnd/pull/10119).
@@ -37,6 +45,10 @@
 # New Features
 
 ## Functional Enhancements
+
+* The default value for `gossip.msg-rate-bytes` has been
+  [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
+  1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
 
 - Previously, when sweeping non-time sensitive anchor outputs, they might be
   grouped with other non-time sensitive outputs such as `to_local` outputs,
@@ -79,6 +91,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Elle Mouton
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Yong Yu

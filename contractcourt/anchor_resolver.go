@@ -202,7 +202,10 @@ func (c *anchorResolver) Launch() error {
 	// an output that we want to sweep only if it is economical to do so.
 	//
 	// An exclusive group is not necessary anymore, because we know that
-	// this is the only anchor that can be swept.
+	// this is the only anchor that can be swept. However, to avoid this
+	// anchor input being group with other inputs, we still keep the
+	// exclusive group here such that the anchor will be swept
+	// independently.
 	//
 	// We also clear the parent tx information for cpfp, because the
 	// commitment tx is confirmed.
@@ -222,6 +225,8 @@ func (c *anchorResolver) Launch() error {
 		c.broadcastHeight, nil,
 	)
 
+	exclusiveGroup := c.ShortChanID.ToUint64()
+
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
@@ -233,6 +238,10 @@ func (c *anchorResolver) Launch() error {
 			// There's no rush to sweep the anchor, so we use a nil
 			// deadline here.
 			DeadlineHeight: fn.None[int32](),
+
+			// Use the chan id as the exclusive group. This prevents
+			// any of the anchors from being batched together.
+			ExclusiveGroup: &exclusiveGroup,
 		},
 	)
 

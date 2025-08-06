@@ -28,6 +28,10 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerAccountImport,
 	},
 	{
+		Name:     "tapscript import",
+		TestFunc: testRemoteSignerTapscriptImport,
+	},
+	{
 		Name:     "channel open",
 		TestFunc: testRemoteSignerChannelOpen,
 	},
@@ -228,6 +232,24 @@ func testRemoteSignerAccountImport(ht *lntest.HarnessTest) {
 	tc.fn(ht, watchOnly, carol)
 }
 
+func testRemoteSignerTapscriptImport(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
+		name:      "tapscript import",
+		sendCoins: true,
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
+			testTaprootImportTapscriptFullTree(ht, wo)
+			testTaprootImportTapscriptPartialReveal(ht, wo)
+			testTaprootImportTapscriptRootHashOnly(ht, wo)
+			testTaprootImportTapscriptFullKey(ht, wo)
+
+			testTaprootImportTapscriptFullKeyFundPsbt(ht, wo)
+		},
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
 func testRemoteSignerChannelOpen(ht *lntest.HarnessTest) {
 	tc := remoteSignerTestCase{
 		name:      "basic channel open close",
@@ -328,6 +350,11 @@ func testRemoteSignerPSBT(ht *lntest.HarnessTest) {
 			// that aren't in the wallet. But we also want to make
 			// sure we can fund and then sign PSBTs from our wallet.
 			runFundAndSignPsbt(ht, wo)
+
+			// We also have a more specific funding test that does
+			// a pay-join payment with Carol.
+			ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+			runFundPsbt(ht, wo, carol)
 		},
 	}
 

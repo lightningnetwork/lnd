@@ -33,6 +33,10 @@
   can cause contract resolvers to be stuck at marking the channel force close as
   being complete.
 
+- [Fixed a bug in `btcwallet` that caused issues with Tapscript addresses being
+  imported in a watch-only (e.g. remote-signing)
+  setup](https://github.com/lightningnetwork/lnd/pull/10119).
+
 # New Features
 
 ## Functional Enhancements
@@ -84,4 +88,5 @@
 
 * Elle Mouton
 * Olaoluwa Osuntokun
+* Oliver Gugger
 * Yong Yu

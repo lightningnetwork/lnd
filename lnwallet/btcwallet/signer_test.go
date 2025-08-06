@@ -220,7 +220,7 @@ func TestScriptImport(t *testing.T) {
 	require.Equal(t, firstAddressTaproot, firstDerivedAddr.String())
 
 	scope := waddrmgr.KeyScopeBIP0086
-	_, err = w.InternalWallet().Manager.FetchScopedKeyManager(scope)
+	_, err = w.InternalWallet().AddrManager().FetchScopedKeyManager(scope)
 	require.NoError(t, err)
 
 	// Let's create a taproot script output now. This is a hash lock with a

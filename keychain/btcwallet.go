@@ -48,7 +48,7 @@ type BtcWalletKeyRing struct {
 	// wallet is a pointer to the active instance of the btcwallet core.
 	// This is required as we'll need to manually open database
 	// transactions in order to derive addresses and lookup relevant keys
-	wallet *wallet.Wallet
+	wallet wallet.Interface
 
 	// chainKeyScope defines the purpose and coin type to be used when generating
 	// keys for this keyring.
@@ -64,7 +64,7 @@ type BtcWalletKeyRing struct {
 //
 // NOTE: The passed waddrmgr.Manager MUST be unlocked in order for the keychain
 // to function.
-func NewBtcWalletKeyRing(w *wallet.Wallet, coinType uint32) SecretKeyRing {
+func NewBtcWalletKeyRing(w wallet.Interface, coinType uint32) SecretKeyRing {
 	// Construct the key scope that will be used within the waddrmgr to
 	// create an HD chain for deriving all of our required keys. A different
 	// scope is used for each specific coin type.
@@ -92,14 +92,18 @@ func (b *BtcWalletKeyRing) keyScope() (*waddrmgr.ScopedKeyManager, error) {
 
 	// Otherwise, we'll first do a check to ensure that the root manager
 	// isn't locked, as otherwise we won't be able to *use* the scope.
-	if !b.wallet.Manager.WatchOnly() && b.wallet.Manager.IsLocked() {
+	if !b.wallet.AddrManager().WatchOnly() &&
+		b.wallet.AddrManager().IsLocked() {
+
 		return nil, fmt.Errorf("cannot create BtcWalletKeyRing with " +
 			"locked waddrmgr.Manager")
 	}
 
 	// If the manager is indeed unlocked, then we'll fetch the scope, cache
 	// it, and return to the caller.
-	lnScope, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
+	lnScope, err := b.wallet.AddrManager().FetchScopedKeyManager(
+		b.chainKeyScope,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +222,7 @@ func (b *BtcWalletKeyRing) DeriveKey(keyLoc KeyLocator) (KeyDescriptor, error) {
 		// require. We skip this if we're using a remote signer in which
 		// case we _need_ to create all accounts when creating the
 		// wallet, so it must exist now.
-		if !b.wallet.Manager.WatchOnly() {
+		if !b.wallet.AddrManager().WatchOnly() {
 			err = b.createAccountIfNotExists(
 				addrmgrNs, keyLoc.Family, scope,
 			)
@@ -288,7 +292,7 @@ func (b *BtcWalletKeyRing) DerivePrivKey(keyDesc KeyDescriptor) (
 		// require. We skip this if we're using a remote signer in which
 		// case we _need_ to create all accounts when creating the
 		// wallet, so it must exist now.
-		if !b.wallet.Manager.WatchOnly() {
+		if !b.wallet.AddrManager().WatchOnly() {
 			err = b.createAccountIfNotExists(
 				addrmgrNs, keyDesc.Family, scope,
 			)

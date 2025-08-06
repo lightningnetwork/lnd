@@ -84,7 +84,7 @@ var (
 // operate.
 type BtcWallet struct {
 	// wallet is an active instance of btcwallet.
-	wallet *base.Wallet
+	wallet base.Interface
 
 	chain chain.Interface
 
@@ -288,7 +288,7 @@ func (b *BtcWallet) BackEnd() string {
 
 // InternalWallet returns a pointer to the internal base wallet which is the
 // core of btcwallet.
-func (b *BtcWallet) InternalWallet() *base.Wallet {
+func (b *BtcWallet) InternalWallet() base.Interface {
 	return b.wallet
 }
 
@@ -299,7 +299,7 @@ func (b *BtcWallet) InternalWallet() *base.Wallet {
 func (b *BtcWallet) Start() error {
 	// Is the wallet (according to its database) currently watch-only
 	// already? If it is, we won't need to convert it later.
-	walletIsWatchOnly := b.wallet.Manager.WatchOnly()
+	walletIsWatchOnly := b.wallet.AddrManager().WatchOnly()
 
 	// If the wallet is watch-only, but we don't expect it to be, then we
 	// are in an unexpected state and cannot continue.
@@ -335,7 +335,7 @@ func (b *BtcWallet) Start() error {
 	// created correctly for new wallets. Existing wallets don't
 	// automatically add them, we need to do that manually now.
 	for _, scope := range LndDefaultKeyScopes {
-		_, err := b.wallet.Manager.FetchScopedKeyManager(scope)
+		_, err := b.wallet.AddrManager().FetchScopedKeyManager(scope)
 		if waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound) {
 			// The default scope wasn't found, that probably means
 			// it was added recently and older wallets don't know it
@@ -348,7 +348,9 @@ func (b *BtcWallet) Start() error {
 		}
 	}
 
-	scope, err := b.wallet.Manager.FetchScopedKeyManager(b.chainKeyScope)
+	scope, err := b.wallet.AddrManager().FetchScopedKeyManager(
+		b.chainKeyScope,
+	)
 	if err != nil {
 		// If the scope hasn't yet been created (it wouldn't been
 		// loaded by default if it was), then we'll manually create the
@@ -1291,7 +1293,7 @@ func (b *BtcWallet) GetTransactionDetails(
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
-	bestBlock := b.wallet.Manager.SyncedTo()
+	bestBlock := b.wallet.SyncedTo()
 	currentHeight := bestBlock.Height
 	tx, err := b.wallet.GetTransaction(*txHash)
 	if err != nil {
@@ -1481,7 +1483,7 @@ func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
-	bestBlock := b.wallet.Manager.SyncedTo()
+	bestBlock := b.wallet.SyncedTo()
 	currentHeight := bestBlock.Height
 
 	// We'll attempt to find all transactions from start to end height.
@@ -1554,7 +1556,7 @@ type txSubscriptionClient struct {
 	confirmed   chan *lnwallet.TransactionDetail
 	unconfirmed chan *lnwallet.TransactionDetail
 
-	w *base.Wallet
+	w base.Interface
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -1597,7 +1599,7 @@ out:
 		select {
 		case txNtfn := <-t.txClient.C:
 			// TODO(roasbeef): handle detached blocks
-			currentHeight := t.w.Manager.SyncedTo().Height
+			currentHeight := t.w.SyncedTo().Height
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly confirmed transactions.
@@ -1653,7 +1655,7 @@ out:
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, error) {
-	walletClient := b.wallet.NtfnServer.TransactionNotifications()
+	walletClient := b.wallet.NotificationServer().TransactionNotifications()
 
 	txClient := &txSubscriptionClient{
 		txClient:    walletClient,
@@ -1674,7 +1676,7 @@ func (b *BtcWallet) SubscribeTransactions() (lnwallet.TransactionSubscription, e
 // This is a part of the WalletController interface.
 func (b *BtcWallet) IsSynced() (bool, int64, error) {
 	// Grab the best chain state the wallet is currently aware of.
-	syncState := b.wallet.Manager.SyncedTo()
+	syncState := b.wallet.SyncedTo()
 
 	// We'll also extract the current best wallet timestamp so the caller
 	// can get an idea of where we are in the sync timeline.
@@ -1752,7 +1754,7 @@ func (b *BtcWallet) GetRecoveryInfo() (bool, float64, error) {
 	}
 
 	// Grab the best chain state the wallet is currently aware of.
-	syncState := b.wallet.Manager.SyncedTo()
+	syncState := b.wallet.SyncedTo()
 
 	// Next, query the chain backend to grab the info about the tip of the
 	// main chain.

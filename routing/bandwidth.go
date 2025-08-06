@@ -24,9 +24,9 @@ type bandwidthHints interface {
 	availableChanBandwidth(channelID uint64,
 		amount lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool)
 
-	// firstHopCustomBlob returns the custom blob for the first hop of the
-	// payment, if available.
-	firstHopCustomBlob() fn.Option[tlv.Blob]
+	// isCustomHTLCPayment returns true if this payment is a custom payment.
+	// For custom payments policy checks might not be needed.
+	isCustomHTLCPayment() bool
 }
 
 // getLinkQuery is the function signature used to lookup a link.
@@ -205,8 +205,27 @@ func (b *bandwidthManager) availableChanBandwidth(channelID uint64,
 	return bandwidth, true
 }
 
-// firstHopCustomBlob returns the custom blob for the first hop of the payment,
-// if available.
-func (b *bandwidthManager) firstHopCustomBlob() fn.Option[tlv.Blob] {
-	return b.firstHopBlob
+// isCustomHTLCPayment returns true if this payment is a custom payment.
+// For custom payments policy checks might not be needed.
+func (b *bandwidthManager) isCustomHTLCPayment() bool {
+	var isCustomHTLCPayment bool
+
+	b.firstHopBlob.WhenSome(func(blob tlv.Blob) {
+		customRecords, err := lnwire.ParseCustomRecords(blob)
+		if err != nil {
+			log.Warnf("failed to parse custom records when "+
+				"checking if payment is custom: %v", err)
+
+			return
+		}
+
+		isCustomHTLCPayment = fn.MapOptionZ(
+			b.trafficShaper,
+			func(s htlcswitch.AuxTrafficShaper) bool {
+				return s.IsCustomHTLC(customRecords)
+			},
+		)
+	})
+
+	return isCustomHTLCPayment
 }

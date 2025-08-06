@@ -37,6 +37,11 @@
   imported in a watch-only (e.g. remote-signing)
   setup](https://github.com/lightningnetwork/lnd/pull/10119).
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10125) a case in the
+  payment lifecycle where we would retry the same route over and over again in
+  situations where the sending amount would violate the channel policy
+  restriction (min,max HTLC).
+
 # New Features
 
 ## Functional Enhancements
@@ -90,3 +95,4 @@
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Yong Yu
+* Ziggie

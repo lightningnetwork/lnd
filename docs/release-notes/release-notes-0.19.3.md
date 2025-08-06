@@ -31,6 +31,10 @@
 
 # New Features
 
+- A new experimental RPC endpoint
+  [XFindLocalChanAlias](https://github.com/lightningnetwork/lnd/pull/10133) was
+  added for looking up the base scid for an scid alias.
+
 ## Functional Enhancements
 
 - Previously, when sweeping non-time sensitive anchor outputs, they might be

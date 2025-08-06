@@ -192,6 +192,13 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			return nil, err
 		}
 
+		if err := netann.ValidateNodeAnnFields(nodeUpdate); err != nil {
+			log.Debugf("Skipping forwarding invalid node "+
+				"announcement %x: %v", nodeAnn.PubKeyBytes, err)
+
+			continue
+		}
+
 		updates = append(updates, nodeUpdate)
 	}
 
@@ -296,8 +303,11 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 					return nil, err
 				}
 
-				chanAnns = append(chanAnns, nodeAnn)
-				nodePubsSent[nodePub] = struct{}{}
+				err = netann.ValidateNodeAnnFields(nodeAnn)
+				if err == nil {
+					chanAnns = append(chanAnns, nodeAnn)
+					nodePubsSent[nodePub] = struct{}{}
+				}
 			}
 		}
 		if edge2 != nil {
@@ -315,8 +325,11 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 					return nil, err
 				}
 
-				chanAnns = append(chanAnns, nodeAnn)
-				nodePubsSent[nodePub] = struct{}{}
+				err = netann.ValidateNodeAnnFields(nodeAnn)
+				if err == nil {
+					chanAnns = append(chanAnns, nodeAnn)
+					nodePubsSent[nodePub] = struct{}{}
+				}
 			}
 		}
 	}

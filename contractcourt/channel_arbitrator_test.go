@@ -417,7 +417,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	}
 
 	// We'll use the resolvedChan to synchronize on call to
-	// MarkChannelResolved.
+	// NotifyChannelResolved.
 	resolvedChan := make(chan struct{}, 1)
 
 	// Next we'll create the matching configuration struct that contains
@@ -425,9 +425,8 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	arbCfg := &ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
 		ShortChanID: shortChanID,
-		MarkChannelResolved: func() error {
+		NotifyChannelResolved: func() {
 			resolvedChan <- struct{}{}
-			return nil
 		},
 		MarkCommitmentBroadcasted: func(_ *wire.MsgTx,
 			_ lntypes.ChannelParty) error {
@@ -547,7 +546,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 	}
 
 	// Cooperative close should do trigger a MarkChannelClosed +
-	// MarkChannelResolved.
+	// NotifyChannelResolved.
 	closeInfo := &CooperativeCloseInfo{
 		&channeldb.ChannelCloseSummary{},
 	}

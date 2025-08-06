@@ -153,13 +153,9 @@ type ChannelArbitratorConfig struct {
 	// true. Otherwise this value is unset.
 	CloseType channeldb.ClosureType
 
-	// MarkChannelResolved is a function closure that serves to mark a
-	// channel as "fully resolved". A channel itself can be considered
-	// fully resolved once all active contracts have individually been
-	// fully resolved.
-	//
-	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
-	MarkChannelResolved func() error
+	// NotifyChannelResolved is used by the channel arbitrator to signal
+	// that a given channel has been resolved.
+	NotifyChannelResolved func()
 
 	// PutResolverReport records a resolver report for the channel. If the
 	// transaction provided is nil, the function should write the report
@@ -1397,10 +1393,7 @@ func (c *ChannelArbitrator) stateStep(
 		log.Infof("ChannelPoint(%v) has been fully resolved "+
 			"on-chain at height=%v", c.cfg.ChanPoint, triggerHeight)
 
-		if err := c.cfg.MarkChannelResolved(); err != nil {
-			log.Errorf("unable to mark channel resolved: %v", err)
-			return StateError, closeTx, err
-		}
+		c.cfg.NotifyChannelResolved()
 	}
 
 	log.Tracef("ChannelArbitrator(%v): next_state=%v", c.cfg.ChanPoint,

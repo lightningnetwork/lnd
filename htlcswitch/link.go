@@ -2547,36 +2547,12 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	heightNow uint32, originalScid lnwire.ShortChannelID,
 	customRecords lnwire.CustomRecords) *LinkError {
 
-	// As our first sanity check, we'll ensure that the passed HTLC isn't
-	// too small for the next hop. If so, then we'll cancel the HTLC
-	// directly.
-	if amt < policy.MinHTLCOut {
-		l.log.Warnf("outgoing htlc(%x) is too small: min_htlc=%v, "+
-			"htlc_value=%v", payHash[:], policy.MinHTLCOut,
-			amt)
-
-		// As part of the returned error, we'll send our latest routing
-		// policy so the sending node obtains the most up to date data.
-		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
-			return lnwire.NewAmountBelowMinimum(amt, *upd)
-		}
-		failure := l.createFailureWithUpdate(false, originalScid, cb)
-		return NewLinkError(failure)
-	}
-
-	// Next, ensure that the passed HTLC isn't too large. If so, we'll
-	// cancel the HTLC directly.
-	if policy.MaxHTLC != 0 && amt > policy.MaxHTLC {
-		l.log.Warnf("outgoing htlc(%x) is too large: max_htlc=%v, "+
-			"htlc_value=%v", payHash[:], policy.MaxHTLC, amt)
-
-		// As part of the returned error, we'll send our latest routing
-		// policy so the sending node obtains the most up-to-date data.
-		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
-			return lnwire.NewTemporaryChannelFailure(upd)
-		}
-		failure := l.createFailureWithUpdate(false, originalScid, cb)
-		return NewDetailedLinkError(failure, OutgoingFailureHTLCExceedsMax)
+	// Validate HTLC amount against policy limits.
+	linkErr := l.validateHtlcAmount(
+		policy, payHash, amt, originalScid, customRecords,
+	)
+	if linkErr != nil {
+		return linkErr
 	}
 
 	// We want to avoid offering an HTLC which will expire in the near
@@ -2591,6 +2567,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 			return lnwire.NewExpiryTooSoon(*upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
 		return NewLinkError(failure)
 	}
 
@@ -2606,7 +2583,8 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 	// We now check the available bandwidth to see if this HTLC can be
 	// forwarded.
 	availableBandwidth := l.Bandwidth()
-	auxBandwidth, err := fn.MapOptionZ(
+
+	auxBandwidth, externalErr := fn.MapOptionZ(
 		l.cfg.AuxTrafficShaper,
 		func(ts AuxTrafficShaper) fn.Result[OptionalBandwidth] {
 			var htlcBlob fn.Option[tlv.Blob]
@@ -2624,8 +2602,10 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 			return l.AuxBandwidth(amt, originalScid, htlcBlob, ts)
 		},
 	).Unpack()
-	if err != nil {
-		l.log.Errorf("Unable to determine aux bandwidth: %v", err)
+	if externalErr != nil {
+		l.log.Errorf("Unable to determine aux bandwidth: %v",
+			externalErr)
+
 		return NewLinkError(&lnwire.FailTemporaryNodeFailure{})
 	}
 
@@ -2645,6 +2625,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 			return lnwire.NewTemporaryChannelFailure(upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
 		return NewDetailedLinkError(
 			failure, OutgoingFailureInsufficientBalance,
 		)
@@ -4715,4 +4696,72 @@ func (l *channelLink) processLocalUpdateFailHTLC(ctx context.Context,
 
 	// Immediately update the commitment tx to minimize latency.
 	l.updateCommitTxOrFail(ctx)
+}
+
+// validateHtlcAmount checks if the HTLC amount is within the policy's
+// minimum and maximum limits. Returns a LinkError if validation fails.
+func (l *channelLink) validateHtlcAmount(policy models.ForwardingPolicy,
+	payHash [32]byte, amt lnwire.MilliSatoshi,
+	originalScid lnwire.ShortChannelID,
+	customRecords lnwire.CustomRecords) *LinkError {
+
+	// In case we are dealing with a custom HTLC, we don't need to validate
+	// the HTLC constraints.
+	//
+	// NOTE: Custom HTLCs are only locally sourced and will use custom
+	// channels which are not routable channels and should have their policy
+	// not restricted in the first place. However to be sure we skip this
+	// check otherwise we might end up in a loop of sending to the same
+	// route again and again because link errors are not persisted in
+	// mission control.
+	if fn.MapOptionZ(
+		l.cfg.AuxTrafficShaper,
+		func(ts AuxTrafficShaper) bool {
+			return ts.IsCustomHTLC(customRecords)
+		},
+	) {
+
+		l.log.Debugf("Skipping htlc amount policy validation for " +
+			"custom htlc")
+
+		return nil
+	}
+
+	// As our first sanity check, we'll ensure that the passed HTLC isn't
+	// too small for the next hop. If so, then we'll cancel the HTLC
+	// directly.
+	if amt < policy.MinHTLCOut {
+		l.log.Warnf("outgoing htlc(%x) is too small: min_htlc=%v, "+
+			"htlc_value=%v", payHash[:], policy.MinHTLCOut,
+			amt)
+
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up to date data.
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
+			return lnwire.NewAmountBelowMinimum(amt, *upd)
+		}
+		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
+		return NewLinkError(failure)
+	}
+
+	// Next, ensure that the passed HTLC isn't too large. If so, we'll
+	// cancel the HTLC directly.
+	if policy.MaxHTLC != 0 && amt > policy.MaxHTLC {
+		l.log.Warnf("outgoing htlc(%x) is too large: max_htlc=%v, "+
+			"htlc_value=%v", payHash[:], policy.MaxHTLC, amt)
+
+		// As part of the returned error, we'll send our latest routing
+		// policy so the sending node obtains the most up-to-date data.
+		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
+			return lnwire.NewTemporaryChannelFailure(upd)
+		}
+		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
+		return NewDetailedLinkError(
+			failure, OutgoingFailureHTLCExceedsMax,
+		)
+	}
+
+	return nil
 }

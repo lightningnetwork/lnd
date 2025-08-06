@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 )
@@ -36,8 +35,8 @@ func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64,
 	return balance, ok
 }
 
-func (m *mockBandwidthHints) firstHopCustomBlob() fn.Option[tlv.Blob] {
-	return fn.None[tlv.Blob]()
+func (m *mockBandwidthHints) isCustomHTLCPayment() bool {
+	return false
 }
 
 // integratedRoutingContext defines the context in which integrated routing

@@ -29,6 +29,10 @@
   logger's derived via `WithPrefix` did not inherit change log level changes
   from their parent loggers.
 
+- Fixed a [deadlock](https://github.com/lightningnetwork/lnd/pull/10108) that
+  can cause contract resolvers to be stuck at marking the channel force close as
+  being complete.
+
 # New Features
 
 ## Functional Enhancements

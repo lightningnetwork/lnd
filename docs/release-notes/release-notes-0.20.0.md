@@ -37,13 +37,6 @@
   known TLV fields were incorrectly encoded into the `ExtraData` field of
   messages in the dynamic commitment set.
 
-- Fixed a [deadlock](https://github.com/lightningnetwork/lnd/pull/10108) that
-  can cause contract resolvers to be stuck at marking the channel force close as
-  being complete.
- 
-- [Fix](https://github.com/lightningnetwork/lnd/pull/10107) a bug where child 
-  logger's derived via `WithPrefix` did not inherit change log level changes 
-  from their parent loggers. 
 
 # New Features
 
@@ -85,11 +78,6 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   protocols like dynamic commitments by restricting that the operation must
   finish under this timeout value. Consider using a larger timeout value if you
   have a slow network.
-
-* The default value for `gossip.msg-rate-bytes` has been
-  [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
-  1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
-
 
 * Added [`deletecanceledinvoices`](
   https://github.com/lightningnetwork/lnd/pull/9625) RPC to allow the removal of

@@ -321,6 +321,12 @@ func (s *mockServer) QuitSignal() <-chan struct{} {
 	return s.quit
 }
 
+func (s *mockServer) RecordProofSent(chanID lnwire.ChannelID) {}
+
+func (s *mockServer) HasSentProof(chanID lnwire.ChannelID) bool {
+	return false
+}
+
 // mockHopIterator represents the test version of hop iterator which instead
 // of encrypting the path in onion blob just stores the path as a list of hops.
 type mockHopIterator struct {

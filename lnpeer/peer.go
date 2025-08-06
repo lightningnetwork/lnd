@@ -49,6 +49,14 @@ type Peer interface {
 	// point from all indexes associated with the peer.
 	WipeChannel(*wire.OutPoint)
 
+	// RecordProofSent should be called when a proof has been sent for a
+	// given channel ID.
+	RecordProofSent(lnwire.ChannelID)
+
+	// HasSentProof should be called to check whether a proof has been sent
+	// for a given channel ID.
+	HasSentProof(lnwire.ChannelID) bool
+
 	// PubKey returns the serialized public key of the remote peer.
 	PubKey() [33]byte
 

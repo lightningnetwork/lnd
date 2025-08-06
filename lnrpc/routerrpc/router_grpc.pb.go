@@ -128,6 +128,9 @@ type RouterClient interface {
 	// operation is returned. The deletion will not be communicated to the channel
 	// peer via any message.
 	XDeleteLocalChanAliases(ctx context.Context, in *DeleteAliasesRequest, opts ...grpc.CallOption) (*DeleteAliasesResponse, error)
+	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+	// for a local chan alias that was registered during the current runtime.
+	XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error)
 }
 
 type routerClient struct {
@@ -481,6 +484,15 @@ func (c *routerClient) XDeleteLocalChanAliases(ctx context.Context, in *DeleteAl
 	return out, nil
 }
 
+func (c *routerClient) XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error) {
+	out := new(FindBaseAliasResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/XFindBaseLocalChanAlias", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RouterServer is the server API for Router service.
 // All implementations must embed UnimplementedRouterServer
 // for forward compatibility
@@ -594,6 +606,9 @@ type RouterServer interface {
 	// operation is returned. The deletion will not be communicated to the channel
 	// peer via any message.
 	XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error)
+	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+	// for a local chan alias that was registered during the current runtime.
+	XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error)
 	mustEmbedUnimplementedRouterServer()
 }
 
@@ -660,6 +675,9 @@ func (UnimplementedRouterServer) XAddLocalChanAliases(context.Context, *AddAlias
 }
 func (UnimplementedRouterServer) XDeleteLocalChanAliases(context.Context, *DeleteAliasesRequest) (*DeleteAliasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XDeleteLocalChanAliases not implemented")
+}
+func (UnimplementedRouterServer) XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XFindBaseLocalChanAlias not implemented")
 }
 func (UnimplementedRouterServer) mustEmbedUnimplementedRouterServer() {}
 
@@ -1060,6 +1078,24 @@ func _Router_XDeleteLocalChanAliases_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Router_XFindBaseLocalChanAlias_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FindBaseAliasRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).XFindBaseLocalChanAlias(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/XFindBaseLocalChanAlias",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).XFindBaseLocalChanAlias(ctx, req.(*FindBaseAliasRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Router_ServiceDesc is the grpc.ServiceDesc for Router service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1118,6 +1154,10 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "XDeleteLocalChanAliases",
 			Handler:    _Router_XDeleteLocalChanAliases_Handler,
+		},
+		{
+			MethodName: "XFindBaseLocalChanAlias",
+			Handler:    _Router_XFindBaseLocalChanAlias_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

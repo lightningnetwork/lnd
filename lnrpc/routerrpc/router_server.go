@@ -1764,6 +1764,22 @@ func (s *Server) XDeleteLocalChanAliases(_ context.Context,
 	}, nil
 }
 
+// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+// for a local chan alias that was registered.
+func (s *Server) XFindBaseLocalChanAlias(_ context.Context,
+	in *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
+
+	aliasScid := lnwire.NewShortChanIDFromInt(in.Alias)
+	base, err := s.cfg.AliasMgr.FindBaseSCID(aliasScid)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FindBaseAliasResponse{
+		Base: base.ToUint64(),
+	}, nil
+}
+
 func extractOutPoint(req *UpdateChanStatusRequest) (*wire.OutPoint, error) {
 	chanPoint := req.GetChanPoint()
 	txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)

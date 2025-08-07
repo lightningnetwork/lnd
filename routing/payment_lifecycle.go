@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -47,6 +48,10 @@ type paymentLifecycle struct {
 	currentHeight         int32
 	firstHopCustomRecords lnwire.CustomRecords
 
+	// wg is used to wait for all result collectors to finish before the
+	// payment lifecycle exits.
+	wg sync.WaitGroup
+
 	// quit is closed to signal the sub goroutines of the payment lifecycle
 	// to stop.
 	quit chan struct{}
@@ -84,6 +89,61 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 	p.resultCollector = p.collectResultAsync
 
 	return p
+}
+
+// waitForOutstandingResults is a dedicated goroutine that handles HTLC attempt
+// results. It makes sure that if the resumePayment exits we still collect all
+// outstanding results. This is only a temporary solution and should be
+// separating the attempt handling out of the payment lifecyle.
+//
+// NOTE: must be run in a goroutine.
+func (p *paymentLifecycle) waitForOutstandingResults() {
+	log.Debugf("Payment %v: starting outstanding results collector",
+		p.identifier)
+
+	defer log.Debugf("Payment %v: outstanding results collector stopped",
+		p.identifier)
+
+	for {
+		select {
+		case result := <-p.resultCollected:
+			if result == nil {
+				log.Debugf("Payment %v: received nil "+
+					"result, stopping collector",
+					p.identifier)
+
+				return
+			}
+
+			log.Debugf("Payment %v: processing result for "+
+				"attempt %v", p.identifier,
+				result.attempt.AttemptID)
+
+			// Handle the result. This will update the payment
+			// in the database.
+			_, err := p.handleAttemptResult(
+				result.attempt, result.result,
+			)
+			if err != nil {
+				log.Errorf("Payment %v: failed to handle "+
+					"result for attempt %v: %v",
+					p.identifier, result.attempt.AttemptID,
+					err)
+			}
+
+		case <-p.quit:
+			log.Debugf("Payment %v: quit signal received in "+
+				"result collector", p.identifier)
+
+			return
+
+		case <-p.router.quit:
+			log.Debugf("Payment %v: router quit signal received "+
+				"in result collector", p.identifier)
+
+			return
+		}
+	}
 }
 
 // calcFeeBudget returns the available fee to be used for sending HTLC
@@ -219,6 +279,13 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 		log.Errorf("Payment %v with status=%v failed: %v", p.identifier,
 			status, err)
 
+		// We need to wait for all outstanding results to be collected
+		// before exiting.
+		//
+		// NOTE: This is only a temporary solution and should be
+		// separating the attempt handling out of the payment lifecyle.
+		go p.waitForOutstandingResults()
+
 		return [32]byte{}, nil, err
 	}
 
@@ -226,6 +293,12 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// critical error during path finding.
 lifecycle:
 	for {
+		// We need to check the context before reloading the payment
+		// state.
+		if err := p.checkContext(ctx); err != nil {
+			return exitWithErr(err)
+		}
+
 		// We update the payment state on every iteration.
 		currentPayment, ps, err := p.reloadPayment()
 		if err != nil {
@@ -246,14 +319,6 @@ lifecycle:
 		//   3. create HTLC attempt.
 		//   4. send HTLC attempt.
 		//   5. collect HTLC attempt result.
-		//
-		// Before we attempt any new shard, we'll check to see if we've
-		// gone past the payment attempt timeout, or if the context was
-		// cancelled, or the router is exiting. In any of these cases,
-		// we'll stop this payment attempt short.
-		if err := p.checkContext(ctx); err != nil {
-			return exitWithErr(err)
-		}
 
 		// Now decide the next step of the current lifecycle.
 		step, err := p.decideNextStep(payment)
@@ -367,6 +432,9 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 			return fmt.Errorf("FailPayment got %w", err)
 		}
 
+		return fmt.Errorf("payment %v failed with reason: %v",
+			p.identifier, reason)
+
 	case <-p.router.quit:
 		return fmt.Errorf("check payment timeout got: %w",
 			ErrRouterShuttingDown)
@@ -437,6 +505,16 @@ func (p *paymentLifecycle) requestRoute(
 
 // stop signals any active shard goroutine to exit.
 func (p *paymentLifecycle) stop() {
+	log.Debugf("Stopping payment lifecycle for payment %v ...",
+		p.identifier)
+
+	// We still wait for all result collectors to finish before exiting
+	// the payment lifecycle.
+	//
+	// NOTE: This is only a temporary solution and should be separating the
+	// attempt handling out of the payment lifecyle.
+	p.wg.Wait()
+
 	close(p.quit)
 }
 
@@ -461,7 +539,10 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 	log.Debugf("Collecting result for attempt %v in payment %v",
 		attempt.AttemptID, p.identifier)
 
+	p.wg.Add(1)
 	go func() {
+		defer p.wg.Done()
+
 		result, err := p.collectResult(attempt)
 		if err != nil {
 			log.Errorf("Error collecting result for attempt %v in "+
@@ -483,13 +564,17 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 		}
 
 		// Signal that a result has been collected.
+		//
+		// NOTE: We don't listen to the payment lifecycle quit channel
+		// here, because we always resolve the result collector before
+		// exiting the payment lifecycle which is guaranteed by the
+		// wait group.
+		//
+		// NOTE: This is only a temporary solution and should be
+		// separating the attempt handling out of the payment lifecyle.
 		select {
 		// Send the result so decideNextStep can proceed.
 		case p.resultCollected <- r:
-
-		case <-p.quit:
-			log.Debugf("Lifecycle exiting while collecting "+
-				"result for payment %v", p.identifier)
 
 		case <-p.router.quit:
 		}

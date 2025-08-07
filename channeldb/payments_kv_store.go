@@ -119,17 +119,66 @@ var (
 
 // KVPaymentsDB implements persistence for payments and payment attempts.
 type KVPaymentsDB struct {
+	// Sequence management for the kv store.
 	paymentSeqMx     sync.Mutex
 	currPaymentSeq   uint64
 	storedPaymentSeq uint64
-	db               *DB
+
+	// db is the underlying database implementation.
+	db kvdb.Backend
+
+	keepFailedPaymentAttempts bool
 }
 
-// NewKVPaymentsDB creates a new instance of the KVPaymentsDB.
-func NewKVPaymentsDB(db *DB) *KVPaymentsDB {
-	return &KVPaymentsDB{
-		db: db,
+// defaultKVStoreOptions returns the default options for the KV store.
+func defaultKVStoreOptions() *paymentsdb.StoreOptions {
+	return &paymentsdb.StoreOptions{
+		KeepFailedPaymentAttempts: false,
 	}
+}
+
+// NewKVPaymentsDB creates a new KVStore for payments.
+func NewKVPaymentsDB(db kvdb.Backend,
+	options ...paymentsdb.OptionModifier) (*KVPaymentsDB, error) {
+
+	opts := defaultKVStoreOptions()
+	for _, applyOption := range options {
+		applyOption(opts)
+	}
+
+	if !opts.NoMigration {
+		if err := initKVStore(db); err != nil {
+			return nil, err
+		}
+	}
+
+	return &KVPaymentsDB{
+		db:                        db,
+		keepFailedPaymentAttempts: opts.KeepFailedPaymentAttempts,
+	}, nil
+}
+
+var paymentsTopLevelBuckets = [][]byte{
+	paymentsRootBucket,
+	paymentsIndexBucket,
+}
+
+// initKVStore creates and initializes the top-level buckets for the payment db.
+func initKVStore(db kvdb.Backend) error {
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		for _, tlb := range paymentsTopLevelBuckets {
+			if _, err := tx.CreateTopLevelBucket(tlb); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to create new payments db: %w", err)
+	}
+
+	return nil
 }
 
 // InitPayment checks or records the given PaymentCreationInfo with the DB,
@@ -154,7 +203,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 	infoBytes := b.Bytes()
 
 	var updateErr error
-	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Batch(p.db, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -241,7 +290,7 @@ func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
 // by the KVPaymentsDB db.
 func (p *KVPaymentsDB) DeleteFailedAttempts(hash lntypes.Hash) error {
-	if !p.db.keepFailedPaymentAttempts {
+	if !p.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
 		err := p.DeletePayment(hash, failedHtlcsOnly)
 		if err != nil {
@@ -322,7 +371,7 @@ func (p *KVPaymentsDB) RegisterAttempt(paymentHash lntypes.Hash,
 	binary.BigEndian.PutUint64(htlcIDBytes, attempt.AttemptID)
 
 	var payment *MPPayment
-	err = kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err = kvdb.Batch(p.db, func(tx kvdb.RwTx) error {
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
 		if err != nil {
@@ -490,7 +539,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 	binary.BigEndian.PutUint64(aid, attemptID)
 
 	var payment *MPPayment
-	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(p.db, func(tx kvdb.RwTx) error {
 		payment = nil
 
 		prefetchPayment(tx, paymentHash)
@@ -562,7 +611,7 @@ func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
 		updateErr error
 		payment   *MPPayment
 	)
-	err := kvdb.Batch(p.db.Backend, func(tx kvdb.RwTx) error {
+	err := kvdb.Batch(p.db, func(tx kvdb.RwTx) error {
 		// Reset the update error, to avoid carrying over an error
 		// from a previous execution of the batched db transaction.
 		updateErr = nil
@@ -715,7 +764,7 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 	// conflicts on the sequence when using etcd.
 	if p.currPaymentSeq == p.storedPaymentSeq {
 		var currPaymentSeq, newUpperBound uint64
-		if err := kvdb.Update(p.db.Backend, func(tx kvdb.RwTx) error {
+		if err := kvdb.Update(p.db, func(tx kvdb.RwTx) error {
 			paymentsBucket, err := tx.CreateTopLevelBucket(
 				paymentsRootBucket,
 			)

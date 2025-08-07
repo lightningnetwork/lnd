@@ -48,6 +48,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -1052,9 +1053,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
-		channeldb.OptionKeepFailedPaymentAttempts(
-			cfg.KeepFailedPaymentAttempts,
-		),
 		channeldb.OptionStoreFinalHtlcResolutions(
 			cfg.StoreFinalHtlcResolutions,
 		),
@@ -1222,9 +1220,24 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// Mount the payments DB which is only KV for now.
 	//
 	// TODO(ziggie): Add support for SQL payments DB.
-	kvPaymentsDB := channeldb.NewKVPaymentsDB(
+	// Mount the payments DB for the KV store.
+	paymentsDBOptions := []paymentsdb.OptionModifier{
+		paymentsdb.WithKeepFailedPaymentAttempts(
+			cfg.KeepFailedPaymentAttempts,
+		),
+	}
+	kvPaymentsDB, err := channeldb.NewKVPaymentsDB(
 		dbs.ChanStateDB,
+		paymentsDBOptions...,
 	)
+	if err != nil {
+		cleanUp()
+
+		err = fmt.Errorf("unable to open payments DB: %w", err)
+		d.logger.Error(err)
+
+		return nil, nil, err
+	}
 	dbs.KVPaymentsDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.

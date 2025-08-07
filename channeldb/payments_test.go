@@ -358,7 +358,8 @@ func TestQueryPayments(t *testing.T) {
 			require.NoError(t, err)
 
 			// Initialize the payment database.
-			paymentDB := NewKVPaymentsDB(db)
+			paymentDB, err := NewKVPaymentsDB(db)
+			require.NoError(t, err)
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.

@@ -67,7 +67,8 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -207,7 +208,8 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -283,7 +285,8 @@ func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, _, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -306,7 +309,8 @@ func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, _, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -329,7 +333,8 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	// start at 1, so 9999 is a safe bet for this test.
 	var duplicateSeqNr = 9999
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	payments := []struct {
 		failed       bool
@@ -547,7 +552,8 @@ func TestKVPaymentsDBDeletePayments(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	// Register three payments:
 	// 1. A payment with two failed attempts.
@@ -608,7 +614,8 @@ func TestKVPaymentsDBDeleteSinglePayment(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	// Register four payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -714,7 +721,8 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 			t.Fatalf("unable to init db: %v", err)
 		}
 
-		paymentDB := NewKVPaymentsDB(db)
+		paymentDB, err := NewKVPaymentsDB(db)
+		require.NoError(t, err)
 
 		info, attempt, preimg, err := genInfo(t)
 		if err != nil {
@@ -995,7 +1003,8 @@ func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to init db")
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, attempt, _, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -1076,11 +1085,15 @@ func TestDeleteFailedAttempts(t *testing.T) {
 
 func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	db, err := MakeTestDB(t)
-
 	require.NoError(t, err, "unable to init db")
-	db.keepFailedPaymentAttempts = keepFailedPaymentAttempts
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	)
+	require.NoError(t, err)
 
 	// Register three payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -1577,7 +1590,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	db, err := MakeTestDB(t)
 	require.NoError(t, err)
 
-	paymentDB := NewKVPaymentsDB(db)
+	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, _, err := genInfo(t)
@@ -1703,8 +1717,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 //
 // This code is *only* intended to replicate legacy duplicate payments in lnd,
 // our current schema does not allow duplicates.
-func appendDuplicatePayment(t *testing.T, db *DB, paymentHash lntypes.Hash,
-	seqNr uint64, preImg lntypes.Preimage) {
+func appendDuplicatePayment(t *testing.T, db kvdb.Backend,
+	paymentHash lntypes.Hash, seqNr uint64, preImg lntypes.Preimage) {
 
 	err := kvdb.Update(db, func(tx walletdb.ReadWriteTx) error {
 		bucket, err := fetchPaymentBucketUpdate(

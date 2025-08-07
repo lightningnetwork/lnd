@@ -3,7 +3,6 @@ package graphdb
 import (
 	"bytes"
 	"net"
-	"strings"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -54,36 +53,39 @@ var (
 )
 
 var addrTests = []struct {
+	inputAddr net.Addr
+	// If expAddr is not set, then the test will expect it to be equal
+	// to inputAddr.
 	expAddr net.Addr
 	serErr  string
 }{
 	// Valid addresses.
 	{
-		expAddr: testIPV4Addr,
+		inputAddr: testIPV4Addr,
 	},
 	{
-		expAddr: testIPV6Addr,
+		inputAddr: testIPV6Addr,
 	},
 	{
-		expAddr: testOnionV2Addr,
+		inputAddr: testOnionV2Addr,
 	},
 	{
-		expAddr: testOnionV3Addr,
+		inputAddr: testOnionV3Addr,
 	},
 	{
-		expAddr: testOpaqueAddr,
+		inputAddr: testOpaqueAddr,
 	},
 	{
-		expAddr: testDNSAddr,
+		inputAddr: testDNSAddr,
 	},
 
 	// Invalid addresses.
 	{
-		expAddr: unknownAddrType{},
-		serErr:  ErrUnknownAddressType.Error(),
+		inputAddr: unknownAddrType{},
+		serErr:    ErrUnknownAddressType.Error(),
 	},
 	{
-		expAddr: &net.TCPAddr{
+		inputAddr: &net.TCPAddr{
 			// Remove last byte of IPv4 address.
 			IP:   testIP4[:len(testIP4)-1],
 			Port: 12345,
@@ -91,7 +93,7 @@ var addrTests = []struct {
 		serErr: "unable to encode",
 	},
 	{
-		expAddr: &net.TCPAddr{
+		inputAddr: &net.TCPAddr{
 			// Add an extra byte of IPv4 address.
 			IP:   append(testIP4, 0xff),
 			Port: 12345,
@@ -99,7 +101,7 @@ var addrTests = []struct {
 		serErr: "unable to encode",
 	},
 	{
-		expAddr: &net.TCPAddr{
+		inputAddr: &net.TCPAddr{
 			// Remove last byte of IPv6 address.
 			IP:   testIP6[:len(testIP6)-1],
 			Port: 65535,
@@ -107,7 +109,7 @@ var addrTests = []struct {
 		serErr: "unable to encode",
 	},
 	{
-		expAddr: &net.TCPAddr{
+		inputAddr: &net.TCPAddr{
 			// Add an extra byte to the IPv6 address.
 			IP:   append(testIP6, 0xff),
 			Port: 65535,
@@ -115,7 +117,7 @@ var addrTests = []struct {
 		serErr: "unable to encode",
 	},
 	{
-		expAddr: &tor.OnionAddr{
+		inputAddr: &tor.OnionAddr{
 			// Invalid suffix.
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.inion",
 			Port:         80,
@@ -123,7 +125,7 @@ var addrTests = []struct {
 		serErr: "invalid suffix",
 	},
 	{
-		expAddr: &tor.OnionAddr{
+		inputAddr: &tor.OnionAddr{
 			// Invalid length.
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyy.onion",
 			Port:         80,
@@ -131,7 +133,7 @@ var addrTests = []struct {
 		serErr: "unknown onion service length",
 	},
 	{
-		expAddr: &tor.OnionAddr{
+		inputAddr: &tor.OnionAddr{
 			// Invalid encoding.
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyA.onion",
 			Port:         80,
@@ -147,30 +149,20 @@ func TestAddrSerialization(t *testing.T) {
 
 	var b bytes.Buffer
 	for _, test := range addrTests {
-		err := SerializeAddr(&b, test.expAddr)
-		switch {
-		case err == nil && test.serErr != "":
-			t.Fatalf("expected serialization err for addr %v",
-				test.expAddr)
-
-		case err != nil && test.serErr == "":
-			t.Fatalf("unexpected serialization err for addr %v: %v",
-				test.expAddr, err)
-
-		case err != nil && !strings.Contains(err.Error(), test.serErr):
-			t.Fatalf("unexpected serialization err for addr %v, "+
-				"want: %v, got %v", test.expAddr, test.serErr,
-				err)
-
-		case err != nil:
+		err := SerializeAddr(&b, test.inputAddr)
+		if test.serErr != "" {
+			require.ErrorContains(t, err, test.serErr)
 			continue
 		}
+		require.NoError(t, err)
 
 		addr, err := DeserializeAddr(&b)
-		if err != nil {
-			t.Fatalf("unable to deserialize address: %v", err)
-		}
+		require.NoError(t, err)
 
-		require.Equal(t, test.expAddr, addr)
+		if test.expAddr != nil {
+			require.Equal(t, test.expAddr, addr)
+		} else {
+			require.Equal(t, test.inputAddr, addr)
+		}
 	}
 }

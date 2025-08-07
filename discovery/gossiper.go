@@ -403,6 +403,10 @@ type Config struct {
 	// FilterConcurrency is the maximum number of concurrent gossip filter
 	// applications that can be processed.
 	FilterConcurrency int
+
+	// BanThreshold is the score used to decide whether a given peer is
+	// banned or not.
+	BanThreshold uint64
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -586,7 +590,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 			maxRejectedUpdates,
 		),
 		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
-		banman:                newBanman(),
+		banman:                newBanman(cfg.BanThreshold),
 	}
 
 	gossiper.vb = NewValidationBarrier(1000, gossiper.quit)
@@ -2598,7 +2602,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 	if closed {
 		err = fmt.Errorf("ignoring closed channel %v", scid)
-		log.Error(err)
 
 		// If this is an announcement from us, we'll just ignore it.
 		if !nMsg.isRemote {
@@ -2606,23 +2609,14 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 			return nil, false
 		}
 
+		log.Warnf("Increasing ban score for peer=%v due to outdated "+
+			"channel announcement for channel %v", nMsg.peer, scid)
+
 		// Increment the peer's ban score if they are sending closed
 		// channel announcements.
-		d.banman.incrementBanScore(nMsg.peer.PubKey())
-
-		// If the peer is banned and not a channel peer, we'll
-		// disconnect them.
-		shouldDc, dcErr := d.ShouldDisconnect(nMsg.peer.IdentityKey())
+		dcErr := d.handleBadPeer(nMsg.peer)
 		if dcErr != nil {
-			log.Errorf("failed to check if we should disconnect "+
-				"peer: %v", dcErr)
-			nMsg.err <- dcErr
-
-			return nil, false
-		}
-
-		if shouldDc {
-			nMsg.peer.Disconnect(ErrPeerBanned)
+			err = dcErr
 		}
 
 		nMsg.err <- err
@@ -2707,7 +2701,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// ShortChannelID is an alias, then we'll skip validation as it will
 	// not map to a legitimate tx. This is not a DoS vector as only we can
 	// add an alias ChannelAnnouncement from the gossiper.
-	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) { //nolint:nestif
+	if !(d.cfg.AssumeChannelValid || d.cfg.IsAlias(scid)) {
 		op, capacity, script, err := d.validateFundingTransaction(
 			ctx, ann, tapscriptRoot,
 		)
@@ -2725,15 +2719,6 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				_, _ = d.recentRejects.Put(
 					key, &cachedReject{},
 				)
-
-				// Increment the peer's ban score. We check
-				// isRemote so we don't actually ban the peer in
-				// case of a local bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
 
 			case errors.Is(err, ErrChannelSpent):
 				key := newRejectCacheKey(
@@ -2758,23 +2743,19 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 					return nil, false
 				}
 
-				// Increment the peer's ban score. We check
-				// isRemote so we don't accidentally ban
-				// ourselves in case of a bug.
-				if nMsg.isRemote {
-					d.banman.incrementBanScore(
-						nMsg.peer.PubKey(),
-					)
-				}
-
 			default:
 				// Otherwise, this is just a regular rejected
-				// edge.
+				// edge. We won't increase the ban score for the
+				// remote peer.
 				key := newRejectCacheKey(
 					scid.ToUint64(),
 					sourceToPub(nMsg.source),
 				)
 				_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+				nMsg.err <- err
+
+				return nil, false
 			}
 
 			if !nMsg.isRemote {
@@ -2785,19 +2766,15 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 				return nil, false
 			}
 
-			shouldDc, dcErr := d.ShouldDisconnect(
-				nMsg.peer.IdentityKey(),
-			)
+			log.Warnf("Increasing ban score for peer=%v due to "+
+				"invalid channel announcement for channel %v",
+				nMsg.peer, scid)
+
+			// Increment the peer's ban score if they are sending
+			// us invalid channel announcements.
+			dcErr := d.handleBadPeer(nMsg.peer)
 			if dcErr != nil {
-				log.Errorf("failed to check if we should "+
-					"disconnect peer: %v", dcErr)
-				nMsg.err <- dcErr
-
-				return nil, false
-			}
-
-			if shouldDc {
-				nMsg.peer.Disconnect(ErrPeerBanned)
+				err = dcErr
 			}
 
 			nMsg.err <- err
@@ -3060,15 +3037,28 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	// Check that the ChanUpdate is not too far into the future, this could
 	// reveal some faulty implementation therefore we log an error.
 	if time.Until(timestamp) > graph.DefaultChannelPruneExpiry {
-		log.Errorf("Skewed timestamp (%v) for edge policy of "+
-			"short_chan_id(%v), timestamp too far in the future: "+
-			"peer=%v, msg=%s, is_remote=%v", timestamp.Unix(),
-			shortChanID, nMsg.peer, nMsg.msg.MsgType(),
-			nMsg.isRemote,
-		)
-
-		nMsg.err <- fmt.Errorf("skewed timestamp of edge policy, "+
+		err := fmt.Errorf("skewed timestamp of edge policy, "+
 			"timestamp too far in the future: %v", timestamp.Unix())
+
+		// If this is a channel_update from us, we'll just ignore it.
+		if !nMsg.isRemote {
+			nMsg.err <- err
+			return nil, false
+		}
+
+		log.Errorf("Increasing ban score for peer=%v due to bad "+
+			"channel_update with short_chan_id(%v): timestamp(%v) "+
+			"too far in the future", nMsg.peer, shortChanID,
+			timestamp.Unix())
+
+		// Increment the peer's ban score if they are skewed channel
+		// updates.
+		dcErr := d.handleBadPeer(nMsg.peer)
+		if dcErr != nil {
+			err = dcErr
+		}
+
+		nMsg.err <- err
 
 		return nil, false
 	}
@@ -3839,6 +3829,29 @@ func (d *AuthenticatedGossiper) validateFundingTransaction(_ context.Context,
 
 	return *fundingPoint, btcutil.Amount(chanUtxo.Value), fundingPkScript,
 		nil
+}
+
+// handleBadPeer takes a misbehaving peer and increases its ban score. Once
+// increased, it will disconnect the peer if its ban score has reached
+// `banThreshold` and it doesn't have a channel with us.
+func (d *AuthenticatedGossiper) handleBadPeer(peer lnpeer.Peer) error {
+	// Increment the peer's ban score for misbehavior.
+	d.banman.incrementBanScore(peer.PubKey())
+
+	// If the peer is banned and not a channel peer, we'll disconnect them.
+	shouldDc, dcErr := d.ShouldDisconnect(peer.IdentityKey())
+	if dcErr != nil {
+		log.Errorf("failed to check if we should disconnect peer: %v",
+			dcErr)
+
+		return dcErr
+	}
+
+	if shouldDc {
+		peer.Disconnect(ErrPeerBanned)
+	}
+
+	return nil
 }
 
 // makeFundingScript is used to make the funding script for both segwit v0 and

@@ -38,7 +38,23 @@ runs:
           ~/.cache/go-build
           ~/Library/Caches/go-build
           ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
+
+        # The key is used to create and later look up the cache. It's made of
+        # four parts:  
+        # - The base part is made from the OS name, Go version and a
+        #   job-specified key prefix. Example: `linux-go-1.23.12-unit-test-`.
+        #   It ensures that a job running on Linux with Go 1.23 only looks for
+        #   caches from the same environment.
+        # - The unique part is the `hashFiles('**/go.sum')`, which calculates a
+        #   hash (a fingerprint) of the go.sum file. 
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ hashFiles('**/go.sum') }}
+
+        # The restore-keys provides a list of fallback keys. If no cache
+        # matches the key exactly, the action will look for a cache where the
+        # key starts with one of the restore-keys. The action searches the
+        # restore-keys list in order and restores the most recently created
+        # cache that matches the prefix. Once the job is done, a new cache is
+        # created and saved using the new key. 
         restore-keys: |
           ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-${{ github.job }}-
           ${{ runner.os }}-go-${{ inputs.go-version }}-${{ inputs.key-prefix }}-

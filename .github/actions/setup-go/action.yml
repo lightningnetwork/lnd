@@ -52,7 +52,7 @@ runs:
         # The key is used to create and later look up the cache. It's made of
         # four parts:  
         # - The base part is made from the OS name, Go version and a
-        #   job-specified key prefix. Example: `linux-go-1.23.10-unit-test-`.
+        #   job-specified key prefix. Example: `linux-go-1.23.12-unit-test-`.
         #   It ensures that a job running on Linux with Go 1.23 only looks for
         #   caches from the same environment.
         # - The unique part is the `hashFiles('**/go.sum')`, which calculates a

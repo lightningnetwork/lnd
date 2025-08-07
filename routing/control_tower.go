@@ -104,8 +104,8 @@ type ControlTower interface {
 
 // ControlTowerSubscriber contains the state for a payment update subscriber.
 type ControlTowerSubscriber interface {
-	// Updates is the channel over which *paymentsdb.MPPayment updates can be
-	// received.
+	// Updates is the channel over which *paymentsdb.MPPayment updates can
+	// be received.
 	Updates() <-chan interface{}
 
 	// Close signals that the subscriber is no longer interested in updates.
@@ -304,7 +304,9 @@ func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *controlTower) FetchInFlightPayments() ([]*paymentsdb.MPPayment, error) {
+func (p *controlTower) FetchInFlightPayments() ([]*paymentsdb.MPPayment,
+	error) {
+
 	return p.db.FetchInFlightPayments()
 }
 

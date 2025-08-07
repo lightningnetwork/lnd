@@ -25,7 +25,9 @@ func serializeHTLCSettleInfo(w io.Writer, s *paymentsdb.HTLCSettleInfo) error {
 }
 
 // deserializeHTLCSettleInfo deserializes the details of a settled htlc.
-func deserializeHTLCSettleInfo(r io.Reader) (*paymentsdb.HTLCSettleInfo, error) {
+func deserializeHTLCSettleInfo(r io.Reader) (*paymentsdb.HTLCSettleInfo,
+	error) {
+
 	s := &paymentsdb.HTLCSettleInfo{}
 	if _, err := io.ReadFull(r, s.Preimage[:]); err != nil {
 		return nil, err

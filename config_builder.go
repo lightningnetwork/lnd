@@ -1230,6 +1230,14 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		dbs.ChanStateDB,
 		paymentsDBOptions...,
 	)
+	if err != nil {
+		cleanUp()
+
+		err = fmt.Errorf("unable to open payments DB: %w", err)
+		d.logger.Error(err)
+
+		return nil, nil, err
+	}
 	dbs.KVPaymentsDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.

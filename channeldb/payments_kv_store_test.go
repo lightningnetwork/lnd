@@ -79,7 +79,8 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
 	assertPaymentStatus(
-		t, paymentDB, info.PaymentIdentifier, paymentsdb.StatusInitiated,
+		t, paymentDB, info.PaymentIdentifier,
+		paymentsdb.StatusInitiated,
 	)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, nil, nil,
@@ -114,7 +115,8 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	assertNoIndex(t, paymentDB, payment.SequenceNum)
 
 	assertPaymentStatus(
-		t, paymentDB, info.PaymentIdentifier, paymentsdb.StatusInitiated,
+		t, paymentDB, info.PaymentIdentifier,
+		paymentsdb.StatusInitiated,
 	)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, nil, nil,
@@ -186,7 +188,8 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	}
 
 	assertPaymentStatus(
-		t, paymentDB, info.PaymentIdentifier, paymentsdb.StatusSucceeded,
+		t, paymentDB, info.PaymentIdentifier,
+		paymentsdb.StatusSucceeded,
 	)
 
 	htlc.settle = &preimg
@@ -211,6 +214,7 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	require.NoError(t, err, "unable to init db")
 
 	paymentDB, err := NewKVPaymentsDB(db)
+	require.NoError(t, err)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -222,7 +226,8 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
 	assertPaymentStatus(
-		t, paymentDB, info.PaymentIdentifier, paymentsdb.StatusInitiated,
+		t, paymentDB, info.PaymentIdentifier,
+		paymentsdb.StatusInitiated,
 	)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, nil, nil,
@@ -264,7 +269,8 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	)
 	require.NoError(t, err, "error shouldn't have been received, got")
 	assertPaymentStatus(
-		t, paymentDB, info.PaymentIdentifier, paymentsdb.StatusSucceeded,
+		t, paymentDB, info.PaymentIdentifier,
+		paymentsdb.StatusSucceeded,
 	)
 
 	htlc.settle = &preimg
@@ -1099,6 +1105,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 			keepFailedPaymentAttempts,
 		),
 	)
+	require.NoError(t, err)
 
 	// Register three payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt

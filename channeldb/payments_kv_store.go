@@ -1083,6 +1083,7 @@ func fetchHtlcAttempts(bucket kvdb.RBucket) ([]paymentsdb.HTLCAttempt, error) {
 // readHtlcAttemptInfo reads the payment attempt info for this htlc.
 func readHtlcAttemptInfo(b []byte) (*paymentsdb.HTLCAttemptInfo, error) {
 	r := bytes.NewReader(b)
+
 	return deserializeHTLCAttemptInfo(r)
 }
 
@@ -1090,6 +1091,7 @@ func readHtlcAttemptInfo(b []byte) (*paymentsdb.HTLCAttemptInfo, error) {
 // settled, nil is returned.
 func readHtlcSettleInfo(b []byte) (*paymentsdb.HTLCSettleInfo, error) {
 	r := bytes.NewReader(b)
+
 	return deserializeHTLCSettleInfo(r)
 }
 
@@ -1097,6 +1099,7 @@ func readHtlcSettleInfo(b []byte) (*paymentsdb.HTLCSettleInfo, error) {
 // failed, nil is returned.
 func readHtlcFailInfo(b []byte) (*paymentsdb.HTLCFailInfo, error) {
 	r := bytes.NewReader(b)
+
 	return deserializeHTLCFailInfo(r)
 }
 
@@ -1762,7 +1765,9 @@ func serializeHTLCAttemptInfo(w io.Writer,
 	return nil
 }
 
-func deserializeHTLCAttemptInfo(r io.Reader) (*paymentsdb.HTLCAttemptInfo, error) {
+func deserializeHTLCAttemptInfo(r io.Reader) (*paymentsdb.HTLCAttemptInfo,
+	error) {
+
 	a := &paymentsdb.HTLCAttemptInfo{}
 	var sessionKey [btcec.PrivKeyBytesLen]byte
 	err := ReadElements(r, &sessionKey)

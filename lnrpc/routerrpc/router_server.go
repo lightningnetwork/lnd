@@ -1448,7 +1448,14 @@ func (s *Server) trackPaymentStream(context context.Context,
 				// No more payment updates.
 				return nil
 			}
-			result := item.(*paymentsdb.MPPayment)
+
+			result, ok := item.(*paymentsdb.MPPayment)
+			if !ok {
+				log.Errorf("Received unexpected update "+
+					"type: %T", item)
+
+				continue
+			}
 
 			log.Tracef("Payment %v updated to state %v",
 				result.Info.PaymentIdentifier, result.Status)

@@ -41,7 +41,11 @@ var (
 		OnionService: "3g2upl4pq6kufc4m.onion",
 		Port:         9735,
 	}
-	addr4 = &lnwire.OpaqueAddrs{
+	addr4 = &lnwire.DNSAddress{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+	addr5 = &lnwire.OpaqueAddrs{
 		// The first byte must be an address type we are not yet aware
 		// of for it to be a valid OpaqueAddrs.
 		Payload: []byte{math.MaxUint8, 1, 2, 3, 4},
@@ -320,7 +324,7 @@ func TestSinglePackUnpack(t *testing.T) {
 	require.NoError(t, err, "unable to gen open channel")
 
 	singleChanBackup := NewSingle(
-		channel, []net.Addr{addr1, addr2, addr3, addr4},
+		channel, []net.Addr{addr1, addr2, addr3, addr4, addr5},
 	)
 
 	keyRing := &lnencrypt.MockKeyRing{}
@@ -647,7 +651,7 @@ func TestSingleUnconfirmedChannel(t *testing.T) {
 	channel.FundingBroadcastHeight = fundingBroadcastHeight
 
 	singleChanBackup := NewSingle(
-		channel, []net.Addr{addr1, addr2, addr3, addr4},
+		channel, []net.Addr{addr1, addr2, addr3, addr4, addr5},
 	)
 	keyRing := &lnencrypt.MockKeyRing{}
 

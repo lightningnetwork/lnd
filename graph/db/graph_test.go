@@ -37,13 +37,7 @@ var (
 		Port: 9000}
 	anotherAddr, _ = net.ResolveTCPAddr("tcp",
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
-	testAddrs      = []net.Addr{testAddr, anotherAddr}
-	testOpaqueAddr = &lnwire.OpaqueAddrs{
-		// NOTE: the first byte is a protocol level address type. So
-		// for we set it to 0xff to guarantee that we do not know this
-		// type yet.
-		Payload: []byte{0xff, 0x02, 0x03, 0x04, 0x05, 0x06},
-	}
+	testAddrs = []net.Addr{testAddr, anotherAddr}
 
 	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18" +
 		"e949ddfa2965fb6caa1bf0314f882d7")
@@ -211,6 +205,8 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		// Add one v2 and one v3 onion address.
 		testOnionV2Addr,
 		testOnionV3Addr,
+		// Add a DNS host address.
+		testDNSAddr,
 		// Make sure to also test the opaque address type.
 		testOpaqueAddr,
 	}

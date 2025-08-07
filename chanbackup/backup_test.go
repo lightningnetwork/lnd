@@ -161,6 +161,7 @@ func TestFetchStaticChanBackups(t *testing.T) {
 	chanSource.addAddrsForNode(randomChan2.IdentityPub, []net.Addr{addr2})
 	chanSource.addAddrsForNode(randomChan2.IdentityPub, []net.Addr{addr3})
 	chanSource.addAddrsForNode(randomChan2.IdentityPub, []net.Addr{addr4})
+	chanSource.addAddrsForNode(randomChan2.IdentityPub, []net.Addr{addr5})
 
 	// With the channel source populated, we'll now attempt to create a set
 	// of backups for all the channels. This should succeed, as all items

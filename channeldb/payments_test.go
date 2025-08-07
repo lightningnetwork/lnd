@@ -358,14 +358,14 @@ func TestQueryPayments(t *testing.T) {
 				t.Fatalf("unable to init db: %v", err)
 			}
 
-			var (
-				// Create a context for the query. This is not
-				// used in the kvdb implementation, but is
-				// required by the interface.
-				ctx = context.Background()
-				// Initialize the payment database.
-				paymentDB = NewKVPaymentsDB(db)
-			)
+			// Create a context for the query. This is not
+			// used in the kvdb implementation, but is
+			// required by the interface.
+			ctx := context.Background()
+
+			// Initialize the payment database.
+			paymentDB, err := NewKVPaymentsDB(db)
+			require.NoError(t, err)
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.

@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
@@ -384,6 +385,7 @@ type mockers struct {
 	wallet    *MockWallet
 	estimator *chainfee.MockEstimator
 	notifier  *chainntnfs.MockChainNotifier
+	chainIO   *lnmock.MockChain
 
 	feeFunc *MockFeeFunction
 }
@@ -405,12 +407,16 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 	// Create a mock chain notifier.
 	notifier := &chainntnfs.MockChainNotifier{}
 
+	// Create a mock chain IO.
+	chainIO := &lnmock.MockChain{}
+
 	t.Cleanup(func() {
 		estimator.AssertExpectations(t)
 		feeFunc.AssertExpectations(t)
 		signer.AssertExpectations(t)
 		wallet.AssertExpectations(t)
 		notifier.AssertExpectations(t)
+		chainIO.AssertExpectations(t)
 	})
 
 	m := &mockers{
@@ -418,6 +424,7 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		wallet:    wallet,
 		estimator: estimator,
 		notifier:  notifier,
+		chainIO:   chainIO,
 		feeFunc:   feeFunc,
 	}
 
@@ -427,6 +434,7 @@ func createTestPublisher(t *testing.T) (*TxPublisher, *mockers) {
 		Signer:     m.signer,
 		Wallet:     m.wallet,
 		Notifier:   m.notifier,
+		ChainIO:    m.chainIO,
 		AuxSweeper: fn.Some[AuxSweeper](&MockAuxSweeper{}),
 	})
 
@@ -1500,14 +1508,11 @@ func TestProcessRecordsInitial(t *testing.T) {
 	req := createTestBumpRequest()
 	op := req.Inputs[0].OutPoint()
 
-	// Mock RegisterSpendNtfn.
-	//
-	// Create the spending event that doesn't send an event.
-	se := &chainntnfs.SpendEvent{
-		Cancel: func() {},
-	}
-	m.notifier.On("RegisterSpendNtfn",
-		&op, mock.Anything, mock.Anything).Return(se, nil).Once()
+	// Mock GetUtxo to return a utxo, indicating the input is not spent.
+	inp := req.Inputs[0]
+	m.chainIO.On("GetUtxo", &op, inp.SignDesc().Output.PkScript,
+		inp.HeightHint(), mock.Anything,
+	).Return(&wire.TxOut{}, nil).Once()
 
 	// Create a monitor record that's broadcast the first time.
 	record := &monitorRecord{
@@ -1570,6 +1575,13 @@ func TestProcessRecordsInitialSpent(t *testing.T) {
 	tx := &wire.MsgTx{LockTime: 1}
 	op := req.Inputs[0].OutPoint()
 
+	// Mock GetUtxo to return nil, indicating the input is spent.
+	inp := req.Inputs[0]
+	m.chainIO.On("GetUtxo",
+		&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+		mock.Anything,
+	).Return(nil, nil).Once()
+
 	// Mock RegisterSpendNtfn.
 	se := createTestSpendEvent(tx)
 	m.notifier.On("RegisterSpendNtfn",
@@ -1622,14 +1634,12 @@ func TestProcessRecordsFeeBump(t *testing.T) {
 	tx := &wire.MsgTx{LockTime: 1}
 	op := req.Inputs[0].OutPoint()
 
-	// Mock RegisterSpendNtfn.
-	//
-	// Create the spending event that doesn't send an event.
-	se := &chainntnfs.SpendEvent{
-		Cancel: func() {},
-	}
-	m.notifier.On("RegisterSpendNtfn",
-		&op, mock.Anything, mock.Anything).Return(se, nil).Once()
+	// Mock GetUtxo to return a utxo, indicating the input is not spent.
+	inp := req.Inputs[0]
+	m.chainIO.On("GetUtxo",
+		&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+		mock.Anything,
+	).Return(&wire.TxOut{}, nil).Once()
 
 	// Create a monitor record that's not confirmed. We know it's not
 	// confirmed because the `SpendEvent` is empty.
@@ -1702,6 +1712,13 @@ func TestProcessRecordsConfirmed(t *testing.T) {
 	tx := &wire.MsgTx{LockTime: 1}
 	op := req.Inputs[0].OutPoint()
 
+	// Mock GetUtxo to return nil, indicating the input is spent.
+	inp := req.Inputs[0]
+	m.chainIO.On("GetUtxo",
+		&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+		mock.Anything,
+	).Return(nil, nil).Once()
+
 	// Mock RegisterSpendNtfn.
 	se := createTestSpendEvent(tx)
 	m.notifier.On("RegisterSpendNtfn",
@@ -1759,6 +1776,13 @@ func TestProcessRecordsSpent(t *testing.T) {
 
 	// Create a unknown tx.
 	txUnknown := &wire.MsgTx{LockTime: 2}
+
+	// Mock GetUtxo to return nil, indicating the input is spent.
+	inp := req.Inputs[0]
+	m.chainIO.On("GetUtxo",
+		&op, inp.SignDesc().Output.PkScript, inp.HeightHint(),
+		mock.Anything,
+	).Return(nil, nil).Once()
 
 	// Mock RegisterSpendNtfn.
 	se := createTestSpendEvent(txUnknown)
@@ -2034,7 +2058,7 @@ func TestHasInputsSpent(t *testing.T) {
 			PkScript: pkScript1,
 		},
 	}
-	inp1.On("SignDesc").Return(sd1).Once()
+	inp1.On("SignDesc").Return(sd1).Twice()
 
 	pkScript2 := []byte{1}
 	sd2 := &input.SignDescriptor{
@@ -2052,6 +2076,13 @@ func TestHasInputsSpent(t *testing.T) {
 	}
 	walletInp.On("SignDesc").Return(sd3).Once()
 
+	// Mock GetUtxo.
+	//
+	// Mock GetUtxo to return nil for the first input.
+	m.chainIO.On("GetUtxo",
+		&op1, pkScript1, heightHint1, mock.Anything,
+	).Return(nil, nil).Once()
+
 	// Mock RegisterSpendNtfn.
 	//
 	// spendingTx1 is the tx spending op1.
@@ -2060,18 +2091,15 @@ func TestHasInputsSpent(t *testing.T) {
 	m.notifier.On("RegisterSpendNtfn",
 		&op1, pkScript1, heightHint1).Return(se1, nil).Once()
 
-	// Create the spending event that doesn't send an event.
-	se2 := &chainntnfs.SpendEvent{
-		Cancel: func() {},
-	}
-	m.notifier.On("RegisterSpendNtfn",
-		&op2, pkScript2, heightHint2).Return(se2, nil).Once()
+	// Mock GetUtxo to return a result for the second input.
+	m.chainIO.On("GetUtxo",
+		&op2, pkScript2, heightHint2, mock.Anything,
+	).Return(&wire.TxOut{}, nil).Once()
 
-	se3 := &chainntnfs.SpendEvent{
-		Cancel: func() {},
-	}
-	m.notifier.On("RegisterSpendNtfn",
-		&op3, pkScript3, heightHint3).Return(se3, nil).Once()
+	// Mock GetUtxo to return a result for the wallet input.
+	m.chainIO.On("GetUtxo",
+		&op3, pkScript3, heightHint3, mock.Anything,
+	).Return(&wire.TxOut{}, nil).Once()
 
 	// Prepare the test inputs.
 	inputs := []input.Input{inp1, inp2, walletInp}

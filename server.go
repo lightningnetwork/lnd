@@ -634,8 +634,9 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	if cfg.ProtocolOptions.TaprootOverlayChans &&
 		implCfg.AuxFundingController.IsNone() {
 
-		return nil, fmt.Errorf("taproot overlay flag set, but not " +
-			"aux controllers")
+		return nil, fmt.Errorf("taproot overlay flag set, but " +
+			"overlay channels are not supported " +
+			"in a standalone lnd build")
 	}
 
 	//nolint:ll

@@ -40,6 +40,9 @@
 
 # New Features
 
+- Added support for [P2TR Fallback Addresses](
+  https://github.com/lightningnetwork/lnd/pull/9975) in BOLT-11 invoices.
+
 ## Functional Enhancements
 
 * RPCs `walletrpc.EstimateFee` and `walletrpc.FundPsbt` now

@@ -1913,11 +1913,34 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		s.hostAnn = netann.NewHostAnnouncer(netann.HostAnnouncerConfig{
 			Hosts:         cfg.ExternalHosts,
 			RefreshTicker: ticker.New(defaultHostSampleInterval),
-			LookupHost: func(host string) (net.Addr, error) {
-				return lncfg.ParseAddressString(
-					host, strconv.Itoa(defaultPeerPort),
-					cfg.net.ResolveTCPAddr,
-				)
+			LookuLookupHost: func(host string) ([]net.Addr, error) {
+					// Use net.LookupHost to get all IP addresses for the host
+					ips, err := net.LookupHost(host)
+					if err != nil {
+						return nil, err
+					}
+					
+					// Create addresses for each IP (both IPv4 and IPv6)
+					var addrs []net.Addr
+					for _, ip := range ips {
+						addr, err := lncfg.ParseAddressString(
+							ip, strconv.Itoa(defaultPeerPort),
+							cfg.net.ResolveTCPAddr,
+						)
+						if err != nil {
+							// Log the error but continue with other IPs
+							continue
+						}
+						addrs = append(addrs, addr)
+					}
+					
+					// Return error if no valid addresses were found
+					if len(addrs) == 0 {
+						return nil, fmt.Errorf("no valid addresses found for host %s", host)
+					}
+					
+					return addrs, nil
+				})
 			},
 			AdvertisedIPs: advertisedIPs,
 			AnnounceNewIPs: netann.IPAnnouncer(

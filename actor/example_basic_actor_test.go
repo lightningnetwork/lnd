@@ -23,9 +23,9 @@ type BasicGreetingResponse struct {
 	Greeting string
 }
 
-// ExampleBasicActor demonstrates creating a single actor, sending it a message
+// Example_basicActor demonstrates creating a single actor, sending it a message
 // directly using Ask, and then unregistering and stopping it.
-func ExampleBasicActor() {
+func Example_basicActor() {
 	system := actor.NewActorSystem()
 	defer system.Shutdown()
 

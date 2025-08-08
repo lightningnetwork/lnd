@@ -167,19 +167,18 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 	}
 
 	var inboundFee = a.InboundFee.Zero()
-	typeMap, err := tlvRecords.ExtractRecords(&inboundFee)
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &inboundFee,
+	)
 	if err != nil {
 		return err
 	}
 
-	val, ok := typeMap[a.InboundFee.TlvType()]
-	if ok && val == nil {
+	if _, ok := knownRecords[a.InboundFee.TlvType()]; ok {
 		a.InboundFee = tlv.SomeRecordT(inboundFee)
 	}
 
-	if len(tlvRecords) != 0 {
-		a.ExtraOpaqueData = tlvRecords
-	}
+	a.ExtraOpaqueData = extraData
 
 	return nil
 }
@@ -238,18 +237,25 @@ func (a *ChannelUpdate1) Encode(w *bytes.Buffer, pver uint32) error {
 		}
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	// Get producers from extra data.
+	producers, err := a.ExtraOpaqueData.RecordProducers()
+	if err != nil {
+		return err
+	}
+
 	a.InboundFee.WhenSome(func(fee tlv.RecordT[tlv.TlvType55555, Fee]) {
-		recordProducers = append(recordProducers, &fee)
+		producers = append(producers, &fee)
 	})
 
-	err := EncodeMessageExtraData(&a.ExtraOpaqueData, recordProducers...)
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
 
 	// Finally, append any extra opaque data.
-	return WriteBytes(w, a.ExtraOpaqueData)
+	return WriteBytes(w, tlvData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

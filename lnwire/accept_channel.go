@@ -89,6 +89,8 @@ type AcceptChannel struct {
 	// within the commitment transaction of the sender.
 	FirstCommitmentPoint *btcec.PublicKey
 
+	// NOTE: The following fields are TLV records.
+	//
 	// UpfrontShutdownScript is the script to which the channel funds should
 	// be paid when mutually closing the channel. This field is optional, and
 	// and has a length prefix, so a zero will be written if it is not set
@@ -138,17 +140,27 @@ var _ SizeableMessage = (*AcceptChannel)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
-	recordProducers := []tlv.RecordProducer{&a.UpfrontShutdownScript}
+	// Get producers from extra data.
+	producers, err := a.ExtraData.RecordProducers()
+	if err != nil {
+		return err
+	}
+
+	// Append known producers.
+	producers = append(producers, &a.UpfrontShutdownScript)
 	if a.ChannelType != nil {
-		recordProducers = append(recordProducers, a.ChannelType)
+		producers = append(producers, a.ChannelType)
 	}
 	if a.LeaseExpiry != nil {
-		recordProducers = append(recordProducers, a.LeaseExpiry)
+		producers = append(producers, a.LeaseExpiry)
 	}
 	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
-		recordProducers = append(recordProducers, &localNonce)
+		producers = append(producers, &localNonce)
 	})
-	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
 	if err != nil {
 		return err
 	}
@@ -209,7 +221,7 @@ func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, a.ExtraData)
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes the serialized AcceptChannel stored in the passed
@@ -254,8 +266,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 		leaseExpiry LeaseExpiry
 		localNonce  = a.LocalNonce.Zero()
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&a.UpfrontShutdownScript, &chanType, &leaseExpiry,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &a.UpfrontShutdownScript, &chanType, &leaseExpiry,
 		&localNonce,
 	)
 	if err != nil {
@@ -263,17 +275,17 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[ChannelTypeRecordType]; ok && val == nil {
+	if _, ok := knownRecords[ChannelTypeRecordType]; ok {
 		a.ChannelType = &chanType
 	}
-	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
+	if _, ok := knownRecords[LeaseExpiryRecordType]; ok {
 		a.LeaseExpiry = &leaseExpiry
 	}
-	if val, ok := typeMap[a.LocalNonce.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[a.LocalNonce.TlvType()]; ok {
 		a.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
 
-	a.ExtraData = tlvRecords
+	a.ExtraData = extraData
 
 	return nil
 }

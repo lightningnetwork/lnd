@@ -59,7 +59,7 @@ func (a *AcceptChannel) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonce {
 		nonce := RandMusig2Nonce(t)
 		localNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 
@@ -98,7 +98,12 @@ func (a *AcceptChannel) RandTestMessage(t *rapid.T) Message {
 		ChannelType:           channelType,
 		LeaseExpiry:           leaseExpiry,
 		LocalNonce:            localNonce,
-		ExtraData:             RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(DeliveryAddrType),
+			uint64(ChannelTypeRecordType),
+			uint64(LeaseExpiryRecordType),
+			uint64(nonceRecordType),
+		),
 	}
 }
 
@@ -214,22 +219,22 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 
 	msg := &ChannelAnnouncement2{
 		Signature: RandSignature(t),
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0](
 			chainHashObj,
 		),
-		Features: tlv.NewRecordT[tlv.TlvType2, RawFeatureVector](
+		Features: tlv.NewRecordT[tlv.TlvType2](
 			*features,
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType4, ShortChannelID](
+		ShortChannelID: tlv.NewRecordT[tlv.TlvType4](
 			shortChanID,
 		),
-		Capacity: tlv.NewPrimitiveRecord[tlv.TlvType6, uint64](
+		Capacity: tlv.NewPrimitiveRecord[tlv.TlvType6](
 			capacity,
 		),
-		NodeID1: tlv.NewPrimitiveRecord[tlv.TlvType8, [33]byte](
+		NodeID1: tlv.NewPrimitiveRecord[tlv.TlvType8](
 			nodeID1,
 		),
-		NodeID2: tlv.NewPrimitiveRecord[tlv.TlvType10, [33]byte](
+		NodeID2: tlv.NewPrimitiveRecord[tlv.TlvType10](
 			nodeID2,
 		),
 		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
@@ -242,7 +247,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var bitcoinKey1 [33]byte
 		copy(bitcoinKey1[:], RandPubKey(t).SerializeCompressed())
 		msg.BitcoinKey1 = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType12, [33]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType12](
 				bitcoinKey1,
 			),
 		)
@@ -252,7 +257,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var bitcoinKey2 [33]byte
 		copy(bitcoinKey2[:], RandPubKey(t).SerializeCompressed())
 		msg.BitcoinKey2 = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType14, [33]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType14](
 				bitcoinKey2,
 			),
 		)
@@ -263,7 +268,7 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		var merkleRootHash [32]byte
 		copy(merkleRootHash[:], hash[:])
 		msg.MerkleRootHash = tlv.SomeRecordT(
-			tlv.NewPrimitiveRecord[tlv.TlvType16, [32]byte](
+			tlv.NewPrimitiveRecord[tlv.TlvType16](
 				merkleRootHash,
 			),
 		)
@@ -284,7 +289,10 @@ func (c *ChannelReady) RandTestMessage(t *rapid.T) Message {
 	msg := &ChannelReady{
 		ChanID:                 RandChannelID(t),
 		NextPerCommitmentPoint: RandPubKey(t),
-		ExtraData:              RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(AliasScidRecordType),
+			uint64(nonceRecordType), 0, 2,
+		),
 	}
 
 	includeAliasScid := rapid.Bool().Draw(t, "includeAliasScid")
@@ -309,14 +317,14 @@ func (c *ChannelReady) RandTestMessage(t *rapid.T) Message {
 	if includeAnnouncementNodeNonce {
 		nonce := RandMusig2Nonce(t)
 		msg.AnnouncementNodeNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType0, Musig2Nonce](nonce),
+			tlv.NewRecordT[tlv.TlvType0](nonce),
 		)
 	}
 
 	if includeAnnouncementBitcoinNonce {
 		nonce := RandMusig2Nonce(t)
 		msg.AnnouncementBitcoinNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Musig2Nonce](nonce),
+			tlv.NewRecordT[tlv.TlvType2](nonce),
 		)
 	}
 
@@ -342,7 +350,9 @@ func (a *ChannelReestablish) RandTestMessage(t *rapid.T) Message {
 		),
 		LastRemoteCommitSecret:    RandPaymentPreimage(t),
 		LocalUnrevokedCommitPoint: RandPubKey(t),
-		ExtraData:                 RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64(nonceRecordType), uint64(CRDynHeight),
+		),
 	}
 
 	// Randomly decide whether to include optional fields
@@ -410,16 +420,10 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 	// By default, our extra opaque data will just be random TLV but if we
 	// include an inbound fee, then we will also set the record in the
 	// extra opaque data.
-	var (
-		customRecords, _ = RandCustomRecords(t, nil, false)
-		inboundFee       tlv.OptionalRecordT[tlv.TlvType55555, Fee]
-	)
+	var inboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+
 	includeInboundFee := rapid.Bool().Draw(t, "includeInboundFee")
 	if includeInboundFee {
-		if customRecords == nil {
-			customRecords = make(CustomRecords)
-		}
-
 		inFeeBase := int32(
 			rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase"),
 		)
@@ -431,19 +435,14 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 			FeeRate: inFeeProp,
 		}
 		inboundFee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType55555, Fee](fee),
+			tlv.NewRecordT[tlv.TlvType55555](fee),
 		)
 
 		var b bytes.Buffer
 		feeRecord := fee.Record()
 		err := feeRecord.Encode(&b)
 		require.NoError(t, err)
-
-		customRecords[uint64(FeeRecordType)] = b.Bytes()
 	}
-
-	extraBytes, err := customRecords.Serialize()
-	require.NoError(t, err)
 
 	return &ChannelUpdate1{
 		Signature:      RandSignature(t),
@@ -468,7 +467,7 @@ func (a *ChannelUpdate1) RandTestMessage(t *rapid.T) Message {
 		),
 		HtlcMaximumMsat: maxHtlc,
 		InboundFee:      inboundFee,
-		ExtraOpaqueData: extraBytes,
+		ExtraOpaqueData: RandExtraRecords(t, uint64(FeeRecordType)),
 	}
 }
 
@@ -514,31 +513,31 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 	//nolint:ll
 	msg := &ChannelUpdate2{
 		Signature: RandSignature(t),
-		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0, chainhash.Hash](
+		ChainHash: tlv.NewPrimitiveRecord[tlv.TlvType0](
 			chainHashObj,
 		),
-		ShortChannelID: tlv.NewRecordT[tlv.TlvType2, ShortChannelID](
+		ShortChannelID: tlv.NewRecordT[tlv.TlvType2](
 			shortChanID,
 		),
-		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4, uint32](
+		BlockHeight: tlv.NewPrimitiveRecord[tlv.TlvType4](
 			blockHeight,
 		),
-		DisabledFlags: tlv.NewPrimitiveRecord[tlv.TlvType6, ChanUpdateDisableFlags]( //nolint:ll
+		DisabledFlags: tlv.NewPrimitiveRecord[tlv.TlvType6](
 			disabledFlags,
 		),
-		CLTVExpiryDelta: tlv.NewPrimitiveRecord[tlv.TlvType10, uint16](
+		CLTVExpiryDelta: tlv.NewPrimitiveRecord[tlv.TlvType10](
 			cltvExpiryDelta,
 		),
-		HTLCMinimumMsat: tlv.NewPrimitiveRecord[tlv.TlvType12, MilliSatoshi](
+		HTLCMinimumMsat: tlv.NewPrimitiveRecord[tlv.TlvType12](
 			htlcMinMsat,
 		),
-		HTLCMaximumMsat: tlv.NewPrimitiveRecord[tlv.TlvType14, MilliSatoshi](
+		HTLCMaximumMsat: tlv.NewPrimitiveRecord[tlv.TlvType14](
 			htlcMaxMsat,
 		),
-		FeeBaseMsat: tlv.NewPrimitiveRecord[tlv.TlvType16, uint32](
+		FeeBaseMsat: tlv.NewPrimitiveRecord[tlv.TlvType16](
 			feeBaseMsat,
 		),
-		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18, uint32](
+		FeeProportionalMillionths: tlv.NewPrimitiveRecord[tlv.TlvType18](
 			feeProportionalMillionths,
 		),
 		ExtraOpaqueData: RandExtraOpaqueData(t, nil),
@@ -574,7 +573,7 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 		),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		ExtraData:    RandExtraRecords(t, 1, 2, 3),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")
@@ -600,21 +599,21 @@ func (c *ClosingComplete) RandTestMessage(t *rapid.T) Message {
 	if includeCloserNoClosee {
 		sig := RandSignature(t)
 		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType1](sig),
 		)
 	}
 
 	if includeNoCloserClosee {
 		sig := RandSignature(t)
 		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType2](sig),
 		)
 	}
 
 	if includeCloserAndClosee {
 		sig := RandSignature(t)
 		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType3](sig),
 		)
 	}
 
@@ -634,7 +633,7 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 		ChannelID:    RandChannelID(t),
 		CloseeScript: RandDeliveryAddress(t),
 		CloserScript: RandDeliveryAddress(t),
-		ExtraData:    RandExtraOpaqueData(t, nil),
+		ExtraData:    RandExtraRecords(t, 1, 2, 3),
 	}
 
 	includeCloserNoClosee := rapid.Bool().Draw(t, "includeCloserNoClosee")
@@ -660,21 +659,21 @@ func (c *ClosingSig) RandTestMessage(t *rapid.T) Message {
 	if includeCloserNoClosee {
 		sig := RandSignature(t)
 		msg.CloserNoClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType1, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType1](sig),
 		)
 	}
 
 	if includeNoCloserClosee {
 		sig := RandSignature(t)
 		msg.NoCloserClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType2, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType2](sig),
 		)
 	}
 
 	if includeCloserAndClosee {
 		sig := RandSignature(t)
 		msg.CloserAndClosee = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType3, Sig](sig),
+			tlv.NewRecordT[tlv.TlvType3](sig),
 		)
 	}
 
@@ -700,7 +699,9 @@ func (c *ClosingSigned) RandTestMessage(t *rapid.T) Message {
 		FeeSatoshis: btcutil.Amount(
 			rapid.Int64Range(0, 1000000).Draw(t, "feeSatoshis"),
 		),
-		ExtraData: RandExtraOpaqueData(t, nil),
+		ExtraData: RandExtraRecords(
+			t, uint64((PartialSigType)(nil).TypeVal()),
+		),
 	}
 
 	if usePartialSig {
@@ -737,7 +738,7 @@ func (c *CommitSig) RandTestMessage(t *rapid.T) Message {
 
 	numHtlcSigs := rapid.IntRange(0, 20).Draw(t, "numHtlcSigs")
 	htlcSigs := make([]Sig, numHtlcSigs)
-	for i := 0; i < numHtlcSigs; i++ {
+	for i := range numHtlcSigs {
 		htlcSigs[i] = RandSignature(t)
 	}
 
@@ -802,17 +803,7 @@ func (da *DynAck) RandTestMessage(t *rapid.T) Message {
 		msg.LocalNonce = tlv.SomeRecordT(rec)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(15) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
-
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 14)
 
 	return msg
 }
@@ -883,17 +874,7 @@ func (dp *DynPropose) RandTestMessage(t *rapid.T) Message {
 		msg.ChannelType = tlv.SomeRecordT(chanType)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(13) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
-
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 12)
 
 	return msg
 }
@@ -910,7 +891,7 @@ func (dr *DynReject) RandTestMessage(t *rapid.T) Message {
 	featureVec := NewRawFeatureVector()
 
 	numFeatures := rapid.IntRange(0, 8).Draw(t, "numRejections")
-	for i := 0; i < numFeatures; i++ {
+	for i := range numFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 31).Draw(
 				t, fmt.Sprintf("rejectionBit-%d", i),
@@ -1011,21 +992,12 @@ func (dc *DynCommit) RandTestMessage(t *rapid.T) Message {
 		da.LocalNonce = tlv.SomeRecordT(rec)
 	}
 
-	// Create a tlv type lists to hold all known records which will be
-	// ignored when creating ExtraData records.
-	ignoreRecords := fn.NewSet[uint64]()
-	for i := range uint64(15) {
-		// Ignore known records.
-		if i%2 == 0 {
-			ignoreRecords.Add(i)
-		}
-	}
 	msg := &DynCommit{
 		DynPropose: *dp,
 		DynAck:     *da,
 	}
 
-	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+	msg.ExtraData = RandUnknownRecords(t, 14)
 
 	return msg
 }
@@ -1147,7 +1119,7 @@ func (msg *Init) RandTestMessage(t *rapid.T) Message {
 	local := NewRawFeatureVector()
 
 	numGlobalFeatures := rapid.IntRange(0, 20).Draw(t, "numGlobalFeatures")
-	for i := 0; i < numGlobalFeatures; i++ {
+	for i := range numGlobalFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 100).Draw(
 				t, fmt.Sprintf("globalFeatureBit%d", i),
@@ -1157,7 +1129,7 @@ func (msg *Init) RandTestMessage(t *rapid.T) Message {
 	}
 
 	numLocalFeatures := rapid.IntRange(0, 20).Draw(t, "numLocalFeatures")
-	for i := 0; i < numLocalFeatures; i++ {
+	for i := range numLocalFeatures {
 		bit := FeatureBit(
 			rapid.IntRange(0, 100).Draw(
 				t, fmt.Sprintf("localFeatureBit%d", i),
@@ -1252,7 +1224,7 @@ func (o *OpenChannel) RandTestMessage(t *rapid.T) Message {
 	if includeLocalNonce {
 		nonce := RandMusig2Nonce(t)
 		localNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 
@@ -1335,7 +1307,7 @@ func (p *Ping) RandTestMessage(t *rapid.T) Message {
 	padding := make(PingPayload, paddingLen)
 
 	// Fill padding with random bytes
-	for i := 0; i < paddingLen; i++ {
+	for i := range paddingLen {
 		padding[i] = byte(rapid.IntRange(0, 255).Draw(
 			t, fmt.Sprintf("paddingByte%d", i)),
 		)
@@ -1430,7 +1402,7 @@ func (q *QueryShortChanIDs) RandTestMessage(t *rapid.T) Message {
 
 	// Generate sorted short channel IDs.
 	shortChanIDs := make([]ShortChannelID, numIDs)
-	for i := 0; i < numIDs; i++ {
+	for i := range numIDs {
 		shortChanIDs[i] = RandShortChannelID(t)
 
 		// Ensure they're properly sorted.
@@ -1481,7 +1453,7 @@ func (c *ReplyChannelRange) RandTestMessage(t *rapid.T) Message {
 
 	scidSet := fn.NewSet[ShortChannelID]()
 	scids := make([]ShortChannelID, numShortChanIDs)
-	for i := 0; i < numShortChanIDs; i++ {
+	for i := range numShortChanIDs {
 		scid := RandShortChannelID(t)
 		for scidSet.Contains(scid) {
 			scid = RandShortChannelID(t)
@@ -1497,7 +1469,7 @@ func (c *ReplyChannelRange) RandTestMessage(t *rapid.T) Message {
 
 	if rapid.Bool().Draw(t, "includeTimestamps") && numShortChanIDs > 0 {
 		msg.Timestamps = make(Timestamps, numShortChanIDs)
-		for i := 0; i < numShortChanIDs; i++ {
+		for i := range numShortChanIDs {
 			msg.Timestamps[i] = ChanUpdateTimestamps{
 				Timestamp1: uint32(rapid.IntRange(0, math.MaxInt32).Draw(t, fmt.Sprintf("timestamp-1-%d", i))), //nolint:ll
 				Timestamp2: uint32(rapid.IntRange(0, math.MaxInt32).Draw(t, fmt.Sprintf("timestamp-2-%d", i))), //nolint:ll
@@ -1554,7 +1526,7 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 		copy(nonce[:], nonceBytes)
 
 		msg.LocalNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
+			tlv.NewRecordT[NonceRecordTypeT](nonce),
 		)
 	}
 
@@ -1772,7 +1744,7 @@ func (c *Warning) RandTestMessage(t *rapid.T) Message {
 	if useASCII {
 		length := rapid.IntRange(1, 100).Draw(t, "warningDataLength")
 		data := make([]byte, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			data[i] = byte(
 				rapid.IntRange(32, 126).Draw(
 					t, fmt.Sprintf("warningDataByte-%d", i),
@@ -1807,7 +1779,7 @@ func (c *Error) RandTestMessage(t *rapid.T) Message {
 	if useASCII {
 		length := rapid.IntRange(1, 100).Draw(t, "errorDataLength")
 		data := make([]byte, length)
-		for i := 0; i < length; i++ {
+		for i := range length {
 			data[i] = byte(
 				rapid.IntRange(32, 126).Draw(
 					t, fmt.Sprintf("errorDataByte-%d", i),

@@ -78,6 +78,8 @@ type ChannelReestablish struct {
 	// current un-revoked commitment transaction of the sending party.
 	LocalUnrevokedCommitPoint *btcec.PublicKey
 
+	// NOTE: The following fields are TLV records.
+	//
 	// LocalNonce is an optional field that stores a local musig2 nonce.
 	// This will only be populated if the simple taproot channels type was
 	// negotiated.
@@ -140,20 +142,27 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
-		recordProducers = append(recordProducers, &localNonce)
-	})
-	a.DynHeight.WhenSome(func(h DynHeight) {
-		recordProducers = append(recordProducers, &h)
-	})
-
-	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
+	// Get producers from extra data.
+	producers, err := a.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, a.ExtraData)
+	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		producers = append(producers, &localNonce)
+	})
+	a.DynHeight.WhenSome(func(h DynHeight) {
+		producers = append(producers, &h)
+	})
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // Decode deserializes a serialized ChannelReestablish stored in the passed
@@ -210,23 +219,21 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		dynHeight  DynHeight
 		localNonce = a.LocalNonce.Zero()
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce, &dynHeight,
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &localNonce, &dynHeight,
 	)
 	if err != nil {
 		return err
 	}
 
-	if val, ok := typeMap[a.LocalNonce.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[a.LocalNonce.TlvType()]; ok {
 		a.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
-	if val, ok := typeMap[CRDynHeight]; ok && val == nil {
+	if _, ok := knownRecords[CRDynHeight]; ok {
 		a.DynHeight = fn.Some(dynHeight)
 	}
 
-	if len(tlvRecords) != 0 {
-		a.ExtraData = tlvRecords
-	}
+	a.ExtraData = extraData
 
 	return nil
 }

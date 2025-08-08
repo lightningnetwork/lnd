@@ -6,7 +6,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # golang docker image version used in this script.
-GO_IMAGE=docker.io/library/golang:1.23.10-alpine
+GO_IMAGE=docker.io/library/golang:1.23.12-alpine
 
 PROTOBUF_VERSION=$(docker run --rm -v $DIR/../:/lnd -w /lnd $GO_IMAGE \
 	go list -f '{{.Version}}' -m google.golang.org/protobuf)

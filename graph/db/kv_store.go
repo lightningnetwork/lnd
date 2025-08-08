@@ -2789,7 +2789,8 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 		}
 
 		nodeKey1, nodeKey2 = makeZombiePubkeys(
-			&edgeInfo, e1UpdateTime, e2UpdateTime,
+			edgeInfo.NodeKey1Bytes, edgeInfo.NodeKey2Bytes,
+			e1UpdateTime, e2UpdateTime,
 		)
 	}
 
@@ -2814,27 +2815,27 @@ func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 // the channel. If the channel were to be marked zombie again, it would be
 // marked with the correct lagging channel since we received an update from only
 // one side.
-func makeZombiePubkeys(info *models.ChannelEdgeInfo,
-	e1, e2 *time.Time) ([33]byte, [33]byte) {
+func makeZombiePubkeys(node1, node2 [33]byte, e1, e2 *time.Time) ([33]byte,
+	[33]byte) {
 
 	switch {
 	// If we don't have either edge policy, we'll return both pubkeys so
 	// that the channel can be resurrected by either party.
 	case e1 == nil && e2 == nil:
-		return info.NodeKey1Bytes, info.NodeKey2Bytes
+		return node1, node2
 
 	// If we're missing edge1, or if both edges are present but edge1 is
 	// older, we'll return edge1's pubkey and a blank pubkey for edge2. This
 	// means that only an update from edge1 will be able to resurrect the
 	// channel.
 	case e1 == nil || (e2 != nil && e1.Before(*e2)):
-		return info.NodeKey1Bytes, [33]byte{}
+		return node1, [33]byte{}
 
 	// Otherwise, we're missing edge2 or edge2 is the older side, so we
 	// return a blank pubkey for edge1. In this case, only an update from
 	// edge2 can resurect the channel.
 	default:
-		return [33]byte{}, info.NodeKey2Bytes
+		return [33]byte{}, node1
 	}
 }
 

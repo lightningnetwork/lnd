@@ -192,7 +192,7 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 				pub, id, dbNode.ID)
 		}
 
-		migratedNode, err := buildNode(ctx, sqlDB, &dbNode)
+		migratedNode, err := buildNode(ctx, sqlDB, dbNode)
 		if err != nil {
 			return fmt.Errorf("could not build migrated node "+
 				"from dbNode(db id: %d, node pub: %x): %w",
@@ -410,6 +410,8 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		channelCount++
+		chunk++
+
 		err = migrateSingleChannel(
 			ctx, sqlDB, channel, policy1, policy2, migChanPolicy,
 		)

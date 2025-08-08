@@ -612,7 +612,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 	lastShard bool) (*paymentsdb.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
-	sessionKey, err := generateNewSessionKey()
+	sessionKey, err := GenerateNewSessionKey()
 	if err != nil {
 		return nil, err
 	}
@@ -824,6 +824,11 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
+//
+// NOTE: Our Switch RPC server delivers the errors utilized here to callers
+// of SendOnion and TrackOnion rpcs. If the logic the router relies on to handle
+// errors changes, we should be careful to ensure that the Switch RPC server
+// logic for transporting errors to rpc callers is updated as well.
 func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
 	sendErr error) (*attemptResult, error) {
 

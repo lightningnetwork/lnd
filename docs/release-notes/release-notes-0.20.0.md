@@ -174,6 +174,9 @@ reader of a payment request.
 - [Refactored](https://github.com/lightningnetwork/lnd/pull/10018) `channelLink`
   to improve readability and maintainability of the code.
 
+- [Introduced](https://github.com/lightningnetwork/lnd/pull/10136) a wallet
+  interface to decouple the relationship between `lnd` and `btcwallet`.
+
 ## Breaking Changes
 ## Performance Improvements
 

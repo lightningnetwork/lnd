@@ -226,6 +226,19 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// critical error during path finding.
 lifecycle:
 	for {
+		// Before we attempt any new shard, we'll check to see if we've
+		// gone past the payment attempt timeout or if the context was
+		// canceled. If the context is done, the payment is marked as
+		// failed and we reload the latest payment state to reflect
+		// this.
+		//
+		// NOTE: This can be called several times if there are more
+		// attempts to be resolved after the timeout or context is
+		// cancelled.
+		if err := p.checkContext(ctx); err != nil {
+			return exitWithErr(err)
+		}
+
 		// We update the payment state on every iteration.
 		currentPayment, ps, err := p.reloadPayment()
 		if err != nil {
@@ -241,19 +254,11 @@ lifecycle:
 
 		// We now proceed our lifecycle with the following tasks in
 		// order,
-		//   1. check context.
-		//   2. request route.
-		//   3. create HTLC attempt.
-		//   4. send HTLC attempt.
-		//   5. collect HTLC attempt result.
+		//   1. request route.
+		//   2. create HTLC attempt.
+		//   3. send HTLC attempt.
+		//   4. collect HTLC attempt result.
 		//
-		// Before we attempt any new shard, we'll check to see if we've
-		// gone past the payment attempt timeout, or if the context was
-		// cancelled, or the router is exiting. In any of these cases,
-		// we'll stop this payment attempt short.
-		if err := p.checkContext(ctx); err != nil {
-			return exitWithErr(err)
-		}
 
 		// Now decide the next step of the current lifecycle.
 		step, err := p.decideNextStep(payment)

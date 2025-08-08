@@ -352,7 +352,6 @@ type DB struct {
 	dbPath                    string
 	clock                     clock.Clock
 	dryRun                    bool
-	keepFailedPaymentAttempts bool
 	storeFinalHtlcResolutions bool
 
 	// noRevLogAmtData if true, means that commitment transaction amount
@@ -413,7 +412,6 @@ func CreateWithBackend(backend kvdb.Backend, modifiers ...OptionModifier) (*DB,
 		},
 		clock:                     opts.clock,
 		dryRun:                    opts.dryRun,
-		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
 		noRevLogAmtData:           opts.NoRevLogAmtData,
 	}

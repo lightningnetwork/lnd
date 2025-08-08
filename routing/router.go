@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/amp"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -24,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
@@ -174,7 +174,7 @@ type MissionControlQuerier interface {
 	// need to be made.
 	ReportPaymentFail(attemptID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
-		*channeldb.FailureReason, error)
+		*paymentsdb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control
 	// as input for future probability estimates.
@@ -998,7 +998,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	// already in-flight.
 	//
 	// TODO(roasbeef): store records as part of creation info?
-	info := &channeldb.PaymentCreationInfo{
+	info := &paymentsdb.PaymentCreationInfo{
 		PaymentIdentifier:     payment.Identifier(),
 		Value:                 payment.Amount,
 		CreationTime:          r.cfg.Clock.Now(),
@@ -1037,7 +1037,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
 func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	return r.sendToRoute(htlcHash, rt, false, firstHopCustomRecords)
@@ -1047,7 +1047,7 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // the payment ONLY when a terminal error is returned from the attempt.
 func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 	rt *route.Route,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	return r.sendToRoute(htlcHash, rt, true, firstHopCustomRecords)
@@ -1061,13 +1061,13 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // the payment won't be failed unless a terminal error has occurred.
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	skipTempErr bool,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	// Helper function to fail a payment. It makes sure the payment is only
 	// failed once so that the failure reason is not overwritten.
 	failPayment := func(paymentIdentifier lntypes.Hash,
-		reason channeldb.FailureReason) error {
+		reason paymentsdb.FailureReason) error {
 
 		payment, fetchErr := r.cfg.Control.FetchPayment(
 			paymentIdentifier,
@@ -1121,7 +1121,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
-	info := &channeldb.PaymentCreationInfo{
+	info := &paymentsdb.PaymentCreationInfo{
 		PaymentIdentifier:     paymentIdentifier,
 		Value:                 amt,
 		CreationTime:          r.cfg.Clock.Now(),
@@ -1133,8 +1133,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
-	case mpp != nil && errors.Is(err, channeldb.ErrPaymentInFlight):
-	case mpp != nil && errors.Is(err, channeldb.ErrPaymentExists):
+	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentInFlight):
+	case mpp != nil && errors.Is(err, paymentsdb.ErrPaymentExists):
 
 	// Any other error is not tolerated.
 	case err != nil:
@@ -1190,7 +1190,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Since for SendToRoute we won't retry in case the shard fails, we'll
 	// mark the payment failed with the control tower immediately if the
 	// skipTempErr is false.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 
 	// If we failed to send the HTLC, we need to further decide if we want
 	// to fail the payment.
@@ -1447,7 +1447,7 @@ func (r *ChannelRouter) resumePayments() error {
 	}
 
 	// launchPayment is a helper closure that handles resuming the payment.
-	launchPayment := func(payment *channeldb.MPPayment) {
+	launchPayment := func(payment *paymentsdb.MPPayment) {
 		defer r.wg.Done()
 
 		// Get the hashes used for the outstanding HTLCs.
@@ -1522,7 +1522,7 @@ func (r *ChannelRouter) resumePayments() error {
 // attempt to NOT be saved, resulting a payment being stuck forever. More info:
 // - https://github.com/lightningnetwork/lnd/issues/8146
 // - https://github.com/lightningnetwork/lnd/pull/8174
-func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
+func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 	payHash lntypes.Hash) {
 
 	// We can only fail inflight HTLCs so we skip the settled/failed ones.
@@ -1604,8 +1604,8 @@ func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
 
 	// Fail the attempt in db. If there's an error, there's nothing we can
 	// do here but logging it.
-	failInfo := &channeldb.HTLCFailInfo{
-		Reason:   channeldb.HTLCFailUnknown,
+	failInfo := &paymentsdb.HTLCFailInfo{
+		Reason:   paymentsdb.HTLCFailUnknown,
 		FailTime: r.cfg.Clock.Now(),
 	}
 	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)

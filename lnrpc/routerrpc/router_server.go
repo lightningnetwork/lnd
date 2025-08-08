@@ -15,13 +15,13 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/aliasmgr"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -373,9 +373,9 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 			payment.Identifier(), err)
 
 		// Transform user errors to grpc code.
-		if errors.Is(err, channeldb.ErrPaymentExists) ||
-			errors.Is(err, channeldb.ErrPaymentInFlight) ||
-			errors.Is(err, channeldb.ErrAlreadyPaid) {
+		if errors.Is(err, paymentsdb.ErrPaymentExists) ||
+			errors.Is(err, paymentsdb.ErrPaymentInFlight) ||
+			errors.Is(err, paymentsdb.ErrAlreadyPaid) {
 
 			return status.Error(
 				codes.AlreadyExists, err.Error(),
@@ -926,7 +926,7 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
-	var attempt *channeldb.HTLCAttempt
+	var attempt *paymentsdb.HTLCAttempt
 
 	// Pass route to the router. This call returns the full htlc attempt
 	// information as it is stored in the database. It is possible that both
@@ -955,13 +955,13 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 
 	// Transform user errors to grpc code.
 	switch {
-	case errors.Is(err, channeldb.ErrPaymentExists):
+	case errors.Is(err, paymentsdb.ErrPaymentExists):
 		fallthrough
 
-	case errors.Is(err, channeldb.ErrPaymentInFlight):
+	case errors.Is(err, paymentsdb.ErrPaymentInFlight):
 		fallthrough
 
-	case errors.Is(err, channeldb.ErrAlreadyPaid):
+	case errors.Is(err, paymentsdb.ErrAlreadyPaid):
 		return nil, status.Error(
 			codes.AlreadyExists, err.Error(),
 		)
@@ -1368,7 +1368,7 @@ func (s *Server) subscribePayment(identifier lntypes.Hash) (
 	sub, err := router.Tower.SubscribePayment(identifier)
 
 	switch {
-	case errors.Is(err, channeldb.ErrPaymentNotInitiated):
+	case errors.Is(err, paymentsdb.ErrPaymentNotInitiated):
 		return nil, status.Error(codes.NotFound, err.Error())
 
 	case err != nil:
@@ -1448,17 +1448,24 @@ func (s *Server) trackPaymentStream(context context.Context,
 				// No more payment updates.
 				return nil
 			}
-			result := item.(*channeldb.MPPayment)
+
+			result, ok := item.(*paymentsdb.MPPayment)
+			if !ok {
+				log.Errorf("Received unexpected update "+
+					"type: %T", item)
+
+				continue
+			}
 
 			log.Tracef("Payment %v updated to state %v",
 				result.Info.PaymentIdentifier, result.Status)
 
 			// Skip in-flight updates unless requested.
 			if noInflightUpdates {
-				if result.Status == channeldb.StatusInitiated {
+				if result.Status == paymentsdb.StatusInitiated {
 					continue
 				}
-				if result.Status == channeldb.StatusInFlight {
+				if result.Status == paymentsdb.StatusInFlight {
 					continue
 				}
 			}

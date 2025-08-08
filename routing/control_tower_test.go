@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -47,13 +48,19 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Subscription should fail when the payment is not known.
-	_, err := pControl.SubscribePayment(lntypes.Hash{1})
-	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+	_, err = pControl.SubscribePayment(lntypes.Hash{1})
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentNotInitiated)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a
@@ -61,9 +68,12 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(db)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -92,7 +102,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Mark the payment as successful.
-	settleInfo := channeldb.HTLCSettleInfo{
+	settleInfo := paymentsdb.HTLCSettleInfo{
 		Preimage: preimg,
 	}
 	htlcAttempt, err := pControl.SettleAttempt(
@@ -116,19 +126,26 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 
 	for i, s := range subscribers {
-		var result *channeldb.MPPayment
+		var result *paymentsdb.MPPayment
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*channeldb.MPPayment)
+				update, ok := item.(*paymentsdb.MPPayment)
+				require.True(t, ok, "unexpected update type: "+
+					"%T", item)
+
+				result = update
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
 		}
 
-		require.Equalf(t, channeldb.StatusSucceeded, result.GetStatus(),
+		require.Equalf(
+			t, paymentsdb.StatusSucceeded, result.GetStatus(),
 			"subscriber %v failed, want %s, got %s", i,
-			channeldb.StatusSucceeded, result.GetStatus())
+			paymentsdb.StatusSucceeded, result.GetStatus(),
+		)
 
 		attempt, _ := result.TerminalInfo()
 		if attempt.Settle.Preimage != preimg {
@@ -180,9 +197,15 @@ func TestKVPaymentsDBSubscribeFail(t *testing.T) {
 func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -212,7 +235,7 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mark the first payment as successful.
-	settleInfo1 := channeldb.HTLCSettleInfo{
+	settleInfo1 := paymentsdb.HTLCSettleInfo{
 		Preimage: preimg1,
 	}
 	htlcAttempt1, err := pControl.SettleAttempt(
@@ -225,7 +248,7 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	)
 
 	// Mark the second payment as successful.
-	settleInfo2 := channeldb.HTLCSettleInfo{
+	settleInfo2 := paymentsdb.HTLCSettleInfo{
 		Preimage: preimg2,
 	}
 	htlcAttempt2, err := pControl.SettleAttempt(
@@ -239,14 +262,18 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 
 	// The two payments will be asserted individually, store the last update
 	// for each payment.
-	results := make(map[lntypes.Hash]*channeldb.MPPayment)
+	results := make(map[lntypes.Hash]*paymentsdb.MPPayment)
 
 	// After exactly 6 updates both payments will/should have completed.
 	for i := 0; i < 6; i++ {
 		select {
 		case item := <-subscription.Updates():
-			id := item.(*channeldb.MPPayment).Info.PaymentIdentifier
-			results[id] = item.(*channeldb.MPPayment)
+			update, ok := item.(*paymentsdb.MPPayment)
+			require.True(t, ok, "unexpected update type: "+
+				"%T", item)
+
+			results[update.Info.PaymentIdentifier] = update
+
 		case <-time.After(testTimeout):
 			require.Fail(t, "timeout waiting for payment result")
 		}
@@ -254,7 +281,7 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 
 	result1 := results[info1.PaymentIdentifier]
 	require.Equal(
-		t, channeldb.StatusSucceeded, result1.GetStatus(),
+		t, paymentsdb.StatusSucceeded, result1.GetStatus(),
 		"unexpected payment state payment 1",
 	)
 
@@ -272,7 +299,7 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 
 	result2 := results[info2.PaymentIdentifier]
 	require.Equal(
-		t, channeldb.StatusSucceeded, result2.GetStatus(),
+		t, paymentsdb.StatusSucceeded, result2.GetStatus(),
 		"unexpected payment state payment 2",
 	)
 
@@ -293,9 +320,15 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -315,9 +348,12 @@ func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	select {
 	case update := <-subscription.Updates():
 		require.NotNil(t, update)
+		payment, ok := update.(*paymentsdb.MPPayment)
+
+		require.True(t, ok, "unexpected update type: %T", update)
 		require.Equal(
 			t, info.PaymentIdentifier,
-			update.(*channeldb.MPPayment).Info.PaymentIdentifier,
+			payment.Info.PaymentIdentifier,
 		)
 		require.Len(t, subscription.Updates(), 0)
 	case <-time.After(testTimeout):
@@ -330,9 +366,15 @@ func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -383,8 +425,8 @@ func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 	subscription2.Close()
 
 	// Register another update.
-	failInfo := channeldb.HTLCFailInfo{
-		Reason: channeldb.HTLCFailInternal,
+	failInfo := paymentsdb.HTLCFailInfo{
+		Reason: paymentsdb.HTLCFailInternal,
 	}
 	_, err = pControl.FailAttempt(
 		info.PaymentIdentifier, attempt.AttemptID, &failInfo,
@@ -399,9 +441,17 @@ func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db := initDB(t, keepFailedPaymentAttempts)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -429,8 +479,8 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 		}
 
 		// Fail the payment attempt.
-		failInfo := channeldb.HTLCFailInfo{
-			Reason: channeldb.HTLCFailInternal,
+		failInfo := paymentsdb.HTLCFailInfo{
+			Reason: paymentsdb.HTLCFailInternal,
 		}
 		htlcAttempt, err := pControl.FailAttempt(
 			info.PaymentIdentifier, attempt.AttemptID, &failInfo,
@@ -445,7 +495,7 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 
 	// Mark the payment as failed.
 	err = pControl.FailPayment(
-		info.PaymentIdentifier, channeldb.FailureReasonTimeout,
+		info.PaymentIdentifier, paymentsdb.FailureReasonTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -462,17 +512,22 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	for i, s := range subscribers {
-		var result *channeldb.MPPayment
+		var result *paymentsdb.MPPayment
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*channeldb.MPPayment)
+				update, ok := item.(*paymentsdb.MPPayment)
+				require.True(t, ok, "unexpected update type: "+
+					"%T", item)
+
+				result = update
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
 		}
 
-		if result.GetStatus() == channeldb.StatusSucceeded {
+		if result.GetStatus() == paymentsdb.StatusSucceeded {
 			t.Fatal("unexpected payment state")
 		}
 
@@ -497,11 +552,11 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 				len(result.HTLCs))
 		}
 
-		require.Equalf(t, channeldb.StatusFailed, result.GetStatus(),
+		require.Equalf(t, paymentsdb.StatusFailed, result.GetStatus(),
 			"subscriber %v failed, want %s, got %s", i,
-			channeldb.StatusFailed, result.GetStatus())
+			paymentsdb.StatusFailed, result.GetStatus())
 
-		if *result.FailureReason != channeldb.FailureReasonTimeout {
+		if *result.FailureReason != paymentsdb.FailureReasonTimeout {
 			t.Fatal("unexpected failure reason")
 		}
 
@@ -517,15 +572,13 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	}
 }
 
-func initDB(t *testing.T, keepFailedPaymentAttempts bool) *channeldb.DB {
+func initDB(t *testing.T) *channeldb.DB {
 	return channeldb.OpenForTesting(
-		t, t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
+		t, t.TempDir(),
 	)
 }
 
-func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
+func genInfo() (*paymentsdb.PaymentCreationInfo, *paymentsdb.HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -538,14 +591,14 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 	var hash lntypes.Hash
 	copy(hash[:], rhash[:])
 
-	attempt, err := channeldb.NewHtlcAttempt(
+	attempt, err := paymentsdb.NewHtlcAttempt(
 		1, priv, testRoute, time.Time{}, &hash,
 	)
 	if err != nil {
 		return nil, nil, lntypes.Preimage{}, err
 	}
 
-	return &channeldb.PaymentCreationInfo{
+	return &paymentsdb.PaymentCreationInfo{
 			PaymentIdentifier: rhash,
 			Value:             testRoute.ReceiverAmt(),
 			CreationTime:      time.Unix(time.Now().Unix(), 0),

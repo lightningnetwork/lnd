@@ -71,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -5892,7 +5893,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		var attempt *channeldb.HTLCAttempt
+		var attempt *paymentsdb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route, nil,
 		)
@@ -7528,7 +7529,9 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(query)
+	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(
+		ctx, query,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -405,7 +405,7 @@ type Config struct {
 
 	// AddLocalAlias persists an alias to an underlying alias store.
 	AddLocalAlias func(alias, base lnwire.ShortChannelID,
-		gossip, liveUpdate bool) error
+		gossip, baseLookup, liveUpdate bool) error
 
 	// AuxLeafStore is an optional store that can be used to store auxiliary
 	// leaves for certain custom channel types.
@@ -1062,7 +1062,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 				err = p.cfg.AddLocalAlias(
 					aliasScid, dbChan.ShortChanID(), false,
-					false,
+					false, false,
 				)
 				if err != nil {
 					return nil, err

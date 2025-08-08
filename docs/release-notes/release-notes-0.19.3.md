@@ -44,6 +44,10 @@
 
 # New Features
 
+- A new experimental RPC endpoint
+  [XFindLocalChanAlias](https://github.com/lightningnetwork/lnd/pull/10133) was
+  added for looking up the base scid for an scid alias.
+
 ## Functional Enhancements
 
 - The default value for `gossip.msg-rate-bytes` has been

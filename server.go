@@ -2085,6 +2085,14 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 				return nil
 			}
 
+			// Define the critical threshold (e.g., 5%)
+			const criticalThreshold = 0.05
+
+			// If free space is lesser than critical value, log a warning
+			if free < criticalThreshold {
+				srvrLog.Errorf("Disk space low: %.1f%% free space remaining", free*100)
+			}
+
 			return fmt.Errorf("require: %v free space, got: %v",
 				cfg.HealthChecks.DiskCheck.RequiredRemaining,
 				free)
@@ -2093,6 +2101,22 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 		cfg.HealthChecks.DiskCheck.Timeout,
 		cfg.HealthChecks.DiskCheck.Backoff,
 		cfg.HealthChecks.DiskCheck.Attempts,
+	)
+
+	// Add file descriptor check
+	fdCheck := healthcheck.NewObservation(
+		"file descriptors",
+		func() error {
+			if err := healthcheck.CheckFileDescriptors(); err != nil {
+				srvrLog.Criticalf("CRITICAL: No free file descriptors available: %v", err)
+				return err
+			}
+			return nil
+		},
+		cfg.HealthChecks.FileDescriptorCheck.Interval,
+		cfg.HealthChecks.FileDescriptorCheck.Timeout,
+		cfg.HealthChecks.FileDescriptorCheck.Backoff,
+		cfg.HealthChecks.FileDescriptorCheck.Attempts,
 	)
 
 	tlsHealthCheck := healthcheck.NewObservation(
@@ -2120,7 +2144,7 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl,
 	)
 
 	checks := []*healthcheck.Observation{
-		chainHealthCheck, diskCheck, tlsHealthCheck,
+		chainHealthCheck, diskCheck, fdCheck, tlsHealthCheck,
 	}
 
 	// If Tor is enabled, add the healthcheck for tor connection.

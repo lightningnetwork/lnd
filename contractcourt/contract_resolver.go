@@ -18,12 +18,6 @@ var (
 	endian = binary.BigEndian
 )
 
-const (
-	// sweepConfTarget is the default number of blocks that we'll use as a
-	// confirmation target when sweeping.
-	sweepConfTarget = 6
-)
-
 // ContractResolver is an interface which packages a state machine which is
 // able to carry out the necessary steps required to fully resolve a Bitcoin
 // contract on-chain. Resolvers are fully encodable to ensure callers are able

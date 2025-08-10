@@ -40,19 +40,6 @@ var (
 		LegacyPayload:    true,
 	}
 
-	testHop3 = &route.Hop{
-		PubKeyBytes:      route.NewVertex(pub),
-		ChannelID:        12345,
-		OutgoingTimeLock: 111,
-		AmtToForward:     555,
-		CustomRecords: record.CustomSet{
-			65536: []byte{},
-			80001: []byte{},
-		},
-		AMP:      record.NewAMP([32]byte{0x69}, [32]byte{0x42}, 1),
-		Metadata: []byte{1, 2, 3},
-	}
-
 	testRoute = route.Route{
 		TotalTimeLock: 123,
 		TotalAmount:   1234567,

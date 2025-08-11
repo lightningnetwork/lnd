@@ -143,6 +143,9 @@ func (db *DB) Validate() error {
 		}
 
 	case SqliteBackend:
+		if err := db.Sqlite.Validate(); err != nil {
+			return err
+		}
 	case PostgresBackend:
 		if err := db.Postgres.Validate(); err != nil {
 			return err

@@ -31,6 +31,15 @@ type SqliteConfig struct {
 	QueryConfig    `group:"query" namespace:"query"`
 }
 
+// Validate checks that the SqliteConfig values are valid.
+func (p *SqliteConfig) Validate() error {
+	if err := p.QueryConfig.Validate(true); err != nil {
+		return fmt.Errorf("invalid query config: %w", err)
+	}
+
+	return nil
+}
+
 // PostgresConfig holds the postgres database configuration.
 //
 //nolint:ll
@@ -42,6 +51,7 @@ type PostgresConfig struct {
 	QueryConfig    `group:"query" namespace:"query"`
 }
 
+// Validate checks that the PostgresConfig values are valid.
 func (p *PostgresConfig) Validate() error {
 	if p.Dsn == "" {
 		return fmt.Errorf("DSN is required")
@@ -51,6 +61,10 @@ func (p *PostgresConfig) Validate() error {
 	_, err := url.Parse(p.Dsn)
 	if err != nil {
 		return fmt.Errorf("invalid DSN: %w", err)
+	}
+
+	if err := p.QueryConfig.Validate(false); err != nil {
+		return fmt.Errorf("invalid query config: %w", err)
 	}
 
 	return nil

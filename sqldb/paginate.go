@@ -5,6 +5,18 @@ import (
 	"fmt"
 )
 
+const (
+	// maxSQLiteBatchSize is the maximum number of items that can be
+	// included in a batch query IN clause for SQLite. This was determined
+	// using the TestSQLSliceQueries test.
+	maxSQLiteBatchSize = 32766
+
+	// maxPostgresBatchSize is the maximum number of items that can be
+	// included in a batch query IN clause for Postgres. This was determined
+	// using the TestSQLSliceQueries test.
+	maxPostgresBatchSize = 65535
+)
+
 // QueryConfig holds configuration values for SQL queries.
 //
 //nolint:ll
@@ -16,6 +28,34 @@ type QueryConfig struct {
 	// MaxPageSize is the maximum number of items returned in a single page
 	// of results. This is used for paginated queries.
 	MaxPageSize int32 `long:"max-page-size" description:"The maximum number of items to return in a single page of results. This is used for paginated queries."`
+}
+
+// Validate checks that the QueryConfig values are valid.
+func (c *QueryConfig) Validate(sqlite bool) error {
+	if c.MaxBatchSize <= 0 {
+		return fmt.Errorf("max batch size must be greater than "+
+			"zero, got %d", c.MaxBatchSize)
+	}
+	if c.MaxPageSize <= 0 {
+		return fmt.Errorf("max page size must be greater than "+
+			"zero, got %d", c.MaxPageSize)
+	}
+
+	if sqlite {
+		if c.MaxBatchSize > maxSQLiteBatchSize {
+			return fmt.Errorf("max batch size for SQLite cannot "+
+				"exceed %d, got %d", maxSQLiteBatchSize,
+				c.MaxBatchSize)
+		}
+	} else {
+		if c.MaxBatchSize > maxPostgresBatchSize {
+			return fmt.Errorf("max batch size for Postgres cannot "+
+				"exceed %d, got %d", maxPostgresBatchSize,
+				c.MaxBatchSize)
+		}
+	}
+
+	return nil
 }
 
 // DefaultQueryConfig returns a default configuration for SQL queries.

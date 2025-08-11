@@ -120,9 +120,9 @@ var (
 // KVPaymentsDB implements persistence for payments and payment attempts.
 type KVPaymentsDB struct {
 	// Sequence management for the kv store.
-	seqMu            sync.Mutex
-	currSeq          uint64
-	storedPaymentSeq uint64
+	seqMu     sync.Mutex
+	currSeq   uint64
+	storedSeq uint64
 
 	// db is the underlying database implementation.
 	db kvdb.Backend
@@ -762,7 +762,7 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 
 	// Set a new upper bound in the DB every 1000 payments to avoid
 	// conflicts on the sequence when using etcd.
-	if p.currSeq == p.storedPaymentSeq {
+	if p.currSeq == p.storedSeq {
 		var currPaymentSeq, newUpperBound uint64
 		if err := kvdb.Update(p.db, func(tx kvdb.RwTx) error {
 			paymentsBucket, err := tx.CreateTopLevelBucket(
@@ -789,7 +789,7 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 			p.currSeq = currPaymentSeq
 		}
 
-		p.storedPaymentSeq = newUpperBound
+		p.storedSeq = newUpperBound
 	}
 
 	p.currSeq++

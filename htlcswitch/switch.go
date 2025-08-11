@@ -2605,6 +2605,30 @@ func (s *Switch) GetLinksByInterface(hop [33]byte) ([]ChannelUpdateHandler,
 	return handlers, nil
 }
 
+// GetLinksByPubkey fetches all the links connected to a particular node
+// identified by the serialized compressed form of its public key.
+func (s *Switch) GetLinksByPubkey(hopPubkey [33]byte) ([]ChannelInfoProvider,
+	error) {
+
+	s.indexMtx.RLock()
+	defer s.indexMtx.RUnlock()
+
+	links, err := s.getLinks(hopPubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	handlers := make([]ChannelInfoProvider, 0, len(links))
+
+	// Range over the returned []ChannelLink to convert them into
+	// []ChannelInfoProvider.
+	for _, link := range links {
+		handlers = append(handlers, link)
+	}
+
+	return handlers, nil
+}
+
 // getLinks is function which returns the channel links of the peer by hop
 // destination id.
 //

@@ -35,6 +35,17 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 			&Config{}, subServerConf)
 	}
 
+	// Before we try to make the new switch service instance, we'll perform
+	// some sanity checks on the arguments to ensure that they're usable.
+	if config.HtlcDispatcher == nil {
+		return nil, nil, fmt.Errorf("dispatcher must be set to " +
+			"create SwitchRPC")
+	}
+	if config.ChannelInfoAccessor == nil {
+		return nil, nil, fmt.Errorf("channel info access must be " +
+			"provided to create SwitchRPC")
+	}
+
 	return New(config)
 }
 

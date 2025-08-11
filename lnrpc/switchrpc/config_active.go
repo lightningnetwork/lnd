@@ -4,7 +4,9 @@
 package switchrpc
 
 import (
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/routing"
 )
 
 // Config is the primary configuration struct for the switch RPC subserver.
@@ -27,4 +29,23 @@ type Config struct {
 	// MacService is the main macaroon service that we'll use to handle
 	// authentication for the Switch rpc server.
 	MacService *macaroons.Service
+
+	// HtlcDispatcher provides the means by which payment attempts can
+	// be dispatched.
+	HtlcDispatcher routing.PaymentAttemptDispatcher
+
+	// ChannelInfoAccessor defines an interface for accessing channel
+	// information necessary for dispatching payment attempts, specifically
+	// methods for fetching links by public key.
+	ChannelInfoAccessor ChannelInfoAccessor
+}
+
+// ChannelInfoAccessor defines a restricted, read-only view into the switch's
+// active channel links. The information provided can be of use when dispatching
+// payments.
+type ChannelInfoAccessor interface {
+	// GetLinksByPubkey provides a read-only view of all active channel
+	// links associated with a given node public key.
+	GetLinksByPubkey(pubKey [33]byte) ([]htlcswitch.ChannelInfoProvider,
+		error)
 }

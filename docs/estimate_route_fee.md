@@ -79,36 +79,15 @@ performs local pathfinding using the in-memory channel graph. This mode executes
 entirely locally without network interaction, making it fast but potentially
 less accurate for complex routing scenarios.
 
-The graph-based approach uses your node's current view of the network topology
-to calculate the most economical route. It leverages mission control data, which
-tracks historical payment success rates through different channels, to improve
-route selection. The algorithm applies a maximum fee limit of 1 BTC as a safety
-bound to prevent unreasonable fee calculations. The final fee estimate
-represents the difference between the total amount that would leave your node
-and the amount that would arrive at the destination.
+This approach uses your node's view of the network topology and mission control data (historical payment success rates) to calculate the most economical route. A 1 BTC maximum fee limit prevents unreasonable calculations. The estimate represents the difference between sent and received amounts.
 
-This mode works best for well-connected public nodes where the public channel
-graph provides sufficient routing information. Response times are typically
-sub-second since no network communication is required.
+Best for well-connected public nodes with sufficient routing information in the public graph. Response times are typically sub-second.
 
 ### Probe-Based Estimation
 
-When provided with a payment request (invoice), EstimateRouteFee sends actual
-probe payments through the network. This approach provides real-world fee
-estimates by attempting to route payments that are designed to fail at the
-destination, confirming route viability without transferring funds.
+When provided with an invoice, EstimateRouteFee sends probe payments through the network using a random payment hash. This ensures the payment fails with "incorrect payment details" at the destination, confirming route viability without transferring funds.
 
-The probe payment carries a randomly generated payment hash that differs from
-the invoice's actual payment hash. This ensures the destination node cannot
-claim the payment, causing it to fail with an "incorrect payment details" error.
-This specific failure mode is interpreted as a successful probe, confirming that
-a viable route exists while preventing any actual fund transfer.
-
-Probe-based estimation provides more accurate results than graph-based
-estimation because it tests actual network conditions, including channel
-liquidity, node availability, and current fee policies. However, it requires
-network round-trips and may take several seconds to complete, especially for
-destinations behind private channels or LSPs.
+More accurate than graph-based estimation as it tests actual network conditions (liquidity, availability, current fees). May take several seconds, especially for private channels or LSPs.
 
 ## Private Channel and Hop Hint Handling
 
@@ -123,23 +102,17 @@ routing information that extends the known network graph. Each hop hint
 describes a private channel that can be used to reach the destination, including
 the channel's routing policies such as fees and timelock requirements.
 
-The system makes several important assumptions about hop hints. 
-  * First, it assumes these private channels have sufficient capacity to route
-  the payment, using a conservative estimate of 10 BTC capacity for pathfinding
-  calculations. This high capacity assumption prevents the pathfinding algorithm
-  from prematurely rejecting routes, though actual channel capacity might be lower.
+The system makes several important assumptions about hop hints:
 
-  * Second, the routing policies specified in the hop hints (base fee,
-  proportional fee, and CLTV delta) are trusted without verification, as there's
-  no way to independently validate this information for private channels.
+- **Capacity assumptions**: Private channels are assumed to have sufficient capacity (10 BTC) for pathfinding calculations. This prevents premature route rejection, though actual capacity might be lower.
+
+- **Policy trust**: Routing policies in hop hints (base fee, proportional fee, CLTV delta) are trusted without verification, as there's no way to independently validate private channel information.
 
 ### Integration with Pathfinding
 
-During the pathfinding process, hop hints are treated as legitimate routing options alongside public channels. The system integrates these private edges into its routing calculations, allowing it to find paths that traverse both public and private channels seamlessly.
+Hop hints are treated as legitimate routing options alongside public channels, enabling paths through both public and private channels. The pathfinding algorithm works backward from destination to source, making hop hints critical for reaching private destinations.
 
-The pathfinding algorithm works backward from the destination to the source, which is why hop hints are particularly important—they provide the critical last-hop information needed to reach private destinations. Without these hints, there would be no way to route payments to nodes that only have private channels.
-
-An important characteristic of this system is that private edges bypass the normal validation and capacity checks applied to public channels. This trust model assumes that invoice creators have incentives to provide accurate routing information, as incorrect hints would prevent them from receiving payments.
+Private edges bypass normal validation and capacity checks. The system trusts invoice creators to provide accurate routing information, as incorrect hints prevent payment receipt.
 
 ## LSP Detection and Special Handling
 
@@ -204,13 +177,7 @@ estimates.
 
 #### Standard Probing Behavior
 
-In standard operation, when no LSP is detected, the probe payment attempts to
-reach the invoice's actual destination. The system sends a probe with the
-complete route hints as provided in the invoice, using the destination's public
-key as the target. The probe amount matches the invoice amount, and the timelock
-requirements follow the invoice's specifications. This straightforward approach
-works well for destinations that are directly reachable, whether through public
-channels or simple private channel configurations.
+When no LSP is detected, the probe targets the invoice's actual destination using complete route hints. The probe amount matches the invoice amount with standard timelock requirements. Works well for directly reachable destinations.
 
 #### LSP-Aware Probing Behavior
 
@@ -267,29 +234,15 @@ flowchart LR
     style LSPHint fill:#f9f,stroke:#333,stroke-width:2px
 ```
 
-First, it creates a synthetic LSP hop hint that represents the worst-case
-scenario across all provided route hints. This synthetic hint contains the
-maximum fees and longest timelock requirements found among all the LSP's route
-hints, ensuring that fee estimates are conservative but reliable. If the LSP has
-multiple channels with different fee policies, the estimate will reflect the
-most expensive option.
+The transformation serves three purposes:
 
-Second, it strips the final hop from all route hints, effectively removing the
-LSP-to-destination segment from the routing instructions. This prevents the
-probe from attempting to traverse the private channel between the LSP and the
-final destination, which would likely fail and provide inaccurate results.
+1. **Creates a synthetic LSP hop hint** with worst-case fees and CLTV across all route hints, ensuring conservative but reliable estimates
 
-Third, it preserves any intermediate hops that help the probe find routes to the
-LSP. These intermediate hops might represent other nodes in the path before
-reaching the LSP, and they remain essential for successful routing to the
-service provider.
+2. **Strips the final hop** from all route hints, removing the LSP-to-destination segment that would cause probe failure
 
-The worst-case parameter selection is a deliberate design choice that
-prioritizes reliability over optimism. By using the highest fees and longest
-timelocks across all route hints, the system ensures that actual payments will
-succeed even if they route through the most expensive path. This approach is
-particularly important for mobile wallets where payment reliability is more
-important than minimal fees.
+3. **Preserves intermediate hops** that help reach the LSP
+
+This worst-case approach prioritizes reliability over optimism, particularly important for mobile wallets where payment success matters more than minimal fees.
 
 ### Relationship to Zero-Conf Channels
 
@@ -298,143 +251,73 @@ commonly used in LSP deployments for instant liquidity provision.
 
 #### Why LSPs Use Zero-Conf Channels
 
-LSPs frequently leverage zero-conf channels to provide immediate payment
-capability to new users, particularly in mobile wallet scenarios. These channels
-enable instant routing without waiting for blockchain confirmations, creating a
-seamless onboarding experience. The channels use SCID aliases instead of
-confirmed channel IDs, remain private or unconfirmed in the public graph, and
-operate on a trust model where the LSP (as funder) trusts itself not to
-double-spend while users trust the LSP as a service provider.
+LSPs use zero-conf channels for instant liquidity provision to new users. These channels enable immediate routing using SCID aliases, remain private/unconfirmed in the public graph, and rely on LSP-user trust relationships.
 
 #### Impact on LSP Detection
 
-Zero-conf channels naturally align with LSP detection patterns. Since these
-channels use SCID aliases rather than confirmed channel IDs, they don't appear
-in the public channel graph. When the system checks whether a channel ID
-corresponds to a public channel, zero-conf aliases will always appear as
-private, contributing to positive LSP detection.
-
-This alignment between zero-conf characteristics and LSP detection criteria
-isn't coincidental—it reflects real-world deployment patterns where LSPs
-leverage zero-conf channels for seamless user onboarding. The prevalence of
-zero-conf channels in LSP deployments actually strengthens the heuristic's
-effectiveness.
+Zero-conf channels align with LSP detection patterns since SCID aliases don't appear in the public graph, always appearing as private channels. This alignment reflects real-world LSP deployment patterns and strengthens the heuristic's effectiveness.
 
 #### Implications for Fee Estimation
 
-When estimating fees for payments through zero-conf channels behind LSPs,
-several important considerations apply. The probe cannot independently verify
-the actual existence of these channels since they're not in the public graph.
-The system's 10 BTC capacity assumption may be particularly optimistic for new
-zero-conf channels. Fee policies specified in route hints must be trusted
-without validation, as there's no way to verify them against public channel
-data. The LSP is assumed to handle all liquidity management for these channels,
-which is typically accurate given the trust relationship inherent in zero-conf
-channel operations.
+Key considerations for zero-conf channels behind LSPs:
+- Cannot verify channel existence (not in public graph)
+- 10 BTC capacity assumption may be optimistic
+- Route hint fees trusted without validation
+- LSP handles liquidity management
 
 ### Fee Assembly After LSP Probing
 
-When LSP-aware probing completes successfully, the system performs additional
-calculations to derive the complete fee estimate. The probe itself only
-determines the cost to reach the LSP, not the total cost to reach the final
-destination.
+After successful LSP probing, the system adds:
+- LSP's worst-case fee for the final hop
+- Invoice's final CLTV requirement
 
-After receiving the probe results, the system adds the LSP's fee for the final
-hop (calculated as the worst-case fee across all route hints) to the routing fee
-returned by the probe. It also adds the invoice's final CLTV requirement to the
-timelock delay, since the probe only accounted for reaching the LSP, not the
-final destination.
-
-This two-stage calculation ensures the final estimate accurately reflects both
-the cost to reach the LSP through the public network and the LSP's own charges
-for completing the payment to the final destination.
+This two-stage calculation captures both the cost to reach the LSP and the LSP's forwarding charges.
 
 ## Known Limitations and Edge Cases
 
 ### Probe Success Risk
 
-While probe payments use invalid payment hashes to prevent completion, there
-exists a theoretical risk of probe success if the destination node has bugs or
-non-standard behavior. In such cases, the probe payment would complete and funds
-would be lost. The implementation logs a warning when this occurs but cannot
-recover the funds.
+Theoretical risk of probe completion if destination has bugs or non-standard behavior. Funds would be lost with only a warning logged.
 
 ### LSP Heuristic Accuracy
 
-The LSP detection heuristic can produce both false positives and false
-negatives. Public nodes that include route hints for liquidity signaling (common
-in CLN implementations) may be incorrectly identified as LSPs. Conversely,
-sophisticated routing hints like "magic routing hints" used by services like
-Boltz may not trigger LSP detection despite functioning similarly.
-
-Recent improvements have addressed some of these issues. For example, the
-implementation now checks whether hint nodes exist in the public graph before
-applying LSP assumptions, reducing false positives for public nodes with route
-hints.
+Can produce false positives (CLN nodes with liquidity hints) and false negatives (magic routing hints from services like Boltz). Recent improvements check public graph existence to reduce false positives.
 
 ### Route Hint Validation
 
-EstimateRouteFee trusts route hint accuracy without validation. Malicious or
-incorrect route hints could lead to inaccurate fee estimates or failed payments.
-The implementation assumes invoice creators have incentives to provide accurate
-routing information, as incorrect hints would prevent payment receipt.
+Route hints trusted without validation. Assumes invoice creators have incentives for accuracy (incorrect hints prevent payment receipt).
 
 ### Capacity and Liquidity Assumptions
 
-The 10 BTC capacity assumption for hop hints may not reflect actual channel
-capacity or available liquidity. Real channels might have lower capacity or
-insufficient inbound liquidity, causing actual payments to fail despite
-successful fee estimation. Wallet developers should handle payment failures
-gracefully even after successful fee estimation.
+10 BTC capacity assumption may exceed actual availability. Payments may fail despite successful estimation—handle failures gracefully.
 
 ## Best Practices for Wallet Integration
 
 ### Choosing the Appropriate Mode
 
-Use graph-based estimation when you have the destination public key and need
-quick estimates for UI responsiveness. This mode works well for payments to
-well-connected public nodes where the public graph provides sufficient routing
-information.
+**Graph-based**: Quick estimates for well-connected public nodes when you have the destination key.
 
-Use probe-based estimation when you have a full invoice and need accurate fee estimates, especially for:
+**Probe-based**: Accurate estimates for invoices, especially:
 - Private or poorly connected destinations
-- Large payments where fee accuracy is critical
-- Scenarios involving LSPs or complex routing hints
+- Large payments requiring fee accuracy
+- LSP or complex routing scenarios
 
 ### Handling Timeouts
 
-Probe-based estimation can take significant time, especially for poorly
-connected destinations. Set appropriate timeouts based on your UX requirements.
-A timeout of 30 seconds works well for most cases, but you might extend this to
-60 seconds for important payments or reduce it to 15 seconds for responsive UIs.
-
-Consider showing progressive UI feedback during long-running probes, such as a
-spinner with elapsed time or a progress indicator. Provide users with a cancel
-option if estimation takes too long, and consider falling back to graph-based
-estimation if probes consistently timeout for a destination.
+Set timeouts based on UX needs: 30s standard, 60s for important payments, 15s for responsive UIs. Show progress indicators and provide cancel options. Consider graph-based fallback for consistent timeouts.
 
 ### Error Handling
 
-EstimateRouteFee may fail for various reasons. Common failure scenarios include:
+Common failures:
+- **NO_ROUTE**: Destination offline, no liquidity, or unreachable
+- **INSUFFICIENT_BALANCE**: Insufficient funds for payment + fees
+- **TIMEOUT**: Probe exceeded timeout (congestion or poor connectivity)
 
-**NO_ROUTE**: No path exists to the destination. This could indicate the destination is offline, has no inbound liquidity, or is genuinely unreachable.
-
-**INSUFFICIENT_BALANCE**: The sending node lacks sufficient balance for the payment plus estimated fees.
-
-**TIMEOUT**: Probe payment exceeded the specified timeout. This might indicate network congestion or a poorly connected destination.
-
-Wallet applications should translate these technical errors into user-friendly
-messages and suggest appropriate actions.
+Translate errors to user-friendly messages with suggested actions.
 
 ### Fee Presentation
 
-When presenting fees to users, consider that estimates may be conservative,
-especially for LSP scenarios where worst-case fees are assumed. You might
-display fee ranges or confidence levels rather than single values.
-
-For probe-based estimates, the returned fee represents actual network conditions
-at probe time. However, these conditions can change before the actual payment,
-so wallets should handle fee variations gracefully.
+Consider showing fee ranges or confidence levels since estimates may be conservative (especially for LSPs using worst-case fees). Probe-based estimates reflect current conditions but may change before actual payment.
 
 ## Implementation Examples
 

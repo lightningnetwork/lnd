@@ -1,5 +1,32 @@
 # EstimateRouteFee: A Guide for Wallet Developers
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Operation Modes](#operation-modes)
+  - [Graph-Based Estimation](#graph-based-estimation)
+  - [Probe-Based Estimation](#probe-based-estimation)
+- [Private Channel and Hop Hint Handling](#private-channel-and-hop-hint-handling)
+  - [Hop Hint Processing](#hop-hint-processing)
+  - [Integration with Pathfinding](#integration-with-pathfinding)
+- [LSP Detection and Special Handling](#lsp-detection-and-special-handling)
+  - [The LSP Detection Heuristic](#the-lsp-detection-heuristic)
+  - [How Probing Differs When an LSP is Detected](#how-probing-differs-when-an-lsp-is-detected)
+  - [Route Hint Transformation for LSP Probing](#route-hint-transformation-for-lsp-probing)
+  - [Relationship to Zero-Conf Channels](#relationship-to-zero-conf-channels)
+  - [Fee Assembly After LSP Probing](#fee-assembly-after-lsp-probing)
+- [Known Limitations and Edge Cases](#known-limitations-and-edge-cases)
+- [Best Practices for Wallet Integration](#best-practices-for-wallet-integration)
+  - [Choosing the Appropriate Mode](#choosing-the-appropriate-mode)
+  - [Handling Timeouts](#handling-timeouts)
+  - [Error Handling](#error-handling)
+  - [Fee Presentation](#fee-presentation)
+- [Implementation Examples](#implementation-examples)
+  - [Basic Graph-Based Estimation](#basic-graph-based-estimation)
+  - [Invoice-Based Estimation with Timeout](#invoice-based-estimation-with-timeout)
+- [Future Improvements](#future-improvements)
+- [Conclusion](#conclusion)
+
 ## Overview
 
 The EstimateRouteFee RPC call provides wallet applications with fee estimates
@@ -15,6 +42,35 @@ you're building directly on LND or developing third-party wallet software.
 
 EstimateRouteFee operates in two distinct modes, each optimized for different
 use cases and accuracy requirements.
+
+```mermaid
+flowchart TD
+    Start([EstimateRouteFee Called]) --> Check{Input Type?}
+    Check -->|Destination + Amount| Graph[Graph-Based Estimation]
+    Check -->|Payment Request/Invoice| Invoice[Invoice Processing]
+    
+    Graph --> LocalPath[Use Local Channel Graph]
+    LocalPath --> Mission[Apply Mission Control Data]
+    Mission --> CalcFee[Calculate Route & Fee]
+    CalcFee --> ReturnFast([Return Fee Estimate<br/>~100ms])
+    
+    Invoice --> HasHints{Has Route Hints?}
+    HasHints -->|No| StandardProbe[Standard Probe to Destination]
+    HasHints -->|Yes| CheckLSP{Check LSP Heuristic}
+    
+    CheckLSP -->|Not LSP| StandardProbe
+    CheckLSP -->|Is LSP| LSPProbe[LSP-Aware Probe]
+    
+    StandardProbe --> SendProbe1[Send Probe with Random Hash]
+    LSPProbe --> ModifyHints[Transform Route Hints]
+    ModifyHints --> SendProbe2[Probe to LSP Node]
+    
+    SendProbe1 --> ProbeResult1[Wait for Probe Result]
+    SendProbe2 --> ProbeResult2[Calculate LSP Fees]
+    
+    ProbeResult1 --> ReturnProbe([Return Fee Estimate<br/>1-60s])
+    ProbeResult2 --> ReturnProbe
+```
 
 ### Graph-Based Estimation
 
@@ -100,6 +156,29 @@ identify characteristic LSP patterns. The detection operates on the principle
 that LSPs typically maintain private channels to their users and appear as the
 penultimate hop in payment routing.
 
+```mermaid
+flowchart TD
+    Start([Route Hints Received]) --> Empty{Empty Hints?}
+    Empty -->|Yes| NotLSP([Not LSP])
+    Empty -->|No| GetFirst[Get First Hint's Last Hop]
+    
+    GetFirst --> CheckPub1{Is Channel<br/>Public?}
+    CheckPub1 -->|Yes| NotLSP
+    CheckPub1 -->|No| SaveNode[Save Node ID]
+    
+    SaveNode --> MoreHints{More Hints?}
+    MoreHints -->|No| IsLSP([Detected as LSP])
+    MoreHints -->|Yes| NextHint[Check Next Hint]
+    
+    NextHint --> GetLast[Get Last Hop]
+    GetLast --> CheckPub2{Is Channel<br/>Public?}
+    CheckPub2 -->|Yes| NotLSP
+    CheckPub2 -->|No| SameNode{Same Node ID<br/>as First?}
+    
+    SameNode -->|No| NotLSP
+    SameNode -->|Yes| MoreHints
+```
+
 The detection criteria are:
 
 • **All route hints must terminate at the same node ID** - This indicates a single destination behind potentially multiple LSP entry points
@@ -158,6 +237,35 @@ network, then the LSP's own hop to the final destination.
 When an LSP is detected, the system performs a sophisticated transformation of
 the route hints to enable accurate fee estimation. This transformation, handled
 by the prepareLspRouteHints function, serves three critical purposes.
+
+```mermaid
+flowchart LR
+    subgraph "Original Route Hints"
+        H1[Hop A → Hop B → LSP → Destination]
+        H2[Hop C → LSP → Destination]
+        H3[Hop D → Hop E → LSP → Destination]
+    end
+    
+    Transform[prepareLspRouteHints<br/>Transformation] 
+    
+    subgraph "Modified for Probing"
+        M1[Hop A → Hop B → LSP]
+        M2[Hop C → LSP]
+        M3[Hop D → Hop E → LSP]
+        LSPHint[Synthetic LSP Hint<br/>Max Fees & CLTV]
+    end
+    
+    H1 --> Transform
+    H2 --> Transform
+    H3 --> Transform
+    
+    Transform --> M1
+    Transform --> M2
+    Transform --> M3
+    Transform --> LSPHint
+    
+    style LSPHint fill:#f9f,stroke:#333,stroke-width:2px
+```
 
 First, it creates a synthetic LSP hop hint that represents the worst-case
 scenario across all provided route hints. This synthetic hint contains the

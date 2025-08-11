@@ -5,8 +5,10 @@ package switchrpc
 
 import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // Config is the primary configuration struct for the switch RPC subserver.
@@ -17,6 +19,10 @@ import (
 type Config struct {
 	// Switch is the main htlc switch instance that backs this RPC server.
 	Switch *htlcswitch.Switch
+
+	// RouteProcessor provides the capability to convert from external (rpc)
+	// to internal representation of a payment route.
+	RouteProcessor RouteProcessor
 
 	// SwitchMacPath is the path for the router macaroon. If unspecified
 	// then we assume that the macaroon will be found under the network
@@ -49,4 +55,12 @@ type ChannelInfoAccessor interface {
 	// links associated with a given node public key.
 	GetLinksByPubkey(pubKey [33]byte) ([]htlcswitch.ChannelInfoProvider,
 		error)
+}
+
+// RouteProcessor provides the ability to convert a route from the external rpc
+// representation to our internal format for use when constructing onions.
+type RouteProcessor interface {
+	// UnmarshallRoute unmarshalls an rpc route. For hops that don't specify
+	// a pubkey, the channel graph is queried.
+	UnmarshallRoute(rpcroute *lnrpc.Route) (*route.Route, error)
 }

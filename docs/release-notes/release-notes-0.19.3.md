@@ -42,6 +42,10 @@
   situations where the sending amount would violate the channel policy
   restriction (min,max HTLC).
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10141) a case where we
+  would not resolve all outstanding payment attempts after the overall payment
+  lifecycle was canceled due to a timeout.
+
 # New Features
 
 ## Functional Enhancements

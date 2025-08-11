@@ -5,8 +5,10 @@ package switchrpc
 
 import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // mockPayer is a mock implementation of the htlcswitch.Payer interface.
@@ -55,4 +57,18 @@ func (m *mockPayer) HasAttemptResult(attemptID uint64) (bool, error) {
 // CleanStore is a mock implementation of the CleanStore method.
 func (m *mockPayer) CleanStore(keepPids map[uint64]struct{}) error {
 	return nil
+}
+
+// mockRouteProcessor is a mock implementation of the routing.RouteProcessor
+// interface.
+type mockRouteProcessor struct {
+	unmarshallErr   error
+	unmarshallRoute *route.Route
+}
+
+// UnmarshallRoute is a mock implementation of the UnmarshallRoute method.
+func (m *mockRouteProcessor) UnmarshallRoute(route *lnrpc.Route) (
+	*route.Route, error) {
+
+	return m.unmarshallRoute, m.unmarshallErr
 }

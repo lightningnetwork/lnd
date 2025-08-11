@@ -28,6 +28,7 @@ type SqliteConfig struct {
 	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
 	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	QueryConfig    `group:"query" namespace:"query"`
 }
 
 // PostgresConfig holds the postgres database configuration.
@@ -38,6 +39,7 @@ type PostgresConfig struct {
 	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
 	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	QueryConfig    `group:"query" namespace:"query"`
 }
 
 func (p *PostgresConfig) Validate() error {

@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -30,10 +31,15 @@ func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,
 		},
 	)
 
+	queryConfig := d.cfg.DB.Sqlite.QueryConfig
+	if d.cfg.DB.Backend == lncfg.PostgresBackend {
+		queryConfig = d.cfg.DB.Postgres.QueryConfig
+	}
+
 	return graphdb.NewSQLStore(
 		&graphdb.SQLStoreConfig{
 			ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
-			QueryCfg:  sqldb.DefaultQueryConfig(),
+			QueryCfg:  &queryConfig,
 		},
 		graphExecutor, opts...,
 	)

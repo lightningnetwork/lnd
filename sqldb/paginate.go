@@ -6,20 +6,19 @@ import (
 )
 
 // QueryConfig holds configuration values for SQL queries.
+//
+//nolint:ll
 type QueryConfig struct {
 	// MaxBatchSize is the maximum number of items included in a batch
 	// query IN clauses list.
-	MaxBatchSize int
+	MaxBatchSize int `long:"max-batch-size" description:"The maximum number of items to include in a batch query IN clause. This is used for queries that fetch results based on a list of identifiers."`
 
 	// MaxPageSize is the maximum number of items returned in a single page
 	// of results. This is used for paginated queries.
-	MaxPageSize int32
+	MaxPageSize int32 `long:"max-page-size" description:"The maximum number of items to return in a single page of results. This is used for paginated queries."`
 }
 
 // DefaultQueryConfig returns a default configuration for SQL queries.
-//
-// TODO(elle): make configurable & have different defaults for SQLite and
-// Postgres.
 func DefaultQueryConfig() *QueryConfig {
 	return &QueryConfig{
 		MaxBatchSize: 250,

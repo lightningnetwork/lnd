@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package switchrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/switchrpc";
+
+// Switch is a service that offers advanced interaction with the HTLC fowarding
+// subsystem of the daemon.
+service Switch {
+}

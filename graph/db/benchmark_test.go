@@ -60,10 +60,6 @@ var (
 		WithBatchCommitInterval(500 * time.Millisecond),
 	}
 
-	// testSQLPaginationCfg is used to configure the pagination settings for
-	// the SQL stores we open for testing.
-	testSQLPaginationCfg = sqldb.DefaultQueryConfig()
-
 	// testSqlitePragmaOpts is a set of SQLite pragma options that we apply
 	// to the SQLite databases we open for testing.
 	testSqlitePragmaOpts = []string{
@@ -111,7 +107,8 @@ var (
 		name: "native-sqlite",
 		open: func(b testing.TB) V1Store {
 			return connectNativeSQLite(
-				b, nativeSQLSqlitePath, nativeSQLSqliteFile,
+				b, sqldb.DefaultSQLiteConfig(),
+				nativeSQLSqlitePath, nativeSQLSqliteFile,
 			)
 		},
 	}
@@ -130,15 +127,20 @@ var (
 	nativeSQLPostgresConn = dbConnection{
 		name: "native-postgres",
 		open: func(b testing.TB) V1Store {
-			return connectNativePostgres(b, nativeSQLPostgresDNS)
+			return connectNativePostgres(
+				b, sqldb.DefaultPostgresConfig(),
+				nativeSQLPostgresDNS,
+			)
 		},
 	}
 )
 
 // connectNativePostgres creates a V1Store instance backed by a native Postgres
 // database for testing purposes.
-func connectNativePostgres(t testing.TB, dsn string) V1Store {
-	return newSQLStore(t, sqlPostgres(t, dsn))
+func connectNativePostgres(t testing.TB, cfg *sqldb.QueryConfig,
+	dsn string) V1Store {
+
+	return newSQLStore(t, cfg, sqlPostgres(t, dsn))
 }
 
 // sqlPostgres creates a sqldb.DB instance backed by a native Postgres database
@@ -158,8 +160,10 @@ func sqlPostgres(t testing.TB, dsn string) BatchedSQLQueries {
 
 // connectNativeSQLite creates a V1Store instance backed by a native SQLite
 // database for testing purposes.
-func connectNativeSQLite(t testing.TB, dbPath, file string) V1Store {
-	return newSQLStore(t, sqlSQLite(t, dbPath, file))
+func connectNativeSQLite(t testing.TB, cfg *sqldb.QueryConfig, dbPath,
+	file string) V1Store {
+
+	return newSQLStore(t, cfg, sqlSQLite(t, dbPath, file))
 }
 
 // sqlSQLite creates a sqldb.DB instance backed by a native SQLite database for
@@ -277,11 +281,13 @@ func newSQLExecutor(t testing.TB, db sqldb.DB) BatchedSQLQueries {
 
 // newSQLStore creates a new SQLStore instance for testing using a provided
 // sqldb.DB instance.
-func newSQLStore(t testing.TB, db BatchedSQLQueries) V1Store {
+func newSQLStore(t testing.TB, cfg *sqldb.QueryConfig,
+	db BatchedSQLQueries) V1Store {
+
 	store, err := NewSQLStore(
 		&SQLStoreConfig{
 			ChainHash: dbTestChain,
-			QueryCfg:  testSQLPaginationCfg,
+			QueryCfg:  cfg,
 		},
 		db, testStoreOptions...,
 	)
@@ -761,5 +767,113 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+// BenchmarkFindOptimalSQLQueryConfig uses the ForEachNode and ForEachChannel
+// methods to find the optimal maximum sqldb QueryConfig values for a given
+// database backend. This is useful for determining the best default values for
+// each backend. The ForEachNode and ForEachChannel methods are used since
+// they make use of both batching and pagination.
+func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
+	// NOTE: Set this to true if you want to test with a postgres backend.
+	testPostgres := false
+
+	// NOTE: Set this to true if you want to test with various batch sizes.
+	// By default, page sizes will be tested.
+	testBatching := false
+
+	// Set the various page sizes we want to test.
+	//
+	// NOTE: these are the sqlite paging testing values.
+	testSizes := []int{20, 50, 100, 150, 500}
+
+	configOption := "MaxPageSize"
+	if testBatching {
+		configOption = "MaxBatchSize"
+
+		testSizes = []int{
+			50, 100, 150, 200, 250, 300, 350,
+		}
+	}
+
+	dbName := "sqlite"
+	if testPostgres {
+		dbName = "postgres"
+
+		// Set the various page sizes we want to test.
+		//
+		// NOTE: these are the postgres paging values.
+		testSizes = []int{5000, 7000, 10000, 12000}
+
+		if testBatching {
+			testSizes = []int{
+				1000, 2000, 5000, 7000, 10000,
+			}
+		}
+	}
+
+	for _, size := range testSizes {
+		b.Run(fmt.Sprintf("%s-%s-%d", configOption, dbName, size),
+			func(b *testing.B) {
+				ctx := context.Background()
+
+				cfg := sqldb.DefaultSQLiteConfig()
+				if testPostgres {
+					cfg = sqldb.DefaultPostgresConfig()
+				}
+
+				if testBatching {
+					cfg.MaxBatchSize = size
+				} else {
+					cfg.MaxPageSize = int32(size)
+				}
+
+				store := connectNativeSQLite(
+					b, cfg, nativeSQLSqlitePath,
+					nativeSQLSqliteFile,
+				)
+				if testPostgres {
+					store = connectNativePostgres(
+						b, cfg, nativeSQLPostgresDNS,
+					)
+				}
+
+				// Reset timer to exclude setup time.
+				b.ResetTimer()
+
+				for i := 0; i < b.N; i++ {
+					var (
+						numNodes    = 0
+						numChannels = 0
+					)
+
+					//nolint:ll
+					err := store.ForEachNode(
+						ctx,
+						func(_ *models.LightningNode) error {
+							numNodes++
+
+							return nil
+						}, func() {},
+					)
+					require.NoError(b, err)
+
+					//nolint:ll
+					err = store.ForEachChannel(
+						ctx,
+						func(_ *models.ChannelEdgeInfo,
+							_,
+							_ *models.ChannelEdgePolicy) error {
+
+							numChannels++
+
+							return nil
+						}, func() {},
+					)
+					require.NoError(b, err)
+				}
+			},
+		)
 	}
 }

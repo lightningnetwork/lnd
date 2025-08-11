@@ -15,6 +15,20 @@ const (
 	// included in a batch query IN clause for Postgres. This was determined
 	// using the TestSQLSliceQueries test.
 	maxPostgresBatchSize = 65535
+
+	// defaultSQLitePageSize is the default page size for SQLite queries.
+	defaultSQLitePageSize = 100
+
+	// defaultPostgresPageSize is the default page size for Postgres
+	// queries.
+	defaultPostgresPageSize = 10500
+
+	// defaultSQLiteBatchSize is the default batch size for SQLite queries.
+	defaultSQLiteBatchSize = 250
+
+	// defaultPostgresBatchSize is the default batch size for Postgres
+	// queries.
+	defaultPostgresBatchSize = 5000
 )
 
 // QueryConfig holds configuration values for SQL queries.
@@ -63,6 +77,24 @@ func DefaultQueryConfig() *QueryConfig {
 	return &QueryConfig{
 		MaxBatchSize: 250,
 		MaxPageSize:  10000,
+	}
+}
+
+// DefaultSQLiteConfig returns a default configuration for SQL queries to a
+// SQLite backend.
+func DefaultSQLiteConfig() *QueryConfig {
+	return &QueryConfig{
+		MaxBatchSize: defaultSQLiteBatchSize,
+		MaxPageSize:  defaultSQLitePageSize,
+	}
+}
+
+// DefaultPostgresConfig returns a default configuration for SQL queries to a
+// Postgres backend.
+func DefaultPostgresConfig() *QueryConfig {
+	return &QueryConfig{
+		MaxBatchSize: defaultPostgresBatchSize,
+		MaxPageSize:  defaultPostgresPageSize,
 	}
 }
 

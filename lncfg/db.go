@@ -115,18 +115,12 @@ func DefaultDB() *DB {
 		},
 		Postgres: &sqldb.PostgresConfig{
 			MaxConnections: defaultPostgresMaxConnections,
-			QueryConfig: sqldb.QueryConfig{
-				MaxBatchSize: 250,
-				MaxPageSize:  10000,
-			},
+			QueryConfig:    *sqldb.DefaultPostgresConfig(),
 		},
 		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: defaultSqliteMaxConnections,
 			BusyTimeout:    defaultSqliteBusyTimeout,
-			QueryConfig: sqldb.QueryConfig{
-				MaxBatchSize: 250,
-				MaxPageSize:  10000,
-			},
+			QueryConfig:    *sqldb.DefaultSQLiteConfig(),
 		},
 		UseNativeSQL:           false,
 		SkipNativeSQLMigration: false,

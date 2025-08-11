@@ -11,9 +11,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -389,6 +392,181 @@ func TestTrackOnion(t *testing.T) {
 			// If no gRPC error was expected, check the response.
 			require.NoError(t, err)
 			require.Equal(t, tc.expectedResponse, resp)
+		})
+	}
+}
+
+// TestBuildOnion is a unit test that verifies the behavior of the BuildOnion
+// RPC handler, ensuring that it correctly validates inputs, handles dependency
+// failures, and constructs a valid response upon success.
+func TestBuildOnion(t *testing.T) {
+	t.Parallel()
+
+	// Create a valid session key for the "provided key" test case.
+	validSessionKeyBytes := []byte{
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+		17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+	}
+
+	// Create a mock route to be returned by the processor.
+	// We need to generate some mock public keys for the hops.
+	privKey1, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pubKey1 := privKey1.PubKey()
+
+	privKey2, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	pubKey2 := privKey2.PubKey()
+
+	// The mock route needs to have realistic values for amounts,
+	// timelocks, and channel IDs, otherwise sphinx packet construction
+	// will fail.
+	paymentAmt := lnwire.MilliSatoshi(10000)
+	finalCltv := uint32(40)
+
+	mockRoute := &route.Route{
+		TotalAmount: paymentAmt,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:      route.NewVertex(pubKey1),
+				AmtToForward:     paymentAmt,
+				OutgoingTimeLock: finalCltv + 10,
+				ChannelID:        1,
+			},
+			{
+				PubKeyBytes:      route.NewVertex(pubKey2),
+				AmtToForward:     paymentAmt,
+				OutgoingTimeLock: finalCltv,
+				ChannelID:        2,
+			},
+		},
+	}
+
+	//nolint:ll
+	testCases := []struct {
+		name string
+
+		// setup is a function that modifies the server or request for a
+		// specific test case.
+		setup func(*testing.T, *mockRouteProcessor, *BuildOnionRequest)
+
+		// expectedErrCode is the gRPC error code we expect.
+		expectedErrCode codes.Code
+
+		// checkResponse is a function that validates the response on
+		// success.
+		checkResponse func(*testing.T, *BuildOnionResponse)
+	}{
+		{
+			name: "success new session key",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				m.unmarshallRoute = mockRoute
+			},
+			checkResponse: func(t *testing.T, resp *BuildOnionResponse) {
+				require.Len(t, resp.OnionBlob, lnwire.OnionPacketSize)
+				require.Len(t, resp.SessionKey, 32)
+				require.Len(t, resp.HopPubkeys, len(mockRoute.Hops))
+
+				// Check that expected route is constructed.
+				for i, hop := range mockRoute.Hops {
+					require.Equal(t, hop.PubKeyBytes[:],
+						resp.HopPubkeys[i])
+				}
+			},
+		},
+		{
+			name: "success with provided session key",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				m.unmarshallRoute = mockRoute
+				req.SessionKey = validSessionKeyBytes
+			},
+			checkResponse: func(t *testing.T, resp *BuildOnionResponse) {
+				require.Len(t, resp.OnionBlob, lnwire.OnionPacketSize)
+				require.Equal(t, validSessionKeyBytes, resp.SessionKey)
+				require.Len(t, resp.HopPubkeys, len(mockRoute.Hops))
+
+				// Check that expected route is constructed.
+				for i, hop := range mockRoute.Hops {
+					require.Equal(t, hop.PubKeyBytes[:],
+						resp.HopPubkeys[i])
+				}
+			},
+		},
+		{
+			name: "missing route",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				req.Route = nil
+			},
+			expectedErrCode: codes.InvalidArgument,
+		},
+		{
+			name: "missing payment hash",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				req.PaymentHash = nil
+			},
+			expectedErrCode: codes.InvalidArgument,
+		},
+		{
+			name: "invalid session key",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				req.SessionKey = []byte{1, 2, 3}
+			},
+			expectedErrCode: codes.InvalidArgument,
+		},
+		{
+			name: "route unmarshall fails",
+			setup: func(t *testing.T, m *mockRouteProcessor,
+				req *BuildOnionRequest) {
+
+				m.unmarshallErr = errors.New("unmarshall error")
+			},
+			expectedErrCode: codes.InvalidArgument,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mockProcessor := &mockRouteProcessor{}
+			server := &Server{
+				cfg: &Config{RouteProcessor: mockProcessor},
+			}
+
+			req := &BuildOnionRequest{
+				Route:       &lnrpc.Route{},
+				PaymentHash: make([]byte, 32),
+			}
+
+			if tc.setup != nil {
+				tc.setup(t, mockProcessor, req)
+			}
+
+			resp, err := server.BuildOnion(t.Context(), req)
+
+			if tc.expectedErrCode != codes.OK {
+				require.Error(t, err)
+				s, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, tc.expectedErrCode, s.Code())
+
+				return
+			}
+
+			require.NoError(t, err)
+			if tc.checkResponse != nil {
+				tc.checkResponse(t, resp)
+			}
 		})
 	}
 }

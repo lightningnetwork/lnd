@@ -121,7 +121,7 @@ var (
 type KVPaymentsDB struct {
 	// Sequence management for the kv store.
 	seqMu            sync.Mutex
-	currPaymentSeq   uint64
+	currSeq          uint64
 	storedPaymentSeq uint64
 
 	// db is the underlying database implementation.
@@ -762,7 +762,7 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 
 	// Set a new upper bound in the DB every 1000 payments to avoid
 	// conflicts on the sequence when using etcd.
-	if p.currPaymentSeq == p.storedPaymentSeq {
+	if p.currSeq == p.storedPaymentSeq {
 		var currPaymentSeq, newUpperBound uint64
 		if err := kvdb.Update(p.db, func(tx kvdb.RwTx) error {
 			paymentsBucket, err := tx.CreateTopLevelBucket(
@@ -785,16 +785,16 @@ func (p *KVPaymentsDB) nextPaymentSequence() ([]byte, error) {
 		// initialize our stored currPaymentSeq, since by default both
 		// this variable and storedPaymentSeq are zero which in turn
 		// will have us fetch the current values from the DB.
-		if p.currPaymentSeq == 0 {
-			p.currPaymentSeq = currPaymentSeq
+		if p.currSeq == 0 {
+			p.currSeq = currPaymentSeq
 		}
 
 		p.storedPaymentSeq = newUpperBound
 	}
 
-	p.currPaymentSeq++
+	p.currSeq++
 	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, p.currPaymentSeq)
+	binary.BigEndian.PutUint64(b, p.currSeq)
 
 	return b, nil
 }

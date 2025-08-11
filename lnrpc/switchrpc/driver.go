@@ -53,6 +53,9 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	return New(config)
 }
 
+// init registers this package's gRPC subserver so that lnd's main RPC server
+// knows it exists and can later invoke RegisterWithRootServer to attach the
+// service handlers.
 func init() {
 	subServer := &lnrpc.SubServerDriver{
 		SubServerName: subServerName,

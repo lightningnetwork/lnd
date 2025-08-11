@@ -45,6 +45,10 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 		return nil, nil, fmt.Errorf("channel info access must be " +
 			"provided to create SwitchRPC")
 	}
+	if config.RouteProcessor == nil {
+		return nil, nil, fmt.Errorf("route processor must be set to " +
+			"create SwitchRPC")
+	}
 
 	return New(config)
 }

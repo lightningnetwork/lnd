@@ -3,11 +3,8 @@ package paymentsdb
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"reflect"
 	"testing"
@@ -25,47 +22,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func genPreimage() ([32]byte, error) {
-	var preimage [32]byte
-	if _, err := io.ReadFull(rand.Reader, preimage[:]); err != nil {
-		return preimage, err
-	}
-	return preimage, nil
-}
-
-func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
-	lntypes.Preimage, error) {
-
-	preimage, err := genPreimage()
-	if err != nil {
-		return nil, nil, preimage, fmt.Errorf("unable to "+
-			"generate preimage: %v", err)
-	}
-
-	rhash := sha256.Sum256(preimage[:])
-	var hash lntypes.Hash
-	copy(hash[:], rhash[:])
-
-	attempt, err := NewHtlcAttempt(
-		0, priv, *testRoute.Copy(), time.Time{}, &hash,
-	)
-	require.NoError(t, err)
-
-	return &PaymentCreationInfo{
-		PaymentIdentifier: rhash,
-		Value:             testRoute.ReceiverAmt(),
-		CreationTime:      time.Unix(time.Now().Unix(), 0),
-		PaymentRequest:    []byte("hola"),
-	}, &attempt.HTLCAttemptInfo, preimage, nil
-}
-
 // TestKVPaymentsDBSwitchFail checks that payment status returns to Failed
 // status after failing, and that InitPayment allows another HTLC for the
 // same payment hash.
 func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB := NewKVTestDB(t)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -202,7 +165,7 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB := NewKVTestDB(t)
 
 	info, attempt, preimg, err := genInfo(t)
 	require.NoError(t, err, "unable to generate htlc message")
@@ -270,49 +233,12 @@ func TestKVPaymentsDBSwitchDoubleSend(t *testing.T) {
 	}
 }
 
-// TestKVPaymentsDBSuccessesWithoutInFlight checks that the payment
-// control will disallow calls to Success when no payment is in flight.
-func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
-	t.Parallel()
-
-	paymentDB := NewTestDB(t)
-
-	info, _, preimg, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
-
-	// Attempt to complete the payment should fail.
-	_, err = paymentDB.SettleAttempt(
-		info.PaymentIdentifier, 0,
-		&HTLCSettleInfo{
-			Preimage: preimg,
-		},
-	)
-	require.ErrorIs(t, err, ErrPaymentNotInitiated)
-}
-
-// TestKVPaymentsDBFailsWithoutInFlight checks that a strict payment
-// control will disallow calls to Fail when no payment is in flight.
-func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
-	t.Parallel()
-
-	paymentDB := NewTestDB(t)
-
-	info, _, _, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
-
-	// Calling Fail should return an error.
-	_, err = paymentDB.Fail(
-		info.PaymentIdentifier, FailureReasonNoRoute,
-	)
-	require.ErrorIs(t, err, ErrPaymentNotInitiated)
-}
-
 // TestKVPaymentsDBDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
 func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB := NewKVTestDB(t)
 
 	// Create a sequence number for duplicate payments that will not collide
 	// with the sequence numbers for the payments we create. These values
@@ -370,7 +296,8 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 			HTLCAttemptInfo: attempt,
 		}
 
-		if p.failed {
+		switch {
+		case p.failed:
 			// Fail the payment attempt.
 			htlcFailure := HTLCFailUnreadable
 			_, err := paymentDB.FailAttempt(
@@ -403,7 +330,8 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 				t, paymentDB, info.PaymentIdentifier, info,
 				&failReason, htlc,
 			)
-		} else if p.success {
+
+		case p.success:
 			// Verifies that status was changed to StatusSucceeded.
 			_, err := paymentDB.SettleAttempt(
 				info.PaymentIdentifier, attempt.AttemptID,
@@ -428,7 +356,8 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 			)
 
 			numSuccess++
-		} else {
+
+		default:
 			assertPaymentStatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
@@ -527,148 +456,6 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-// TestKVPaymentsDBDeletePayments tests that DeletePayments correctly deletes
-// information about completed payments from the database.
-func TestKVPaymentsDBDeletePayments(t *testing.T) {
-	t.Parallel()
-
-	paymentDB := NewTestDB(t)
-
-	// Register three payments:
-	// 1. A payment with two failed attempts.
-	// 2. A payment with one failed and one settled attempt.
-	// 3. A payment with one failed and one in-flight attempt.
-	payments := []*payment{
-		{status: StatusFailed},
-		{status: StatusSucceeded},
-		{status: StatusInFlight},
-	}
-
-	// Use helper function to register the test payments in the data and
-	// populate the data to the payments slice.
-	createTestPayments(t, paymentDB, payments)
-
-	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
-
-	// Delete HTLC attempts for failed payments only.
-	numPayments, err := paymentDB.DeletePayments(true, true)
-	require.NoError(t, err)
-	require.EqualValues(t, 0, numPayments)
-
-	// The failed payment is the only altered one.
-	payments[0].htlcs = 0
-	assertPayments(t, paymentDB, payments)
-
-	// Delete failed attempts for all payments.
-	numPayments, err = paymentDB.DeletePayments(false, true)
-	require.NoError(t, err)
-	require.EqualValues(t, 0, numPayments)
-
-	// The failed attempts should be deleted, except for the in-flight
-	// payment, that shouldn't be altered until it has completed.
-	payments[1].htlcs = 1
-	assertPayments(t, paymentDB, payments)
-
-	// Now delete all failed payments.
-	numPayments, err = paymentDB.DeletePayments(true, false)
-	require.NoError(t, err)
-	require.EqualValues(t, 1, numPayments)
-
-	assertPayments(t, paymentDB, payments[1:])
-
-	// Finally delete all completed payments.
-	numPayments, err = paymentDB.DeletePayments(false, false)
-	require.NoError(t, err)
-	require.EqualValues(t, 1, numPayments)
-
-	assertPayments(t, paymentDB, payments[2:])
-}
-
-// TestKVPaymentsDBDeleteSinglePayment tests that DeletePayment correctly
-// deletes information about a completed payment from the database.
-func TestKVPaymentsDBDeleteSinglePayment(t *testing.T) {
-	t.Parallel()
-
-	paymentDB := NewTestDB(t)
-
-	// Register four payments:
-	// All payments will have one failed HTLC attempt and one HTLC attempt
-	// according to its final status.
-	// 1. A payment with two failed attempts.
-	// 2. Another payment with two failed attempts.
-	// 3. A payment with one failed and one settled attempt.
-	// 4. A payment with one failed and one in-flight attempt.
-
-	// Initiate payments, which is a slice of payment that is used as
-	// template to create the corresponding test payments in the database.
-	//
-	// Note: The payment id and number of htlc attempts of each payment will
-	// be added to this slice when creating the payments below.
-	// This allows the slice to be used directly for testing purposes.
-	payments := []*payment{
-		{status: StatusFailed},
-		{status: StatusFailed},
-		{status: StatusSucceeded},
-		{status: StatusInFlight},
-	}
-
-	// Use helper function to register the test payments in the data and
-	// populate the data to the payments slice.
-	createTestPayments(t, paymentDB, payments)
-
-	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
-
-	// Delete HTLC attempts for first payment only.
-	require.NoError(t, paymentDB.DeletePayment(payments[0].id, true))
-
-	// The first payment is the only altered one as its failed HTLC should
-	// have been removed but is still present as payment.
-	payments[0].htlcs = 0
-	assertPayments(t, paymentDB, payments)
-
-	// Delete the first payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[0].id, false))
-
-	// The first payment should have been deleted.
-	assertPayments(t, paymentDB, payments[1:])
-
-	// Now delete the second payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[1].id, false))
-
-	// The Second payment should have been deleted.
-	assertPayments(t, paymentDB, payments[2:])
-
-	// Delete failed HTLC attempts for the third payment.
-	require.NoError(t, paymentDB.DeletePayment(payments[2].id, true))
-
-	// Only the successful HTLC attempt should be left for the third
-	// payment.
-	payments[2].htlcs = 1
-	assertPayments(t, paymentDB, payments[2:])
-
-	// Now delete the third payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[2].id, false))
-
-	// Only the last payment should be left.
-	assertPayments(t, paymentDB, payments[3:])
-
-	// Deleting HTLC attempts from InFlight payments should not work and an
-	// error returned.
-	require.Error(t, paymentDB.DeletePayment(payments[3].id, true))
-
-	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, paymentDB, payments[3:])
-
-	// Finally deleting the InFlight payment should also not work and an
-	// error returned.
-	require.Error(t, paymentDB.DeletePayment(payments[3].id, false))
-
-	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, paymentDB, payments[3:])
-}
-
 // TestKVPaymentsDBMultiShard checks the ability of payment control to
 // have multiple in-flight HTLCs for a single payment.
 func TestKVPaymentsDBMultiShard(t *testing.T) {
@@ -691,7 +478,7 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 	}
 
 	runSubTest := func(t *testing.T, test testCase) {
-		paymentDB := NewTestDB(t)
+		paymentDB := NewKVTestDB(t)
 
 		info, attempt, preimg, err := genInfo(t)
 		if err != nil {
@@ -965,75 +752,6 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 	}
 }
 
-func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
-	t.Parallel()
-
-	paymentDB := NewTestDB(t)
-
-	info, attempt, _, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
-
-	// Init the payment.
-	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	require.NoError(t, err, "unable to send htlc message")
-
-	// Create three unique attempts we'll use for the test, and
-	// register them with the payment control. We set each
-	// attempts's value to one third of the payment amount, and
-	// populate the MPP options.
-	shardAmt := info.Value / 3
-	attempt.Route.FinalHop().AmtToForward = shardAmt
-	attempt.Route.FinalHop().MPP = record.NewMPP(
-		info.Value, [32]byte{1},
-	)
-
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
-	require.NoError(t, err, "unable to send htlc message")
-
-	// Now try to register a non-MPP attempt, which should fail.
-	b := *attempt
-	b.AttemptID = 1
-	b.Route.FinalHop().MPP = nil
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	require.ErrorIs(t, err, ErrMPPayment)
-
-	// Try to register attempt one with a different payment address.
-	b.Route.FinalHop().MPP = record.NewMPP(
-		info.Value, [32]byte{2},
-	)
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	require.ErrorIs(t, err, ErrMPPPaymentAddrMismatch)
-
-	// Try registering one with a different total amount.
-	b.Route.FinalHop().MPP = record.NewMPP(
-		info.Value/2, [32]byte{1},
-	)
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	require.ErrorIs(t, err, ErrMPPTotalAmountMismatch)
-
-	// Create and init a new payment. This time we'll check that we cannot
-	// register an MPP attempt if we already registered a non-MPP one.
-	info, attempt, _, err = genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
-
-	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	require.NoError(t, err, "unable to send htlc message")
-
-	attempt.Route.FinalHop().MPP = nil
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
-	require.NoError(t, err, "unable to send htlc message")
-
-	// Attempt to register an MPP attempt, which should fail.
-	b = *attempt
-	b.AttemptID = 1
-	b.Route.FinalHop().MPP = record.NewMPP(
-		info.Value, [32]byte{1},
-	)
-
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-	require.ErrorIs(t, err, ErrNonMPPayment)
-}
-
 // TestDeleteFailedAttempts checks that DeleteFailedAttempts properly removes
 // failed HTLCs from finished payments.
 func TestDeleteFailedAttempts(t *testing.T) {
@@ -1047,178 +765,10 @@ func TestDeleteFailedAttempts(t *testing.T) {
 	})
 }
 
-func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
-	paymentDB := NewTestDB(
-		t, WithKeepFailedPaymentAttempts(keepFailedPaymentAttempts),
-	)
-
-	// Register three payments:
-	// All payments will have one failed HTLC attempt and one HTLC attempt
-	// according to its final status.
-	// 1. A payment with two failed attempts.
-	// 2. A payment with one failed and one in-flight attempt.
-	// 3. A payment with one failed and one settled attempt.
-
-	// Initiate payments, which is a slice of payment that is used as
-	// template to create the corresponding test payments in the database.
-	//
-	// Note: The payment id and number of htlc attempts of each payment will
-	// be added to this slice when creating the payments below.
-	// This allows the slice to be used directly for testing purposes.
-	payments := []*payment{
-		{status: StatusFailed},
-		{status: StatusInFlight},
-		{status: StatusSucceeded},
-	}
-
-	// Use helper function to register the test payments in the data and
-	// populate the data to the payments slice.
-	createTestPayments(t, paymentDB, payments)
-
-	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
-
-	// Calling DeleteFailedAttempts on a failed payment should delete all
-	// HTLCs.
-	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[0].id))
-
-	// Expect all HTLCs to be deleted if the config is set to delete them.
-	if !keepFailedPaymentAttempts {
-		payments[0].htlcs = 0
-	}
-	assertPayments(t, paymentDB, payments)
-
-	// Calling DeleteFailedAttempts on an in-flight payment should return
-	// an error.
-	if keepFailedPaymentAttempts {
-		require.NoError(
-			t, paymentDB.DeleteFailedAttempts(payments[1].id),
-		)
-	} else {
-		require.Error(t, paymentDB.DeleteFailedAttempts(payments[1].id))
-	}
-
-	// Since DeleteFailedAttempts returned an error, we should expect the
-	// payment to be unchanged.
-	assertPayments(t, paymentDB, payments)
-
-	// Cleaning up a successful payment should remove failed htlcs.
-	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[2].id))
-	// Expect all HTLCs except for the settled one to be deleted if the
-	// config is set to delete them.
-	if !keepFailedPaymentAttempts {
-		payments[2].htlcs = 1
-	}
-	assertPayments(t, paymentDB, payments)
-
-	if keepFailedPaymentAttempts {
-		// DeleteFailedAttempts is ignored, even for non-existent
-		// payments, if the control tower is configured to keep failed
-		// HTLCs.
-		require.NoError(
-			t, paymentDB.DeleteFailedAttempts(lntypes.ZeroHash),
-		)
-	} else {
-		// Attempting to cleanup a non-existent payment returns an error.
-		require.Error(
-			t, paymentDB.DeleteFailedAttempts(lntypes.ZeroHash),
-		)
-	}
-}
-
-// assertPaymentStatus retrieves the status of the payment referred to by hash
-// and compares it with the expected state.
-func assertPaymentStatus(t *testing.T, p *KVPaymentsDB,
-	hash lntypes.Hash, expStatus PaymentStatus) {
-
-	t.Helper()
-
-	payment, err := p.FetchPayment(hash)
-	if errors.Is(err, ErrPaymentNotInitiated) {
-		return
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if payment.Status != expStatus {
-		t.Fatalf("payment status mismatch: expected %v, got %v",
-			expStatus, payment.Status)
-	}
-}
-
 type htlcStatus struct {
 	*HTLCAttemptInfo
 	settle  *lntypes.Preimage
 	failure *HTLCFailReason
-}
-
-// assertPaymentInfo retrieves the payment referred to by hash and verifies the
-// expected values.
-func assertPaymentInfo(t *testing.T, p *KVPaymentsDB, hash lntypes.Hash,
-	c *PaymentCreationInfo, f *FailureReason,
-	a *htlcStatus) {
-
-	t.Helper()
-
-	payment, err := p.FetchPayment(hash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(payment.Info, c) {
-		t.Fatalf("PaymentCreationInfos don't match: %v vs %v",
-			spew.Sdump(payment.Info), spew.Sdump(c))
-	}
-
-	if f != nil {
-		if *payment.FailureReason != *f {
-			t.Fatal("unexpected failure reason")
-		}
-	} else {
-		if payment.FailureReason != nil {
-			t.Fatal("unexpected failure reason")
-		}
-	}
-
-	if a == nil {
-		if len(payment.HTLCs) > 0 {
-			t.Fatal("expected no htlcs")
-		}
-		return
-	}
-
-	htlc := payment.HTLCs[a.AttemptID]
-	if err := assertRouteEqual(&htlc.Route, &a.Route); err != nil {
-		t.Fatal("routes do not match")
-	}
-
-	if htlc.AttemptID != a.AttemptID {
-		t.Fatalf("unnexpected attempt ID %v, expected %v",
-			htlc.AttemptID, a.AttemptID)
-	}
-
-	if a.failure != nil {
-		if htlc.Failure == nil {
-			t.Fatalf("expected HTLC to be failed")
-		}
-
-		if htlc.Failure.Reason != *a.failure {
-			t.Fatalf("expected HTLC failure %v, had %v",
-				*a.failure, htlc.Failure.Reason)
-		}
-	} else if htlc.Failure != nil {
-		t.Fatalf("expected no HTLC failure")
-	}
-
-	if a.settle != nil {
-		if htlc.Settle.Preimage != *a.settle {
-			t.Fatalf("Preimages don't match: %x vs %x",
-				htlc.Settle.Preimage, a.settle)
-		}
-	} else if htlc.Settle != nil {
-		t.Fatal("expected no settle info")
-	}
 }
 
 // fetchPaymentIndexEntry gets the payment hash for the sequence number provided
@@ -1242,6 +792,7 @@ func fetchPaymentIndexEntry(_ *testing.T, p *KVPaymentsDB,
 
 		var err error
 		hash, err = deserializePaymentIndex(r)
+
 		return err
 	}, func() {
 		hash = lntypes.Hash{}
@@ -1272,141 +823,6 @@ func assertPaymentIndex(t *testing.T, p *KVPaymentsDB,
 func assertNoIndex(t *testing.T, p *KVPaymentsDB, seqNr uint64) {
 	_, err := fetchPaymentIndexEntry(t, p, seqNr)
 	require.Equal(t, ErrNoSequenceNrIndex, err)
-}
-
-// payment is a helper structure that holds basic information on a test payment,
-// such as the payment id, the status and the total number of HTLCs attempted.
-type payment struct {
-	id     lntypes.Hash
-	status PaymentStatus
-	htlcs  int
-}
-
-// createTestPayments registers payments depending on the provided statuses in
-// the payments slice. Each payment will receive one failed HTLC and another
-// HTLC depending on the final status of the payment provided.
-func createTestPayments(t *testing.T, p *KVPaymentsDB, payments []*payment) {
-	attemptID := uint64(0)
-
-	for i := 0; i < len(payments); i++ {
-		info, attempt, preimg, err := genInfo(t)
-		require.NoError(t, err, "unable to generate htlc message")
-
-		// Set the payment id accordingly in the payments slice.
-		payments[i].id = info.PaymentIdentifier
-
-		attempt.AttemptID = attemptID
-		attemptID++
-
-		// Init the payment.
-		err = p.InitPayment(info.PaymentIdentifier, info)
-		require.NoError(t, err, "unable to send htlc message")
-
-		// Register and fail the first attempt for all payments.
-		_, err = p.RegisterAttempt(info.PaymentIdentifier, attempt)
-		require.NoError(t, err, "unable to send htlc message")
-
-		htlcFailure := HTLCFailUnreadable
-		_, err = p.FailAttempt(
-			info.PaymentIdentifier, attempt.AttemptID,
-			&HTLCFailInfo{
-				Reason: htlcFailure,
-			},
-		)
-		require.NoError(t, err, "unable to fail htlc")
-
-		// Increase the HTLC counter in the payments slice for the
-		// failed attempt.
-		payments[i].htlcs++
-
-		// Depending on the test case, fail or succeed the next
-		// attempt.
-		attempt.AttemptID = attemptID
-		attemptID++
-
-		_, err = p.RegisterAttempt(info.PaymentIdentifier, attempt)
-		require.NoError(t, err, "unable to send htlc message")
-
-		switch payments[i].status {
-		// Fail the attempt and the payment overall.
-		case StatusFailed:
-			htlcFailure := HTLCFailUnreadable
-			_, err = p.FailAttempt(
-				info.PaymentIdentifier, attempt.AttemptID,
-				&HTLCFailInfo{
-					Reason: htlcFailure,
-				},
-			)
-			require.NoError(t, err, "unable to fail htlc")
-
-			failReason := FailureReasonNoRoute
-			_, err = p.Fail(info.PaymentIdentifier,
-				failReason)
-			require.NoError(t, err, "unable to fail payment hash")
-
-		// Settle the attempt
-		case StatusSucceeded:
-			_, err := p.SettleAttempt(
-				info.PaymentIdentifier, attempt.AttemptID,
-				&HTLCSettleInfo{
-					Preimage: preimg,
-				},
-			)
-			require.NoError(t, err, "no error should have been "+
-				"received from settling a htlc attempt")
-
-		// We leave the attempt in-flight by doing nothing.
-		case StatusInFlight:
-		}
-
-		// Increase the HTLC counter in the payments slice for any
-		// attempt above.
-		payments[i].htlcs++
-	}
-}
-
-// assertPayments is a helper function that given a slice of payment and
-// indices for the slice asserts that exactly the same payments in the
-// slice for the provided indices exist when fetching payments from the
-// database.
-func assertPayments(t *testing.T, paymentDB *KVPaymentsDB,
-	payments []*payment) {
-
-	t.Helper()
-
-	ctx := context.Background()
-
-	// We use the query method to fetch payments from the database which
-	// allows us to use this method db agnostic. We fetch all payments in
-	// one go.
-	queryResp, err := paymentDB.QueryPayments(ctx, Query{
-		IndexOffset:       0,
-		MaxPayments:       math.MaxUint64,
-		Reversed:          false,
-		IncludeIncomplete: true,
-	})
-	require.NoError(t, err, "could not fetch payments from db")
-
-	dbPayments := queryResp.Payments
-
-	// Make sure that the number of fetched payments is the same
-	// as expected.
-	require.Len(
-		t, dbPayments, len(payments), "unexpected number of payments",
-	)
-
-	// Convert fetched payments of type MPPayment to our helper structure.
-	p := make([]*payment, len(dbPayments))
-	for i, dbPayment := range dbPayments {
-		p[i] = &payment{
-			id:     dbPayment.Info.PaymentIdentifier,
-			status: dbPayment.Status,
-			htlcs:  len(dbPayment.HTLCs),
-		}
-	}
-
-	// Check that each payment we want to assert exists in the database.
-	require.Equal(t, payments, p)
 }
 
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
@@ -1559,7 +975,7 @@ func deletePayment(t *testing.T, db kvdb.Backend, paymentHash lntypes.Hash,
 // case where a specific duplicate is not found and the duplicates bucket is not
 // present when we expect it to be.
 func TestFetchPaymentWithSequenceNumber(t *testing.T) {
-	paymentDB := NewTestDB(t)
+	paymentDB := NewKVTestDB(t)
 
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, _, err := genInfo(t)
@@ -1766,4 +1182,393 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	// preimage.
 	err = paymentBucket.Put(duplicatePaymentSettleInfoKey, preImg[:])
 	require.NoError(t, err)
+}
+
+// TestQueryPayments tests retrieval of payments with forwards and reversed
+// queries.
+func TestQueryPayments(t *testing.T) {
+	// Define table driven test for QueryPayments.
+	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
+	// Note that the payment with index 7 has the same payment hash as 6,
+	// and is stored in a nested bucket within payment 6 rather than being
+	// its own entry in the payments bucket. We do this to test retrieval
+	// of legacy payments.
+	tests := []struct {
+		name       string
+		query      Query
+		firstIndex uint64
+		lastIndex  uint64
+
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
+	}{
+		{
+			name: "IndexOffset at the end of the payments range",
+			query: Query{
+				IndexOffset:       7,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "query in forwards order, start at beginning",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in forwards order, start at end, overflow",
+			query: Query{
+				IndexOffset:       6,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "start at offset index outside of payments",
+			query: Query{
+				IndexOffset:       20,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "overflow in forwards order",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{5, 6, 7},
+		},
+		{
+			name: "start at offset index outside of payments, " +
+				"reversed order",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, start at end",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, starting in middle",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in reverse order, starting in middle, " +
+				"with underflow",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       5,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "all payments in reverse, order maintained",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
+		},
+		{
+			name: "exclude incomplete payments",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: false,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query payments at index gap",
+			query: Query{
+				IndexOffset:       1,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
+		},
+		{
+			name: "query payments reverse before index gap",
+			query: Query{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 5,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time at end, overflow",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 7,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query with start and end creation time",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+
+			paymentDB := NewKVTestDB(t)
+
+			// Initialize the payment database.
+			paymentDB, err := NewKVPaymentsDB(paymentDB.db)
+			require.NoError(t, err)
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
+
+			// Populate the database with a set of test payments.
+			// We create 6 original payments, deleting the payment
+			// at index 2 so that we cover the case where sequence
+			// numbers are missing. We also add a duplicate payment
+			// to the last payment added to test the legacy case
+			// where we have duplicates in the nested duplicates
+			// bucket.
+			nonDuplicatePayments := 6
+
+			for i := 0; i < nonDuplicatePayments; i++ {
+				// Generate a test payment.
+				info, _, preimg, err := genInfo(t)
+				if err != nil {
+					t.Fatalf("unable to create test "+
+						"payment: %v", err)
+				}
+				// Override creation time to allow for testing
+				// of CreationDateStart and CreationDateEnd.
+				info.CreationTime = time.Unix(int64(i+1), 0)
+
+				// Create a new payment entry in the database.
+				err = paymentDB.InitPayment(
+					info.PaymentIdentifier, info,
+				)
+				require.NoError(t, err)
+
+				// Immediately delete the payment with index 2.
+				if i == 1 {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					deletePayment(
+						t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum,
+					)
+				}
+
+				// If we are on the last payment entry, add a
+				// duplicate payment with sequence number equal
+				// to the parent payment + 1. Note that
+				// duplicate payments will always be succeeded.
+				if i == (nonDuplicatePayments - 1) {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					appendDuplicatePayment(
+						t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum+1,
+						preimg,
+					)
+				}
+			}
+
+			// Fetch all payments in the database.
+			allPayments, err := paymentDB.FetchPayments()
+			if err != nil {
+				t.Fatalf("payments could not be fetched from "+
+					"database: %v", err)
+			}
+
+			if len(allPayments) != 6 {
+				t.Fatalf("Number of payments received does "+
+					"not match expected one. Got %v, "+
+					"want %v.", len(allPayments), 6)
+			}
+
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.firstIndex != querySlice.FirstIndexOffset ||
+				tt.lastIndex != querySlice.LastIndexOffset {
+
+				t.Errorf("First or last index does not match "+
+					"expected index. Want (%d, %d), "+
+					"got (%d, %d).",
+					tt.firstIndex, tt.lastIndex,
+					querySlice.FirstIndexOffset,
+					querySlice.LastIndexOffset)
+			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Errorf("expected: %v payments, got: %v",
+					len(tt.expectedSeqNrs),
+					len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.SequenceNum {
+					t.Errorf("sequence numbers do not "+
+						"match, got %v, want %v",
+						q.SequenceNum, seqNr)
+				}
+			}
+		})
+	}
+}
+
+// TestLazySessionKeyDeserialize tests that we can read htlc attempt session
+// keys that were previously serialized as a private key as raw bytes.
+func TestLazySessionKeyDeserialize(t *testing.T) {
+	var b bytes.Buffer
+
+	// Serialize as a private key.
+	err := WriteElements(&b, priv)
+	require.NoError(t, err)
+
+	// Deserialize into [btcec.PrivKeyBytesLen]byte.
+	attempt := HTLCAttemptInfo{}
+	err = ReadElements(&b, &attempt.sessionKey)
+	require.NoError(t, err)
+	require.Zero(t, b.Len())
+
+	sessionKey := attempt.SessionKey()
+	require.Equal(t, priv, sessionKey)
 }

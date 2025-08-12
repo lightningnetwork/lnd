@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -94,11 +93,11 @@ func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
 }
 
 func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
-	*channeldb.PaymentCreationInfo, error) {
+	*PaymentCreationInfo, error) {
 
 	var scratch [8]byte
 
-	c := &channeldb.PaymentCreationInfo{}
+	c := &PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err

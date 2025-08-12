@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
@@ -24,13 +23,13 @@ func TestDecidePaymentStatus(t *testing.T) {
 	}
 
 	// Create a test failure reason and get the pointer.
-	reason := channeldb.FailureReasonNoRoute
+	reason := FailureReasonNoRoute
 	failure := &reason
 
 	testCases := []struct {
 		name           string
 		htlcs          []HTLCAttempt
-		reason         *channeldb.FailureReason
+		reason         *FailureReason
 		expectedStatus PaymentStatus
 		expectedErr    error
 	}{

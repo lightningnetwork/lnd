@@ -481,7 +481,7 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 
 	// Mark the payment as failed.
 	err = pControl.FailPayment(
-		info.PaymentIdentifier, channeldb.FailureReasonTimeout,
+		info.PaymentIdentifier, paymentsdb.FailureReasonTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -537,7 +537,7 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 			"subscriber %v failed, want %s, got %s", i,
 			paymentsdb.StatusFailed, result.GetStatus())
 
-		if *result.FailureReason != channeldb.FailureReasonTimeout {
+		if *result.FailureReason != paymentsdb.FailureReasonTimeout {
 			t.Fatal("unexpected failure reason")
 		}
 

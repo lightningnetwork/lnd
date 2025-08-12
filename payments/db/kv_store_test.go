@@ -82,7 +82,7 @@ func TestKVPaymentsDBSwitchFail(t *testing.T) {
 	)
 
 	// Fail the payment, which should moved it to Failed.
-	failReason := channeldb.FailureReasonNoRoute
+	failReason := FailureReasonNoRoute
 	_, err = paymentDB.Fail(info.PaymentIdentifier, failReason)
 	require.NoError(t, err, "unable to fail payment hash")
 
@@ -301,7 +301,7 @@ func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 
 	// Calling Fail should return an error.
 	_, err = paymentDB.Fail(
-		info.PaymentIdentifier, channeldb.FailureReasonNoRoute,
+		info.PaymentIdentifier, FailureReasonNoRoute,
 	)
 	require.ErrorIs(t, err, ErrPaymentNotInitiated)
 }
@@ -383,7 +383,7 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 			}
 
 			// Fail the payment, which should moved it to Failed.
-			failReason := channeldb.FailureReasonNoRoute
+			failReason := FailureReasonNoRoute
 			_, err = paymentDB.Fail(
 				info.PaymentIdentifier, failReason,
 			)
@@ -787,7 +787,7 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 			HTLCAttemptInfo: a,
 		}
 
-		var firstFailReason *channeldb.FailureReason
+		var firstFailReason *FailureReason
 		if test.settleFirst {
 			_, err := paymentDB.SettleAttempt(
 				info.PaymentIdentifier, a.AttemptID,
@@ -827,7 +827,7 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 
 			// We also record a payment level fail, to move it into
 			// a terminal state.
-			failReason := channeldb.FailureReasonNoRoute
+			failReason := FailureReasonNoRoute
 			_, err = paymentDB.Fail(
 				info.PaymentIdentifier, failReason,
 			)
@@ -910,7 +910,7 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 			// failure. This is to allow multiple concurrent shard
 			// write a terminal failure to the database without
 			// syncing.
-			failReason := channeldb.FailureReasonPaymentDetails
+			failReason := FailureReasonPaymentDetails
 			_, err = paymentDB.Fail(
 				info.PaymentIdentifier, failReason,
 			)
@@ -1156,7 +1156,7 @@ type htlcStatus struct {
 // assertPaymentInfo retrieves the payment referred to by hash and verifies the
 // expected values.
 func assertPaymentInfo(t *testing.T, p *KVPaymentsDB, hash lntypes.Hash,
-	c *channeldb.PaymentCreationInfo, f *channeldb.FailureReason,
+	c *channeldb.PaymentCreationInfo, f *FailureReason,
 	a *htlcStatus) {
 
 	t.Helper()
@@ -1339,7 +1339,7 @@ func createTestPayments(t *testing.T, p *KVPaymentsDB, payments []*payment) {
 			)
 			require.NoError(t, err, "unable to fail htlc")
 
-			failReason := channeldb.FailureReasonNoRoute
+			failReason := FailureReasonNoRoute
 			_, err = p.Fail(info.PaymentIdentifier,
 				failReason)
 			require.NoError(t, err, "unable to fail payment hash")

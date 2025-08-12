@@ -157,10 +157,10 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *channeldb.FailureReason
+	var failureReason *FailureReason
 	b = bucket.Get(duplicatePaymentFailInfoKey)
 	if b != nil {
-		reason := channeldb.FailureReason(b[0])
+		reason := FailureReason(b[0])
 		failureReason = &reason
 	}
 

@@ -175,7 +175,7 @@ type MissionControlQuerier interface {
 	// need to be made.
 	ReportPaymentFail(attemptID uint64, rt *route.Route,
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
-		*channeldb.FailureReason, error)
+		*paymentsdb.FailureReason, error)
 
 	// ReportPaymentSuccess reports a successful payment to mission control
 	// as input for future probability estimates.
@@ -1068,7 +1068,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Helper function to fail a payment. It makes sure the payment is only
 	// failed once so that the failure reason is not overwritten.
 	failPayment := func(paymentIdentifier lntypes.Hash,
-		reason channeldb.FailureReason) error {
+		reason paymentsdb.FailureReason) error {
 
 		payment, fetchErr := r.cfg.Control.FetchPayment(
 			paymentIdentifier,
@@ -1191,7 +1191,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Since for SendToRoute we won't retry in case the shard fails, we'll
 	// mark the payment failed with the control tower immediately if the
 	// skipTempErr is false.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 
 	// If we failed to send the HTLC, we need to further decide if we want
 	// to fail the payment.

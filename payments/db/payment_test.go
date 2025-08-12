@@ -598,7 +598,7 @@ func TestPaymentSetState(t *testing.T) {
 
 	// Create a test preimage and failure reason.
 	preimage := lntypes.Preimage{1}
-	failureReasonError := channeldb.FailureReasonError
+	failureReasonError := FailureReasonError
 
 	testCases := []struct {
 		name     string

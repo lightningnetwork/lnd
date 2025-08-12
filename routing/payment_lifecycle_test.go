@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnmock"
@@ -303,7 +302,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	// Mock the control tower's `FailPayment` method.
 	ct := &mockControlTower{}
 	ct.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout).Return(nil)
+		p.identifier, paymentsdb.FailureReasonTimeout).Return(nil)
 
 	// Mount the mocked control tower.
 	p.router.cfg.Control = ct
@@ -324,7 +323,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	// Mock `FailPayment` to return a dummy error.
 	ct = &mockControlTower{}
 	ct.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout).Return(errDummy)
+		p.identifier, paymentsdb.FailureReasonTimeout).Return(errDummy)
 
 	// Mount the mocked control tower.
 	p.router.cfg.Control = ct
@@ -468,7 +467,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 
 	// The payment should be failed with reason no route.
 	m.control.On("FailPayment",
-		p.identifier, channeldb.FailureReasonNoRoute,
+		p.identifier, paymentsdb.FailureReasonNoRoute,
 	).Return(nil).Once()
 
 	result, err := p.requestRoute(ps)
@@ -838,7 +837,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 
 	// 4. the payment should be failed with reason timeout.
 	m.control.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout,
+		p.identifier, paymentsdb.FailureReasonTimeout,
 	).Return(nil).Once()
 
 	// 5. decideNextStep now returns stepExit.
@@ -849,7 +848,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 	m.control.On("DeleteFailedAttempts", p.identifier).Return(nil).Once()
 
 	// 7. the payment returns the failed reason.
-	reason := channeldb.FailureReasonTimeout
+	reason := paymentsdb.FailureReasonTimeout
 	m.payment.On("TerminalInfo").Return(nil, &reason)
 
 	// Send the payment and assert it failed with the timeout reason.
@@ -925,7 +924,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	cancel()
 
 	m.control.On(
-		"FailPayment", p.identifier, channeldb.FailureReasonCanceled,
+		"FailPayment", p.identifier, paymentsdb.FailureReasonCanceled,
 	).Return(nil).Once()
 
 	// 4. decideNextStep now returns stepExit.
@@ -936,7 +935,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	m.control.On("DeleteFailedAttempts", p.identifier).Return(nil).Once()
 
 	// 6. We will observe FailureReasonError if the context was cancelled.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.payment.On("TerminalInfo").Return(nil, &reason)
 
 	// Send the payment and assert it failed with the timeout reason.
@@ -1162,7 +1161,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.
@@ -1453,7 +1452,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.
@@ -1499,7 +1498,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.

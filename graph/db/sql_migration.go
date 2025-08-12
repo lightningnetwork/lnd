@@ -603,6 +603,7 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		hash *chainhash.Hash) error {
 
 		count++
+		chunk++
 
 		// Keep track of the prune tip height and hash.
 		if height > pruneTipHeight {
@@ -786,6 +787,7 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 	)
 	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
 		count++
+		chunk++
 
 		chanIDB := channelIDToBytes(scid.ToUint64())
 		err := sqlDB.InsertClosedChannel(ctx, chanIDB)
@@ -874,6 +876,7 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		count++
+		chunk++
 
 		err = sqlDB.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{

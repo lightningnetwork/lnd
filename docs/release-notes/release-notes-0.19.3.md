@@ -50,7 +50,7 @@
 
 ## Functional Enhancements
 
-* The default value for `gossip.msg-rate-bytes` has been
+- The default value for `gossip.msg-rate-bytes` has been
   [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
   1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
 
@@ -97,6 +97,9 @@
 ## Database
 
 ## Code Health
+
+- [The Golang version used was bumped to `v1.23.12` to fix a potential issue
+  with the SQL API](https://github.com/lightningnetwork/lnd/pull/10138).
 
 ## Tooling and Documentation
 

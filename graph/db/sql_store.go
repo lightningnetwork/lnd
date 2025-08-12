@@ -591,14 +591,28 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			alreadyExists = false
 		},
 		Do: func(tx SQLQueries) error {
-			_, err := insertChannel(ctx, tx, edge)
+			chanIDB := channelIDToBytes(edge.ChannelID)
 
-			// Silence ErrEdgeAlreadyExist so that the batch can
-			// succeed, but propagate the error via local state.
-			if errors.Is(err, ErrEdgeAlreadyExist) {
+			// Make sure that the channel doesn't already exist. We
+			// do this explicitly instead of relying on catching a
+			// unique constraint error because relying on SQL to
+			// throw that error would abort the entire batch of
+			// transactions.
+			_, err := tx.GetChannelBySCID(
+				ctx, sqlc.GetChannelBySCIDParams{
+					Scid:    chanIDB,
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err == nil {
 				alreadyExists = true
 				return nil
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
 			}
+
+			_, err = insertChannel(ctx, tx, edge)
 
 			return err
 		},
@@ -3767,24 +3781,6 @@ type dbChanInfo struct {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
 
-	chanIDB := channelIDToBytes(edge.ChannelID)
-
-	// Make sure that the channel doesn't already exist. We do this
-	// explicitly instead of relying on catching a unique constraint error
-	// because relying on SQL to throw that error would abort the entire
-	// batch of transactions.
-	_, err := db.GetChannelBySCID(
-		ctx, sqlc.GetChannelBySCIDParams{
-			Scid:    chanIDB,
-			Version: int16(ProtocolV1),
-		},
-	)
-	if err == nil {
-		return nil, ErrEdgeAlreadyExist
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("unable to fetch channel: %w", err)
-	}
-
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
@@ -3804,7 +3800,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 
 	createParams := sqlc.CreateChannelParams{
 		Version:     int16(ProtocolV1),
-		Scid:        chanIDB,
+		Scid:        channelIDToBytes(edge.ChannelID),
 		NodeID1:     node1DBID,
 		NodeID2:     node2DBID,
 		Outpoint:    edge.ChannelPoint.String(),

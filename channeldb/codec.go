@@ -488,5 +488,6 @@ func serializeTime(w io.Writer, t time.Time) error {
 
 	byteOrder.PutUint64(scratch[:], uint64(unixNano))
 	_, err := w.Write(scratch[:])
+
 	return err
 }

@@ -2,6 +2,7 @@ package paymentsdb
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"time"
 
@@ -19,21 +20,20 @@ type UnknownElementType = channeldb.UnknownElementType
 func ReadElement(r io.Reader, element interface{}) error {
 	err := channeldb.ReadElement(r, element)
 	switch {
-
 	// Known to channeldb codec.
 	case err == nil:
 		return nil
 
 	// Fail if error is not UnknownElementType.
 	default:
-		if _, ok := err.(UnknownElementType); !ok {
+		var unknownElementType UnknownElementType
+		if !errors.As(err, &unknownElementType) {
 			return err
 		}
 	}
 
 	// Process any paymentsdb-specific extensions to the codec.
 	switch e := element.(type) {
-
 	case *paymentIndexType:
 		if err := binary.Read(r, byteOrder, e); err != nil {
 			return err
@@ -53,21 +53,20 @@ func ReadElement(r io.Reader, element interface{}) error {
 func WriteElement(w io.Writer, element interface{}) error {
 	err := channeldb.WriteElement(w, element)
 	switch {
-
 	// Known to channeldb codec.
 	case err == nil:
 		return nil
 
 	// Fail if error is not UnknownElementType.
 	default:
-		if _, ok := err.(UnknownElementType); !ok {
+		var unknownElementType UnknownElementType
+		if !errors.As(err, &unknownElementType) {
 			return err
 		}
 	}
 
 	// Process any paymentsdb-specific extensions to the codec.
 	switch e := element.(type) {
-
 	case paymentIndexType:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
@@ -137,5 +136,6 @@ func serializeTime(w io.Writer, t time.Time) error {
 
 	byteOrder.PutUint64(scratch[:], uint64(unixNano))
 	_, err := w.Write(scratch[:])
+
 	return err
 }

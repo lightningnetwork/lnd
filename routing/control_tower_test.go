@@ -130,15 +130,23 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*paymentsdb.MPPayment)
+				payment, ok := item.(*paymentsdb.MPPayment)
+				require.True(
+					t, ok, "unexpected payment type: %T",
+					item)
+
+				result = payment
+
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}
 		}
 
-		require.Equalf(t, paymentsdb.StatusSucceeded, result.GetStatus(),
-			"subscriber %v failed, want %s, got %s", i,
-			paymentsdb.StatusSucceeded, result.GetStatus())
+		require.Equalf(t, paymentsdb.StatusSucceeded,
+			result.GetStatus(), "subscriber %v failed, want %s, "+
+				"got %s", i, paymentsdb.StatusSucceeded,
+			result.GetStatus(),
+		)
 
 		attempt, _ := result.TerminalInfo()
 		if attempt.Settle.Preimage != preimg {
@@ -261,8 +269,14 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		select {
 		case item := <-subscription.Updates():
-			id := item.(*paymentsdb.MPPayment).Info.PaymentIdentifier
-			results[id] = item.(*paymentsdb.MPPayment)
+			payment, ok := item.(*paymentsdb.MPPayment)
+			require.True(
+				t, ok, "unexpected payment type: %T",
+				item)
+
+			id := payment.Info.PaymentIdentifier
+			results[id] = payment
+
 		case <-time.After(testTimeout):
 			require.Fail(t, "timeout waiting for payment result")
 		}
@@ -337,11 +351,17 @@ func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	select {
 	case update := <-subscription.Updates():
 		require.NotNil(t, update)
+		payment, ok := update.(*paymentsdb.MPPayment)
+		if !ok {
+			t.Fatalf("unexpected payment type: %T", update)
+		}
+
 		require.Equal(
 			t, info.PaymentIdentifier,
-			update.(*paymentsdb.MPPayment).Info.PaymentIdentifier,
+			payment.Info.PaymentIdentifier,
 		)
 		require.Len(t, subscription.Updates(), 0)
+
 	case <-time.After(testTimeout):
 		require.Fail(t, "timeout waiting for payment result")
 	}
@@ -502,7 +522,12 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
-				result = item.(*paymentsdb.MPPayment)
+				payment, ok := item.(*paymentsdb.MPPayment)
+				require.True(
+					t, ok, "unexpected payment type: %T",
+					item)
+
+				result = payment
 			case <-time.After(testTimeout):
 				t.Fatal("timeout waiting for payment result")
 			}

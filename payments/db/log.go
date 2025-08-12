@@ -8,8 +8,6 @@ import (
 // log is a logger that is initialized with no output filters.  This
 // means the package will not perform any logging by default until the caller
 // requests it.
-//
-//nolint:unused
 var log btclog.Logger
 
 // Subsystem defines the logging identifier for this subsystem.

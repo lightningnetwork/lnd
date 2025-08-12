@@ -255,8 +255,8 @@ const (
 	// reason.
 	HTLCFailUnknown HTLCFailReason = 0
 
-	// HTLCFailUnreadable is recorded for htlcs that had a failure message that
-	// couldn't be decrypted.
+	// HTLCFailUnreadable is recorded for htlcs that had a failure message
+	// that couldn't be decrypted.
 	HTLCFailUnreadable HTLCFailReason = 1
 
 	// HTLCFailInternal is recorded for htlcs that failed because of an

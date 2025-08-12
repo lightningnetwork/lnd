@@ -61,6 +61,13 @@
   anchors into its own tx, which means the anchor outputs won't be swept in a
   high fee environment.
 
+- Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
+  allows sending HTLCs to the remote party without shifting the balances of the
+  channel. This is currently only possible to use with custom channels, and only
+  when the appropriate TLV flag is set. This allows for HTLCs carrying metadata
+  to reflect their state on the channel commitment without having to send or
+  receive a certain amount of msats.
+
 ## RPC Additions
 
 ## lncli Additions

@@ -3232,7 +3232,9 @@ func restartChannel(channelOld *LightningChannel) (*LightningChannel, error) {
 // he receives Alice's CommitSig message, then Alice concludes that she needs
 // to re-send the CommitDiff. After the diff has been sent, both nodes should
 // resynchronize and be able to complete the dangling commit.
-func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
+func testChanSyncOweCommitment(t *testing.T,
+	chanType channeldb.ChannelType, noop bool) {
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -3241,6 +3243,17 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 
 	var fakeOnionBlob [lnwire.OnionPacketSize]byte
 	copy(fakeOnionBlob[:], bytes.Repeat([]byte{0x05}, lnwire.OnionPacketSize))
+
+	// Let's create the noop add TLV record. This will only be
+	// effective for channels that have a tapscript root.
+	noopRecord := tlv.NewPrimitiveRecord[NoOpHtlcTLVType, bool](true)
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+
+	// If the noop flag is not set for this test, nullify the records.
+	if !noop {
+		records = nil
+	}
 
 	// We'll start off the scenario with Bob sending 3 HTLC's to Alice in a
 	// single state update.
@@ -3251,10 +3264,11 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 	for i := 0; i < 3; i++ {
 		rHash := sha256.Sum256(bobPreimage[:])
 		h := &lnwire.UpdateAddHTLC{
-			PaymentHash: rHash,
-			Amount:      htlcAmt,
-			Expiry:      uint32(10),
-			OnionBlob:   fakeOnionBlob,
+			PaymentHash:   rHash,
+			Amount:        htlcAmt,
+			Expiry:        uint32(10),
+			OnionBlob:     fakeOnionBlob,
+			CustomRecords: records,
 		}
 
 		htlcIndex, err := bobChannel.AddHTLC(h, nil)
@@ -3290,15 +3304,17 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 			t.Fatalf("unable to settle htlc: %v", err)
 		}
 	}
+
 	var alicePreimage [32]byte
 	copy(alicePreimage[:], bytes.Repeat([]byte{0xaa}, 32))
 	rHash := sha256.Sum256(alicePreimage[:])
 	aliceHtlc := &lnwire.UpdateAddHTLC{
-		ChanID:      chanID,
-		PaymentHash: rHash,
-		Amount:      htlcAmt,
-		Expiry:      uint32(10),
-		OnionBlob:   fakeOnionBlob,
+		ChanID:        chanID,
+		PaymentHash:   rHash,
+		Amount:        htlcAmt,
+		Expiry:        uint32(10),
+		OnionBlob:     fakeOnionBlob,
+		CustomRecords: records,
 	}
 	aliceHtlcIndex, err := aliceChannel.AddHTLC(aliceHtlc, nil)
 	require.NoError(t, err, "unable to add alice's htlc")
@@ -3519,22 +3535,25 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 
 	// At this point, the final balances of both parties should properly
 	// reflect the amount of HTLC's sent.
-	bobMsatSent := numBobHtlcs * htlcAmt
-	if aliceChannel.channelState.TotalMSatSent != htlcAmt {
-		t.Fatalf("wrong value for msat sent: expected %v, got %v",
-			htlcAmt, aliceChannel.channelState.TotalMSatSent)
-	}
-	if aliceChannel.channelState.TotalMSatReceived != bobMsatSent {
-		t.Fatalf("wrong value for msat recv: expected %v, got %v",
-			bobMsatSent, aliceChannel.channelState.TotalMSatReceived)
-	}
-	if bobChannel.channelState.TotalMSatSent != bobMsatSent {
-		t.Fatalf("wrong value for msat sent: expected %v, got %v",
-			bobMsatSent, bobChannel.channelState.TotalMSatSent)
-	}
-	if bobChannel.channelState.TotalMSatReceived != htlcAmt {
-		t.Fatalf("wrong value for msat recv: expected %v, got %v",
-			htlcAmt, bobChannel.channelState.TotalMSatReceived)
+	if noop {
+		// If this test-case includes noop HTLCs, then we don't expect
+		// any balance changes.
+		require.Zero(t, aliceChannel.channelState.TotalMSatSent)
+		require.Zero(t, aliceChannel.channelState.TotalMSatReceived)
+		require.Zero(t, bobChannel.channelState.TotalMSatSent)
+		require.Zero(t, bobChannel.channelState.TotalMSatReceived)
+	} else {
+		// Otherwise, calculate the expected changes and assert them.
+		bobMsatSent := numBobHtlcs * htlcAmt
+
+		aliceChan := aliceChannel.channelState
+		bobChan := bobChannel.channelState
+
+		require.Equal(t, aliceChan.TotalMSatSent, htlcAmt)
+		require.Equal(t, aliceChan.TotalMSatReceived, bobMsatSent)
+
+		require.Equal(t, bobChan.TotalMSatSent, bobMsatSent)
+		require.Equal(t, bobChan.TotalMSatReceived, htlcAmt)
 	}
 }
 
@@ -3548,6 +3567,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	testCases := []struct {
 		name     string
 		chanType channeldb.ChannelType
+		noop     bool
 	}{
 		{
 			name:     "tweakless",
@@ -3571,10 +3591,18 @@ func TestChanSyncOweCommitment(t *testing.T) {
 				channeldb.SimpleTaprootFeatureBit |
 				channeldb.TapscriptRootBit,
 		},
+		{
+			name: "tapscript root with noop",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit |
+				channeldb.TapscriptRootBit,
+			noop: true,
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			testChanSyncOweCommitment(t, tc.chanType)
+			testChanSyncOweCommitment(t, tc.chanType, tc.noop)
 		})
 	}
 }
@@ -11337,5 +11365,395 @@ func TestCreateCooperativeCloseTx(t *testing.T) {
 				spew.Sdump(closeTx),
 			)
 		})
+	}
+}
+
+// TestNoopAddSettle tests that adding and settling an HTLC with no-op, no
+// balances are actually affected.
+func TestNoopAddSettle(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, chanType,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	const htlcAmt = 10_000
+	htlc, preimage := createHTLC(0, htlcAmt)
+	noopRecord := tlv.NewPrimitiveRecord[tlv.TlvType65544, bool](true)
+
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+	htlc.CustomRecords = records
+
+	aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+	bobBalance := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// Have Alice add the HTLC, then lock it in with a new state transition.
+	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+	require.NoError(t, err, "alice unable to add htlc")
+	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
+	require.NoError(t, err, "bob unable to receive htlc")
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// We'll have Bob settle the HTLC, then force another state transition.
+	err = bobChannel.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
+	require.NoError(t, err, "bob unable to settle inbound htlc")
+	err = aliceChannel.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	aliceBalanceFinal := aliceChannel.channelState.LocalCommitment.LocalBalance //nolint:ll
+	bobBalanceFinal := bobChannel.channelState.LocalCommitment.LocalBalance
+
+	// The balances of Alice and Bob should be the exact same and shouldn't
+	// have changed.
+	require.Equal(t, aliceBalance, aliceBalanceFinal)
+	require.Equal(t, bobBalance, bobBalanceFinal)
+}
+
+// TestNoopAddBelowReserve tests that the noop HTLCs behave as expected when
+// added over a channel where a party is below their reserve.
+func TestNoopAddBelowReserve(t *testing.T) {
+	t.Parallel()
+
+	// Create a test channel which will be used for the duration of this
+	// unittest. The channel will be funded evenly with Alice having 5 BTC,
+	// and Bob having 5 BTC.
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChan, bobChan, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	aliceBalance := aliceChan.channelState.LocalCommitment.LocalBalance
+	bobBalance := bobChan.channelState.LocalCommitment.LocalBalance
+
+	const (
+		// htlcAmt is the default HTLC amount to be used, epxressed in
+		// milli-satoshis.
+		htlcAmt = lnwire.MilliSatoshi(500_000)
+
+		// numHtlc is the total number of HTLCs to be added/settled over
+		// the channel.
+		numHtlc = 20
+	)
+
+	// Let's create the noop add TLV record to be used in all added HTLCs
+	// over the channel.
+	noopRecord := tlv.NewPrimitiveRecord[NoOpHtlcTLVType, bool](true)
+	records, err := tlv.RecordsToMap([]tlv.Record{noopRecord.Record()})
+	require.NoError(t, err)
+
+	// Let's set Bob's reserve to whatever his local balance is, plus half
+	// of the total amount to be added by the total HTLCs. This way we can
+	// also verify that the noop-adds will start the nullification only once
+	// Bob is above reserve.
+	reserveTarget := (numHtlc / 2) * htlcAmt
+	bobReserve := bobBalance + reserveTarget
+
+	bobChan.channelState.LocalChanCfg.ChanReserve =
+		bobReserve.ToSatoshis()
+
+	aliceChan.channelState.RemoteChanCfg.ChanReserve =
+		bobReserve.ToSatoshis()
+
+	// Add and settle all the HTLCs over the channel.
+	for i := range numHtlc {
+		htlc, preimage := createHTLC(i, htlcAmt)
+		htlc.CustomRecords = records
+
+		aliceHtlcIndex, err := aliceChan.AddHTLC(htlc, nil)
+		require.NoError(t, err, "alice unable to add htlc")
+		bobHtlcIndex, err := bobChan.ReceiveHTLC(htlc)
+		require.NoError(t, err, "bob unable to receive htlc")
+
+		require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+
+		// We'll have Bob settle the HTLC, then force another state
+		// transition.
+		err = bobChan.SettleHTLC(preimage, bobHtlcIndex, nil, nil, nil)
+		require.NoError(t, err, "bob unable to settle inbound htlc")
+		err = aliceChan.ReceiveHTLCSettle(preimage, aliceHtlcIndex)
+		require.NoError(t, err)
+		require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+	}
+
+	// We need to kick the state transition one last time for the balances
+	// to be updated on both commitments.
+	require.NoError(t, ForceStateTransition(aliceChan, bobChan))
+
+	aliceBalanceFinal := aliceChan.channelState.LocalCommitment.LocalBalance
+	bobBalanceFinal := bobChan.channelState.LocalCommitment.LocalBalance
+
+	// The balances of Alice and Bob must have changed exactly by half the
+	// total number of HTLCs we added over the channel, plus one to get Bob
+	// above the reserve. Bob's final balance should be as much as his
+	// reserve plus one extra default HTLC amount.
+	require.Equal(t, aliceBalance-htlcAmt*(numHtlc/2+1), aliceBalanceFinal)
+	require.Equal(t, bobBalance+htlcAmt*(numHtlc/2+1), bobBalanceFinal)
+	require.Equal(
+		t, bobBalanceFinal.ToSatoshis(),
+		bobChan.LocalChanReserve()+htlcAmt.ToSatoshis(),
+	)
+}
+
+// TestEvaluateNoOpHtlc tests that the noop htlc evaluator helper function
+// produces the expected balance deltas from various starting states.
+func TestEvaluateNoOpHtlc(t *testing.T) {
+	testCases := []struct {
+		name                        string
+		localBalance, remoteBalance btcutil.Amount
+		localReserve, remoteReserve btcutil.Amount
+		entry                       *paymentDescriptor
+		receiver                    lntypes.ChannelParty
+		balanceDeltas               *lntypes.Dual[int64]
+		expectedDeltas              *lntypes.Dual[int64]
+	}{
+		{
+			name: "local above reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver: lntypes.Local,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver: lntypes.Remote,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "local below reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 2_500,
+			},
+		},
+
+		{
+			name: "local above reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_000,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 25_001_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: 25_001_000,
+			},
+		},
+		{
+			name: "local below reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 25_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  24_999_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  25_001_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve with delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 25_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 24_998_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: 25_000_500,
+			},
+		},
+		{
+			name: "local above reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Remote,
+			localBalance: 55_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  -4_999_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  -4_999_000,
+				Remote: 2_500,
+			},
+		},
+		{
+			name: "remote above reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 55_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -4_999_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  2_500,
+				Remote: -4_999_000,
+			},
+		},
+		{
+			name: "local below reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:     lntypes.Local,
+			localBalance: 55_000,
+			localReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  -5_001_000,
+				Remote: 0,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  -4_998_500,
+				Remote: 0,
+			},
+		},
+		{
+			name: "remote below reserve with negative delta",
+			entry: &paymentDescriptor{
+				Amount: lnwire.MilliSatoshi(2500),
+			},
+			receiver:      lntypes.Remote,
+			remoteBalance: 55_000,
+			remoteReserve: 50_000,
+			balanceDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -5_001_000,
+			},
+			expectedDeltas: &lntypes.Dual[int64]{
+				Local:  0,
+				Remote: -4_998_500,
+			},
+		},
+	}
+
+	chanType := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit | channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit | channeldb.TapscriptRootBit
+	aliceChan, _, err := CreateTestChannels(t, chanType)
+	require.NoError(t, err, "unable to create test channels")
+
+	for _, testCase := range testCases {
+		tc := testCase
+
+		t.Logf("Running test case: %s", testCase.name)
+
+		if tc.localBalance != 0 && tc.localReserve != 0 {
+			aliceChan.channelState.LocalChanCfg.ChanReserve =
+				tc.localReserve
+
+			aliceChan.channelState.LocalCommitment.LocalBalance =
+				lnwire.NewMSatFromSatoshis(tc.localBalance)
+		}
+
+		if tc.remoteBalance != 0 && tc.remoteReserve != 0 {
+			aliceChan.channelState.RemoteChanCfg.ChanReserve =
+				tc.remoteReserve
+
+			aliceChan.channelState.RemoteCommitment.RemoteBalance =
+				lnwire.NewMSatFromSatoshis(tc.remoteBalance)
+		}
+
+		aliceChan.evaluateNoOpHtlc(
+			tc.entry, tc.receiver, tc.balanceDeltas,
+		)
+
+		require.Equal(t, tc.expectedDeltas, tc.balanceDeltas)
 	}
 }

@@ -954,7 +954,6 @@ func TestKVPaymentsDBMultiShard(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		subTest := fmt.Sprintf("first=%v, second=%v",
 			test.settleFirst, test.settleLast)
 
@@ -1643,9 +1642,8 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
-
 		t.Run(test.name, func(t *testing.T) {
+			//nolint:ll
 			err := kvdb.Update(
 				paymentDB.db, func(tx walletdb.ReadWriteTx) error {
 					var seqNrBytes [8]byte

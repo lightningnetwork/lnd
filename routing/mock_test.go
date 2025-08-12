@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -248,7 +247,7 @@ func (m *mockPayerOld) CleanStore(pids map[uint64]struct{}) error {
 }
 
 type initArgs struct {
-	c *channeldb.PaymentCreationInfo
+	c *paymentsdb.PaymentCreationInfo
 }
 
 type registerAttemptArgs struct {
@@ -268,7 +267,7 @@ type failPaymentArgs struct {
 }
 
 type testPayment struct {
-	info     channeldb.PaymentCreationInfo
+	info     paymentsdb.PaymentCreationInfo
 	attempts []paymentsdb.HTLCAttempt
 }
 
@@ -298,7 +297,7 @@ func makeMockControlTower() *mockControlTowerOld {
 }
 
 func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
-	c *channeldb.PaymentCreationInfo) error {
+	c *paymentsdb.PaymentCreationInfo) error {
 
 	if m.init != nil {
 		m.init <- initArgs{c}
@@ -733,7 +732,7 @@ type mockControlTower struct {
 var _ ControlTower = (*mockControlTower)(nil)
 
 func (m *mockControlTower) InitPayment(phash lntypes.Hash,
-	c *channeldb.PaymentCreationInfo) error {
+	c *paymentsdb.PaymentCreationInfo) error {
 
 	args := m.Called(phash, c)
 	return args.Error(0)

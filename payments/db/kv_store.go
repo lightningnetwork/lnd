@@ -186,7 +186,7 @@ func initKVStore(db kvdb.Backend) error {
 // method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
 func (p *KVPaymentsDB) InitPayment(paymentHash lntypes.Hash,
-	info *channeldb.PaymentCreationInfo) error {
+	info *PaymentCreationInfo) error {
 
 	// Obtain a new sequence number for this payment. This is used
 	// to sort the payments in order of creation, and also acts as
@@ -943,7 +943,7 @@ func (p *KVPaymentsDB) FetchPayments() ([]*MPPayment, error) {
 	return payments, nil
 }
 
-func fetchCreationInfo(bucket kvdb.RBucket) (*channeldb.PaymentCreationInfo, error) {
+func fetchCreationInfo(bucket kvdb.RBucket) (*PaymentCreationInfo, error) {
 	b := bucket.Get(paymentCreationInfoKey)
 	if b == nil {
 		return nil, fmt.Errorf("creation info not found")
@@ -1621,7 +1621,7 @@ func fetchSequenceNumbers(paymentBucket kvdb.RBucket) ([][]byte, error) {
 	return sequenceNumbers, nil
 }
 
-func serializePaymentCreationInfo(w io.Writer, c *channeldb.PaymentCreationInfo) error {
+func serializePaymentCreationInfo(w io.Writer, c *PaymentCreationInfo) error {
 	var scratch [8]byte
 
 	if _, err := w.Write(c.PaymentIdentifier[:]); err != nil {
@@ -1658,12 +1658,12 @@ func serializePaymentCreationInfo(w io.Writer, c *channeldb.PaymentCreationInfo)
 	return nil
 }
 
-func deserializePaymentCreationInfo(r io.Reader) (*channeldb.PaymentCreationInfo,
+func deserializePaymentCreationInfo(r io.Reader) (*PaymentCreationInfo,
 	error) {
 
 	var scratch [8]byte
 
-	c := &channeldb.PaymentCreationInfo{}
+	c := &PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err

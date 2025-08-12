@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -694,7 +693,7 @@ func TestPaymentSetState(t *testing.T) {
 			t.Parallel()
 
 			// Attach the payment info.
-			info := &channeldb.PaymentCreationInfo{
+			info := &PaymentCreationInfo{
 				Value: lnwire.MilliSatoshi(tc.totalAmt),
 			}
 			tc.payment.Info = info
@@ -824,7 +823,7 @@ func TestNeedWaitAttempts(t *testing.T) {
 		tc := tc
 
 		p := &MPPayment{
-			Info: &channeldb.PaymentCreationInfo{
+			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},
 			},
 			Status: tc.status,
@@ -1002,7 +1001,7 @@ func TestAllowMoreAttempts(t *testing.T) {
 		tc := tc
 
 		p := &MPPayment{
-			Info: &channeldb.PaymentCreationInfo{
+			Info: &PaymentCreationInfo{
 				PaymentIdentifier: [32]byte{1, 2, 3},
 			},
 			Status: tc.status,

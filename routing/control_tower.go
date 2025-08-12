@@ -3,7 +3,6 @@ package routing
 import (
 	"sync"
 
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/multimutex"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
@@ -50,7 +49,7 @@ type DBMPPayment interface {
 type ControlTower interface {
 	// This method checks that no succeeded payment exist for this payment
 	// hash.
-	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
+	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are
@@ -185,7 +184,7 @@ func NewControlTower(db *paymentsdb.KVPaymentsDB) ControlTower {
 // method returns successfully, the payment is guaranteed to be in the
 // Initiated state.
 func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
-	info *channeldb.PaymentCreationInfo) error {
+	info *paymentsdb.PaymentCreationInfo) error {
 
 	err := p.db.InitPayment(paymentHash, info)
 	if err != nil {

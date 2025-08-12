@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -131,11 +130,11 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 
 	// Enqueue some payment updates on the mock.
 	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
+		Info:   &paymentsdb.PaymentCreationInfo{},
 		Status: paymentsdb.StatusInFlight,
 	}
 	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
+		Info:   &paymentsdb.PaymentCreationInfo{},
 		Status: paymentsdb.StatusSucceeded,
 	}
 
@@ -193,11 +192,11 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 
 	// Enqueue some payment updates on the mock.
 	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
+		Info:   &paymentsdb.PaymentCreationInfo{},
 		Status: paymentsdb.StatusInFlight,
 	}
 	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
-		Info:   &channeldb.PaymentCreationInfo{},
+		Info:   &paymentsdb.PaymentCreationInfo{},
 		Status: paymentsdb.StatusSucceeded,
 	}
 

@@ -559,7 +559,7 @@ func initDB(t *testing.T) *channeldb.DB {
 	)
 }
 
-func genInfo() (*channeldb.PaymentCreationInfo, *paymentsdb.HTLCAttemptInfo,
+func genInfo() (*paymentsdb.PaymentCreationInfo, *paymentsdb.HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -579,7 +579,7 @@ func genInfo() (*channeldb.PaymentCreationInfo, *paymentsdb.HTLCAttemptInfo,
 		return nil, nil, lntypes.Preimage{}, err
 	}
 
-	return &channeldb.PaymentCreationInfo{
+	return &paymentsdb.PaymentCreationInfo{
 			PaymentIdentifier: rhash,
 			Value:             testRoute.ReceiverAmt(),
 			CreationTime:      time.Unix(time.Now().Unix(), 0),

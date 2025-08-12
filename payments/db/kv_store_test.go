@@ -13,7 +13,6 @@ import (
 
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -32,7 +31,7 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
-func genInfo(t *testing.T) (*channeldb.PaymentCreationInfo, *HTLCAttemptInfo,
+func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
 	preimage, err := genPreimage()
@@ -50,7 +49,7 @@ func genInfo(t *testing.T) (*channeldb.PaymentCreationInfo, *HTLCAttemptInfo,
 	)
 	require.NoError(t, err)
 
-	return &channeldb.PaymentCreationInfo{
+	return &PaymentCreationInfo{
 		PaymentIdentifier: rhash,
 		Value:             testRoute.ReceiverAmt(),
 		CreationTime:      time.Unix(time.Now().Unix(), 0),
@@ -1156,7 +1155,7 @@ type htlcStatus struct {
 // assertPaymentInfo retrieves the payment referred to by hash and verifies the
 // expected values.
 func assertPaymentInfo(t *testing.T, p *KVPaymentsDB, hash lntypes.Hash,
-	c *channeldb.PaymentCreationInfo, f *FailureReason,
+	c *PaymentCreationInfo, f *FailureReason,
 	a *htlcStatus) {
 
 	t.Helper()
@@ -1397,7 +1396,7 @@ func assertPayments(t *testing.T, paymentDB *KVPaymentsDB,
 	require.Equal(t, payments, p)
 }
 
-func makeFakeInfo(t *testing.T) (*channeldb.PaymentCreationInfo,
+func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
 	*HTLCAttemptInfo) {
 
 	var preimg lntypes.Preimage
@@ -1405,7 +1404,7 @@ func makeFakeInfo(t *testing.T) (*channeldb.PaymentCreationInfo,
 
 	hash := preimg.Hash()
 
-	c := &channeldb.PaymentCreationInfo{
+	c := &PaymentCreationInfo{
 		PaymentIdentifier: hash,
 		Value:             1000,
 		// Use single second precision to avoid false positive test

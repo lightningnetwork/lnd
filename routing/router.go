@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/amp"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -999,7 +998,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	// already in-flight.
 	//
 	// TODO(roasbeef): store records as part of creation info?
-	info := &channeldb.PaymentCreationInfo{
+	info := &paymentsdb.PaymentCreationInfo{
 		PaymentIdentifier:     payment.Identifier(),
 		Value:                 payment.Amount,
 		CreationTime:          r.cfg.Clock.Now(),
@@ -1122,7 +1121,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// Record this payment hash with the ControlTower, ensuring it is not
 	// already in-flight.
-	info := &channeldb.PaymentCreationInfo{
+	info := &paymentsdb.PaymentCreationInfo{
 		PaymentIdentifier:     paymentIdentifier,
 		Value:                 amt,
 		CreationTime:          r.cfg.Clock.Now(),

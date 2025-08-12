@@ -19,6 +19,63 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+// FailureReason encodes the reason a payment ultimately failed.
+type FailureReason byte
+
+const (
+	// FailureReasonTimeout indicates that the payment did timeout before a
+	// successful payment attempt was made.
+	FailureReasonTimeout FailureReason = 0
+
+	// FailureReasonNoRoute indicates no successful route to the
+	// destination was found during path finding.
+	FailureReasonNoRoute FailureReason = 1
+
+	// FailureReasonError indicates that an unexpected error happened during
+	// payment.
+	FailureReasonError FailureReason = 2
+
+	// FailureReasonPaymentDetails indicates that either the hash is unknown
+	// or the final cltv delta or amount is incorrect.
+	FailureReasonPaymentDetails FailureReason = 3
+
+	// FailureReasonInsufficientBalance indicates that we didn't have enough
+	// balance to complete the payment.
+	FailureReasonInsufficientBalance FailureReason = 4
+
+	// FailureReasonCanceled indicates that the payment was canceled by the
+	// user.
+	FailureReasonCanceled FailureReason = 5
+
+	// TODO(joostjager): Add failure reasons for:
+	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
+)
+
+// Error returns a human-readable error string for the FailureReason.
+func (r FailureReason) Error() string {
+	return r.String()
+}
+
+// String returns a human-readable FailureReason.
+func (r FailureReason) String() string {
+	switch r {
+	case FailureReasonTimeout:
+		return "timeout"
+	case FailureReasonNoRoute:
+		return "no_route"
+	case FailureReasonError:
+		return "error"
+	case FailureReasonPaymentDetails:
+		return "incorrect_payment_details"
+	case FailureReasonInsufficientBalance:
+		return "insufficient_balance"
+	case FailureReasonCanceled:
+		return "canceled"
+	}
+
+	return "unknown"
+}
+
 // HTLCAttemptInfo contains static information about a specific HTLC attempt
 // for a payment. This information is used by the router to handle any errors
 // coming back after an attempt is made, and to query the switch about the
@@ -252,7 +309,7 @@ type MPPayment struct {
 	//
 	// NOTE: Will only be set once the daemon has given up on the payment
 	// altogether.
-	FailureReason *channeldb.FailureReason
+	FailureReason *FailureReason
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
@@ -273,7 +330,7 @@ func (m *MPPayment) Terminated() bool {
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.
-func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *channeldb.FailureReason) {
+func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *FailureReason) {
 	for _, h := range m.HTLCs {
 		if h.Settle != nil {
 			return &h, nil

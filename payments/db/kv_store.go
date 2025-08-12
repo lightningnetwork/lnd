@@ -605,7 +605,7 @@ func (p *KVPaymentsDB) updateHtlcKey(paymentHash lntypes.Hash,
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
 func (p *KVPaymentsDB) Fail(paymentHash lntypes.Hash,
-	reason channeldb.FailureReason) (*MPPayment, error) {
+	reason FailureReason) (*MPPayment, error) {
 
 	var (
 		updateErr error
@@ -979,10 +979,10 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *channeldb.FailureReason
+	var failureReason *FailureReason
 	b := bucket.Get(paymentFailInfoKey)
 	if b != nil {
-		reason := channeldb.FailureReason(b[0])
+		reason := FailureReason(b[0])
 		failureReason = &reason
 	}
 

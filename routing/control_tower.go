@@ -39,7 +39,7 @@ type DBMPPayment interface {
 
 	// TerminalInfo returns the settled HTLC attempt or the payment's
 	// failure reason.
-	TerminalInfo() (*paymentsdb.HTLCAttempt, *channeldb.FailureReason)
+	TerminalInfo() (*paymentsdb.HTLCAttempt, *paymentsdb.FailureReason)
 }
 
 // ControlTower tracks all outgoing payments made, whose primary purpose is to
@@ -85,7 +85,7 @@ type ControlTower interface {
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
-	FailPayment(lntypes.Hash, channeldb.FailureReason) error
+	FailPayment(lntypes.Hash, paymentsdb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments() ([]*paymentsdb.MPPayment, error)
@@ -287,7 +287,7 @@ func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
 // NOTE: This method will overwrite the failure reason if the payment is already
 // failed.
 func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
-	reason channeldb.FailureReason) error {
+	reason paymentsdb.FailureReason) error {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)

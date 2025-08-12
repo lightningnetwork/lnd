@@ -2,8 +2,6 @@ package paymentsdb
 
 import (
 	"fmt"
-
-	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // PaymentStatus represent current status of payment.
@@ -173,7 +171,7 @@ func (ps PaymentStatus) updatable() error {
 // failed` is false, this indicates all the payment's HTLCs have occurred a
 // temporarily failure and the payment is still in-flight.
 func decidePaymentStatus(htlcs []HTLCAttempt,
-	reason *channeldb.FailureReason) (PaymentStatus, error) {
+	reason *FailureReason) (PaymentStatus, error) {
 
 	var (
 		inflight      bool

@@ -134,12 +134,12 @@ var _ MissionControlQuerier = (*mockMissionControlOld)(nil)
 func (m *mockMissionControlOld) ReportPaymentFail(
 	paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
-	*channeldb.FailureReason, error) {
+	*paymentsdb.FailureReason, error) {
 
 	// Report a permanent failure if this is an error caused
 	// by incorrect details.
 	if failure.Code() == lnwire.CodeIncorrectOrUnknownPaymentDetails {
-		reason := channeldb.FailureReasonPaymentDetails
+		reason := paymentsdb.FailureReasonPaymentDetails
 		return &reason, nil
 	}
 
@@ -264,7 +264,7 @@ type failAttemptArgs struct {
 }
 
 type failPaymentArgs struct {
-	reason channeldb.FailureReason
+	reason paymentsdb.FailureReason
 }
 
 type testPayment struct {
@@ -275,7 +275,7 @@ type testPayment struct {
 type mockControlTowerOld struct {
 	payments   map[lntypes.Hash]*testPayment
 	successful map[lntypes.Hash]struct{}
-	failed     map[lntypes.Hash]channeldb.FailureReason
+	failed     map[lntypes.Hash]paymentsdb.FailureReason
 
 	init            chan initArgs
 	registerAttempt chan registerAttemptArgs
@@ -293,7 +293,7 @@ func makeMockControlTower() *mockControlTowerOld {
 	return &mockControlTowerOld{
 		payments:   make(map[lntypes.Hash]*testPayment),
 		successful: make(map[lntypes.Hash]struct{}),
-		failed:     make(map[lntypes.Hash]channeldb.FailureReason),
+		failed:     make(map[lntypes.Hash]paymentsdb.FailureReason),
 	}
 }
 
@@ -489,7 +489,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 }
 
 func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
-	reason channeldb.FailureReason) error {
+	reason paymentsdb.FailureReason) error {
 
 	m.Lock()
 	defer m.Unlock()
@@ -664,7 +664,7 @@ var _ MissionControlQuerier = (*mockMissionControl)(nil)
 func (m *mockMissionControl) ReportPaymentFail(
 	paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
-	*channeldb.FailureReason, error) {
+	*paymentsdb.FailureReason, error) {
 
 	args := m.Called(paymentID, rt, failureSourceIdx, failure)
 
@@ -673,7 +673,7 @@ func (m *mockMissionControl) ReportPaymentFail(
 		return nil, args.Error(1)
 	}
 
-	return args.Get(0).(*channeldb.FailureReason), args.Error(1)
+	return args.Get(0).(*paymentsdb.FailureReason), args.Error(1)
 }
 
 func (m *mockMissionControl) ReportPaymentSuccess(paymentID uint64,
@@ -779,7 +779,7 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 }
 
 func (m *mockControlTower) FailPayment(phash lntypes.Hash,
-	reason channeldb.FailureReason) error {
+	reason paymentsdb.FailureReason) error {
 
 	args := m.Called(phash, reason)
 	return args.Error(0)
@@ -863,13 +863,13 @@ func (m *mockMPPayment) AllowMoreAttempts() (bool, error) {
 }
 
 func (m *mockMPPayment) TerminalInfo() (*paymentsdb.HTLCAttempt,
-	*channeldb.FailureReason) {
+	*paymentsdb.FailureReason) {
 
 	args := m.Called()
 
 	var (
 		settleInfo  *paymentsdb.HTLCAttempt
-		failureInfo *channeldb.FailureReason
+		failureInfo *paymentsdb.FailureReason
 	)
 
 	settle := args.Get(0)
@@ -879,7 +879,7 @@ func (m *mockMPPayment) TerminalInfo() (*paymentsdb.HTLCAttempt,
 
 	reason := args.Get(1)
 	if reason != nil {
-		failureInfo = reason.(*channeldb.FailureReason)
+		failureInfo = reason.(*paymentsdb.FailureReason)
 	}
 
 	return settleInfo, failureInfo

@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1843,7 +1842,7 @@ func convertPaymentStatus(dbStatus paymentsdb.PaymentStatus, useInit bool) (
 
 // marshallPaymentFailureReason marshalls the failure reason to the corresponding rpc
 // type.
-func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
+func marshallPaymentFailureReason(reason *paymentsdb.FailureReason) (
 	lnrpc.PaymentFailureReason, error) {
 
 	if reason == nil {
@@ -1851,22 +1850,22 @@ func marshallPaymentFailureReason(reason *channeldb.FailureReason) (
 	}
 
 	switch *reason {
-	case channeldb.FailureReasonTimeout:
+	case paymentsdb.FailureReasonTimeout:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_TIMEOUT, nil
 
-	case channeldb.FailureReasonNoRoute:
+	case paymentsdb.FailureReasonNoRoute:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_NO_ROUTE, nil
 
-	case channeldb.FailureReasonError:
+	case paymentsdb.FailureReasonError:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_ERROR, nil
 
-	case channeldb.FailureReasonPaymentDetails:
+	case paymentsdb.FailureReasonPaymentDetails:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS, nil
 
-	case channeldb.FailureReasonInsufficientBalance:
+	case paymentsdb.FailureReasonInsufficientBalance:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_INSUFFICIENT_BALANCE, nil
 
-	case channeldb.FailureReasonCanceled:
+	case paymentsdb.FailureReasonCanceled:
 		return lnrpc.PaymentFailureReason_FAILURE_REASON_CANCELED, nil
 	}
 

@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -353,13 +352,13 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		// user-provided timeout was reached, or the context was
 		// canceled, either to a manual cancellation or due to an
 		// unknown error.
-		var reason channeldb.FailureReason
+		var reason paymentsdb.FailureReason
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			reason = channeldb.FailureReasonTimeout
+			reason = paymentsdb.FailureReasonTimeout
 			log.Warnf("Payment attempt not completed before "+
 				"context timeout, id=%s", p.identifier.String())
 		} else {
-			reason = channeldb.FailureReasonCanceled
+			reason = paymentsdb.FailureReasonCanceled
 			log.Warnf("Payment attempt context canceled, id=%s",
 				p.identifier.String())
 		}
@@ -795,7 +794,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 // failAttemptAndPayment fails both the payment and its attempt via the
 // router's control tower, which marks the payment as failed in db.
 func (p *paymentLifecycle) failPaymentAndAttempt(
-	attemptID uint64, reason *channeldb.FailureReason,
+	attemptID uint64, reason *paymentsdb.FailureReason,
 	sendErr error) (*attemptResult, error) {
 
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
@@ -827,7 +826,7 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
 	sendErr error) (*attemptResult, error) {
 
-	internalErrorReason := channeldb.FailureReasonError
+	internalErrorReason := paymentsdb.FailureReasonError
 	attemptID := attempt.AttemptID
 
 	// reportAndFail is a helper closure that reports the failure to the

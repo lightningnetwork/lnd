@@ -336,11 +336,9 @@ type server struct {
 
 	invoicesDB invoices.InvoiceDB
 
-	// kvPaymentsDB is the DB that contains all functions for managing
+	// paymentsDB is the DB that contains all functions for managing
 	// payments.
-	//
-	// TODO(ziggie): Replace with interface.
-	kvPaymentsDB *paymentsdb.KVPaymentsDB
+	paymentsDB paymentsdb.DB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -683,7 +681,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
-		kvPaymentsDB:   dbs.KVPaymentsDB,
+		paymentsDB:     dbs.PaymentsDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -1007,7 +1005,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	s.controlTower = routing.NewControlTower(dbs.KVPaymentsDB)
+	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning

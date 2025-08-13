@@ -47,8 +47,8 @@ type DBMPPayment interface {
 // restarts. Payments are transitioned through various payment states, and the
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
-	// This method checks that no succeeded payment exist for this payment
-	// hash.
+	// InitPayment initializes a new payment with the given payment hash and
+	// also notifies subscribers of the payment creation.
 	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
@@ -151,7 +151,7 @@ func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
 // controlTower is persistent implementation of ControlTower to restrict
 // double payment sending.
 type controlTower struct {
-	db *paymentsdb.KVPaymentsDB
+	db paymentsdb.PaymentDB
 
 	// subscriberIndex is used to provide a unique id for each subscriber
 	// to all payments. This is used to easily remove the subscriber when
@@ -168,7 +168,7 @@ type controlTower struct {
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db *paymentsdb.KVPaymentsDB) ControlTower {
+func NewControlTower(db paymentsdb.PaymentDB) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(

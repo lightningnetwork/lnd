@@ -927,7 +927,7 @@ type DatabaseInstances struct {
 
 	// KVPaymentsDB is the database that stores all payment related
 	// information.
-	KVPaymentsDB *channeldb.KVPaymentsDB
+	KVPaymentsDB *paymentsdb.KVPaymentsDB
 
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
@@ -1226,7 +1226,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			cfg.KeepFailedPaymentAttempts,
 		),
 	}
-	kvPaymentsDB, err := channeldb.NewKVPaymentsDB(
+	kvPaymentsDB, err := paymentsdb.NewKVPaymentsDB(
 		dbs.ChanStateDB,
 		paymentsDBOptions...,
 	)

@@ -1038,7 +1038,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
 func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	return r.sendToRoute(htlcHash, rt, false, firstHopCustomRecords)
@@ -1048,7 +1048,7 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // the payment ONLY when a terminal error is returned from the attempt.
 func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 	rt *route.Route,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	return r.sendToRoute(htlcHash, rt, true, firstHopCustomRecords)
@@ -1062,7 +1062,7 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // the payment won't be failed unless a terminal error has occurred.
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	skipTempErr bool,
-	firstHopCustomRecords lnwire.CustomRecords) (*channeldb.HTLCAttempt,
+	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
 	// Helper function to fail a payment. It makes sure the payment is only
@@ -1448,7 +1448,7 @@ func (r *ChannelRouter) resumePayments() error {
 	}
 
 	// launchPayment is a helper closure that handles resuming the payment.
-	launchPayment := func(payment *channeldb.MPPayment) {
+	launchPayment := func(payment *paymentsdb.MPPayment) {
 		defer r.wg.Done()
 
 		// Get the hashes used for the outstanding HTLCs.
@@ -1523,7 +1523,7 @@ func (r *ChannelRouter) resumePayments() error {
 // attempt to NOT be saved, resulting a payment being stuck forever. More info:
 // - https://github.com/lightningnetwork/lnd/issues/8146
 // - https://github.com/lightningnetwork/lnd/pull/8174
-func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
+func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 	payHash lntypes.Hash) {
 
 	// We can only fail inflight HTLCs so we skip the settled/failed ones.
@@ -1605,8 +1605,8 @@ func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
 
 	// Fail the attempt in db. If there's an error, there's nothing we can
 	// do here but logging it.
-	failInfo := &channeldb.HTLCFailInfo{
-		Reason:   channeldb.HTLCFailUnknown,
+	failInfo := &paymentsdb.HTLCFailInfo{
+		Reason:   paymentsdb.HTLCFailUnknown,
 		FailTime: r.cfg.Clock.Now(),
 	}
 	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)

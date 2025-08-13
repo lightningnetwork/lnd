@@ -1,4 +1,4 @@
-package channeldb
+package paymentsdb
 
 import (
 	"bytes"
@@ -12,12 +12,80 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// PaymentsQuery represents a query to the payments database starting or ending
+// at a certain offset index. The number of retrieved records can be limited.
+type PaymentsQuery struct {
+	// IndexOffset determines the starting point of the payments query and
+	// is always exclusive. In normal order, the query starts at the next
+	// higher (available) index compared to IndexOffset. In reversed order,
+	// the query ends at the next lower (available) index compared to the
+	// IndexOffset. In the case of a zero index_offset, the query will start
+	// with the oldest payment when paginating forwards, or will end with
+	// the most recent payment when paginating backwards.
+	IndexOffset uint64
+
+	// MaxPayments is the maximal number of payments returned in the
+	// payments query.
+	MaxPayments uint64
+
+	// Reversed gives a meaning to the IndexOffset. If reversed is set to
+	// true, the query will fetch payments with indices lower than the
+	// IndexOffset, otherwise, it will return payments with indices greater
+	// than the IndexOffset.
+	Reversed bool
+
+	// If IncludeIncomplete is true, then return payments that have not yet
+	// fully completed. This means that pending payments, as well as failed
+	// payments will show up if this field is set to true.
+	IncludeIncomplete bool
+
+	// CountTotal indicates that all payments currently present in the
+	// payment index (complete and incomplete) should be counted.
+	CountTotal bool
+
+	// CreationDateStart, expressed in Unix seconds, if set, filters out
+	// all payments with a creation date greater than or equal to it.
+	CreationDateStart int64
+
+	// CreationDateEnd, expressed in Unix seconds, if set, filters out all
+	// payments with a creation date less than or equal to it.
+	CreationDateEnd int64
+}
+
+// PaymentsResponse contains the result of a query to the payments database.
+// It includes the set of payments that match the query and integers which
+// represent the index of the first and last item returned in the series of
+// payments. These integers allow callers to resume their query in the event
+// that the query's response exceeds the max number of returnable events.
+type PaymentsResponse struct {
+	// Payments is the set of payments returned from the database for the
+	// PaymentsQuery.
+	Payments []*MPPayment
+
+	// FirstIndexOffset is the index of the first element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response. The offset can be used to continue reverse pagination.
+	FirstIndexOffset uint64
+
+	// LastIndexOffset is the index of the last element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response. The offset can be used to continue forward pagination.
+	LastIndexOffset uint64
+
+	// TotalCount represents the total number of payments that are currently
+	// stored in the payment database. This will only be set if the
+	// CountTotal field in the query was set to true.
+	TotalCount uint64
+}
 
 // HTLCAttemptInfo contains static information about a specific HTLC attempt
 // for a payment. This information is used by the router to handle any errors
@@ -171,7 +239,7 @@ const (
 	// reason.
 	HTLCFailUnknown HTLCFailReason = 0
 
-	// HTLCFailUnknown is recorded for htlcs that had a failure message that
+	// HTLCFailUnreadable is recorded for htlcs that had a failure message that
 	// couldn't be decrypted.
 	HTLCFailUnreadable HTLCFailReason = 1
 
@@ -241,7 +309,7 @@ type MPPayment struct {
 
 	// Info holds all static information about this payment, and is
 	// populated when the payment is initiated.
-	Info *PaymentCreationInfo
+	Info *channeldb.PaymentCreationInfo
 
 	// HTLCs holds the information about individual HTLCs that we send in
 	// order to make the payment.
@@ -252,7 +320,7 @@ type MPPayment struct {
 	//
 	// NOTE: Will only be set once the daemon has given up on the payment
 	// altogether.
-	FailureReason *FailureReason
+	FailureReason *channeldb.FailureReason
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
@@ -273,7 +341,7 @@ func (m *MPPayment) Terminated() bool {
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.
-func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *FailureReason) {
+func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *channeldb.FailureReason) {
 	for _, h := range m.HTLCs {
 		if h.Settle != nil {
 			return &h, nil
@@ -350,12 +418,12 @@ func (m *MPPayment) Registrable() error {
 	// are settled HTLCs or the payment is failed. If we already have
 	// settled HTLCs, we won't allow adding more HTLCs.
 	if m.State.HasSettledHTLC {
-		return paymentsdb.ErrPaymentPendingSettled
+		return ErrPaymentPendingSettled
 	}
 
 	// If the payment is already failed, we won't allow adding more HTLCs.
 	if m.State.PaymentFailed {
-		return paymentsdb.ErrPaymentPendingFailed
+		return ErrPaymentPendingFailed
 	}
 
 	// Otherwise we can add more HTLCs.
@@ -373,7 +441,7 @@ func (m *MPPayment) setState() error {
 	totalAmt := m.Info.Value
 	if sentAmt > totalAmt {
 		return fmt.Errorf("%w: sent=%v, total=%v",
-			paymentsdb.ErrSentExceedsTotal, sentAmt, totalAmt)
+			ErrSentExceedsTotal, sentAmt, totalAmt)
 	}
 
 	// Get any terminal info for this payment.
@@ -452,7 +520,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		case StatusSucceeded:
 			return false, fmt.Errorf("%w: parts of the payment "+
 				"already succeeded but still have remaining "+
-				"amount %v", paymentsdb.ErrPaymentInternal,
+				"amount %v", ErrPaymentInternal,
 				m.State.RemainingAmt)
 
 		// The payment is failed and we have no inflight HTLCs, no need
@@ -463,7 +531,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		// Unknown payment status.
 		default:
 			return false, fmt.Errorf("%w: %s",
-				paymentsdb.ErrUnknownPaymentStatus, m.Status)
+				ErrUnknownPaymentStatus, m.Status)
 		}
 	}
 
@@ -474,7 +542,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// amount, return an error.
 	case StatusInitiated:
 		return false, fmt.Errorf("%w: %v",
-			paymentsdb.ErrPaymentInternal, m.Status)
+			ErrPaymentInternal, m.Status)
 
 	// If the payment is inflight, we must wait.
 	//
@@ -496,12 +564,12 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// not be zero because our sentAmt is zero.
 	case StatusFailed:
 		return false, fmt.Errorf("%w: %v",
-			paymentsdb.ErrPaymentInternal, m.Status)
+			ErrPaymentInternal, m.Status)
 
 	// Unknown payment status.
 	default:
 		return false, fmt.Errorf("%w: %s",
-			paymentsdb.ErrUnknownPaymentStatus, m.Status)
+			ErrUnknownPaymentStatus, m.Status)
 	}
 }
 
@@ -510,12 +578,12 @@ func (m *MPPayment) GetState() *MPPaymentState {
 	return m.State
 }
 
-// Status returns the current status of the payment.
+// GetStatus returns the current status of the payment.
 func (m *MPPayment) GetStatus() PaymentStatus {
 	return m.Status
 }
 
-// GetPayment returns all the HTLCs for this payment.
+// GetHTLCs returns all the HTLCs for this payment.
 func (m *MPPayment) GetHTLCs() []HTLCAttempt {
 	return m.HTLCs
 }
@@ -532,7 +600,7 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 		if m.Status == StatusInitiated {
 			return false, fmt.Errorf("%w: initiated payment has "+
 				"zero remainingAmt",
-				paymentsdb.ErrPaymentInternal)
+				ErrPaymentInternal)
 		}
 
 		// Otherwise, exit early since all other statuses with zero
@@ -549,7 +617,7 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 	if m.Status == StatusSucceeded {
 		return false, fmt.Errorf("%w: payment already succeeded but "+
 			"still have remaining amount %v",
-			paymentsdb.ErrPaymentInternal, m.State.RemainingAmt)
+			ErrPaymentInternal, m.State.RemainingAmt)
 	}
 
 	// Now check if we can register a new HTLC.

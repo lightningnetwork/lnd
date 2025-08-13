@@ -183,11 +183,6 @@ func WriteElement(w io.Writer, element interface{}) error {
 			return err
 		}
 
-	case paymentIndexType:
-		if err := binary.Write(w, byteOrder, e); err != nil {
-			return err
-		}
-
 	case lnwire.FundingFlag:
 		if err := binary.Write(w, byteOrder, e); err != nil {
 			return err
@@ -412,11 +407,6 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = ChannelStatus(status)
 
 	case *ClosureType:
-		if err := binary.Read(r, byteOrder, e); err != nil {
-			return err
-		}
-
-	case *paymentIndexType:
 		if err := binary.Read(r, byteOrder, e); err != nil {
 			return err
 		}

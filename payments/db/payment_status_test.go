@@ -1,11 +1,11 @@
-package channeldb
+package paymentsdb
 
 import (
 	"fmt"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,13 +24,13 @@ func TestDecidePaymentStatus(t *testing.T) {
 	}
 
 	// Create a test failure reason and get the pointer.
-	reason := FailureReasonNoRoute
+	reason := channeldb.FailureReasonNoRoute
 	failure := &reason
 
 	testCases := []struct {
 		name           string
 		htlcs          []HTLCAttempt
-		reason         *FailureReason
+		reason         *channeldb.FailureReason
 		expectedStatus PaymentStatus
 		expectedErr    error
 	}{
@@ -198,33 +198,33 @@ func TestPaymentStatusActions(t *testing.T) {
 	}{
 		{
 			status:    StatusInitiated,
-			initErr:   paymentsdb.ErrPaymentExists,
+			initErr:   ErrPaymentExists,
 			updateErr: nil,
 			removeErr: nil,
 		},
 		{
 			status:    StatusInFlight,
-			initErr:   paymentsdb.ErrPaymentInFlight,
+			initErr:   ErrPaymentInFlight,
 			updateErr: nil,
-			removeErr: paymentsdb.ErrPaymentInFlight,
+			removeErr: ErrPaymentInFlight,
 		},
 		{
 			status:    StatusSucceeded,
-			initErr:   paymentsdb.ErrAlreadyPaid,
-			updateErr: paymentsdb.ErrPaymentAlreadySucceeded,
+			initErr:   ErrAlreadyPaid,
+			updateErr: ErrPaymentAlreadySucceeded,
 			removeErr: nil,
 		},
 		{
 			status:    StatusFailed,
 			initErr:   nil,
-			updateErr: paymentsdb.ErrPaymentAlreadyFailed,
+			updateErr: ErrPaymentAlreadyFailed,
 			removeErr: nil,
 		},
 		{
 			status:    0,
-			initErr:   paymentsdb.ErrUnknownPaymentStatus,
-			updateErr: paymentsdb.ErrUnknownPaymentStatus,
-			removeErr: paymentsdb.ErrUnknownPaymentStatus,
+			initErr:   ErrUnknownPaymentStatus,
+			updateErr: ErrUnknownPaymentStatus,
+			removeErr: ErrUnknownPaymentStatus,
 		},
 	}
 

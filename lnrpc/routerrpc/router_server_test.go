@@ -10,6 +10,7 @@ import (
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -129,13 +130,13 @@ func TestTrackPaymentsInflightUpdates(t *testing.T) {
 	}()
 
 	// Enqueue some payment updates on the mock.
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
+	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
 		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusInFlight,
+		Status: paymentsdb.StatusInFlight,
 	}
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
+	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
 		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusSucceeded,
+		Status: paymentsdb.StatusSucceeded,
 	}
 
 	// Wait until there's 2 updates or the deadline is exceeded.
@@ -191,13 +192,13 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	}()
 
 	// Enqueue some payment updates on the mock.
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
+	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
 		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusInFlight,
+		Status: paymentsdb.StatusInFlight,
 	}
-	towerMock.queue.ChanIn() <- &channeldb.MPPayment{
+	towerMock.queue.ChanIn() <- &paymentsdb.MPPayment{
 		Info:   &channeldb.PaymentCreationInfo{},
-		Status: channeldb.StatusSucceeded,
+		Status: paymentsdb.StatusSucceeded,
 	}
 
 	// Wait until there's 1 update or the deadline is exceeded.

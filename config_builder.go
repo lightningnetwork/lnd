@@ -1226,7 +1226,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			cfg.KeepFailedPaymentAttempts,
 		),
 	}
-	kvPaymentsDB, err := paymentsdb.NewKVPaymentsDB(
+	kvPaymentsDB, err := paymentsdb.NewKVStore(
 		dbs.ChanStateDB,
 		paymentsDBOptions...,
 	)

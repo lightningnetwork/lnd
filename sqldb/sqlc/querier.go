@@ -84,6 +84,7 @@ type Querier interface {
 	// and so the query for V2 may differ.
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error)
+	GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error

@@ -2261,6 +2261,57 @@ func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelPara
 	return i, err
 }
 
+const getZombieChannelsSCIDs = `-- name: GetZombieChannelsSCIDs :many
+SELECT scid, version, node_key_1, node_key_2
+FROM graph_zombie_channels
+WHERE version = $1
+  AND scid IN (/*SLICE:scids*/?)
+`
+
+type GetZombieChannelsSCIDsParams struct {
+	Version int16
+	Scids   [][]byte
+}
+
+func (q *Queries) GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error) {
+	query := getZombieChannelsSCIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Version)
+	if len(arg.Scids) > 0 {
+		for _, v := range arg.Scids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scids*/?", makeQueryParams(len(queryParams), len(arg.Scids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphZombieChannel
+	for rows.Next() {
+		var i GraphZombieChannel
+		if err := rows.Scan(
+			&i.Scid,
+			&i.Version,
+			&i.NodeKey1,
+			&i.NodeKey2,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const highestSCID = `-- name: HighestSCID :one
 SELECT scid
 FROM graph_channels

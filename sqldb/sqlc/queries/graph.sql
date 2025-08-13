@@ -908,6 +908,12 @@ DO UPDATE SET
     node_key_1 = COALESCE(EXCLUDED.node_key_1, graph_zombie_channels.node_key_1),
     node_key_2 = COALESCE(EXCLUDED.node_key_2, graph_zombie_channels.node_key_2);
 
+-- name: GetZombieChannelsSCIDs :many
+SELECT *
+FROM graph_zombie_channels
+WHERE version = @version
+  AND scid IN (sqlc.slice('scids')/*SLICE:scids*/);
+
 -- name: DeleteZombieChannel :execresult
 DELETE FROM graph_zombie_channels
 WHERE scid = $1

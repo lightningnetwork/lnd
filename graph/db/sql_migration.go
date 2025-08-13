@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"golang.org/x/time/rate"
@@ -74,7 +75,8 @@ func MigrateGraphToSQL(ctx context.Context, cfg *SQLStoreConfig,
 	}
 
 	// 6) Migrate the zombie index.
-	if err := migrateZombieIndex(ctx, kvBackend, sqlDB); err != nil {
+	err = migrateZombieIndex(ctx, cfg.QueryCfg, kvBackend, sqlDB)
+	if err != nil {
 		return fmt.Errorf("could not migrate zombie index: %w", err)
 	}
 
@@ -1100,18 +1102,17 @@ func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 	return nil
 }
 
-// migrateZombieIndex migrates the zombie index from the KV backend to
-// the SQL database. It iterates over each zombie channel in the KV store,
-// inserts it into the SQL database, and then verifies that the channel is
-// indeed marked as a zombie channel in the SQL database.
+// migrateZombieIndex migrates the zombie index from the KV backend to the SQL
+// database. It collects zombie channels in batches, inserts them individually,
+// and validates them in batches.
 //
 // NOTE: before inserting an entry into the zombie index, the function checks
 // if the channel is already marked as closed in the SQL store. If it is,
 // the entry is skipped. This means that the resulting zombie index count in
 // the SQL store may well be less than the count of zombie channels in the KV
 // store.
-func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
 		count uint64
@@ -1122,6 +1123,79 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 			Interval: 10 * time.Second,
 		}
 	)
+
+	type zombieEntry struct {
+		pub1 route.Vertex
+		pub2 route.Vertex
+	}
+
+	batch := make(map[uint64]*zombieEntry, cfg.MaxBatchSize)
+
+	// validateBatch validates a batch of zombie SCIDs using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		scids := make([][]byte, 0, len(batch))
+		for scid := range batch {
+			scids = append(scids, channelIDToBytes(scid))
+		}
+
+		// Batch fetch all zombie channels from the database.
+		rows, err := sqlDB.GetZombieChannelsSCIDs(
+			ctx, sqlc.GetZombieChannelsSCIDsParams{
+				Version: int16(ProtocolV1),
+				Scids:   scids,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not batch get zombie "+
+				"SCIDs: %w", err)
+		}
+
+		// Make sure that the number of rows returned matches
+		// the number of SCIDs we requested.
+		if len(rows) != len(scids) {
+			return fmt.Errorf("expected to fetch %d zombie "+
+				"SCIDs, but got %d", len(scids), len(rows))
+		}
+
+		// Validate each row is in the batch.
+		for _, row := range rows {
+			scid := byteOrder.Uint64(row.Scid)
+
+			kvdbZombie, ok := batch[scid]
+			if !ok {
+				return fmt.Errorf("zombie SCID %x not found "+
+					"in batch", scid)
+			}
+
+			err = sqldb.CompareRecords(
+				kvdbZombie.pub1[:], row.NodeKey1,
+				fmt.Sprintf("zombie pub key 1 (%s) for "+
+					"channel %d", kvdbZombie.pub1, scid),
+			)
+			if err != nil {
+				return err
+			}
+
+			err = sqldb.CompareRecords(
+				kvdbZombie.pub2[:], row.NodeKey2,
+				fmt.Sprintf("zombie pub key 2 (%s) for "+
+					"channel %d", kvdbZombie.pub2, scid),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Reset the batch for the next iteration.
+		batch = make(map[uint64]*zombieEntry, cfg.MaxBatchSize)
+
+		return nil
+	}
+
 	err := forEachZombieEntry(kvBackend, func(chanID uint64, pubKey1,
 		pubKey2 [33]byte) error {
 
@@ -1158,22 +1232,19 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 				"channel %d: %w", chanID, err)
 		}
 
-		// Finally, verify that the channel is indeed marked as a
-		// zombie channel.
-		isZombie, err := sqlDB.IsZombieChannel(
-			ctx, sqlc.IsZombieChannelParams{
-				Version: int16(ProtocolV1),
-				Scid:    chanIDB,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("could not check if "+
-				"channel %d is zombie: %w", chanID, err)
+		// Add to validation batch only after successful insertion.
+		batch[chanID] = &zombieEntry{
+			pub1: pubKey1,
+			pub2: pubKey2,
 		}
 
-		if !isZombie {
-			return fmt.Errorf("channel %d should be "+
-				"a zombie, but is not", chanID)
+		// Validate batch when full.
+		if len(batch) >= cfg.MaxBatchSize {
+			err := validateBatch()
+			if err != nil {
+				return fmt.Errorf("batch validation failed: %w",
+					err)
+			}
 		}
 
 		s.Do(func() {
@@ -1190,6 +1261,15 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate zombie index: %w", err)
+	}
+
+	// Validate any remaining zombie SCIDs in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
 	}
 
 	log.Infof("Migrated %d zombie channels from KV to SQL", count)

@@ -133,6 +133,7 @@ type SQLQueries interface {
 	*/
 	UpsertZombieChannel(ctx context.Context, arg sqlc.UpsertZombieChannelParams) error
 	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.GraphZombieChannel, error)
+	GetZombieChannelsSCIDs(ctx context.Context, arg sqlc.GetZombieChannelsSCIDsParams) ([]sqlc.GraphZombieChannel, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
 	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)

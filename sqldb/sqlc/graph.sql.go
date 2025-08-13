@@ -1729,6 +1729,53 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 	return id, err
 }
 
+const getNodesByIDs = `-- name: GetNodesByIDs :many
+SELECT id, version, pub_key, alias, last_update, color, signature
+FROM graph_nodes
+WHERE id IN (/*SLICE:ids*/?)
+`
+
+func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error) {
+	query := getNodesByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", makeQueryParams(len(queryParams), len(ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphNode
+	for rows.Next() {
+		var i GraphNode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature
 FROM graph_nodes

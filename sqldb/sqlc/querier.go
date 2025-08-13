@@ -68,6 +68,7 @@ type Querier interface {
 	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error)
+	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)

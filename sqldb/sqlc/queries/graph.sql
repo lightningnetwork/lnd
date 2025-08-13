@@ -21,6 +21,11 @@ WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update > graph_nodes.last_update
 RETURNING id;
 
+-- name: GetNodesByIDs :many
+SELECT *
+FROM graph_nodes
+WHERE id IN (sqlc.slice('ids')/*SLICE:ids*/);
+
 -- name: GetNodeByPubKey :one
 SELECT *
 FROM graph_nodes

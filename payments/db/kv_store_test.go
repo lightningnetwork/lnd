@@ -20,6 +20,8 @@ import (
 
 // TestKVStoreDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
+//
+// TODO(ziggie): Make this test db agnostic.
 func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
@@ -249,8 +251,10 @@ type htlcStatus struct {
 
 // fetchPaymentIndexEntry gets the payment hash for the sequence number provided
 // from our payment indexes bucket.
-func fetchPaymentIndexEntry(_ *testing.T, p *KVStore,
+func fetchPaymentIndexEntry(t *testing.T, p *KVStore,
 	sequenceNumber uint64) (*lntypes.Hash, error) {
+
+	t.Helper()
 
 	var hash lntypes.Hash
 
@@ -318,6 +322,8 @@ func assertNoIndex(t *testing.T, p DB, seqNr uint64) {
 
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
 	*HTLCAttemptInfo) {
+
+	t.Helper()
 
 	var preimg lntypes.Preimage
 	copy(preimg[:], rev[:])
@@ -677,6 +683,8 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 
 // TestQueryPayments tests retrieval of payments with forwards and reversed
 // queries.
+//
+// TODO(ziggie): Make this test db agnostic.
 func TestQueryPayments(t *testing.T) {
 	// Define table driven test for QueryPayments.
 	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].

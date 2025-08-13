@@ -6,6 +6,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/multimutex"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/queue"
 )
 
@@ -13,23 +14,23 @@ import (
 // the payment lifecycle.
 type DBMPPayment interface {
 	// GetState returns the current state of the payment.
-	GetState() *channeldb.MPPaymentState
+	GetState() *paymentsdb.MPPaymentState
 
 	// Terminated returns true if the payment is in a final state.
 	Terminated() bool
 
 	// GetStatus returns the current status of the payment.
-	GetStatus() channeldb.PaymentStatus
+	GetStatus() paymentsdb.PaymentStatus
 
 	// NeedWaitAttempts specifies whether the payment needs to wait for the
 	// outcome of an attempt.
 	NeedWaitAttempts() (bool, error)
 
 	// GetHTLCs returns all HTLCs of this payment.
-	GetHTLCs() []channeldb.HTLCAttempt
+	GetHTLCs() []paymentsdb.HTLCAttempt
 
 	// InFlightHTLCs returns all HTLCs that are in flight.
-	InFlightHTLCs() []channeldb.HTLCAttempt
+	InFlightHTLCs() []paymentsdb.HTLCAttempt
 
 	// AllowMoreAttempts is used to decide whether we can safely attempt
 	// more HTLCs for a given payment state. Return an error if the payment
@@ -38,7 +39,7 @@ type DBMPPayment interface {
 
 	// TerminalInfo returns the settled HTLC attempt or the payment's
 	// failure reason.
-	TerminalInfo() (*channeldb.HTLCAttempt, *channeldb.FailureReason)
+	TerminalInfo() (*paymentsdb.HTLCAttempt, *channeldb.FailureReason)
 }
 
 // ControlTower tracks all outgoing payments made, whose primary purpose is to
@@ -57,7 +58,7 @@ type ControlTower interface {
 	DeleteFailedAttempts(lntypes.Hash) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
-	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
+	RegisterAttempt(lntypes.Hash, *paymentsdb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
 	// this is a multi shard payment, this might implicitly mean the the
@@ -67,12 +68,12 @@ type ControlTower interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
-	SettleAttempt(lntypes.Hash, uint64, *channeldb.HTLCSettleInfo) (
-		*channeldb.HTLCAttempt, error)
+	SettleAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCSettleInfo) (
+		*paymentsdb.HTLCAttempt, error)
 
 	// FailAttempt marks the given payment attempt failed.
-	FailAttempt(lntypes.Hash, uint64, *channeldb.HTLCFailInfo) (
-		*channeldb.HTLCAttempt, error)
+	FailAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCFailInfo) (
+		*paymentsdb.HTLCAttempt, error)
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
@@ -87,7 +88,7 @@ type ControlTower interface {
 	FailPayment(lntypes.Hash, channeldb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*channeldb.MPPayment, error)
+	FetchInFlightPayments() ([]*paymentsdb.MPPayment, error)
 
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. A first update with the current state of the payment is always
@@ -151,7 +152,7 @@ func (s *controlTowerSubscriberImpl) Updates() <-chan interface{} {
 // controlTower is persistent implementation of ControlTower to restrict
 // double payment sending.
 type controlTower struct {
-	db *channeldb.KVPaymentsDB
+	db *paymentsdb.KVPaymentsDB
 
 	// subscriberIndex is used to provide a unique id for each subscriber
 	// to all payments. This is used to easily remove the subscriber when
@@ -168,7 +169,7 @@ type controlTower struct {
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db *channeldb.KVPaymentsDB) ControlTower {
+func NewControlTower(db *paymentsdb.KVPaymentsDB) ControlTower {
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
@@ -215,7 +216,7 @@ func (p *controlTower) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
 func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *channeldb.HTLCAttemptInfo) error {
+	attempt *paymentsdb.HTLCAttemptInfo) error {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
@@ -235,8 +236,8 @@ func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
 // this is a multi shard payment, this might implicitly mean the the
 // full payment succeeded.
 func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, settleInfo *channeldb.HTLCSettleInfo) (
-	*channeldb.HTLCAttempt, error) {
+	attemptID uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
+	*paymentsdb.HTLCAttempt, error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
@@ -254,8 +255,8 @@ func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
 
 // FailAttempt marks the given payment attempt failed.
 func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, failInfo *channeldb.HTLCFailInfo) (
-	*channeldb.HTLCAttempt, error) {
+	attemptID uint64, failInfo *paymentsdb.HTLCFailInfo) (
+	*paymentsdb.HTLCAttempt, error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
@@ -303,7 +304,9 @@ func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *controlTower) FetchInFlightPayments() ([]*channeldb.MPPayment, error) {
+func (p *controlTower) FetchInFlightPayments() ([]*paymentsdb.MPPayment,
+	error) {
+
 	return p.db.FetchInFlightPayments()
 }
 
@@ -386,7 +389,7 @@ func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 // be executed atomically (by means of a lock) with the database update to
 // guarantee consistency of the notifications.
 func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
-	event *channeldb.MPPayment) {
+	event *paymentsdb.MPPayment) {
 
 	// Get all subscribers for this payment.
 	p.subscribersMtx.Lock()

@@ -1,4 +1,4 @@
-package channeldb
+package paymentsdb
 
 import (
 	"bytes"
@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -75,7 +75,7 @@ func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 		return StatusInFlight, nil
 	}
 
-	return 0, paymentsdb.ErrPaymentNotInitiated
+	return 0, ErrPaymentNotInitiated
 }
 
 func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
@@ -94,11 +94,11 @@ func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
 }
 
 func deserializeDuplicatePaymentCreationInfo(r io.Reader) (
-	*PaymentCreationInfo, error) {
+	*channeldb.PaymentCreationInfo, error) {
 
 	var scratch [8]byte
 
-	c := &PaymentCreationInfo{}
+	c := &channeldb.PaymentCreationInfo{}
 
 	if _, err := io.ReadFull(r, c.PaymentIdentifier[:]); err != nil {
 		return nil, err
@@ -157,10 +157,10 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	}
 
 	// Get failure reason if available.
-	var failureReason *FailureReason
+	var failureReason *channeldb.FailureReason
 	b = bucket.Get(duplicatePaymentFailInfoKey)
 	if b != nil {
-		reason := FailureReason(b[0])
+		reason := channeldb.FailureReason(b[0])
 		failureReason = &reason
 	}
 

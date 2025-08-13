@@ -952,6 +952,12 @@ FROM graph_prune_log
 ORDER BY block_height DESC
 LIMIT 1;
 
+-- name: GetPruneEntriesForHeights :many
+SELECT block_height, block_hash
+FROM graph_prune_log
+WHERE block_height
+   IN (sqlc.slice('heights')/*SLICE:heights*/);
+
 -- name: GetPruneHashByHeight :one
 SELECT block_hash
 FROM graph_prune_log

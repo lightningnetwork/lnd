@@ -61,7 +61,8 @@ func MigrateGraphToSQL(ctx context.Context, cfg *SQLStoreConfig,
 	}
 
 	// 4) Migrate the Prune log.
-	if err := migratePruneLog(ctx, kvBackend, sqlDB); err != nil {
+	err = migratePruneLog(ctx, cfg.QueryCfg, kvBackend, sqlDB)
+	if err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
 	}
 
@@ -794,12 +795,11 @@ func validateMigratedChannelWithBatchData(cfg *SQLStoreConfig,
 }
 
 // migratePruneLog migrates the prune log from the KV backend to the SQL
-// database. It iterates over each prune log entry in the KV store, inserts it
-// into the SQL database, and then verifies that the entry was inserted
-// correctly by fetching it back from the SQL database and comparing it to the
-// original entry.
-func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+// database. It collects entries in batches, inserts them individually, and then
+// validates them in batches using GetPruneEntriesForHeights for better i
+// performance.
+func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
 		count          uint64
@@ -813,55 +813,92 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		}
 	)
 
-	// migrateSinglePruneEntry is a helper function that inserts a single
-	// prune log entry into the SQL database and verifies that it was
-	// inserted correctly.
-	migrateSinglePruneEntry := func(height uint32,
-		hash *chainhash.Hash) error {
+	batch := make(map[uint32]chainhash.Hash, cfg.MaxBatchSize)
 
-		count++
-		chunk++
-
-		// Keep track of the prune tip height and hash.
-		if height > pruneTipHeight {
-			pruneTipHeight = height
-			pruneTipHash = *hash
+	// validateBatch validates a batch of prune entries using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
 
-		err := sqlDB.UpsertPruneLogEntry(
-			ctx, sqlc.UpsertPruneLogEntryParams{
-				BlockHeight: int64(height),
-				BlockHash:   hash[:],
-			},
-		)
+		// Extract heights for the batch query.
+		heights := make([]int64, 0, len(batch))
+		for height := range batch {
+			heights = append(heights, int64(height))
+		}
+
+		// Batch fetch all entries from the database.
+		rows, err := sqlDB.GetPruneEntriesForHeights(ctx, heights)
 		if err != nil {
-			return fmt.Errorf("unable to insert prune log "+
-				"entry for height %d: %w", height, err)
+			return fmt.Errorf("could not batch get prune "+
+				"entries: %w", err)
 		}
 
-		// Now, check that the entry was inserted correctly.
-		migratedHash, err := sqlDB.GetPruneHashByHeight(
-			ctx, int64(height),
-		)
-		if err != nil {
-			return fmt.Errorf("could not get prune hash "+
-				"for height %d: %w", height, err)
+		if len(rows) != len(batch) {
+			return fmt.Errorf("expected to fetch %d prune "+
+				"entries, but got %d", len(batch),
+				len(rows))
 		}
 
-		return sqldb.CompareRecords(
-			hash[:], migratedHash, "prune log entry",
-		)
+		// Validate each entry in the batch.
+		for _, row := range rows {
+			kvdbHash, ok := batch[uint32(row.BlockHeight)]
+			if !ok {
+				return fmt.Errorf("prune entry for height %d "+
+					"not found in batch", row.BlockHeight)
+			}
+
+			err := sqldb.CompareRecords(
+				kvdbHash[:], row.BlockHash,
+				fmt.Sprintf("prune log entry at height %d",
+					row.BlockHash),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Reset the batch map for the next iteration.
+		batch = make(map[uint32]chainhash.Hash, cfg.MaxBatchSize)
+
+		return nil
 	}
 
 	// Iterate over each prune log entry in the KV store and migrate it to
 	// the SQL database.
 	err := forEachPruneLogEntry(
 		kvBackend, func(height uint32, hash *chainhash.Hash) error {
-			err := migrateSinglePruneEntry(height, hash)
+			count++
+			chunk++
+
+			// Keep track of the prune tip height and hash.
+			if height > pruneTipHeight {
+				pruneTipHeight = height
+				pruneTipHash = *hash
+			}
+
+			// Insert the entry (individual inserts for now).
+			err := sqlDB.UpsertPruneLogEntry(
+				ctx, sqlc.UpsertPruneLogEntryParams{
+					BlockHeight: int64(height),
+					BlockHash:   hash[:],
+				},
+			)
 			if err != nil {
-				return fmt.Errorf("could not migrate "+
-					"prune log entry at height %d: %w",
-					height, err)
+				return fmt.Errorf("unable to insert prune log "+
+					"entry for height %d: %w", height, err)
+			}
+
+			// Add to validation batch.
+			batch[height] = *hash
+
+			// Validate batch when full.
+			if len(batch) >= cfg.MaxBatchSize {
+				err := validateBatch()
+				if err != nil {
+					return fmt.Errorf("batch "+
+						"validation failed: %w", err)
+				}
 			}
 
 			s.Do(func() {
@@ -880,6 +917,15 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 	)
 	if err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// Validate any remaining entries in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
 	}
 
 	// Check that the prune tip is set correctly in the SQL

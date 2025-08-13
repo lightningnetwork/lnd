@@ -1992,6 +1992,46 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 	return items, nil
 }
 
+const getPruneEntriesForHeights = `-- name: GetPruneEntriesForHeights :many
+SELECT block_height, block_hash
+FROM graph_prune_log
+WHERE block_height
+   IN (/*SLICE:heights*/?)
+`
+
+func (q *Queries) GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error) {
+	query := getPruneEntriesForHeights
+	var queryParams []interface{}
+	if len(heights) > 0 {
+		for _, v := range heights {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:heights*/?", makeQueryParams(len(queryParams), len(heights)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:heights*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphPruneLog
+	for rows.Next() {
+		var i GraphPruneLog
+		if err := rows.Scan(&i.BlockHeight, &i.BlockHash); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPruneHashByHeight = `-- name: GetPruneHashByHeight :one
 SELECT block_hash
 FROM graph_prune_log

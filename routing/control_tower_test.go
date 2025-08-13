@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -47,13 +48,19 @@ var (
 func TestControlTowerSubscribeUnknown(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Subscription should fail when the payment is not known.
-	_, err := pControl.SubscribePayment(lntypes.Hash{1})
-	require.ErrorIs(t, err, channeldb.ErrPaymentNotInitiated)
+	_, err = pControl.SubscribePayment(lntypes.Hash{1})
+	require.ErrorIs(t, err, paymentsdb.ErrPaymentNotInitiated)
 }
 
 // TestControlTowerSubscribeSuccess tests that payment updates for a
@@ -61,9 +68,12 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 func TestControlTowerSubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, false)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(db)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, preimg, err := genInfo()
@@ -180,9 +190,15 @@ func TestKVPaymentsDBSubscribeFail(t *testing.T) {
 func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info1, attempt1, preimg1, err := genInfo()
@@ -293,9 +309,15 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -330,9 +352,15 @@ func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
-	db := initDB(t, true)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(true),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	subscription1, err := pControl.SubscribeAllPayments()
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
@@ -399,9 +427,17 @@ func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
-	db := initDB(t, keepFailedPaymentAttempts)
+	db := initDB(t)
 
-	pControl := NewControlTower(channeldb.NewKVPaymentsDB(db))
+	paymentDB, err := channeldb.NewKVPaymentsDB(
+		db,
+		paymentsdb.WithKeepFailedPaymentAttempts(
+			keepFailedPaymentAttempts,
+		),
+	)
+	require.NoError(t, err)
+
+	pControl := NewControlTower(paymentDB)
 
 	// Initiate a payment.
 	info, attempt, _, err := genInfo()
@@ -517,11 +553,9 @@ func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
 	}
 }
 
-func initDB(t *testing.T, keepFailedPaymentAttempts bool) *channeldb.DB {
+func initDB(t *testing.T) *channeldb.DB {
 	return channeldb.OpenForTesting(
-		t, t.TempDir(), channeldb.OptionKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
+		t, t.TempDir(),
 	)
 }
 

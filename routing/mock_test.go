@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/routing/shards"
@@ -308,7 +309,7 @@ func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
 
 	// Don't allow re-init a successful payment.
 	if _, ok := m.successful[phash]; ok {
-		return channeldb.ErrAlreadyPaid
+		return paymentsdb.ErrAlreadyPaid
 	}
 
 	_, failed := m.failed[phash]
@@ -316,7 +317,7 @@ func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
 
 	// If the payment is known, only allow re-init if failed.
 	if ok && !failed {
-		return channeldb.ErrPaymentInFlight
+		return paymentsdb.ErrPaymentInFlight
 	}
 
 	delete(m.failed, phash)
@@ -330,7 +331,7 @@ func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
 func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
 	p, ok := m.payments[phash]
 	if !ok {
-		return channeldb.ErrPaymentNotInitiated
+		return paymentsdb.ErrPaymentNotInitiated
 	}
 
 	var inFlight bool
@@ -347,7 +348,7 @@ func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
 	}
 
 	if inFlight {
-		return channeldb.ErrPaymentInFlight
+		return paymentsdb.ErrPaymentInFlight
 	}
 
 	return nil
@@ -366,7 +367,7 @@ func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
 	// Lookup payment.
 	p, ok := m.payments[phash]
 	if !ok {
-		return channeldb.ErrPaymentNotInitiated
+		return paymentsdb.ErrPaymentNotInitiated
 	}
 
 	var inFlight bool
@@ -387,15 +388,15 @@ func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
 	_, failed := m.failed[phash]
 
 	if settled || failed {
-		return channeldb.ErrPaymentTerminal
+		return paymentsdb.ErrPaymentTerminal
 	}
 
 	if settled && !inFlight {
-		return channeldb.ErrPaymentAlreadySucceeded
+		return paymentsdb.ErrPaymentAlreadySucceeded
 	}
 
 	if failed && !inFlight {
-		return channeldb.ErrPaymentAlreadyFailed
+		return paymentsdb.ErrPaymentAlreadyFailed
 	}
 
 	// Add attempt to payment.
@@ -421,7 +422,7 @@ func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
 	// Only allow setting attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
-		return nil, channeldb.ErrPaymentNotInitiated
+		return nil, paymentsdb.ErrPaymentNotInitiated
 	}
 
 	// Find the attempt with this pid, and set the settle info.
@@ -431,10 +432,10 @@ func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
 		}
 
 		if a.Settle != nil {
-			return nil, channeldb.ErrAttemptAlreadySettled
+			return nil, paymentsdb.ErrAttemptAlreadySettled
 		}
 		if a.Failure != nil {
-			return nil, channeldb.ErrAttemptAlreadyFailed
+			return nil, paymentsdb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Settle = settleInfo
@@ -462,7 +463,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 	// Only allow failing attempts if the payment is known.
 	p, ok := m.payments[phash]
 	if !ok {
-		return nil, channeldb.ErrPaymentNotInitiated
+		return nil, paymentsdb.ErrPaymentNotInitiated
 	}
 
 	// Find the attempt with this pid, and set the failure info.
@@ -472,10 +473,10 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 		}
 
 		if a.Settle != nil {
-			return nil, channeldb.ErrAttemptAlreadySettled
+			return nil, paymentsdb.ErrAttemptAlreadySettled
 		}
 		if a.Failure != nil {
-			return nil, channeldb.ErrAttemptAlreadyFailed
+			return nil, paymentsdb.ErrAttemptAlreadyFailed
 		}
 
 		p.attempts[i].Failure = failInfo
@@ -499,7 +500,7 @@ func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 
 	// Payment must be known.
 	if _, ok := m.payments[phash]; !ok {
-		return channeldb.ErrPaymentNotInitiated
+		return paymentsdb.ErrPaymentNotInitiated
 	}
 
 	m.failed[phash] = reason
@@ -521,7 +522,7 @@ func (m *mockControlTowerOld) fetchPayment(phash lntypes.Hash) (
 
 	p, ok := m.payments[phash]
 	if !ok {
-		return nil, channeldb.ErrPaymentNotInitiated
+		return nil, paymentsdb.ErrPaymentNotInitiated
 	}
 
 	mp := &channeldb.MPPayment{

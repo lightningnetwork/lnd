@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"reflect"
@@ -348,20 +349,21 @@ func TestQueryPayments(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db, err := MakeTestDB(t)
-			if err != nil {
-				t.Fatalf("unable to init db: %v", err)
-			}
+			ctx := context.Background()
 
-			paymentDB := NewKVPaymentsDB(db)
+			db, err := MakeTestDB(t)
+			require.NoError(t, err)
+
+			// Initialize the payment database.
+			paymentDB, err := NewKVPaymentsDB(db)
+			require.NoError(t, err)
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
-			resp, err := paymentDB.QueryPayments(tt.query)
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
 			require.NoError(t, err)
 			require.Len(t, resp.Payments, 0)
 
@@ -389,10 +391,7 @@ func TestQueryPayments(t *testing.T) {
 				err = paymentDB.InitPayment(
 					info.PaymentIdentifier, info,
 				)
-				if err != nil {
-					t.Fatalf("unable to initialize "+
-						"payment in database: %v", err)
-				}
+				require.NoError(t, err)
 
 				// Immediately delete the payment with index 2.
 				if i == 1 {
@@ -401,8 +400,10 @@ func TestQueryPayments(t *testing.T) {
 					)
 					require.NoError(t, err)
 
-					deletePayment(t, db, info.PaymentIdentifier,
-						pmt.SequenceNum)
+					deletePayment(
+						t, db, info.PaymentIdentifier,
+						pmt.SequenceNum,
+					)
 				}
 
 				// If we are on the last payment entry, add a
@@ -437,7 +438,9 @@ func TestQueryPayments(t *testing.T) {
 					"want %v.", len(allPayments), 6)
 			}
 
-			querySlice, err := paymentDB.QueryPayments(tt.query)
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -1131,9 +1131,9 @@ func fetchFailedHtlcKeys(bucket kvdb.RBucket) ([][]byte, error) {
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
 func (p *KVPaymentsDB) QueryPayments(_ context.Context,
-	query PaymentsQuery) (PaymentsResponse, error) {
+	query Query) (Response, error) {
 
-	var resp PaymentsResponse
+	var resp Response
 
 	if err := kvdb.View(p.db, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
@@ -1247,7 +1247,7 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 
 		return nil
 	}, func() {
-		resp = PaymentsResponse{}
+		resp = Response{}
 	}); err != nil {
 		return resp, err
 	}

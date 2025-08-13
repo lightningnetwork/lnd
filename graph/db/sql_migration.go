@@ -394,6 +394,24 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	return nil
 }
 
+// migChanInfo holds the information about a channel and its policies.
+type migChanInfo struct {
+	// edge is the channel object as read from the KVDB source.
+	edge *models.ChannelEdgeInfo
+
+	// policy1 is the first channel policy for the channel as read from
+	// the KVDB source.
+	policy1 *models.ChannelEdgePolicy
+
+	// policy2 is the second channel policy for the channel as read
+	// from the KVDB source.
+	policy2 *models.ChannelEdgePolicy
+
+	// dbInfo holds location info (in the form of DB IDs) of the channel
+	// and its policies in the native-SQL destination.
+	dbInfo *dbChanInfo
+}
+
 // migrateChannelsAndPolicies migrates all channels and their policies
 // from the KV backend to the SQL database.
 func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
@@ -433,6 +451,11 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		return nil
 	}
+
+	// batch is used to collect migrated channel info that we will
+	// batch-validate. Each entry is indexed by the DB ID of the channel
+	// in the SQL database.
+	batch := make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
 
 	// Iterate over each channel in the KV store and migrate it and its
 	// policies to the SQL database.
@@ -489,13 +512,46 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		channelCount++
 		chunk++
 
-		err = migrateSingleChannel(
-			ctx, cfg, sqlDB, channel, policy1, policy2,
-			migChanPolicy,
-		)
+		// Migrate the channel info along with its policies.
+		dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
 		if err != nil {
-			return fmt.Errorf("could not migrate channel %d: %w",
+			return fmt.Errorf("could not insert record for "+
+				"channel %d in SQL store: %w", scid, err)
+		}
+
+		// Now, migrate the two channel policies for the channel.
+		err = migChanPolicy(policy1)
+		if err != nil {
+			return fmt.Errorf("could not migrate policy1(%d): %w",
 				scid, err)
+		}
+		err = migChanPolicy(policy2)
+		if err != nil {
+			return fmt.Errorf("could not migrate policy2(%d): %w",
+				scid, err)
+		}
+
+		// Collect the migrated channel info and policies in a batch for
+		// later validation.
+		batch[dbChanInfo.channelID] = &migChanInfo{
+			edge:    channel,
+			policy1: policy1,
+			policy2: policy2,
+			dbInfo:  dbChanInfo,
+		}
+
+		if len(batch) >= cfg.QueryCfg.MaxBatchSize {
+			// Do batch validation.
+			err := validateMigratedChannels(ctx, cfg, sqlDB, batch)
+			if err != nil {
+				return fmt.Errorf("could not validate "+
+					"channel batch: %w", err)
+			}
+
+			batch = make(
+				map[int64]*migChanInfo,
+				cfg.QueryCfg.MaxBatchSize,
+			)
 		}
 
 		s.Do(func() {
@@ -518,6 +574,17 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 			err)
 	}
 
+	if len(batch) > 0 {
+		// Do a final batch validation for any remaining channels.
+		err := validateMigratedChannels(ctx, cfg, sqlDB, batch)
+		if err != nil {
+			return fmt.Errorf("could not validate final channel "+
+				"batch: %w", err)
+		}
+
+		batch = make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
+	}
+
 	log.Infof("Migrated %d channels and %d policies from KV to SQL "+
 		"(skipped %d channels and %d policies due to invalid TLV "+
 		"streams)", channelCount, policyCount, skippedChanCount,
@@ -526,70 +593,142 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 	return nil
 }
 
-func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
-	sqlDB SQLQueries, channel *models.ChannelEdgeInfo,
-	policy1, policy2 *models.ChannelEdgePolicy,
-	migChanPolicy func(*models.ChannelEdgePolicy) error) error {
+// validateMigratedChannels validates the channels in the batch after they have
+// been migrated to the SQL database. It batch fetches all channels by their IDs
+// and compares the migrated channels and their policies with the original ones
+// to ensure they match using batch construction patterns.
+func validateMigratedChannels(ctx context.Context, cfg *SQLStoreConfig,
+	sqlDB SQLQueries, batch map[int64]*migChanInfo) error {
 
-	scid := channel.ChannelID
-
-	// First, migrate the channel info along with its policies.
-	dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
-	if err != nil {
-		return fmt.Errorf("could not insert record for channel %d "+
-			"in SQL store: %w", scid, err)
+	// Convert batch keys (DB IDs) to an int slice for the batch query.
+	dbChanIDs := make([]int64, 0, len(batch))
+	for id := range batch {
+		dbChanIDs = append(dbChanIDs, id)
 	}
 
-	// Now, migrate the two channel policies.
-	err = migChanPolicy(policy1)
+	// Batch fetch all channels with their policies.
+	rows, err := sqlDB.GetChannelsByIDs(ctx, dbChanIDs)
 	if err != nil {
-		return fmt.Errorf("could not migrate policy1(%d): %w", scid,
-			err)
-	}
-	err = migChanPolicy(policy2)
-	if err != nil {
-		return fmt.Errorf("could not migrate policy2(%d): %w", scid,
+		return fmt.Errorf("could not batch get channels by IDs: %w",
 			err)
 	}
 
-	// Now, fetch the channel and its policies from the SQL DB.
-	row, err := sqlDB.GetChannelBySCIDWithPolicies(
-		ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
-			Scid:    channelIDToBytes(scid),
-			Version: int16(ProtocolV1),
-		},
+	// Sanity check that the same number of channels were returned
+	// as requested.
+	if len(rows) != len(dbChanIDs) {
+		return fmt.Errorf("expected to fetch %d channels, "+
+			"but got %d", len(dbChanIDs), len(rows))
+	}
+
+	// Collect all policy IDs needed for batch data loading.
+	dbPolicyIDs := make([]int64, 0, len(dbChanIDs)*2)
+
+	for _, row := range rows {
+		scid := byteOrder.Uint64(row.GraphChannel.Scid)
+
+		dbPol1, dbPol2, err := extractChannelPolicies(row)
+		if err != nil {
+			return fmt.Errorf("could not extract channel policies"+
+				" for SCID %d: %w", scid, err)
+		}
+		if dbPol1 != nil {
+			dbPolicyIDs = append(dbPolicyIDs, dbPol1.ID)
+		}
+		if dbPol2 != nil {
+			dbPolicyIDs = append(dbPolicyIDs, dbPol2.ID)
+		}
+	}
+
+	// Batch load all channel and policy data (features, extras).
+	batchData, err := batchLoadChannelData(
+		ctx, cfg.QueryCfg, sqlDB, dbChanIDs, dbPolicyIDs,
 	)
 	if err != nil {
-		return fmt.Errorf("could not get channel by SCID(%d): %w", scid,
-			err)
+		return fmt.Errorf("could not batch load channel and policy "+
+			"data: %w", err)
 	}
+
+	// Validate each channel in the batch using pre-loaded data.
+	for _, row := range rows {
+		kvdbChan, ok := batch[row.GraphChannel.ID]
+		if !ok {
+			return fmt.Errorf("channel with ID %d not found "+
+				"in batch", row.GraphChannel.ID)
+		}
+
+		scid := byteOrder.Uint64(row.GraphChannel.Scid)
+
+		err = validateMigratedChannelWithBatchData(
+			cfg, scid, kvdbChan, row, batchData,
+		)
+		if err != nil {
+			return fmt.Errorf("channel %d validation failed "+
+				"after migration: %w", scid, err)
+		}
+	}
+
+	return nil
+}
+
+// validateMigratedChannelWithBatchData validates a single migrated channel
+// using pre-fetched batch data for optimal performance.
+func validateMigratedChannelWithBatchData(cfg *SQLStoreConfig,
+	scid uint64, info *migChanInfo, row sqlc.GetChannelsByIDsRow,
+	batchData *batchChannelData) error {
+
+	dbChanInfo := info.dbInfo
+	channel := info.edge
 
 	// Assert that the DB IDs for the channel and nodes are as expected
 	// given the inserted channel info.
-	err = sqldb.CompareRecords(
+	err := sqldb.CompareRecords(
 		dbChanInfo.channelID, row.GraphChannel.ID, "channel DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node1ID, row.GraphNode.ID, "node1 DB ID",
+		dbChanInfo.node1ID, row.Node1ID, "node1 DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node2ID, row.GraphNode_2.ID, "node2 DB ID",
+		dbChanInfo.node2ID, row.Node2ID, "node2 DB ID",
 	)
 	if err != nil {
 		return err
 	}
 
-	migChan, migPol1, migPol2, err := getAndBuildChanAndPolicies(
-		ctx, cfg, sqlDB, row,
+	// Build node vertices from the row data.
+	node1, node2, err := buildNodeVertices(
+		row.Node1PubKey, row.Node2PubKey,
 	)
 	if err != nil {
-		return fmt.Errorf("could not build migrated channel and "+
+		return err
+	}
+
+	// Build channel info using batch data.
+	migChan, err := buildEdgeInfoWithBatchData(
+		cfg.ChainHash, row.GraphChannel, node1, node2, batchData,
+	)
+	if err != nil {
+		return fmt.Errorf("could not build migrated channel info: %w",
+			err)
+	}
+
+	// Extract channel policies from the row.
+	dbPol1, dbPol2, err := extractChannelPolicies(row)
+	if err != nil {
+		return fmt.Errorf("could not extract channel policies: %w", err)
+	}
+
+	// Build channel policies using batch data.
+	migPol1, migPol2, err := buildChanPoliciesWithBatchData(
+		dbPol1, dbPol2, scid, node1, node2, batchData,
+	)
+	if err != nil {
+		return fmt.Errorf("could not build migrated channel "+
 			"policies: %w", err)
 	}
 
@@ -639,13 +778,13 @@ func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
 		)
 	}
 
-	err = checkPolicy(policy1, migPol1)
+	err = checkPolicy(info.policy1, migPol1)
 	if err != nil {
 		return fmt.Errorf("policy1 mismatch for channel %d: %w", scid,
 			err)
 	}
 
-	err = checkPolicy(policy2, migPol2)
+	err = checkPolicy(info.policy2, migPol2)
 	if err != nil {
 		return fmt.Errorf("policy2 mismatch for channel %d: %w", scid,
 			err)
@@ -776,47 +915,6 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		pruneTipHash)
 
 	return nil
-}
-
-// getAndBuildChanAndPolicies is a helper that builds the channel edge info
-// and policies from the given row returned by the SQL query
-// GetChannelBySCIDWithPolicies.
-func getAndBuildChanAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
-	db SQLQueries,
-	row sqlc.GetChannelBySCIDWithPoliciesRow) (*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
-
-	node1, node2, err := buildNodeVertices(
-		row.GraphNode.PubKey, row.GraphNode_2.PubKey,
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	edge, err := getAndBuildEdgeInfo(
-		ctx, cfg, db, row.GraphChannel, node1, node2,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to build channel "+
-			"info: %w", err)
-	}
-
-	dbPol1, dbPol2, err := extractChannelPolicies(row)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to extract channel "+
-			"policies: %w", err)
-	}
-
-	policy1, policy2, err := getAndBuildChanPolicies(
-		ctx, cfg.QueryCfg, db, dbPol1, dbPol2, edge.ChannelID, node1,
-		node2,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to build channel "+
-			"policies: %w", err)
-	}
-
-	return edge, policy1, policy2, nil
 }
 
 // forEachPruneLogEntry iterates over each prune log entry in the KV

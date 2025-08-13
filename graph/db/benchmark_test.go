@@ -449,10 +449,12 @@ func TestPopulateViaMigration(t *testing.T) {
 	log.SetLevel(btclog.LevelDebug)
 
 	var (
+		cfg     = sqldb.DefaultSQLiteConfig()
 		srcKVDB = kvdbSqlite(t, kvdbSqlitePath, kvdbSqliteFile)
 		dstSQL  = sqlSQLite(t, nativeSQLSqlitePath, nativeSQLSqliteFile)
 	)
 	if testPostgres {
+		cfg = sqldb.DefaultPostgresConfig()
 		srcKVDB = kvdbPostgres(t, kvdbPostgresDNS)
 		dstSQL = sqlPostgres(t, nativeSQLPostgresDNS)
 	}
@@ -462,7 +464,10 @@ func TestPopulateViaMigration(t *testing.T) {
 	err := dstSQL.ExecTx(
 		ctx, sqldb.WriteTxOpt(), func(queries SQLQueries) error {
 			return MigrateGraphToSQL(
-				ctx, srcKVDB, queries, dbTestChain,
+				ctx, &SQLStoreConfig{
+					QueryCfg:  cfg,
+					ChainHash: dbTestChain,
+				}, srcKVDB, queries,
 			)
 		}, func() {},
 	)

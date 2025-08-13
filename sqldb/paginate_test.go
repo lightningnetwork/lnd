@@ -22,7 +22,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems []int
 		)
 
@@ -144,7 +144,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("query function error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -174,7 +174,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("callback error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -307,7 +307,7 @@ func TestSQLSliceQueries(t *testing.T) {
 
 	err := ExecuteBatchQuery(
 		ctx,
-		DefaultQueryConfig(),
+		DefaultSQLiteConfig(),
 		queryParams,
 		func(s string) string {
 			return s

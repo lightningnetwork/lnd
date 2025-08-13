@@ -72,14 +72,6 @@ func (c *QueryConfig) Validate(sqlite bool) error {
 	return nil
 }
 
-// DefaultQueryConfig returns a default configuration for SQL queries.
-func DefaultQueryConfig() *QueryConfig {
-	return &QueryConfig{
-		MaxBatchSize: 250,
-		MaxPageSize:  10000,
-	}
-}
-
 // DefaultSQLiteConfig returns a default configuration for SQL queries to a
 // SQLite backend.
 func DefaultSQLiteConfig() *QueryConfig {

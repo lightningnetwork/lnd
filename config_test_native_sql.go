@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -50,15 +49,23 @@ func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,
 const graphSQLMigration = 9
 
 // getSQLMigration returns a migration function for the given version.
-func getSQLMigration(ctx context.Context, version int,
-	kvBackend kvdb.Backend,
-	chain chainhash.Hash) (func(tx *sqlc.Queries) error, bool) {
+func (d *DefaultDatabaseBuilder) getSQLMigration(ctx context.Context,
+	version int, kvBackend kvdb.Backend) (func(tx *sqlc.Queries) error,
+	bool) {
+
+	cfg := &graphdb.SQLStoreConfig{
+		ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+		QueryCfg:  &d.cfg.DB.Sqlite.QueryConfig,
+	}
+	if d.cfg.DB.Backend == lncfg.PostgresBackend {
+		cfg.QueryCfg = &d.cfg.DB.Postgres.QueryConfig
+	}
 
 	switch version {
 	case graphSQLMigration:
 		return func(tx *sqlc.Queries) error {
 			err := graphdb.MigrateGraphToSQL(
-				ctx, kvBackend, tx, chain,
+				ctx, cfg, kvBackend, tx,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to migrate graph "+

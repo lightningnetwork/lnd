@@ -48,8 +48,7 @@ type PaymentWriter interface {
 // PaymentControl represents the interface to control the payment lifecycle and
 // its database operations.
 type PaymentControl interface {
-	// This method checks that no succeeded payment exist for this payment
-	// hash.
+	// InitPayment initializes a new payment in the database.
 	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.

@@ -47,8 +47,8 @@ type DBMPPayment interface {
 // restarts. Payments are transitioned through various payment states, and the
 // ControlTower interface provides access to driving the state transitions.
 type ControlTower interface {
-	// This method checks that no succeeded payment exist for this payment
-	// hash.
+	// InitPayment initializes a new payment with the given payment hash and
+	// also notifies subscribers of the payment creation.
 	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should

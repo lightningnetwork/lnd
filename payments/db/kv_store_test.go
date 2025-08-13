@@ -2,11 +2,13 @@ package paymentsdb
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -1372,8 +1374,20 @@ func assertPayments(t *testing.T, paymentDB *KVPaymentsDB,
 
 	t.Helper()
 
-	dbPayments, err := paymentDB.FetchPayments()
+	ctx := context.Background()
+
+	// We use the query method to fetch payments from the database which
+	// allows us to use this method db agnostic. We fetch all payments in
+	// one go.
+	queryResp, err := paymentDB.QueryPayments(ctx, Query{
+		IndexOffset:       0,
+		MaxPayments:       math.MaxUint64,
+		Reversed:          false,
+		IncludeIncomplete: true,
+	})
 	require.NoError(t, err, "could not fetch payments from db")
+
+	dbPayments := queryResp.Payments
 
 	// Make sure that the number of fetched payments is the same
 	// as expected.

@@ -48,6 +48,7 @@ type Querier interface {
 	GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error)
 	GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChannelsBySCIDWithPoliciesParams) ([]GetChannelsBySCIDWithPoliciesRow, error)
 	GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDsParams) ([]GraphChannel, error)
+	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphNodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields

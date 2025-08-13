@@ -984,3 +984,8 @@ SELECT EXISTS (
     FROM graph_closed_scids
     WHERE scid = $1
 );
+
+-- name: GetClosedChannelsSCIDs :many
+SELECT scid
+FROM graph_closed_scids
+WHERE scid IN (sqlc.slice('scids')/*SLICE:scids*/);

@@ -67,7 +67,7 @@ func MigrateGraphToSQL(ctx context.Context, cfg *SQLStoreConfig,
 	}
 
 	// 5) Migrate the closed SCID index.
-	err = migrateClosedSCIDIndex(ctx, kvBackend, sqlDB)
+	err = migrateClosedSCIDIndex(ctx, cfg.QueryCfg, kvBackend, sqlDB)
 	if err != nil {
 		return fmt.Errorf("could not migrate closed SCID index: %w",
 			err)
@@ -992,12 +992,11 @@ func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
 }
 
 // migrateClosedSCIDIndex migrates the closed SCID index from the KV backend to
-// the SQL database. It iterates over each closed SCID in the KV store, inserts
-// it into the SQL database, and then verifies that the SCID was inserted
-// correctly by checking if the channel with the given SCID is seen as closed in
-// the SQL database.
-func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+// the SQL database. It collects SCIDs in batches, inserts them individually,
+// and then validates them in batches using GetClosedChannelsSCIDs for better
+// performance.
+func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
 		count uint64
@@ -1008,6 +1007,43 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 			Interval: 10 * time.Second,
 		}
 	)
+
+	batch := make([][]byte, 0, cfg.MaxBatchSize)
+
+	// validateBatch validates a batch of closed SCIDs using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		// Batch fetch all closed SCIDs from the database.
+		dbSCIDs, err := sqlDB.GetClosedChannelsSCIDs(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("could not batch get closed "+
+				"SCIDs: %w", err)
+		}
+
+		// Create set of SCIDs that exist in the database for quick
+		// lookup.
+		dbSCIDSet := make(map[string]struct{})
+		for _, scid := range dbSCIDs {
+			dbSCIDSet[string(scid)] = struct{}{}
+		}
+
+		// Validate each SCID in the batch.
+		for _, expectedSCID := range batch {
+			if _, found := dbSCIDSet[string(expectedSCID)]; !found {
+				return fmt.Errorf("closed SCID %x not found "+
+					"in database", expectedSCID)
+			}
+		}
+
+		// Reset the batch for the next iteration.
+		batch = make([][]byte, 0, cfg.MaxBatchSize)
+
+		return nil
+	}
+
 	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
 		count++
 		chunk++
@@ -1019,17 +1055,16 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 				"with SCID %s: %w", scid, err)
 		}
 
-		// Now, verify that the channel with the given SCID is
-		// seen as closed.
-		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
-		if err != nil {
-			return fmt.Errorf("could not check if channel %s "+
-				"is closed: %w", scid, err)
-		}
+		// Add to validation batch.
+		batch = append(batch, chanIDB)
 
-		if !isClosed {
-			return fmt.Errorf("channel %s should be closed, "+
-				"but is not", scid)
+		// Validate batch when full.
+		if len(batch) >= cfg.MaxBatchSize {
+			err := validateBatch()
+			if err != nil {
+				return fmt.Errorf("batch validation failed: %w",
+					err)
+			}
 		}
 
 		s.Do(func() {
@@ -1049,6 +1084,15 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 	if err != nil {
 		return fmt.Errorf("could not migrate closed SCID index: %w",
 			err)
+	}
+
+	// Validate any remaining SCIDs in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
 	}
 
 	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)

@@ -1602,6 +1602,45 @@ func (q *Queries) GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDs
 	return items, nil
 }
 
+const getClosedChannelsSCIDs = `-- name: GetClosedChannelsSCIDs :many
+SELECT scid
+FROM graph_closed_scids
+WHERE scid IN (/*SLICE:scids*/?)
+`
+
+func (q *Queries) GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error) {
+	query := getClosedChannelsSCIDs
+	var queryParams []interface{}
+	if len(scids) > 0 {
+		for _, v := range scids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scids*/?", makeQueryParams(len(queryParams), len(scids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
 SELECT node_id, type, value
 FROM graph_node_extra_types

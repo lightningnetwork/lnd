@@ -151,6 +151,7 @@ type SQLQueries interface {
 	*/
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
+	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched

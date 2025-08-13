@@ -330,6 +330,7 @@ func assertDBPayments(t *testing.T, paymentDB DB, payments []*payment) {
 	require.Equal(t, payments, p)
 }
 
+// genPreimage generates a random preimage.
 func genPreimage() ([32]byte, error) {
 	var preimage [32]byte
 	if _, err := io.ReadFull(rand.Reader, preimage[:]); err != nil {
@@ -339,6 +340,7 @@ func genPreimage() ([32]byte, error) {
 	return preimage, nil
 }
 
+// genInfo generates a payment creation info, an attempt info and a preimage.
 func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
@@ -378,6 +380,8 @@ func TestDeleteFailedAttempts(t *testing.T) {
 	})
 }
 
+// testDeleteFailedAttempts tests the DeleteFailedAttempts method with the
+// given keepFailedPaymentAttempts flag as argument.
 func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	paymentDB := NewTestDB(
 		t, WithKeepFailedPaymentAttempts(keepFailedPaymentAttempts),

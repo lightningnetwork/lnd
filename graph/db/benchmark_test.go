@@ -431,9 +431,6 @@ func TestPopulateDBs(t *testing.T) {
 // postgres backend instead of the kvdb-sqlite backend.
 //
 // NOTE: this is a helper test and is not run by default.
-//
-// TODO(elle): this test reveals tht there may be an issue with the postgres
-// migration as it is super slow.
 func TestPopulateViaMigration(t *testing.T) {
 	t.Skipf("Skipping local helper test")
 

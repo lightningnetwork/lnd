@@ -1205,13 +1205,13 @@ func (p *KVPaymentsDB) QueryPayments(_ context.Context,
 
 		// Create a paginator which reads from our sequence index bucket
 		// with the parameters provided by the payments query.
-		paginator := newPaginator(
+		paginator := NewPaginator(
 			indexes.ReadCursor(), query.Reversed, query.IndexOffset,
 			query.MaxPayments,
 		)
 
 		// Run a paginated query, adding payments to our response.
-		if err := paginator.query(accumulatePayments); err != nil {
+		if err := paginator.Query(accumulatePayments); err != nil {
 			return err
 		}
 

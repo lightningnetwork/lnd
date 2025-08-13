@@ -16,9 +16,9 @@ type paginator struct {
 	totalItems uint64
 }
 
-// newPaginator returns a struct which can be used to query an indexed bucket
+// NewPaginator returns a struct which can be used to query an indexed bucket
 // in pages.
-func newPaginator(c kvdb.RCursor, reversed bool,
+func NewPaginator(c kvdb.RCursor, reversed bool,
 	indexOffset, totalItems uint64) paginator {
 
 	return paginator{
@@ -105,14 +105,14 @@ func (p paginator) cursorStart() ([]byte, []byte) {
 	return indexKey, indexValue
 }
 
-// query gets the start point for our index offset and iterates through keys
+// Query gets the start point for our index offset and iterates through keys
 // in our index until we reach the total number of items required for the query
 // or we run out of cursor values. This function takes a fetchAndAppend function
 // which is responsible for looking up the entry at that index, adding the entry
 // to its set of return items (if desired) and return a boolean which indicates
 // whether the item was added. This is required to allow the paginator to
 // determine when the response has the maximum number of required items.
-func (p paginator) query(fetchAndAppend func(k, v []byte) (bool, error)) error {
+func (p paginator) Query(fetchAndAppend func(k, v []byte) (bool, error)) error {
 	indexKey, indexValue := p.cursorStart()
 
 	var totalItems int

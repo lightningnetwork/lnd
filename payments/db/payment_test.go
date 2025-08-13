@@ -112,6 +112,8 @@ type payment struct {
 // the payments slice. Each payment will receive one failed HTLC and another
 // HTLC depending on the final status of the payment provided.
 func createTestPayments(t *testing.T, p PaymentDB, payments []*payment) {
+	t.Helper()
+
 	attemptID := uint64(0)
 
 	for i := 0; i < len(payments); i++ {
@@ -193,7 +195,9 @@ func createTestPayments(t *testing.T, p PaymentDB, payments []*payment) {
 
 // assertRouteEquals compares to routes for equality and returns an error if
 // they are not equal.
-func assertRouteEqual(a, b *route.Route) error {
+func assertRouteEqual(t *testing.T, a, b *route.Route) error {
+	t.Helper()
+
 	if !reflect.DeepEqual(a, b) {
 		return fmt.Errorf("HTLCAttemptInfos don't match: %v vs %v",
 			spew.Sdump(a), spew.Sdump(b))
@@ -239,7 +243,7 @@ func assertPaymentInfo(t *testing.T, p PaymentDB, hash lntypes.Hash,
 	}
 
 	htlc := payment.HTLCs[a.AttemptID]
-	if err := assertRouteEqual(&htlc.Route, &a.Route); err != nil {
+	if err := assertRouteEqual(t, &htlc.Route, &a.Route); err != nil {
 		t.Fatal("routes do not match")
 	}
 
@@ -333,7 +337,9 @@ func assertPayments(t *testing.T, paymentDB PaymentDB,
 }
 
 // genPreimage generates a random preimage.
-func genPreimage() ([32]byte, error) {
+func genPreimage(t *testing.T) ([32]byte, error) {
+	t.Helper()
+
 	var preimage [32]byte
 	if _, err := io.ReadFull(rand.Reader, preimage[:]); err != nil {
 		return preimage, err
@@ -346,7 +352,7 @@ func genPreimage() ([32]byte, error) {
 func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
 	lntypes.Preimage, error) {
 
-	preimage, err := genPreimage()
+	preimage, err := genPreimage(t)
 	if err != nil {
 		return nil, nil, preimage, fmt.Errorf("unable to "+
 			"generate preimage: %v", err)
@@ -1460,7 +1466,7 @@ func TestSwitchFail(t *testing.T) {
 			len(payment.HTLCs))
 	}
 
-	err = assertRouteEqual(&payment.HTLCs[0].Route, &attempt.Route)
+	err = assertRouteEqual(t, &payment.HTLCs[0].Route, &attempt.Route)
 	if err != nil {
 		t.Fatalf("unexpected route returned: %v vs %v: %v",
 			spew.Sdump(attempt.Route),

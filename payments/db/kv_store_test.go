@@ -18,9 +18,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKVPaymentsDBDeleteNonInFlight checks that calling DeletePayments only
+// TestKVStoreDeleteNonInFlight checks that calling DeletePayments only
 // deletes payments from the database that are not in-flight.
-func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
+func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	t.Parallel()
 
 	paymentDB := NewKVTestDB(t)
@@ -249,7 +249,7 @@ type htlcStatus struct {
 
 // fetchPaymentIndexEntry gets the payment hash for the sequence number provided
 // from our payment indexes bucket.
-func fetchPaymentIndexEntry(_ *testing.T, p *KVPaymentsDB,
+func fetchPaymentIndexEntry(_ *testing.T, p *KVStore,
 	sequenceNumber uint64) (*lntypes.Hash, error) {
 
 	var hash lntypes.Hash
@@ -287,7 +287,7 @@ func assertPaymentIndex(t *testing.T, p DB, expectedHash lntypes.Hash) {
 	// Only the kv implementation uses the index so we exit early if the
 	// payment db is not a kv implementation. This helps us to reuse the
 	// same test for both implementations.
-	kvPaymentDB, ok := p.(*KVPaymentsDB)
+	kvPaymentDB, ok := p.(*KVStore)
 	if !ok {
 		return
 	}
@@ -307,7 +307,7 @@ func assertPaymentIndex(t *testing.T, p DB, expectedHash lntypes.Hash) {
 func assertNoIndex(t *testing.T, p DB, seqNr uint64) {
 	t.Helper()
 
-	kvPaymentDB, ok := p.(*KVPaymentsDB)
+	kvPaymentDB, ok := p.(*KVStore)
 	if !ok {
 		return
 	}
@@ -929,7 +929,7 @@ func TestQueryPayments(t *testing.T) {
 			paymentDB := NewKVTestDB(t)
 
 			// Initialize the payment database.
-			paymentDB, err := NewKVPaymentsDB(paymentDB.db)
+			paymentDB, err := NewKVStore(paymentDB.db)
 			require.NoError(t, err)
 
 			// Make a preliminary query to make sure it's ok to

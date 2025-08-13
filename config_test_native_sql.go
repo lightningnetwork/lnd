@@ -46,7 +46,7 @@ func (d *DefaultDatabaseBuilder) getGraphStore(baseDB *sqldb.BaseDB,
 
 // graphSQLMigration is the version number for the graph migration
 // that migrates the KV graph to the native SQL schema.
-const graphSQLMigration = 9
+const graphSQLMigration = 10
 
 // getSQLMigration returns a migration function for the given version.
 func (d *DefaultDatabaseBuilder) getSQLMigration(ctx context.Context,

@@ -73,6 +73,11 @@ var (
 			// schema. This is optional and can be disabled by the
 			// user if necessary.
 		},
+		{
+			Name:          "000007_invoice_add_settled_index",
+			Version:       8,
+			SchemaVersion: 7,
+		},
 	}, migrationAdditions...)
 
 	// ErrMigrationMismatch is returned when a migrated record does not

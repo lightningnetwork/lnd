@@ -65,6 +65,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
@@ -335,11 +336,9 @@ type server struct {
 
 	invoicesDB invoices.InvoiceDB
 
-	// kvPaymentsDB is the DB that contains all functions for managing
+	// paymentsDB is the DB that contains all functions for managing
 	// payments.
-	//
-	// TODO(ziggie): Replace with interface.
-	kvPaymentsDB *channeldb.KVPaymentsDB
+	paymentsDB paymentsdb.PaymentDB
 
 	aliasMgr *aliasmgr.Manager
 
@@ -685,7 +684,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
 		invoicesDB:     dbs.InvoiceDB,
-		kvPaymentsDB:   dbs.KVPaymentsDB,
+		paymentsDB:     dbs.PaymentsDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,
@@ -1135,7 +1134,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		PathFindingConfig:   pathFindingConfig,
 	}
 
-	s.controlTower = routing.NewControlTower(dbs.KVPaymentsDB)
+	s.controlTower = routing.NewControlTower(dbs.PaymentsDB)
 
 	strictPruning := cfg.Bitcoin.Node == "neutrino" ||
 		cfg.Routing.StrictZombiePruning

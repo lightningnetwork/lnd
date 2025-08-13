@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/mock"
@@ -116,7 +116,7 @@ func newTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 
 	// Overwrite the collectResultAsync to focus on testing the payment
 	// lifecycle within the goroutine.
-	resultCollector := func(attempt *channeldb.HTLCAttempt) {
+	resultCollector := func(attempt *paymentsdb.HTLCAttempt) {
 		mockers.collectResultsCount++
 	}
 	p.resultCollector = resultCollector
@@ -147,7 +147,7 @@ func setupTestPaymentLifecycle(t *testing.T) (*paymentLifecycle, *mockers) {
 		m.payment, nil,
 	).Once()
 
-	htlcs := []channeldb.HTLCAttempt{}
+	htlcs := []paymentsdb.HTLCAttempt{}
 	m.payment.On("InFlightHTLCs").Return(htlcs).Once()
 
 	return p, m
@@ -258,11 +258,11 @@ func createDummyRoute(t *testing.T, amt lnwire.MilliSatoshi) *route.Route {
 }
 
 func makeSettledAttempt(t *testing.T, total int,
-	preimage lntypes.Preimage) *channeldb.HTLCAttempt {
+	preimage lntypes.Preimage) *paymentsdb.HTLCAttempt {
 
-	a := &channeldb.HTLCAttempt{
+	a := &paymentsdb.HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(t, total),
-		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
+		Settle:          &paymentsdb.HTLCSettleInfo{Preimage: preimage},
 	}
 
 	hash := preimage.Hash()
@@ -271,18 +271,18 @@ func makeSettledAttempt(t *testing.T, total int,
 	return a
 }
 
-func makeFailedAttempt(t *testing.T, total int) *channeldb.HTLCAttempt {
-	return &channeldb.HTLCAttempt{
+func makeFailedAttempt(t *testing.T, total int) *paymentsdb.HTLCAttempt {
+	return &paymentsdb.HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(t, total),
-		Failure: &channeldb.HTLCFailInfo{
-			Reason: channeldb.HTLCFailInternal,
+		Failure: &paymentsdb.HTLCFailInfo{
+			Reason: paymentsdb.HTLCFailInternal,
 		},
 	}
 }
 
-func makeAttemptInfo(t *testing.T, amt int) channeldb.HTLCAttemptInfo {
+func makeAttemptInfo(t *testing.T, amt int) paymentsdb.HTLCAttemptInfo {
 	rt := createDummyRoute(t, lnwire.MilliSatoshi(amt))
-	return channeldb.HTLCAttemptInfo{
+	return paymentsdb.HTLCAttemptInfo{
 		Route: *rt,
 		Hash:  &lntypes.Hash{1, 2, 3},
 	}
@@ -302,7 +302,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	// Mock the control tower's `FailPayment` method.
 	ct := &mockControlTower{}
 	ct.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout).Return(nil)
+		p.identifier, paymentsdb.FailureReasonTimeout).Return(nil)
 
 	// Mount the mocked control tower.
 	p.router.cfg.Control = ct
@@ -323,7 +323,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	// Mock `FailPayment` to return a dummy error.
 	ct = &mockControlTower{}
 	ct.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout).Return(errDummy)
+		p.identifier, paymentsdb.FailureReasonTimeout).Return(errDummy)
 
 	// Mount the mocked control tower.
 	p.router.cfg.Control = ct
@@ -378,7 +378,7 @@ func TestRequestRouteSucceed(t *testing.T) {
 	p.paySession = paySession
 
 	// Create a dummy payment state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		NumAttemptsInFlight: 1,
 		RemainingAmt:        1,
 		FeesPaid:            100,
@@ -415,7 +415,7 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 	p.paySession = paySession
 
 	// Create a dummy payment state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		NumAttemptsInFlight: 1,
 		RemainingAmt:        1,
 		FeesPaid:            100,
@@ -449,7 +449,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 	p, m := newTestPaymentLifecycle(t)
 
 	// Create a dummy payment state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		NumAttemptsInFlight: 1,
 		RemainingAmt:        1,
 		FeesPaid:            100,
@@ -467,7 +467,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 
 	// The payment should be failed with reason no route.
 	m.control.On("FailPayment",
-		p.identifier, channeldb.FailureReasonNoRoute,
+		p.identifier, paymentsdb.FailureReasonNoRoute,
 	).Return(nil).Once()
 
 	result, err := p.requestRoute(ps)
@@ -498,7 +498,7 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 	p.paySession = paySession
 
 	// Create a dummy payment state with zero inflight attempts.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		NumAttemptsInFlight: 0,
 		RemainingAmt:        1,
 		FeesPaid:            100,
@@ -819,14 +819,14 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
 
 	// NOTE: GetStatus is only used to populate the logs which is not
 	// critical, so we loosen the checks on how many times it's been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. make the timeout happens instantly and sleep one millisecond to
 	// make sure it timed out.
@@ -837,7 +837,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 
 	// 4. the payment should be failed with reason timeout.
 	m.control.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout,
+		p.identifier, paymentsdb.FailureReasonTimeout,
 	).Return(nil).Once()
 
 	// 5. decideNextStep now returns stepExit.
@@ -848,7 +848,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 	m.control.On("DeleteFailedAttempts", p.identifier).Return(nil).Once()
 
 	// 7. the payment returns the failed reason.
-	reason := channeldb.FailureReasonTimeout
+	reason := paymentsdb.FailureReasonTimeout
 	m.payment.On("TerminalInfo").Return(nil, &reason)
 
 	// Send the payment and assert it failed with the timeout reason.
@@ -875,7 +875,7 @@ func TestResumePaymentFailOnTimeoutErr(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// Quit the router to return an error.
 	close(p.router.quit)
@@ -910,21 +910,21 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
 
 	// NOTE: GetStatus is only used to populate the logs which is not
 	// critical, so we loosen the checks on how many times it's been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. Cancel the context and skip the FailPayment error to trigger the
 	// context cancellation of the payment.
 	cancel()
 
 	m.control.On(
-		"FailPayment", p.identifier, channeldb.FailureReasonCanceled,
+		"FailPayment", p.identifier, paymentsdb.FailureReasonCanceled,
 	).Return(nil).Once()
 
 	// 4. decideNextStep now returns stepExit.
@@ -935,7 +935,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	m.control.On("DeleteFailedAttempts", p.identifier).Return(nil).Once()
 
 	// 6. We will observe FailureReasonError if the context was cancelled.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.payment.On("TerminalInfo").Return(nil, &reason)
 
 	// Send the payment and assert it failed with the timeout reason.
@@ -963,7 +963,7 @@ func TestResumePaymentFailOnStepErr(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -971,7 +971,7 @@ func TestResumePaymentFailOnStepErr(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. decideNextStep now returns an error.
 	m.payment.On("AllowMoreAttempts").Return(false, errDummy).Once()
@@ -1001,7 +1001,7 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -1009,7 +1009,7 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. decideNextStep now returns stepProceed.
 	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
@@ -1047,7 +1047,7 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -1055,7 +1055,7 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. decideNextStep now returns stepProceed.
 	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
@@ -1107,7 +1107,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -1115,7 +1115,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 3. decideNextStep now returns stepProceed.
 	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
@@ -1161,7 +1161,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.
@@ -1199,7 +1199,7 @@ func TestResumePaymentSuccess(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 1.2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -1207,7 +1207,7 @@ func TestResumePaymentSuccess(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 1.3. decideNextStep now returns stepProceed.
 	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
@@ -1300,7 +1300,7 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 1.2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
+	ps := &paymentsdb.MPPaymentState{
 		RemainingAmt: paymentAmt,
 	}
 	m.payment.On("GetState").Return(ps).Once()
@@ -1308,7 +1308,7 @@ func TestResumePaymentSuccessWithTwoAttempts(t *testing.T) {
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
-	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
+	m.payment.On("GetStatus").Return(paymentsdb.StatusInFlight)
 
 	// 1.3. decideNextStep now returns stepProceed.
 	m.payment.On("AllowMoreAttempts").Return(true, nil).Once()
@@ -1452,7 +1452,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.
@@ -1498,7 +1498,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	// which we'd fail the payment, cancel the shard and fail the attempt.
 	//
 	// `FailPayment` should be called with an internal reason.
-	reason := channeldb.FailureReasonError
+	reason := paymentsdb.FailureReasonError
 	m.control.On("FailPayment", p.identifier, reason).Return(nil).Once()
 
 	// `CancelShard` should be called with the attemptID.
@@ -1833,7 +1833,7 @@ func TestReloadInflightAttemptsLegacy(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
 
 	// 2. calls `InFlightHTLCs` and return the attempt.
-	attempts := []channeldb.HTLCAttempt{*attempt}
+	attempts := []paymentsdb.HTLCAttempt{*attempt}
 	m.payment.On("InFlightHTLCs").Return(attempts).Once()
 
 	// 3. Mock the htlcswitch to return a the result chan.

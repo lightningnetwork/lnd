@@ -71,6 +71,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
@@ -5892,7 +5893,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 			payment,
 		)
 	} else {
-		var attempt *channeldb.HTLCAttempt
+		var attempt *paymentsdb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
 			payIntent.rHash, payIntent.route, nil,
 		)
@@ -7512,7 +7513,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		}
 	}
 
-	query := channeldb.PaymentsQuery{
+	query := paymentsdb.Query{
 		IndexOffset:       req.IndexOffset,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,
@@ -7528,7 +7529,7 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		query.MaxPayments = math.MaxUint64
 	}
 
-	paymentsQuerySlice, err := r.server.kvPaymentsDB.QueryPayments(
+	paymentsQuerySlice, err := r.server.paymentsDB.QueryPayments(
 		ctx, query,
 	)
 	if err != nil {
@@ -7611,7 +7612,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.kvPaymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.paymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -7651,7 +7652,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		"failed_htlcs_only=%v", req.FailedPaymentsOnly,
 		req.FailedHtlcsOnly)
 
-	numDeletedPayments, err := r.server.kvPaymentsDB.DeletePayments(
+	numDeletedPayments, err := r.server.paymentsDB.DeletePayments(
 		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {

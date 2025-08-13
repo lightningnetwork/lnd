@@ -1,4 +1,4 @@
-package channeldb
+package paymentsdb
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -75,7 +74,7 @@ func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 		return StatusInFlight, nil
 	}
 
-	return 0, paymentsdb.ErrPaymentNotInitiated
+	return 0, ErrPaymentNotInitiated
 }
 
 func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (

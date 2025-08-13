@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/aliasmgr"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -927,7 +926,7 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 		return nil, err
 	}
 
-	var attempt *channeldb.HTLCAttempt
+	var attempt *paymentsdb.HTLCAttempt
 
 	// Pass route to the router. This call returns the full htlc attempt
 	// information as it is stored in the database. It is possible that both
@@ -1449,17 +1448,21 @@ func (s *Server) trackPaymentStream(context context.Context,
 				// No more payment updates.
 				return nil
 			}
-			result := item.(*channeldb.MPPayment)
+			result, ok := item.(*paymentsdb.MPPayment)
+			if !ok {
+				return fmt.Errorf("unexpected payment type: %T",
+					item)
+			}
 
 			log.Tracef("Payment %v updated to state %v",
 				result.Info.PaymentIdentifier, result.Status)
 
 			// Skip in-flight updates unless requested.
 			if noInflightUpdates {
-				if result.Status == channeldb.StatusInitiated {
+				if result.Status == paymentsdb.StatusInitiated {
 					continue
 				}
-				if result.Status == channeldb.StatusInFlight {
+				if result.Status == paymentsdb.StatusInFlight {
 					continue
 				}
 			}

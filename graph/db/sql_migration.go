@@ -118,6 +118,8 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	// Keep track of the number of nodes migrated and the number of
 	// nodes skipped due to errors.
 	var (
+		totalTime = time.Now()
+
 		count   uint64
 		skipped uint64
 
@@ -317,8 +319,9 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		}
 	}
 
-	log.Infof("Migrated %d nodes from KV to SQL (skipped %d nodes due to "+
-		"invalid TLV streams)", count, skipped)
+	log.Infof("Migrated %d nodes from KV to SQL in %v (skipped %d nodes "+
+		"due to invalid TLV streams)", count, time.Since(totalTime),
+		skipped)
 
 	return nil
 }
@@ -421,6 +424,8 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		channelCount       uint64
 		skippedChanCount   uint64
 		policyCount        uint64
@@ -588,10 +593,10 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		batch = make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
 	}
 
-	log.Infof("Migrated %d channels and %d policies from KV to SQL "+
+	log.Infof("Migrated %d channels and %d policies from KV to SQL in %s"+
 		"(skipped %d channels and %d policies due to invalid TLV "+
-		"streams)", channelCount, policyCount, skippedChanCount,
-		skippedPolicyCount)
+		"streams)", channelCount, policyCount, time.Since(totalTime),
+		skippedChanCount, skippedPolicyCount)
 
 	return nil
 }
@@ -804,6 +809,8 @@ func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count          uint64
 		pruneTipHeight uint32
 		pruneTipHash   chainhash.Hash
@@ -958,9 +965,9 @@ func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
 			chainhash.Hash(pruneTip.BlockHash))
 	}
 
-	log.Infof("Migrated %d prune log entries from KV to SQL. The prune "+
-		"tip is: height %d, hash: %s", count, pruneTipHeight,
-		pruneTipHash)
+	log.Infof("Migrated %d prune log entries from KV to SQL in %s. "+
+		"The prune tip is: height %d, hash: %s", count,
+		time.Since(totalTime), pruneTipHeight, pruneTipHash)
 
 	return nil
 }
@@ -1001,6 +1008,8 @@ func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count uint64
 
 		t0    = time.Now()
@@ -1097,7 +1106,8 @@ func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		}
 	}
 
-	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)
+	log.Infof("Migrated %d closed SCIDs from KV to SQL in %s", count,
+		time.Since(totalTime))
 
 	return nil
 }
@@ -1115,6 +1125,8 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count uint64
 
 		t0    = time.Now()
@@ -1272,7 +1284,8 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		}
 	}
 
-	log.Infof("Migrated %d zombie channels from KV to SQL", count)
+	log.Infof("Migrated %d zombie channels from KV to SQL in %s", count,
+		time.Since(totalTime))
 
 	return nil
 }

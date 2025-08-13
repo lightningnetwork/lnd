@@ -211,6 +211,9 @@ reader of a payment request.
 
 ## Database
 
+* Add missing [sql index](https://github.com/lightningnetwork/lnd/pull/10155)
+  for settled invoices to increase query speed.
+
 ## Code Health
 
 ## Tooling and Documentation

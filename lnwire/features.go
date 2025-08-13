@@ -446,7 +446,7 @@ func (fv RawFeatureVector) Equals(other *RawFeatureVector) bool {
 	return true
 }
 
-// Merges sets all feature bits in other on the receiver's feature vector.
+// Merge sets all feature bits in other on the receiver's feature vector.
 func (fv *RawFeatureVector) Merge(other *RawFeatureVector) error {
 	for bit := range other.features {
 		err := fv.SafeSet(bit)

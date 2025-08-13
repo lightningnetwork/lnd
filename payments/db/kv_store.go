@@ -127,6 +127,8 @@ type KVPaymentsDB struct {
 	// db is the underlying database implementation.
 	db kvdb.Backend
 
+	// keepFailedPaymentAttempts is a flag that indicates whether we should
+	// keep failed payment attempts in the database.
 	keepFailedPaymentAttempts bool
 }
 
@@ -158,6 +160,8 @@ func NewKVPaymentsDB(db kvdb.Backend,
 	}, nil
 }
 
+// paymentsTopLevelBuckets is a list of top-level buckets that are used for
+// the payments database when using the kv store.
 var paymentsTopLevelBuckets = [][]byte{
 	paymentsRootBucket,
 	paymentsIndexBucket,

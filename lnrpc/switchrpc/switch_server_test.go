@@ -337,3 +337,89 @@ func TestForwardingErrorEncodeDecode(t *testing.T) {
 	require.Equal(t, mockForwardingErr.WireMessage(),
 		decodedError.WireMessage())
 }
+
+// TestBuildErrorDecryptor tests the buildErrorDecryptor function.
+func TestBuildErrorDecryptor(t *testing.T) {
+	t.Parallel()
+
+	validSessionKey := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+		15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+		31, 32}
+	validPubKey := []byte{2, 153, 44, 150, 184, 220, 236, 177, 70, 240, 51,
+		88, 154, 232, 72, 158, 23, 39, 58, 18, 201, 79, 200, 164, 48,
+		103, 208, 148, 27, 216, 153, 206, 77}
+	invalidSessionKey := []byte{1, 2, 3}
+	invalidPubKey := []byte{1, 2, 3}
+
+	tests := []struct {
+		name           string
+		sessionKey     []byte
+		hopPubkeys     [][]byte
+		expectsError   bool
+		expectsDecrypt bool
+	}{
+		{
+			name:           "Valid session key and pubkeys",
+			sessionKey:     validSessionKey,
+			hopPubkeys:     [][]byte{validPubKey, validPubKey},
+			expectsError:   false,
+			expectsDecrypt: true,
+		},
+		{
+			name:           "Empty session key",
+			sessionKey:     []byte{},
+			hopPubkeys:     [][]byte{validPubKey},
+			expectsError:   true,
+			expectsDecrypt: false,
+		},
+		{
+			name:           "Empty pubkeys",
+			sessionKey:     validSessionKey,
+			hopPubkeys:     [][]byte{},
+			expectsError:   true,
+			expectsDecrypt: false,
+		},
+		{
+			name:           "Empty session key and pubkeys",
+			sessionKey:     []byte{},
+			hopPubkeys:     [][]byte{},
+			expectsError:   false,
+			expectsDecrypt: false,
+		},
+		{
+			name:           "Invalid pubkey format",
+			sessionKey:     validSessionKey,
+			hopPubkeys:     [][]byte{invalidPubKey},
+			expectsError:   true,
+			expectsDecrypt: false,
+		},
+		{
+			name:           "Invalid session key format",
+			sessionKey:     invalidSessionKey,
+			hopPubkeys:     [][]byte{validPubKey},
+			expectsError:   true,
+			expectsDecrypt: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decryptor, err := buildErrorDecryptor(
+				tt.sessionKey, tt.hopPubkeys,
+			)
+
+			if tt.expectsError {
+				require.Error(t, err)
+				require.Nil(t, decryptor)
+				return
+			}
+
+			require.NoError(t, err)
+			if tt.expectsDecrypt {
+				require.NotNil(t, decryptor)
+			} else {
+				require.Nil(t, decryptor)
+			}
+		})
+	}
+}

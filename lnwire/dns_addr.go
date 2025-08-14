@@ -1,8 +1,27 @@
 package lnwire
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"strconv"
+)
+
+var (
+	// ErrEmptyDNSHostname is returned when a DNS hostname is empty.
+	ErrEmptyDNSHostname = errors.New("hostname cannot be empty")
+
+	// ErrZeroPort is returned when a DNS port is zero.
+	ErrZeroPort = errors.New("port cannot be zero")
+
+	// ErrHostnameTooLong is returned when a DNS hostname exceeds 255 bytes.
+	ErrHostnameTooLong = errors.New("DNS hostname length exceeds limit " +
+		"of 255 bytes")
+
+	// ErrInvalidHostnameCharacter is returned when a DNS hostname contains
+	// an invalid character.
+	ErrInvalidHostnameCharacter = errors.New("hostname contains invalid " +
+		"character")
 )
 
 // DNSAddress is used to represent a DNS address of a node.
@@ -28,4 +47,42 @@ func (d *DNSAddress) Network() string {
 // String returns the address in the form "hostname:port".
 func (d *DNSAddress) String() string {
 	return net.JoinHostPort(d.Hostname, strconv.Itoa(int(d.Port)))
+}
+
+// ValidateDNSAddr validates that the DNS hostname is not empty and contains
+// only ASCII characters and of max length 255 characters and port is non zero
+// according to BOLT #7.
+func ValidateDNSAddr(hostname string, port uint16) error {
+	if hostname == "" {
+		return ErrEmptyDNSHostname
+	}
+
+	// Per BOLT 7, ports must not be zero for type 5 address (DNS address).
+	if port == 0 {
+		return ErrZeroPort
+	}
+
+	if len(hostname) > 255 {
+		return fmt.Errorf("%w: DNS hostname length %d",
+			ErrHostnameTooLong, len(hostname))
+	}
+
+	// Check if hostname contains only ASCII characters.
+	for i, r := range hostname {
+		// Check for valid hostname characters, excluding ASCII control
+		// characters (0-31), spaces, underscores, delete character
+		// (127), and the special characters (like /, \, @, #, $, etc.).
+		if !((r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '-' ||
+			r == '.') {
+
+			return fmt.Errorf("%w: hostname '%s' contains invalid "+
+				"character '%c' at position %d",
+				ErrInvalidHostnameCharacter, hostname, r, i)
+		}
+	}
+
+	return nil
 }

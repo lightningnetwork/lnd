@@ -142,10 +142,15 @@ func openNativeSQLGraphDB(ht *lntest.HarnessTest,
 		},
 	)
 
+	queryCfg := sqldb.DefaultSQLiteConfig()
+	if hn.Cfg.DBBackend != node.BackendSqlite {
+		queryCfg = sqldb.DefaultPostgresConfig()
+	}
+
 	store, err := graphdb.NewSQLStore(
 		&graphdb.SQLStoreConfig{
 			ChainHash: *ht.Miner().ActiveNet.GenesisHash,
-			QueryCfg:  sqldb.DefaultQueryConfig(),
+			QueryCfg:  queryCfg,
 		},
 		executor,
 	)

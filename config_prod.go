@@ -5,7 +5,6 @@ package lnd
 import (
 	"context"
 
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -30,9 +29,9 @@ func (d *DefaultDatabaseBuilder) getGraphStore(_ *sqldb.BaseDB,
 // NOTE: this is a no-op for the production build since all migrations that are
 // in production will also be in development builds, and so they are not
 // defined behind a build tag.
-func getSQLMigration(ctx context.Context, version int,
-	kvBackend kvdb.Backend,
-	chain chainhash.Hash) (func(tx *sqlc.Queries) error, bool) {
+func (d *DefaultDatabaseBuilder) getSQLMigration(ctx context.Context,
+	version int, kvBackend kvdb.Backend) (func(tx *sqlc.Queries) error,
+	bool) {
 
 	return nil, false
 }

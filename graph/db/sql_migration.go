@@ -26,8 +26,8 @@ import (
 // NOTE: this is currently not called from any code path. It is called via tests
 // only for now and will be called from the main lnd binary once the
 // migration is fully implemented and tested.
-func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries, chain chainhash.Hash) error {
+func MigrateGraphToSQL(ctx context.Context, cfg *SQLStoreConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	log.Infof("Starting migration of the graph store from KV to SQL")
 	t0 := time.Now()
@@ -43,7 +43,8 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	}
 
 	// 1) Migrate all the nodes.
-	if err := migrateNodes(ctx, kvBackend, sqlDB); err != nil {
+	err = migrateNodes(ctx, cfg.QueryCfg, kvBackend, sqlDB)
+	if err != nil {
 		return fmt.Errorf("could not migrate nodes: %w", err)
 	}
 
@@ -53,7 +54,7 @@ func MigrateGraphToSQL(ctx context.Context, kvBackend kvdb.Backend,
 	}
 
 	// 3) Migrate all the channels and channel policies.
-	err = migrateChannelsAndPolicies(ctx, kvBackend, sqlDB, chain)
+	err = migrateChannelsAndPolicies(ctx, cfg, kvBackend, sqlDB)
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",
 			err)
@@ -108,8 +109,8 @@ func checkGraphExists(db kvdb.Backend) (bool, error) {
 // migrateNodes migrates all nodes from the KV backend to the SQL database.
 // This includes doing a sanity check after each migration to ensure that the
 // migrated node matches the original node.
-func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	// Keep track of the number of nodes migrated and the number of
 	// nodes skipped due to errors.
@@ -192,7 +193,7 @@ func migrateNodes(ctx context.Context, kvBackend kvdb.Backend,
 				pub, id, dbNode.ID)
 		}
 
-		migratedNode, err := buildNode(ctx, sqlDB, dbNode)
+		migratedNode, err := buildNode(ctx, cfg, sqlDB, dbNode)
 		if err != nil {
 			return fmt.Errorf("could not build migrated node "+
 				"from dbNode(db id: %d, node pub: %x): %w",
@@ -320,8 +321,8 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 
 // migrateChannelsAndPolicies migrates all channels and their policies
 // from the KV backend to the SQL database.
-func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries, chain chainhash.Hash) error {
+func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
 		channelCount       uint64
@@ -373,9 +374,10 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		// info, but rather rely on the chain hash LND is running with.
 		// So this is our way of ensuring that LND is running on the
 		// correct network at migration time.
-		if channel.ChainHash != chain {
+		if channel.ChainHash != cfg.ChainHash {
 			return fmt.Errorf("channel %d has chain hash %s, "+
-				"expected %s", scid, channel.ChainHash, chain)
+				"expected %s", scid, channel.ChainHash,
+				cfg.ChainHash)
 		}
 
 		// Sanity check to ensure that the channel has valid extra
@@ -413,7 +415,8 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 		chunk++
 
 		err = migrateSingleChannel(
-			ctx, sqlDB, channel, policy1, policy2, migChanPolicy,
+			ctx, cfg, sqlDB, channel, policy1, policy2,
+			migChanPolicy,
 		)
 		if err != nil {
 			return fmt.Errorf("could not migrate channel %d: %w",
@@ -448,8 +451,8 @@ func migrateChannelsAndPolicies(ctx context.Context, kvBackend kvdb.Backend,
 	return nil
 }
 
-func migrateSingleChannel(ctx context.Context, sqlDB SQLQueries,
-	channel *models.ChannelEdgeInfo,
+func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
+	sqlDB SQLQueries, channel *models.ChannelEdgeInfo,
 	policy1, policy2 *models.ChannelEdgePolicy,
 	migChanPolicy func(*models.ChannelEdgePolicy) error) error {
 
@@ -508,7 +511,7 @@ func migrateSingleChannel(ctx context.Context, sqlDB SQLQueries,
 	}
 
 	migChan, migPol1, migPol2, err := getAndBuildChanAndPolicies(
-		ctx, sqlDB, row, channel.ChainHash,
+		ctx, cfg, sqlDB, row,
 	)
 	if err != nil {
 		return fmt.Errorf("could not build migrated channel and "+
@@ -603,6 +606,7 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		hash *chainhash.Hash) error {
 
 		count++
+		chunk++
 
 		// Keep track of the prune tip height and hash.
 		if height > pruneTipHeight {
@@ -702,9 +706,9 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 // getAndBuildChanAndPolicies is a helper that builds the channel edge info
 // and policies from the given row returned by the SQL query
 // GetChannelBySCIDWithPolicies.
-func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
-	row sqlc.GetChannelBySCIDWithPoliciesRow,
-	chain chainhash.Hash) (*models.ChannelEdgeInfo,
+func getAndBuildChanAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
+	db SQLQueries,
+	row sqlc.GetChannelBySCIDWithPoliciesRow) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	node1, node2, err := buildNodeVertices(
@@ -715,7 +719,7 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	edge, err := getAndBuildEdgeInfo(
-		ctx, db, chain, row.GraphChannel, node1, node2,
+		ctx, cfg, db, row.GraphChannel, node1, node2,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to build channel "+
@@ -729,7 +733,8 @@ func getAndBuildChanAndPolicies(ctx context.Context, db SQLQueries,
 	}
 
 	policy1, policy2, err := getAndBuildChanPolicies(
-		ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+		ctx, cfg.QueryCfg, db, dbPol1, dbPol2, edge.ChannelID, node1,
+		node2,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to build channel "+
@@ -786,6 +791,7 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 	)
 	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
 		count++
+		chunk++
 
 		chanIDB := channelIDToBytes(scid.ToUint64())
 		err := sqlDB.InsertClosedChannel(ctx, chanIDB)
@@ -874,6 +880,7 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 		}
 
 		count++
+		chunk++
 
 		err = sqlDB.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{

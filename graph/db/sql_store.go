@@ -255,7 +255,7 @@ func (s *SQLStore) FetchLightningNode(ctx context.Context,
 	var node *models.LightningNode
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
-		_, node, err = getNodeByPubKey(ctx, db, pubKey)
+		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, pubKey)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -483,7 +483,7 @@ func (s *SQLStore) SourceNode(ctx context.Context) (*models.LightningNode,
 				err)
 		}
 
-		_, node, err = getNodeByPubKey(ctx, db, nodePub)
+		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, nodePub)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -779,7 +779,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 				}
 
 				_, otherNode, err := getNodeByPubKey(
-					ctx, db, otherNodePub,
+					ctx, s.cfg.QueryCfg, db, otherNodePub,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+
@@ -1761,8 +1761,7 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
-			node2,
+			ctx, s.cfg, db, row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1776,7 +1775,8 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		}
 
 		policy1, policy2, err = getAndBuildChanPolicies(
-			ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+			ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2, edge.ChannelID,
+			node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel "+
@@ -1833,8 +1833,7 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		}
 
 		edge, err = getAndBuildEdgeInfo(
-			ctx, db, s.cfg.ChainHash, row.GraphChannel, node1,
-			node2,
+			ctx, s.cfg, db, row.GraphChannel, node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel info: %w",
@@ -1848,7 +1847,8 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		}
 
 		policy1, policy2, err = getAndBuildChanPolicies(
-			ctx, db, dbPol1, dbPol2, edge.ChannelID, node1, node2,
+			ctx, s.cfg.QueryCfg, db, dbPol1, dbPol2, edge.ChannelID,
+			node1, node2,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to build channel "+
@@ -3171,7 +3171,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 }
 
 // getNodeByPubKey attempts to look up a target node by its public key.
-func getNodeByPubKey(ctx context.Context, db SQLQueries,
+func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	pubKey route.Vertex) (int64, *models.LightningNode, error) {
 
 	dbNode, err := db.GetNodeByPubKey(
@@ -3186,7 +3186,7 @@ func getNodeByPubKey(ctx context.Context, db SQLQueries,
 		return 0, nil, fmt.Errorf("unable to fetch node: %w", err)
 	}
 
-	node, err := buildNode(ctx, db, dbNode)
+	node, err := buildNode(ctx, cfg, db, dbNode)
 	if err != nil {
 		return 0, nil, fmt.Errorf("unable to build node: %w", err)
 	}
@@ -3210,13 +3210,8 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 // buildNode constructs a LightningNode instance from the given database node
 // record. The node's features, addresses and extra signed fields are also
 // fetched from the database and set on the node.
-func buildNode(ctx context.Context, db SQLQueries,
+func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	dbNode sqlc.GraphNode) (*models.LightningNode, error) {
-
-	// NOTE: buildNode is only used to load the data for a single node, and
-	// so no paged queries will be performed. This means that it's ok to
-	// used pass in default config values here.
-	cfg := sqldb.DefaultQueryConfig()
 
 	data, err := batchLoadNodeData(ctx, cfg, db, []int64{dbNode.ID})
 	if err != nil {
@@ -3945,22 +3940,21 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 // getAndBuildEdgeInfo builds a models.ChannelEdgeInfo instance from the
 // provided dbChanRow and also fetches any other required information
 // to construct the edge info.
-func getAndBuildEdgeInfo(ctx context.Context, db SQLQueries,
-	chain chainhash.Hash, dbChan sqlc.GraphChannel, node1,
+func getAndBuildEdgeInfo(ctx context.Context, cfg *SQLStoreConfig,
+	db SQLQueries, dbChan sqlc.GraphChannel, node1,
 	node2 route.Vertex) (*models.ChannelEdgeInfo, error) {
 
-	// NOTE: getAndBuildEdgeInfo is only used to load the data for a single
-	// edge, and so no paged queries will be performed. This means that
-	// it's ok to used pass in default config values here.
-	cfg := sqldb.DefaultQueryConfig()
-
-	data, err := batchLoadChannelData(ctx, cfg, db, []int64{dbChan.ID}, nil)
+	data, err := batchLoadChannelData(
+		ctx, cfg.QueryCfg, db, []int64{dbChan.ID}, nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to batch load channel data: %w",
 			err)
 	}
 
-	return buildEdgeInfoWithBatchData(chain, dbChan, node1, node2, data)
+	return buildEdgeInfoWithBatchData(
+		cfg.ChainHash, dbChan, node1, node2, data,
+	)
 }
 
 // buildEdgeInfoWithBatchData builds edge info using pre-loaded batch data.
@@ -4059,9 +4053,9 @@ func buildNodeVertices(node1Pub, node2Pub []byte) (route.Vertex,
 // retrieves all the extra info required to build the complete
 // models.ChannelEdgePolicy types. It returns two policies, which may be nil if
 // the provided sqlc.GraphChannelPolicy records are nil.
-func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
-	dbPol1, dbPol2 *sqlc.GraphChannelPolicy, channelID uint64, node1,
-	node2 route.Vertex) (*models.ChannelEdgePolicy,
+func getAndBuildChanPolicies(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, dbPol1, dbPol2 *sqlc.GraphChannelPolicy,
+	channelID uint64, node1, node2 route.Vertex) (*models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
 	if dbPol1 == nil && dbPol2 == nil {
@@ -4075,12 +4069,6 @@ func getAndBuildChanPolicies(ctx context.Context, db SQLQueries,
 	if dbPol2 != nil {
 		policyIDs = append(policyIDs, dbPol2.ID)
 	}
-
-	// NOTE: getAndBuildChanPolicies is only used to load the data for
-	// a maximum of two policies, and so no paged queries will be
-	// performed (unless the page size is one). So it's ok to use
-	// the default config values here.
-	cfg := sqldb.DefaultQueryConfig()
 
 	batchData, err := batchLoadChannelData(ctx, cfg, db, nil, policyIDs)
 	if err != nil {

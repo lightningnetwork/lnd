@@ -333,9 +333,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			require.True(t, ok)
 
 			// Run the migration.
-			err := MigrateGraphToSQL(
-				ctx, kvDB.db, sql.db, testChain,
-			)
+			err := MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
 			require.NoError(t, err)
 
 			// Validate that the two databases are now in sync.
@@ -753,6 +751,18 @@ func TestMigrationWithChannelDB(t *testing.T) {
 	// bbolt channel.db file, set this to "channel.db".
 	const fileName = "channel.sqlite"
 
+	cfg := &SQLStoreConfig{
+		ChainHash: chain,
+		QueryCfg:  sqldb.DefaultPostgresConfig(),
+	}
+
+	// Determine if we are using a SQLite file or a Bolt DB file.
+	var isSqlite bool
+	if strings.HasSuffix(fileName, ".sqlite") {
+		isSqlite = true
+		cfg.QueryCfg = sqldb.DefaultSQLiteConfig()
+	}
+
 	// Set up logging for the test.
 	UseLogger(btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout)))
 
@@ -763,7 +773,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 		err := graphStore.ExecTx(
 			ctx, sqldb.WriteTxOpt(), func(tx SQLQueries) error {
 				return MigrateGraphToSQL(
-					ctx, kvBackend, tx, chain,
+					ctx, cfg, kvBackend, tx,
 				)
 			}, sqldb.NoOpReset,
 		)
@@ -823,12 +833,6 @@ func TestMigrationWithChannelDB(t *testing.T) {
 			name:   "testdata",
 			dbPath: "testdata",
 		},
-	}
-
-	// Determine if we are using a SQLite file or a Bolt DB file.
-	var isSqlite bool
-	if strings.HasSuffix(fileName, ".sqlite") {
-		isSqlite = true
 	}
 
 	for _, test := range tests {
@@ -1125,7 +1129,7 @@ func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 
 	// Run the migration.
 	err := MigrateGraphToSQL(
-		ctx, kvDB.db, sql.db, testChain,
+		ctx, sql.cfg, kvDB.db, sql.db,
 	)
 	require.NoError(t, err)
 
@@ -1312,7 +1316,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	}
 
 	// Run the migration.
-	err := MigrateGraphToSQL(ctx, kvDB.db, sql.db, testChain)
+	err := MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
 	require.NoError(t, err)
 
 	// Create a slice of all nodes.

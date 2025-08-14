@@ -1128,9 +1128,8 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 					continue
 				}
 
-				migFn, ok := getSQLMigration(
+				migFn, ok := d.getSQLMigration(
 					ctx, version, dbs.ChanStateDB.Backend,
-					*d.cfg.ActiveNetParams.GenesisHash,
 				)
 				if !ok {
 					continue

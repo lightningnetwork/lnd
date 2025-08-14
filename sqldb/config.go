@@ -28,6 +28,16 @@ type SqliteConfig struct {
 	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
 	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	QueryConfig    `group:"query" namespace:"query"`
+}
+
+// Validate checks that the SqliteConfig values are valid.
+func (p *SqliteConfig) Validate() error {
+	if err := p.QueryConfig.Validate(true); err != nil {
+		return fmt.Errorf("invalid query config: %w", err)
+	}
+
+	return nil
 }
 
 // PostgresConfig holds the postgres database configuration.
@@ -38,8 +48,10 @@ type PostgresConfig struct {
 	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
 	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	QueryConfig    `group:"query" namespace:"query"`
 }
 
+// Validate checks that the PostgresConfig values are valid.
 func (p *PostgresConfig) Validate() error {
 	if p.Dsn == "" {
 		return fmt.Errorf("DSN is required")
@@ -49,6 +61,10 @@ func (p *PostgresConfig) Validate() error {
 	_, err := url.Parse(p.Dsn)
 	if err != nil {
 		return fmt.Errorf("invalid DSN: %w", err)
+	}
+
+	if err := p.QueryConfig.Validate(false); err != nil {
+		return fmt.Errorf("invalid query config: %w", err)
 	}
 
 	return nil

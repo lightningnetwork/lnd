@@ -115,10 +115,12 @@ func DefaultDB() *DB {
 		},
 		Postgres: &sqldb.PostgresConfig{
 			MaxConnections: defaultPostgresMaxConnections,
+			QueryConfig:    *sqldb.DefaultPostgresConfig(),
 		},
 		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: defaultSqliteMaxConnections,
 			BusyTimeout:    defaultSqliteBusyTimeout,
+			QueryConfig:    *sqldb.DefaultSQLiteConfig(),
 		},
 		UseNativeSQL:           false,
 		SkipNativeSQLMigration: false,
@@ -135,6 +137,9 @@ func (db *DB) Validate() error {
 		}
 
 	case SqliteBackend:
+		if err := db.Sqlite.Validate(); err != nil {
+			return err
+		}
 	case PostgresBackend:
 		if err := db.Postgres.Validate(); err != nil {
 			return err

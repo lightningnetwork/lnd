@@ -22,7 +22,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("empty input returns nil", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems []int
 		)
 
@@ -144,7 +144,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("query function error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -174,7 +174,7 @@ func TestExecuteBatchQuery(t *testing.T) {
 
 	t.Run("callback error is propagated", func(t *testing.T) {
 		var (
-			cfg        = DefaultQueryConfig()
+			cfg        = DefaultSQLiteConfig()
 			inputItems = []int{1, 2, 3}
 		)
 
@@ -281,11 +281,17 @@ func TestSQLSliceQueries(t *testing.T) {
 			break
 		}
 
-		x *= 10
+		// If it succeeded, we expect it to be under the maximum that
+		// we expect for this DB.
+		if isSQLite {
+			require.LessOrEqual(t, x, maxSQLiteBatchSize,
+				"SQLite should not exceed 32766 parameters")
+		} else {
+			require.LessOrEqual(t, x, maxPostgresBatchSize,
+				"Postgres should not exceed 65535 parameters")
+		}
 
-		// Just to make sure that the test doesn't carry on too long,
-		// we assert that we don't exceed a reasonable limit.
-		require.LessOrEqual(t, x, 100000)
+		x *= 10
 	}
 
 	// Now that we have found the limit that the raw query can handle, we
@@ -301,7 +307,7 @@ func TestSQLSliceQueries(t *testing.T) {
 
 	err := ExecuteBatchQuery(
 		ctx,
-		DefaultQueryConfig(),
+		DefaultSQLiteConfig(),
 		queryParams,
 		func(s string) string {
 			return s

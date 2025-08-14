@@ -1037,9 +1037,6 @@ func (b *Builder) AddEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 // Chain View is updated with the new edge if it is successfully added to the
 // graph. We only persist the channel if we currently dont have it at all in
 // our graph.
-//
-// TODO(elle): this currently also does funding-transaction validation. But this
-// should be moved to the gossiper instead.
 func (b *Builder) addEdge(ctx context.Context, edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 

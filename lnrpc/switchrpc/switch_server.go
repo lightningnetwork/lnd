@@ -58,12 +58,21 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/switchrpc.Switch/TrackOnion": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultSwitchMacFilename is the default name of the switch macaroon
 	// that we expect to find via a file handle within the main
 	// configuration file in this package.
 	DefaultSwitchMacFilename = "switch.macaroon"
+
+	// ErrAmbiguousPaymentState is an error returned when a payment attempt
+	// completes in an ambiguous state: no error and no valid preimage.
+	ErrAmbiguousPaymentState = errors.New("payment completed in an " +
+		"ambiguous state: no error and no valid preimage")
 )
 
 // ServerShell is a shell struct holding a reference to the actual sub-server.
@@ -357,6 +366,134 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 	return lnwire.ShortChannelID{},
 		fmt.Errorf("no suitable channel found for amount: %d msat",
 			amount)
+}
+
+// TrackOnion provides callers the means to query whether or not a payment
+// dispatched via SendOnion succeeded or failed.
+//
+// This is a unary, long-polling RPC which blocks until a definitive result
+// (success with preimage or a terminal failure) for the specified attempt ID
+// is available.
+//
+// Clients must be aware of this blocking nature and should typically use a
+// `context` with a timeout. If the RPC call is interrupted (e.g., due to a
+// timeout or network error) before a result is returned, the client is left
+// in an ambiguous state regarding the HTLC's status. In such cases, the
+// client must safely retry the *same* request with the original `paymentHash`
+// and `attemptID`. The server will either return the final result if it has
+// become available or resume waiting.
+//
+// NOTE: It is crucial that clients **do not** interpret an ambiguous error as a
+// definitive failure. Doing so may cause the client to incorrectly mark the
+// attempt as failed and proceed to retry the payment with a new, distinct
+// `attempt_id`, which risks a duplicate payment if the original attempt
+// eventually succeeds.
+func (s *Server) TrackOnion(ctx context.Context,
+	req *TrackOnionRequest) (*TrackOnionResponse, error) {
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid payment_hash=%x: %v", req.PaymentHash, err)
+	}
+
+	log.Debugf("Looking up status of onion attempt_id=%d for payment=%v",
+		req.AttemptId, hash)
+
+	// Attempt to build the error decryptor with the provided session key
+	// and hop public keys.
+	errorDecryptor, err := buildErrorDecryptor(
+		req.SessionKey, req.HopPubkeys,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"error building decryptor: %v", err)
+	}
+
+	if errorDecryptor == nil {
+		log.Debug("Unable to build error decrypter with information " +
+			"provided. Will defer error handling to caller")
+	}
+
+	// Query the switch for the result of the payment attempt via onion.
+	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResult(
+		req.AttemptId, hash, errorDecryptor,
+	)
+	if err != nil {
+		message, code := translateErrorForRPC(err)
+
+		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
+			" payment=%x: %v", req.AttemptId, hash, message)
+
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// The switch knows about this payment, we'll wait for a result to be
+	// available.
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			// This channel is closed when the Switch shuts down.
+			return &TrackOnionResponse{
+				ErrorCode: ErrorCode_SWITCH_EXITING,
+				ErrorMessage: htlcswitch.ErrSwitchExiting.
+					Error(),
+			}, nil
+		}
+
+	case <-ctx.Done():
+		// ctx.Done can be triggered by either client cancellation or a
+		// deadline timeout. Return the canonical gRPC status code.
+		return nil, status.FromContextError(ctx.Err()).Err()
+	}
+
+	// The attempt result arrived so the HTLC is no longer in-flight.
+	if result.Error != nil {
+		message, code := translateErrorForRPC(result.Error)
+
+		log.Errorf("Payment via onion failed for payment=%v: %v",
+			hash, message)
+
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	if len(result.EncryptedError) > 0 {
+		log.Errorf("Payment via onion failed for payment=%v", hash)
+
+		return &TrackOnionResponse{
+			EncryptedError: result.EncryptedError,
+		}, nil
+	}
+
+	// If we have reached this point, we expect a valid preimage for a
+	// successful payment.
+	if result.Preimage == (lntypes.Preimage{}) {
+		log.Errorf("Payment %v completed without a valid preimage or "+
+			"error", hash)
+
+		return &TrackOnionResponse{
+			ErrorCode:    ErrorCode_INTERNAL,
+			ErrorMessage: ErrAmbiguousPaymentState.Error(),
+		}, nil
+	}
+
+	log.Debugf("Received preimage via onion attempt_id=%d for payment=%v",
+		req.AttemptId, hash)
+
+	return &TrackOnionResponse{
+		Preimage: result.Preimage[:],
+	}, nil
 }
 
 // buildErrorDecryptor constructs an error decrypter given a sphinx session

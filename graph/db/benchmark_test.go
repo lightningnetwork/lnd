@@ -788,13 +788,13 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 	// Set the various page sizes we want to test.
 	//
 	// NOTE: these are the sqlite paging testing values.
-	testSizes := []int{20, 50, 100, 150, 500}
+	testSizes := []uint32{20, 50, 100, 150, 500}
 
 	configOption := "MaxPageSize"
 	if testBatching {
 		configOption = "MaxBatchSize"
 
-		testSizes = []int{
+		testSizes = []uint32{
 			50, 100, 150, 200, 250, 300, 350,
 		}
 	}
@@ -806,10 +806,10 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 		// Set the various page sizes we want to test.
 		//
 		// NOTE: these are the postgres paging values.
-		testSizes = []int{5000, 7000, 10000, 12000}
+		testSizes = []uint32{5000, 7000, 10000, 12000}
 
 		if testBatching {
-			testSizes = []int{
+			testSizes = []uint32{
 				1000, 2000, 5000, 7000, 10000,
 			}
 		}
@@ -828,7 +828,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 				if testBatching {
 					cfg.MaxBatchSize = size
 				} else {
-					cfg.MaxPageSize = int32(size)
+					cfg.MaxPageSize = size
 				}
 
 				store := connectNativeSQLite(

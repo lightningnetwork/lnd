@@ -283,7 +283,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		batch[id] = node
 
 		// Validate batch when full.
-		if len(batch) >= cfg.MaxBatchSize {
+		if len(batch) >= int(cfg.MaxBatchSize) {
 			err := validateBatch()
 			if err != nil {
 				return fmt.Errorf("batch validation failed: %w",
@@ -548,7 +548,7 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 			dbInfo:  dbChanInfo,
 		}
 
-		if len(batch) >= cfg.QueryCfg.MaxBatchSize {
+		if len(batch) >= int(cfg.QueryCfg.MaxBatchSize) {
 			// Do batch validation.
 			err := validateMigratedChannels(ctx, cfg, sqlDB, batch)
 			if err != nil {
@@ -902,7 +902,7 @@ func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
 			batch[height] = *hash
 
 			// Validate batch when full.
-			if len(batch) >= cfg.MaxBatchSize {
+			if len(batch) >= int(cfg.MaxBatchSize) {
 				err := validateBatch()
 				if err != nil {
 					return fmt.Errorf("batch "+
@@ -1070,7 +1070,7 @@ func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		batch = append(batch, chanIDB)
 
 		// Validate batch when full.
-		if len(batch) >= cfg.MaxBatchSize {
+		if len(batch) >= int(cfg.MaxBatchSize) {
 			err := validateBatch()
 			if err != nil {
 				return fmt.Errorf("batch validation failed: %w",
@@ -1251,7 +1251,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		}
 
 		// Validate batch when full.
-		if len(batch) >= cfg.MaxBatchSize {
+		if len(batch) >= int(cfg.MaxBatchSize) {
 			err := validateBatch()
 			if err != nil {
 				return fmt.Errorf("batch validation failed: %w",

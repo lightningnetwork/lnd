@@ -105,6 +105,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   disconnected and banned. Setting the value to 0 effectively disables banning
   by setting the threshold to the maximum possible value. 
 
+  * [Add sat_per_kweight option for more fine granular control of transaction 
+  fees](https://github.com/lightningnetwork/lnd/pull/10067). This option is
+  added for the SendCoins, SendMany, OpenChannel, BatchOpenChannel,
+  CloseChannel, and CloseAllChannels commands.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the

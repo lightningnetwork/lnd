@@ -42,11 +42,13 @@ type Querier interface {
 	GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]GraphChannelFeature, error)
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg GetChannelPolicyByChannelAndNodeParams) (GraphChannelPolicy, error)
 	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]GetChannelPolicyExtraTypesBatchRow, error)
+	GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChannelsByIDsRow, error)
 	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]GetChannelsByOutpointsRow, error)
 	GetChannelsByPolicyLastUpdateRange(ctx context.Context, arg GetChannelsByPolicyLastUpdateRangeParams) ([]GetChannelsByPolicyLastUpdateRangeRow, error)
 	GetChannelsBySCIDRange(ctx context.Context, arg GetChannelsBySCIDRangeParams) ([]GetChannelsBySCIDRangeRow, error)
 	GetChannelsBySCIDWithPolicies(ctx context.Context, arg GetChannelsBySCIDWithPoliciesParams) ([]GetChannelsBySCIDWithPoliciesRow, error)
 	GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDsParams) ([]GraphChannel, error)
+	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
 	GetDatabaseVersion(ctx context.Context) (int32, error)
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]GraphNodeExtraType, error)
 	// This method may return more than one invoice if filter using multiple fields
@@ -68,7 +70,9 @@ type Querier interface {
 	GetNodeFeaturesBatch(ctx context.Context, ids []int64) ([]GraphNodeFeature, error)
 	GetNodeFeaturesByPubKey(ctx context.Context, arg GetNodeFeaturesByPubKeyParams) ([]int32, error)
 	GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyParams) (int64, error)
+	GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByLastUpdateRangeParams) ([]GraphNode, error)
+	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
 	GetPruneTip(ctx context.Context) (GraphPruneLog, error)
 	GetPublicV1ChannelsBySCID(ctx context.Context, arg GetPublicV1ChannelsBySCIDParams) ([]GraphChannel, error)
@@ -80,6 +84,7 @@ type Querier interface {
 	// and so the query for V2 may differ.
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 	GetZombieChannel(ctx context.Context, arg GetZombieChannelParams) (GraphZombieChannel, error)
+	GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error

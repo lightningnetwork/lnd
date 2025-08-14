@@ -341,7 +341,7 @@ func TestExecutePaginatedQuery(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		pageSize      int32
+		pageSize      uint32
 		allItems      []testItem
 		initialCursor int64
 		queryError    error
@@ -592,7 +592,7 @@ func TestExecuteCollectAndBatchWithSharedDataQuery(t *testing.T) {
 
 	tests := []struct {
 		name                   string
-		maxPageSize            int32
+		maxPageSize            uint32
 		allRows                []channelRow
 		initialCursor          int64
 		pageQueryError         error

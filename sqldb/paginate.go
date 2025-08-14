@@ -37,11 +37,11 @@ const (
 type QueryConfig struct {
 	// MaxBatchSize is the maximum number of items included in a batch
 	// query IN clauses list.
-	MaxBatchSize int `long:"max-batch-size" description:"The maximum number of items to include in a batch query IN clause. This is used for queries that fetch results based on a list of identifiers."`
+	MaxBatchSize uint32 `long:"max-batch-size" description:"The maximum number of items to include in a batch query IN clause. This is used for queries that fetch results based on a list of identifiers."`
 
 	// MaxPageSize is the maximum number of items returned in a single page
 	// of results. This is used for paginated queries.
-	MaxPageSize int32 `long:"max-page-size" description:"The maximum number of items to return in a single page of results. This is used for paginated queries."`
+	MaxPageSize uint32 `long:"max-page-size" description:"The maximum number of items to return in a single page of results. This is used for paginated queries."`
 }
 
 // Validate checks that the QueryConfig values are valid.
@@ -121,9 +121,9 @@ func ExecuteBatchQuery[I any, T any, R any](ctx context.Context,
 	}
 
 	// Process items in pages.
-	for i := 0; i < len(inputItems); i += cfg.MaxBatchSize {
+	for i := 0; i < len(inputItems); i += int(cfg.MaxBatchSize) {
 		// Calculate the end index for this page.
-		end := i + cfg.MaxBatchSize
+		end := i + int(cfg.MaxBatchSize)
 		if end > len(inputItems) {
 			end = len(inputItems)
 		}
@@ -189,7 +189,7 @@ func ExecutePaginatedQuery[C any, T any](ctx context.Context, cfg *QueryConfig,
 
 	for {
 		// Fetch the next page.
-		items, err := queryFunc(ctx, cursor, cfg.MaxPageSize)
+		items, err := queryFunc(ctx, cursor, int32(cfg.MaxPageSize))
 		if err != nil {
 			return fmt.Errorf("failed to fetch page with "+
 				"cursor %v: %w", cursor, err)
@@ -265,7 +265,7 @@ func ExecuteCollectAndBatchWithSharedDataQuery[C any, T any, I any, D any](
 
 	for {
 		// Step 1: Fetch the next page of items.
-		items, err := pageQueryFunc(ctx, cursor, cfg.MaxPageSize)
+		items, err := pageQueryFunc(ctx, cursor, int32(cfg.MaxPageSize))
 		if err != nil {
 			return fmt.Errorf("failed to fetch page with "+
 				"cursor %v: %w", cursor, err)

@@ -55,6 +55,7 @@ type SQLQueries interface {
 	*/
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
 	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.GraphNode, error)
+	GetNodesByIDs(ctx context.Context, ids []int64) ([]sqlc.GraphNode, error)
 	GetNodeIDByPubKey(ctx context.Context, arg sqlc.GetNodeIDByPubKeyParams) (int64, error)
 	GetNodesByLastUpdateRange(ctx context.Context, arg sqlc.GetNodesByLastUpdateRangeParams) ([]sqlc.GraphNode, error)
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
@@ -97,6 +98,7 @@ type SQLQueries interface {
 	GetChannelsBySCIDRange(ctx context.Context, arg sqlc.GetChannelsBySCIDRangeParams) ([]sqlc.GetChannelsBySCIDRangeRow, error)
 	GetChannelBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelBySCIDWithPoliciesParams) (sqlc.GetChannelBySCIDWithPoliciesRow, error)
 	GetChannelsBySCIDWithPolicies(ctx context.Context, arg sqlc.GetChannelsBySCIDWithPoliciesParams) ([]sqlc.GetChannelsBySCIDWithPoliciesRow, error)
+	GetChannelsByIDs(ctx context.Context, ids []int64) ([]sqlc.GetChannelsByIDsRow, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg sqlc.GetChannelAndNodesBySCIDParams) (sqlc.GetChannelAndNodesBySCIDRow, error)
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	ListChannelsByNodeID(ctx context.Context, arg sqlc.ListChannelsByNodeIDParams) ([]sqlc.ListChannelsByNodeIDRow, error)
@@ -131,6 +133,7 @@ type SQLQueries interface {
 	*/
 	UpsertZombieChannel(ctx context.Context, arg sqlc.UpsertZombieChannelParams) error
 	GetZombieChannel(ctx context.Context, arg sqlc.GetZombieChannelParams) (sqlc.GraphZombieChannel, error)
+	GetZombieChannelsSCIDs(ctx context.Context, arg sqlc.GetZombieChannelsSCIDsParams) ([]sqlc.GraphZombieChannel, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	DeleteZombieChannel(ctx context.Context, arg sqlc.DeleteZombieChannelParams) (sql.Result, error)
 	IsZombieChannel(ctx context.Context, arg sqlc.IsZombieChannelParams) (bool, error)
@@ -140,6 +143,7 @@ type SQLQueries interface {
 	*/
 	GetPruneTip(ctx context.Context) (sqlc.GraphPruneLog, error)
 	GetPruneHashByHeight(ctx context.Context, blockHeight int64) ([]byte, error)
+	GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]sqlc.GraphPruneLog, error)
 	UpsertPruneLogEntry(ctx context.Context, arg sqlc.UpsertPruneLogEntryParams) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg sqlc.DeletePruneLogEntriesInRangeParams) error
 
@@ -148,6 +152,7 @@ type SQLQueries interface {
 	*/
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
+	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -591,14 +596,28 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			alreadyExists = false
 		},
 		Do: func(tx SQLQueries) error {
-			_, err := insertChannel(ctx, tx, edge)
+			chanIDB := channelIDToBytes(edge.ChannelID)
 
-			// Silence ErrEdgeAlreadyExist so that the batch can
-			// succeed, but propagate the error via local state.
-			if errors.Is(err, ErrEdgeAlreadyExist) {
+			// Make sure that the channel doesn't already exist. We
+			// do this explicitly instead of relying on catching a
+			// unique constraint error because relying on SQL to
+			// throw that error would abort the entire batch of
+			// transactions.
+			_, err := tx.GetChannelBySCID(
+				ctx, sqlc.GetChannelBySCIDParams{
+					Scid:    chanIDB,
+					Version: int16(ProtocolV1),
+				},
+			)
+			if err == nil {
 				alreadyExists = true
 				return nil
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to fetch channel: %w",
+					err)
 			}
+
+			_, err = insertChannel(ctx, tx, edge)
 
 			return err
 		},
@@ -3767,24 +3786,6 @@ type dbChanInfo struct {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
 
-	chanIDB := channelIDToBytes(edge.ChannelID)
-
-	// Make sure that the channel doesn't already exist. We do this
-	// explicitly instead of relying on catching a unique constraint error
-	// because relying on SQL to throw that error would abort the entire
-	// batch of transactions.
-	_, err := db.GetChannelBySCID(
-		ctx, sqlc.GetChannelBySCIDParams{
-			Scid:    chanIDB,
-			Version: int16(ProtocolV1),
-		},
-	)
-	if err == nil {
-		return nil, ErrEdgeAlreadyExist
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("unable to fetch channel: %w", err)
-	}
-
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
@@ -3804,7 +3805,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 
 	createParams := sqlc.CreateChannelParams{
 		Version:     int16(ProtocolV1),
-		Scid:        chanIDB,
+		Scid:        channelIDToBytes(edge.ChannelID),
 		NodeID1:     node1DBID,
 		NodeID2:     node2DBID,
 		Outpoint:    edge.ChannelPoint.String(),
@@ -4522,6 +4523,51 @@ func extractChannelPolicies(row any) (*sqlc.GraphChannelPolicy,
 		}
 
 		return policy1, policy2, nil
+
+	case sqlc.GetChannelsByIDsRow:
+		if r.Policy1ID.Valid {
+			policy1 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy1ID.Int64,
+				Version:                 r.Policy1Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy1NodeID.Int64,
+				Timelock:                r.Policy1Timelock.Int32,
+				FeePpm:                  r.Policy1FeePpm.Int64,
+				BaseFeeMsat:             r.Policy1BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy1MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy1MaxHtlcMsat,
+				LastUpdate:              r.Policy1LastUpdate,
+				InboundBaseFeeMsat:      r.Policy1InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy1InboundFeeRateMilliMsat,
+				Disabled:                r.Policy1Disabled,
+				MessageFlags:            r.Policy1MessageFlags,
+				ChannelFlags:            r.Policy1ChannelFlags,
+				Signature:               r.Policy1Signature,
+			}
+		}
+		if r.Policy2ID.Valid {
+			policy2 = &sqlc.GraphChannelPolicy{
+				ID:                      r.Policy2ID.Int64,
+				Version:                 r.Policy2Version.Int16,
+				ChannelID:               r.GraphChannel.ID,
+				NodeID:                  r.Policy2NodeID.Int64,
+				Timelock:                r.Policy2Timelock.Int32,
+				FeePpm:                  r.Policy2FeePpm.Int64,
+				BaseFeeMsat:             r.Policy2BaseFeeMsat.Int64,
+				MinHtlcMsat:             r.Policy2MinHtlcMsat.Int64,
+				MaxHtlcMsat:             r.Policy2MaxHtlcMsat,
+				LastUpdate:              r.Policy2LastUpdate,
+				InboundBaseFeeMsat:      r.Policy2InboundBaseFeeMsat,
+				InboundFeeRateMilliMsat: r.Policy2InboundFeeRateMilliMsat,
+				Disabled:                r.Policy2Disabled,
+				MessageFlags:            r.Policy2MessageFlags,
+				ChannelFlags:            r.Policy2ChannelFlags,
+				Signature:               r.Policy2Signature,
+			}
+		}
+
+		return policy1, policy2, nil
+
 	default:
 		return nil, nil, fmt.Errorf("unexpected row type in "+
 			"extractChannelPolicies: %T", r)

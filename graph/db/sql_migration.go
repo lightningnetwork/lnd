@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"golang.org/x/time/rate"
@@ -61,19 +62,21 @@ func MigrateGraphToSQL(ctx context.Context, cfg *SQLStoreConfig,
 	}
 
 	// 4) Migrate the Prune log.
-	if err := migratePruneLog(ctx, kvBackend, sqlDB); err != nil {
+	err = migratePruneLog(ctx, cfg.QueryCfg, kvBackend, sqlDB)
+	if err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
 	}
 
 	// 5) Migrate the closed SCID index.
-	err = migrateClosedSCIDIndex(ctx, kvBackend, sqlDB)
+	err = migrateClosedSCIDIndex(ctx, cfg.QueryCfg, kvBackend, sqlDB)
 	if err != nil {
 		return fmt.Errorf("could not migrate closed SCID index: %w",
 			err)
 	}
 
 	// 6) Migrate the zombie index.
-	if err := migrateZombieIndex(ctx, kvBackend, sqlDB); err != nil {
+	err = migrateZombieIndex(ctx, cfg.QueryCfg, kvBackend, sqlDB)
+	if err != nil {
 		return fmt.Errorf("could not migrate zombie index: %w", err)
 	}
 
@@ -107,14 +110,16 @@ func checkGraphExists(db kvdb.Backend) (bool, error) {
 }
 
 // migrateNodes migrates all nodes from the KV backend to the SQL database.
-// This includes doing a sanity check after each migration to ensure that the
-// migrated node matches the original node.
+// It collects nodes in batches, inserts them individually, and then validates
+// them in batches.
 func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	// Keep track of the number of nodes migrated and the number of
 	// nodes skipped due to errors.
 	var (
+		totalTime = time.Now()
+
 		count   uint64
 		skipped uint64
 
@@ -124,6 +129,108 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 			Interval: 10 * time.Second,
 		}
 	)
+
+	// batch is a map that holds node objects that have been migrated to
+	// the native SQL store that have yet to be validated. The object's held
+	// by this map were derived from the KVDB store and so when they are
+	// validated, the map index (the SQL store node ID) will be used to
+	// fetch the corresponding node object in the SQL store, and it will
+	// then be compared against the original KVDB node object.
+	batch := make(
+		map[int64]*models.LightningNode, cfg.MaxBatchSize,
+	)
+
+	// validateBatch validates that the batch of nodes in the 'batch' map
+	// have been migrated successfully.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		// Extract DB node IDs.
+		dbIDs := make([]int64, 0, len(batch))
+		for dbID := range batch {
+			dbIDs = append(dbIDs, dbID)
+		}
+
+		// Batch fetch all nodes from the database.
+		dbNodes, err := sqlDB.GetNodesByIDs(ctx, dbIDs)
+		if err != nil {
+			return fmt.Errorf("could not batch fetch nodes: %w",
+				err)
+		}
+
+		// Make sure that the number of nodes fetched matches the number
+		// of nodes in the batch.
+		if len(dbNodes) != len(batch) {
+			return fmt.Errorf("expected to fetch %d nodes, "+
+				"but got %d", len(batch), len(dbNodes))
+		}
+
+		// Now, batch fetch the normalised data for all the nodes in
+		// the batch.
+		batchData, err := batchLoadNodeData(ctx, cfg, sqlDB, dbIDs)
+		if err != nil {
+			return fmt.Errorf("unable to batch load node data: %w",
+				err)
+		}
+
+		for _, dbNode := range dbNodes {
+			// Get the KVDB node info from the batch map.
+			node, ok := batch[dbNode.ID]
+			if !ok {
+				return fmt.Errorf("node with ID %d not found "+
+					"in batch", dbNode.ID)
+			}
+
+			// Build the migrated node from the DB node and the
+			// batch node data.
+			migNode, err := buildNodeWithBatchData(
+				dbNode, batchData,
+			)
+			if err != nil {
+				return fmt.Errorf("could not build migrated "+
+					"node from dbNode(db id: %d, node "+
+					"pub: %x): %w", dbNode.ID,
+					node.PubKeyBytes, err)
+			}
+
+			// Make sure that the node addresses are sorted before
+			// comparing them to ensure that the order of addresses
+			// does not affect the comparison.
+			slices.SortFunc(
+				node.Addresses, func(i, j net.Addr) int {
+					return cmp.Compare(
+						i.String(), j.String(),
+					)
+				},
+			)
+			slices.SortFunc(
+				migNode.Addresses, func(i, j net.Addr) int {
+					return cmp.Compare(
+						i.String(), j.String(),
+					)
+				},
+			)
+
+			err = sqldb.CompareRecords(
+				node, migNode,
+				fmt.Sprintf("node %x", node.PubKeyBytes),
+			)
+			if err != nil {
+				return fmt.Errorf("node mismatch after "+
+					"migration for node %x: %w",
+					node.PubKeyBytes, err)
+			}
+		}
+
+		// Clear the batch map for the next iteration.
+		batch = make(
+			map[int64]*models.LightningNode, cfg.MaxBatchSize,
+		)
+
+		return nil
+	}
 
 	// Loop through each node in the KV store and insert it into the SQL
 	// database.
@@ -172,52 +279,16 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 				err)
 		}
 
-		// Fetch it from the SQL store and compare it against the
-		// original node object to ensure the migration was successful.
-		dbNode, err := sqlDB.GetNodeByPubKey(
-			ctx, sqlc.GetNodeByPubKeyParams{
-				PubKey:  node.PubKeyBytes[:],
-				Version: int16(ProtocolV1),
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("could not get node by pubkey (%x)"+
-				"after migration: %w", pub, err)
-		}
+		// Add to validation batch.
+		batch[id] = node
 
-		// Sanity check: ensure the migrated node ID matches the one we
-		// just inserted.
-		if dbNode.ID != id {
-			return fmt.Errorf("node ID mismatch for node (%x) "+
-				"after migration: expected %d, got %d",
-				pub, id, dbNode.ID)
-		}
-
-		migratedNode, err := buildNode(ctx, cfg, sqlDB, dbNode)
-		if err != nil {
-			return fmt.Errorf("could not build migrated node "+
-				"from dbNode(db id: %d, node pub: %x): %w",
-				dbNode.ID, pub, err)
-		}
-
-		// Make sure that the node addresses are sorted before
-		// comparing them to ensure that the order of addresses does
-		// not affect the comparison.
-		slices.SortFunc(node.Addresses, func(i, j net.Addr) int {
-			return cmp.Compare(i.String(), j.String())
-		})
-		slices.SortFunc(
-			migratedNode.Addresses, func(i, j net.Addr) int {
-				return cmp.Compare(i.String(), j.String())
-			},
-		)
-
-		err = sqldb.CompareRecords(
-			node, migratedNode, fmt.Sprintf("node %x", pub),
-		)
-		if err != nil {
-			return fmt.Errorf("node mismatch after migration "+
-				"for node %x: %w", pub, err)
+		// Validate batch when full.
+		if len(batch) >= int(cfg.MaxBatchSize) {
+			err := validateBatch()
+			if err != nil {
+				return fmt.Errorf("batch validation failed: %w",
+					err)
+			}
 		}
 
 		s.Do(func() {
@@ -239,8 +310,18 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		return fmt.Errorf("could not migrate nodes: %w", err)
 	}
 
-	log.Infof("Migrated %d nodes from KV to SQL (skipped %d nodes due to "+
-		"invalid TLV streams)", count, skipped)
+	// Validate any remaining nodes in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
+	}
+
+	log.Infof("Migrated %d nodes from KV to SQL in %v (skipped %d nodes "+
+		"due to invalid TLV streams)", count, time.Since(totalTime),
+		skipped)
 
 	return nil
 }
@@ -319,12 +400,32 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	return nil
 }
 
+// migChanInfo holds the information about a channel and its policies.
+type migChanInfo struct {
+	// edge is the channel object as read from the KVDB source.
+	edge *models.ChannelEdgeInfo
+
+	// policy1 is the first channel policy for the channel as read from
+	// the KVDB source.
+	policy1 *models.ChannelEdgePolicy
+
+	// policy2 is the second channel policy for the channel as read
+	// from the KVDB source.
+	policy2 *models.ChannelEdgePolicy
+
+	// dbInfo holds location info (in the form of DB IDs) of the channel
+	// and its policies in the native-SQL destination.
+	dbInfo *dbChanInfo
+}
+
 // migrateChannelsAndPolicies migrates all channels and their policies
 // from the KV backend to the SQL database.
 func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		channelCount       uint64
 		skippedChanCount   uint64
 		policyCount        uint64
@@ -358,6 +459,11 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		return nil
 	}
+
+	// batch is used to collect migrated channel info that we will
+	// batch-validate. Each entry is indexed by the DB ID of the channel
+	// in the SQL database.
+	batch := make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
 
 	// Iterate over each channel in the KV store and migrate it and its
 	// policies to the SQL database.
@@ -414,13 +520,46 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		channelCount++
 		chunk++
 
-		err = migrateSingleChannel(
-			ctx, cfg, sqlDB, channel, policy1, policy2,
-			migChanPolicy,
-		)
+		// Migrate the channel info along with its policies.
+		dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
 		if err != nil {
-			return fmt.Errorf("could not migrate channel %d: %w",
+			return fmt.Errorf("could not insert record for "+
+				"channel %d in SQL store: %w", scid, err)
+		}
+
+		// Now, migrate the two channel policies for the channel.
+		err = migChanPolicy(policy1)
+		if err != nil {
+			return fmt.Errorf("could not migrate policy1(%d): %w",
 				scid, err)
+		}
+		err = migChanPolicy(policy2)
+		if err != nil {
+			return fmt.Errorf("could not migrate policy2(%d): %w",
+				scid, err)
+		}
+
+		// Collect the migrated channel info and policies in a batch for
+		// later validation.
+		batch[dbChanInfo.channelID] = &migChanInfo{
+			edge:    channel,
+			policy1: policy1,
+			policy2: policy2,
+			dbInfo:  dbChanInfo,
+		}
+
+		if len(batch) >= int(cfg.QueryCfg.MaxBatchSize) {
+			// Do batch validation.
+			err := validateMigratedChannels(ctx, cfg, sqlDB, batch)
+			if err != nil {
+				return fmt.Errorf("could not validate "+
+					"channel batch: %w", err)
+			}
+
+			batch = make(
+				map[int64]*migChanInfo,
+				cfg.QueryCfg.MaxBatchSize,
+			)
 		}
 
 		s.Do(func() {
@@ -443,78 +582,161 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 			err)
 	}
 
-	log.Infof("Migrated %d channels and %d policies from KV to SQL "+
+	if len(batch) > 0 {
+		// Do a final batch validation for any remaining channels.
+		err := validateMigratedChannels(ctx, cfg, sqlDB, batch)
+		if err != nil {
+			return fmt.Errorf("could not validate final channel "+
+				"batch: %w", err)
+		}
+
+		batch = make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
+	}
+
+	log.Infof("Migrated %d channels and %d policies from KV to SQL in %s"+
 		"(skipped %d channels and %d policies due to invalid TLV "+
-		"streams)", channelCount, policyCount, skippedChanCount,
-		skippedPolicyCount)
+		"streams)", channelCount, policyCount, time.Since(totalTime),
+		skippedChanCount, skippedPolicyCount)
 
 	return nil
 }
 
-func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
-	sqlDB SQLQueries, channel *models.ChannelEdgeInfo,
-	policy1, policy2 *models.ChannelEdgePolicy,
-	migChanPolicy func(*models.ChannelEdgePolicy) error) error {
+// validateMigratedChannels validates the channels in the batch after they have
+// been migrated to the SQL database. It batch fetches all channels by their IDs
+// and compares the migrated channels and their policies with the original ones
+// to ensure they match using batch construction patterns.
+func validateMigratedChannels(ctx context.Context, cfg *SQLStoreConfig,
+	sqlDB SQLQueries, batch map[int64]*migChanInfo) error {
 
-	scid := channel.ChannelID
-
-	// First, migrate the channel info along with its policies.
-	dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
-	if err != nil {
-		return fmt.Errorf("could not insert record for channel %d "+
-			"in SQL store: %w", scid, err)
+	// Convert batch keys (DB IDs) to an int slice for the batch query.
+	dbChanIDs := make([]int64, 0, len(batch))
+	for id := range batch {
+		dbChanIDs = append(dbChanIDs, id)
 	}
 
-	// Now, migrate the two channel policies.
-	err = migChanPolicy(policy1)
+	// Batch fetch all channels with their policies.
+	rows, err := sqlDB.GetChannelsByIDs(ctx, dbChanIDs)
 	if err != nil {
-		return fmt.Errorf("could not migrate policy1(%d): %w", scid,
-			err)
-	}
-	err = migChanPolicy(policy2)
-	if err != nil {
-		return fmt.Errorf("could not migrate policy2(%d): %w", scid,
+		return fmt.Errorf("could not batch get channels by IDs: %w",
 			err)
 	}
 
-	// Now, fetch the channel and its policies from the SQL DB.
-	row, err := sqlDB.GetChannelBySCIDWithPolicies(
-		ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
-			Scid:    channelIDToBytes(scid),
-			Version: int16(ProtocolV1),
-		},
+	// Sanity check that the same number of channels were returned
+	// as requested.
+	if len(rows) != len(dbChanIDs) {
+		return fmt.Errorf("expected to fetch %d channels, "+
+			"but got %d", len(dbChanIDs), len(rows))
+	}
+
+	// Collect all policy IDs needed for batch data loading.
+	dbPolicyIDs := make([]int64, 0, len(dbChanIDs)*2)
+
+	for _, row := range rows {
+		scid := byteOrder.Uint64(row.GraphChannel.Scid)
+
+		dbPol1, dbPol2, err := extractChannelPolicies(row)
+		if err != nil {
+			return fmt.Errorf("could not extract channel policies"+
+				" for SCID %d: %w", scid, err)
+		}
+		if dbPol1 != nil {
+			dbPolicyIDs = append(dbPolicyIDs, dbPol1.ID)
+		}
+		if dbPol2 != nil {
+			dbPolicyIDs = append(dbPolicyIDs, dbPol2.ID)
+		}
+	}
+
+	// Batch load all channel and policy data (features, extras).
+	batchData, err := batchLoadChannelData(
+		ctx, cfg.QueryCfg, sqlDB, dbChanIDs, dbPolicyIDs,
 	)
 	if err != nil {
-		return fmt.Errorf("could not get channel by SCID(%d): %w", scid,
-			err)
+		return fmt.Errorf("could not batch load channel and policy "+
+			"data: %w", err)
 	}
+
+	// Validate each channel in the batch using pre-loaded data.
+	for _, row := range rows {
+		kvdbChan, ok := batch[row.GraphChannel.ID]
+		if !ok {
+			return fmt.Errorf("channel with ID %d not found "+
+				"in batch", row.GraphChannel.ID)
+		}
+
+		scid := byteOrder.Uint64(row.GraphChannel.Scid)
+
+		err = validateMigratedChannelWithBatchData(
+			cfg, scid, kvdbChan, row, batchData,
+		)
+		if err != nil {
+			return fmt.Errorf("channel %d validation failed "+
+				"after migration: %w", scid, err)
+		}
+	}
+
+	return nil
+}
+
+// validateMigratedChannelWithBatchData validates a single migrated channel
+// using pre-fetched batch data for optimal performance.
+func validateMigratedChannelWithBatchData(cfg *SQLStoreConfig,
+	scid uint64, info *migChanInfo, row sqlc.GetChannelsByIDsRow,
+	batchData *batchChannelData) error {
+
+	dbChanInfo := info.dbInfo
+	channel := info.edge
 
 	// Assert that the DB IDs for the channel and nodes are as expected
 	// given the inserted channel info.
-	err = sqldb.CompareRecords(
+	err := sqldb.CompareRecords(
 		dbChanInfo.channelID, row.GraphChannel.ID, "channel DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node1ID, row.GraphNode.ID, "node1 DB ID",
+		dbChanInfo.node1ID, row.Node1ID, "node1 DB ID",
 	)
 	if err != nil {
 		return err
 	}
 	err = sqldb.CompareRecords(
-		dbChanInfo.node2ID, row.GraphNode_2.ID, "node2 DB ID",
+		dbChanInfo.node2ID, row.Node2ID, "node2 DB ID",
 	)
 	if err != nil {
 		return err
 	}
 
-	migChan, migPol1, migPol2, err := getAndBuildChanAndPolicies(
-		ctx, cfg, sqlDB, row,
+	// Build node vertices from the row data.
+	node1, node2, err := buildNodeVertices(
+		row.Node1PubKey, row.Node2PubKey,
 	)
 	if err != nil {
-		return fmt.Errorf("could not build migrated channel and "+
+		return err
+	}
+
+	// Build channel info using batch data.
+	migChan, err := buildEdgeInfoWithBatchData(
+		cfg.ChainHash, row.GraphChannel, node1, node2, batchData,
+	)
+	if err != nil {
+		return fmt.Errorf("could not build migrated channel info: %w",
+			err)
+	}
+
+	// Extract channel policies from the row.
+	dbPol1, dbPol2, err := extractChannelPolicies(row)
+	if err != nil {
+		return fmt.Errorf("could not extract channel policies: %w", err)
+	}
+
+	// Build channel policies using batch data.
+	migPol1, migPol2, err := buildChanPoliciesWithBatchData(
+		dbPol1, dbPol2, scid, node1, node2, batchData,
+	)
+	if err != nil {
+		return fmt.Errorf("could not build migrated channel "+
 			"policies: %w", err)
 	}
 
@@ -564,13 +786,13 @@ func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
 		)
 	}
 
-	err = checkPolicy(policy1, migPol1)
+	err = checkPolicy(info.policy1, migPol1)
 	if err != nil {
 		return fmt.Errorf("policy1 mismatch for channel %d: %w", scid,
 			err)
 	}
 
-	err = checkPolicy(policy2, migPol2)
+	err = checkPolicy(info.policy2, migPol2)
 	if err != nil {
 		return fmt.Errorf("policy2 mismatch for channel %d: %w", scid,
 			err)
@@ -580,14 +802,15 @@ func migrateSingleChannel(ctx context.Context, cfg *SQLStoreConfig,
 }
 
 // migratePruneLog migrates the prune log from the KV backend to the SQL
-// database. It iterates over each prune log entry in the KV store, inserts it
-// into the SQL database, and then verifies that the entry was inserted
-// correctly by fetching it back from the SQL database and comparing it to the
-// original entry.
-func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+// database. It collects entries in batches, inserts them individually, and then
+// validates them in batches using GetPruneEntriesForHeights for better i
+// performance.
+func migratePruneLog(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count          uint64
 		pruneTipHeight uint32
 		pruneTipHash   chainhash.Hash
@@ -599,55 +822,92 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 		}
 	)
 
-	// migrateSinglePruneEntry is a helper function that inserts a single
-	// prune log entry into the SQL database and verifies that it was
-	// inserted correctly.
-	migrateSinglePruneEntry := func(height uint32,
-		hash *chainhash.Hash) error {
+	batch := make(map[uint32]chainhash.Hash, cfg.MaxBatchSize)
 
-		count++
-		chunk++
-
-		// Keep track of the prune tip height and hash.
-		if height > pruneTipHeight {
-			pruneTipHeight = height
-			pruneTipHash = *hash
+	// validateBatch validates a batch of prune entries using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
 
-		err := sqlDB.UpsertPruneLogEntry(
-			ctx, sqlc.UpsertPruneLogEntryParams{
-				BlockHeight: int64(height),
-				BlockHash:   hash[:],
-			},
-		)
+		// Extract heights for the batch query.
+		heights := make([]int64, 0, len(batch))
+		for height := range batch {
+			heights = append(heights, int64(height))
+		}
+
+		// Batch fetch all entries from the database.
+		rows, err := sqlDB.GetPruneEntriesForHeights(ctx, heights)
 		if err != nil {
-			return fmt.Errorf("unable to insert prune log "+
-				"entry for height %d: %w", height, err)
+			return fmt.Errorf("could not batch get prune "+
+				"entries: %w", err)
 		}
 
-		// Now, check that the entry was inserted correctly.
-		migratedHash, err := sqlDB.GetPruneHashByHeight(
-			ctx, int64(height),
-		)
-		if err != nil {
-			return fmt.Errorf("could not get prune hash "+
-				"for height %d: %w", height, err)
+		if len(rows) != len(batch) {
+			return fmt.Errorf("expected to fetch %d prune "+
+				"entries, but got %d", len(batch),
+				len(rows))
 		}
 
-		return sqldb.CompareRecords(
-			hash[:], migratedHash, "prune log entry",
-		)
+		// Validate each entry in the batch.
+		for _, row := range rows {
+			kvdbHash, ok := batch[uint32(row.BlockHeight)]
+			if !ok {
+				return fmt.Errorf("prune entry for height %d "+
+					"not found in batch", row.BlockHeight)
+			}
+
+			err := sqldb.CompareRecords(
+				kvdbHash[:], row.BlockHash,
+				fmt.Sprintf("prune log entry at height %d",
+					row.BlockHash),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Reset the batch map for the next iteration.
+		batch = make(map[uint32]chainhash.Hash, cfg.MaxBatchSize)
+
+		return nil
 	}
 
 	// Iterate over each prune log entry in the KV store and migrate it to
 	// the SQL database.
 	err := forEachPruneLogEntry(
 		kvBackend, func(height uint32, hash *chainhash.Hash) error {
-			err := migrateSinglePruneEntry(height, hash)
+			count++
+			chunk++
+
+			// Keep track of the prune tip height and hash.
+			if height > pruneTipHeight {
+				pruneTipHeight = height
+				pruneTipHash = *hash
+			}
+
+			// Insert the entry (individual inserts for now).
+			err := sqlDB.UpsertPruneLogEntry(
+				ctx, sqlc.UpsertPruneLogEntryParams{
+					BlockHeight: int64(height),
+					BlockHash:   hash[:],
+				},
+			)
 			if err != nil {
-				return fmt.Errorf("could not migrate "+
-					"prune log entry at height %d: %w",
-					height, err)
+				return fmt.Errorf("unable to insert prune log "+
+					"entry for height %d: %w", height, err)
+			}
+
+			// Add to validation batch.
+			batch[height] = *hash
+
+			// Validate batch when full.
+			if len(batch) >= int(cfg.MaxBatchSize) {
+				err := validateBatch()
+				if err != nil {
+					return fmt.Errorf("batch "+
+						"validation failed: %w", err)
+				}
 			}
 
 			s.Do(func() {
@@ -666,6 +926,15 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 	)
 	if err != nil {
 		return fmt.Errorf("could not migrate prune log: %w", err)
+	}
+
+	// Validate any remaining entries in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
 	}
 
 	// Check that the prune tip is set correctly in the SQL
@@ -696,52 +965,11 @@ func migratePruneLog(ctx context.Context, kvBackend kvdb.Backend,
 			chainhash.Hash(pruneTip.BlockHash))
 	}
 
-	log.Infof("Migrated %d prune log entries from KV to SQL. The prune "+
-		"tip is: height %d, hash: %s", count, pruneTipHeight,
-		pruneTipHash)
+	log.Infof("Migrated %d prune log entries from KV to SQL in %s. "+
+		"The prune tip is: height %d, hash: %s", count,
+		time.Since(totalTime), pruneTipHeight, pruneTipHash)
 
 	return nil
-}
-
-// getAndBuildChanAndPolicies is a helper that builds the channel edge info
-// and policies from the given row returned by the SQL query
-// GetChannelBySCIDWithPolicies.
-func getAndBuildChanAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
-	db SQLQueries,
-	row sqlc.GetChannelBySCIDWithPoliciesRow) (*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
-
-	node1, node2, err := buildNodeVertices(
-		row.GraphNode.PubKey, row.GraphNode_2.PubKey,
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	edge, err := getAndBuildEdgeInfo(
-		ctx, cfg, db, row.GraphChannel, node1, node2,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to build channel "+
-			"info: %w", err)
-	}
-
-	dbPol1, dbPol2, err := extractChannelPolicies(row)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to extract channel "+
-			"policies: %w", err)
-	}
-
-	policy1, policy2, err := getAndBuildChanPolicies(
-		ctx, cfg.QueryCfg, db, dbPol1, dbPol2, edge.ChannelID, node1,
-		node2,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to build channel "+
-			"policies: %w", err)
-	}
-
-	return edge, policy1, policy2, nil
 }
 
 // forEachPruneLogEntry iterates over each prune log entry in the KV
@@ -773,14 +1001,15 @@ func forEachPruneLogEntry(db kvdb.Backend, cb func(height uint32,
 }
 
 // migrateClosedSCIDIndex migrates the closed SCID index from the KV backend to
-// the SQL database. It iterates over each closed SCID in the KV store, inserts
-// it into the SQL database, and then verifies that the SCID was inserted
-// correctly by checking if the channel with the given SCID is seen as closed in
-// the SQL database.
-func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+// the SQL database. It collects SCIDs in batches, inserts them individually,
+// and then validates them in batches using GetClosedChannelsSCIDs for better
+// performance.
+func migrateClosedSCIDIndex(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count uint64
 
 		t0    = time.Now()
@@ -789,6 +1018,43 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 			Interval: 10 * time.Second,
 		}
 	)
+
+	batch := make([][]byte, 0, cfg.MaxBatchSize)
+
+	// validateBatch validates a batch of closed SCIDs using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		// Batch fetch all closed SCIDs from the database.
+		dbSCIDs, err := sqlDB.GetClosedChannelsSCIDs(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("could not batch get closed "+
+				"SCIDs: %w", err)
+		}
+
+		// Create set of SCIDs that exist in the database for quick
+		// lookup.
+		dbSCIDSet := make(map[string]struct{})
+		for _, scid := range dbSCIDs {
+			dbSCIDSet[string(scid)] = struct{}{}
+		}
+
+		// Validate each SCID in the batch.
+		for _, expectedSCID := range batch {
+			if _, found := dbSCIDSet[string(expectedSCID)]; !found {
+				return fmt.Errorf("closed SCID %x not found "+
+					"in database", expectedSCID)
+			}
+		}
+
+		// Reset the batch for the next iteration.
+		batch = make([][]byte, 0, cfg.MaxBatchSize)
+
+		return nil
+	}
+
 	migrateSingleClosedSCID := func(scid lnwire.ShortChannelID) error {
 		count++
 		chunk++
@@ -800,17 +1066,16 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 				"with SCID %s: %w", scid, err)
 		}
 
-		// Now, verify that the channel with the given SCID is
-		// seen as closed.
-		isClosed, err := sqlDB.IsClosedChannel(ctx, chanIDB)
-		if err != nil {
-			return fmt.Errorf("could not check if channel %s "+
-				"is closed: %w", scid, err)
-		}
+		// Add to validation batch.
+		batch = append(batch, chanIDB)
 
-		if !isClosed {
-			return fmt.Errorf("channel %s should be closed, "+
-				"but is not", scid)
+		// Validate batch when full.
+		if len(batch) >= int(cfg.MaxBatchSize) {
+			err := validateBatch()
+			if err != nil {
+				return fmt.Errorf("batch validation failed: %w",
+					err)
+			}
 		}
 
 		s.Do(func() {
@@ -832,25 +1097,36 @@ func migrateClosedSCIDIndex(ctx context.Context, kvBackend kvdb.Backend,
 			err)
 	}
 
-	log.Infof("Migrated %d closed SCIDs from KV to SQL", count)
+	// Validate any remaining SCIDs in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
+	}
+
+	log.Infof("Migrated %d closed SCIDs from KV to SQL in %s", count,
+		time.Since(totalTime))
 
 	return nil
 }
 
-// migrateZombieIndex migrates the zombie index from the KV backend to
-// the SQL database. It iterates over each zombie channel in the KV store,
-// inserts it into the SQL database, and then verifies that the channel is
-// indeed marked as a zombie channel in the SQL database.
+// migrateZombieIndex migrates the zombie index from the KV backend to the SQL
+// database. It collects zombie channels in batches, inserts them individually,
+// and validates them in batches.
 //
 // NOTE: before inserting an entry into the zombie index, the function checks
 // if the channel is already marked as closed in the SQL store. If it is,
 // the entry is skipped. This means that the resulting zombie index count in
 // the SQL store may well be less than the count of zombie channels in the KV
 // store.
-func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
-	sqlDB SQLQueries) error {
+func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
+	kvBackend kvdb.Backend, sqlDB SQLQueries) error {
 
 	var (
+		totalTime = time.Now()
+
 		count uint64
 
 		t0    = time.Now()
@@ -859,6 +1135,79 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 			Interval: 10 * time.Second,
 		}
 	)
+
+	type zombieEntry struct {
+		pub1 route.Vertex
+		pub2 route.Vertex
+	}
+
+	batch := make(map[uint64]*zombieEntry, cfg.MaxBatchSize)
+
+	// validateBatch validates a batch of zombie SCIDs using batch query.
+	validateBatch := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+
+		scids := make([][]byte, 0, len(batch))
+		for scid := range batch {
+			scids = append(scids, channelIDToBytes(scid))
+		}
+
+		// Batch fetch all zombie channels from the database.
+		rows, err := sqlDB.GetZombieChannelsSCIDs(
+			ctx, sqlc.GetZombieChannelsSCIDsParams{
+				Version: int16(ProtocolV1),
+				Scids:   scids,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("could not batch get zombie "+
+				"SCIDs: %w", err)
+		}
+
+		// Make sure that the number of rows returned matches
+		// the number of SCIDs we requested.
+		if len(rows) != len(scids) {
+			return fmt.Errorf("expected to fetch %d zombie "+
+				"SCIDs, but got %d", len(scids), len(rows))
+		}
+
+		// Validate each row is in the batch.
+		for _, row := range rows {
+			scid := byteOrder.Uint64(row.Scid)
+
+			kvdbZombie, ok := batch[scid]
+			if !ok {
+				return fmt.Errorf("zombie SCID %x not found "+
+					"in batch", scid)
+			}
+
+			err = sqldb.CompareRecords(
+				kvdbZombie.pub1[:], row.NodeKey1,
+				fmt.Sprintf("zombie pub key 1 (%s) for "+
+					"channel %d", kvdbZombie.pub1, scid),
+			)
+			if err != nil {
+				return err
+			}
+
+			err = sqldb.CompareRecords(
+				kvdbZombie.pub2[:], row.NodeKey2,
+				fmt.Sprintf("zombie pub key 2 (%s) for "+
+					"channel %d", kvdbZombie.pub2, scid),
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Reset the batch for the next iteration.
+		batch = make(map[uint64]*zombieEntry, cfg.MaxBatchSize)
+
+		return nil
+	}
+
 	err := forEachZombieEntry(kvBackend, func(chanID uint64, pubKey1,
 		pubKey2 [33]byte) error {
 
@@ -895,22 +1244,19 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 				"channel %d: %w", chanID, err)
 		}
 
-		// Finally, verify that the channel is indeed marked as a
-		// zombie channel.
-		isZombie, err := sqlDB.IsZombieChannel(
-			ctx, sqlc.IsZombieChannelParams{
-				Version: int16(ProtocolV1),
-				Scid:    chanIDB,
-			},
-		)
-		if err != nil {
-			return fmt.Errorf("could not check if "+
-				"channel %d is zombie: %w", chanID, err)
+		// Add to validation batch only after successful insertion.
+		batch[chanID] = &zombieEntry{
+			pub1: pubKey1,
+			pub2: pubKey2,
 		}
 
-		if !isZombie {
-			return fmt.Errorf("channel %d should be "+
-				"a zombie, but is not", chanID)
+		// Validate batch when full.
+		if len(batch) >= int(cfg.MaxBatchSize) {
+			err := validateBatch()
+			if err != nil {
+				return fmt.Errorf("batch validation failed: %w",
+					err)
+			}
 		}
 
 		s.Do(func() {
@@ -929,7 +1275,17 @@ func migrateZombieIndex(ctx context.Context, kvBackend kvdb.Backend,
 		return fmt.Errorf("could not migrate zombie index: %w", err)
 	}
 
-	log.Infof("Migrated %d zombie channels from KV to SQL", count)
+	// Validate any remaining zombie SCIDs in the batch.
+	if len(batch) > 0 {
+		err := validateBatch()
+		if err != nil {
+			return fmt.Errorf("final batch validation failed: %w",
+				err)
+		}
+	}
+
+	log.Infof("Migrated %d zombie channels from KV to SQL in %s", count,
+		time.Since(totalTime))
 
 	return nil
 }

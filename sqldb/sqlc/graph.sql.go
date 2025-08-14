@@ -873,6 +873,179 @@ func (q *Queries) GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds
 	return items, nil
 }
 
+const getChannelsByIDs = `-- name: GetChannelsByIDs :many
+SELECT
+    c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
+
+    -- Minimal node data.
+    n1.id AS node1_id,
+    n1.pub_key AS node1_pub_key,
+    n2.id AS node2_id,
+    n2.pub_key AS node2_pub_key,
+
+    -- Policy 1
+    cp1.id AS policy1_id,
+    cp1.node_id AS policy1_node_id,
+    cp1.version AS policy1_version,
+    cp1.timelock AS policy1_timelock,
+    cp1.fee_ppm AS policy1_fee_ppm,
+    cp1.base_fee_msat AS policy1_base_fee_msat,
+    cp1.min_htlc_msat AS policy1_min_htlc_msat,
+    cp1.max_htlc_msat AS policy1_max_htlc_msat,
+    cp1.last_update AS policy1_last_update,
+    cp1.disabled AS policy1_disabled,
+    cp1.inbound_base_fee_msat AS policy1_inbound_base_fee_msat,
+    cp1.inbound_fee_rate_milli_msat AS policy1_inbound_fee_rate_milli_msat,
+    cp1.message_flags AS policy1_message_flags,
+    cp1.channel_flags AS policy1_channel_flags,
+    cp1.signature AS policy1_signature,
+
+    -- Policy 2
+    cp2.id AS policy2_id,
+    cp2.node_id AS policy2_node_id,
+    cp2.version AS policy2_version,
+    cp2.timelock AS policy2_timelock,
+    cp2.fee_ppm AS policy2_fee_ppm,
+    cp2.base_fee_msat AS policy2_base_fee_msat,
+    cp2.min_htlc_msat AS policy2_min_htlc_msat,
+    cp2.max_htlc_msat AS policy2_max_htlc_msat,
+    cp2.last_update AS policy2_last_update,
+    cp2.disabled AS policy2_disabled,
+    cp2.inbound_base_fee_msat AS policy2_inbound_base_fee_msat,
+    cp2.inbound_fee_rate_milli_msat AS policy2_inbound_fee_rate_milli_msat,
+    cp2.message_flags AS policy2_message_flags,
+    cp2.channel_flags AS policy2_channel_flags,
+    cp2.signature AS policy2_signature
+
+FROM graph_channels c
+    JOIN graph_nodes n1 ON c.node_id_1 = n1.id
+    JOIN graph_nodes n2 ON c.node_id_2 = n2.id
+    LEFT JOIN graph_channel_policies cp1
+        ON cp1.channel_id = c.id AND cp1.node_id = c.node_id_1 AND cp1.version = c.version
+    LEFT JOIN graph_channel_policies cp2
+        ON cp2.channel_id = c.id AND cp2.node_id = c.node_id_2 AND cp2.version = c.version
+WHERE c.id IN (/*SLICE:ids*/?)
+`
+
+type GetChannelsByIDsRow struct {
+	GraphChannel                   GraphChannel
+	Node1ID                        int64
+	Node1PubKey                    []byte
+	Node2ID                        int64
+	Node2PubKey                    []byte
+	Policy1ID                      sql.NullInt64
+	Policy1NodeID                  sql.NullInt64
+	Policy1Version                 sql.NullInt16
+	Policy1Timelock                sql.NullInt32
+	Policy1FeePpm                  sql.NullInt64
+	Policy1BaseFeeMsat             sql.NullInt64
+	Policy1MinHtlcMsat             sql.NullInt64
+	Policy1MaxHtlcMsat             sql.NullInt64
+	Policy1LastUpdate              sql.NullInt64
+	Policy1Disabled                sql.NullBool
+	Policy1InboundBaseFeeMsat      sql.NullInt64
+	Policy1InboundFeeRateMilliMsat sql.NullInt64
+	Policy1MessageFlags            sql.NullInt16
+	Policy1ChannelFlags            sql.NullInt16
+	Policy1Signature               []byte
+	Policy2ID                      sql.NullInt64
+	Policy2NodeID                  sql.NullInt64
+	Policy2Version                 sql.NullInt16
+	Policy2Timelock                sql.NullInt32
+	Policy2FeePpm                  sql.NullInt64
+	Policy2BaseFeeMsat             sql.NullInt64
+	Policy2MinHtlcMsat             sql.NullInt64
+	Policy2MaxHtlcMsat             sql.NullInt64
+	Policy2LastUpdate              sql.NullInt64
+	Policy2Disabled                sql.NullBool
+	Policy2InboundBaseFeeMsat      sql.NullInt64
+	Policy2InboundFeeRateMilliMsat sql.NullInt64
+	Policy2MessageFlags            sql.NullInt16
+	Policy2ChannelFlags            sql.NullInt16
+	Policy2Signature               []byte
+}
+
+func (q *Queries) GetChannelsByIDs(ctx context.Context, ids []int64) ([]GetChannelsByIDsRow, error) {
+	query := getChannelsByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", makeQueryParams(len(queryParams), len(ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetChannelsByIDsRow
+	for rows.Next() {
+		var i GetChannelsByIDsRow
+		if err := rows.Scan(
+			&i.GraphChannel.ID,
+			&i.GraphChannel.Version,
+			&i.GraphChannel.Scid,
+			&i.GraphChannel.NodeID1,
+			&i.GraphChannel.NodeID2,
+			&i.GraphChannel.Outpoint,
+			&i.GraphChannel.Capacity,
+			&i.GraphChannel.BitcoinKey1,
+			&i.GraphChannel.BitcoinKey2,
+			&i.GraphChannel.Node1Signature,
+			&i.GraphChannel.Node2Signature,
+			&i.GraphChannel.Bitcoin1Signature,
+			&i.GraphChannel.Bitcoin2Signature,
+			&i.Node1ID,
+			&i.Node1PubKey,
+			&i.Node2ID,
+			&i.Node2PubKey,
+			&i.Policy1ID,
+			&i.Policy1NodeID,
+			&i.Policy1Version,
+			&i.Policy1Timelock,
+			&i.Policy1FeePpm,
+			&i.Policy1BaseFeeMsat,
+			&i.Policy1MinHtlcMsat,
+			&i.Policy1MaxHtlcMsat,
+			&i.Policy1LastUpdate,
+			&i.Policy1Disabled,
+			&i.Policy1InboundBaseFeeMsat,
+			&i.Policy1InboundFeeRateMilliMsat,
+			&i.Policy1MessageFlags,
+			&i.Policy1ChannelFlags,
+			&i.Policy1Signature,
+			&i.Policy2ID,
+			&i.Policy2NodeID,
+			&i.Policy2Version,
+			&i.Policy2Timelock,
+			&i.Policy2FeePpm,
+			&i.Policy2BaseFeeMsat,
+			&i.Policy2MinHtlcMsat,
+			&i.Policy2MaxHtlcMsat,
+			&i.Policy2LastUpdate,
+			&i.Policy2Disabled,
+			&i.Policy2InboundBaseFeeMsat,
+			&i.Policy2InboundFeeRateMilliMsat,
+			&i.Policy2MessageFlags,
+			&i.Policy2ChannelFlags,
+			&i.Policy2Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getChannelsByOutpoints = `-- name: GetChannelsByOutpoints :many
 SELECT
     c.id, c.version, c.scid, c.node_id_1, c.node_id_2, c.outpoint, c.capacity, c.bitcoin_key_1, c.bitcoin_key_2, c.node_1_signature, c.node_2_signature, c.bitcoin_1_signature, c.bitcoin_2_signature,
@@ -1429,6 +1602,45 @@ func (q *Queries) GetChannelsBySCIDs(ctx context.Context, arg GetChannelsBySCIDs
 	return items, nil
 }
 
+const getClosedChannelsSCIDs = `-- name: GetClosedChannelsSCIDs :many
+SELECT scid
+FROM graph_closed_scids
+WHERE scid IN (/*SLICE:scids*/?)
+`
+
+func (q *Queries) GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error) {
+	query := getClosedChannelsSCIDs
+	var queryParams []interface{}
+	if len(scids) > 0 {
+		for _, v := range scids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scids*/?", makeQueryParams(len(queryParams), len(scids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items [][]byte
+	for rows.Next() {
+		var scid []byte
+		if err := rows.Scan(&scid); err != nil {
+			return nil, err
+		}
+		items = append(items, scid)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExtraNodeTypes = `-- name: GetExtraNodeTypes :many
 SELECT node_id, type, value
 FROM graph_node_extra_types
@@ -1729,6 +1941,53 @@ func (q *Queries) GetNodeIDByPubKey(ctx context.Context, arg GetNodeIDByPubKeyPa
 	return id, err
 }
 
+const getNodesByIDs = `-- name: GetNodesByIDs :many
+SELECT id, version, pub_key, alias, last_update, color, signature
+FROM graph_nodes
+WHERE id IN (/*SLICE:ids*/?)
+`
+
+func (q *Queries) GetNodesByIDs(ctx context.Context, ids []int64) ([]GraphNode, error) {
+	query := getNodesByIDs
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", makeQueryParams(len(queryParams), len(ids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphNode
+	for rows.Next() {
+		var i GraphNode
+		if err := rows.Scan(
+			&i.ID,
+			&i.Version,
+			&i.PubKey,
+			&i.Alias,
+			&i.LastUpdate,
+			&i.Color,
+			&i.Signature,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getNodesByLastUpdateRange = `-- name: GetNodesByLastUpdateRange :many
 SELECT id, version, pub_key, alias, last_update, color, signature
 FROM graph_nodes
@@ -1759,6 +2018,46 @@ func (q *Queries) GetNodesByLastUpdateRange(ctx context.Context, arg GetNodesByL
 			&i.Color,
 			&i.Signature,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPruneEntriesForHeights = `-- name: GetPruneEntriesForHeights :many
+SELECT block_height, block_hash
+FROM graph_prune_log
+WHERE block_height
+   IN (/*SLICE:heights*/?)
+`
+
+func (q *Queries) GetPruneEntriesForHeights(ctx context.Context, heights []int64) ([]GraphPruneLog, error) {
+	query := getPruneEntriesForHeights
+	var queryParams []interface{}
+	if len(heights) > 0 {
+		for _, v := range heights {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:heights*/?", makeQueryParams(len(queryParams), len(heights)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:heights*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphPruneLog
+	for rows.Next() {
+		var i GraphPruneLog
+		if err := rows.Scan(&i.BlockHeight, &i.BlockHash); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1960,6 +2259,57 @@ func (q *Queries) GetZombieChannel(ctx context.Context, arg GetZombieChannelPara
 		&i.NodeKey2,
 	)
 	return i, err
+}
+
+const getZombieChannelsSCIDs = `-- name: GetZombieChannelsSCIDs :many
+SELECT scid, version, node_key_1, node_key_2
+FROM graph_zombie_channels
+WHERE version = $1
+  AND scid IN (/*SLICE:scids*/?)
+`
+
+type GetZombieChannelsSCIDsParams struct {
+	Version int16
+	Scids   [][]byte
+}
+
+func (q *Queries) GetZombieChannelsSCIDs(ctx context.Context, arg GetZombieChannelsSCIDsParams) ([]GraphZombieChannel, error) {
+	query := getZombieChannelsSCIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.Version)
+	if len(arg.Scids) > 0 {
+		for _, v := range arg.Scids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:scids*/?", makeQueryParams(len(queryParams), len(arg.Scids)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:scids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GraphZombieChannel
+	for rows.Next() {
+		var i GraphZombieChannel
+		if err := rows.Scan(
+			&i.Scid,
+			&i.Version,
+			&i.NodeKey1,
+			&i.NodeKey2,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const highestSCID = `-- name: HighestSCID :one

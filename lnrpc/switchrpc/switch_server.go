@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -55,6 +57,10 @@ var (
 		"/switchrpc.Switch/SendOnion": {{
 			Entity: "offchain",
 			Action: "write",
+		}},
+		"/switchrpc.Switch/TrackOnion": {{
+			Entity: "offchain",
+			Action: "read",
 		}},
 	}
 
@@ -353,6 +359,78 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 	return lnwire.ShortChannelID{},
 		fmt.Errorf("no suitable channel found for amount: %d msat",
 			amount)
+}
+
+// buildErrorDecryptor constructs an error decrypter given a sphinx session
+// key and hop public keys for a payment route.
+func buildErrorDecryptor(sessionKeyBytes []byte,
+	hopPubkeys [][]byte) (htlcswitch.ErrorDecrypter, error) {
+
+	if len(sessionKeyBytes) == 0 || len(hopPubkeys) == 0 {
+		return nil, nil
+	}
+
+	if err := validateSessionKey(sessionKeyBytes); err != nil {
+		return nil, fmt.Errorf("invalid session key: %w", err)
+	}
+
+	// TODO(calvin): Validate that the session key makes a valid private
+	// key? This is untrusted input received via RPC.
+	sessionKey, _ := btcec.PrivKeyFromBytes(sessionKeyBytes)
+
+	pubKeys := make([]*btcec.PublicKey, 0, len(hopPubkeys))
+	for _, keyBytes := range hopPubkeys {
+		pubKey, err := btcec.ParsePubKey(keyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid public key: %w", err)
+		}
+		pubKeys = append(pubKeys, pubKey)
+	}
+
+	// Construct the sphinx circuit needed for error decryption using the
+	// provided session key and hop public keys.
+	circuit := reconstructCircuit(sessionKey, pubKeys)
+
+	// Using the created circuit, initialize the error decrypter so we can
+	// parse+decode any failures incurred by this payment within the
+	// switch.
+	return &htlcswitch.SphinxErrorDecrypter{
+		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
+	}, nil
+}
+
+// validateSessionKey validates the session key to ensure it has the correct
+// length and is within the expected range [1, N-1] for the secp256k1 curve. If
+// the session key is invalid, an error is returned.
+func validateSessionKey(sessionKeyBytes []byte) error {
+	const expectedKeyLength = 32
+
+	// Check length of session key.
+	if len(sessionKeyBytes) != expectedKeyLength {
+		return fmt.Errorf("invalid session key length: got %d, "+
+			"expected %d", len(sessionKeyBytes), expectedKeyLength)
+	}
+
+	// Interpret the key as a big-endian unsigned integer.
+	keyValue := new(big.Int).SetBytes(sessionKeyBytes)
+
+	// Check if the key is in the valid range [1, N-1].
+	if keyValue.Sign() <= 0 || keyValue.Cmp(btcec.S256().N) >= 0 {
+		return fmt.Errorf("session key is out of range")
+	}
+
+	return nil
+}
+
+// reconstructCircuit is a simple helper to assemble a sphinx Circuit from its
+// consituent parts, namely ephemeral session key and hop public keys.
+func reconstructCircuit(sessionKey *btcec.PrivateKey,
+	pubKeys []*btcec.PublicKey) *sphinx.Circuit {
+
+	return &sphinx.Circuit{
+		SessionKey:  sessionKey,
+		PaymentPath: pubKeys,
+	}
 }
 
 // translateErrorForRPC converts an error from the underlying HTLC switch to

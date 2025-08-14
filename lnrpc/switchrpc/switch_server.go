@@ -361,6 +361,120 @@ func (s *Server) findEligibleChannelID(pubKey *btcec.PublicKey,
 			amount)
 }
 
+// TrackOnion provides callers the means to query whether or not a payment
+// dispatched via SendOnion succeeded or failed.
+func (s *Server) TrackOnion(ctx context.Context,
+	req *TrackOnionRequest) (*TrackOnionResponse, error) {
+
+	hash, err := lntypes.MakeHash(req.PaymentHash)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"invalid payment_hash=%x: %v", req.PaymentHash, err)
+	}
+
+	// NOTE: In order to decrypt errors server side we require either the
+	// combination of session key and hop public keys from which we can
+	// construct the shared secrets used to build the onion or,
+	// alternatively, the caller can provide the list of shared secrets used
+	// during onion construction directly if they wish to maintain route
+	// privacy from the server.
+	//
+	// TODO(calvin): If we want to support "oblivious sends", then we'll
+	// need to pass the shared secrets to the sphinx library.
+	if req.SharedSecrets != nil {
+		return nil, status.Errorf(codes.Unimplemented,
+			"unable to process shared secrets")
+	}
+
+	log.Debugf("Looking up status of onion attempt_id=%d for payment=%v",
+		req.AttemptId, hash)
+
+	// Attempt to build the error decryptor with the provided session key
+	// and hop public keys.
+	errorDecryptor, err := buildErrorDecryptor(
+		req.SessionKey, req.HopPubkeys,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument,
+			"error building decryptor: %v", err)
+	}
+
+	if errorDecryptor == nil {
+		log.Debug("Unable to build error decrypter with information " +
+			"provided. Will defer error handling to caller")
+	}
+
+	// Query the switch for the result of the payment attempt via onion.
+	resultChan, err := s.cfg.HtlcDispatcher.GetAttemptResult(
+		req.AttemptId, hash, errorDecryptor,
+	)
+	if err != nil {
+		message, code := translateErrorForRPC(err)
+
+		log.Errorf("GetAttemptResult failed for attempt_id=%d of "+
+			" payment=%v: %v", hash, message)
+
+		// If this is a htlcswitch.ErrPaymentIDNotFound error, we need
+		// to transmit that fact to the client so they can know with
+		// certainty that no HTLC by that attempt ID is in-flight and
+		// that it is safe to retry.
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// The switch knows about this payment, we'll wait for a result to be
+	// available.
+	var (
+		result *htlcswitch.PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		if !ok {
+			// This channel is closed when the Switch shuts down.
+			return &TrackOnionResponse{
+				ErrorCode: ErrorCode_ERROR_CODE_SWITCH_EXITING,
+				ErrorMessage: htlcswitch.ErrSwitchExiting.
+					Error(),
+			}, nil
+		}
+
+	case <-ctx.Done():
+		return nil, status.Error(codes.Canceled,
+			"client context canceled")
+	}
+
+	// The attempt result arrived so the HTLC is no longer in-flight.
+	if result.Error != nil {
+		message, code := translateErrorForRPC(result.Error)
+
+		log.Errorf("Payment via onion failed for payment=%v: %v",
+			hash, message)
+
+		return &TrackOnionResponse{
+			ErrorCode:    code,
+			ErrorMessage: message,
+		}, nil
+	}
+
+	// In case we don't process the error, we'll return the encrypted
+	// error blob for handling by the caller.
+	if result.EncryptedError != nil {
+		log.Errorf("Payment via onion failed for payment=%v", hash)
+
+		return &TrackOnionResponse{
+			EncryptedError: result.EncryptedError,
+		}, nil
+	}
+
+	return &TrackOnionResponse{
+		Preimage: result.Preimage[:],
+	}, nil
+}
+
 // buildErrorDecryptor constructs an error decrypter given a sphinx session
 // key and hop public keys for a payment route.
 func buildErrorDecryptor(sessionKeyBytes []byte,

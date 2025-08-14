@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 	codes "google.golang.org/grpc/codes"
@@ -162,6 +163,141 @@ func TestSendOnion(t *testing.T) {
 			}
 
 			resp, err := server.SendOnion(context.Background(), req)
+
+			// Check for gRPC level errors.
+			if tc.expectedErrCode != codes.OK {
+				require.Error(t, err)
+				s, ok := status.FromError(err)
+				require.True(t, ok)
+				require.Equal(t, tc.expectedErrCode, s.Code())
+				return
+			}
+
+			// If no gRPC error was expected, check the response.
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedResponse, resp)
+		})
+	}
+}
+
+// TestTrackOnion is a unit test that rigorously verifies the behavior of the
+// TrackOnion RPC handler in isolation.
+func TestTrackOnion(t *testing.T) {
+	t.Parallel()
+
+	preimage := lntypes.Preimage{1, 2, 3}
+	preimageBytes := preimage[:]
+
+	// Create a valid request that can be used as a template for tests.
+	makeValidRequest := func() *TrackOnionRequest {
+		return &TrackOnionRequest{
+			PaymentHash: make([]byte, 32),
+			AttemptId:   1,
+		}
+	}
+
+	testCases := []struct {
+		name string
+
+		// setup is a function that modifies the server or request for a
+		// specific test case.
+		setup func(*testing.T, *mockPayer, *TrackOnionRequest)
+
+		// ctx is the context to use for the RPC call.
+		ctx context.Context
+
+		// expectedErrCode is the gRPC error code we expect from the call.
+		expectedErrCode codes.Code
+
+		// expectedResponse is the expected response from the RPC call.
+		expectedResponse *TrackOnionResponse
+	}{
+		{
+			name: "payment success",
+			setup: func(t *testing.T, m *mockPayer,
+				req *TrackOnionRequest) {
+
+				m.getResultResult = &htlcswitch.PaymentResult{
+					Preimage: preimage,
+				}
+			},
+			ctx: context.Background(),
+			expectedResponse: &TrackOnionResponse{
+				Preimage: preimageBytes,
+			},
+		},
+		{
+			name: "payment failed",
+			setup: func(t *testing.T, m *mockPayer,
+				req *TrackOnionRequest) {
+
+				m.getResultResult = &htlcswitch.PaymentResult{
+					Error: errors.New("test error"),
+				}
+			},
+			ctx: context.Background(),
+			expectedResponse: &TrackOnionResponse{
+				ErrorMessage: "test error",
+				ErrorCode:    ErrorCode_ERROR_CODE_INTERNAL,
+			},
+		},
+		{
+			name: "payment not found",
+			setup: func(t *testing.T, m *mockPayer,
+				req *TrackOnionRequest) {
+
+				m.getResultErr = htlcswitch.ErrPaymentIDNotFound
+			},
+			ctx: context.Background(),
+			expectedResponse: &TrackOnionResponse{
+				ErrorMessage: htlcswitch.ErrPaymentIDNotFound.Error(),
+				ErrorCode:    ErrorCode_ERROR_CODE_PAYMENT_ID_NOT_FOUND,
+			},
+		},
+		{
+			name: "invalid payment hash",
+			setup: func(t *testing.T, m *mockPayer,
+				req *TrackOnionRequest) {
+
+				req.PaymentHash = []byte{1, 2, 3}
+			},
+			ctx:             context.Background(),
+			expectedErrCode: codes.InvalidArgument,
+		},
+		{
+			name:  "context canceled",
+			setup: nil, // No setup needed, mock will block.
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			}(),
+			expectedErrCode: codes.Canceled,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mockPayer := &mockPayer{}
+
+			// Create a new server for each test case to ensure
+			// isolation.
+			server, _, err := New(&Config{
+				HtlcDispatcher: mockPayer,
+			})
+			require.NoError(t, err)
+
+			req := makeValidRequest()
+
+			// Apply the test-specific setup.
+			if tc.setup != nil {
+				tc.setup(t, mockPayer, req)
+			}
+
+			resp, err := server.TrackOnion(tc.ctx, req)
 
 			// Check for gRPC level errors.
 			if tc.expectedErrCode != codes.OK {

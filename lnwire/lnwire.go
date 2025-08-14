@@ -44,6 +44,10 @@ const (
 	// v3OnionAddrLen is the length of a version 3 Tor onion service address
 	// (35 bytes decoded onion + 2 bytes port).
 	v3OnionAddrLen = 37
+
+	// dnsAddrOverhead is the fixed overhead for a DNS address: 1 byte for
+	// the hostname length and 2 bytes for the port.
+	dnsAddrOverhead = 3
 )
 
 // PkScript is simple type definition which represents a raw serialized public
@@ -70,6 +74,9 @@ const (
 
 	// v3OnionAddr denotes a version 3 Tor (prop224) onion service address.
 	v3OnionAddr addressType = 4
+
+	// dnsAddr denotes a DNS address.
+	dnsAddr addressType = 5
 )
 
 // WriteElement is a one-stop shop to write the big endian representation of
@@ -344,6 +351,11 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 
 	case *tor.OnionAddr:
 		if err := WriteOnionAddr(w, e); err != nil {
+			return err
+		}
+
+	case *DNSAddress:
+		if err := WriteDNSAddress(w, e); err != nil {
 			return err
 		}
 
@@ -819,6 +831,34 @@ func ReadElement(r io.Reader, element interface{}) error {
 					Port:         port,
 				}
 				addrBytesRead += v3OnionAddrLen
+
+			case dnsAddr:
+				var hostnameLen [1]byte
+				_, err := io.ReadFull(addrBuf, hostnameLen[:])
+				if err != nil {
+					return err
+				}
+
+				hostname := make([]byte, hostnameLen[0])
+				_, err = io.ReadFull(addrBuf, hostname)
+				if err != nil {
+					return err
+				}
+
+				var port [2]byte
+				_, err = io.ReadFull(addrBuf, port[:])
+				if err != nil {
+					return err
+				}
+
+				address = &DNSAddress{
+					Hostname: string(hostname),
+					Port: binary.BigEndian.Uint16(
+						port[:],
+					),
+				}
+				addrBytesRead += dnsAddrOverhead +
+					uint16(len(hostname))
 
 			default:
 				// If we don't understand this address type,

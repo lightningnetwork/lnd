@@ -441,6 +441,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	for _, addr := range extraAddrs {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
+	lndArgs = append(lndArgs, "--external-dns-address="+"example.com")
 	dave := ht.NewNode("Dave", lndArgs)
 
 	// assertNodeAnn is a helper closure that checks a given node update
@@ -471,6 +472,21 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 	// Get dave default information so we can compare it lately with the
 	// broadcast updates.
 	resp := dave.RPC.GetInfo()
+
+	// Assert that the URIs contain example.com as configured via
+	// --external-dns-address.
+	foundDNSAddress := false
+	for _, uri := range resp.GetUris() {
+		if strings.Contains(uri, "example.com") {
+			foundDNSAddress = true
+			break
+		}
+	}
+	require.True(
+		ht, foundDNSAddress,
+		"example.com should be present in node URIs",
+	)
+
 	defaultAddrs := make([]*lnrpc.NodeAddress, 0, len(resp.Uris))
 	for _, uri := range resp.GetUris() {
 		values := strings.Split(uri, "@")

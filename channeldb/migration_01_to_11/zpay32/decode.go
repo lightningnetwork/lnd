@@ -384,54 +384,39 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 		return nil, fmt.Errorf("empty fallback address field")
 	}
 
-	var addr btcutil.Address
-
 	version := data[0]
-	switch version {
-	case 0:
-		witness, err := bech32.ConvertBits(data[1:], 5, 8, false)
-		if err != nil {
-			return nil, err
-		}
-
-		switch len(witness) {
-		case 20:
-			addr, err = btcutil.NewAddressWitnessPubKeyHash(witness, net)
-		case 32:
-			addr, err = btcutil.NewAddressWitnessScriptHash(witness, net)
-		default:
-			return nil, fmt.Errorf("unknown witness program length %d",
-				len(witness))
-		}
-
-		if err != nil {
-			return nil, err
-		}
-	case 17:
-		pubKeyHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
-		if err != nil {
-			return nil, err
-		}
-
-		addr, err = btcutil.NewAddressPubKeyHash(pubKeyHash, net)
-		if err != nil {
-			return nil, err
-		}
-	case 18:
-		scriptHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
-		if err != nil {
-			return nil, err
-		}
-
-		addr, err = btcutil.NewAddressScriptHashFromHash(scriptHash, net)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		// Ignore unknown version.
+	payload, err := bech32.ConvertBits(data[1:], 5, 8, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert bits: %w", err)
 	}
 
-	return addr, nil
+	switch version {
+	case 0:
+		switch len(payload) {
+		case 20:
+			return btcutil.NewAddressWitnessPubKeyHash(payload, net)
+
+		case 32:
+			return btcutil.NewAddressWitnessScriptHash(payload, net)
+
+		default:
+			return nil, fmt.Errorf("unknown witness program "+
+				"length %d", len(payload))
+		}
+
+	case 1:
+		return btcutil.NewAddressTaproot(payload, net)
+
+	case 17:
+		return btcutil.NewAddressPubKeyHash(payload, net)
+
+	case 18:
+		return btcutil.NewAddressScriptHashFromHash(payload, net)
+
+	default:
+		// Ignore unknown version.
+		return nil, nil
+	}
 }
 
 // parseRouteHint converts the data (encoded in base32) into an array containing

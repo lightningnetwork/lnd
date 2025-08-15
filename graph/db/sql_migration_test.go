@@ -1273,6 +1273,8 @@ func TestMigrateGraphToSQLRapid(t *testing.T) {
 // SQL store, generates random nodes and channels, populates the KV store,
 // runs the migration, and asserts that the SQL store contains the expected
 // state.
+//
+// The migration is run twice in order to test idempotency and retry-safety.
 func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	dbFixture *sqldb.TestPgFixture, maxNumNodes, maxNumChannels int) {
 
@@ -1419,6 +1421,15 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	}
 
 	// Validate that the sql database has the correct state.
+	assertResultState(t, sql, dbState{
+		nodes: nodesSlice,
+		chans: chanSetForState,
+	})
+
+	// The migration is expected to be idempotent and retry-safe. So running
+	// it again should yield the same result.
+	err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
+	require.NoError(t, err)
 	assertResultState(t, sql, dbState{
 		nodes: nodesSlice,
 		chans: chanSetForState,

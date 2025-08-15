@@ -554,16 +554,56 @@ func parseAddr(address string, netCfg tor.Net) (net.Addr, error) {
 		port = portNum
 	}
 
+	// Handle the Onion address type.
 	if tor.IsOnionHost(host) {
 		return &tor.OnionAddr{OnionService: host, Port: port}, nil
 	}
 
-	// If the host is part of a TCP address, we'll use the network
-	// specific ResolveTCPAddr function in order to resolve these
-	// addresses over Tor in order to prevent leaking your real IP
-	// address.
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	return netCfg.ResolveTCPAddr("tcp", hostPort)
+	// For loopback or IP addresses: Resolve them through Tor or other
+	// proxies, preventing IP leakage.
+	if lncfg.IsLoopback(host) || isIP(host) {
+		hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+		return netCfg.ResolveTCPAddr("tcp", hostPort)
+	}
+
+	// Handle the DNS address type.
+	addr := &lnwire.DNSAddress{
+		Hostname: host,
+		Port:     uint16(port),
+	}
+
+	// Check if that DNS address resolve to any TCP addresses.
+	if _, err = netCfg.ResolveTCPAddr(
+		addr.Network(), addr.String(),
+	); err != nil {
+		return nil, err
+	}
+
+	return addr, nil
+}
+
+// isIP checks if the provided host is an IP address (IPv4 or IPv6).
+func isIP(host string) bool {
+	// Try parsing the host as an IP address.
+	ip := net.ParseIP(host)
+	return ip != nil
+}
+
+// parseDNSAddr parses a raw DNS address and assert it of type DNSAddress.
+func parseDNSAddr(rawAddr string, netCfg tor.Net) (*lnwire.DNSAddress, error) {
+	addr, err := parseAddr(rawAddr, netCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the parsed address is a DNS address.
+	dnsAddr, ok := addr.(*lnwire.DNSAddress)
+	if !ok {
+		return nil, fmt.Errorf("expected DNS hostname address, got "+
+			"%T", addr)
+	}
+
+	return dnsAddr, nil
 }
 
 // noiseDial is a factory function which creates a connmgr compliant dialing
@@ -937,8 +977,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
+	addrsLen := len(externalIPs)
+	if cfg.ExternalDNSAddress != nil {
+		addrsLen++
+	}
+
+	selfAddrs := make([]net.Addr, 0, addrsLen)
 	selfAddrs = append(selfAddrs, externalIPs...)
+
+	if cfg.ExternalDNSAddress != nil {
+		selfAddrs = append(selfAddrs, cfg.ExternalDNSAddress)
+	}
 
 	// We'll now reconstruct a node announcement based on our current
 	// configuration so we can send it out as a sort of heart beat within

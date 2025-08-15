@@ -336,26 +336,28 @@ type Config struct {
 	// loadConfig function. We need to expose the 'raw' strings so the
 	// command line library can access them.
 	// Only the parsed net.Addrs should be used!
-	RawRPCListeners   []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
-	RawRESTListeners  []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
-	RawListeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	RawExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
-	ExternalHosts     []string `long:"externalhosts" description:"Add a hostname:port that should be periodically resolved to announce IPs for. If a port is not specified, the default (9735) will be used."`
-	RPCListeners      []net.Addr
-	RESTListeners     []net.Addr
-	RestCORS          []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
-	Listeners         []net.Addr
-	ExternalIPs       []net.Addr
-	DisableListen     bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
-	DisableRest       bool          `long:"norest" description:"Disable REST API"`
-	DisableRestTLS    bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
-	WSPingInterval    time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
-	WSPongWait        time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
-	NAT               bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
-	AddPeers          []string      `long:"addpeer" description:"Specify peers to connect to first"`
-	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
-	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
-	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
+	RawRPCListeners       []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
+	RawRESTListeners      []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
+	RawListeners          []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
+	RawExternalIPs        []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RawExternalDNSAddress string   `long:"external-dns-address" description:"Specify a DNS hostname for the node's external address. If no port is provided, the default (9735) is used."`
+	ExternalHosts         []string `long:"externalhosts" description:"Add a hostname:port that should be periodically resolved to announce IPs for. If a port is not specified, the default (9735) will be used."`
+	RPCListeners          []net.Addr
+	RESTListeners         []net.Addr
+	RestCORS              []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
+	Listeners             []net.Addr
+	ExternalIPs           []net.Addr
+	ExternalDNSAddress    *lnwire.DNSAddress
+	DisableListen         bool          `long:"nolisten" description:"Disable listening for incoming peer connections"`
+	DisableRest           bool          `long:"norest" description:"Disable REST API"`
+	DisableRestTLS        bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
+	WSPingInterval        time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
+	WSPongWait            time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
+	NAT                   bool          `long:"nat" description:"Toggle NAT traversal support (using either UPnP or NAT-PMP) to automatically advertise your external IP address to the network -- NOTE this does not support devices behind multiple NATs"`
+	AddPeers              []string      `long:"addpeer" description:"Specify peers to connect to first"`
+	MinBackoff            time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
+	MaxBackoff            time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
+	ConnectionTimeout     time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -1592,6 +1594,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		ltndLog.Infof("Listening on the p2p interface is disabled!")
 		cfg.Listeners = nil
 		cfg.ExternalIPs = nil
+		cfg.ExternalDNSAddress = nil
 	} else {
 
 		// Add default port to all listener addresses if needed and remove
@@ -1613,6 +1616,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 		if err != nil {
 			return nil, err
+		}
+
+		// Parse the external DNS address if provided.
+		if cfg.RawExternalDNSAddress != "" {
+			addr, err := parseDNSAddr(
+				cfg.RawExternalDNSAddress, cfg.net,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			cfg.ExternalDNSAddress = addr
 		}
 
 		// For the p2p port it makes no sense to listen to an Unix socket.

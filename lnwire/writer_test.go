@@ -559,7 +559,8 @@ func TestWriteOnionAddr(t *testing.T) {
 }
 
 func TestWriteNetAddrs(t *testing.T) {
-	buf := new(bytes.Buffer)
+	t.Parallel()
+
 	tcpAddr := &net.TCPAddr{
 		IP:   net.IP{127, 0, 0, 1},
 		Port: 8080,
@@ -567,6 +568,10 @@ func TestWriteNetAddrs(t *testing.T) {
 	onionAddr := &tor.OnionAddr{
 		OnionService: "abcdefghijklmnop.onion",
 		Port:         9065,
+	}
+	dnsAddr := &DNSAddress{
+		Hostname: "example.com",
+		Port:     8080,
 	}
 
 	testCases := []struct {
@@ -587,24 +592,27 @@ func TestWriteNetAddrs(t *testing.T) {
 		{
 			// Check empty address slice.
 			name:        "empty address slice",
-			addr:        []net.Addr{},
 			expectedErr: nil,
 			// Use two bytes to encode the address size.
 			expectedBytes: []byte{0, 0},
 		},
 		{
 			// Check a successful writes of a slice of addresses.
-			name:        "two addresses",
-			addr:        []net.Addr{tcpAddr, onionAddr},
+			name:        "multiple addresses",
+			addr:        []net.Addr{tcpAddr, onionAddr, dnsAddr},
 			expectedErr: nil,
 			expectedBytes: []byte{
-				// 7 bytes for TCP and 13 bytes for onion.
-				0x0, 0x14,
+				// 7 bytes for TCP and 13 bytes for onion,
+				// 15 bytes for DNS.
+				0x0, 0x23,
 				// TCP address.
 				0x1, 0x7f, 0x0, 0x0, 0x1, 0x1f, 0x90,
 				// Onion address.
 				0x3, 0x0, 0x44, 0x32, 0x14, 0xc7, 0x42,
 				0x54, 0xb6, 0x35, 0xcf, 0x23, 0x69,
+				// DNS address.
+				0x5, 0xb, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c,
+				0x65, 0x2e, 0x63, 0x6f, 0x6d, 0x1f, 0x90,
 			},
 		},
 	}
@@ -612,13 +620,25 @@ func TestWriteNetAddrs(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			oldLen := buf.Len()
+			buf := new(bytes.Buffer)
 
 			err := WriteNetAddrs(buf, tc.addr)
 			require.Equal(t, tc.expectedErr, err)
 
-			bytesWritten := buf.Bytes()[oldLen:buf.Len()]
+			bytesWritten := buf.Bytes()[:buf.Len()]
 			require.Equal(t, tc.expectedBytes, bytesWritten)
+
+			if tc.expectedErr != nil {
+				return
+			}
+
+			// Read the addresses from the buffer and ensure
+			// they match the original addresses.
+			var addrs []net.Addr
+			err = ReadElement(buf, &addrs)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.addr, addrs)
 		})
 	}
 }

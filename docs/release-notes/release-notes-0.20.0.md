@@ -198,6 +198,14 @@ reader of a payment request.
 * [Require invoices to include a payment address or blinded paths](https://github.com/lightningnetwork/lnd/pull/9752) 
   to comply with updated BOLT 11 specifications before sending payments.
 
+* [Support DNS address in
+  node announcement msg](https://github.com/lightningnetwork/lnd/pull/10159):
+  This update allows users to announce their LND node using a DNS address in
+  the node announcement message, by configuring `external-dns-address` field in
+  the LND config file.
+  **Note:** According to BOLT 07, only one DNS address may be announced per
+  node.
+
 ## Testing
 
 * Previously, automatic peer bootstrapping was disabled for simnet, signet and

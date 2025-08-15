@@ -403,6 +403,10 @@ type Config struct {
 	// FilterConcurrency is the maximum number of concurrent gossip filter
 	// applications that can be processed.
 	FilterConcurrency int
+
+	// PeerMsgRateBytes is the rate limit for the number of bytes per second
+	// that we'll allocate to outbound gossip messages for a single peer.
+	PeerMsgRateBytes uint64
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -605,6 +609,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		AllotedMsgBytesPerSecond: cfg.MsgRateBytes,
 		AllotedMsgBytesBurst:     cfg.MsgBurstBytes,
 		FilterConcurrency:        cfg.FilterConcurrency,
+		PeerMsgBytesPerSecond:    cfg.PeerMsgRateBytes,
 	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

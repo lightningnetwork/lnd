@@ -716,6 +716,7 @@ func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
 		FeeBaseMSat:               math.MaxUint64,
 		FeeProportionalMillionths: math.MaxUint64,
 		ToNode:                    toNode,
+		ExtraOpaqueData:           testExtraData,
 	}
 
 	for _, opt := range opts {

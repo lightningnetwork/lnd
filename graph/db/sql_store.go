@@ -164,6 +164,7 @@ type SQLQueries interface {
 	*/
 	InsertNodeMig(ctx context.Context, arg sqlc.InsertNodeMigParams) (int64, error)
 	InsertChannelMig(ctx context.Context, arg sqlc.InsertChannelMigParams) (int64, error)
+	InsertEdgePolicyMig(ctx context.Context, arg sqlc.InsertEdgePolicyMigParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched

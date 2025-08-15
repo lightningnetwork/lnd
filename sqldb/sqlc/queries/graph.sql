@@ -1064,3 +1064,37 @@ INSERT INTO graph_channels (
         bitcoin_1_signature = EXCLUDED.bitcoin_1_signature,
         bitcoin_2_signature = EXCLUDED.bitcoin_2_signature
 RETURNING id;
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same policy (which would error if the normal
+-- UpsertEdgePolicy query is used because of the constraint in that query that
+-- requires a policy update to have a newer last_update than the existing one).
+-- name: InsertEdgePolicyMig :one
+INSERT INTO graph_channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- If a conflict occurs, we have already migrated this policy. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
+        signature = EXCLUDED.signature
+RETURNING id;

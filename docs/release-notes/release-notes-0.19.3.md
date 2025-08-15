@@ -42,11 +42,15 @@
   situations where the sending amount would violate the channel policy
   restriction (min,max HTLC).
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10141) a case where we
+  would not resolve all outstanding payment attempts after the overall payment
+  lifecycle was canceled due to a timeout.
+
 # New Features
 
 ## Functional Enhancements
 
-* The default value for `gossip.msg-rate-bytes` has been
+- The default value for `gossip.msg-rate-bytes` has been
   [increased](https://github.com/lightningnetwork/lnd/pull/10096) from 100KB to
   1MB, and `gossip.msg-burst-bytes` has been increased from 200KB to 2MB.
 
@@ -56,6 +60,13 @@
   [fixed](https://github.com/lightningnetwork/lnd/pull/10117) by moving sweeping
   anchors into its own tx, which means the anchor outputs won't be swept in a
   high fee environment.
+
+- Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
+  allows sending HTLCs to the remote party without shifting the balances of the
+  channel. This is currently only possible to use with custom channels, and only
+  when the appropriate TLV flag is set. This allows for HTLCs carrying metadata
+  to reflect their state on the channel commitment without having to send or
+  receive a certain amount of msats.
 
 ## RPC Additions
 
@@ -86,6 +97,9 @@
 ## Database
 
 ## Code Health
+
+- [The Golang version used was bumped to `v1.23.12` to fix a potential issue
+  with the SQL API](https://github.com/lightningnetwork/lnd/pull/10138).
 
 ## Tooling and Documentation
 

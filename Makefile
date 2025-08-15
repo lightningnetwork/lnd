@@ -28,7 +28,7 @@ ACTIVE_GO_VERSION_MINOR := $(shell echo $(ACTIVE_GO_VERSION) | cut -d. -f2)
 # GO_VERSION is the Go version used for the release build, docker files, and
 # GitHub Actions. This is the reference version for the project. All other Go
 # versions are checked against this version.
-GO_VERSION = 1.23.9
+GO_VERSION = 1.23.12
 
 GOBUILD := $(GOCC) build -v
 GOINSTALL := $(GOCC) install -v

@@ -868,25 +868,16 @@ func TestResumePaymentFailOnTimeoutErr(t *testing.T) {
 	// Create a test paymentLifecycle with the initial two calls mocked.
 	p, m := setupTestPaymentLifecycle(t)
 
-	paymentAmt := lnwire.MilliSatoshi(10000)
-
-	// We now enter the payment lifecycle loop.
-	//
-	// 1. calls `FetchPayment` and return the payment.
-	m.control.On("FetchPayment", p.identifier).Return(m.payment, nil).Once()
-
-	// 2. calls `GetState` and return the state.
-	ps := &channeldb.MPPaymentState{
-		RemainingAmt: paymentAmt,
-	}
-	m.payment.On("GetState").Return(ps).Once()
+	// We now enter the payment lifecycle loop, we will check the router
+	// quit channel in the beginning and quit immediately without reloading
+	// the payment.
 
 	// NOTE: GetStatus is only used to populate the logs which is
 	// not critical so we loosen the checks on how many times it's
 	// been called.
 	m.payment.On("GetStatus").Return(channeldb.StatusInFlight)
 
-	// 3. quit the router to return an error.
+	// Quit the router to return an error.
 	close(p.router.quit)
 
 	// Send the payment and assert it failed when router is shutting down.

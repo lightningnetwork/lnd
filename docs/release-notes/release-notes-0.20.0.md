@@ -38,6 +38,9 @@
   messages in the dynamic commitment set.
 
 
+- Fixed [zombie channel leak](https://github.com/lightningnetwork/lnd/pull/10015)
+  in the memory graph, resulting in incorrect path finding and memory usage.
+
 # New Features
 
 - Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
@@ -227,6 +230,7 @@ reader of a payment request.
 * Elle Mouton
 * Erick Cestari
 * Funyug
+* Gustavo Stingelin
 * Mohamed Awnallah
 * Pins
 * Torkel Rogstad

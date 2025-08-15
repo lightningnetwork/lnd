@@ -46,6 +46,71 @@ var (
 		Payload: []byte{0xff, 0x02, 0x03, 0x04, 0x05, 0x06},
 	}
 
+	testOpaqueAddrWithEmbeddedDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			/* Here we embed an actual DNS address */
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+		},
+	}
+	testOpaqueAddrWithTwoEmbeddedDNSAddrs = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			/* Here we embed an actual DNS address */
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Another DNS address.
+			0x05,
+			0x0B,
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			0x1F, 0x90,
+		},
+	}
+	testOpaqueAddrWithEmbeddedDNSAddrAndMore = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			/* Here we embed an actual DNS address */
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Now we add more opaque bytes to represent more
+			// addresses that we dont know about yet.
+			// NOTE: the 0xff is an address type that we definitely
+			// don't know about yet
+			0xff, 0x02, 0x03, 0x04, 0x05, 0x06,
+		},
+	}
+
+	testOpaqueAddrWithEmbeddedBadDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			/* Here we embed an actual invalid DNS address */
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: We set this to a size that is
+			// incorrect in order to simulate the bad DNS address.
+			0xAA,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 9735 in big-endian.
+			0x26, 0x07,
+		},
+	}
+
 	testDNSAddr = &lnwire.DNSAddress{
 		Hostname: "example.com",
 		Port:     8080,

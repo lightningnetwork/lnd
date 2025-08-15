@@ -176,6 +176,60 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			expNotRetrySafety: true,
 		},
 		{
+			name:  "channel with no policies",
+			write: writeUpdate,
+			objects: []any{
+				// A channel with unknown nodes. This will
+				// result in two shell nodes being created.
+				// 	- channel count += 1
+				// 	- node count += 2
+				makeTestChannel(t),
+
+				// Insert some nodes.
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.LightningNode) {
+					n.PubKeyBytes = node1
+				}),
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.LightningNode) {
+					n.PubKeyBytes = node2
+				}),
+
+				// A channel with known nodes.
+				// - channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID1
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+					},
+				),
+
+				// Insert a channel with no auth proof, no
+				// extra opaque data, and empty features.
+				// Use known nodes.
+				// 	- channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID2
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+
+						c.AuthProof = nil
+						c.ExtraOpaqueData = nil
+						c.Features = testEmptyFeatures
+					},
+				),
+			},
+			expGraphStats: graphStats{
+				numNodes:    4,
+				numChannels: 3,
+			},
+			expNotRetrySafety: true,
+		},
+		{
 			name:  "channels and policies",
 			write: writeUpdate,
 			objects: []any{

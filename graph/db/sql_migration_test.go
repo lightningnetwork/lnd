@@ -105,15 +105,6 @@ func TestMigrateGraphToSQL(t *testing.T) {
 		write         func(t *testing.T, db *KVStore, object any)
 		objects       []any
 		expGraphStats graphStats
-
-		// expNotRetrySafety is true if we expect an error to occur for
-		// the test if the migration is run twice. In other-words, if
-		// the specific case in question is currently not idempotent.
-		//
-		// NOTE: we want _all_ the cases here to be idempotent, so this
-		// is a temporary field which will be removed once we have
-		// properly made the migration retry-safe.
-		expNotRetrySafety bool
 	}{
 		{
 			name: "empty",
@@ -297,7 +288,6 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numChannels: 3,
 				numPolicies: 3,
 			},
-			expNotRetrySafety: true,
 		},
 		{
 			name: "prune log",
@@ -409,19 +399,11 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			// Validate that the two databases are now in sync.
 			assertInSync(t, kvDB, sql, test.expGraphStats)
 
-			// NOTE: for now, not all the cases in the test are
-			// retry safe! The aim is to completely remove this
-			// field once we have made the migration retry-safe.
+			// The migration should be retry-safe, so running it
+			// again should not change the state of the databases.
 			err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
-			if !test.expNotRetrySafety {
-				// The migration should be retry-safe, so
-				// running it again should not change the state
-				// of the databases.
-				require.NoError(t, err)
-				assertInSync(t, kvDB, sql, test.expGraphStats)
-			} else {
-				require.Error(t, err)
-			}
+			require.NoError(t, err)
+			assertInSync(t, kvDB, sql, test.expGraphStats)
 		})
 	}
 }

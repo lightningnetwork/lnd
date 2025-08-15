@@ -2434,6 +2434,82 @@ func (q *Queries) InsertClosedChannel(ctx context.Context, scid []byte) error {
 	return err
 }
 
+const insertEdgePolicyMig = `-- name: InsertEdgePolicyMig :one
+INSERT INTO graph_channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- If a conflict occurs, we have already migrated this policy. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
+        signature = EXCLUDED.signature
+RETURNING id
+`
+
+type InsertEdgePolicyMigParams struct {
+	Version                 int16
+	ChannelID               int64
+	NodeID                  int64
+	Timelock                int32
+	FeePpm                  int64
+	BaseFeeMsat             int64
+	MinHtlcMsat             int64
+	LastUpdate              sql.NullInt64
+	Disabled                sql.NullBool
+	MaxHtlcMsat             sql.NullInt64
+	InboundBaseFeeMsat      sql.NullInt64
+	InboundFeeRateMilliMsat sql.NullInt64
+	MessageFlags            sql.NullInt16
+	ChannelFlags            sql.NullInt16
+	Signature               []byte
+}
+
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same policy (which would error if the normal
+// UpsertEdgePolicy query is used because of the constraint in that query that
+// requires a policy update to have a newer last_update than the existing one).
+func (q *Queries) InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertEdgePolicyMig,
+		arg.Version,
+		arg.ChannelID,
+		arg.NodeID,
+		arg.Timelock,
+		arg.FeePpm,
+		arg.BaseFeeMsat,
+		arg.MinHtlcMsat,
+		arg.LastUpdate,
+		arg.Disabled,
+		arg.MaxHtlcMsat,
+		arg.InboundBaseFeeMsat,
+		arg.InboundFeeRateMilliMsat,
+		arg.MessageFlags,
+		arg.ChannelFlags,
+		arg.Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertNodeFeature = `-- name: InsertNodeFeature :exec
 /* ─────────────────────────────────────────────
    graph_node_features table queries

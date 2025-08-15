@@ -96,6 +96,12 @@ type Querier interface {
 	// and version columns).
 	InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error)
 	InsertClosedChannel(ctx context.Context, scid []byte) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same policy (which would error if the normal
+	// UpsertEdgePolicy query is used because of the constraint in that query that
+	// requires a policy update to have a newer last_update than the existing one).
+	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)

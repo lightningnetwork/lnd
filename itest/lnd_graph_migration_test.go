@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"net"
 
-	"github.com/lightningnetwork/lnd"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -17,10 +16,6 @@ import (
 // testGraphMigration tests that the graph migration from the old KV store to
 // the new native SQL store works as expected.
 func testGraphMigration(ht *lntest.HarnessTest) {
-	if !lnd.RunTestSQLMigration {
-		ht.Skip("not running with test_native_sql tag")
-	}
-
 	ctx := ht.Context()
 	alice := ht.NewNodeWithCoins("Alice", nil)
 

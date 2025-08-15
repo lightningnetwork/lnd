@@ -38,6 +38,10 @@
   messages in the dynamic commitment set.
 
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10102) a case that we may
+  send unnecessary `channel_announcement` and `node_announcement` messages when
+  replying to a `gossip_timestamp_filter` query.
+
 # New Features
 
 - Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
@@ -90,6 +94,12 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   https://github.com/lightningnetwork/lnd/pull/9625) RPC to allow the removal of
   a canceled invoice. Supports deleting a canceled invoice by providing its
   payment hash.
+
+* A [new config](https://github.com/lightningnetwork/lnd/pull/10102)
+  `gossip.ban-threshold` is added to allow users to configure the ban score
+  threshold for peers. When a peer's ban score exceeds this value, they will be
+  disconnected and banned. Setting the value to 0 effectively disables banning
+  by setting the threshold to the maximum possible value. 
 
 ## lncli Additions
 

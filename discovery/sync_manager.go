@@ -211,7 +211,6 @@ type SyncManager struct {
 
 // newSyncManager constructs a new SyncManager backed by the given config.
 func newSyncManager(cfg *SyncManagerCfg) *SyncManager {
-
 	filterConcurrency := cfg.FilterConcurrency
 	if filterConcurrency == 0 {
 		filterConcurrency = DefaultFilterConcurrency

@@ -263,14 +263,41 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		count++
 		chunk++
 
-		// TODO(elle): At this point, we should check the loaded node
-		// to see if we should extract any DNS addresses from its
-		// opaque type addresses. This is expected to be done in:
-		// https://github.com/lightningnetwork/lnd/pull/9455.
-		// This TODO is being tracked in
-		//  https://github.com/lightningnetwork/lnd/issues/9795 as this
-		// must be addressed before making this code path active in
-		// production.
+		addrs := make([]net.Addr, 0, len(node.Addresses))
+		for _, addr := range node.Addresses {
+			opaque, ok := addr.(*lnwire.OpaqueAddrs)
+			if !ok {
+				addrs = append(addrs, addr)
+				continue
+			}
+
+			r := bytes.NewReader(opaque.Payload)
+			numAddrBytes := uint16(len(opaque.Payload))
+			byteRead, readAddr, err := lnwire.ReadAddress(
+				r, numAddrBytes,
+			)
+			if err != nil {
+				// We then just keep the address as opaque.
+				addrs = append(addrs, addr)
+
+				continue
+			}
+
+			if readAddr != nil {
+				addrs = append(addrs, readAddr)
+			}
+
+			if byteRead == numAddrBytes {
+				continue
+			}
+
+			addrs = append(addrs, &lnwire.OpaqueAddrs{
+				Payload: opaque.Payload[byteRead:],
+			})
+		}
+		if len(addrs) != 0 {
+			node.Addresses = addrs
+		}
 
 		// Write the node to the SQL database.
 		id, err := upsertNode(ctx, sqlDB, node)

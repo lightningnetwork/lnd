@@ -124,6 +124,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 						anotherAddr,
 						testOnionV2Addr,
 						testOnionV3Addr,
+						testDNSAddr,
 						testOpaqueAddr,
 					}
 				}),
@@ -884,6 +885,100 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 		})
 	})
 
+	t.Run("node with wrapped DNS address inside opaque addr",
+		func(t *testing.T) {
+			t.Parallel()
+
+			// Let the first node have an opaque address that we
+			// still don't understand. This node will remain the
+			// same in the SQL store.
+			n1 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddr,
+				}
+			})
+
+			// The second node will have a wrapped DNS address
+			// inside an opaque address. The opaque address will
+			// only contain a DNS address and so the migrated node
+			// will only contain a DNS address and no opaque
+			// address.
+			n2 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedDNSAddr,
+				}
+			})
+			n2Expected := *n2
+			n2Expected.Addresses = []net.Addr{
+				testDNSAddr,
+			}
+
+			// The third node will have an opaque address that
+			// wraps a DNS address along with some other data.
+			// So the resulting migrated node should have both
+			// the DNS address and remaining opaque address data.
+			n3 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedDNSAddrAndMore,
+				}
+			})
+			n3Expected := *n3
+			n3Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testOpaqueAddr,
+			}
+
+			// The fourth node will have an opaque address that
+			// wraps an invalid DNS address. Such a node will be
+			// migrated, but we will keep the address as an opaque
+			// address in the SQL store.
+			n4 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedBadDNSAddr,
+				}
+			})
+
+			// The fifth node will have 2 DNS addresses embedded
+			// in the opaque address. The migration will result
+			// in the first dns address being extracted and the
+			// second one being left as an opaque address.
+			n5 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithTwoEmbeddedDNSAddrs,
+				}
+			})
+			n5Expected := *n5
+			n5Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testOpaqueAddrWithEmbeddedDNSAddr,
+			}
+
+			populateKV := func(t *testing.T, db *KVStore) {
+				require.NoError(t, db.AddLightningNode(ctx, n1))
+				require.NoError(t, db.AddLightningNode(ctx, n2))
+				require.NoError(t, db.AddLightningNode(ctx, n3))
+				require.NoError(t, db.AddLightningNode(ctx, n4))
+				require.NoError(t, db.AddLightningNode(ctx, n5))
+			}
+
+			runTestMigration(t, populateKV, dbState{
+				nodes: []*models.LightningNode{
+					n1,
+					&n2Expected,
+					&n3Expected,
+					n4,
+					&n5Expected,
+				},
+			})
+
+			/*
+
+
+
+			 */
+		},
+	)
+
 	// Here, we test that in the case where the KV store contains a channel
 	// with invalid TLV data, the migration will still succeed, but the
 	// channel and its policies will not end up in the SQL store.
@@ -1147,6 +1242,10 @@ type dbState struct {
 // assertResultState asserts that the SQLStore contains the expected
 // state after a migration.
 func assertResultState(t *testing.T, sql *SQLStore, expState dbState) {
+	for _, node := range expState.nodes {
+		sortAddrs(node.Addresses)
+	}
+
 	// Assert that the sql store contains the expected nodes.
 	require.ElementsMatch(t, expState.nodes, fetchAllNodes(t, sql))
 	require.ElementsMatch(

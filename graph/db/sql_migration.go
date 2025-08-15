@@ -1363,9 +1363,6 @@ func forEachClosedSCID(db kvdb.Backend,
 // update have a newer timestamp than the existing one. This is because we want
 // the migration to be idempotent and dont want to error out if we re-insert the
 // exact same node.
-//
-// TODO(elle): update the upsert calls in this function to be more efficient.
-// since no data collection steps should be required during the migration.
 func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 	node *models.LightningNode) (int64, error) {
 
@@ -1392,19 +1389,42 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 		return nodeID, nil
 	}
 
-	// NOTE: The upserts here will be updated to be more efficient in the
-	// following commits.
-
-	// Update the node's features.
-	err = upsertNodeFeatures(ctx, db, nodeID, node.Features)
-	if err != nil {
-		return 0, fmt.Errorf("inserting node features: %w", err)
+	// Insert the node's features.
+	for feature := range node.Features.Features() {
+		err = db.InsertNodeFeature(ctx, sqlc.InsertNodeFeatureParams{
+			NodeID:     nodeID,
+			FeatureBit: int32(feature),
+		})
+		if err != nil {
+			return 0, fmt.Errorf("unable to insert node(%d) "+
+				"feature(%v): %w", nodeID, feature, err)
+		}
 	}
 
 	// Update the node's addresses.
-	err = upsertNodeAddresses(ctx, db, nodeID, node.Addresses)
+	newAddresses, err := collectAddressRecords(node.Addresses)
 	if err != nil {
-		return 0, fmt.Errorf("inserting node addresses: %w", err)
+		return 0, err
+	}
+
+	// Any remaining entries in newAddresses are new addresses that need to
+	// be added to the database for the first time.
+	for addrType, addrList := range newAddresses {
+		for position, addr := range addrList {
+			err := db.UpsertNodeAddress(
+				ctx, sqlc.UpsertNodeAddressParams{
+					NodeID:   nodeID,
+					Type:     int16(addrType),
+					Address:  addr,
+					Position: int32(position),
+				},
+			)
+			if err != nil {
+				return 0, fmt.Errorf("unable to insert "+
+					"node(%d) address(%v): %w", nodeID,
+					addr, err)
+			}
+		}
 	}
 
 	// Convert the flat extra opaque data into a map of TLV types to
@@ -1415,10 +1435,19 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 			err)
 	}
 
-	// Update the node's extra signed fields.
-	err = upsertNodeExtraSignedFields(ctx, db, nodeID, extra)
-	if err != nil {
-		return 0, fmt.Errorf("inserting node extra TLVs: %w", err)
+	// Insert the node's extra signed fields.
+	for tlvType, value := range extra {
+		err = db.UpsertNodeExtraType(
+			ctx, sqlc.UpsertNodeExtraTypeParams{
+				NodeID: nodeID,
+				Type:   int64(tlvType),
+				Value:  value,
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to upsert node(%d) extra "+
+				"signed field(%v): %w", nodeID, tlvType, err)
+		}
 	}
 
 	return nodeID, nil

@@ -97,7 +97,6 @@ type Querier interface {
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
 	InsertKVInvoiceKeyAndAddIndex(ctx context.Context, arg InsertKVInvoiceKeyAndAddIndexParams) error
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
-	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
 	// NOTE: This query is only meant to be used by the graph SQL migration since
 	// for that migration, in order to be retry-safe, we don't want to error out if
@@ -133,6 +132,7 @@ type Querier interface {
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
 	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)
+	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
 	UpsertZombieChannel(ctx context.Context, arg UpsertZombieChannelParams) error

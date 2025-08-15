@@ -70,7 +70,7 @@ type SQLQueries interface {
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
-	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
+	UpsertNodeAddress(ctx context.Context, arg sqlc.UpsertNodeAddressParams) error
 	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
 	GetNodeAddressesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
@@ -3533,23 +3533,11 @@ const (
 	addressTypeOpaque dbAddressType = math.MaxInt8
 )
 
-// upsertNodeAddresses updates the node's addresses in the database. This
-// includes deleting any existing addresses and inserting the new set of
-// addresses. The deletion is necessary since the ordering of the addresses may
-// change, and we need to ensure that the database reflects the latest set of
-// addresses so that at the time of reconstructing the node announcement, the
-// order is preserved and the signature over the message remains valid.
-func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
-	addresses []net.Addr) error {
-
-	// Delete any existing addresses for the node. This is required since
-	// even if the new set of addresses is the same, the ordering may have
-	// changed for a given address type.
-	err := db.DeleteNodeAddresses(ctx, nodeID)
-	if err != nil {
-		return fmt.Errorf("unable to delete node(%d) addresses: %w",
-			nodeID, err)
-	}
+// collectAddressRecords collects the addresses from the provided
+// net.Addr slice and returns a map of dbAddressType to a slice of address
+// strings.
+func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
+	error) {
 
 	// Copy the nodes latest set of addresses.
 	newAddresses := map[dbAddressType][]string{
@@ -3571,8 +3559,8 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 			} else if ip6 := addr.IP.To16(); ip6 != nil {
 				addAddr(addressTypeIPv6, addr)
 			} else {
-				return fmt.Errorf("unhandled IP address: %v",
-					addr)
+				return nil, fmt.Errorf("unhandled IP "+
+					"address: %v", addr)
 			}
 
 		case *tor.OnionAddr:
@@ -3582,24 +3570,51 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 			case tor.V3Len:
 				addAddr(addressTypeTorV3, addr)
 			default:
-				return fmt.Errorf("invalid length for a tor " +
-					"address")
+				return nil, fmt.Errorf("invalid length for " +
+					"a tor address")
 			}
 
 		case *lnwire.OpaqueAddrs:
 			addAddr(addressTypeOpaque, addr)
 
 		default:
-			return fmt.Errorf("unhandled address type: %T", addr)
+			return nil, fmt.Errorf("unhandled address type: %T",
+				addr)
 		}
+	}
+
+	return newAddresses, nil
+}
+
+// upsertNodeAddresses updates the node's addresses in the database. This
+// includes deleting any existing addresses and inserting the new set of
+// addresses. The deletion is necessary since the ordering of the addresses may
+// change, and we need to ensure that the database reflects the latest set of
+// addresses so that at the time of reconstructing the node announcement, the
+// order is preserved and the signature over the message remains valid.
+func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
+	addresses []net.Addr) error {
+
+	// Delete any existing addresses for the node. This is required since
+	// even if the new set of addresses is the same, the ordering may have
+	// changed for a given address type.
+	err := db.DeleteNodeAddresses(ctx, nodeID)
+	if err != nil {
+		return fmt.Errorf("unable to delete node(%d) addresses: %w",
+			nodeID, err)
+	}
+
+	newAddresses, err := collectAddressRecords(addresses)
+	if err != nil {
+		return err
 	}
 
 	// Any remaining entries in newAddresses are new addresses that need to
 	// be added to the database for the first time.
 	for addrType, addrList := range newAddresses {
 		for position, addr := range addrList {
-			err := db.InsertNodeAddress(
-				ctx, sqlc.InsertNodeAddressParams{
+			err := db.UpsertNodeAddress(
+				ctx, sqlc.UpsertNodeAddressParams{
 					NodeID:   nodeID,
 					Type:     int16(addrType),
 					Address:  addr,

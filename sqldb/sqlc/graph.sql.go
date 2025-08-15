@@ -2389,39 +2389,6 @@ func (q *Queries) InsertClosedChannel(ctx context.Context, scid []byte) error {
 	return err
 }
 
-const insertNodeAddress = `-- name: InsertNodeAddress :exec
-/* ─────────────────────────────────────────────
-   graph_node_addresses table queries
-   ───────────────────────────────────��─────────
-*/
-
-INSERT INTO graph_node_addresses (
-    node_id,
-    type,
-    address,
-    position
-) VALUES (
-    $1, $2, $3, $4
- )
-`
-
-type InsertNodeAddressParams struct {
-	NodeID   int64
-	Type     int16
-	Address  string
-	Position int32
-}
-
-func (q *Queries) InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error {
-	_, err := q.db.ExecContext(ctx, insertNodeAddress,
-		arg.NodeID,
-		arg.Type,
-		arg.Address,
-		arg.Position,
-	)
-	return err
-}
-
 const insertNodeFeature = `-- name: InsertNodeFeature :exec
 /* ─────────────────────────────────────────────
    graph_node_features table queries
@@ -2432,7 +2399,9 @@ INSERT INTO graph_node_features (
     node_id, feature_bit
 ) VALUES (
     $1, $2
-)
+) ON CONFLICT (node_id, feature_bit)
+    -- Do nothing if the feature already exists for the node.
+    DO NOTHING
 `
 
 type InsertNodeFeatureParams struct {
@@ -3460,6 +3429,40 @@ func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertNodeAddress = `-- name: UpsertNodeAddress :exec
+/* ─────────────────────────────────────────────
+   graph_node_addresses table queries
+   ───────────────────────────────────��─────────
+*/
+
+INSERT INTO graph_node_addresses (
+    node_id,
+    type,
+    address,
+    position
+) VALUES (
+    $1, $2, $3, $4
+) ON CONFLICT (node_id, type, position)
+    DO UPDATE SET address = EXCLUDED.address
+`
+
+type UpsertNodeAddressParams struct {
+	NodeID   int64
+	Type     int16
+	Address  string
+	Position int32
+}
+
+func (q *Queries) UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNodeAddress,
+		arg.NodeID,
+		arg.Type,
+		arg.Address,
+		arg.Position,
+	)
+	return err
 }
 
 const upsertNodeExtraType = `-- name: UpsertNodeExtraType :exec

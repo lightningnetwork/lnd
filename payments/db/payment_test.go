@@ -271,9 +271,9 @@ func assertPaymentInfo(t *testing.T, p DB, hash lntypes.Hash,
 	}
 }
 
-// assertPaymentStatus retrieves the status of the payment referred to by hash
+// assertPaymentstatus retrieves the status of the payment referred to by hash
 // and compares it with the expected state.
-func assertPaymentStatus(t *testing.T, p DB, hash lntypes.Hash,
+func assertPaymentstatus(t *testing.T, p DB, hash lntypes.Hash,
 	expStatus PaymentStatus) {
 
 	t.Helper()
@@ -292,11 +292,11 @@ func assertPaymentStatus(t *testing.T, p DB, hash lntypes.Hash,
 	}
 }
 
-// assertPayments is a helper function that given a slice of payment and
+// assertDBPayments is a helper function that given a slice of payment and
 // indices for the slice asserts that exactly the same payments in the
 // slice for the provided indices exist when fetching payments from the
 // database.
-func assertPayments(t *testing.T, paymentDB DB, payments []*payment) {
+func assertDBPayments(t *testing.T, paymentDB DB, payments []*payment) {
 	t.Helper()
 
 	response, err := paymentDB.QueryPayments(
@@ -407,7 +407,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Calling DeleteFailedAttempts on a failed payment should delete all
 	// HTLCs.
@@ -417,7 +417,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	if !keepFailedPaymentAttempts {
 		payments[0].htlcs = 0
 	}
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Calling DeleteFailedAttempts on an in-flight payment should return
 	// an error.
@@ -435,7 +435,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 
 	// Since DeleteFailedAttempts returned an error, we should expect the
 	// payment to be unchanged.
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Cleaning up a successful payment should remove failed htlcs.
 	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[2].id))
@@ -445,7 +445,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	if !keepFailedPaymentAttempts {
 		payments[2].htlcs = 1
 	}
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// NOTE: In case the option keepFailedPaymentAttempts is set no delete
 	// operation are performed in general therefore we do NOT expect an
@@ -569,7 +569,7 @@ func TestDeleteSinglePayment(t *testing.T) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for first payment only.
 	require.NoError(t, paymentDB.DeletePayment(payments[0].id, true))
@@ -577,19 +577,19 @@ func TestDeleteSinglePayment(t *testing.T) {
 	// The first payment is the only altered one as its failed HTLC should
 	// have been removed but is still present as payment.
 	payments[0].htlcs = 0
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Delete the first payment completely.
 	require.NoError(t, paymentDB.DeletePayment(payments[0].id, false))
 
 	// The first payment should have been deleted.
-	assertPayments(t, paymentDB, payments[1:])
+	assertDBPayments(t, paymentDB, payments[1:])
 
 	// Now delete the second payment completely.
 	require.NoError(t, paymentDB.DeletePayment(payments[1].id, false))
 
 	// The Second payment should have been deleted.
-	assertPayments(t, paymentDB, payments[2:])
+	assertDBPayments(t, paymentDB, payments[2:])
 
 	// Delete failed HTLC attempts for the third payment.
 	require.NoError(t, paymentDB.DeletePayment(payments[2].id, true))
@@ -597,27 +597,27 @@ func TestDeleteSinglePayment(t *testing.T) {
 	// Only the successful HTLC attempt should be left for the third
 	// payment.
 	payments[2].htlcs = 1
-	assertPayments(t, paymentDB, payments[2:])
+	assertDBPayments(t, paymentDB, payments[2:])
 
 	// Now delete the third payment completely.
 	require.NoError(t, paymentDB.DeletePayment(payments[2].id, false))
 
 	// Only the last payment should be left.
-	assertPayments(t, paymentDB, payments[3:])
+	assertDBPayments(t, paymentDB, payments[3:])
 
 	// Deleting HTLC attempts from InFlight payments should not work and an
 	// error returned.
 	require.Error(t, paymentDB.DeletePayment(payments[3].id, true))
 
 	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, paymentDB, payments[3:])
+	assertDBPayments(t, paymentDB, payments[3:])
 
 	// Finally deleting the InFlight payment should also not work and an
 	// error returned.
 	require.Error(t, paymentDB.DeletePayment(payments[3].id, false))
 
 	// The payment is InFlight and therefore should not have been altered.
-	assertPayments(t, paymentDB, payments[3:])
+	assertDBPayments(t, paymentDB, payments[3:])
 }
 
 // TestPaymentRegistrable checks the method `Registrable` behaves as expected
@@ -1240,7 +1240,7 @@ func TestKVPaymentsDBDeletePayments(t *testing.T) {
 	createTestPayments(t, paymentDB, payments)
 
 	// Check that all payments are there as we added them.
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for failed payments only.
 	numPayments, err := paymentDB.DeletePayments(true, true)
@@ -1249,7 +1249,7 @@ func TestKVPaymentsDBDeletePayments(t *testing.T) {
 
 	// The failed payment is the only altered one.
 	payments[0].htlcs = 0
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Delete failed attempts for all payments.
 	numPayments, err = paymentDB.DeletePayments(false, true)
@@ -1259,21 +1259,21 @@ func TestKVPaymentsDBDeletePayments(t *testing.T) {
 	// The failed attempts should be deleted, except for the in-flight
 	// payment, that shouldn't be altered until it has completed.
 	payments[1].htlcs = 1
-	assertPayments(t, paymentDB, payments)
+	assertDBPayments(t, paymentDB, payments)
 
 	// Now delete all failed payments.
 	numPayments, err = paymentDB.DeletePayments(true, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
-	assertPayments(t, paymentDB, payments[1:])
+	assertDBPayments(t, paymentDB, payments[1:])
 
 	// Finally delete all completed payments.
 	numPayments, err = paymentDB.DeletePayments(false, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
-	assertPayments(t, paymentDB, payments[2:])
+	assertDBPayments(t, paymentDB, payments[2:])
 }
 
 // TestSwitchDoubleSend checks the ability of payment control to
@@ -1292,7 +1292,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	require.NoError(t, err, "unable to send htlc message")
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1308,7 +1308,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	// Record an attempt.
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1334,7 +1334,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "error shouldn't have been received, got")
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusSucceeded,
 	)
 
@@ -1364,7 +1364,7 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to send htlc message")
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1377,7 +1377,7 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to fail payment hash")
 
 	// Verify the status is indeed Failed.
-	assertPaymentStatus(t, paymentDB, info.PaymentIdentifier, StatusFailed)
+	assertPaymentstatus(t, paymentDB, info.PaymentIdentifier, StatusFailed)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, &failReason, nil,
 	)
@@ -1397,7 +1397,7 @@ func TestSwitchFail(t *testing.T) {
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
 	assertNoIndex(t, paymentDB, payment.SequenceNum)
 
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1420,7 +1420,7 @@ func TestSwitchFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1435,7 +1435,7 @@ func TestSwitchFail(t *testing.T) {
 	attempt.AttemptID = 1
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1469,7 +1469,7 @@ func TestSwitchFail(t *testing.T) {
 			spew.Sdump(payment.HTLCs[0].Route), err)
 	}
 
-	assertPaymentStatus(
+	assertPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusSucceeded,
 	)
 
@@ -1522,7 +1522,7 @@ func TestMultiShard(t *testing.T) {
 		}
 
 		assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-		assertPaymentStatus(
+		assertPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 		)
 		assertPaymentInfo(
@@ -1551,7 +1551,7 @@ func TestMultiShard(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to send htlc message: %v", err)
 			}
-			assertPaymentStatus(
+			assertPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
 			)
@@ -1595,7 +1595,7 @@ func TestMultiShard(t *testing.T) {
 		)
 
 		// Payment should still be in-flight.
-		assertPaymentStatus(
+		assertPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 		)
 
@@ -1659,7 +1659,7 @@ func TestMultiShard(t *testing.T) {
 
 			// The payment is now considered pending fail, since
 			// there is still an active HTLC.
-			assertPaymentStatus(
+			assertPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
 			)
@@ -1680,7 +1680,7 @@ func TestMultiShard(t *testing.T) {
 			)
 		}
 
-		assertPaymentStatus(
+		assertPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 		)
 
@@ -1763,7 +1763,7 @@ func TestMultiShard(t *testing.T) {
 			registerErr = ErrPaymentAlreadySucceeded
 		}
 
-		assertPaymentStatus(
+		assertPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, finalStatus,
 		)
 

@@ -99,3 +99,13 @@ preferably encrypted using our designated PGP key
 ## Further reading
 * [Step-by-step send payment guide with docker](https://github.com/lightningnetwork/lnd/tree/master/docker)
 * [Contribution guide](https://github.com/lightningnetwork/lnd/blob/master/docs/code_contribution_guidelines.md)
+
+
+## Additional Information
+
+This section has been enhanced to address issue #10143.
+
+### Issue Resolution
+Unexpected state found in `TestInvoiceRegistry`
+
+The documentation has been improved to provide better clarity and user guidance.

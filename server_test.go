@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -202,6 +203,63 @@ func TestParseAddress(t *testing.T) {
 				mockExpectation := mockNet.On(
 					"ResolveTCPAddr", "tcp",
 					"10.1.1.1:9735",
+				)
+				mockExpectation.Return(
+					&net.TCPAddr{},
+					errors.New("resolve error"),
+				)
+
+				return mockNet
+			}(),
+			expectErr: true,
+			errMsg:    "resolve error",
+		},
+		{
+			name:    "DNSHostnameWithExplicitPortReturnsAddr",
+			address: "example.com:8080",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:8080",
+				)
+				mockExpectation.Return(&net.TCPAddr{}, nil)
+
+				return mockNet
+			}(),
+			expected: &lnwire.DNSAddress{
+				Hostname: "example.com",
+				Port:     8080,
+			},
+			expectErr: false,
+		},
+		{
+			name:    "DNSHostnameWithoutPortReturnsAddrWithPort",
+			address: "example.com",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:9735",
+				)
+				mockExpectation.Return(&net.TCPAddr{}, nil)
+
+				return mockNet
+			}(),
+			expected: &lnwire.DNSAddress{
+				Hostname: "example.com",
+				Port:     defaultPeerPort,
+			},
+			expectErr: false,
+		},
+		{
+			name:    "DNSTCPResolutionFailureReturnsError",
+			address: "example.com:9735",
+			netCfg: func() tor.Net {
+				mockNet := new(MockTorNet)
+				mockExpectation := mockNet.On(
+					"ResolveTCPAddr", "tcp",
+					"example.com:9735",
 				)
 				mockExpectation.Return(
 					&net.TCPAddr{},

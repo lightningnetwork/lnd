@@ -124,7 +124,7 @@ type SQLQueries interface {
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.GraphChannelPolicy, error)
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
-	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
+	UpsertChanPolicyExtraType(ctx context.Context, arg sqlc.UpsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]sqlc.GetChannelPolicyExtraTypesBatchRow, error)
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 
@@ -3934,8 +3934,8 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 
 	// Insert all new extra signed fields for the channel policy.
 	for tlvType, value := range extraFields {
-		err = db.InsertChanPolicyExtraType(
-			ctx, sqlc.InsertChanPolicyExtraTypeParams{
+		err = db.UpsertChanPolicyExtraType(
+			ctx, sqlc.UpsertChanPolicyExtraTypeParams{
 				ChannelPolicyID: chanPolicyID,
 				Type:            int64(tlvType),
 				Value:           value,

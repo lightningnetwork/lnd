@@ -869,11 +869,15 @@ WHERE c.scid = @scid
    ─────────────────────────────────────────────
 */
 
--- name: InsertChanPolicyExtraType :exec
+-- name: UpsertChanPolicyExtraType :exec
 INSERT INTO graph_channel_policy_extra_types (
     channel_policy_id, type, value
 )
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+ON CONFLICT (channel_policy_id, type)
+    -- If a conflict occurs on channel_policy_id and type, then we update the
+    -- value.
+    DO UPDATE SET value = EXCLUDED.value;
 
 -- name: GetChannelPolicyExtraTypesBatch :many
 SELECT

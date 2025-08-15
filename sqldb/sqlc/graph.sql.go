@@ -2304,29 +2304,6 @@ func (q *Queries) HighestSCID(ctx context.Context, version int16) ([]byte, error
 	return scid, err
 }
 
-const insertChanPolicyExtraType = `-- name: InsertChanPolicyExtraType :exec
-/* ─────────────────────────────────────────────
-   graph_channel_policy_extra_types table queries
-   ─────────────────────────────────────────────
-*/
-
-INSERT INTO graph_channel_policy_extra_types (
-    channel_policy_id, type, value
-)
-VALUES ($1, $2, $3)
-`
-
-type InsertChanPolicyExtraTypeParams struct {
-	ChannelPolicyID int64
-	Type            int64
-	Value           []byte
-}
-
-func (q *Queries) InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error {
-	_, err := q.db.ExecContext(ctx, insertChanPolicyExtraType, arg.ChannelPolicyID, arg.Type, arg.Value)
-	return err
-}
-
 const insertChannelFeature = `-- name: InsertChannelFeature :exec
 /* ─────────────────────────────────────────────
    graph_channel_features table queries
@@ -3427,6 +3404,33 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertChanPolicyExtraType = `-- name: UpsertChanPolicyExtraType :exec
+/* ─────────────────────────────────────────────
+   graph_channel_policy_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO graph_channel_policy_extra_types (
+    channel_policy_id, type, value
+)
+VALUES ($1, $2, $3)
+ON CONFLICT (channel_policy_id, type)
+    -- If a conflict occurs on channel_policy_id and type, then we update the
+    -- value.
+    DO UPDATE SET value = EXCLUDED.value
+`
+
+type UpsertChanPolicyExtraTypeParams struct {
+	ChannelPolicyID int64
+	Type            int64
+	Value           []byte
+}
+
+func (q *Queries) UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertChanPolicyExtraType, arg.ChannelPolicyID, arg.Type, arg.Value)
+	return err
 }
 
 const upsertChannelExtraType = `-- name: UpsertChannelExtraType :exec

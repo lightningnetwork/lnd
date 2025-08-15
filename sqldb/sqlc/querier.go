@@ -87,7 +87,6 @@ type Querier interface {
 	HighestSCID(ctx context.Context, version int16) ([]byte, error)
 	InsertAMPSubInvoice(ctx context.Context, arg InsertAMPSubInvoiceParams) error
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
-	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	// NOTE: This query is only meant to be used by the graph SQL migration since
 	// for that migration, in order to be retry-safe, we don't want to error out if
@@ -141,6 +140,7 @@ type Querier interface {
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
+	UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error
 	UpsertChannelExtraType(ctx context.Context, arg UpsertChannelExtraTypeParams) error
 	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)

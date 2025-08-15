@@ -440,7 +440,9 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 			Interval: 10 * time.Second,
 		}
 	)
-	migChanPolicy := func(policy *models.ChannelEdgePolicy) error {
+	migChanPolicy := func(dbChanInfo *dbChanInfo,
+		policy *models.ChannelEdgePolicy) error {
+
 		// If the policy is nil, we can skip it.
 		if policy == nil {
 			return nil
@@ -454,7 +456,7 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		policyCount++
 
-		_, _, _, err := insertChanEdgePolicyMig(ctx, sqlDB, policy)
+		err := insertChanEdgePolicyMig(ctx, sqlDB, dbChanInfo, policy)
 		if err != nil {
 			return fmt.Errorf("could not migrate channel "+
 				"policy %d: %w", policy.ChannelID, err)
@@ -531,12 +533,12 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		}
 
 		// Now, migrate the two channel policies for the channel.
-		err = migChanPolicy(policy1)
+		err = migChanPolicy(dbChanInfo, policy1)
 		if err != nil {
 			return fmt.Errorf("could not migrate policy1(%d): %w",
 				scid, err)
 		}
-		err = migChanPolicy(policy2)
+		err = migChanPolicy(dbChanInfo, policy2)
 		if err != nil {
 			return fmt.Errorf("could not migrate policy2(%d): %w",
 				scid, err)
@@ -1564,45 +1566,14 @@ func insertChannelMig(ctx context.Context, db SQLQueries,
 // insertChanEdgePolicyMig inserts the channel policy info we have stored for
 // a channel we already know of. This is used during the SQL migration
 // process to insert channel policies.
-//
-// TODO(elle): update this function to be more performant in the migration
-// setting. For the sake of keeping the commit that introduced this function
-// simple, this is for now mostly the same as updateChanEdgePolicy.
 func insertChanEdgePolicyMig(ctx context.Context, tx SQLQueries,
-	edge *models.ChannelEdgePolicy) (route.Vertex, route.Vertex, bool,
-	error) {
-
-	var (
-		node1Pub, node2Pub route.Vertex
-		isNode1            bool
-		chanIDB            = channelIDToBytes(edge.ChannelID)
-	)
-
-	// Check that this edge policy refers to a channel that we already
-	// know of. We do this explicitly so that we can return the appropriate
-	// ErrEdgeNotFound error if the channel doesn't exist, rather than
-	// abort the transaction which would abort the entire batch.
-	dbChan, err := tx.GetChannelAndNodesBySCID(
-		ctx, sqlc.GetChannelAndNodesBySCIDParams{
-			Scid:    chanIDB,
-			Version: int16(ProtocolV1),
-		},
-	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return node1Pub, node2Pub, false, ErrEdgeNotFound
-	} else if err != nil {
-		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
-			"fetch channel(%v): %w", edge.ChannelID, err)
-	}
-
-	copy(node1Pub[:], dbChan.Node1PubKey)
-	copy(node2Pub[:], dbChan.Node2PubKey)
+	dbChan *dbChanInfo, edge *models.ChannelEdgePolicy) error {
 
 	// Figure out which node this edge is from.
-	isNode1 = edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
-	nodeID := dbChan.NodeID1
+	isNode1 := edge.ChannelFlags&lnwire.ChanUpdateDirection == 0
+	nodeID := dbChan.node1ID
 	if !isNode1 {
-		nodeID = dbChan.NodeID2
+		nodeID = dbChan.node2ID
 	}
 
 	var (
@@ -1616,7 +1587,7 @@ func insertChanEdgePolicyMig(ctx context.Context, tx SQLQueries,
 
 	id, err := tx.InsertEdgePolicyMig(ctx, sqlc.InsertEdgePolicyMigParams{
 		Version:     int16(ProtocolV1),
-		ChannelID:   dbChan.ID,
+		ChannelID:   dbChan.channelID,
 		NodeID:      nodeID,
 		Timelock:    int32(edge.TimeLockDelta),
 		FeePpm:      int64(edge.FeeProportionalMillionths),
@@ -1638,24 +1609,32 @@ func insertChanEdgePolicyMig(ctx context.Context, tx SQLQueries,
 		Signature:               edge.SigBytes,
 	})
 	if err != nil {
-		return node1Pub, node2Pub, isNode1,
-			fmt.Errorf("unable to upsert edge policy: %w", err)
+		return fmt.Errorf("unable to upsert edge policy: %w", err)
 	}
 
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
 	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
 	if err != nil {
-		return node1Pub, node2Pub, false, fmt.Errorf("unable to "+
-			"marshal extra opaque data: %w", err)
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
 	}
 
-	// Update the channel policy's extra signed fields.
-	err = upsertChanPolicyExtraSignedFields(ctx, tx, id, extra)
-	if err != nil {
-		return node1Pub, node2Pub, false, fmt.Errorf("inserting chan "+
-			"policy extra TLVs: %w", err)
+	// Insert all new extra signed fields for the channel policy.
+	for tlvType, value := range extra {
+		err = tx.UpsertChanPolicyExtraType(
+			ctx, sqlc.UpsertChanPolicyExtraTypeParams{
+				ChannelPolicyID: id,
+				Type:            int64(tlvType),
+				Value:           value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert "+
+				"channel_policy(%d) extra signed field(%v): %w",
+				id, tlvType, err)
+		}
 	}
 
-	return node1Pub, node2Pub, isNode1, nil
+	return nil
 }

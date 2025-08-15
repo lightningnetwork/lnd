@@ -130,6 +130,9 @@ INSERT INTO graph_channel_extra_types (
     channel_id, type, value
 )
 VALUES ($1, $2, $3)
+    ON CONFLICT (channel_id, type)
+    -- Update the value if a conflict occurs on channel_id and type.
+    DO UPDATE SET value = EXCLUDED.value
 `
 
 type CreateChannelExtraTypeParams struct {
@@ -2360,7 +2363,9 @@ INSERT INTO graph_channel_features (
     channel_id, feature_bit
 ) VALUES (
     $1, $2
-)
+) ON CONFLICT (channel_id, feature_bit)
+    -- Do nothing if the channel_id and feature_bit already exist.
+    DO NOTHING
 `
 
 type InsertChannelFeatureParams struct {
@@ -2371,6 +2376,72 @@ type InsertChannelFeatureParams struct {
 func (q *Queries) InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertChannelFeature, arg.ChannelID, arg.FeatureBit)
 	return err
+}
+
+const insertChannelMig = `-- name: InsertChannelMig :one
+INSERT INTO graph_channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) ON CONFLICT (scid, version)
+    -- If a conflict occurs, we have already migrated this channel. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        node_id_1 = EXCLUDED.node_id_1,
+        node_id_2 = EXCLUDED.node_id_2,
+        outpoint = EXCLUDED.outpoint,
+        capacity = EXCLUDED.capacity,
+        bitcoin_key_1 = EXCLUDED.bitcoin_key_1,
+        bitcoin_key_2 = EXCLUDED.bitcoin_key_2,
+        node_1_signature = EXCLUDED.node_1_signature,
+        node_2_signature = EXCLUDED.node_2_signature,
+        bitcoin_1_signature = EXCLUDED.bitcoin_1_signature,
+        bitcoin_2_signature = EXCLUDED.bitcoin_2_signature
+RETURNING id
+`
+
+type InsertChannelMigParams struct {
+	Version           int16
+	Scid              []byte
+	NodeID1           int64
+	NodeID2           int64
+	Outpoint          string
+	Capacity          sql.NullInt64
+	BitcoinKey1       []byte
+	BitcoinKey2       []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+}
+
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same channel again (which would error if the normal
+// CreateChannel query is used because of the uniqueness constraint on the scid
+// and version columns).
+func (q *Queries) InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertChannelMig,
+		arg.Version,
+		arg.Scid,
+		arg.NodeID1,
+		arg.NodeID2,
+		arg.Outpoint,
+		arg.Capacity,
+		arg.BitcoinKey1,
+		arg.BitcoinKey2,
+		arg.Node1Signature,
+		arg.Node2Signature,
+		arg.Bitcoin1Signature,
+		arg.Bitcoin2Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertClosedChannel = `-- name: InsertClosedChannel :exec

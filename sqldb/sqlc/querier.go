@@ -90,6 +90,12 @@ type Querier interface {
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same channel again (which would error if the normal
+	// CreateChannel query is used because of the uniqueness constraint on the scid
+	// and version columns).
+	InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error)
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error

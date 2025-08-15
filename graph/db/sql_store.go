@@ -112,7 +112,7 @@ type SQLQueries interface {
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannels(ctx context.Context, ids []int64) error
 
-	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
+	UpsertChannelExtraType(ctx context.Context, arg sqlc.UpsertChannelExtraTypeParams) error
 	GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelExtraType, error)
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
 	GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelFeature, error)
@@ -163,6 +163,7 @@ type SQLQueries interface {
 		structs.
 	*/
 	InsertNodeMig(ctx context.Context, arg sqlc.InsertNodeMigParams) (int64, error)
+	InsertChannelMig(ctx context.Context, arg sqlc.InsertChannelMigParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -627,9 +628,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 					err)
 			}
 
-			_, err = insertChannel(ctx, tx, edge)
-
-			return err
+			return insertChannel(ctx, tx, edge)
 		},
 		OnCommit: func(err error) error {
 			switch {
@@ -3799,28 +3798,20 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 	return records, nil
 }
 
-// dbChanInfo holds the DB level IDs of a channel and the nodes involved in the
-// channel.
-type dbChanInfo struct {
-	channelID int64
-	node1ID   int64
-	node2ID   int64
-}
-
 // insertChannel inserts a new channel record into the database.
 func insertChannel(ctx context.Context, db SQLQueries,
-	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
+	edge *models.ChannelEdgeInfo) error {
 
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create shell node: %w", err)
+		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create shell node: %w", err)
+		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	var capacity sql.NullInt64
@@ -3851,7 +3842,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Insert the new channel record.
 	dbChanID, err := db.CreateChannel(ctx, createParams)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Insert any channel features.
@@ -3863,7 +3854,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to insert channel(%d) "+
+			return fmt.Errorf("unable to insert channel(%d) "+
 				"feature(%v): %w", dbChanID, feature, err)
 		}
 	}
@@ -3871,30 +3862,26 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Finally, insert any extra TLV fields in the channel announcement.
 	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
 	if err != nil {
-		return nil, fmt.Errorf("unable to marshal extra opaque "+
-			"data: %w", err)
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
 	}
 
 	for tlvType, value := range extra {
-		err := db.CreateChannelExtraType(
-			ctx, sqlc.CreateChannelExtraTypeParams{
+		err := db.UpsertChannelExtraType(
+			ctx, sqlc.UpsertChannelExtraTypeParams{
 				ChannelID: dbChanID,
 				Type:      int64(tlvType),
 				Value:     value,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to upsert "+
-				"channel(%d) extra signed field(%v): %w",
-				edge.ChannelID, tlvType, err)
+			return fmt.Errorf("unable to upsert channel(%d) "+
+				"extra signed field(%v): %w", edge.ChannelID,
+				tlvType, err)
 		}
 	}
 
-	return &dbChanInfo{
-		channelID: dbChanID,
-		node1ID:   node1DBID,
-		node2ID:   node2DBID,
-	}, nil
+	return nil
 }
 
 // maybeCreateShellNode checks if a shell node entry exists for the

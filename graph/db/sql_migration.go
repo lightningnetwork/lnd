@@ -524,7 +524,7 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 		chunk++
 
 		// Migrate the channel info along with its policies.
-		dbChanInfo, err := insertChannel(ctx, sqlDB, channel)
+		dbChanInfo, err := insertChannelMig(ctx, sqlDB, channel)
 		if err != nil {
 			return fmt.Errorf("could not insert record for "+
 				"channel %d in SQL store: %w", scid, err)
@@ -577,8 +577,13 @@ func migrateChannelsAndPolicies(ctx context.Context, cfg *SQLStoreConfig,
 
 		return nil
 	}, func() {
-		// No reset is needed since if a retry occurs, the entire
-		// migration will be retried from the start.
+		channelCount = 0
+		policyCount = 0
+		chunk = 0
+		skippedChanCount = 0
+		skippedPolicyCount = 0
+		t0 = time.Now()
+		batch = make(map[int64]*migChanInfo, cfg.QueryCfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate channels and policies: %w",
@@ -1451,4 +1456,107 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 	}
 
 	return nodeID, nil
+}
+
+// dbChanInfo holds the DB level IDs of a channel and the nodes involved in the
+// channel.
+type dbChanInfo struct {
+	channelID int64
+	node1ID   int64
+	node2ID   int64
+}
+
+// insertChannelMig inserts a new channel record into the database during the
+// graph SQL migration.
+func insertChannelMig(ctx context.Context, db SQLQueries,
+	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
+
+	// Make sure that at least a "shell" entry for each node is present in
+	// the nodes table.
+	//
+	// NOTE: we need this even during the SQL migration where nodes are
+	// migrated first because there are cases were some nodes may have
+	// been skipped due to invalid TLV data.
+	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create shell node: %w", err)
+	}
+
+	var capacity sql.NullInt64
+	if edge.Capacity != 0 {
+		capacity = sqldb.SQLInt64(int64(edge.Capacity))
+	}
+
+	createParams := sqlc.InsertChannelMigParams{
+		Version:     int16(ProtocolV1),
+		Scid:        channelIDToBytes(edge.ChannelID),
+		NodeID1:     node1DBID,
+		NodeID2:     node2DBID,
+		Outpoint:    edge.ChannelPoint.String(),
+		Capacity:    capacity,
+		BitcoinKey1: edge.BitcoinKey1Bytes[:],
+		BitcoinKey2: edge.BitcoinKey2Bytes[:],
+	}
+
+	if edge.AuthProof != nil {
+		proof := edge.AuthProof
+
+		createParams.Node1Signature = proof.NodeSig1Bytes
+		createParams.Node2Signature = proof.NodeSig2Bytes
+		createParams.Bitcoin1Signature = proof.BitcoinSig1Bytes
+		createParams.Bitcoin2Signature = proof.BitcoinSig2Bytes
+	}
+
+	// Insert the new channel record.
+	dbChanID, err := db.InsertChannelMig(ctx, createParams)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insert any channel features.
+	for feature := range edge.Features.Features() {
+		err = db.InsertChannelFeature(
+			ctx, sqlc.InsertChannelFeatureParams{
+				ChannelID:  dbChanID,
+				FeatureBit: int32(feature),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert channel(%d) "+
+				"feature(%v): %w", dbChanID, feature, err)
+		}
+	}
+
+	// Finally, insert any extra TLV fields in the channel announcement.
+	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal extra opaque "+
+			"data: %w", err)
+	}
+
+	for tlvType, value := range extra {
+		err := db.UpsertChannelExtraType(
+			ctx, sqlc.UpsertChannelExtraTypeParams{
+				ChannelID: dbChanID,
+				Type:      int64(tlvType),
+				Value:     value,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to upsert "+
+				"channel(%d) extra signed field(%v): %w",
+				edge.ChannelID, tlvType, err)
+		}
+	}
+
+	return &dbChanInfo{
+		channelID: dbChanID,
+		node1ID:   node1DBID,
+		node2ID:   node2DBID,
+	}, nil
 }

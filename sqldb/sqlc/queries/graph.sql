@@ -738,7 +738,9 @@ INSERT INTO graph_channel_features (
     channel_id, feature_bit
 ) VALUES (
     $1, $2
-);
+) ON CONFLICT (channel_id, feature_bit)
+    -- Do nothing if the channel_id and feature_bit already exist.
+    DO NOTHING;
 
 -- name: GetChannelFeaturesBatch :many
 SELECT
@@ -753,11 +755,14 @@ ORDER BY channel_id, feature_bit;
    ─────────────────────────────────────────────
 */
 
--- name: CreateChannelExtraType :exec
+-- name: UpsertChannelExtraType :exec
 INSERT INTO graph_channel_extra_types (
     channel_id, type, value
 )
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+    ON CONFLICT (channel_id, type)
+    -- Update the value if a conflict occurs on channel_id and type.
+    DO UPDATE SET value = EXCLUDED.value;
 
 -- name: GetChannelExtrasBatch :many
 SELECT
@@ -1028,4 +1033,34 @@ ON CONFLICT (pub_key, version)
         last_update = EXCLUDED.last_update,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
+RETURNING id;
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same channel again (which would error if the normal
+-- CreateChannel query is used because of the uniqueness constraint on the scid
+-- and version columns).
+-- name: InsertChannelMig :one
+INSERT INTO graph_channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) ON CONFLICT (scid, version)
+    -- If a conflict occurs, we have already migrated this channel. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        node_id_1 = EXCLUDED.node_id_1,
+        node_id_2 = EXCLUDED.node_id_2,
+        outpoint = EXCLUDED.outpoint,
+        capacity = EXCLUDED.capacity,
+        bitcoin_key_1 = EXCLUDED.bitcoin_key_1,
+        bitcoin_key_2 = EXCLUDED.bitcoin_key_2,
+        node_1_signature = EXCLUDED.node_1_signature,
+        node_2_signature = EXCLUDED.node_2_signature,
+        bitcoin_1_signature = EXCLUDED.bitcoin_1_signature,
+        bitcoin_2_signature = EXCLUDED.bitcoin_2_signature
 RETURNING id;

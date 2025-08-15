@@ -225,7 +225,6 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numNodes:    4,
 				numChannels: 3,
 			},
-			expNotRetrySafety: true,
 		},
 		{
 			name:  "channels and policies",

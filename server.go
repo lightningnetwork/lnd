@@ -65,6 +65,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/nat"
 	"github.com/lightningnetwork/lnd/netann"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/pool"
@@ -339,7 +340,7 @@ type server struct {
 	// payments.
 	//
 	// TODO(ziggie): Replace with interface.
-	kvPaymentsDB *channeldb.KVPaymentsDB
+	kvPaymentsDB *paymentsdb.KVPaymentsDB
 
 	aliasMgr *aliasmgr.Manager
 

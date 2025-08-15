@@ -1,14 +1,20 @@
-package channeldb
+package paymentsdb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"math"
+	"reflect"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +26,458 @@ var (
 		0x4f, 0x2f, 0x6f, 0x25, 0x88, 0xa3, 0xef, 0xb9,
 		0x6a, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 	}
+
+	rev = [chainhash.HashSize]byte{
+		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+		0x2d, 0xe7, 0x93, 0xe4,
+	}
 )
+
+var (
+	priv, _ = btcec.NewPrivateKey()
+	pub     = priv.PubKey()
+	vertex  = route.NewVertex(pub)
+
+	testHop1 = &route.Hop{
+		PubKeyBytes:      vertex,
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+		CustomRecords: record.CustomSet{
+			65536: []byte{},
+			80001: []byte{},
+		},
+		MPP:      record.NewMPP(32, [32]byte{0x42}),
+		Metadata: []byte{1, 2, 3},
+	}
+
+	testHop2 = &route.Hop{
+		PubKeyBytes:      vertex,
+		ChannelID:        12345,
+		OutgoingTimeLock: 111,
+		AmtToForward:     555,
+		LegacyPayload:    true,
+	}
+
+	testRoute = route.Route{
+		TotalTimeLock: 123,
+		TotalAmount:   1234567,
+		SourcePubKey:  vertex,
+		Hops: []*route.Hop{
+			testHop2,
+			testHop1,
+		},
+	}
+
+	testBlindedRoute = route.Route{
+		TotalTimeLock: 150,
+		TotalAmount:   1000,
+		SourcePubKey:  vertex,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:      vertex,
+				ChannelID:        9876,
+				OutgoingTimeLock: 120,
+				AmtToForward:     900,
+				EncryptedData:    []byte{1, 3, 3},
+				BlindingPoint:    pub,
+			},
+			{
+				PubKeyBytes:   vertex,
+				EncryptedData: []byte{3, 2, 1},
+			},
+			{
+				PubKeyBytes:      vertex,
+				Metadata:         []byte{4, 5, 6},
+				AmtToForward:     500,
+				OutgoingTimeLock: 100,
+				TotalAmtMsat:     500,
+			},
+		},
+	}
+)
+
+// assertRouteEquals compares to routes for equality and returns an error if
+// they are not equal.
+func assertRouteEqual(a, b *route.Route) error {
+	if !reflect.DeepEqual(a, b) {
+		return fmt.Errorf("HTLCAttemptInfos don't match: %v vs %v",
+			spew.Sdump(a), spew.Sdump(b))
+	}
+
+	return nil
+}
+
+// TestQueryPayments tests retrieval of payments with forwards and reversed
+// queries.
+func TestQueryPayments(t *testing.T) {
+	// Define table driven test for QueryPayments.
+	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
+	// Note that the payment with index 7 has the same payment hash as 6,
+	// and is stored in a nested bucket within payment 6 rather than being
+	// its own entry in the payments bucket. We do this to test retrieval
+	// of legacy payments.
+	tests := []struct {
+		name       string
+		query      Query
+		firstIndex uint64
+		lastIndex  uint64
+
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
+	}{
+		{
+			name: "IndexOffset at the end of the payments range",
+			query: Query{
+				IndexOffset:       7,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "query in forwards order, start at beginning",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in forwards order, start at end, overflow",
+			query: Query{
+				IndexOffset:       6,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "start at offset index outside of payments",
+			query: Query{
+				IndexOffset:       20,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "overflow in forwards order",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{5, 6, 7},
+		},
+		{
+			name: "start at offset index outside of payments, " +
+				"reversed order",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, start at end",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
+		},
+		{
+			name: "query in reverse order, starting in middle",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in reverse order, starting in middle, " +
+				"with underflow",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       5,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "all payments in reverse, order maintained",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
+		},
+		{
+			name: "exclude incomplete payments",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: false,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query payments at index gap",
+			query: Query{
+				IndexOffset:       1,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
+		},
+		{
+			name: "query payments reverse before index gap",
+			query: Query{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 5,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time at end, overflow",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 7,
+			},
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
+		},
+		{
+			name: "query with start and end creation time",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := context.Background()
+
+			paymentDB := NewTestDB(t)
+
+			// Initialize the payment database.
+			paymentDB, err := NewKVPaymentsDB(paymentDB.db)
+			require.NoError(t, err)
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
+
+			// Populate the database with a set of test payments.
+			// We create 6 original payments, deleting the payment
+			// at index 2 so that we cover the case where sequence
+			// numbers are missing. We also add a duplicate payment
+			// to the last payment added to test the legacy case
+			// where we have duplicates in the nested duplicates
+			// bucket.
+			nonDuplicatePayments := 6
+
+			for i := 0; i < nonDuplicatePayments; i++ {
+				// Generate a test payment.
+				info, _, preimg, err := genInfo(t)
+				if err != nil {
+					t.Fatalf("unable to create test "+
+						"payment: %v", err)
+				}
+				// Override creation time to allow for testing
+				// of CreationDateStart and CreationDateEnd.
+				info.CreationTime = time.Unix(int64(i+1), 0)
+
+				// Create a new payment entry in the database.
+				err = paymentDB.InitPayment(
+					info.PaymentIdentifier, info,
+				)
+				require.NoError(t, err)
+
+				// Immediately delete the payment with index 2.
+				if i == 1 {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					deletePayment(
+						t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum,
+					)
+				}
+
+				// If we are on the last payment entry, add a
+				// duplicate payment with sequence number equal
+				// to the parent payment + 1. Note that
+				// duplicate payments will always be succeeded.
+				if i == (nonDuplicatePayments - 1) {
+					pmt, err := paymentDB.FetchPayment(
+						info.PaymentIdentifier,
+					)
+					require.NoError(t, err)
+
+					appendDuplicatePayment(
+						t, paymentDB.db,
+						info.PaymentIdentifier,
+						pmt.SequenceNum+1,
+						preimg,
+					)
+				}
+			}
+
+			// Fetch all payments in the database.
+			allPayments, err := paymentDB.FetchPayments()
+			if err != nil {
+				t.Fatalf("payments could not be fetched from "+
+					"database: %v", err)
+			}
+
+			if len(allPayments) != 6 {
+				t.Fatalf("Number of payments received does "+
+					"not match expected one. Got %v, "+
+					"want %v.", len(allPayments), 6)
+			}
+
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.firstIndex != querySlice.FirstIndexOffset ||
+				tt.lastIndex != querySlice.LastIndexOffset {
+
+				t.Errorf("First or last index does not match "+
+					"expected index. Want (%d, %d), "+
+					"got (%d, %d).",
+					tt.firstIndex, tt.lastIndex,
+					querySlice.FirstIndexOffset,
+					querySlice.LastIndexOffset)
+			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Errorf("expected: %v payments, got: %v",
+					len(tt.expectedSeqNrs),
+					len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.SequenceNum {
+					t.Errorf("sequence numbers do not "+
+						"match, got %v, want %v",
+						q.SequenceNum, seqNr)
+				}
+			}
+		})
+	}
+}
 
 // TestLazySessionKeyDeserialize tests that we can read htlc attempt session
 // keys that were previously serialized as a private key as raw bytes.
@@ -66,35 +523,35 @@ func TestRegistrable(t *testing.T) {
 			// Test inflight status with settled HTLC but no failed
 			// payment.
 			status:         StatusInFlight,
-			registryErr:    paymentsdb.ErrPaymentPendingSettled,
+			registryErr:    ErrPaymentPendingSettled,
 			hasSettledHTLC: true,
 		},
 		{
 			// Test inflight status with no settled HTLC but failed
 			// payment.
 			status:        StatusInFlight,
-			registryErr:   paymentsdb.ErrPaymentPendingFailed,
+			registryErr:   ErrPaymentPendingFailed,
 			paymentFailed: true,
 		},
 		{
 			// Test error state with settled HTLC and failed
 			// payment.
 			status:         0,
-			registryErr:    paymentsdb.ErrUnknownPaymentStatus,
+			registryErr:    ErrUnknownPaymentStatus,
 			hasSettledHTLC: true,
 			paymentFailed:  true,
 		},
 		{
 			status:      StatusSucceeded,
-			registryErr: paymentsdb.ErrPaymentAlreadySucceeded,
+			registryErr: ErrPaymentAlreadySucceeded,
 		},
 		{
 			status:      StatusFailed,
-			registryErr: paymentsdb.ErrPaymentAlreadyFailed,
+			registryErr: ErrPaymentAlreadyFailed,
 		},
 		{
 			status:      0,
-			registryErr: paymentsdb.ErrUnknownPaymentStatus,
+			registryErr: ErrUnknownPaymentStatus,
 		},
 	}
 
@@ -150,7 +607,7 @@ func TestPaymentSetState(t *testing.T) {
 				},
 			},
 			totalAmt:    1,
-			errExpected: paymentsdb.ErrSentExceedsTotal,
+			errExpected: ErrSentExceedsTotal,
 		},
 		{
 			// Test that when the htlc is failed, the fee is not
@@ -295,7 +752,7 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusSucceeded,
 			remainingAmt: 1000,
 			needWait:     false,
-			expectedErr:  paymentsdb.ErrPaymentInternal,
+			expectedErr:  ErrPaymentInternal,
 		},
 		{
 			// Payment is in terminal state, no need to wait.
@@ -310,7 +767,7 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusInitiated,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  paymentsdb.ErrPaymentInternal,
+			expectedErr:  ErrPaymentInternal,
 		},
 		{
 			// With zero remainingAmt we must wait for the results.
@@ -331,21 +788,21 @@ func TestNeedWaitAttempts(t *testing.T) {
 			status:       StatusFailed,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  paymentsdb.ErrPaymentInternal,
+			expectedErr:  ErrPaymentInternal,
 		},
 		{
 			// Payment is in an unknown status, return an error.
 			status:       0,
 			remainingAmt: 0,
 			needWait:     false,
-			expectedErr:  paymentsdb.ErrUnknownPaymentStatus,
+			expectedErr:  ErrUnknownPaymentStatus,
 		},
 		{
 			// Payment is in an unknown status, return an error.
 			status:       0,
 			remainingAmt: 1000,
 			needWait:     false,
-			expectedErr:  paymentsdb.ErrUnknownPaymentStatus,
+			expectedErr:  ErrUnknownPaymentStatus,
 		},
 	}
 
@@ -398,7 +855,7 @@ func TestAllowMoreAttempts(t *testing.T) {
 			status:       StatusInitiated,
 			remainingAmt: 0,
 			allowMore:    false,
-			expectedErr:  paymentsdb.ErrPaymentInternal,
+			expectedErr:  ErrPaymentInternal,
 		},
 		{
 			// With zero remainingAmt we don't allow more HTLC
@@ -506,7 +963,7 @@ func TestAllowMoreAttempts(t *testing.T) {
 			remainingAmt:   1000,
 			hasSettledHTLC: true,
 			allowMore:      false,
-			expectedErr:    paymentsdb.ErrPaymentInternal,
+			expectedErr:    ErrPaymentInternal,
 		},
 		{
 			// With the payment failed with no inflight HTLCs, we

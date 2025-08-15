@@ -1,4 +1,4 @@
-package channeldb
+package paymentsdb
 
 import (
 	"bytes"
@@ -15,9 +15,93 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
-	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// FailureReason encodes the reason a payment ultimately failed.
+type FailureReason byte
+
+const (
+	// FailureReasonTimeout indicates that the payment did timeout before a
+	// successful payment attempt was made.
+	FailureReasonTimeout FailureReason = 0
+
+	// FailureReasonNoRoute indicates no successful route to the
+	// destination was found during path finding.
+	FailureReasonNoRoute FailureReason = 1
+
+	// FailureReasonError indicates that an unexpected error happened during
+	// payment.
+	FailureReasonError FailureReason = 2
+
+	// FailureReasonPaymentDetails indicates that either the hash is unknown
+	// or the final cltv delta or amount is incorrect.
+	FailureReasonPaymentDetails FailureReason = 3
+
+	// FailureReasonInsufficientBalance indicates that we didn't have enough
+	// balance to complete the payment.
+	FailureReasonInsufficientBalance FailureReason = 4
+
+	// FailureReasonCanceled indicates that the payment was canceled by the
+	// user.
+	FailureReasonCanceled FailureReason = 5
+
+	// TODO(joostjager): Add failure reasons for:
+	// LocalLiquidityInsufficient, RemoteCapacityInsufficient.
+)
+
+// Error returns a human-readable error string for the FailureReason.
+func (r FailureReason) Error() string {
+	return r.String()
+}
+
+// String returns a human-readable FailureReason.
+func (r FailureReason) String() string {
+	switch r {
+	case FailureReasonTimeout:
+		return "timeout"
+	case FailureReasonNoRoute:
+		return "no_route"
+	case FailureReasonError:
+		return "error"
+	case FailureReasonPaymentDetails:
+		return "incorrect_payment_details"
+	case FailureReasonInsufficientBalance:
+		return "insufficient_balance"
+	case FailureReasonCanceled:
+		return "canceled"
+	}
+
+	return "unknown"
+}
+
+// PaymentCreationInfo is the information necessary to have ready when
+// initiating a payment, moving it into state InFlight.
+type PaymentCreationInfo struct {
+	// PaymentIdentifier is the hash this payment is paying to in case of
+	// non-AMP payments, and the SetID for AMP payments.
+	PaymentIdentifier lntypes.Hash
+
+	// Value is the amount we are paying.
+	Value lnwire.MilliSatoshi
+
+	// CreationTime is the time when this payment was initiated.
+	CreationTime time.Time
+
+	// PaymentRequest is the full payment request, if any.
+	PaymentRequest []byte
+
+	// FirstHopCustomRecords are the TLV records that are to be sent to the
+	// first hop of this payment. These records will be transmitted via the
+	// wire message only and therefore do not affect the onion payload size.
+	FirstHopCustomRecords lnwire.CustomRecords
+}
+
+// String returns a human-readable description of the payment creation info.
+func (p *PaymentCreationInfo) String() string {
+	return fmt.Sprintf("payment_id=%v, amount=%v, created_at=%v",
+		p.PaymentIdentifier, p.Value, p.CreationTime)
+}
 
 // HTLCAttemptInfo contains static information about a specific HTLC attempt
 // for a payment. This information is used by the router to handle any errors
@@ -171,8 +255,8 @@ const (
 	// reason.
 	HTLCFailUnknown HTLCFailReason = 0
 
-	// HTLCFailUnknown is recorded for htlcs that had a failure message that
-	// couldn't be decrypted.
+	// HTLCFailUnreadable is recorded for htlcs that had a failure message
+	// that couldn't be decrypted.
 	HTLCFailUnreadable HTLCFailReason = 1
 
 	// HTLCFailInternal is recorded for htlcs that failed because of an
@@ -350,12 +434,12 @@ func (m *MPPayment) Registrable() error {
 	// are settled HTLCs or the payment is failed. If we already have
 	// settled HTLCs, we won't allow adding more HTLCs.
 	if m.State.HasSettledHTLC {
-		return paymentsdb.ErrPaymentPendingSettled
+		return ErrPaymentPendingSettled
 	}
 
 	// If the payment is already failed, we won't allow adding more HTLCs.
 	if m.State.PaymentFailed {
-		return paymentsdb.ErrPaymentPendingFailed
+		return ErrPaymentPendingFailed
 	}
 
 	// Otherwise we can add more HTLCs.
@@ -373,7 +457,7 @@ func (m *MPPayment) setState() error {
 	totalAmt := m.Info.Value
 	if sentAmt > totalAmt {
 		return fmt.Errorf("%w: sent=%v, total=%v",
-			paymentsdb.ErrSentExceedsTotal, sentAmt, totalAmt)
+			ErrSentExceedsTotal, sentAmt, totalAmt)
 	}
 
 	// Get any terminal info for this payment.
@@ -452,7 +536,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		case StatusSucceeded:
 			return false, fmt.Errorf("%w: parts of the payment "+
 				"already succeeded but still have remaining "+
-				"amount %v", paymentsdb.ErrPaymentInternal,
+				"amount %v", ErrPaymentInternal,
 				m.State.RemainingAmt)
 
 		// The payment is failed and we have no inflight HTLCs, no need
@@ -463,7 +547,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 		// Unknown payment status.
 		default:
 			return false, fmt.Errorf("%w: %s",
-				paymentsdb.ErrUnknownPaymentStatus, m.Status)
+				ErrUnknownPaymentStatus, m.Status)
 		}
 	}
 
@@ -474,7 +558,7 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// amount, return an error.
 	case StatusInitiated:
 		return false, fmt.Errorf("%w: %v",
-			paymentsdb.ErrPaymentInternal, m.Status)
+			ErrPaymentInternal, m.Status)
 
 	// If the payment is inflight, we must wait.
 	//
@@ -496,12 +580,12 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	// not be zero because our sentAmt is zero.
 	case StatusFailed:
 		return false, fmt.Errorf("%w: %v",
-			paymentsdb.ErrPaymentInternal, m.Status)
+			ErrPaymentInternal, m.Status)
 
 	// Unknown payment status.
 	default:
 		return false, fmt.Errorf("%w: %s",
-			paymentsdb.ErrUnknownPaymentStatus, m.Status)
+			ErrUnknownPaymentStatus, m.Status)
 	}
 }
 
@@ -510,12 +594,12 @@ func (m *MPPayment) GetState() *MPPaymentState {
 	return m.State
 }
 
-// Status returns the current status of the payment.
+// GetStatus returns the current status of the payment.
 func (m *MPPayment) GetStatus() PaymentStatus {
 	return m.Status
 }
 
-// GetPayment returns all the HTLCs for this payment.
+// GetHTLCs returns all the HTLCs for this payment.
 func (m *MPPayment) GetHTLCs() []HTLCAttempt {
 	return m.HTLCs
 }
@@ -532,7 +616,7 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 		if m.Status == StatusInitiated {
 			return false, fmt.Errorf("%w: initiated payment has "+
 				"zero remainingAmt",
-				paymentsdb.ErrPaymentInternal)
+				ErrPaymentInternal)
 		}
 
 		// Otherwise, exit early since all other statuses with zero
@@ -549,7 +633,7 @@ func (m *MPPayment) AllowMoreAttempts() (bool, error) {
 	if m.Status == StatusSucceeded {
 		return false, fmt.Errorf("%w: payment already succeeded but "+
 			"still have remaining amount %v",
-			paymentsdb.ErrPaymentInternal, m.State.RemainingAmt)
+			ErrPaymentInternal, m.State.RemainingAmt)
 	}
 
 	// Now check if we can register a new HTLC.
@@ -652,39 +736,6 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 	f.Reason = HTLCFailReason(reason)
 
 	return f, nil
-}
-
-// deserializeTime deserializes time as unix nanoseconds.
-func deserializeTime(r io.Reader) (time.Time, error) {
-	var scratch [8]byte
-	if _, err := io.ReadFull(r, scratch[:]); err != nil {
-		return time.Time{}, err
-	}
-
-	// Convert to time.Time. Interpret unix nano time zero as a zero
-	// time.Time value.
-	unixNano := byteOrder.Uint64(scratch[:])
-	if unixNano == 0 {
-		return time.Time{}, nil
-	}
-
-	return time.Unix(0, int64(unixNano)), nil
-}
-
-// serializeTime serializes time as unix nanoseconds.
-func serializeTime(w io.Writer, t time.Time) error {
-	var scratch [8]byte
-
-	// Convert to unix nano seconds, but only if time is non-zero. Calling
-	// UnixNano() on a zero time yields an undefined result.
-	var unixNano int64
-	if !t.IsZero() {
-		unixNano = t.UnixNano()
-	}
-
-	byteOrder.PutUint64(scratch[:], uint64(unixNano))
-	_, err := w.Write(scratch[:])
-	return err
 }
 
 // generateSphinxPacket generates then encodes a sphinx packet which encodes

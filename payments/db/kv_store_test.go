@@ -105,7 +105,7 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 			}
 
 			// Verify the status is indeed Failed.
-			assertPaymentstatus(
+			assertDBPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusFailed,
 			)
@@ -129,7 +129,7 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 					" got: %v", err)
 			}
 
-			assertPaymentstatus(
+			assertDBPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusSucceeded,
 			)
@@ -143,7 +143,7 @@ func TestKVPaymentsDBDeleteNonInFlight(t *testing.T) {
 			numSuccess++
 
 		default:
-			assertPaymentstatus(
+			assertDBPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
 			)

@@ -271,9 +271,9 @@ func assertPaymentInfo(t *testing.T, p DB, hash lntypes.Hash,
 	}
 }
 
-// assertPaymentstatus retrieves the status of the payment referred to by hash
+// assertDBPaymentstatus retrieves the status of the payment referred to by hash
 // and compares it with the expected state.
-func assertPaymentstatus(t *testing.T, p DB, hash lntypes.Hash,
+func assertDBPaymentstatus(t *testing.T, p DB, hash lntypes.Hash,
 	expStatus PaymentStatus) {
 
 	t.Helper()
@@ -1292,7 +1292,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	require.NoError(t, err, "unable to send htlc message")
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1308,7 +1308,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	// Record an attempt.
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1334,7 +1334,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "error shouldn't have been received, got")
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusSucceeded,
 	)
 
@@ -1364,7 +1364,7 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to send htlc message")
 
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1377,7 +1377,7 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to fail payment hash")
 
 	// Verify the status is indeed Failed.
-	assertPaymentstatus(t, paymentDB, info.PaymentIdentifier, StatusFailed)
+	assertDBPaymentstatus(t, paymentDB, info.PaymentIdentifier, StatusFailed)
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, &failReason, nil,
 	)
@@ -1397,7 +1397,7 @@ func TestSwitchFail(t *testing.T) {
 	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
 	assertNoIndex(t, paymentDB, payment.SequenceNum)
 
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
 	assertPaymentInfo(
@@ -1420,7 +1420,7 @@ func TestSwitchFail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1435,7 +1435,7 @@ func TestSwitchFail(t *testing.T) {
 	attempt.AttemptID = 1
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 	)
 
@@ -1469,7 +1469,7 @@ func TestSwitchFail(t *testing.T) {
 			spew.Sdump(payment.HTLCs[0].Route), err)
 	}
 
-	assertPaymentstatus(
+	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusSucceeded,
 	)
 
@@ -1522,7 +1522,7 @@ func TestMultiShard(t *testing.T) {
 		}
 
 		assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-		assertPaymentstatus(
+		assertDBPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 		)
 		assertPaymentInfo(
@@ -1551,7 +1551,7 @@ func TestMultiShard(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to send htlc message: %v", err)
 			}
-			assertPaymentstatus(
+			assertDBPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
 			)
@@ -1595,7 +1595,7 @@ func TestMultiShard(t *testing.T) {
 		)
 
 		// Payment should still be in-flight.
-		assertPaymentstatus(
+		assertDBPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 		)
 
@@ -1659,7 +1659,7 @@ func TestMultiShard(t *testing.T) {
 
 			// The payment is now considered pending fail, since
 			// there is still an active HTLC.
-			assertPaymentstatus(
+			assertDBPaymentstatus(
 				t, paymentDB, info.PaymentIdentifier,
 				StatusInFlight,
 			)
@@ -1680,7 +1680,7 @@ func TestMultiShard(t *testing.T) {
 			)
 		}
 
-		assertPaymentstatus(
+		assertDBPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInFlight,
 		)
 
@@ -1763,7 +1763,7 @@ func TestMultiShard(t *testing.T) {
 			registerErr = ErrPaymentAlreadySucceeded
 		}
 
-		assertPaymentstatus(
+		assertDBPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, finalStatus,
 		)
 

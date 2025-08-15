@@ -105,7 +105,9 @@ INSERT INTO graph_node_features (
     node_id, feature_bit
 ) VALUES (
     $1, $2
-);
+) ON CONFLICT (node_id, feature_bit)
+    -- Do nothing if the feature already exists for the node.
+    DO NOTHING;
 
 -- name: GetNodeFeatures :many
 SELECT *
@@ -143,7 +145,8 @@ INSERT INTO graph_node_addresses (
     position
 ) VALUES (
     $1, $2, $3, $4
- );
+) ON CONFLICT (node_id, type, position)
+    DO UPDATE SET address = EXCLUDED.address;
 
 -- name: GetNodeAddresses :many
 SELECT type, address

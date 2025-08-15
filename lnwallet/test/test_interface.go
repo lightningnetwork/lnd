@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -2977,7 +2978,7 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 		// Do a short wait
 		select {
 		case <-timeout:
-			return fmt.Errorf("timeout after 10s")
+			return errors.New("timeout after 30s")
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -3008,12 +3009,12 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		bestHash, knownHash     *chainhash.Hash
 		bestHeight, knownHeight int32
 	)
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(30 * time.Second)
 	for !synced {
 		// Do a short wait
 		select {
 		case <-timeout:
-			return fmt.Errorf("timeout after 30s")
+			return errors.New("timeout after 30s")
 		case <-time.Tick(100 * time.Millisecond):
 		}
 

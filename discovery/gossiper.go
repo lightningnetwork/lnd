@@ -2220,7 +2220,9 @@ func (d *AuthenticatedGossiper) processZombieUpdate(_ context.Context,
 }
 
 // fetchNodeAnn fetches the latest signed node announcement from our point of
-// view for the node with the given public key.
+// view for the node with the given public key. It also validates the node
+// announcement fields and returns an error if they are invalid to prevent
+// forwarding invalid node announcements to our peers.
 func (d *AuthenticatedGossiper) fetchNodeAnn(ctx context.Context,
 	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
 
@@ -2229,7 +2231,12 @@ func (d *AuthenticatedGossiper) fetchNodeAnn(ctx context.Context,
 		return nil, err
 	}
 
-	return node.NodeAnnouncement(true)
+	nodeAnn, err := node.NodeAnnouncement(true)
+	if err != nil {
+		return nil, err
+	}
+
+	return nodeAnn, netann.ValidateNodeAnnFields(nodeAnn)
 }
 
 // isMsgStale determines whether a message retrieved from the backing

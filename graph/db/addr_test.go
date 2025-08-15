@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 )
@@ -38,6 +39,18 @@ var (
 		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion", //nolint:ll
 		Port:         80,
 	}
+
+	testOpaqueAddr = &lnwire.OpaqueAddrs{
+		// NOTE: the first byte is a protocol level address type. So
+		// for we set it to 0xff to guarantee that we do not know this
+		// type yet.
+		Payload: []byte{0xff, 0x02, 0x03, 0x04, 0x05, 0x06},
+	}
+
+	testDNSAddr = &lnwire.DNSAddress{
+		Hostname: "example.com",
+		Port:     8080,
+	}
 )
 
 var addrTests = []struct {
@@ -56,6 +69,12 @@ var addrTests = []struct {
 	},
 	{
 		expAddr: testOnionV3Addr,
+	},
+	{
+		expAddr: testOpaqueAddr,
+	},
+	{
+		expAddr: testDNSAddr,
 	},
 
 	// Invalid addresses.

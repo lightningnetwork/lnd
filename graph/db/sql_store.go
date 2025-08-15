@@ -153,6 +153,16 @@ type SQLQueries interface {
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
+
+	/*
+		Migration specific queries.
+
+		NOTE: these should not be used in code other than migrations.
+		Once sqldbv2 is in place, these can be removed from this struct
+		as then migrations will have their own dedicated queries
+		structs.
+	*/
+	InsertNodeMig(ctx context.Context, arg sqlc.InsertNodeMigParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched

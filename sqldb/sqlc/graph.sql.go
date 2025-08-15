@@ -2445,6 +2445,61 @@ func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeaturePa
 	return err
 }
 
+const insertNodeMig = `-- name: InsertNodeMig :one
+/* ─────────────────────────────────────────────
+   Migration specific queries
+
+   NOTE: once sqldbv2 is in place, these queries can be contained to a package
+   dedicated to the migration that requires it, and so we can then remove
+   it from the main set of "live" queries that the code-base has access to.
+   ────────────────────────────────────────────-
+*/
+
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- If a conflict occurs, we have already migrated this node. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+RETURNING id
+`
+
+type InsertNodeMigParams struct {
+	Version    int16
+	PubKey     []byte
+	Alias      sql.NullString
+	LastUpdate sql.NullInt64
+	Color      sql.NullString
+	Signature  []byte
+}
+
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same node (which would error if the normal UpsertNode query
+// is used because of the constraint in that query that requires a node update
+// to have a newer last_update than the existing node).
+func (q *Queries) InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertNodeMig,
+		arg.Version,
+		arg.PubKey,
+		arg.Alias,
+		arg.LastUpdate,
+		arg.Color,
+		arg.Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const isClosedChannel = `-- name: IsClosedChannel :one
 SELECT EXISTS (
     SELECT 1

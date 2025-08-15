@@ -601,6 +601,7 @@ func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
 
 			return nil
 		},
+		func() {},
 	)
 	require.NoError(t, err)
 
@@ -632,7 +633,7 @@ func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		require.True(t, closed)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -664,7 +665,7 @@ func checkZombieIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 

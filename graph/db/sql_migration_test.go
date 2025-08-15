@@ -155,7 +155,6 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			expGraphStats: graphStats{
 				numNodes: 6,
 			},
-			expNotRetrySafety: true,
 		},
 		{
 			name: "source node",
@@ -173,7 +172,6 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				numNodes:   1,
 				srcNodeSet: true,
 			},
-			expNotRetrySafety: true,
 		},
 		{
 			name:  "channel with no policies",

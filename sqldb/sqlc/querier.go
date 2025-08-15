@@ -99,6 +99,12 @@ type Querier interface {
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same node (which would error if the normal UpsertNode query
+	// is used because of the constraint in that query that requires a node update
+	// to have a newer last_update than the existing node).
+	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)

@@ -995,3 +995,34 @@ SELECT EXISTS (
 SELECT scid
 FROM graph_closed_scids
 WHERE scid IN (sqlc.slice('scids')/*SLICE:scids*/);
+
+/* ─────────────────────────────────────────────
+   Migration specific queries
+
+   NOTE: once sqldbv2 is in place, these queries can be contained to a package
+   dedicated to the migration that requires it, and so we can then remove
+   it from the main set of "live" queries that the code-base has access to.
+   ────────────────────────────────────────────-
+*/
+
+-- NOTE: This query is only meant to be used by the graph SQL migration since
+-- for that migration, in order to be retry-safe, we don't want to error out if
+-- we re-insert the same node (which would error if the normal UpsertNode query
+-- is used because of the constraint in that query that requires a node update
+-- to have a newer last_update than the existing node).
+-- name: InsertNodeMig :one
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- If a conflict occurs, we have already migrated this node. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+RETURNING id;

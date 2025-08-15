@@ -273,7 +273,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		// production.
 
 		// Write the node to the SQL database.
-		id, err := upsertNode(ctx, sqlDB, node)
+		id, err := insertNodeSQLMig(ctx, sqlDB, node)
 		if err != nil {
 			return fmt.Errorf("could not persist node(%x): %w", pub,
 				err)
@@ -303,8 +303,11 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		return nil
 	}, func() {
-		// No reset is needed since if a retry occurs, the entire
-		// migration will be retried from the start.
+		count = 0
+		chunk = 0
+		skipped = 0
+		t0 = time.Now()
+		batch = make(map[int64]*models.LightningNode, cfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate nodes: %w", err)
@@ -1352,4 +1355,71 @@ func forEachClosedSCID(db kvdb.Backend,
 			))
 		})
 	}, reset)
+}
+
+// insertNodeSQLMig inserts the node record into the database during the graph
+// SQL migration. No error is expected if the node already exists. Unlike the
+// main upsertNode function, this function does not require that a new node
+// update have a newer timestamp than the existing one. This is because we want
+// the migration to be idempotent and dont want to error out if we re-insert the
+// exact same node.
+//
+// TODO(elle): update the upsert calls in this function to be more efficient.
+// since no data collection steps should be required during the migration.
+func insertNodeSQLMig(ctx context.Context, db SQLQueries,
+	node *models.LightningNode) (int64, error) {
+
+	params := sqlc.InsertNodeMigParams{
+		Version: int16(ProtocolV1),
+		PubKey:  node.PubKeyBytes[:],
+	}
+
+	if node.HaveNodeAnnouncement {
+		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
+		params.Color = sqldb.SQLStr(EncodeHexColor(node.Color))
+		params.Alias = sqldb.SQLStr(node.Alias)
+		params.Signature = node.AuthSigBytes
+	}
+
+	nodeID, err := db.InsertNodeMig(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("upserting node(%x): %w", node.PubKeyBytes,
+			err)
+	}
+
+	// We can exit here if we don't have the announcement yet.
+	if !node.HaveNodeAnnouncement {
+		return nodeID, nil
+	}
+
+	// NOTE: The upserts here will be updated to be more efficient in the
+	// following commits.
+
+	// Update the node's features.
+	err = upsertNodeFeatures(ctx, db, nodeID, node.Features)
+	if err != nil {
+		return 0, fmt.Errorf("inserting node features: %w", err)
+	}
+
+	// Update the node's addresses.
+	err = upsertNodeAddresses(ctx, db, nodeID, node.Addresses)
+	if err != nil {
+		return 0, fmt.Errorf("inserting node addresses: %w", err)
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
+	if err != nil {
+		return 0, fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
+	}
+
+	// Update the node's extra signed fields.
+	err = upsertNodeExtraSignedFields(ctx, db, nodeID, extra)
+	if err != nil {
+		return 0, fmt.Errorf("inserting node extra TLVs: %w", err)
+	}
+
+	return nodeID, nil
 }

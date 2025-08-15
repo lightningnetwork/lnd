@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -19,9 +20,28 @@ type mockPeer struct {
 	sentMsgs     chan lnwire.Message
 	quit         chan struct{}
 	disconnected atomic.Bool
+
+	// The following fields are used to mock the announcement proof-related
+	// methods.
+	proofsSentMtx   sync.Mutex
+	proofSentToChan fn.Set[lnwire.ChannelID]
 }
 
 var _ lnpeer.Peer = (*mockPeer)(nil)
+
+func newMockPeer(pk *btcec.PublicKey, sentMsgs chan lnwire.Message,
+	quit chan struct{}, disconnected bool) *mockPeer {
+
+	p := &mockPeer{
+		pk:              pk,
+		sentMsgs:        sentMsgs,
+		quit:            quit,
+		proofSentToChan: fn.NewSet[lnwire.ChannelID](),
+	}
+	p.disconnected.Store(disconnected)
+
+	return p
+}
 
 func (p *mockPeer) SendMessage(_ bool, msgs ...lnwire.Message) error {
 	if p.sentMsgs == nil && p.quit == nil {
@@ -78,6 +98,29 @@ func (p *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
 
 func (p *mockPeer) Disconnect(err error) {
 	p.disconnected.Store(true)
+}
+
+func (p *mockPeer) RecordProofSent(chanID lnwire.ChannelID) {
+	p.proofsSentMtx.Lock()
+	defer p.proofsSentMtx.Unlock()
+
+	if p.proofSentToChan == nil {
+		p.proofSentToChan = make(map[lnwire.ChannelID]struct{})
+	}
+	p.proofSentToChan[chanID] = struct{}{}
+}
+
+func (p *mockPeer) HasSentProof(chanID lnwire.ChannelID) bool {
+	p.proofsSentMtx.Lock()
+	defer p.proofsSentMtx.Unlock()
+
+	if p.proofSentToChan == nil {
+		return false
+	}
+
+	_, ok := p.proofSentToChan[chanID]
+
+	return ok
 }
 
 // mockMessageStore is an in-memory implementation of the MessageStore interface

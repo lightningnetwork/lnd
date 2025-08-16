@@ -88,7 +88,7 @@ recommended for mainnet. The `master` branch can at times be unstable and
 running your node off of it can prevent it to go back to a previous, stable
 version if there are database migrations present.
 
-In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the 
+In order to work with [`lnd`](https://github.com/lightningnetwork/lnd), the
 following build dependencies are required:
 
 ### Installing Go
@@ -99,7 +99,7 @@ requires). To install, run one of the following commands for your OS:
 
 <details>
   <summary>Linux (x86-64)</summary>
-  
+
   ```
   wget https://dl.google.com/go/go1.23.12.linux-amd64.tar.gz
   sha256sum go1.23.12.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
@@ -136,7 +136,7 @@ requires). To install, run one of the following commands for your OS:
 
 <details>
   <summary>macOS</summary>
-  
+
   First, install [Homebrew](https://brew.sh) if you don't already have it.
 
   Then
@@ -149,7 +149,7 @@ requires). To install, run one of the following commands for your OS:
 
 <details>
   <summary>FreeBSD</summary>
-  
+
   ```
   pkg install go
   ```
@@ -172,14 +172,14 @@ export GOPATH=~/go
 export PATH=$PATH:$GOPATH/bin
 ```
 
---- 
+---
 
-We recommend placing the above in your `.bashrc`, `.zshrc` or in a setup script 
+We recommend placing the above in your `.bashrc`, `.zshrc` or in a setup script
 so that you can avoid typing this every time you open a new terminal window.
 
 ### Go modules
 
-This project uses [Go modules](https://github.com/golang/go/wiki/Modules) 
+This project uses [Go modules](https://github.com/golang/go/wiki/Modules)
 to manage dependencies as well as to provide *reproducible builds*.
 
 Usage of Go modules (with Go 1.13) means that you no longer need to clone
@@ -188,8 +188,8 @@ repo can now live anywhere!
 
 ---
 Note: For mobile development, having the source code in `$GOPATH` is still
-required due to a current limitation in 
-[Go mobile](https://pkg.go.dev/golang.org/x/mobile). Take a look at the 
+required due to a current limitation in
+[Go mobile](https://pkg.go.dev/golang.org/x/mobile). Take a look at the
 documentation for [building mobile libraries](../mobile) to learn more.
 
 ---
@@ -209,7 +209,7 @@ wish to install a tagged release of `lnd` (as the master branch can at times be
 unstable), then [visit the release page to locate the latest
 release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
 of the release is `v0.x.x`, then you can compile this release from source with
-a small modification to the above command: 
+a small modification to the above command:
 ```shell
 git clone https://github.com/lightningnetwork/lnd
 cd lnd
@@ -299,7 +299,7 @@ in the system's `$PATH` variable. Otherwise, some tests will fail.
 
 **Command-line completion for `lncli`**
 
-_Bash_: See `contrib/lncli.bash-completion`  
+_Bash_: See `contrib/lncli.bash-completion`
 _Fish_: Run: `lncli fish-completion > $HOME/.config/fish/completions/lncli.fish`
 
 # Available Backend Operating Modes
@@ -309,7 +309,7 @@ time of writing of this document, there are three available chain backends:
 `btcd`, `neutrino`, `bitcoind`. All including neutrino can run on mainnet with
 an out of the box `lnd` instance. We don't require `--txindex` when running
 with `bitcoind` or `btcd` but activating the `txindex` will generally make
-`lnd` run faster. Note that since version 0.13 pruned nodes are supported, 
+`lnd` run faster. Note that since version 0.13 pruned nodes are supported,
 although they cause performance penalty and higher network usage.
 
 The set of arguments for each of the backend modes is as follows:
@@ -439,8 +439,8 @@ in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
 
 ## Using bitcoind
 
-Note that adding `-txindex` is optional, as it will take longer to sync the 
-node, but then `lnd` will generally operate faster as it can hit the index 
+Note that adding `-txindex` is optional, as it will take longer to sync the
+node, but then `lnd` will generally operate faster as it can hit the index
 directly, rather than scanning blocks or BIP 158 filters for relevant items.
 
 To configure your bitcoind backend for use with lnd, first complete and verify
@@ -449,10 +449,10 @@ the following:
 - Since `lnd` uses
   [ZeroMQ](https://github.com/bitcoin/bitcoin/blob/master/doc/zmq.md) to
   interface with `bitcoind`, *your `bitcoind` installation must be compiled with
-  ZMQ*. Note that if you installed `bitcoind` from source and ZMQ was not present, 
-  then ZMQ support will be disabled, and `lnd` will quit on a `connection refused` error. 
-  If you installed `bitcoind` via Homebrew in the past ZMQ may not be included 
-  ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
+  ZMQ*. Note that if you installed `bitcoind` from source and ZMQ was not present,
+  then ZMQ support will be disabled, and `lnd` will quit on a `connection refused` error.
+  If you installed `bitcoind` via Homebrew in the past ZMQ may not be included
+  ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088)
   in the latest Homebrew recipe for bitcoin)
 - Configure the `bitcoind` instance for ZMQ with `-zmqpubrawblock` and
   `-zmqpubrawtx`. These options must each use their own unique address in order
@@ -461,10 +461,10 @@ the following:
   `-zmqpubrawtx=tcp://127.0.0.1:28333`).
 - Make sure the config setting `-rpcserialversion` in `bitcoind` is either set
   to 1 or NOT used because bitcoind's default behaviour is already correct
-  (see [bitcoin/issues/28730](https://github.com/bitcoin/bitcoin/issues/28730) 
-  for more info). Lightning depends on segwit transactions therefore we need 
+  (see [bitcoin/issues/28730](https://github.com/bitcoin/bitcoin/issues/28730)
+  for more info). Lightning depends on segwit transactions therefore we need
   the witness data when querying the bitcoind backend for transaction details.
-  
+
 - Start `bitcoind` running against testnet, and let it complete a full sync with
   the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 
@@ -544,8 +544,8 @@ bearer credentials allowing for delegation, attenuation, and other cool
 features. You can learn more about them in Alex Akselrod's [writeup on
 GitHub](https://github.com/lightningnetwork/lnd/issues/20).
 
-Running `lncli create` to create a wallet, will by default generate 
-the `admin.macaroon`, `read_only.macaroon`, and `macaroons.db` 
+Running `lncli create` to create a wallet, will by default generate
+the `admin.macaroon`, `read_only.macaroon`, and `macaroons.db`
 files that are used to authenticate
 into `lnd`. They will be stored in the network directory (default:
 `lnddir/data/chain/bitcoin/mainnet`) so that it's possible to use a distinct
@@ -617,5 +617,5 @@ Notice the `[Bitcoin]` section. This section houses the parameters for the
 Bitcoin chain. See a more detailed sample config file available
 [here](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf)
 and explore the other sections for node configuration, including `[Btcd]`,
-`[Bitcoind]` and `[Neutrino]` depending on which chain and node type you're 
+`[Bitcoind]` and `[Neutrino]` depending on which chain and node type you're
 using.

@@ -601,9 +601,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		)
 	)
 
-	var serializedPubKey [33]byte
-	copy(serializedPubKey[:], nodeKeyDesc.PubKey.SerializeCompressed())
-
 	netParams := cfg.ActiveNetParams.Params
 
 	// Initialize the sphinx router.
@@ -896,138 +893,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		}
 	}
 
-	// If we were requested to automatically configure port forwarding,
-	// we'll use the ports that the server will be listening on.
-	externalIPStrings := make([]string, len(cfg.ExternalIPs))
-	for idx, ip := range cfg.ExternalIPs {
-		externalIPStrings[idx] = ip.String()
-	}
-	if s.natTraversal != nil {
-		listenPorts := make([]uint16, 0, len(listenAddrs))
-		for _, listenAddr := range listenAddrs {
-			// At this point, the listen addresses should have
-			// already been normalized, so it's safe to ignore the
-			// errors.
-			_, portStr, _ := net.SplitHostPort(listenAddr.String())
-			port, _ := strconv.Atoi(portStr)
-
-			listenPorts = append(listenPorts, uint16(port))
-		}
-
-		ips, err := s.configurePortForwarding(listenPorts...)
-		if err != nil {
-			srvrLog.Errorf("Unable to automatically set up port "+
-				"forwarding using %s: %v",
-				s.natTraversal.Name(), err)
-		} else {
-			srvrLog.Infof("Automatically set up port forwarding "+
-				"using %s to advertise external IP",
-				s.natTraversal.Name())
-			externalIPStrings = append(externalIPStrings, ips...)
-		}
-	}
-
-	// If external IP addresses have been specified, add those to the list
-	// of this server's addresses.
-	externalIPs, err := lncfg.NormalizeAddresses(
-		externalIPStrings, strconv.Itoa(defaultPeerPort),
-		cfg.net.ResolveTCPAddr,
-	)
+	nodePubKey := route.NewVertex(nodeKeyDesc.PubKey)
+	// Set the self node which represents our node in the graph.
+	err = s.setSelfNode(ctx, nodePubKey, listenAddrs)
 	if err != nil {
 		return nil, err
 	}
-
-	selfAddrs := make([]net.Addr, 0, len(externalIPs))
-	selfAddrs = append(selfAddrs, externalIPs...)
-
-	// We'll now reconstruct a node announcement based on our current
-	// configuration so we can send it out as a sort of heart beat within
-	// the network.
-	//
-	// We'll start by parsing the node color from configuration.
-	color, err := lncfg.ParseHexColor(cfg.Color)
-	if err != nil {
-		srvrLog.Errorf("unable to parse color: %v\n", err)
-		return nil, err
-	}
-
-	// If no alias is provided, default to first 10 characters of public
-	// key.
-	alias := cfg.Alias
-	if alias == "" {
-		alias = hex.EncodeToString(serializedPubKey[:10])
-	}
-	nodeAlias, err := lnwire.NewNodeAlias(alias)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO(elle): All previously persisted node announcement fields (ie,
-	//  not just LastUpdate) should be consulted here to ensure that we
-	//  aren't overwriting any fields that may have been set during the
-	//  last run of lnd.
-	nodeLastUpdate := time.Now()
-	srcNode, err := dbs.GraphDB.SourceNode(ctx)
-	switch {
-	// If we have a source node persisted in the DB already, then we just
-	// need to make sure that the new LastUpdate time is at least one
-	// second after the last update time.
-	case err == nil:
-		if srcNode.LastUpdate.Second() >= nodeLastUpdate.Second() {
-			nodeLastUpdate = srcNode.LastUpdate.Add(time.Second)
-		}
-
-	// If we don't have a source node persisted in the DB, then we'll
-	// create a new one with the current time as the LastUpdate.
-	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
-
-	// If the above cases are not matched, then we have an unhandled non
-	// nil error.
-	default:
-		return nil, fmt.Errorf("unable to fetch source node: %w", err)
-	}
-
-	selfNode := &models.LightningNode{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           nodeLastUpdate,
-		Addresses:            selfAddrs,
-		Alias:                nodeAlias.String(),
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
-		Color:                color,
-	}
-	copy(selfNode.PubKeyBytes[:], nodeKeyDesc.PubKey.SerializeCompressed())
-
-	// Based on the disk representation of the node announcement generated
-	// above, we'll generate a node announcement that can go out on the
-	// network so we can properly sign it.
-	nodeAnn, err := selfNode.NodeAnnouncement(false)
-	if err != nil {
-		return nil, fmt.Errorf("unable to gen self node ann: %w", err)
-	}
-
-	// With the announcement generated, we'll sign it to properly
-	// authenticate the message on the network.
-	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, nodeKeyDesc.KeyLocator, nodeAnn,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate signature for "+
-			"self node announcement: %v", err)
-	}
-	selfNode.AuthSigBytes = authSig.Serialize()
-	nodeAnn.Signature, err = lnwire.NewSigFromECDSARawSignature(
-		selfNode.AuthSigBytes,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Finally, we'll update the representation on disk, and update our
-	// cached in-memory version as well.
-	if err := dbs.GraphDB.SetSourceNode(ctx, selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %w", err)
-	}
-	s.currentNodeAnn = nodeAnn
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.
@@ -1096,7 +967,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.missionController, err = routing.NewMissionController(
-		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
+		dbs.ChanStateDB, nodePubKey, mcCfg,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't create mission control "+
@@ -1142,7 +1013,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		cfg.Routing.StrictZombiePruning
 
 	s.graphBuilder, err = graph.NewBuilder(&graph.Config{
-		SelfNode:            selfNode.PubKeyBytes,
+		SelfNode:            nodePubKey,
 		Graph:               dbs.GraphDB,
 		Chain:               cc.ChainIO,
 		ChainView:           cc.ChainView,
@@ -1159,7 +1030,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:           selfNode.PubKeyBytes,
+		SelfNode:           nodePubKey,
 		RoutingGraph:       dbs.GraphDB,
 		Chain:              cc.ChainIO,
 		Payer:              s.htlcSwitch,
@@ -5638,4 +5509,175 @@ func (s *server) AttemptRBFCloseUpdate(ctx context.Context,
 	}
 
 	return updates, nil
+}
+
+// setSelfNode configures and sets the server's self node. It sets the node
+// announcement, signs it, and updates the source node in the graph. When
+// determining values such as color and alias, the method prioritizes values
+// set in the config, then values previously persisted on disk, and finally
+// falls back to the defaults.
+func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
+	listenAddrs []net.Addr) error {
+
+	// If we were requested to automatically configure port forwarding,
+	// we'll use the ports that the server will be listening on.
+	externalIPStrings := make([]string, 0, len(s.cfg.ExternalIPs))
+	for _, ip := range s.cfg.ExternalIPs {
+		externalIPStrings = append(externalIPStrings, ip.String())
+	}
+	if s.natTraversal != nil {
+		listenPorts := make([]uint16, 0, len(listenAddrs))
+		for _, listenAddr := range listenAddrs {
+			// At this point, the listen addresses should have
+			// already been normalized, so it's safe to ignore the
+			// errors.
+			_, portStr, _ := net.SplitHostPort(listenAddr.String())
+			port, _ := strconv.Atoi(portStr)
+
+			listenPorts = append(listenPorts, uint16(port))
+		}
+
+		ips, err := s.configurePortForwarding(listenPorts...)
+		if err != nil {
+			srvrLog.Errorf("Unable to automatically set up port "+
+				"forwarding using %s: %v",
+				s.natTraversal.Name(), err)
+		} else {
+			srvrLog.Infof("Automatically set up port forwarding "+
+				"using %s to advertise external IP",
+				s.natTraversal.Name())
+			externalIPStrings = append(externalIPStrings, ips...)
+		}
+	}
+
+	// Normalize the external IP strings to net.Addr.
+	addrs, err := lncfg.NormalizeAddresses(
+		externalIPStrings, strconv.Itoa(defaultPeerPort),
+		s.cfg.net.ResolveTCPAddr,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to normalize addresses: %w", err)
+	}
+
+	// To avoid having duplicate addresses, we'll only add addresses from
+	// the source node that are not already in our address list yet. We
+	// create this map for quick lookup.
+	addressMap := make(map[string]struct{}, len(addrs))
+	// Populate the map with the existing addresses.
+	for _, existingAddr := range addrs {
+		addressMap[existingAddr.String()] = struct{}{}
+	}
+
+	// Parse the color from config. We will update this later if the config
+	// color is not changed from default (#3399FF) and we have a value in
+	// the source node.
+	color, err := lncfg.ParseHexColor(s.cfg.Color)
+	if err != nil {
+		return fmt.Errorf("unable to parse color: %w", err)
+	}
+
+	var (
+		alias          = s.cfg.Alias
+		nodeLastUpdate = time.Now()
+	)
+
+	srcNode, err := s.graphDB.SourceNode(ctx)
+	switch {
+	case err == nil:
+		// If we have a source node persisted in the DB already, then we
+		// just need to make sure that the new LastUpdate time is at
+		// least one second after the last update time.
+		if srcNode.LastUpdate.Second() >= nodeLastUpdate.Second() {
+			nodeLastUpdate = srcNode.LastUpdate.Add(time.Second)
+		}
+
+		// If the color is not changed from default, it means that we
+		// didn't specify a different color in the config. We'll use the
+		// source node's color.
+		if s.cfg.Color == defaultColor {
+			color = srcNode.Color
+		}
+
+		// If an alias is not specified in the config, we'll use the
+		// source node's alias.
+		if alias == "" {
+			alias = srcNode.Alias
+		}
+
+		// Append unique addresses from the source node to the address
+		// list.
+		for _, addr := range srcNode.Addresses {
+			if _, found := addressMap[addr.String()]; !found {
+				addrs = append(addrs, addr)
+				addressMap[addr.String()] = struct{}{}
+			}
+		}
+
+	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
+		// If an alias is not specified in the config, we'll use the
+		// default, which is the first 10 bytes of the serialized
+		// pubkey.
+		if alias == "" {
+			alias = hex.EncodeToString(nodePub[:10])
+		}
+
+	// If the above cases are not matched, then we have an unhandled non
+	// nil error.
+	default:
+		return fmt.Errorf("unable to fetch source node: %w", err)
+	}
+
+	nodeAlias, err := lnwire.NewNodeAlias(alias)
+	if err != nil {
+		return err
+	}
+
+	// TODO(abdulkbk): potentially find a way to use the source node's
+	// features in the self node.
+	selfNode := &models.LightningNode{
+		HaveNodeAnnouncement: true,
+		LastUpdate:           nodeLastUpdate,
+		Addresses:            addrs,
+		Alias:                nodeAlias.String(),
+		Color:                color,
+		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+	}
+
+	copy(selfNode.PubKeyBytes[:], nodePub[:])
+
+	// Based on the disk representation of the node announcement generated
+	// above, we'll generate a node announcement that can go out on the
+	// network so we can properly sign it.
+	nodeAnn, err := selfNode.NodeAnnouncement(false)
+	if err != nil {
+		return fmt.Errorf("unable to gen self node ann: %w", err)
+	}
+
+	// With the announcement generated, we'll sign it to properly
+	// authenticate the message on the network.
+	authSig, err := netann.SignAnnouncement(
+		s.nodeSigner, s.identityKeyLoc, nodeAnn,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to generate signature for self node "+
+			"announcement: %v", err)
+	}
+
+	selfNode.AuthSigBytes = authSig.Serialize()
+	nodeAnn.Signature, err = lnwire.NewSigFromECDSARawSignature(
+		selfNode.AuthSigBytes,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Finally, we'll update the representation on disk, and update our
+	// cached in-memory version as well.
+	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
+		return fmt.Errorf("can't set self node: %w", err)
+	}
+
+	s.currentNodeAnn = nodeAnn
+
+	return nil
 }

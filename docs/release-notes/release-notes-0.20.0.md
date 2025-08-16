@@ -39,6 +39,10 @@
 
 
 # New Features
+ 
+* Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 
+  settings across restart. Before this change we always go back to the default
+  settings when the node restarts.
 
 - Added [NoOp HTLCs](https://github.com/lightningnetwork/lnd/pull/9871). This
 allows sending HTLCs to the remote party without shifting the balances of the

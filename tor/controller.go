@@ -250,7 +250,7 @@ func (c *Controller) Reconnect() error {
 // sendCommand sends a command to the Tor server and returns its response, as a
 // single space-delimited string, and code.
 func (c *Controller) sendCommand(command string) (int, string, error) {
-	id, err := c.conn.Cmd(command)
+	id, err := c.conn.Cmd("%v", command)
 	if err != nil {
 		return 0, "", err
 	}

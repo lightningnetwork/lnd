@@ -57,13 +57,12 @@ func (c *ClosingSig) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	if err := decodeClosingSigs(&c.ClosingSigs, tlvRecords); err != nil {
+	extraData, err := decodeClosingSigs(&c.ClosingSigs, tlvRecords)
+	if err != nil {
 		return err
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraData = tlvRecords
-	}
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -89,14 +88,22 @@ func (c *ClosingSig) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	recordProducers := closingSigRecords(&c.ClosingSigs)
-
-	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	// Get producers from extra data.
+	producers, err := c.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	producers = append(producers, closingSigRecords(&c.ClosingSigs)...)
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

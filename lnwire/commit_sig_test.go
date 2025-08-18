@@ -131,7 +131,7 @@ func generateCommitSigTestCases(t *testing.T) []commitSigTestCase {
 
 // TestCommitSigEncodeDecode tests CommitSig message encoding and decoding for
 // all supported field values.
-func TestCommitSigEncodeDecode(t *testing.T) {
+func TestCommitSigEncodeDecodeFields(t *testing.T) {
 	t.Parallel()
 
 	// Generate test cases.
@@ -165,4 +165,57 @@ func TestCommitSigEncodeDecode(t *testing.T) {
 			require.Equal(t, tc.Msg, actualMsg)
 		})
 	}
+}
+
+// TestCommitSigEncodeDecode tests that a raw byte stream can be decoded, then
+// re-encoded to the same exact byte stream.
+func TestCommitSigEncodeDecode(t *testing.T) {
+	t.Parallel()
+
+	// We'll create a raw byte stream that represents a valid CommitSig
+	// message. This includes the fixed-size fields and a TLV stream with
+	// both known and unknown records.
+	var rawBytes []byte
+
+	// ChanID
+	rawBytes = append(rawBytes, make([]byte, 32)...)
+
+	// CommitSig
+	rawBytes = append(rawBytes, make([]byte, 64)...)
+
+	// HtlcSigs
+	rawBytes = append(rawBytes, []byte{0, 0}...)
+
+	// Add TLV data, including known and unknown records.
+	tlvData := []byte{
+		// PartialSig record.
+		2, 98,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 5, 6, 7, 8,
+
+		// Unknown odd record: Type=3, Length=1, Value=0.
+		3, 1, 0,
+
+		// CustomRecords: Type=65536, Length=1, Value=0.
+		0xfe, 0x00, 0x01, 0x00, 0x00, 1, 0,
+	}
+	rawBytes = append(rawBytes, tlvData...)
+
+	// Now, create a new empty message and decode the raw bytes into it.
+	msg := &CommitSig{}
+	r := bytes.NewReader(rawBytes)
+	err := msg.Decode(r, 0)
+	require.NoError(t, err)
+
+	// Next, encode the message back into a new byte buffer.
+	var b bytes.Buffer
+	err = msg.Encode(&b, 0)
+	require.NoError(t, err)
+
+	// The re-encoded bytes should be exactly the same as the original raw
+	// bytes.
+	require.Equal(t, rawBytes, b.Bytes())
 }

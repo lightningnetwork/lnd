@@ -57,30 +57,31 @@ type ClosingComplete struct {
 
 // decodeClosingSigs decodes the closing sig TLV records in the passed
 // ExtraOpaqueData.
-func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
+func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) (
+	ExtraOpaqueData, error) {
+
 	sig1 := c.CloserNoClosee.Zero()
 	sig2 := c.NoCloserClosee.Zero()
 	sig3 := c.CloserAndClosee.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(&sig1, &sig2, &sig3)
+	knownRecords, extraData, err := ParseAndExtractExtraData(
+		tlvRecords, &sig1, &sig2, &sig3,
+	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// TODO(roasbeef): helper func to made decode of the optional vals
-	// easier?
-
-	if val, ok := typeMap[c.CloserNoClosee.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[c.CloserNoClosee.TlvType()]; ok {
 		c.CloserNoClosee = tlv.SomeRecordT(sig1)
 	}
-	if val, ok := typeMap[c.NoCloserClosee.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[c.NoCloserClosee.TlvType()]; ok {
 		c.NoCloserClosee = tlv.SomeRecordT(sig2)
 	}
-	if val, ok := typeMap[c.CloserAndClosee.TlvType()]; ok && val == nil {
+	if _, ok := knownRecords[c.CloserAndClosee.TlvType()]; ok {
 		c.CloserAndClosee = tlv.SomeRecordT(sig3)
 	}
 
-	return nil
+	return extraData, nil
 }
 
 // Decode deserializes a serialized ClosingComplete message stored in the
@@ -102,13 +103,12 @@ func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	if err := decodeClosingSigs(&c.ClosingSigs, tlvRecords); err != nil {
+	extraData, err := decodeClosingSigs(&c.ClosingSigs, tlvRecords)
+	if err != nil {
 		return err
 	}
 
-	if len(tlvRecords) != 0 {
-		c.ExtraData = tlvRecords
-	}
+	c.ExtraData = extraData
 
 	return nil
 }
@@ -151,14 +151,22 @@ func (c *ClosingComplete) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	recordProducers := closingSigRecords(&c.ClosingSigs)
-
-	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	// Get producers from extra data.
+	producers, err := c.ExtraData.RecordProducers()
 	if err != nil {
 		return err
 	}
 
-	return WriteBytes(w, c.ExtraData)
+	producers = append(producers, closingSigRecords(&c.ClosingSigs)...)
+
+	// Pack all records into a new TLV stream.
+	var tlvData ExtraOpaqueData
+	err = tlvData.PackRecords(producers...)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, tlvData)
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

@@ -270,6 +270,55 @@ func RandExtraOpaqueData(t *rapid.T,
 	return ExtraOpaqueData(recordBytes)
 }
 
+// RandUnknownRecords creates random unknown records. It will skip creating
+// records that have known types.
+func RandUnknownRecords(t *rapid.T, maxKnownType int) ExtraOpaqueData {
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for i := range uint64(maxKnownType + 1) {
+		// Ignore known records.
+		if i%2 == 0 {
+			ignoreRecords.Add(i)
+		}
+	}
+
+	// Make some random records.
+	cRecords, _ := RandCustomRecords(t, ignoreRecords, false)
+	if cRecords == nil {
+		return ExtraOpaqueData{}
+	}
+
+	// Encode those records as opaque data.
+	recordBytes, err := cRecords.Serialize()
+	require.NoError(t, err)
+
+	return ExtraOpaqueData(recordBytes)
+}
+
+// RandExtraRecords creates random records. It will skip creating records
+// specified by the knownRecords.
+func RandExtraRecords(t *rapid.T, knownRecords ...uint64) ExtraOpaqueData {
+	// Create a tlv type lists to hold all known records which will be
+	// ignored when creating ExtraData records.
+	ignoreRecords := fn.NewSet[uint64]()
+	for _, recordType := range knownRecords {
+		ignoreRecords.Add(recordType)
+	}
+
+	// Make some random records.
+	cRecords, _ := RandCustomRecords(t, ignoreRecords, false)
+	if cRecords == nil {
+		return ExtraOpaqueData{}
+	}
+
+	// Encode those records as opaque data.
+	recordBytes, err := cRecords.Serialize()
+	require.NoError(t, err)
+
+	return ExtraOpaqueData(recordBytes)
+}
+
 // RandOpaqueReason generates a random opaque reason for HTLC failures.
 func RandOpaqueReason(t *rapid.T) OpaqueReason {
 	reasonLen := rapid.IntRange(32, 300).Draw(t, "reasonLen")

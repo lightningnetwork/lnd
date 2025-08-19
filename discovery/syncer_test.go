@@ -473,7 +473,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	// filter.
 	err := <-errChan
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 }
 

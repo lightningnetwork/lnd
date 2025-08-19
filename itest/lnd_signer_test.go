@@ -2,7 +2,6 @@ package itest
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -500,7 +499,7 @@ func runSignVerifyMessage(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 
 	expectedErr := "tag can only be used when the Schnorr signature " +
 		"option is set"
-	ctxt := context.Background()
+	ctxt := ht.Context()
 	_, err := alice.RPC.Signer.SignMessage(ctxt, signMsgReq)
 	require.ErrorContains(ht, err, expectedErr)
 

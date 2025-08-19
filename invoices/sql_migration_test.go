@@ -1,7 +1,6 @@
 package invoices
 
 import (
-	"context"
 	crand "crypto/rand"
 	"database/sql"
 	"math/rand"
@@ -305,7 +304,7 @@ func TestMigrateSingleInvoiceRapid(t *testing.T) {
 func testMigrateSingleInvoiceRapid(t *rapid.T, store *SQLStore, mpp bool,
 	amp bool) {
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	invoices := make(map[lntypes.Hash]*Invoice)
 
 	for i := 0; i < 100; i++ {

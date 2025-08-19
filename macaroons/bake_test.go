@@ -1,7 +1,6 @@
 package macaroons_test
 
 import (
-	"context"
 	"encoding/hex"
 	"testing"
 
@@ -49,7 +48,7 @@ func TestBakeFromRootKey(t *testing.T) {
 	md := metadata.New(map[string]string{
 		"macaroon": hex.EncodeToString(macaroonBytes),
 	})
-	macCtx := metadata.NewIncomingContext(context.Background(), md)
+	macCtx := metadata.NewIncomingContext(t.Context(), md)
 
 	// The macaroon should be valid for the service, since the root key was
 	// the same.

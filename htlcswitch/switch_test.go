@@ -1,7 +1,6 @@
 package htlcswitch
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -3547,7 +3546,7 @@ func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHT
 	}
 
 	err = n.carolServer.registry.AddInvoice(
-		context.Background(), *invoice, htlc.PaymentHash,
+		t.Context(), *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice in carol registry")
 

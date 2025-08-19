@@ -21,7 +21,7 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 		ht.Skip("not running with test_native_sql tag")
 	}
 
-	ctx := context.Background()
+	ctx := ht.Context()
 	alice := ht.NewNodeWithCoins("Alice", nil)
 
 	// Make sure we run the test with SQLite or Postgres.

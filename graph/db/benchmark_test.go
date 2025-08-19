@@ -189,7 +189,7 @@ func sqlSQLite(t testing.TB, dbPath, file string) BatchedSQLQueries {
 // database for testing purposes.
 func kvdbPostgres(t testing.TB, dsn string) kvdb.Backend {
 	kvStore, err := kvdb.Open(
-		kvdb.PostgresBackendName, context.Background(),
+		kvdb.PostgresBackendName, t.Context(),
 		&postgres.Config{
 			Dsn:            dsn,
 			MaxConnections: testMaxPostgresConnections,
@@ -217,7 +217,7 @@ func connectKVDBPostgres(t testing.TB, dsn string) V1Store {
 func kvdbSqlite(t testing.TB, dbPath, fileName string) kvdb.Backend {
 	sqlbase.Init(testMaxSQLiteConnections)
 	kvStore, err := kvdb.Open(
-		kvdb.SqliteBackendName, context.Background(),
+		kvdb.SqliteBackendName, t.Context(),
 		&sqlite.Config{
 			BusyTimeout:    testSQLBusyTimeout,
 			MaxConnections: testMaxSQLiteConnections,
@@ -273,7 +273,7 @@ func newKVStore(t testing.TB, backend kvdb.Backend) V1Store {
 // provided sqldb.DB instance.
 func newSQLExecutor(t testing.TB, db sqldb.DB) BatchedSQLQueries {
 	err := db.ApplyAllMigrations(
-		context.Background(), sqldb.GetMigrations(),
+		t.Context(), sqldb.GetMigrations(),
 	)
 	require.NoError(t, err)
 
@@ -317,7 +317,7 @@ func newSQLStore(t testing.TB, cfg *sqldb.QueryConfig,
 //     very long to sync the graph.
 func TestPopulateDBs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// NOTE: uncomment the line below to run this test locally, then provide
 	// the desired source database (and make sure the destination Postgres
@@ -539,7 +539,7 @@ func TestPopulateViaMigration(t *testing.T) {
 
 	// Use the graph migration to populate the SQL graph from the
 	// kvdb graph.
-	ctx := context.Background()
+	ctx := t.Context()
 	err := dstSQL.ExecTx(
 		ctx, sqldb.WriteTxOpt(), func(queries SQLQueries) error {
 			return MigrateGraphToSQL(
@@ -556,7 +556,7 @@ func TestPopulateViaMigration(t *testing.T) {
 // syncGraph synchronizes the source graph with the destination graph by
 // copying all nodes and channels from the source to the destination.
 func syncGraph(t *testing.T, src, dest *ChannelGraph) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var (
 		s = rate.Sometimes{
@@ -683,7 +683,7 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 // NOTE: the TestPopulateDBs test helper can be used to populate a set of test
 // DBs from a single source db.
 func BenchmarkCacheLoading(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 
 	tests := []dbConnection{
 		kvdbBBoltConn,
@@ -723,7 +723,7 @@ func BenchmarkCacheLoading(b *testing.B) {
 // NOTE: the TestPopulateDBs test helper can be used to populate a set of test
 // DBs from a single source db.
 func BenchmarkGraphReadMethods(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 
 	backends := []dbConnection{
 		kvdbBBoltConn,
@@ -900,7 +900,7 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 	for _, size := range testSizes {
 		b.Run(fmt.Sprintf("%s-%s-%d", configOption, dbName, size),
 			func(b *testing.B) {
-				ctx := context.Background()
+				ctx := b.Context()
 
 				cfg := sqldb.DefaultSQLiteConfig()
 				if testPostgres {

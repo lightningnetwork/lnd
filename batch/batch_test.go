@@ -1,7 +1,6 @@
 package batch
 
 import (
-	"context"
 	"database/sql"
 	"encoding/binary"
 	"errors"
@@ -31,7 +30,7 @@ var batchTestIntervals = []time.Duration{
 // TestRetry tests the retry logic of the batch scheduler.
 func TestRetry(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dbDir := t.TempDir()
 
@@ -99,7 +98,7 @@ func TestRetry(t *testing.T) {
 // and then continue to add a write transaction to the same batch.
 func TestReadOnly(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("bbolt-ReadWrite", func(t *testing.T) {
 		db, err := walletdb.Create(
@@ -455,7 +454,7 @@ func BenchmarkBoltBatching(b *testing.B) {
 	// batchTest benches the performance of the batch scheduler configured
 	// with/without the LazyAdd option and with the given commit interval.
 	batchTest := func(b *testing.B, lazy bool, interval time.Duration) {
-		ctx := context.Background()
+		ctx := b.Context()
 
 		db := setUpDB(b)
 
@@ -549,7 +548,7 @@ func benchmarkSQLBatching(b *testing.B, sqlite bool) {
 		)
 	}
 
-	ctx := context.Background()
+	ctx := b.Context()
 	opts := sqldb.WriteTxOpt()
 
 	// writeRecord is a helper that adds a single new invoice to the

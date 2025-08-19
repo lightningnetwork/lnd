@@ -153,7 +153,7 @@ func assertUnknownEventFail(t *testing.T, startingState ProtocolState) {
 		defer closeHarness.stopAndAssert()
 
 		closeHarness.sendEventAndExpectFailure(
-			context.Background(), &unknownEvent{},
+			t.Context(), &unknownEvent{},
 			ErrInvalidStateTransition,
 		)
 	})
@@ -173,7 +173,7 @@ func assertSpendEventCloseFin(t *testing.T, startingState ProtocolState) {
 		defer closeHarness.stopAndAssert()
 
 		closeHarness.chanCloser.SendEvent(
-			context.Background(), &SpendEvent{},
+			t.Context(), &SpendEvent{},
 		)
 
 		closeHarness.assertStateTransitions(&CloseFin{})
@@ -539,7 +539,7 @@ func (r *rbfCloserTestHarness) expectHalfSignerIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
 	dustExpect dustExpectation, iteration bool) {
 
-	ctx := context.Background()
+	ctx := r.T.Context()
 	numFeeCalls := 2
 
 	// If we're using the SendOfferEvent as a trigger, we only need to call
@@ -645,7 +645,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
 	dustExpect dustExpectation, iteration bool) {
 
-	ctx := context.Background()
+	ctx := r.T.Context()
 
 	// We'll now send in the send offer event, which should trigger 1/2 of
 	// the RBF loop, ending us in the LocalOfferSent state.
@@ -686,7 +686,7 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	absoluteFee btcutil.Amount, sequence uint32, iteration bool,
 	sendInit bool) {
 
-	ctx := context.Background()
+	ctx := r.T.Context()
 
 	// When we receive the signature below, our local state machine should
 	// move to finalize the close.
@@ -744,7 +744,7 @@ func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
 func newRbfCloserTestHarness(t *testing.T,
 	cfg *harnessCfg) *rbfCloserTestHarness {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	startingHeight := 200
 
@@ -850,7 +850,7 @@ func newCloser(t *testing.T, cfg *harnessCfg) *rbfCloserTestHarness {
 // TestRbfChannelActiveTransitions tests the transitions of from the
 // ChannelActive state.
 func TestRbfChannelActiveTransitions(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	localAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x01}, 20))
 	remoteAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x02}, 20))
 
@@ -1001,7 +1001,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 // shutdown ourselves.
 func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	startingState := &ShutdownPending{}
 
@@ -1229,7 +1229,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 // transition to the negotiation state.
 func TestRbfChannelFlushingTransitions(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	localBalance := lnwire.NewMSatFromSatoshis(10_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
@@ -1406,7 +1406,7 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 // rate.
 func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	localBalance := lnwire.NewMSatFromSatoshis(40_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
@@ -1687,7 +1687,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	localBalance := lnwire.NewMSatFromSatoshis(40_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)

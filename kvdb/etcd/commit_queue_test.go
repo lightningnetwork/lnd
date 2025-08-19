@@ -40,7 +40,7 @@ func TestCommitQueue(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	ctx, cancel := context.WithCancel(ctx)
 	q := NewCommitQueue(ctx)
 	defer q.Stop()

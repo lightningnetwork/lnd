@@ -220,7 +220,7 @@ func middlewareInterceptionTest(t *testing.T,
 
 	// Everything we test here should be executed in a matter of
 	// milliseconds, so we can use one single timeout context for all calls.
-	ctxb := context.Background()
+	ctxb := t.Context()
 	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -372,7 +372,7 @@ func middlewareResponseManipulationTest(t *testing.T,
 
 	// Everything we test here should be executed in a matter of
 	// milliseconds, so we can use one single timeout context for all calls.
-	ctxb := context.Background()
+	ctxb := t.Context()
 	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -489,7 +489,7 @@ func middlewareRequestManipulationTest(t *testing.T, node *node.HarnessNode,
 
 	// Everything we test here should be executed in a matter of
 	// milliseconds, so we can use one single timeout context for all calls.
-	ctxb := context.Background()
+	ctxb := t.Context()
 	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 
@@ -582,7 +582,7 @@ func middlewareMandatoryTest(ht *lntest.HarnessTest, node *node.HarnessNode) {
 	err = node.WaitUntilServerActive()
 	require.NoError(ht, err)
 
-	ctxb := context.Background()
+	ctxb := ht.Context()
 	ctxc, cancel := context.WithTimeout(ctxb, defaultTimeout)
 	defer cancel()
 

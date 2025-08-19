@@ -1,7 +1,6 @@
 package autopilot
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -32,7 +31,7 @@ func TestBetweennessCentralityMetricConstruction(t *testing.T) {
 // Tests that empty graph results in empty centrality result.
 func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	centralityMetric, err := NewBetweennessCentralityMetric(1)
 	require.NoError(
@@ -64,7 +63,7 @@ func TestBetweennessCentralityEmptyGraph(t *testing.T) {
 // Test betweenness centrality calculating using an example graph.
 func TestBetweennessCentralityWithNonEmptyGraph(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	workers := []int{1, 3, 9, 100}
 

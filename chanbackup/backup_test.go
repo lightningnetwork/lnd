@@ -121,8 +121,7 @@ func TestFetchBackupForChan(t *testing.T) {
 	}
 	for i, testCase := range testCases {
 		_, err := FetchBackupForChan(
-			context.Background(), testCase.chanPoint, chanSource,
-			chanSource,
+			t.Context(), testCase.chanPoint, chanSource, chanSource,
 		)
 		switch {
 		// If this is a valid test case, and we failed, then we'll
@@ -143,7 +142,7 @@ func TestFetchBackupForChan(t *testing.T) {
 // channel source for all channels and construct a Single for each channel.
 func TestFetchStaticChanBackups(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll make the set of channels that we want to seed the
 	// channel source with. Both channels will be fully populated in the

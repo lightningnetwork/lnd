@@ -2,7 +2,6 @@ package routerrpc
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -264,7 +263,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		backend.MaxTotalTimelock = 1000
 	}
 
-	resp, err := backend.QueryRoutes(context.Background(), request)
+	resp, err := backend.QueryRoutes(t.Context(), request)
 
 	// If we're using both OutgoingChanId and OutgoingChanIds, we should get
 	// an error.

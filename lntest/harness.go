@@ -147,7 +147,7 @@ func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 	t.Helper()
 
 	// Create the run context.
-	ctxt, cancel := context.WithCancel(context.Background())
+	ctxt, cancel := context.WithCancel(t.Context())
 
 	manager := newNodeManager(lndBinary, dbBackend, nativeSQL)
 

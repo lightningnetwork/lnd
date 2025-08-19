@@ -198,7 +198,7 @@ func sendPaymentAndAssertSucceeded(t *testing.T,
 	// We now make a call to `resumePayment` and expect it to return the
 	// preimage.
 	go func() {
-		preimage, _, err := p.resumePayment(context.Background())
+		preimage, _, err := p.resumePayment(t.Context())
 		resultChan <- &resumePaymentResult{
 			preimage: preimage,
 			err:      err,
@@ -294,7 +294,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	t.Parallel()
 
 	deadline := time.Now().Add(time.Nanosecond)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
 	defer cancel()
 
 	p := createTestPaymentLifecycle()
@@ -330,7 +330,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 
 	// Make the timeout happens instantly.
 	deadline = time.Now().Add(time.Nanosecond)
-	ctx, cancel = context.WithDeadline(context.Background(), deadline)
+	ctx, cancel = context.WithDeadline(t.Context(), deadline)
 	defer cancel()
 
 	// Sleep one millisecond to make sure it timed out.
@@ -349,7 +349,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 func TestCheckTimeoutOnRouterQuit(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	p := createTestPaymentLifecycle()
@@ -795,7 +795,7 @@ func TestResumePaymentFailOnFetchPayment(t *testing.T) {
 	m.control.On("FetchPayment", p.identifier).Return(nil, errDummy)
 
 	// Send the payment and assert it failed.
-	sendPaymentAndAssertError(t, context.Background(), p, errDummy)
+	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
 	require.Zero(t, m.collectResultsCount)
@@ -831,7 +831,7 @@ func TestResumePaymentFailOnTimeout(t *testing.T) {
 	// 3. make the timeout happens instantly and sleep one millisecond to
 	// make sure it timed out.
 	deadline := time.Now().Add(time.Nanosecond)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	ctx, cancel := context.WithDeadline(t.Context(), deadline)
 	defer cancel()
 	time.Sleep(1 * time.Millisecond)
 
@@ -882,7 +882,7 @@ func TestResumePaymentFailOnTimeoutErr(t *testing.T) {
 
 	// Send the payment and assert it failed when router is shutting down.
 	sendPaymentAndAssertError(
-		t, context.Background(), p, ErrRouterShuttingDown,
+		t, t.Context(), p, ErrRouterShuttingDown,
 	)
 
 	// Expected collectResultAsync to not be called.
@@ -900,7 +900,7 @@ func TestResumePaymentFailContextCancel(t *testing.T) {
 	p, m := setupTestPaymentLifecycle(t)
 
 	// Create the cancelable payment context.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	paymentAmt := lnwire.MilliSatoshi(10000)
 
@@ -977,7 +977,7 @@ func TestResumePaymentFailOnStepErr(t *testing.T) {
 	m.payment.On("AllowMoreAttempts").Return(false, errDummy).Once()
 
 	// Send the payment and assert it failed.
-	sendPaymentAndAssertError(t, context.Background(), p, errDummy)
+	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
 	require.Zero(t, m.collectResultsCount)
@@ -1021,7 +1021,7 @@ func TestResumePaymentFailOnRequestRouteErr(t *testing.T) {
 	).Return(nil, errDummy).Once()
 
 	// Send the payment and assert it failed.
-	sendPaymentAndAssertError(t, context.Background(), p, errDummy)
+	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
 	require.Zero(t, m.collectResultsCount)
@@ -1081,7 +1081,7 @@ func TestResumePaymentFailOnRegisterAttemptErr(t *testing.T) {
 	).Return(nil, errDummy).Once()
 
 	// Send the payment and assert it failed.
-	sendPaymentAndAssertError(t, context.Background(), p, errDummy)
+	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
 	require.Zero(t, m.collectResultsCount)
@@ -1173,7 +1173,7 @@ func TestResumePaymentFailOnSendAttemptErr(t *testing.T) {
 	).Return(nil, errDummy).Once()
 
 	// Send the payment and assert it failed.
-	sendPaymentAndAssertError(t, context.Background(), p, errDummy)
+	sendPaymentAndAssertError(t, t.Context(), p, errDummy)
 
 	// Expected collectResultAsync to not be called.
 	require.Zero(t, m.collectResultsCount)

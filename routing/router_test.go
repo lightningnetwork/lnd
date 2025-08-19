@@ -132,7 +132,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	sourceNode, err := graphInstance.graph.SourceNode(context.Background())
+	sourceNode, err := graphInstance.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
 		GraphSessionFactory: graphInstance.graph,
@@ -1202,7 +1202,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode, err := ctx.graph.SourceNode(context.Background())
+	sourceNode, err := ctx.graph.SourceNode(t.Context())
 	require.NoError(t, err, "unable to fetch source node")
 
 	amt := lnwire.MilliSatoshi(100)
@@ -2706,7 +2706,7 @@ func TestNewRouteRequest(t *testing.T) {
 // announcements for the channel vertexes to be able to use the channel.
 func TestAddEdgeUnknownVertexes(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)

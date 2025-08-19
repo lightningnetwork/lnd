@@ -1,7 +1,6 @@
 package invoices_test
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"fmt"
@@ -194,7 +193,7 @@ func testSettleInvoice(t *testing.T,
 
 	ctx := newTestContext(t, nil, makeDB)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
@@ -383,7 +382,7 @@ func testCancelInvoiceImpl(t *testing.T, gc bool,
 	cfg.GcCanceledInvoicesOnTheFly = gc
 	ctx := newTestContext(t, &cfg, makeDB)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
@@ -547,7 +546,7 @@ func testSettleHoldInvoice(t *testing.T,
 	require.NoError(t, err)
 	defer registry.Stop()
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	allSubscriptions, err := registry.SubscribeNotifications(ctxb, 0, 0)
 	require.Nil(t, err)
 	defer allSubscriptions.Cancel()
@@ -720,7 +719,7 @@ func testCancelHoldInvoice(t *testing.T,
 		require.NoError(t, registry.Stop())
 	})
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	// Add the invoice.
 	invoice := newInvoice(t, true, false)
@@ -824,7 +823,7 @@ func testKeySendImpl(t *testing.T, keySendEnabled bool,
 	ctx := newTestContext(t, &cfg, makeDB)
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(
-		context.Background(), 0, 0,
+		t.Context(), 0, 0,
 	)
 	require.NoError(t, err)
 	defer allSubscriptions.Cancel()
@@ -959,7 +958,7 @@ func testHoldKeysendImpl(t *testing.T, timeoutKeysend bool,
 	cfg.KeysendHoldTime = holdDuration
 	ctx := newTestContext(t, &cfg, makeDB)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.NoError(t, err)
 	defer allSubscriptions.Cancel()
@@ -1047,7 +1046,7 @@ func testMppPayment(t *testing.T,
 	defer timeout()()
 
 	ctx := newTestContext(t, nil, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	// Add the invoice.
 	testInvoice := newInvoice(t, false, false)
@@ -1143,7 +1142,7 @@ func testMppPaymentWithOverpayment(t *testing.T,
 
 	t.Parallel()
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	f := func(overpaymentRand uint64) bool {
 		ctx := newTestContext(t, nil, makeDB)
 
@@ -1241,7 +1240,7 @@ func testInvoiceExpiryWithRegistry(t *testing.T,
 		t, testTime, 0, numExpired, numPending,
 	)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	var expectedCancellations []lntypes.Hash
 	expiredInvoices := existingInvoices.expiredInvoices
@@ -1351,7 +1350,7 @@ func testOldInvoiceRemovalOnStart(t *testing.T,
 		t, testTime, 0, numExpired, numPending,
 	)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	i := 0
 	for paymentHash, invoice := range existingInvoices.expiredInvoices {
@@ -1443,7 +1442,7 @@ func testHeightExpiryWithRegistryImpl(t *testing.T, numParts int, settle bool,
 	testInvoice.HodlInvoice = true
 	testInvoice.PaymentRequest = []byte{1, 2, 3}
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	_, err := ctx.registry.AddInvoice(
 		ctxb, testInvoice, testInvoicePaymentHash,
 	)
@@ -1554,7 +1553,7 @@ func testMultipleSetHeightExpiry(t *testing.T,
 	// Add a hold invoice.
 	testInvoice := newInvoice(t, true, false)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	_, err := ctx.registry.AddInvoice(
 		ctxb, testInvoice, testInvoicePaymentHash,
 	)
@@ -1646,7 +1645,7 @@ func testSettleInvoicePaymentAddrRequired(t *testing.T,
 	t.Parallel()
 
 	ctx := newTestContext(t, nil, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.NoError(t, err)
@@ -1738,7 +1737,7 @@ func testSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T,
 	t.Parallel()
 
 	ctx := newTestContext(t, nil, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.NoError(t, err)
@@ -1946,7 +1945,7 @@ func testSpontaneousAmpPaymentImpl(
 	cfg := defaultRegistryConfig()
 	cfg.AcceptAMP = ampEnabled
 	ctx := newTestContext(t, &cfg, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(ctxb, 0, 0)
 	require.Nil(t, err)
@@ -2132,7 +2131,7 @@ func testFailPartialMPPPaymentExternal(t *testing.T,
 	// Add an invoice which we are going to pay via a MPP set.
 	testInvoice := newInvoice(t, false, false)
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 	_, err := ctx.registry.AddInvoice(
 		ctxb, testInvoice, testInvoicePaymentHash,
 	)
@@ -2243,7 +2242,7 @@ func testFailPartialAMPPayment(t *testing.T,
 	t.Parallel()
 
 	ctx := newTestContext(t, nil, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const (
 		expiry    = uint32(testCurrentHeight + 20)
@@ -2449,7 +2448,7 @@ func testCancelAMPInvoicePendingHTLCs(t *testing.T,
 	t.Parallel()
 
 	ctx := newTestContext(t, nil, makeDB)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const (
 		expiry    = uint32(testCurrentHeight + 20)

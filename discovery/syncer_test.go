@@ -232,7 +232,7 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 // doesn't have a horizon set, then we won't send any incoming messages to it.
 func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -278,7 +278,7 @@ func unixStamp(a int64) uint32 {
 // channel ann that already has a channel update on disk.
 func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -421,7 +421,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 // messages which are within their desired time horizon.
 func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -482,7 +482,7 @@ func TestGossipSyncerApplyNoHistoricalGossipFilter(t *testing.T) {
 // within their desired time horizon.
 func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -602,7 +602,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 // channels and complete=0.
 func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -655,7 +655,7 @@ func TestGossipSyncerQueryChannelRangeWrongChainHash(t *testing.T) {
 // complete=0.
 func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -705,7 +705,7 @@ func TestGossipSyncerReplyShortChanIDsWrongChainHash(t *testing.T) {
 // announcements, as well as an ending ReplyShortChanIDsEnd message.
 func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -811,7 +811,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 // the remote peer.
 func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll use a smaller chunk size so we can easily test all the edge
 	// cases.
@@ -983,7 +983,7 @@ func TestGossipSyncerReplyChanRangeQuery(t *testing.T) {
 // executed with the correct block range.
 func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First create our test gossip syncer that will handle and
 	// respond to the test queries
@@ -1097,7 +1097,7 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 // back a single response that signals completion.
 func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// We'll now create our test gossip syncer that will shortly respond to
 	// our canned query.
@@ -1177,7 +1177,7 @@ func TestGossipSyncerReplyChanRangeQueryNoNewChans(t *testing.T) {
 // channel ID, we properly generate an correct initial channel range response.
 func TestGossipSyncerGenChanRangeQuery(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -1238,7 +1238,7 @@ func TestGossipSyncerProcessChanRangeReply(t *testing.T) {
 // each reply instead.
 func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create a GossipSyncer instance with a canned sendToPeer
 	// message to allow us to intercept their potential sends.
@@ -1499,7 +1499,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 
 	for i := 0; i < chunkSize*2; i += 2 {
 		// With our set up complete, we'll request a sync of chan ID's.
-		done := syncer.synchronizeChanIDs(context.Background())
+		done := syncer.synchronizeChanIDs(t.Context())
 
 		// At this point, we shouldn't yet be done as only 2 items
 		// should have been queried for.
@@ -1546,7 +1546,7 @@ func TestGossipSyncerSynchronizeChanIDs(t *testing.T) {
 	}
 
 	// If we issue another query, the syncer should tell us that it's done.
-	done := syncer.synchronizeChanIDs(context.Background())
+	done := syncer.synchronizeChanIDs(t.Context())
 	if done {
 		t.Fatalf("syncer should be finished!")
 	}

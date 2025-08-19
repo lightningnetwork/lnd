@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -104,7 +103,7 @@ func testChannelUtxoSelectionError(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -198,7 +197,7 @@ func testUtxoSelectionSelectedValidChanSize(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -240,7 +239,7 @@ func testUtxoSelectionSelectedValidChanReserve(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -281,7 +280,7 @@ func testUtxoSelectionReserveFromSelected(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -325,7 +324,7 @@ func testUtxoSelectionFundmax(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -364,7 +363,7 @@ func testUtxoSelectionFundmaxReserve(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -404,7 +403,7 @@ func testUtxoSelectionReuseUTXO(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)

@@ -115,7 +115,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	var dbName string
 	if cfg.DBBackend == BackendPostgres {
 		var err error
-		dbName, err = createTempPgDB()
+		dbName, err = createTempPgDB(t.Context())
 		if err != nil {
 			return nil, err
 		}
@@ -702,6 +702,11 @@ func (hn *HarnessNode) Stop() error {
 		// gets closed before a response is returned.
 		req := lnrpc.StopRequest{}
 
+		// We have to use context.Background(), because both hn.Context
+		// and hn.runCtx have been canceled by this point. We canceled
+		// hn.runCtx just few lines above. hn.Context() is canceled by
+		// Go before calling cleanup callbacks; HarnessNode.Stop() is
+		// called from shutdownAllNodes which is called from a cleanup.
 		ctxt, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -841,8 +846,8 @@ func (hn *HarnessNode) BackupDB() error {
 		// Backup database.
 		backupDBName := hn.Cfg.postgresDBName + "_backup"
 		err := executePgQuery(
-			"CREATE DATABASE " + backupDBName + " WITH TEMPLATE " +
-				hn.Cfg.postgresDBName,
+			hn.Context(), "CREATE DATABASE "+backupDBName+
+				" WITH TEMPLATE "+hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
@@ -872,14 +877,14 @@ func (hn *HarnessNode) RestoreDB() error {
 		// Restore database.
 		backupDBName := hn.Cfg.postgresDBName + "_backup"
 		err := executePgQuery(
-			"DROP DATABASE " + hn.Cfg.postgresDBName,
+			hn.Context(), "DROP DATABASE "+hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
 		}
 		err = executePgQuery(
-			"ALTER DATABASE " + backupDBName + " RENAME TO " +
-				hn.Cfg.postgresDBName,
+			hn.Context(), "ALTER DATABASE "+backupDBName+
+				" RENAME TO "+hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
@@ -924,7 +929,7 @@ func postgresDatabaseDsn(dbName string) string {
 }
 
 // createTempPgDB creates a temp postgres database.
-func createTempPgDB() (string, error) {
+func createTempPgDB(ctx context.Context) (string, error) {
 	// Create random database name.
 	randBytes := make([]byte, 8)
 	_, err := rand.Read(randBytes)
@@ -934,7 +939,7 @@ func createTempPgDB() (string, error) {
 	dbName := "itest_" + hex.EncodeToString(randBytes)
 
 	// Create database.
-	err = executePgQuery("CREATE DATABASE " + dbName)
+	err = executePgQuery(ctx, "CREATE DATABASE "+dbName)
 	if err != nil {
 		return "", err
 	}
@@ -943,17 +948,14 @@ func createTempPgDB() (string, error) {
 }
 
 // executePgQuery executes a SQL statement in a postgres db.
-func executePgQuery(query string) error {
-	pool, err := pgxpool.Connect(
-		context.Background(),
-		postgresDatabaseDsn("postgres"),
-	)
+func executePgQuery(ctx context.Context, query string) error {
+	pool, err := pgxpool.Connect(ctx, postgresDatabaseDsn("postgres"))
 	if err != nil {
 		return fmt.Errorf("unable to connect to database: %w", err)
 	}
 	defer pool.Close()
 
-	_, err = pool.Exec(context.Background(), query)
+	_, err = pool.Exec(ctx, query)
 	return err
 }
 

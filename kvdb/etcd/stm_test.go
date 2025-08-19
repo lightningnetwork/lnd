@@ -23,7 +23,7 @@ func TestPutToEmpty(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	txQueue := NewCommitQueue(ctx)
 	t.Cleanup(func() {
@@ -50,7 +50,7 @@ func TestGetPutDel(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	txQueue := NewCommitQueue(ctx)
 	t.Cleanup(func() {
@@ -151,7 +151,7 @@ func testFirstLastNextPrev(t *testing.T, prefetchKeys []string,
 	prefetchRange []string, expectedCallCount int) {
 
 	f := NewEtcdTestFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	txQueue := NewCommitQueue(ctx)
 	t.Cleanup(func() {
@@ -325,7 +325,7 @@ func TestCommitError(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	txQueue := NewCommitQueue(ctx)
 	t.Cleanup(func() {
@@ -374,7 +374,7 @@ func TestManualTxError(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 
 	txQueue := NewCommitQueue(ctx)
 	t.Cleanup(func() {

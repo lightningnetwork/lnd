@@ -359,7 +359,7 @@ func TestBatchFund(t *testing.T) {
 				MinConfs:    1,
 			}
 			updates, err := h.batcher.BatchFund(
-				context.Background(), req,
+				t.Context(), req,
 			)
 
 			if tc.failUpdate1 || tc.failUpdate2 || tc.failPublish {

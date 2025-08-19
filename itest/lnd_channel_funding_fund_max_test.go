@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -65,7 +64,7 @@ func testChannelFundMaxError(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -155,7 +154,7 @@ func testChannelFundMaxWalletAmount(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)
@@ -220,7 +219,7 @@ func testChannelFundMaxAnchorReserve(ht *lntest.HarnessTest) {
 
 	// Calculate reserve amount for one channel.
 	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
-		context.Background(), &walletrpc.RequiredReserveRequest{
+		ht.Context(), &walletrpc.RequiredReserveRequest{
 			AdditionalPublicChannels: 1,
 		},
 	)

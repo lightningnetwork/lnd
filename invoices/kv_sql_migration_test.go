@@ -1,7 +1,6 @@
 package invoices_test
 
 import (
-	"context"
 	"database/sql"
 	"os"
 	"path"
@@ -67,7 +66,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 		sqlite bool) {
 
 		sqlInvoiceStore, sqlStore := makeSQLDB(t, sqlite)
-		ctxb := context.Background()
+		ctxb := t.Context()
 
 		const batchSize = 11
 		err := sqlStore.ExecTx(
@@ -163,7 +162,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 
 				sqliteBackend, err := kvdb.Open(
 					kvdb.SqliteBackendName,
-					context.Background(),
+					t.Context(),
 					sqliteConfig, test.dbPath,
 					lncfg.SqliteChannelDBName,
 					lncfg.NSChannelDB,

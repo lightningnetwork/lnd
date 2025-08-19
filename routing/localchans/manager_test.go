@@ -317,7 +317,7 @@ func TestManager(t *testing.T) {
 			expectedNumUpdates = test.expectedNumUpdates
 
 			failedUpdates, err := manager.UpdatePolicy(
-				context.Background(),
+				t.Context(),
 				test.newPolicy,
 				test.createMissingEdge,
 				test.specifiedChanPoints...)

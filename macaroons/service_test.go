@@ -1,7 +1,6 @@
 package macaroons_test
 
 import (
-	"context"
 	"encoding/hex"
 	"path"
 	"testing"
@@ -55,7 +54,7 @@ func setupTestRootKeyStorage(t *testing.T) kvdb.Backend {
 // TestNewService tests the creation of the macaroon service.
 func TestNewService(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
@@ -109,7 +108,7 @@ func TestNewService(t *testing.T) {
 // incoming context.
 func TestValidateMacaroon(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, initialize the service and unlock it.
 	db := setupTestRootKeyStorage(t)
@@ -157,7 +156,7 @@ func TestValidateMacaroon(t *testing.T) {
 // TestListMacaroonIDs checks that ListMacaroonIDs returns the expected result.
 func TestListMacaroonIDs(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
@@ -192,7 +191,7 @@ func TestListMacaroonIDs(t *testing.T) {
 func TestDeleteMacaroonID(t *testing.T) {
 	t.Parallel()
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.
@@ -308,7 +307,7 @@ func TestCloneMacaroons(t *testing.T) {
 func TestMacaroonVersionDecode(t *testing.T) {
 	t.Parallel()
 
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	// First, initialize a dummy DB file with a store that the service
 	// can read from. Make sure the file is removed in the end.

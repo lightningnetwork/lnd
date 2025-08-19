@@ -44,10 +44,10 @@ type PaymentWriter interface {
 // its database operations. This interface represents the control flow of how
 // a payment should be handled in the database. They are not just writing
 // operations but they inherently represent the flow of a payment. The methods
-// are called in the following order:
+// are called in the following order.
 //
-// 1. InitPayment
-// 2. RegisterAttempt (a payment can have multiple attempts)
+// 1. InitPayment.
+// 2. RegisterAttempt (a payment can have multiple attempts).
 // 3. SettleAttempt or FailAttempt (attempts can also fail as long as the
 // sending amount will be eventually settled).
 // 4. Payment succeeds or "Fail" is called.

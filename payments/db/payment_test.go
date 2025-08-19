@@ -1387,7 +1387,10 @@ func TestSwitchFail(t *testing.T) {
 	require.NoError(t, err, "unable to fail payment hash")
 
 	// Verify the status is indeed Failed.
-	assertDBPaymentstatus(t, paymentDB, info.PaymentIdentifier, StatusFailed)
+	assertDBPaymentstatus(
+		t, paymentDB, info.PaymentIdentifier, StatusFailed,
+	)
+
 	assertPaymentInfo(
 		t, paymentDB, info.PaymentIdentifier, info, &failReason, nil,
 	)

@@ -466,8 +466,8 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	}
 }
 
-// TestKVPaymentsDBMPPRecordValidation tests MPP record validation.
-func TestKVPaymentsDBMPPRecordValidation(t *testing.T) {
+// TestMPPRecordValidation tests MPP record validation.
+func TestMPPRecordValidation(t *testing.T) {
 	t.Parallel()
 
 	paymentDB := NewTestDB(t)
@@ -1181,9 +1181,9 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 	require.ErrorIs(t, err, route.ErrNoRouteHopsProvided)
 }
 
-// TestKVPaymentsDBSuccessesWithoutInFlight tests that the payment control will
-// disallow calls to Success when no payment is in flight.
-func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
+// TestSuccessesWithoutInFlight tests that the payment control will disallow
+// calls to Success when no payment is in flight.
+func TestSuccessesWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
 	paymentDB := NewTestDB(t)
@@ -1201,9 +1201,9 @@ func TestKVPaymentsDBSuccessesWithoutInFlight(t *testing.T) {
 	require.ErrorIs(t, err, ErrPaymentNotInitiated)
 }
 
-// TestKVPaymentsDBFailsWithoutInFlight checks that a strict payment control
-// will disallow calls to Fail when no payment is in flight.
-func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
+// TestFailsWithoutInFlight checks that a strict payment control will disallow
+// calls to Fail when no payment is in flight.
+func TestFailsWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
 	paymentDB := NewTestDB(t)
@@ -1218,9 +1218,9 @@ func TestKVPaymentsDBFailsWithoutInFlight(t *testing.T) {
 	require.ErrorIs(t, err, ErrPaymentNotInitiated)
 }
 
-// TestKVPaymentsDBDeletePayments tests that DeletePayments correctly deletes
-// information about completed payments from the database.
-func TestKVPaymentsDBDeletePayments(t *testing.T) {
+// TestDeletePayments tests that DeletePayments correctly deletes information
+// about completed payments from the database.
+func TestDeletePayments(t *testing.T) {
 	t.Parallel()
 
 	paymentDB := NewTestDB(t)

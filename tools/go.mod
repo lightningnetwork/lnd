@@ -1,6 +1,6 @@
 module github.com/lightningnetwork/lnd/tools
 
-go 1.23.12
+go 1.24.6
 
 require (
 	github.com/btcsuite/btcd v0.24.2

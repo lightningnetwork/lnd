@@ -1,6 +1,6 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-FROM golang:1.23.12-bookworm
+FROM golang:1.24.6-bookworm
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
 

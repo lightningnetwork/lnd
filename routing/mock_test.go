@@ -510,7 +510,7 @@ func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 }
 
 func (m *mockControlTowerOld) FetchPayment(phash lntypes.Hash) (
-	DBMPPayment, error) {
+	paymentsdb.DBMPPayment, error) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -787,7 +787,7 @@ func (m *mockControlTower) FailPayment(phash lntypes.Hash,
 }
 
 func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
-	DBMPPayment, error) {
+	paymentsdb.DBMPPayment, error) {
 
 	args := m.Called(phash)
 
@@ -825,7 +825,7 @@ type mockMPPayment struct {
 	mock.Mock
 }
 
-var _ DBMPPayment = (*mockMPPayment)(nil)
+var _ paymentsdb.DBMPPayment = (*mockMPPayment)(nil)
 
 func (m *mockMPPayment) GetState() *paymentsdb.MPPaymentState {
 	args := m.Called()

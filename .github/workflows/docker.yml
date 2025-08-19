@@ -17,6 +17,26 @@ env:
   DOCKER_IMAGE: lnd
 
 jobs:
+  ########################
+  # Check release signing keys
+  ########################
+  pgp-key-check:
+    name: Check PGP key expirations
+    runs-on: ubuntu-latest
+    # We don't want to fail the build because of PGP key expirations because
+    # they are only used for release builds and this job failing should catch
+    # the attention of the maintainers.
+    continue-on-error: true
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+
+      - name: Check PGP key expirations
+        run: scripts/check-pgp-expiry.sh
+
+  ########################
+  # Build and push the daily docker image
+  ########################
   main:
     runs-on: ubuntu-latest
     steps:

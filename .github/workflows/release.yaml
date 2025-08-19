@@ -16,19 +16,6 @@ env:
 
 jobs:
   ########################
-  # Check release signing keys
-  ########################
-  pgp-key-expiration-check:
-    name: Check release signing key expirations
-    runs-on: ubuntu-latest
-    steps:
-      - name: Git checkout
-        uses: actions/checkout@v4
-
-      - name: Check PGP key expirations
-        run: scripts/check-pgp-expiry.sh
-
-  ########################
   # Create release
   ########################
   main:

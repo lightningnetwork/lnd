@@ -136,7 +136,8 @@ func IPLockChecker() (string, checkers.Func) {
 		// check.
 		pr, ok := peer.FromContext(ctx)
 		if !ok {
-			return fmt.Errorf("unable to get peer info from context")
+			return fmt.Errorf("unable to get peer info from " +
+				"context")
 		}
 		peerAddr, _, err := net.SplitHostPort(pr.Addr.String())
 		if err != nil {
@@ -144,8 +145,8 @@ func IPLockChecker() (string, checkers.Func) {
 		}
 
 		if !net.ParseIP(arg).Equal(net.ParseIP(peerAddr)) {
-			msg := "macaroon locked to different IP address"
-			return fmt.Errorf(msg)
+			return fmt.Errorf("macaroon locked to different IP " +
+				"address")
 		}
 		return nil
 	}

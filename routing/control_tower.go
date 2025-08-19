@@ -17,6 +17,8 @@ import (
 type ControlTower interface {
 	// InitPayment initializes a new payment with the given payment hash and
 	// also notifies subscribers of the payment creation.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
@@ -25,6 +27,8 @@ type ControlTower interface {
 	DeleteFailedAttempts(lntypes.Hash) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	RegisterAttempt(lntypes.Hash, *paymentsdb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
@@ -35,10 +39,14 @@ type ControlTower interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	SettleAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCSettleInfo) (
 		*paymentsdb.HTLCAttempt, error)
 
 	// FailAttempt marks the given payment attempt failed.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	FailAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCFailInfo) (
 		*paymentsdb.HTLCAttempt, error)
 
@@ -52,6 +60,8 @@ type ControlTower interface {
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
+	//
+	// NOTE: Subscribers should be notified by the new state of the payment.
 	FailPayment(lntypes.Hash, paymentsdb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.

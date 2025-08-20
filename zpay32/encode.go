@@ -209,6 +209,8 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 			version = addr.WitnessVersion()
 		case *btcutil.AddressWitnessScriptHash:
 			version = addr.WitnessVersion()
+		case *btcutil.AddressTaproot:
+			version = addr.WitnessVersion()
 		default:
 			return fmt.Errorf("unknown fallback address type")
 		}

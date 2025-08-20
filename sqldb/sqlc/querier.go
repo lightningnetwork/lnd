@@ -90,7 +90,19 @@ type Querier interface {
 	InsertAMPSubInvoiceHTLC(ctx context.Context, arg InsertAMPSubInvoiceHTLCParams) error
 	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same channel again (which would error if the normal
+	// CreateChannel query is used because of the uniqueness constraint on the scid
+	// and version columns).
+	InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error)
 	InsertClosedChannel(ctx context.Context, scid []byte) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same policy (which would error if the normal
+	// UpsertEdgePolicy query is used because of the constraint in that query that
+	// requires a policy update to have a newer last_update than the existing one).
+	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
@@ -99,6 +111,12 @@ type Querier interface {
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
+	// NOTE: This query is only meant to be used by the graph SQL migration since
+	// for that migration, in order to be retry-safe, we don't want to error out if
+	// we re-insert the same node (which would error if the normal UpsertNode query
+	// is used because of the constraint in that query that requires a node update
+	// to have a newer last_update than the existing node).
+	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)

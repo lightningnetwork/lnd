@@ -56,6 +56,13 @@ var (
 // for to ensure that our migration from a graph store backed by a KV DB to a
 // SQL database works as expected. At the end of each test, the DBs are compared
 // and expected to have the exact same data in them.
+// This test also ensures that the migration is "retry-safe". This is needed
+// because the migration is hooked up to 2 dbs: the source DB and the
+// destination. The source DB is a db behind the kvdb.Backend interface and
+// the migration makes use of methods on this interface that may be retried
+// under the hood. The migration often does logic inside call-back functions
+// passed to the source DB methods which may be retried, and so we need to
+// ensure that the migration can handle this.
 func TestMigrateGraphToSQL(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -155,6 +162,59 @@ func TestMigrateGraphToSQL(t *testing.T) {
 			expGraphStats: graphStats{
 				numNodes:   1,
 				srcNodeSet: true,
+			},
+		},
+		{
+			name:  "channel with no policies",
+			write: writeUpdate,
+			objects: []any{
+				// A channel with unknown nodes. This will
+				// result in two shell nodes being created.
+				// 	- channel count += 1
+				// 	- node count += 2
+				makeTestChannel(t),
+
+				// Insert some nodes.
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.LightningNode) {
+					n.PubKeyBytes = node1
+				}),
+				// 	- node count += 1
+				makeTestNode(t, func(n *models.LightningNode) {
+					n.PubKeyBytes = node2
+				}),
+
+				// A channel with known nodes.
+				// - channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID1
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+					},
+				),
+
+				// Insert a channel with no auth proof, no
+				// extra opaque data, and empty features.
+				// Use known nodes.
+				// 	- channel count += 1
+				makeTestChannel(
+					t, func(c *models.ChannelEdgeInfo) {
+						c.ChannelID = chanID2
+
+						c.NodeKey1Bytes = node1
+						c.NodeKey2Bytes = node2
+
+						c.AuthProof = nil
+						c.ExtraOpaqueData = nil
+						c.Features = testEmptyFeatures
+					},
+				),
+			},
+			expGraphStats: graphStats{
+				numNodes:    4,
+				numChannels: 3,
 			},
 		},
 		{
@@ -338,6 +398,12 @@ func TestMigrateGraphToSQL(t *testing.T) {
 
 			// Validate that the two databases are now in sync.
 			assertInSync(t, kvDB, sql, test.expGraphStats)
+
+			// The migration should be retry-safe, so running it
+			// again should not change the state of the databases.
+			err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
+			require.NoError(t, err)
+			assertInSync(t, kvDB, sql, test.expGraphStats)
 		})
 	}
 }
@@ -513,6 +579,7 @@ func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
 
 			return nil
 		},
+		func() {},
 	)
 	require.NoError(t, err)
 
@@ -544,7 +611,7 @@ func checkClosedSCIDIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		require.True(t, closed)
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -576,7 +643,7 @@ func checkZombieIndex(t *testing.T, kv kvdb.Backend, sql *SQLStore) {
 		}
 
 		return nil
-	})
+	}, func() {})
 	require.NoError(t, err)
 }
 
@@ -716,6 +783,7 @@ func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
 		FeeBaseMSat:               math.MaxUint64,
 		FeeProportionalMillionths: math.MaxUint64,
 		ToNode:                    toNode,
+		ExtraOpaqueData:           testExtraData,
 	}
 
 	for _, opt := range opts {
@@ -1205,6 +1273,8 @@ func TestMigrateGraphToSQLRapid(t *testing.T) {
 // SQL store, generates random nodes and channels, populates the KV store,
 // runs the migration, and asserts that the SQL store contains the expected
 // state.
+//
+// The migration is run twice in order to test idempotency and retry-safety.
 func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	dbFixture *sqldb.TestPgFixture, maxNumNodes, maxNumChannels int) {
 
@@ -1351,6 +1421,15 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	}
 
 	// Validate that the sql database has the correct state.
+	assertResultState(t, sql, dbState{
+		nodes: nodesSlice,
+		chans: chanSetForState,
+	})
+
+	// The migration is expected to be idempotent and retry-safe. So running
+	// it again should yield the same result.
+	err = MigrateGraphToSQL(ctx, sql.cfg, kvDB.db, sql.db)
+	require.NoError(t, err)
 	assertResultState(t, sql, dbState{
 		nodes: nodesSlice,
 		chans: chanSetForState,

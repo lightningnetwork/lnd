@@ -326,7 +326,9 @@ lifecycle:
 	// terminal condition. We either return the settled preimage or the
 	// payment's failure reason.
 	//
-	// Optionally delete the failed attempts from the database.
+	// Optionally delete the failed attempts from the database. Depends on
+	// the database options deleting attempts is not allowed so this will
+	// just be a no-op.
 	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+

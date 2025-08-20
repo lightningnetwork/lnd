@@ -50,7 +50,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(
+	paymentDB, err := paymentsdb.NewKVStore(
 		db,
 		paymentsdb.WithKeepFailedPaymentAttempts(true),
 	)
@@ -70,7 +70,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(db)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -174,33 +174,33 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	}
 }
 
-// TestKVPaymentsDBSubscribeFail tests that payment updates for a
+// TestKVStoreSubscribeFail tests that payment updates for a
 // failed payment are properly sent to subscribers.
-func TestKVPaymentsDBSubscribeFail(t *testing.T) {
+func TestKVStoreSubscribeFail(t *testing.T) {
 	t.Parallel()
 
 	t.Run("register attempt, keep failed payments", func(t *testing.T) {
-		testKVPaymentsDBSubscribeFail(t, true, true)
+		testKVStoreSubscribeFail(t, true, true)
 	})
 	t.Run("register attempt, delete failed payments", func(t *testing.T) {
-		testKVPaymentsDBSubscribeFail(t, true, false)
+		testKVStoreSubscribeFail(t, true, false)
 	})
 	t.Run("no register attempt, keep failed payments", func(t *testing.T) {
-		testKVPaymentsDBSubscribeFail(t, false, true)
+		testKVStoreSubscribeFail(t, false, true)
 	})
 	t.Run("no register attempt, delete failed payments", func(t *testing.T) {
-		testKVPaymentsDBSubscribeFail(t, false, false)
+		testKVStoreSubscribeFail(t, false, false)
 	})
 }
 
-// TestKVPaymentsDBSubscribeAllSuccess tests that multiple payments are
+// TestKVStoreSubscribeAllSuccess tests that multiple payments are
 // properly sent to subscribers of TrackPayments.
-func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
+func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(
+	paymentDB, err := paymentsdb.NewKVStore(
 		db,
 		paymentsdb.WithKeepFailedPaymentAttempts(true),
 	)
@@ -318,14 +318,14 @@ func TestKVPaymentsDBSubscribeAllSuccess(t *testing.T) {
 	require.Equal(t, attempt2.Route, htlc2.Route, "unexpected htlc route.")
 }
 
-// TestKVPaymentsDBSubscribeAllImmediate tests whether already inflight
+// TestKVStoreSubscribeAllImmediate tests whether already inflight
 // payments are reported at the start of the SubscribeAllPayments subscription.
-func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
+func TestKVStoreSubscribeAllImmediate(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(
+	paymentDB, err := paymentsdb.NewKVStore(
 		db,
 		paymentsdb.WithKeepFailedPaymentAttempts(true),
 	)
@@ -367,14 +367,14 @@ func TestKVPaymentsDBSubscribeAllImmediate(t *testing.T) {
 	}
 }
 
-// TestKVPaymentsDBUnsubscribeSuccess tests that when unsubscribed, there are
+// TestKVStoreUnsubscribeSuccess tests that when unsubscribed, there are
 // no more notifications to that specific subscription.
-func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
+func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	t.Parallel()
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(
+	paymentDB, err := paymentsdb.NewKVStore(
 		db,
 		paymentsdb.WithKeepFailedPaymentAttempts(true),
 	)
@@ -444,12 +444,12 @@ func TestKVPaymentsDBUnsubscribeSuccess(t *testing.T) {
 	require.Len(t, subscription2.Updates(), 0)
 }
 
-func testKVPaymentsDBSubscribeFail(t *testing.T, registerAttempt,
+func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 	keepFailedPaymentAttempts bool) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVPaymentsDB(
+	paymentDB, err := paymentsdb.NewKVStore(
 		db,
 		paymentsdb.WithKeepFailedPaymentAttempts(
 			keepFailedPaymentAttempts,

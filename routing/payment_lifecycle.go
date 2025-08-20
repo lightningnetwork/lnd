@@ -130,7 +130,7 @@ const (
 // wait for results, the method will exit with `stepExit` such that the payment
 // lifecycle loop will terminate.
 func (p *paymentLifecycle) decideNextStep(
-	payment DBMPPayment) (stateStep, error) {
+	payment paymentsdb.DBMPPayment) (stateStep, error) {
 
 	// Check whether we could make new HTLC attempts.
 	allow, err := payment.AllowMoreAttempts()
@@ -326,7 +326,9 @@ lifecycle:
 	// terminal condition. We either return the settled preimage or the
 	// payment's failure reason.
 	//
-	// Optionally delete the failed attempts from the database.
+	// Optionally delete the failed attempts from the database. Depends on
+	// the database options deleting attempts is not allowed so this will
+	// just be a no-op.
 	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+
@@ -1110,7 +1112,9 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 // reloadInflightAttempts is called when the payment lifecycle is resumed after
 // a restart. It reloads all inflight attempts from the control tower and
 // collects the results of the attempts that have been sent before.
-func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
+func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
+	error) {
+
 	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 	if err != nil {
 		return nil, err
@@ -1133,7 +1137,7 @@ func (p *paymentLifecycle) reloadInflightAttempts() (DBMPPayment, error) {
 }
 
 // reloadPayment returns the latest payment found in the db (control tower).
-func (p *paymentLifecycle) reloadPayment() (DBMPPayment,
+func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 	*paymentsdb.MPPaymentState, error) {
 
 	// Read the db to get the latest state of the payment.

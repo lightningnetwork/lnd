@@ -120,6 +120,10 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
+
+	// nodesFromChan records the nodes seen from the channels.
+	nodesFromChan := make(map[[33]byte]struct{}, len(chansInHorizon)*2)
+
 	for _, channel := range chansInHorizon {
 		// If the channel hasn't been fully advertised yet, or is a
 		// private channel, then we'll skip it as we can't construct a
@@ -136,7 +140,21 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			return nil, err
 		}
 
-		updates = append(updates, chanAnn)
+		// Create a slice to hold the `channel_announcement` and
+		// potentially two `channel_update` msgs.
+		//
+		// NOTE: Based on BOLT7, if a channel_announcement has no
+		// corresponding channel_updates, we must not send the
+		// channel_announcement. Thus we use this slice to decide we
+		// want to send this `channel_announcement` or not. By the end
+		// of the operation, if the len of the slice is 1, we will not
+		// send the `channel_announcement`. Otherwise, when sending the
+		// msgs, the `channel_announcement` must be sent prior to any
+		// corresponding `channel_update` or `node_annoucement`, that's
+		// why we create a slice here to maintain the order.
+		chanUpdates := make([]lnwire.Message, 0, 3)
+		chanUpdates = append(chanUpdates, chanAnn)
+
 		if edge1 != nil {
 			// We don't want to send channel updates that don't
 			// conform to the spec (anymore).
@@ -145,18 +163,32 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge1, err)
 			} else {
-				updates = append(updates, edge1)
+				chanUpdates = append(chanUpdates, edge1)
 			}
 		}
+
 		if edge2 != nil {
 			err := netann.ValidateChannelUpdateFields(0, edge2)
 			if err != nil {
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge2, err)
 			} else {
-				updates = append(updates, edge2)
+				chanUpdates = append(chanUpdates, edge2)
 			}
 		}
+
+		// If there's no corresponding `channel_update` to send, skip
+		// sending this `channel_announcement`.
+		if len(chanUpdates) < 2 {
+			continue
+		}
+
+		// Append the all the msgs to the slice.
+		updates = append(updates, chanUpdates...)
+
+		// Record the nodes seen.
+		nodesFromChan[channel.Info.NodeKey1Bytes] = struct{}{}
+		nodesFromChan[channel.Info.NodeKey2Bytes] = struct{}{}
 	}
 
 	// Next, we'll send out all the node announcements that have an update
@@ -168,8 +200,15 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	if err != nil {
 		return nil, err
 	}
+
 	for _, nodeAnn := range nodeAnnsInHorizon {
-		nodeAnn := nodeAnn
+		// If this node has not been seen in the above channels, we can
+		// skip sending its NodeAnnouncement.
+		if _, seen := nodesFromChan[nodeAnn.PubKeyBytes]; !seen {
+			log.Debugf("Skipping forwarding as node %x not found "+
+				"in channel announcement", nodeAnn.PubKeyBytes)
+			continue
+		}
 
 		// Ensure we only forward nodes that are publicly advertised to
 		// prevent leaking information about nodes.

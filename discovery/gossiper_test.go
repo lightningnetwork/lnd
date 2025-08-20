@@ -995,6 +995,7 @@ func createTestCtx(t *testing.T, startHeight uint32, isChanPeer bool) (
 		GetAlias:              getAlias,
 		FindChannel:           mockFindChannel,
 		ScidCloser:            newMockScidCloser(isChanPeer),
+		BanThreshold:          DefaultBanThreshold,
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
@@ -4656,7 +4657,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 	}
 
 	// Loop 100 times to get nodePeer banned.
-	for i := 0; i < 100; i++ {
+	for i := range DefaultBanThreshold {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
 		// the tx script.
@@ -4746,7 +4747,7 @@ func TestChanAnnBanningChanPeer(t *testing.T) {
 	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{}}
 
 	// Loop 100 times to get nodePeer banned.
-	for i := 0; i < 100; i++ {
+	for i := range DefaultBanThreshold {
 		// Craft a valid channel announcement for a channel we don't
 		// have. We will ensure that it fails validation by modifying
 		// the router.

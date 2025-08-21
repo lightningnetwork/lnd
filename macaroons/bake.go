@@ -2,9 +2,9 @@ package macaroons
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
-	"golang.org/x/net/context"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )

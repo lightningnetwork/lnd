@@ -149,16 +149,10 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 		&a.HtlcMinimumMsat,
 		&a.BaseFee,
 		&a.FeeRate,
+		&a.HtlcMaximumMsat,
 	)
 	if err != nil {
 		return err
-	}
-
-	// Now check whether the max HTLC field is present and read it if so.
-	if a.MessageFlags.HasMaxHtlc() {
-		if err := ReadElements(r, &a.HtlcMaximumMsat); err != nil {
-			return err
-		}
 	}
 
 	var tlvRecords ExtraOpaqueData

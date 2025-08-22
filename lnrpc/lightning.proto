@@ -1171,6 +1171,9 @@ message EstimateFeeResponse {
 
     // The fee rate in satoshi/vbyte.
     uint64 sat_per_vbyte = 3;
+
+    // The fee rate in satoshi/kweight.
+    int64 sat_per_kw = 4;
 }
 
 message SendManyRequest {
@@ -1202,6 +1205,12 @@ message SendManyRequest {
 
     // The strategy to use for selecting coins during sending many requests.
     CoinSelectionStrategy coin_selection_strategy = 9;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 10;
 }
 message SendManyResponse {
     // The id of the transaction
@@ -1249,6 +1258,12 @@ message SendCoinsRequest {
 
     // A list of selected outpoints as inputs for the transaction.
     repeated OutPoint outpoints = 11;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 12;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction
@@ -2166,6 +2181,14 @@ message CloseChannelRequest {
     // until all HTLCs are resolved and then start the coop closing process. The
     // channel will be disabled in the meantime and will disallow any new HTLCs.
     bool no_wait = 8;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    //
+    NOTE: This field is only respected if we're the initiator of the channel.
+    */
+    uint64 sat_per_kw = 9;
 }
 
 message CloseStatusUpdate {
@@ -2237,6 +2260,12 @@ message BatchOpenChannelRequest {
 
     // The strategy to use for selecting coins during batch opening channels.
     CoinSelectionStrategy coin_selection_strategy = 7;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    transaction.
+    */
+    uint64 sat_per_kw = 8;
 }
 
 message BatchOpenChannel {
@@ -2524,6 +2553,12 @@ message OpenChannelRequest {
     A list of selected outpoints that are allocated for channel funding.
     */
     repeated OutPoint outpoints = 28;
+
+    /*
+    A manual fee rate set in sat/kweight that should be used when crafting the
+    funding transaction.
+    */
+    uint64 sat_per_kw = 29;
 }
 message OpenStatusUpdate {
     oneof update {

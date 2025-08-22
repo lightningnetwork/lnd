@@ -286,6 +286,17 @@ func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 	// Notify subscribers of fail event.
 	p.notifySubscribers(paymentHash, payment)
 
+	// If the garbage collection flag is set, we'll delete the failed
+	// payment on the fly. We do this after failing the payment to make
+	// sure the payment and attempt are both marked as failed.
+	if p.gcFailedPaymentsOnTheFly {
+		const failedHtlcsOnly = false
+		err := p.db.DeletePayment(paymentHash, failedHtlcsOnly)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

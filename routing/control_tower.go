@@ -143,17 +143,26 @@ type controlTower struct {
 	// that no race conditions occur in between updating the database and
 	// sending a notification.
 	paymentsMtx *multimutex.Mutex[lntypes.Hash]
+
+	// gcFailedPaymentsOnTheFly determines if failed payments should be
+	// garbage collected immediately upon failure.
+	gcFailedPaymentsOnTheFly bool
 }
 
 // NewControlTower creates a new instance of the controlTower.
-func NewControlTower(db paymentsdb.DB) ControlTower {
+func NewControlTower(db paymentsdb.DB,
+	gcFailedPaymentsOnTheFly bool) ControlTower {
+		
 	return &controlTower{
 		db: db,
 		subscribersAllPayments: make(
 			map[uint64]*controlTowerSubscriberImpl,
 		),
-		subscribers: make(map[lntypes.Hash][]*controlTowerSubscriberImpl),
-		paymentsMtx: multimutex.NewMutex[lntypes.Hash](),
+		subscribers: make(
+			map[lntypes.Hash][]*controlTowerSubscriberImpl,
+		),
+		paymentsMtx:              multimutex.NewMutex[lntypes.Hash](),
+		gcFailedPaymentsOnTheFly: gcFailedPaymentsOnTheFly,
 	}
 }
 

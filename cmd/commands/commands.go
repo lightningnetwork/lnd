@@ -449,8 +449,8 @@ var sendCoinsCommand = cli.Command{
 	Description: `
 	Send amt coins in satoshis to the base58 or bech32 encoded bitcoin address addr.
 
-	Fees used when sending the transaction can be specified via the --conf_target, or
-	--sat_per_vbyte optional flags.
+	Fees used when sending the transaction can be specified via the 
+	--conf_target, --sat_per_vbyte or --sat_per_kw optional flags.
 
 	Positional arguments and flags can be used interchangeably but not at the same time!
 	`,
@@ -488,6 +488,13 @@ var sendCoinsCommand = cli.Command{
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
 				"the transaction",
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/kweight that should be used when " +
+				"crafting the transaction. As an example " +
+				"250 sat/kw equals 1 sat/vbyte",
 		},
 		cli.Uint64Flag{
 			Name: "min_confs",
@@ -536,10 +543,9 @@ func sendCoins(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
+	// Only sat_per_vbyte or sat_per_kw should be set, not both.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		ctx, "sat_per_vbyte", "sat_per_kw",
 	)
 	if err != nil {
 		return err
@@ -656,13 +662,14 @@ func sendCoins(ctx *cli.Context) error {
 		Addr:                  addr,
 		Amount:                amt,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		SatPerVbyte:           ctx.Uint64("sat_per_vbyte"),
 		SendAll:               ctx.Bool("sweepall"),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
 		Outpoints:             outpoints,
+		SatPerKw:              ctx.Uint64("sat_per_kw"),
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {
@@ -799,10 +806,11 @@ func listUnspent(ctx *cli.Context) error {
 }
 
 var sendManyCommand = cli.Command{
-	Name:      "sendmany",
-	Category:  "On-chain",
-	Usage:     "Send bitcoin on-chain to multiple addresses.",
-	ArgsUsage: "send-json-string [--conf_target=N] [--sat_per_vbyte=P]",
+	Name:     "sendmany",
+	Category: "On-chain",
+	Usage:    "Send bitcoin on-chain to multiple addresses.",
+	ArgsUsage: "send-json-string [--conf_target=N] [--sat_per_vbyte=P] " +
+		"[--sat_per_kw=R]",
 	Description: `
 	Create and broadcast a transaction paying the specified amount(s) to the passed address(es).
 
@@ -829,6 +837,13 @@ var sendManyCommand = cli.Command{
 				"the transaction",
 		},
 		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/kweight that should be used when " +
+				"crafting the transaction. As an example " +
+				"250 sat/kw equals 1 sat/vbyte",
+		},
+		cli.Uint64Flag{
 			Name: "min_confs",
 			Usage: "(optional) the minimum number of confirmations " +
 				"each one of your outputs used for the transaction " +
@@ -850,10 +865,9 @@ func sendMany(ctx *cli.Context) error {
 		return err
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
+	// Only sat_per_vbyte or sat_per_kw should be set, not both.
 	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+		ctx, "sat_per_vbyte", "sat_per_kw",
 	)
 	if err != nil {
 		return err
@@ -878,11 +892,12 @@ func sendMany(ctx *cli.Context) error {
 	txid, err := client.SendMany(ctxc, &lnrpc.SendManyRequest{
 		AddrToAmount:          amountToAddr,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
+		SatPerVbyte:           ctx.Uint64("sat_per_vbyte"),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
+		SatPerKw:              ctx.Uint64("sat_per_kw"),
 	})
 	if err != nil {
 		return err
@@ -1013,12 +1028,12 @@ var closeChannelCommand = cli.Command{
 	funds will be time locked for a few blocks before they can be spent.
 
 	In the case of a cooperative closure, one can manually set the fee to
-	be used for the closing transaction via either the --conf_target or
-	--sat_per_vbyte arguments. This will be the starting value used during
-	fee negotiation. This is optional. The parameter --max_fee_rate in
-	comparison is the end boundary of the fee negotiation, if not specified
-	it's always x3 of the starting value. Increasing this value increases
-	the chance of a successful negotiation.
+	be used for the closing transaction via either the --conf_target,
+	--sat_per_vbyte or --sat_per_kw arguments. This will be the
+	starting value used during fee negotiation. This is optional. The 
+	parameter --max_fee_rate in comparison is the end boundary of the fee 
+	negotiation, if not specified it's always x3 of the starting value.
+	Increasing this value increases the chance of a successful negotiation.
 	Moreover if the channel has active HTLCs on it, the coop close will
 	wait until all HTLCs are resolved and will not allow any new HTLCs on
 	the channel. The channel will appear as disabled in the listchannels
@@ -1080,6 +1095,13 @@ var closeChannelCommand = cli.Command{
 				"the transaction; default is a conf-target " +
 				"of 6 blocks",
 		},
+		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/kweight that should be used when " +
+				"crafting the transaction. As an example " +
+				"250 sat/kw equals 1 sat/vbyte",
+		},
 		cli.StringFlag{
 			Name: "delivery_addr",
 			Usage: "(optional) an address to deliver funds " +
@@ -1110,10 +1132,9 @@ func closeChannel(ctx *cli.Context) error {
 		return nil
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+	// Only sat_per_vbyte or sat_per_kw should be set, not both.
+	_, err := checkNotBothSet(
+		ctx, "sat_per_vbyte", "sat_per_kw",
 	)
 	if err != nil {
 		return err
@@ -1129,7 +1150,8 @@ func closeChannel(ctx *cli.Context) error {
 		ChannelPoint:    channelPoint,
 		Force:           ctx.Bool("force"),
 		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag),
+		SatPerVbyte:     ctx.Uint64("sat_per_vbyte"),
+		SatPerKw:        ctx.Uint64("sat_per_kw"),
 		DeliveryAddress: ctx.String("delivery_addr"),
 		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
 		// This makes sure that a coop close will also be executed if
@@ -1253,9 +1275,9 @@ var closeAllChannelsCommand = cli.Command{
 	inactive channels and proceed to close them.
 
 	In the case of cooperative closures, one can manually set the fee to
-	be used for the closing transactions via either the --conf_target or
-	--sat_per_vbyte arguments. This will be the starting value used during
-	fee negotiation. This is optional.`,
+	be used for the closing transactions via either the --conf_target,
+	--sat_per_vbyte or --sat_per_kw arguments. This will be the
+	starting value used during fee negotiation. This is optional.`,
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "inactive_only",
@@ -1283,6 +1305,13 @@ var closeAllChannelsCommand = cli.Command{
 				"sat/vbyte that should be used when crafting " +
 				"the closing transactions",
 		},
+		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/kweight that should be used when " +
+				"crafting the transaction. As an example " +
+				"250 sat/kw equals 1 sat/vbyte",
+		},
 		cli.BoolFlag{
 			Name: "s, skip_confirmation",
 			Usage: "Skip the confirmation prompt and close all " +
@@ -1297,10 +1326,9 @@ func closeAllChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+	// Only sat_per_vbyte or sat_per_kw should be set, not both.
+	_, err := checkNotBothSet(
+		ctx, "sat_per_vbyte", "sat_per_kw",
 	)
 	if err != nil {
 		return err
@@ -1439,7 +1467,8 @@ func closeAllChannels(ctx *cli.Context) error {
 				},
 				Force:       !channel.GetActive(),
 				TargetConf:  int32(ctx.Int64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
+				SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+				SatPerKw:    ctx.Uint64("sat_per_kw"),
 			}
 
 			txidChan := make(chan string, 1)

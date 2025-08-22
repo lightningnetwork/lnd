@@ -263,6 +263,9 @@ var bumpFeeCommand = cli.Command{
 	Child-Pays-For-Parent (CPFP), where the child transaction pays for its
 	parent's fee. This can be done by specifying an outpoint within the low
 	fee transaction that is under the control of the wallet.
+
+	A fee preference must be provided, either through the conf_target,
+	sat_per_vbyte or sat_per_kw parameters.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
@@ -289,8 +292,17 @@ var bumpFeeCommand = cli.Command{
 	The starting fee rate, expressed in sat/vbyte, that will be used to
 	spend the input with initially. This value will be used by the
 	sweeper's fee function as its starting fee rate. When not set, the
-	sweeper will use the estimated fee rate using the target_conf as the
-	starting fee rate.`,
+	sweeper will use the sat_per_kw or estimated fee rate using the
+	target_conf as the starting fee rate.`,
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_kw",
+			Usage: `
+	The starting fee rate, expressed in sat/kweight, that will be used to
+	spend the input with initially. This value will be used by the
+	sweeper's fee function as its starting fee rate. When not set, the
+	sweeper will use the sat_per_vb or estimated fee rate using the
+	target_conf as the starting fee rate.`,
 		},
 		cli.BoolFlag{
 			Name: "immediate",
@@ -329,6 +341,14 @@ func bumpFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
+	// Only sat_per_vbyte or sat_per_kw should be set, not both.
+	_, err := checkNotBothSet(
+		ctx, "sat_per_vbyte", "sat_per_kw",
+	)
+	if err != nil {
+		return err
+	}
+
 	// Validate and parse the relevant arguments/flags.
 	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
 	if err != nil {
@@ -359,6 +379,7 @@ func bumpFee(ctx *cli.Context) error {
 		Budget:        ctx.Uint64("budget"),
 		SatPerVbyte:   ctx.Uint64("sat_per_vbyte"),
 		DeadlineDelta: uint32(ctx.Uint64("deadline_delta")),
+		SatPerKw:      ctx.Uint64("sat_per_kw"),
 	})
 	if err != nil {
 		return err

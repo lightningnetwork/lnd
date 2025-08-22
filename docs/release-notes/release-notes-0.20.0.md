@@ -174,6 +174,10 @@ reader of a payment request.
 - [Refactored](https://github.com/lightningnetwork/lnd/pull/10018) `channelLink`
   to improve readability and maintainability of the code.
 
+- Remove unnecessary
+  [disconnect](https://github.com/lightningnetwork/lnd/pull/10031) and properly
+  wait for goroutine to finish when shutting down.
+
 ## Breaking Changes
 ## Performance Improvements
 

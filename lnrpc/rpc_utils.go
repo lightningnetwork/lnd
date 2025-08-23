@@ -231,25 +231,26 @@ func GetChannelOutPoint(chanPoint *ChannelPoint) (*OutPoint, error) {
 // request to calculate the fee rate. It provides compatibility for the
 // deprecated field, satPerByte. Once the field is safe to be removed, the
 // check can then be deleted.
-func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
+func CalculateFeeRate(satPerKWeight, satPerVByte uint64, targetConf uint32,
 	estimator chainfee.Estimator) (chainfee.SatPerKWeight, error) {
 
 	var feeRate chainfee.SatPerKWeight
 
-	// We only allow using either the deprecated field or the new field.
-	if satPerByte != 0 && satPerVByte != 0 {
-		return feeRate, fmt.Errorf("either SatPerByte or " +
+	// We only allow using either the satPerVByte field or the satPerKWeight
+	// field.
+	if satPerVByte != 0 && satPerKWeight != 0 {
+		// If more than one of the fields is set, we return an error.
+		return feeRate, fmt.Errorf("either SatPerKWeight or " +
 			"SatPerVByte should be set, but not both")
+
 	}
 
-	// Default to satPerVByte, and overwrite it if satPerByte is set.
+	// Default to satPerVByte, and overwrite it if satPerKWeight is set.
 	satPerKw := chainfee.SatPerKVByte(satPerVByte * 1000).FeePerKWeight()
-	if satPerByte != 0 {
-		satPerKw = chainfee.SatPerKVByte(
-			satPerByte * 1000,
-		).FeePerKWeight()
-	}
 
+	if satPerKWeight != 0 {
+		satPerKw = chainfee.SatPerKWeight(satPerKWeight)
+	}
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
 	feePref := sweep.FeeEstimateInfo{
@@ -260,6 +261,12 @@ func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 	feeRate, err := feePref.Estimate(estimator, 0)
 	if err != nil {
 		return feeRate, err
+	}
+
+	// A security measure to prevent very high fees, especially
+	// when the fee is specified via satPerKWeight.
+	if feeRate > sweep.DefaultMaxFeeRate.FeePerKWeight() {
+		feeRate = sweep.DefaultMaxFeeRate.FeePerKWeight()
 	}
 
 	return feeRate, nil

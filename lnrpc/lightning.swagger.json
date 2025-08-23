@@ -882,6 +882,14 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "sat_per_kw",
+            "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction.\n//\nNOTE: This field is only respected if we're the initiator of the channel.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [
@@ -3682,6 +3690,11 @@
         "coin_selection_strategy": {
           "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
           "description": "The strategy to use for selecting coins during batch opening channels."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
         }
       }
     },
@@ -4963,6 +4976,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate in satoshi/vbyte."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fee rate in satoshi/kweight."
         }
       }
     },
@@ -6600,6 +6618,11 @@
             "$ref": "#/definitions/lnrpcOutPoint"
           },
           "description": "A list of selected outpoints that are allocated for channel funding."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\nfunding transaction."
         }
       }
     },
@@ -7487,6 +7510,11 @@
             "$ref": "#/definitions/lnrpcOutPoint"
           },
           "description": "A list of selected outpoints as inputs for the transaction."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
         }
       }
     },
@@ -7570,6 +7598,11 @@
         "coin_selection_strategy": {
           "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
           "description": "The strategy to use for selecting coins during sending many requests."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "A manual fee rate set in sat/kweight that should be used when crafting the\ntransaction."
         }
       }
     },

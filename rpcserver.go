@@ -1292,6 +1292,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	resp := &lnrpc.EstimateFeeResponse{
 		FeeSat:      totalFee,
 		SatPerVbyte: uint64(feePerKw.FeePerVByte()),
+		SatPerKw:    int64(feePerKw.FeePerKVByte().FeePerKWeight()),
 
 		// Deprecated field.
 		FeerateSatPerByte: int64(feePerKw.FeePerVByte()),
@@ -1305,13 +1306,13 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 
 // maybeUseDefaultConf makes sure that when the user doesn't set either the fee
 // rate or conf target, the default conf target is used.
-func maybeUseDefaultConf(satPerByte int64, satPerVByte uint64,
+func maybeUseDefaultConf(satPerVbyte uint64, satPerKweight uint64,
 	targetConf uint32) uint32 {
 
 	// If the fee rate is set, there's no need to use the default conf
 	// target. In this case, we just return the targetConf from the
 	// request.
-	if satPerByte != 0 || satPerVByte != 0 {
+	if satPerVbyte != 0 || satPerKweight != 0 {
 		return targetConf
 	}
 
@@ -1322,8 +1323,8 @@ func maybeUseDefaultConf(satPerByte int64, satPerVByte uint64,
 
 	// If the fee rate is not set, yet the conf target is zero, the default
 	// 6 will be returned.
-	rpcsLog.Warnf("Expected either 'sat_per_vbyte' or 'conf_target' to " +
-		"be set, using default conf of 6 instead")
+	rpcsLog.Warnf("Expected either 'sat_per_vbyte' or 'sat_per_kw' " +
+		"or 'conf_target' to be set, using default conf of 6 instead")
 
 	return defaultNumBlocksEstimate
 }
@@ -1336,13 +1337,13 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
 	// fee rate or conf target, the default conf target of 6 is used.
 	targetConf := maybeUseDefaultConf(
-		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+		in.SatPerVbyte, in.SatPerKw, uint32(in.TargetConf),
 	)
 
 	// Calculate an appropriate fee rate for this transaction.
 	feePerKw, err := lnrpc.CalculateFeeRate(
-		uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-		targetConf, r.server.cc.FeeEstimator,
+		in.SatPerKw, in.SatPerVbyte, targetConf,
+		r.server.cc.FeeEstimator,
 	)
 	if err != nil {
 		return nil, err
@@ -1579,13 +1580,13 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	// Keep the old behavior prior to 0.18.0 - when the user doesn't set
 	// fee rate or conf target, the default conf target of 6 is used.
 	targetConf := maybeUseDefaultConf(
-		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+		in.SatPerVbyte, in.SatPerKw, uint32(in.TargetConf),
 	)
 
 	// Calculate an appropriate fee rate for this transaction.
 	feePerKw, err := lnrpc.CalculateFeeRate(
-		uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-		targetConf, r.server.cc.FeeEstimator,
+		in.SatPerKw, in.SatPerVbyte, targetConf,
+		r.server.cc.FeeEstimator,
 	)
 	if err != nil {
 		return nil, err
@@ -2250,13 +2251,13 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// NOTE: We also need to do the fee rate calculation for the psbt
 	// funding flow because the `batchfund` depends on it.
 	targetConf := maybeUseDefaultConf(
-		in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+		in.SatPerVbyte, in.SatPerKw, uint32(in.TargetConf),
 	)
 
 	// Calculate an appropriate fee rate for this transaction.
 	feeRate, err := lnrpc.CalculateFeeRate(
-		uint64(in.SatPerByte), in.SatPerVbyte,
-		targetConf, r.server.cc.FeeEstimator,
+		in.SatPerKw, in.SatPerVbyte, targetConf,
+		r.server.cc.FeeEstimator,
 	)
 	if err != nil {
 		return nil, err
@@ -2693,8 +2694,8 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 	// If force closing a channel, the fee set in the commitment transaction
 	// is used.
-	if in.Force && (in.SatPerByte != 0 || in.SatPerVbyte != 0 || // nolint:staticcheck
-		in.TargetConf != 0) {
+	if in.Force && (in.SatPerVbyte != 0 || in.TargetConf != 0 ||
+		in.SatPerKw != 0) {
 
 		return fmt.Errorf("force closing a channel uses a pre-defined fee")
 	}
@@ -2863,15 +2864,15 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// doesn't set fee rate or conf target, the default conf target
 		// of 6 is used.
 		targetConf := maybeUseDefaultConf(
-			in.SatPerByte, in.SatPerVbyte, uint32(in.TargetConf),
+			in.SatPerVbyte, in.SatPerKw, uint32(in.TargetConf),
 		)
 
 		// Based on the passed fee related parameters, we'll determine
 		// an appropriate fee rate for the cooperative closure
 		// transaction.
 		feeRate, err := lnrpc.CalculateFeeRate(
-			uint64(in.SatPerByte), in.SatPerVbyte, // nolint:staticcheck
-			targetConf, r.server.cc.FeeEstimator,
+			in.SatPerKw, in.SatPerVbyte, targetConf,
+			r.server.cc.FeeEstimator,
 		)
 		if err != nil {
 			return err

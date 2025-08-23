@@ -77,6 +77,11 @@ type ControlTower interface {
 	// update with the current state of every inflight payment is always
 	// sent out immediately.
 	SubscribeAllPayments() (ControlTowerSubscriber, error)
+
+	// DeleteFailedPayments deletes all failed payments from the db. We call
+	// this method on startup to clean up the db of any failed payments if
+	// the user has set the GcFailedPaymentsOnStartup flag.
+	DeleteFailedPayments() error
 }
 
 // ControlTowerSubscriber contains the state for a payment update subscriber.
@@ -442,4 +447,14 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 			p.subscribersMtx.Unlock()
 		}
 	}
+}
+
+// DeleteFailedPayments deletes all failed payments from the db. We explicitly
+// set failedOnly to true to delete the payment and all its attempts.
+func (p *controlTower) DeleteFailedPayments() error {
+	const failedOnly = true
+	const failedHtlcsOnly = false
+	_, err := p.db.DeletePayments(failedOnly, failedHtlcsOnly)
+
+	return err
 }

@@ -1039,3 +1039,120 @@ func testFundingManagerFundingTimeout(ht *lntest.HarnessTest) {
 	// Cleanup the mempool by mining blocks.
 	ht.MineBlocksAndAssertNumTxes(6, 1)
 }
+
+// testOpenChannelWithShutdownAddr verifies that if the funder or fundee
+// specifies an upfront shutdown address in `lnd.conf`, the funds are correctly
+// transferred to the specified address during channel closure.
+func testOpenChannelWithShutdownAddr(ht *lntest.HarnessTest) {
+	const (
+		channelAmount int64 = 100000 // Channel funding amount in sat.
+		paymentAmount int64 = 50000  // Payment amount in sat.
+	)
+
+	// Create nodes for testing, ensuring Alice has sufficient initial
+	// funds.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	// Generate upfront shutdown addresses for both nodes.
+	aliceShutdownAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+	})
+	bobShutdownAddr := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+	})
+
+	// Update nodes with upfront shutdown addresses and restart them.
+	aliceNodeArgs := []string{
+		fmt.Sprintf("--upfront-shutdown-address=%s",
+			aliceShutdownAddr.Address),
+	}
+	ht.RestartNodeWithExtraArgs(alice, aliceNodeArgs)
+
+	bobNodeArgs := []string{
+		fmt.Sprintf("--upfront-shutdown-address=%s",
+			bobShutdownAddr.Address),
+	}
+	ht.RestartNodeWithExtraArgs(bob, bobNodeArgs)
+
+	// Connect Alice and Bob.
+	ht.ConnectNodes(alice, bob)
+
+	// Open a channel between Alice and Bob.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt: btcutil.Amount(channelAmount),
+	}
+	channelPoint := ht.OpenChannel(alice, bob, openChannelParams)
+
+	// Create an invoice for Bob and send payment from Alice.
+	preimage := ht.Random32Bytes()
+	invoice := &lnrpc.Invoice{
+		RPreimage: preimage,
+		Value:     paymentAmount,
+	}
+	invoiceResp := bob.RPC.AddInvoice(invoice)
+
+	paymentRequests := []string{invoiceResp.PaymentRequest}
+	ht.CompletePaymentRequests(alice, paymentRequests)
+
+	// Make sure Bob has settled the invoice.
+	ht.AssertInvoiceSettled(bob, invoiceResp.PaymentAddr)
+
+	// Close the channel and verify closure.
+	closeParams := lnrpc.CloseChannelRequest{
+		ChannelPoint: channelPoint,
+		TargetConf:   6,
+	}
+	closeClient := alice.RPC.CloseChannel(&closeParams)
+	_, err := closeClient.Recv()
+	require.NoError(ht, err)
+
+	// Mine the closing transaction.
+	closingTx := ht.MineClosingTx(channelPoint)
+
+	// Assert that we got a channel update when the closing tx was mined.
+	_, err = closeClient.Recv()
+	require.NoError(ht, err)
+
+	// Calculate Alice's updated balance.
+	aliceFee := ht.CalculateTxFee(closingTx)
+	aliceExpectedBalance := channelAmount - paymentAmount - int64(aliceFee)
+
+	// Ensure Alice sees the change output in the list of unspent outputs.
+	// We expect 6 confirmed UTXOs, as 5 UTXOs of 1 BTC each were sent to
+	// the node during NewNodeWithCoins.
+	aliceUTXOConfirmed := ht.AssertNumUTXOsConfirmed(alice, 6)[0]
+	require.Equal(ht, aliceShutdownAddr.Address, aliceUTXOConfirmed.Address)
+	require.Equal(ht, aliceExpectedBalance, aliceUTXOConfirmed.AmountSat)
+
+	// Ensure Bob see the change output in the list of unspent outputs.
+	bobUTXOConfirmed := ht.AssertNumUTXOsConfirmed(bob, 1)[0]
+	require.Equal(ht, bobShutdownAddr.Address, bobUTXOConfirmed.Address)
+	require.Equal(ht, paymentAmount, bobUTXOConfirmed.AmountSat)
+
+	// Ensure the upfront shutdown address is set and the balance is
+	// settled.
+	checkSettledBalance := func(node *node.HarnessNode) error {
+		closedChannels := node.RPC.ClosedChannels(
+			&lnrpc.ClosedChannelsRequest{
+				Cooperative: true,
+			})
+
+		if len(closedChannels.Channels) == 0 {
+			return fmt.Errorf("no closed channels found")
+		}
+		if closedChannels.Channels[0].SettledBalance == 0 {
+			return fmt.Errorf("expected settled balance" +
+				"to be non-zero")
+		}
+
+		return nil
+	}
+
+	require.NoError(ht, wait.NoError(func() error {
+		return checkSettledBalance(alice)
+	}, defaultTimeout))
+	require.NoError(ht, wait.NoError(func() error {
+		return checkSettledBalance(bob)
+	}, defaultTimeout))
+}

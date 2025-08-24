@@ -147,7 +147,7 @@ func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
 	t.Helper()
 
 	// Create the run context.
-	ctxt, cancel := context.WithCancel(context.Background())
+	ctxt, cancel := context.WithCancel(t.Context())
 
 	manager := newNodeManager(lndBinary, dbBackend, nativeSQL)
 
@@ -435,9 +435,9 @@ func (h *HarnessTest) shutdownNodesNoAssert() {
 
 // shutdownAllNodes will shutdown all running nodes.
 func (h *HarnessTest) shutdownAllNodes() {
-	var err error
+	var lastErr error
 	for _, node := range h.manager.activeNodes {
-		err = h.manager.shutdownNode(node)
+		err := h.manager.shutdownNode(node)
 		if err == nil {
 			continue
 		}
@@ -446,9 +446,11 @@ func (h *HarnessTest) shutdownAllNodes() {
 		// is needed so other nodes can continue their shutdown
 		// processes.
 		h.Logf("unable to shutdown %s, got err: %v", node.Name(), err)
+
+		lastErr = err
 	}
 
-	require.NoError(h, err, "failed to shutdown all nodes")
+	require.NoError(h, lastErr, "failed to shutdown all nodes")
 }
 
 // cleanupStandbyNode is a function should be called with defer whenever a

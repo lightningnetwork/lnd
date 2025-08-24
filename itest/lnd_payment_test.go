@@ -1081,7 +1081,7 @@ func sendPaymentInterceptAndCancel(ht *lntest.HarnessTest,
 
 	// We initiate a payment from Alice and define the payment context
 	// cancellable.
-	ctx, cancelPaymentContext := context.WithCancel(context.Background())
+	ctx, cancelPaymentContext := context.WithCancel(ht.Context())
 	var paymentStream rpc.PaymentClient
 	go func() {
 		req := &routerrpc.SendPaymentRequest{

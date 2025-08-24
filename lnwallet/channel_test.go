@@ -3836,7 +3836,7 @@ func TestQuitDuringSignNextCommitment(t *testing.T) {
 	)
 
 	quitDelay := time.Millisecond * 20
-	quit, quitFunc := context.WithCancel(context.Background())
+	quit, quitFunc := context.WithCancel(t.Context())
 
 	// Alice's channel will be stuck waiting for aux sig job responses until
 	// we send the quit signal. We add an explicit sleep here so that we can

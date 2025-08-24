@@ -173,7 +173,7 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// With the HTLC added, we'll now manually initiate a state transition
 	// from Alice to Bob.
-	testQuit, testQuitFunc := context.WithCancel(context.Background())
+	testQuit, testQuitFunc := context.WithCancel(t.Context())
 	t.Cleanup(testQuitFunc)
 	_, err = aliceChannel.SignNextCommitment(testQuit)
 	require.NoError(t, err)

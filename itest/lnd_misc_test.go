@@ -1400,7 +1400,7 @@ func testGRPCNotFound(ht *lntest.HarnessTest) {
 // during a reorg. A reorg notification is produced after a reorg affects the
 // block which has produced a spending notification for this registration.
 func testReorgNotifications(ht *lntest.HarnessTest) {
-	ctxb := context.Background()
+	ctxb := ht.Context()
 	const timeout = wait.DefaultTimeout
 
 	alice := ht.NewNodeWithCoins("Alice", nil)
@@ -1599,7 +1599,7 @@ func testReorgNotifications(ht *lntest.HarnessTest) {
 func testEstimateFee(ht *lntest.HarnessTest) {
 	alice := ht.NewNode("Alice", nil)
 
-	ctx := context.Background()
+	ctx := ht.Context()
 
 	testCases := []struct {
 		name        string

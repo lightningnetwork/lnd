@@ -5,7 +5,6 @@ package graphdb
 import (
 	"bytes"
 	"cmp"
-	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -58,7 +57,7 @@ var (
 // and expected to have the exact same data in them.
 func TestMigrateGraphToSQL(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dbFixture := NewTestDBFixture(t)
 
@@ -393,7 +392,7 @@ func assertInSync(t *testing.T, kvDB *KVStore, sqlDB *SQLStore,
 func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 	nodes := make([]*models.LightningNode, 0)
 
-	err := store.ForEachNode(context.Background(),
+	err := store.ForEachNode(t.Context(),
 		func(node *models.LightningNode) error {
 
 			// Call PubKey to ensure the objects cached pubkey is set so that
@@ -423,7 +422,7 @@ func fetchAllNodes(t *testing.T, store V1Store) []*models.LightningNode {
 
 // fetchSourceNode retrieves the source node from the given store.
 func fetchSourceNode(t *testing.T, store V1Store) *models.LightningNode {
-	node, err := store.SourceNode(context.Background())
+	node, err := store.SourceNode(t.Context())
 	if errors.Is(err, ErrSourceNodeNotSet) {
 		return nil
 	} else {
@@ -461,7 +460,7 @@ func (c chanSet) CountPolicies() int {
 // fetchAllChannelsAndPolicies retrieves all channels and their policies
 // from the given store and returns them sorted by their channel ID.
 func fetchAllChannelsAndPolicies(t *testing.T, store V1Store) chanSet {
-	ctx := context.Background()
+	ctx := t.Context()
 	channels := make(chanSet, 0)
 	err := store.ForEachChannel(ctx, func(info *models.ChannelEdgeInfo,
 		p1 *models.ChannelEdgePolicy,
@@ -506,7 +505,7 @@ func checkKVPruneLogEntries(t *testing.T, kv *KVStore, sql *SQLStore,
 	err := forEachPruneLogEntry(
 		kv.db, func(height uint32, hash *chainhash.Hash) error {
 			sqlHash, err := sql.db.GetPruneHashByHeight(
-				context.Background(), int64(height),
+				t.Context(), int64(height),
 			)
 			require.NoError(t, err)
 			require.Equal(t, hash[:], sqlHash)
@@ -736,7 +735,7 @@ func makeTestPolicy(chanID uint64, toNode route.Vertex, isNode1 bool,
 // and set the "fileName" variable to the name of the channel database file you
 // want to use for the migration test.
 func TestMigrationWithChannelDB(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// NOTE: comment this line out to run the test.
 	t.Skipf("skipping test meant for local debugging only")
@@ -855,7 +854,7 @@ func TestMigrationWithChannelDB(t *testing.T) {
 // will differ slightly.
 func TestSQLMigrationEdgeCases(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var invalidTLVData = []byte{0x01, 0x02, 0x03}
 
@@ -1115,7 +1114,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 func runTestMigration(t *testing.T, populateKV func(t *testing.T, db *KVStore),
 	expState dbState) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Set up our source kvdb DB.
 	kvDB := setUpKVStore(t)
@@ -1208,7 +1207,7 @@ func TestMigrateGraphToSQLRapid(t *testing.T) {
 func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 	dbFixture *sqldb.TestPgFixture, maxNumNodes, maxNumChannels int) {
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Set up our source kvdb DB.
 	kvDB := setUpKVStore(t)

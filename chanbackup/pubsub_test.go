@@ -81,7 +81,7 @@ func (m *mockChannelNotifier) SubscribeChans(_ context.Context,
 // channel subscription, then the entire sub-swapper will fail to start.
 func TestNewSubSwapperSubscribeFail(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	keyRing := &lnencrypt.MockKeyRing{}
 
@@ -159,7 +159,7 @@ func TestSubSwapperIdempotentStartStop(t *testing.T) {
 
 	swapper := newMockSwapper(keyRing)
 	subSwapper, err := NewSubSwapper(
-		context.Background(), nil, &chanNotifier, keyRing, swapper,
+		t.Context(), nil, &chanNotifier, keyRing, swapper,
 	)
 	require.NoError(t, err, "unable to init subSwapper")
 
@@ -226,8 +226,7 @@ func TestSubSwapperUpdater(t *testing.T) {
 	// With our channel set created, we'll make a fresh sub swapper
 	// instance to begin our test.
 	subSwapper, err := NewSubSwapper(
-		context.Background(), initialChanSet, chanNotifier, keyRing,
-		swapper,
+		t.Context(), initialChanSet, chanNotifier, keyRing, swapper,
 	)
 	require.NoError(t, err, "unable to make swapper")
 	if err := subSwapper.Start(); err != nil {

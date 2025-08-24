@@ -15,7 +15,7 @@ import (
 // backlog at a time using the atomic flag.
 func TestGossipSyncerSingleBacklogSend(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Track how many goroutines are actively sending.
 	var (

@@ -46,7 +46,7 @@ func TestEtcdElector(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	const (
@@ -70,7 +70,7 @@ func TestEtcdElector(t *testing.T) {
 	ch := make(chan *etcdLeaderElector)
 
 	wg.Add(2)
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	go func() {
 		defer wg.Done()

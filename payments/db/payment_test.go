@@ -1,7 +1,6 @@
 package paymentsdb
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -304,7 +303,7 @@ func assertDBPayments(t *testing.T, paymentDB DB, payments []*payment) {
 	t.Helper()
 
 	response, err := paymentDB.QueryPayments(
-		context.Background(), Query{
+		t.Context(), Query{
 			IndexOffset:       0,
 			MaxPayments:       uint64(len(payments)),
 			IncludeIncomplete: true,

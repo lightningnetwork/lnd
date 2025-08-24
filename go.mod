@@ -54,7 +54,6 @@ require (
 	golang.org/x/crypto v0.37.0
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8
 	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
-	golang.org/x/net v0.39.0
 	golang.org/x/sync v0.13.0
 	golang.org/x/term v0.31.0
 	golang.org/x/time v0.3.0
@@ -182,6 +181,7 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
@@ -220,6 +220,6 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as
 // well).
-go 1.23.12
+go 1.24.6
 
 retract v0.0.2

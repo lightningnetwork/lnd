@@ -2,6 +2,7 @@ package fn
 
 import (
 	"os"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,11 @@ var (
 // TestWriteFile uses same scenario of ioutil asserting the content created and
 // stored on new file with the original one.
 func TestWriteFile(t *testing.T) {
+	// Root can bypass read-only file mode.
+	if syscall.Geteuid() == 0 {
+		t.Skip("Skipping WriteFile test because running as root.")
+	}
+
 	t.Parallel()
 
 	f, deferred := ensureTempfile(t)
@@ -45,6 +51,11 @@ func TestWriteFile(t *testing.T) {
 }
 
 func TestWriteFileRemove(t *testing.T) {
+	// Root can bypass read-only file mode.
+	if syscall.Geteuid() == 0 {
+		t.Skip("Skipping WriteFileRemove test because running as root.")
+	}
+
 	t.Parallel()
 
 	f, deferred := ensureTempfile(t)

@@ -161,7 +161,7 @@ func TestGenSeed(t *testing.T) {
 		SeedEntropy:      testEntropy[:],
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	seedResp, err := service.GenSeed(ctx, genSeedReq)
 	require.NoError(t, err)
 
@@ -193,7 +193,7 @@ func TestGenSeedGenerateEntropy(t *testing.T) {
 		AezeedPassphrase: aezeedPass,
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	seedResp, err := service.GenSeed(ctx, genSeedReq)
 	require.NoError(t, err)
 
@@ -228,7 +228,7 @@ func TestGenSeedInvalidEntropy(t *testing.T) {
 	}
 
 	// We should get an error now since the entropy source was invalid.
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := service.GenSeed(ctx, genSeedReq)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "incorrect entropy length")
@@ -256,7 +256,7 @@ func TestInitWallet(t *testing.T) {
 	// command to the wallet. This should check the validity of the cipher
 	// seed, then send over the initialization information over the init
 	// channel.
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &lnrpc.InitWalletRequest{
 		WalletPassword:     testPassword,
 		CipherSeedMnemonic: mnemonic[:],
@@ -339,7 +339,7 @@ func TestCreateWalletInvalidEntropy(t *testing.T) {
 		AezeedPassphrase:   []byte("fake pass"),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := service.InitWallet(ctx, req)
 	require.Error(t, err)
 }
@@ -359,7 +359,7 @@ func TestUnlockWallet(t *testing.T) {
 		testNetParams, nil, true, testLoaderOpts(testDir),
 	)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	req := &lnrpc.UnlockWalletRequest{
 		WalletPassword: testPassword,
 		RecoveryWindow: int32(testRecoveryWindow),
@@ -448,7 +448,7 @@ func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 	)
 	service.SetMacaroonDB(store.Backend)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	newPassword := []byte("hunter2???")
 
 	req := &lnrpc.ChangePasswordRequest{
@@ -590,7 +590,7 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 		NewPassword:        testPassword,
 		NewMacaroonRootKey: true,
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err = service.ChangePassword(ctx, badReq)
 	require.Error(t, err)
 

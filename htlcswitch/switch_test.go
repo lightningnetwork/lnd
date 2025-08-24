@@ -1,7 +1,6 @@
 package htlcswitch
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -1087,11 +1086,11 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 	// Now we will restart bob, leaving the forwarding decision for this
 	// htlc is in the half-added state.
 	if err := s.Stop(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	if err := cdb.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb2 := channeldb.OpenForTesting(t, tempPath)
@@ -1139,7 +1138,7 @@ func TestSwitchForwardFailAfterFullAdd(t *testing.T) {
 
 	// Send the fail packet from the remote peer through the switch.
 	if err := s2.ForwardPackets(nil, fail); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	// Pull packet from alice's link, as it should have gone through
@@ -1273,11 +1272,11 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 	// Now we will restart bob, leaving the forwarding decision for this
 	// htlc is in the half-added state.
 	if err := s.Stop(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	if err := cdb.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb2 := channeldb.OpenForTesting(t, tempPath)
@@ -1327,7 +1326,7 @@ func TestSwitchForwardSettleAfterFullAdd(t *testing.T) {
 
 	// Send the settle packet from the remote peer through the switch.
 	if err := s2.ForwardPackets(nil, settle); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	// Pull packet from alice's link, as it should have gone through
@@ -1454,11 +1453,11 @@ func TestSwitchForwardDropAfterFullAdd(t *testing.T) {
 	// Now we will restart bob, leaving the forwarding decision for this
 	// htlc is in the half-added state.
 	if err := s.Stop(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	if err := cdb.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb2 := channeldb.OpenForTesting(t, tempPath)
@@ -1601,11 +1600,11 @@ func TestSwitchForwardFailAfterHalfAdd(t *testing.T) {
 	// Now we will restart bob, leaving the forwarding decision for this
 	// htlc is in the half-added state.
 	if err := s.Stop(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	if err := cdb.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb2 := channeldb.OpenForTesting(t, tempPath)
@@ -1753,11 +1752,11 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	}
 
 	if err := s.Stop(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	if err := cdb.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb2 := channeldb.OpenForTesting(t, tempPath)
@@ -1847,7 +1846,7 @@ func TestSwitchForwardCircuitPersistence(t *testing.T) {
 	}
 
 	if err := cdb2.Close(); err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 
 	cdb3 := channeldb.OpenForTesting(t, tempPath)
@@ -3547,7 +3546,7 @@ func (n *threeHopNetwork) sendThreeHopPayment(t *testing.T) (*lnwire.UpdateAddHT
 	}
 
 	err = n.carolServer.registry.AddInvoice(
-		context.Background(), *invoice, htlc.PaymentHash,
+		t.Context(), *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice in carol registry")
 
@@ -3869,7 +3868,7 @@ func (c *interceptableSwitchTestContext) createTestPacket() *htlcPacket {
 
 func (c *interceptableSwitchTestContext) finish() {
 	if err := c.s.Stop(); err != nil {
-		c.t.Fatalf(err.Error())
+		c.t.Fatal(err)
 	}
 }
 

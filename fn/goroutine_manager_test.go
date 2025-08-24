@@ -18,7 +18,7 @@ func TestGoroutineManager(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx      = context.Background()
+			ctx      = t.Context()
 			m        = NewGoroutineManager()
 			taskChan = make(chan struct{})
 		)
@@ -61,7 +61,7 @@ func TestGoroutineManager(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx      = context.Background()
+			ctx      = t.Context()
 			m        = NewGoroutineManager()
 			taskChan = make(chan struct{})
 		)
@@ -114,7 +114,7 @@ func TestGoroutineManager(t *testing.T) {
 		t.Parallel()
 
 		var (
-			ctx      = context.Background()
+			ctx      = t.Context()
 			m        = NewGoroutineManager()
 			stopChan = make(chan struct{})
 		)

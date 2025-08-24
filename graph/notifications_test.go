@@ -2,7 +2,6 @@ package graph
 
 import (
 	"bytes"
-	"context"
 	"encoding/hex"
 	"fmt"
 	"image/color"
@@ -422,7 +421,7 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 // a proper notification is sent of to all registered clients.
 func TestEdgeUpdateNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	ctx := createTestCtxSingleNode(t, 0)
 
@@ -611,7 +610,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 // attributes with new data.
 func TestNodeUpdateNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -795,7 +794,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 // when the client wishes to exit.
 func TestNotificationCancellation(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -879,7 +878,7 @@ func TestNotificationCancellation(t *testing.T) {
 // properly dispatched to all registered clients.
 func TestChannelCloseNotification(t *testing.T) {
 	t.Parallel()
-	ctxb := context.Background()
+	ctxb := t.Context()
 
 	const startingBlockHeight = 101
 	ctx := createTestCtxSingleNode(t, startingBlockHeight)
@@ -1067,7 +1066,7 @@ func createTestCtxSingleNode(t *testing.T,
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
-		graph.SetSourceNode(context.Background(), sourceNode),
+		graph.SetSourceNode(t.Context(), sourceNode),
 		"failed to set source node",
 	)
 
@@ -1083,7 +1082,7 @@ func createTestCtxSingleNode(t *testing.T,
 func (c *testCtx) RestartBuilder(t *testing.T) {
 	c.chainView.Reset()
 
-	selfNode, err := c.graph.SourceNode(context.Background())
+	selfNode, err := c.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 
 	// With the chainView reset, we'll now re-create the builder itself, and
@@ -1156,7 +1155,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
-	selfnode, err := graphInstance.graph.SourceNode(context.Background())
+	selfnode, err := graphInstance.graph.SourceNode(t.Context())
 	require.NoError(t, err)
 
 	graphBuilder, err := NewBuilder(&Config{

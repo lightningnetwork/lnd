@@ -1,7 +1,6 @@
 package macaroons
 
 import (
-	"context"
 	"testing"
 
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -17,7 +16,7 @@ func FuzzUnmarshalMacaroon(f *testing.F) {
 
 func FuzzAuthChecker(f *testing.F) {
 	rootKeyStore := bakery.NewMemRootKeyStore()
-	ctx := context.Background()
+	ctx := f.Context()
 
 	f.Fuzz(func(t *testing.T, location, entity, action, method string,
 		rootKey, id []byte) {

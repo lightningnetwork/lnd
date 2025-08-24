@@ -76,7 +76,7 @@ var chanGraphs = []struct {
 // empty graph, the NodeSores function always returns a score of 0.
 func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 	prefAttach := NewPrefAttachment()
 
 	// Create a random public key, which we will query to get a score for.
@@ -116,7 +116,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 // and the funds are appropriately allocated across each peer.
 func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 
@@ -203,7 +203,7 @@ func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 // allocate all funds to each vertex (up to the max channel size).
 func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 
@@ -316,7 +316,7 @@ func TestPrefAttachmentSelectGreedyAllocation(t *testing.T) {
 // of zero during scoring.
 func TestPrefAttachmentSelectSkipNodes(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	prand.Seed(time.Now().Unix())
 

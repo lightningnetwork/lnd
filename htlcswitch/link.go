@@ -1801,7 +1801,7 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 	case *lnwire.Stfu:
 		err = l.handleStfu(msg)
 		if err != nil {
-			l.stfuFailf("handleStfu: %v", err.Error())
+			l.stfuFailf("handleStfu: %v", err)
 		}
 
 	// In the case where we receive a warning message from our peer, just
@@ -3126,7 +3126,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 			if err != nil {
 				l.failf(LinkFailureError{
 					code: ErrInternalError,
-				}, err.Error()) //nolint
+				}, "%v", err)
 
 				return
 			}
@@ -3795,7 +3795,7 @@ func (l *channelLink) handleQuiescenceReq(req StfuReq) error {
 
 	err := l.quiescer.SendOwedStfu()
 	if err != nil {
-		l.stfuFailf("SendOwedStfu: %s", err.Error())
+		l.stfuFailf("SendOwedStfu: %v", err)
 		res := fn.Err[lntypes.ChannelParty](err)
 		req.Resolve(res)
 	}
@@ -3989,7 +3989,7 @@ func (l *channelLink) processRemoteUpdateAddHTLC(
 				FailureAction:    LinkFailureDisconnect,
 				PermanentFailure: false,
 				Warning:          true,
-			}, err.Error(),
+			}, "%v", err,
 		)
 
 		return err
@@ -4004,7 +4004,7 @@ func (l *channelLink) processRemoteUpdateAddHTLC(
 		err := errors.New("blinding point included when route " +
 			"blinding is disabled")
 
-		l.failf(LinkFailureError{code: ErrInvalidUpdate}, err.Error())
+		l.failf(LinkFailureError{code: ErrInvalidUpdate}, "%v", err)
 
 		return err
 	}
@@ -4015,7 +4015,7 @@ func (l *channelLink) processRemoteUpdateAddHTLC(
 	if l.isOverexposedWithHtlc(msg, true) {
 		err := errors.New("peer sent us an HTLC that exceeded our " +
 			"max fee exposure")
-		l.failf(LinkFailureError{code: ErrInternalError}, err.Error())
+		l.failf(LinkFailureError{code: ErrInternalError}, "%v", err)
 
 		return err
 	}
@@ -4059,7 +4059,7 @@ func (l *channelLink) processRemoteUpdateFulfillHTLC(
 
 	if !lockedin {
 		err := errors.New("unable to handle upstream settle")
-		l.failf(LinkFailureError{code: ErrInvalidUpdate}, err.Error())
+		l.failf(LinkFailureError{code: ErrInvalidUpdate}, "%v", err)
 
 		return err
 	}
@@ -4367,7 +4367,7 @@ func (l *channelLink) processRemoteCommitSig(ctx context.Context,
 	if l.noDanglingUpdates(lntypes.Local) {
 		err = l.quiescer.SendOwedStfu()
 		if err != nil {
-			l.stfuFailf("sendOwedStfu: %v", err.Error())
+			l.stfuFailf("sendOwedStfu: %v", err)
 		}
 	}
 

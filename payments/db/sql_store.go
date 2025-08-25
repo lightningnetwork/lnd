@@ -51,6 +51,8 @@ type SQLQueries interface {
 	InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, customRecord sqlc.InsertHtlAttemptFirstHopCustomRecordParams) error
 	InsertHop(ctx context.Context, hop sqlc.InsertHopParams) (int64, error)
 	InsertHopCustomRecord(ctx context.Context, customRecord sqlc.InsertHopCustomRecordParams) error
+
+	UpdateHtlcAttemptSettleInfo(ctx context.Context, settleInfo sqlc.UpdateHtlcAttemptSettleInfoParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -1110,7 +1112,72 @@ func (s *SQLStore) extractBlindedPathTotalAmt(hop *route.Hop) sql.NullInt64 {
 func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
 
-	return nil, nil
+	var (
+		ctx        = context.Background()
+		mppPayment *MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrPaymentNotInitiated
+			}
+
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		if err := payment.Status.updatable(); err != nil {
+			return fmt.Errorf("payment is not updatable: %w", err)
+		}
+
+		// Update the HTLC attempt with settlement information.
+		_, err = db.UpdateHtlcAttemptSettleInfo(ctx,
+			sqlc.UpdateHtlcAttemptSettleInfoParams{
+				AttemptIndex:   int64(attemptID),
+				SettlePreimage: settleInfo.Preimage[:],
+				SettleTime: sql.NullTime{
+					Time:  settleInfo.SettleTime.UTC(),
+					Valid: true,
+				},
+			})
+		if err != nil {
+			return fmt.Errorf("unable to update htlc attempt "+
+				"settle info: %w", err)
+		}
+
+		// After updating the HTLC attempt, we need to fetch the
+		// updated payment again.
+		//
+		// NOTE: No need to fetch the main payment data again because
+		// nothing changed there.
+		payment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		mppPayment = payment
+
+		return nil
+	}, func() {
+		mppPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to settle attempt: %w", err)
+	}
+
+	return mppPayment, nil
 }
 
 // FailAttempt marks the given payment attempt failed.

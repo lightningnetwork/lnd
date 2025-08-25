@@ -795,3 +795,28 @@ func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (i
 	err := row.Scan(&id)
 	return id, err
 }
+
+const updateHtlcAttemptSettleInfo = `-- name: UpdateHtlcAttemptSettleInfo :one
+/* ─────────────────────────────────────────────
+   Update queries
+   ─────────────────────────────────────────────
+*/
+
+UPDATE payment_htlc_attempts
+SET settle_preimage = $1, settle_time = $2
+WHERE attempt_index = $3
+RETURNING id
+`
+
+type UpdateHtlcAttemptSettleInfoParams struct {
+	SettlePreimage []byte
+	SettleTime     sql.NullTime
+	AttemptIndex   int64
+}
+
+func (q *Queries) UpdateHtlcAttemptSettleInfo(ctx context.Context, arg UpdateHtlcAttemptSettleInfoParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, updateHtlcAttemptSettleInfo, arg.SettlePreimage, arg.SettleTime, arg.AttemptIndex)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}

@@ -712,3 +712,95 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 		PaymentPath: sphinxPath.NodeKeys(),
 	}, nil
 }
+
+// verifyAttempt validates that a new HTLC attempt is compatible with the
+// existing payment and its in-flight HTLCs. This function checks:
+//  1. MPP (Multi-Path Payment) compatibility between attempts
+//  2. Blinded payment consistency
+//  3. Amount validation
+//  4. Total payment amount limits
+func verifyAttempt(payment *MPPayment, attempt *HTLCAttemptInfo) error {
+	// If the final hop has encrypted data, then we know this is a
+	// blinded payment. In blinded payments, MPP records are not set
+	// for split payments and the recipient is responsible for using
+	// a consistent PathID across the various encrypted data
+	// payloads that we received from them for this payment. All we
+	// need to check is that the total amount field for each HTLC
+	// in the split payment is correct.
+	isBlinded := len(attempt.Route.FinalHop().EncryptedData) != 0
+
+	// Make sure any existing shards match the new one with regards
+	// to MPP options.
+	mpp := attempt.Route.FinalHop().MPP
+
+	// MPP records should not be set for attempts to blinded paths.
+	if isBlinded && mpp != nil {
+		return ErrMPPRecordInBlindedPayment
+	}
+
+	for _, h := range payment.InFlightHTLCs() {
+		hMpp := h.Route.FinalHop().MPP
+
+		// If this is a blinded payment, then no existing HTLCs
+		// should have MPP records.
+		if isBlinded && hMpp != nil {
+			return ErrMPPRecordInBlindedPayment
+		}
+
+		// If this is a blinded payment, then we just need to
+		// check that the TotalAmtMsat field for this shard
+		// is equal to that of any other shard in the same
+		// payment.
+		if isBlinded {
+			if attempt.Route.FinalHop().TotalAmtMsat !=
+				h.Route.FinalHop().TotalAmtMsat {
+
+				return ErrBlindedPaymentTotalAmountMismatch
+			}
+
+			continue
+		}
+
+		switch {
+		// We tried to register a non-MPP attempt for a MPP
+		// payment.
+		case mpp == nil && hMpp != nil:
+			return ErrMPPayment
+
+		// We tried to register a MPP shard for a non-MPP
+		// payment.
+		case mpp != nil && hMpp == nil:
+			return ErrNonMPPayment
+
+		// Non-MPP payment, nothing more to validate.
+		case mpp == nil:
+			continue
+		}
+
+		// Check that MPP options match.
+		if mpp.PaymentAddr() != hMpp.PaymentAddr() {
+			return ErrMPPPaymentAddrMismatch
+		}
+
+		if mpp.TotalMsat() != hMpp.TotalMsat() {
+			return ErrMPPTotalAmountMismatch
+		}
+	}
+
+	// If this is a non-MPP attempt, it must match the total amount
+	// exactly. Note that a blinded payment is considered an MPP
+	// attempt.
+	amt := attempt.Route.ReceiverAmt()
+	if !isBlinded && mpp == nil && amt != payment.Info.Value {
+		return ErrValueMismatch
+	}
+
+	// Ensure we aren't sending more than the total payment amount.
+	sentAmt, _ := payment.SentAmt()
+	if sentAmt+amt > payment.Info.Value {
+		return fmt.Errorf("%w: attempted=%v, payment amount=%v",
+			ErrValueExceedsAmt, sentAmt+amt, payment.Info.Value)
+	}
+
+	return nil
+}

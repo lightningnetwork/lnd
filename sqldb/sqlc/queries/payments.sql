@@ -208,3 +208,14 @@ INSERT INTO payment_route_hop_custom_records (
     @key,
     @value
 );
+
+/* ─────────────────────────────────────────────
+   Update queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: UpdateHtlcAttemptSettleInfo :one
+UPDATE payment_htlc_attempts
+SET settle_preimage = @settle_preimage, settle_time = @settle_time
+WHERE attempt_index = @attempt_index
+RETURNING id;

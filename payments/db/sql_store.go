@@ -28,6 +28,8 @@ type SQLQueries interface {
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.PaymentRouteHop, error)
 	FetchFirstHopCustomRecords(ctx context.Context, paymentID int64) ([]sqlc.PaymentFirstHopCustomRecord, error)
 	FetchCustomRecordsForHops(ctx context.Context, hopIDs []int64) ([]sqlc.PaymentRouteHopCustomRecord, error)
+
+	FetchPayment(ctx context.Context, paymentHash []byte) (sqlc.Payment, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -351,7 +353,37 @@ func extractHopIDs(hops []sqlc.PaymentRouteHop) []int64 {
 //
 // This is part of the DB interface.
 func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
-	return nil, nil
+	var (
+		ctx        = context.Background()
+		mppPayment *MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		mppPayment = payment
+
+		return nil
+	}, func() {
+		mppPayment = nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch payment: %w", err)
+	}
+
+	return mppPayment, nil
 }
 
 // FetchInFlightPayments fetches all payments which are INFLIGHT.

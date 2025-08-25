@@ -1354,5 +1354,12 @@ func (s *SQLStore) Fail(paymentHash lntypes.Hash,
 //
 // This is part of the DB interface.
 func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
+	if !s.keepFailedPaymentAttempts {
+		const failedAttemptsOnly = true
+		return s.DeletePayment(paymentHash, failedAttemptsOnly)
+	}
+
+	// If we are configured to keep failed payment attempts, we
+	// don't delete any data.
 	return nil
 }

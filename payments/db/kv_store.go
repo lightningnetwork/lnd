@@ -133,6 +133,9 @@ type KVStore struct {
 	keepFailedPaymentAttempts bool
 }
 
+// A compile-time constraint to ensure KVStore implements DB.
+var _ DB = (*KVStore)(nil)
+
 // NewKVStore creates a new KVStore for payments.
 func NewKVStore(db kvdb.Backend,
 	options ...OptionModifier) (*KVStore, error) {

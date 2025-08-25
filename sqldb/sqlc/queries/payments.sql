@@ -77,4 +77,16 @@ WHERE htlc_attempt_index IN (sqlc.slice('htlc_attempt_indices')/*SLICE:htlc_atte
 -- name: FetchPayments :many
 SELECT * FROM payments WHERE payment_hash IN (sqlc.slice('payment_hashes')/*SLICE:payment_hashes*/);
 
+/* ─────────────────────────────────────────────
+   Delete queries
+   ─────────────────────────────────────────────
+*/
+
+-- name: DeletePayment :exec
+DELETE FROM payments WHERE payment_hash = $1;
+
+-- name: DeleteFailedAttempts :exec
+-- TODO(ziggie): Is the htlc_fail_reason always set for a failed attempt?
+DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND htlc_fail_reason IS NOT NULL;
+
 

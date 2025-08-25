@@ -22,6 +22,49 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteFailedAttempts = `-- name: DeleteFailedAttempts :exec
+DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND htlc_fail_reason IS NOT NULL
+`
+
+// TODO(ziggie): Is the htlc_fail_reason always set for a failed attempt?
+func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
+	return err
+}
+
+const deleteFailedAttemptsByAttemptIndices = `-- name: DeleteFailedAttemptsByAttemptIndices :exec
+DELETE FROM payment_htlc_attempts WHERE attempt_index IN (/*SLICE:attempt_indices*/?)
+`
+
+func (q *Queries) DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error {
+	query := deleteFailedAttemptsByAttemptIndices
+	var queryParams []interface{}
+	if len(attemptIndices) > 0 {
+		for _, v := range attemptIndices {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:attempt_indices*/?", makeQueryParams(len(queryParams), len(attemptIndices)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:attempt_indices*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
+const deletePayment = `-- name: DeletePayment :exec
+/* ─────────────────────────────────────────────
+   Delete queries
+   ─────────────────────────────────────────────
+*/
+
+DELETE FROM payments WHERE payment_hash = $1
+`
+
+func (q *Queries) DeletePayment(ctx context.Context, paymentHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deletePayment, paymentHash)
+	return err
+}
+
 const fetchCustomRecordsForAttempts = `-- name: FetchCustomRecordsForAttempts :many
 SELECT id, key, value, htlc_attempt_index FROM payment_htlc_attempt_custom_records
 WHERE htlc_attempt_index IN (/*SLICE:htlc_attempt_indices*/?)

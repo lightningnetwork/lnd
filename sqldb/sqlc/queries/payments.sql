@@ -79,4 +79,7 @@ SELECT * FROM payment_first_hop_custom_records WHERE payment_id = $1;
 SELECT * FROM payment_htlc_attempt_custom_records
 WHERE htlc_attempt_index IN (sqlc.slice('htlc_attempt_indices')/*SLICE:htlc_attempt_indices*/);
 
+-- name: FetchPayments :many
+SELECT * FROM payments WHERE payment_hash IN (sqlc.slice('payment_hashes')/*SLICE:payment_hashes*/);
+
 

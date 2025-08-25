@@ -22,6 +22,52 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
+SELECT id, attempt_index, payment_id, session_key, attempt_time, payment_hash, first_hop_amount_msat, route_total_time_lock, route_total_amount, route_source_key, failure_source_index, htlc_fail_reason, failure_msg, fail_time, settle_preimage, settle_time FROM payment_htlc_attempts ha
+WHERE ha.settle_preimage IS NULL AND ha.htlc_fail_reason IS NULL
+`
+
+// Fetch all inflight attempts across all payments
+func (q *Queries) FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PaymentHtlcAttempt
+	for rows.Next() {
+		var i PaymentHtlcAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.AttemptIndex,
+			&i.PaymentID,
+			&i.SessionKey,
+			&i.AttemptTime,
+			&i.PaymentHash,
+			&i.FirstHopAmountMsat,
+			&i.RouteTotalTimeLock,
+			&i.RouteTotalAmount,
+			&i.RouteSourceKey,
+			&i.FailureSourceIndex,
+			&i.HtlcFailReason,
+			&i.FailureMsg,
+			&i.FailTime,
+			&i.SettlePreimage,
+			&i.SettleTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchCustomRecordsForAttempts = `-- name: FetchCustomRecordsForAttempts :many
 SELECT id, key, value, htlc_attempt_index FROM payment_htlc_attempt_custom_records
 WHERE htlc_attempt_index IN (/*SLICE:htlc_attempt_indices*/?)
@@ -319,6 +365,50 @@ func (q *Queries) FetchPayment(ctx context.Context, paymentHash []byte) (Payment
 		&i.FailReason,
 	)
 	return i, err
+}
+
+const fetchPayments = `-- name: FetchPayments :many
+SELECT id, payment_request, amount_msat, created_at, payment_hash, fail_reason FROM payments WHERE payment_hash IN (/*SLICE:payment_hashes*/?)
+`
+
+func (q *Queries) FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]Payment, error) {
+	query := fetchPayments
+	var queryParams []interface{}
+	if len(paymentHashes) > 0 {
+		for _, v := range paymentHashes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_hashes*/?", makeQueryParams(len(queryParams), len(paymentHashes)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_hashes*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Payment
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.ID,
+			&i.PaymentRequest,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentHash,
+			&i.FailReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const filterPayments = `-- name: FilterPayments :many

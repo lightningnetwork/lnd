@@ -32,6 +32,8 @@ type Querier interface {
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	// Fetch all inflight attempts across all payments
+	FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error)
 	FetchCustomRecordsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentHtlcAttemptCustomRecord, error)
 	FetchCustomRecordsForHops(ctx context.Context, hopIds []int64) ([]PaymentRouteHopCustomRecord, error)
 	FetchFirstHopCustomRecords(ctx context.Context, paymentID int64) ([]PaymentFirstHopCustomRecord, error)
@@ -40,6 +42,7 @@ type Querier interface {
 	// This fetches all htlc attempts for a payment.
 	FetchHtlcAttempts(ctx context.Context, arg FetchHtlcAttemptsParams) ([]PaymentHtlcAttempt, error)
 	FetchPayment(ctx context.Context, paymentHash []byte) (Payment, error)
+	FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]Payment, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]Payment, error)

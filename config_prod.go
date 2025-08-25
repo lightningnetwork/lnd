@@ -7,6 +7,7 @@ import (
 
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
+	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -34,4 +35,13 @@ func (d *DefaultDatabaseBuilder) getSQLMigration(ctx context.Context,
 	bool) {
 
 	return nil, false
+}
+
+// getPaymentsStore returns a paymentsdb.DB backed by a paymentsdb.KVStore
+// implementation.
+func (d *DefaultDatabaseBuilder) getPaymentsStore(_ *sqldb.BaseDB,
+	kvBackend kvdb.Backend,
+	opts ...paymentsdb.StoreOptionModifier) (paymentsdb.DB, error) {
+
+	return paymentsdb.NewKVStore(kvBackend, opts...)
 }

@@ -133,18 +133,12 @@ type KVStore struct {
 	keepFailedPaymentAttempts bool
 }
 
-// defaultKVStoreOptions returns the default options for the KV store.
-func defaultKVStoreOptions() *StoreOptions {
-	return &StoreOptions{
-		KeepFailedPaymentAttempts: false,
-	}
-}
 
 // NewKVStore creates a new KVStore for payments.
 func NewKVStore(db kvdb.Backend,
-	options ...OptionModifier) (*KVStore, error) {
+	options ...StoreOptionModifier) (*KVStore, error) {
 
-	opts := defaultKVStoreOptions()
+	opts := DefaultOptions()
 	for _, applyOption := range options {
 		applyOption(opts)
 	}

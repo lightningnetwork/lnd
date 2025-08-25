@@ -1220,7 +1220,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	//
 	// TODO(ziggie): Add support for SQL payments DB.
 	// Mount the payments DB for the KV store.
-	paymentsDBOptions := []paymentsdb.OptionModifier{
+	paymentsDBOptions := []paymentsdb.StoreOptionModifier{
 		paymentsdb.WithKeepFailedPaymentAttempts(
 			cfg.KeepFailedPaymentAttempts,
 		),

@@ -109,6 +109,10 @@ type Querier interface {
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error
+	InsertHop(ctx context.Context, arg InsertHopParams) (int64, error)
+	InsertHopCustomRecord(ctx context.Context, arg InsertHopCustomRecordParams) error
+	InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, arg InsertHtlAttemptFirstHopCustomRecordParams) error
+	InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)

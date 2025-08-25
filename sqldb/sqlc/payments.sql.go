@@ -796,6 +796,34 @@ func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (i
 	return id, err
 }
 
+const updateHtlcAttemptFailInfo = `-- name: UpdateHtlcAttemptFailInfo :one
+UPDATE payment_htlc_attempts
+SET htlc_fail_reason = $1, fail_time = $2, failure_source_index = $3, failure_msg = $4
+WHERE attempt_index = $5
+RETURNING id
+`
+
+type UpdateHtlcAttemptFailInfoParams struct {
+	HtlcFailReason     sql.NullInt32
+	FailTime           sql.NullTime
+	FailureSourceIndex sql.NullInt32
+	FailureMsg         []byte
+	AttemptIndex       int64
+}
+
+func (q *Queries) UpdateHtlcAttemptFailInfo(ctx context.Context, arg UpdateHtlcAttemptFailInfoParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, updateHtlcAttemptFailInfo,
+		arg.HtlcFailReason,
+		arg.FailTime,
+		arg.FailureSourceIndex,
+		arg.FailureMsg,
+		arg.AttemptIndex,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const updateHtlcAttemptSettleInfo = `-- name: UpdateHtlcAttemptSettleInfo :one
 /* ─────────────────────────────────────────────
    Update queries

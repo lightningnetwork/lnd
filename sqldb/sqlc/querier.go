@@ -159,6 +159,7 @@ type Querier interface {
 	SetMigration(ctx context.Context, arg SetMigrationParams) error
 	UpdateAMPSubInvoiceHTLCPreimage(ctx context.Context, arg UpdateAMPSubInvoiceHTLCPreimageParams) (sql.Result, error)
 	UpdateAMPSubInvoiceState(ctx context.Context, arg UpdateAMPSubInvoiceStateParams) error
+	UpdateHtlcAttemptFailInfo(ctx context.Context, arg UpdateHtlcAttemptFailInfoParams) (int64, error)
 	UpdateHtlcAttemptSettleInfo(ctx context.Context, arg UpdateHtlcAttemptSettleInfoParams) (int64, error)
 	UpdateInvoiceAmountPaid(ctx context.Context, arg UpdateInvoiceAmountPaidParams) (sql.Result, error)
 	UpdateInvoiceHTLC(ctx context.Context, arg UpdateInvoiceHTLCParams) error

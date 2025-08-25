@@ -322,6 +322,50 @@ func (q *Queries) FetchPayment(ctx context.Context, paymentHash []byte) (Payment
 	return i, err
 }
 
+const fetchPayments = `-- name: FetchPayments :many
+SELECT id, payment_request, amount_msat, created_at, payment_hash, fail_reason FROM payments WHERE payment_hash IN (/*SLICE:payment_hashes*/?)
+`
+
+func (q *Queries) FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]Payment, error) {
+	query := fetchPayments
+	var queryParams []interface{}
+	if len(paymentHashes) > 0 {
+		for _, v := range paymentHashes {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_hashes*/?", makeQueryParams(len(queryParams), len(paymentHashes)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_hashes*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Payment
+	for rows.Next() {
+		var i Payment
+		if err := rows.Scan(
+			&i.ID,
+			&i.PaymentRequest,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentHash,
+			&i.FailReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const filterPayments = `-- name: FilterPayments :many
 /* ─────────────────────────────────────────────
    fetch queries

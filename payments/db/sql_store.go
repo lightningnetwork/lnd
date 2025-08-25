@@ -30,6 +30,7 @@ type SQLQueries interface {
 	FetchCustomRecordsForHops(ctx context.Context, hopIDs []int64) ([]sqlc.PaymentRouteHopCustomRecord, error)
 
 	FetchPayment(ctx context.Context, paymentHash []byte) (sqlc.Payment, error)
+	FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]sqlc.Payment, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -390,7 +391,65 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 //
 // This is part of the DB interface.
 func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment, error) {
-	return nil, nil
+	var (
+		ctx              = context.Background()
+		inFlightPayments []*MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbInflightAttempts, err := db.FetchHtlcAttempts(
+			ctx, sqlc.FetchHtlcAttemptsParams{
+				InFlightOnly: true,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch inflight htlc "+
+				"attempts: %w", err)
+		}
+
+		// This makes sure we remove all duplicate payment hashes in
+		// cases where multiple attempts for the same payment are
+		// INFLIGHT.
+		paymentHashes := make([][]byte, len(dbInflightAttempts))
+		for i, attempt := range dbInflightAttempts {
+			paymentHashes[i] = attempt.PaymentHash[:]
+		}
+
+		dbPayments, err := db.FetchPayments(ctx, paymentHashes)
+		if err != nil {
+			return fmt.Errorf("unable to fetch payments: %w", err)
+		}
+
+		// pre-allocate the slice to the number of payments.
+		inFlightPayments = make([]*MPPayment, len(dbPayments))
+
+		for _, dbPayment := range dbPayments {
+			// NOTE: There is a small inefficency here as we fetch
+			// the payment attempts for each payment again, this
+			// could be improved by reusing the data from the
+			// previous fetch.
+			mppPayment, err := s.fetchPaymentWithCompleteData(
+				ctx, db, dbPayment,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to fetch payment: %w",
+					err)
+			}
+
+			inFlightPayments = append(inFlightPayments, mppPayment)
+		}
+
+		return nil
+	}, func() {
+		inFlightPayments = nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch in-flight "+
+			"payments: %w", err)
+	}
+
+	return inFlightPayments, nil
 }
 
 // DeletePayment deletes a payment from the database given its payment hash.

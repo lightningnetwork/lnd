@@ -41,6 +41,7 @@ type Querier interface {
 	// table.
 	FetchHtlcAttempts(ctx context.Context, arg FetchHtlcAttemptsParams) ([]PaymentHtlcAttempt, error)
 	FetchPayment(ctx context.Context, paymentHash []byte) (Payment, error)
+	FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]Payment, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
 	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]Payment, error)

@@ -7523,10 +7523,12 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		CreationDateEnd:   int64(req.CreationDateEnd),
 	}
 
-	// If the maximum number of payments wasn't specified, then we'll
-	// default to return the maximal number of payments representable.
+	// If the maximum number of payments wasn't specified, we default to
+	// a reasonable number to prevent resource exhaustion. All of the
+	// payments are fetched into memory. Moreover we don't want our daemon
+	// to remain stable and do other stuff rather than serving payments.
 	if req.MaxPayments == 0 {
-		query.MaxPayments = math.MaxUint64
+		query.MaxPayments = 100
 	}
 
 	paymentsQuerySlice, err := r.server.paymentsDB.QueryPayments(

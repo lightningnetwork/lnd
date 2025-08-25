@@ -32,6 +32,25 @@ func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) err
 	return err
 }
 
+const deleteFailedAttemptsByAttemptIndices = `-- name: DeleteFailedAttemptsByAttemptIndices :exec
+DELETE FROM payment_htlc_attempts WHERE attempt_index IN (/*SLICE:attempt_indices*/?)
+`
+
+func (q *Queries) DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error {
+	query := deleteFailedAttemptsByAttemptIndices
+	var queryParams []interface{}
+	if len(attemptIndices) > 0 {
+		for _, v := range attemptIndices {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:attempt_indices*/?", makeQueryParams(len(queryParams), len(attemptIndices)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:attempt_indices*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
+	return err
+}
+
 const deletePayment = `-- name: DeletePayment :exec
 /* ─────────────────────────────────────────────
    Delete queries
@@ -43,6 +62,25 @@ DELETE FROM payments WHERE payment_hash = $1
 
 func (q *Queries) DeletePayment(ctx context.Context, paymentHash []byte) error {
 	_, err := q.db.ExecContext(ctx, deletePayment, paymentHash)
+	return err
+}
+
+const deletePayments = `-- name: DeletePayments :exec
+DELETE FROM payments WHERE id IN (/*SLICE:payment_ids*/?)
+`
+
+func (q *Queries) DeletePayments(ctx context.Context, paymentIds []int64) error {
+	query := deletePayments
+	var queryParams []interface{}
+	if len(paymentIds) > 0 {
+		for _, v := range paymentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", makeQueryParams(len(queryParams), len(paymentIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
 	return err
 }
 

@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
+	"github.com/ltcsuite/ltcd/btcec"
 )
 
 // SQLQueries is a subset of the sqlc.Querier interface that can be used to
@@ -44,6 +47,10 @@ type SQLQueries interface {
 
 	InsertPayment(ctx context.Context, payment sqlc.InsertPaymentParams) (int64, error)
 	InsertFirstHopCustomRecord(ctx context.Context, customRecord sqlc.InsertFirstHopCustomRecordParams) error
+	InsertHtlcAttempt(ctx context.Context, attempt sqlc.InsertHtlcAttemptParams) (int64, error)
+	InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, customRecord sqlc.InsertHtlAttemptFirstHopCustomRecordParams) error
+	InsertHop(ctx context.Context, hop sqlc.InsertHopParams) (int64, error)
+	InsertHopCustomRecord(ctx context.Context, customRecord sqlc.InsertHopCustomRecordParams) error
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -805,7 +812,294 @@ func (s *SQLStore) insertNewPayment(ctx context.Context, db SQLQueries,
 func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
-	return nil, nil
+	var (
+		ctx        = context.Background()
+		mppPayment *MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		// We need to fetch the complete payment to make sure we can
+		// register a new attempt.
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch "+
+				"complete payment data: %w", err)
+		}
+
+		// Check if registering a new attempt is allowed.
+		if err := payment.Registrable(); err != nil {
+			return err
+		}
+
+		// Verify the attempt is compatible with the existing payment.
+		if err := verifyAttempt(payment, attempt); err != nil {
+			return err
+		}
+
+		// The attempt is valid, we can insert it now.
+		err = s.insertHtlcAttemptWithHops(ctx, db, payment, attempt)
+		if err != nil {
+			return fmt.Errorf("unable to insert htlc attempt: %w",
+				err)
+		}
+
+		// Add the new attempts to the payment so we don't have to fetch
+		// the payment again because we have all the data we need.
+		payment.HTLCs = append(payment.HTLCs, HTLCAttempt{
+			HTLCAttemptInfo: *attempt,
+		})
+
+		// We update the payment because the state is now different and
+		// we want to return the updated payment.
+		err = payment.setState()
+		if err != nil {
+			return fmt.Errorf("unable to set state: %w", err)
+		}
+
+		mppPayment = payment
+
+		return nil
+	}, func() {
+		mppPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to register attempt: %w", err)
+	}
+
+	return mppPayment, nil
+}
+
+// insertHtlcAttemptWithHops inserts a new HTLC attempt and all its associated
+// hop data into the database. This function handles the complete insertion
+// of an HTLC attempt including:
+//   - The HTLC attempt record itself
+//   - All route hops for the attempt
+//   - Custom records for each hop
+func (s *SQLStore) insertHtlcAttemptWithHops(ctx context.Context, db SQLQueries,
+	mpPayment *MPPayment, attempt *HTLCAttemptInfo) error {
+
+	// Insert the main HTLC attempt record.
+	err := s.insertHtlcAttempt(ctx, db, mpPayment, attempt)
+	if err != nil {
+		return fmt.Errorf("unable to insert htlc attempt record: %w",
+			err)
+	}
+
+	// Insert all hops for this attempt
+	if len(attempt.Route.Hops) > 0 {
+		err := s.insertHtlcAttemptHops(ctx, db, attempt)
+		if err != nil {
+			return fmt.Errorf("unable to insert htlc attempt "+
+				"hops: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// insertHtlcAttempt inserts the main HTLC attempt record into the database.
+func (s *SQLStore) insertHtlcAttempt(ctx context.Context, db SQLQueries,
+	mpPayment *MPPayment, attempt *HTLCAttemptInfo) error {
+
+	var sessionKey [btcec.PrivKeyBytesLen]byte
+	copy(sessionKey[:], attempt.SessionKey().Serialize())
+
+	var routeSourceKey [btcec.PubKeyBytesLenCompressed]byte
+	copy(routeSourceKey[:], attempt.Route.SourcePubKey[:])
+
+	// Insert the HTLC attempt using named parameters
+	_, err := db.InsertHtlcAttempt(ctx, sqlc.InsertHtlcAttemptParams{
+		AttemptIndex:       int64(attempt.AttemptID),
+		PaymentID:          int64(mpPayment.SequenceNum),
+		PaymentHash:        mpPayment.Info.PaymentIdentifier[:],
+		AttemptTime:        attempt.AttemptTime.UTC(),
+		SessionKey:         sessionKey[:],
+		RouteTotalTimeLock: int32(attempt.Route.TotalTimeLock),
+		RouteTotalAmount:   int64(attempt.Route.TotalAmount),
+		RouteSourceKey:     routeSourceKey[:],
+		FirstHopAmountMsat: int64(
+			attempt.Route.FirstHopAmount.Val.Int(),
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert htlc attempt: %w", err)
+	}
+
+	// Insert the custom records for the route.
+	for key, value := range attempt.Route.FirstHopWireCustomRecords {
+		err = db.InsertHtlAttemptFirstHopCustomRecord(
+			ctx, sqlc.InsertHtlAttemptFirstHopCustomRecordParams{
+				HtlcAttemptIndex: int64(attempt.AttemptID),
+				Key:              int64(key),
+				Value:            value,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert htlc attempt "+
+				"first hop custom record: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// insertHtlcAttemptHops inserts all hops for a given HTLC attempt.
+func (s *SQLStore) insertHtlcAttemptHops(ctx context.Context, db SQLQueries,
+	attempt *HTLCAttemptInfo) error {
+
+	for index, hop := range attempt.Route.Hops {
+		// Insert the hop record
+		hopID, err := s.insertHop(
+			ctx, db, attempt.AttemptID, index, hop,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to insert hop record: %w",
+				err)
+		}
+
+		// Insert custom records for this hop if any exist
+		if len(hop.CustomRecords) > 0 {
+			err := hop.CustomRecords.Validate()
+			if err != nil {
+				return fmt.Errorf("invalid hop custom "+
+					"records: %w", err)
+			}
+
+			for key, value := range hop.CustomRecords {
+				err = db.InsertHopCustomRecord(
+					ctx, sqlc.InsertHopCustomRecordParams{
+						HopID: hopID,
+						Key:   int64(key),
+						Value: value,
+					},
+				)
+				if err != nil {
+					return fmt.Errorf("unable to insert "+
+						"hop custom records: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// insertHop inserts a single hop record into the database.
+func (s *SQLStore) insertHop(ctx context.Context, db SQLQueries,
+	attemptID uint64, hopIndex int, hop *route.Hop) (int64, error) {
+
+	// Insert the hop using named parameters
+	hopID, err := db.InsertHop(ctx, sqlc.InsertHopParams{
+		HtlcAttemptIndex: int64(attemptID),
+		HopIndex:         int32(hopIndex),
+		PubKey:           hop.PubKeyBytes[:],
+		Scid:             strconv.FormatUint(hop.ChannelID, 10),
+		OutgoingTimeLock: int32(hop.OutgoingTimeLock),
+		AmtToForward:     int64(hop.AmtToForward),
+		MetaData:         hop.Metadata,
+		LegacyPayload:    hop.LegacyPayload,
+		// Handle MPP (Multi-Path Payment) data if present.
+		MppPaymentAddr: s.extractMppPaymentAddr(hop),
+		MppTotalMsat:   s.extractMppTotalMsat(hop),
+		// Handle AMP (Atomic Multi-Path) data if present.
+		AmpRootShare:  s.extractAmpRootShare(hop),
+		AmpSetID:      s.extractAmpSetID(hop),
+		AmpChildIndex: s.extractAmpChildIndex(hop),
+		// Handle blinding point data if present.
+		BlindingPoint: s.extractBlindingPoint(hop),
+		// Handle encrypted data for blinded paths if present.
+		EncryptedData: hop.EncryptedData,
+		// Handle blinded path total amount if present.
+		BlindedPathTotalAmt: s.extractBlindedPathTotalAmt(hop),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("unable to insert hop: %w", err)
+	}
+
+	return hopID, nil
+}
+
+// extractMppPaymentAddr extracts the MPP payment address from a hop.
+func (s *SQLStore) extractMppPaymentAddr(hop *route.Hop) []byte {
+	if hop.MPP != nil {
+		paymentAddr := hop.MPP.PaymentAddr()
+		return paymentAddr[:]
+	}
+
+	return nil
+}
+
+// extractMppTotalMsat extracts the MPP total amount from a hop.
+func (s *SQLStore) extractMppTotalMsat(hop *route.Hop) sql.NullInt64 {
+	if hop.MPP != nil {
+		return sql.NullInt64{
+			Int64: int64(hop.MPP.TotalMsat()),
+			Valid: true,
+		}
+	}
+
+	return sql.NullInt64{Valid: false}
+}
+
+// extractAmpRootShare extracts the AMP root share from a hop.
+func (s *SQLStore) extractAmpRootShare(hop *route.Hop) []byte {
+	if hop.AMP != nil {
+		rootShare := hop.AMP.RootShare()
+		return rootShare[:]
+	}
+
+	return nil
+}
+
+// extractAmpSetID extracts the AMP set ID from a hop.
+func (s *SQLStore) extractAmpSetID(hop *route.Hop) []byte {
+	if hop.AMP != nil {
+		ampSetID := hop.AMP.SetID()
+		return ampSetID[:]
+	}
+
+	return nil
+}
+
+// extractAmpChildIndex extracts the AMP child index from a hop.
+func (s *SQLStore) extractAmpChildIndex(hop *route.Hop) sql.NullInt32 {
+	if hop.AMP != nil {
+		return sql.NullInt32{
+			Int32: int32(hop.AMP.ChildIndex()),
+			Valid: true,
+		}
+	}
+
+	return sql.NullInt32{Valid: false}
+}
+
+// extractBlindingPoint extracts the blinding point from a hop.
+func (s *SQLStore) extractBlindingPoint(hop *route.Hop) []byte {
+	if hop.BlindingPoint != nil {
+		blindingPoint := hop.BlindingPoint.SerializeCompressed()
+		return blindingPoint[:]
+	}
+
+	return nil
+}
+
+// extractBlindedPathTotalAmt extracts the blinded path total amount from a hop.
+func (s *SQLStore) extractBlindedPathTotalAmt(hop *route.Hop) sql.NullInt64 {
+	if hop.EncryptedData != nil {
+		return sql.NullInt64{
+			Int64: int64(hop.TotalAmtMsat),
+			Valid: true,
+		}
+	}
+
+	return sql.NullInt64{Valid: false}
 }
 
 // SettleAttempt marks the given attempt settled with the preimage. If

@@ -120,6 +120,10 @@ type Querier interface {
 	// requires a policy update to have a newer last_update than the existing one).
 	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
 	InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error
+	InsertHop(ctx context.Context, arg InsertHopParams) (int64, error)
+	InsertHopCustomRecord(ctx context.Context, arg InsertHopCustomRecordParams) error
+	InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, arg InsertHtlAttemptFirstHopCustomRecordParams) error
+	InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)

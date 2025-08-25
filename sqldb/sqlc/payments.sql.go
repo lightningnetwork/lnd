@@ -578,6 +578,186 @@ func (q *Queries) InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirs
 	return err
 }
 
+const insertHop = `-- name: InsertHop :one
+INSERT INTO payment_route_hops (
+    htlc_attempt_index,
+    hop_index,
+    pub_key,
+    scid,
+    outgoing_time_lock,
+    amt_to_forward,
+    meta_data,
+    legacy_payload,
+    mpp_payment_addr,
+    mpp_total_msat,
+    amp_root_share,
+    amp_set_id,
+    amp_child_index,
+    blinding_point,
+    encrypted_data,
+    blinded_path_total_amt
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	$9,
+	$10,
+	$11,
+	$12,
+	$13,
+	$14,
+	$15,
+	$16
+) RETURNING id
+`
+
+type InsertHopParams struct {
+	HtlcAttemptIndex    int64
+	HopIndex            int32
+	PubKey              []byte
+	Scid                string
+	OutgoingTimeLock    int32
+	AmtToForward        int64
+	MetaData            []byte
+	LegacyPayload       bool
+	MppPaymentAddr      []byte
+	MppTotalMsat        sql.NullInt64
+	AmpRootShare        []byte
+	AmpSetID            []byte
+	AmpChildIndex       sql.NullInt32
+	BlindingPoint       []byte
+	EncryptedData       []byte
+	BlindedPathTotalAmt sql.NullInt64
+}
+
+func (q *Queries) InsertHop(ctx context.Context, arg InsertHopParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertHop,
+		arg.HtlcAttemptIndex,
+		arg.HopIndex,
+		arg.PubKey,
+		arg.Scid,
+		arg.OutgoingTimeLock,
+		arg.AmtToForward,
+		arg.MetaData,
+		arg.LegacyPayload,
+		arg.MppPaymentAddr,
+		arg.MppTotalMsat,
+		arg.AmpRootShare,
+		arg.AmpSetID,
+		arg.AmpChildIndex,
+		arg.BlindingPoint,
+		arg.EncryptedData,
+		arg.BlindedPathTotalAmt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertHopCustomRecord = `-- name: InsertHopCustomRecord :exec
+INSERT INTO payment_route_hop_custom_records (
+    hop_id,
+    key,
+    value
+) VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertHopCustomRecordParams struct {
+	HopID int64
+	Key   int64
+	Value []byte
+}
+
+func (q *Queries) InsertHopCustomRecord(ctx context.Context, arg InsertHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertHopCustomRecord, arg.HopID, arg.Key, arg.Value)
+	return err
+}
+
+const insertHtlAttemptFirstHopCustomRecord = `-- name: InsertHtlAttemptFirstHopCustomRecord :exec
+INSERT INTO payment_htlc_attempt_custom_records (
+    htlc_attempt_index,
+    key,
+    value
+) VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertHtlAttemptFirstHopCustomRecordParams struct {
+	HtlcAttemptIndex int64
+	Key              int64
+	Value            []byte
+}
+
+func (q *Queries) InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, arg InsertHtlAttemptFirstHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertHtlAttemptFirstHopCustomRecord, arg.HtlcAttemptIndex, arg.Key, arg.Value)
+	return err
+}
+
+const insertHtlcAttempt = `-- name: InsertHtlcAttempt :one
+INSERT INTO payment_htlc_attempts (
+    attempt_index,
+    payment_id,
+    session_key,
+    attempt_time,
+    payment_hash,
+    route_total_time_lock,
+    route_total_amount,
+    route_source_key,
+    first_hop_amount_msat
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9
+) RETURNING id
+`
+
+type InsertHtlcAttemptParams struct {
+	AttemptIndex       int64
+	PaymentID          int64
+	SessionKey         []byte
+	AttemptTime        time.Time
+	PaymentHash        []byte
+	RouteTotalTimeLock int32
+	RouteTotalAmount   int64
+	RouteSourceKey     []byte
+	FirstHopAmountMsat int64
+}
+
+func (q *Queries) InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertHtlcAttempt,
+		arg.AttemptIndex,
+		arg.PaymentID,
+		arg.SessionKey,
+		arg.AttemptTime,
+		arg.PaymentHash,
+		arg.RouteTotalTimeLock,
+		arg.RouteTotalAmount,
+		arg.RouteSourceKey,
+		arg.FirstHopAmountMsat,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertPayment = `-- name: InsertPayment :one
 /* ─────────────────────────────────────────────
    Insert queries

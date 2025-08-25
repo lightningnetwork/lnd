@@ -126,3 +126,85 @@ INSERT INTO payment_first_hop_custom_records (
 ) VALUES (
     @payment_id, @key, @value
 );
+
+-- name: InsertHtlcAttempt :one
+INSERT INTO payment_htlc_attempts (
+    attempt_index,
+    payment_id,
+    session_key,
+    attempt_time,
+    payment_hash,
+    route_total_time_lock,
+    route_total_amount,
+    route_source_key,
+    first_hop_amount_msat
+) VALUES (
+    @attempt_index,
+    @payment_id,
+    @session_key,
+    @attempt_time,
+    @payment_hash,
+    @route_total_time_lock,
+    @route_total_amount,
+    @route_source_key,
+    @first_hop_amount_msat
+) RETURNING id;
+
+-- name: InsertHtlAttemptFirstHopCustomRecord :exec
+INSERT INTO payment_htlc_attempt_custom_records (
+    htlc_attempt_index,
+    key,
+    value
+) VALUES (
+    @htlc_attempt_index,
+    @key,
+    @value
+);
+
+-- name: InsertHop :one
+INSERT INTO payment_route_hops (
+    htlc_attempt_index,
+    hop_index,
+    pub_key,
+    scid,
+    outgoing_time_lock,
+    amt_to_forward,
+    meta_data,
+    legacy_payload,
+    mpp_payment_addr,
+    mpp_total_msat,
+    amp_root_share,
+    amp_set_id,
+    amp_child_index,
+    blinding_point,
+    encrypted_data,
+    blinded_path_total_amt
+) VALUES (
+	@htlc_attempt_index,
+	@hop_index,
+	@pub_key,
+	@scid,
+	@outgoing_time_lock,
+	@amt_to_forward,
+	@meta_data,
+	@legacy_payload,
+	@mpp_payment_addr,
+	@mpp_total_msat,
+	@amp_root_share,
+	@amp_set_id,
+	@amp_child_index,
+	@blinding_point,
+	@encrypted_data,
+	@blinded_path_total_amt
+) RETURNING id;
+
+-- name: InsertHopCustomRecord :exec
+INSERT INTO payment_route_hop_custom_records (
+    hop_id,
+    key,
+    value
+) VALUES (
+    @hop_id,
+    @key,
+    @value
+);

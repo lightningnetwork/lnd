@@ -107,7 +107,8 @@ func unmarshalHtlcAttempt(dbAttempt sqlc.PaymentHtlcAttempt,
 // route.Route.
 func unmarshalRoute(dbAttempt sqlc.PaymentHtlcAttempt,
 	hops []sqlc.PaymentRouteHop,
-	dbRouteCustomRecords []sqlc.PaymentHtlcAttemptCustomRecord) (*route.Route, error) {
+	dbRouteCustomRecords []sqlc.PaymentHtlcAttemptCustomRecord) (
+	*route.Route, error) {
 
 	// Unmarshal the hops.
 	routeHops, err := unmarshalRouteHops(hops)
@@ -130,7 +131,9 @@ func unmarshalRoute(dbAttempt sqlc.PaymentHtlcAttempt,
 		Hops:          routeHops,
 		FirstHopAmount: tlv.NewRecordT[tlv.TlvType0](
 			tlv.NewBigSizeT(
-				lnwire.MilliSatoshi(dbAttempt.FirstHopAmountMsat),
+				lnwire.MilliSatoshi(
+					dbAttempt.FirstHopAmountMsat,
+				),
 			),
 		),
 	}

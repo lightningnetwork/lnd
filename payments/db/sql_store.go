@@ -229,7 +229,6 @@ func (s *SQLStore) QueryPayments(ctx context.Context,
 			ctx, s.cfg.QueryCfg, initialCursor, queryFunc,
 			extractCursor, processPayment,
 		)
-
 	}, func() {
 		allPayments = nil
 	})
@@ -254,10 +253,9 @@ func (s *SQLStore) QueryPayments(ctx context.Context,
 
 	return Response{
 		Payments:         allPayments,
-		FirstIndexOffset: uint64(allPayments[0].SequenceNum),
-		LastIndexOffset: uint64(allPayments[len(allPayments)-1].
-			SequenceNum),
-		TotalCount: uint64(totalCount),
+		FirstIndexOffset: allPayments[0].SequenceNum,
+		LastIndexOffset:  allPayments[len(allPayments)-1].SequenceNum,
+		TotalCount:       uint64(totalCount),
 	}, nil
 }
 
@@ -440,7 +438,7 @@ func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment, error) {
 		// INFLIGHT.
 		paymentHashes := make([][]byte, len(dbInflightAttempts))
 		for i, attempt := range dbInflightAttempts {
-			paymentHashes[i] = attempt.PaymentHash[:]
+			paymentHashes[i] = attempt.PaymentHash
 		}
 
 		dbPayments, err := db.FetchPayments(ctx, paymentHashes)
@@ -451,7 +449,7 @@ func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment, error) {
 		// pre-allocate the slice to the number of payments.
 		inFlightPayments = make([]*MPPayment, len(dbPayments))
 
-		for _, dbPayment := range dbPayments {
+		for i, dbPayment := range dbPayments {
 			// NOTE: There is a small inefficency here as we fetch
 			// the payment attempts for each payment again, this
 			// could be improved by reusing the data from the
@@ -464,7 +462,7 @@ func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment, error) {
 					err)
 			}
 
-			inFlightPayments = append(inFlightPayments, mppPayment)
+			inFlightPayments[i] = mppPayment
 		}
 
 		return nil
@@ -497,6 +495,7 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 				return fmt.Errorf("payment not found: %w",
 					ErrPaymentNotInitiated)
 			}
+
 			return fmt.Errorf("unable to fetch payment: %w", err)
 		}
 
@@ -1090,7 +1089,7 @@ func (s *SQLStore) extractAmpChildIndex(hop *route.Hop) sql.NullInt32 {
 func (s *SQLStore) extractBlindingPoint(hop *route.Hop) []byte {
 	if hop.BlindingPoint != nil {
 		blindingPoint := hop.BlindingPoint.SerializeCompressed()
-		return blindingPoint[:]
+		return blindingPoint
 	}
 
 	return nil

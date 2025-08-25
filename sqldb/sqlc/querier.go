@@ -14,6 +14,7 @@ type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
+	CountPayments(ctx context.Context) (int64, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
 	CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error
@@ -31,8 +32,17 @@ type Querier interface {
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	FetchCustomRecordsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentHtlcAttemptCustomRecord, error)
+	FetchCustomRecordsForHops(ctx context.Context, hopIds []int64) ([]PaymentRouteHopCustomRecord, error)
+	FetchFirstHopCustomRecords(ctx context.Context, paymentID int64) ([]PaymentFirstHopCustomRecord, error)
+	FetchHopsForAttempt(ctx context.Context, htlcAttemptIndex int64) ([]PaymentRouteHop, error)
+	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentRouteHop, error)
+	// This fetches all htlc attempts for a payment.
+	FetchHtlcAttempts(ctx context.Context, arg FetchHtlcAttemptsParams) ([]PaymentHtlcAttempt, error)
+	FetchPayment(ctx context.Context, paymentHash []byte) (Payment, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
+	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]Payment, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)

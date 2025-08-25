@@ -24,12 +24,14 @@ type Querier interface {
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
 	// TODO(ziggie): Is the htlc_fail_reason always set for a failed attempt?
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
+	DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
 	DeletePayment(ctx context.Context, paymentHash []byte) error
+	DeletePayments(ctx context.Context, paymentIds []int64) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)

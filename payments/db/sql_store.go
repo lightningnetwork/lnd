@@ -36,7 +36,9 @@ type SQLQueries interface {
 		Payment DB write operations.
 	*/
 	DeletePayment(ctx context.Context, paymentHash []byte) error
+	DeletePayments(ctx context.Context, paymentIDs []int64) error
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
+	DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -530,7 +532,134 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 func (s *SQLStore) DeletePayments(failedOnly, failedAttemptsOnly bool) (int,
 	error) {
 
-	return 0, nil
+	var (
+		ctx            = context.Background()
+		totalDeleted   int
+		paymentIDs     = make([]int64, 0)
+		attemptIndices = make([]int64, 0)
+	)
+	extractCursor := func(
+		row sqlc.Payment) int64 {
+
+		return row.ID
+	}
+
+	processPayment := func(ctx context.Context,
+		dbPayment sqlc.Payment) error {
+
+		// Now we need to fetch all the additional data for the payment.
+		mpPayment, err := s.fetchPaymentWithCompleteData(
+			ctx, s.db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		// We skip payments which are still INFLIGHT.
+		if err := mpPayment.Status.removable(); err != nil {
+			return nil
+		}
+
+		// We skip payments which are settled.
+		if failedOnly && mpPayment.Status != StatusFailed {
+			return nil
+		}
+
+		// If we are only interested in failed attempts, we only add
+		// the attempt indices to the slice.
+		if failedAttemptsOnly {
+			for _, attempt := range mpPayment.HTLCs {
+				if attempt.Failure != nil {
+					attemptIndices = append(
+						attemptIndices,
+						int64(attempt.AttemptID),
+					)
+				}
+			}
+
+			return nil
+		}
+
+		// Otherwise we add the whole payment to the slice.
+		paymentIDs = append(paymentIDs, int64(mpPayment.SequenceNum))
+
+		return nil
+	}
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		queryFunc := func(ctx context.Context, lastID int64,
+			limit int32) ([]sqlc.Payment, error) {
+
+			filterParams := sqlc.FilterPaymentsParams{
+				NumLimit: limit,
+				IndexOffsetGet: sqldb.SQLInt64(
+					lastID,
+				),
+			}
+
+			return db.FilterPayments(ctx, filterParams)
+		}
+
+		// We start at the first payment.
+		initialCursor := int64(-1)
+
+		err := sqldb.ExecutePaginatedQuery(
+			ctx, s.cfg.QueryCfg, initialCursor, queryFunc,
+			extractCursor, processPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to paginate payments: %w",
+				err)
+		}
+
+		// Now that we have all the payments or attempt indices, we
+		// can delete them in batches.
+		if len(paymentIDs) > 0 {
+			// First we set the deleted count to the number of
+			// payments we are going to delete.
+			totalDeleted = len(paymentIDs)
+
+			return sqldb.ExecuteBatchQuery(
+				ctx, s.cfg.QueryCfg, paymentIDs,
+				func(id int64) int64 {
+					return id
+				},
+				func(ctx context.Context, ids []int64) ([]any, error) {
+					return nil, db.DeletePayments(ctx, ids)
+				},
+				nil,
+			)
+		}
+
+		//nolint:ll
+		if len(attemptIndices) > 0 {
+			return sqldb.ExecuteBatchQuery(
+				ctx, s.cfg.QueryCfg, attemptIndices,
+				func(id int64) int64 {
+					return id
+				},
+				func(ctx context.Context, ids []int64) ([]any, error) {
+					return nil, db.DeleteFailedAttemptsByAttemptIndices(
+						ctx, ids,
+					)
+				},
+				nil,
+			)
+		}
+
+		return nil
+	}, func() {
+		paymentIDs = nil
+		attemptIndices = nil
+		totalDeleted = 0
+	})
+
+	if err != nil {
+		return 0, fmt.Errorf("unable to delete payments: %w", err)
+	}
+
+	return totalDeleted, nil
 }
 
 // InitPayment checks that no other payment with the same payment hash

@@ -41,6 +41,9 @@ type SQLQueries interface {
 	DeletePayments(ctx context.Context, paymentIDs []int64) error
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error
+
+	InsertPayment(ctx context.Context, payment sqlc.InsertPaymentParams) (int64, error)
+	InsertFirstHopCustomRecord(ctx context.Context, customRecord sqlc.InsertFirstHopCustomRecordParams) error
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -676,12 +679,122 @@ func (s *SQLStore) DeletePayments(failedOnly, failedAttemptsOnly bool) (int,
 func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
 	creationInfo *PaymentCreationInfo) error {
 
+	ctx := context.Background()
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		// First, try to fetch the existing payment to check
+		// its status.
+		dbPayment, err := db.FetchPayment(
+			ctx, paymentHash[:],
+		)
+		if err != nil {
+			// If the payment doesn't exist, we can proceed
+			// with initialization.
+			if errors.Is(err, sql.ErrNoRows) {
+				// Payment doesn't exist, we can
+				// initialize it.
+				return s.insertNewPayment(
+					ctx, db, paymentHash,
+					creationInfo,
+				)
+			}
+
+			// Some other error occurred, return it.
+			return fmt.Errorf("unable to fetch "+
+				"existing payment: %w", err)
+		}
+
+		// We fetch the complete payment data to determine if
+		// a new payment can be initialized.
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch "+
+				"complete payment data: %w", err)
+		}
+
+		// If the payment is not initializable, we return an
+		// error.
+		// This is only the case if the payment is already in
+		// the failed state.
+		if err := payment.Status.initializable(); err != nil {
+			return fmt.Errorf("payment is not "+
+				"initializable: %w", err)
+		}
+
+		// This should never happen, but we check it for
+		// completeness.
+		if err := payment.Status.removable(); err != nil {
+			return fmt.Errorf("payment is not "+
+				"removable: %w", err)
+		}
+
+		// We delete the payment to avoid duplicate payments, moreover
+		// there is a unique constraint on the payment hash so we would
+		// not be able to insert a new payment with the same hash.
+		err = db.DeletePayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("unable to delete "+
+				"payment: %w", err)
+		}
+
+		// And insert a new payment.
+		err = s.insertNewPayment(ctx, db, paymentHash, creationInfo)
+		if err != nil {
+			return fmt.Errorf("unable to insert "+
+				"new payment: %w", err)
+		}
+
+		return nil
+	}, func() {})
+	if err != nil {
+		return fmt.Errorf("unable to init payment: %w", err)
+	}
+
 	return nil
 }
 
 // insertNewPayment inserts a new payment into the database.
 func (s *SQLStore) insertNewPayment(ctx context.Context, db SQLQueries,
 	paymentHash lntypes.Hash, creationInfo *PaymentCreationInfo) error {
+
+	// Create the payment insert parameters.
+	insertParams := sqlc.InsertPaymentParams{
+		PaymentRequest: creationInfo.PaymentRequest,
+		AmountMsat:     int64(creationInfo.Value),
+		CreatedAt:      creationInfo.CreationTime.UTC(),
+		PaymentHash:    paymentHash[:],
+	}
+
+	// Insert the payment and get the payment ID.
+	paymentID, err := db.InsertPayment(ctx, insertParams)
+	if err != nil {
+		return fmt.Errorf("unable to insert payment: %w", err)
+	}
+
+	// If there are first hop custom records, we insert them now.
+	if len(creationInfo.FirstHopCustomRecords) > 0 {
+		err := creationInfo.FirstHopCustomRecords.Validate()
+		if err != nil {
+			return fmt.Errorf("invalid first hop custom "+
+				"records: %w", err)
+		}
+
+		for key, value := range creationInfo.FirstHopCustomRecords {
+			err = db.InsertFirstHopCustomRecord(
+				ctx, sqlc.InsertFirstHopCustomRecordParams{
+					PaymentID: paymentID,
+					Key:       int64(key),
+					Value:     value,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert first "+
+					"hop custom records: %w", err)
+			}
+		}
+	}
 
 	return nil
 }

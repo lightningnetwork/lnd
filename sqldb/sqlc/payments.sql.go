@@ -803,3 +803,22 @@ func (q *Queries) UpdateHtlcAttemptSettleInfo(ctx context.Context, arg UpdateHtl
 	err := row.Scan(&id)
 	return id, err
 }
+
+const updatePaymentFailReason = `-- name: UpdatePaymentFailReason :one
+UPDATE payments
+SET fail_reason = $1
+WHERE payment_hash = $2
+RETURNING id
+`
+
+type UpdatePaymentFailReasonParams struct {
+	FailReason  sql.NullInt32
+	PaymentHash []byte
+}
+
+func (q *Queries) UpdatePaymentFailReason(ctx context.Context, arg UpdatePaymentFailReasonParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, updatePaymentFailReason, arg.FailReason, arg.PaymentHash)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}

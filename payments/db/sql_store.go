@@ -54,6 +54,7 @@ type SQLQueries interface {
 
 	UpdateHtlcAttemptSettleInfo(ctx context.Context, settleInfo sqlc.UpdateHtlcAttemptSettleInfoParams) (int64, error)
 	UpdateHtlcAttemptFailInfo(ctx context.Context, failInfo sqlc.UpdateHtlcAttemptFailInfoParams) (int64, error)
+	UpdatePaymentFailReason(ctx context.Context, failReason sqlc.UpdatePaymentFailReasonParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -1275,7 +1276,61 @@ func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
 func (s *SQLStore) Fail(paymentHash lntypes.Hash,
 	failureReason FailureReason) (*MPPayment, error) {
 
-	return nil, nil
+	var (
+		ctx        = context.Background()
+		mppPayment *MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrPaymentNotInitiated
+			}
+
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		_, err = db.UpdatePaymentFailReason(ctx,
+			sqlc.UpdatePaymentFailReasonParams{
+				PaymentHash: paymentHash[:],
+				FailReason: sql.NullInt32{
+					Int32: int32(failureReason),
+					Valid: true,
+				},
+			})
+		if err != nil {
+			return fmt.Errorf("unable to update payment fail "+
+				"reason: %w", err)
+		}
+
+		// Instead of another round trip to fetch the payment, we just
+		// update the payment here as well.
+		payment.FailureReason = &failureReason
+
+		// We update also the payment state and status.
+		payment.setState()
+
+		mppPayment = payment
+
+		return nil
+	}, func() {
+		mppPayment = nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to fail payment: %w", err)
+	}
+
+	return mppPayment, nil
 }
 
 // DeleteFailedAttempts removes all failed HTLCs from the db. It should

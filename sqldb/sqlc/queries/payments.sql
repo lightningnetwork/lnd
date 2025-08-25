@@ -220,3 +220,9 @@ UPDATE payment_htlc_attempts
 SET htlc_fail_reason = @htlc_fail_reason, fail_time = @fail_time, failure_source_index = @failure_source_index, failure_msg = @failure_msg
 WHERE attempt_index = @attempt_index
 RETURNING id;
+
+-- name: UpdatePaymentFailReason :one
+UPDATE payments
+SET fail_reason = @fail_reason
+WHERE payment_hash = @payment_hash
+RETURNING id;

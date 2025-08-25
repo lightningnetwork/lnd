@@ -165,6 +165,7 @@ type Querier interface {
 	UpdateInvoiceHTLC(ctx context.Context, arg UpdateInvoiceHTLCParams) error
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
+	UpdatePaymentFailReason(ctx context.Context, arg UpdatePaymentFailReasonParams) (int64, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
 	UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error
 	UpsertChannelExtraType(ctx context.Context, arg UpsertChannelExtraTypeParams) error

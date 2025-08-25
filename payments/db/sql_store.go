@@ -1,6 +1,7 @@
 package paymentsdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -51,6 +53,7 @@ type SQLQueries interface {
 	InsertHopCustomRecord(ctx context.Context, customRecord sqlc.InsertHopCustomRecordParams) error
 
 	UpdateHtlcAttemptSettleInfo(ctx context.Context, settleInfo sqlc.UpdateHtlcAttemptSettleInfoParams) (int64, error)
+	UpdateHtlcAttemptFailInfo(ctx context.Context, failInfo sqlc.UpdateHtlcAttemptFailInfoParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -1181,7 +1184,84 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
-	return nil, nil
+	var (
+		ctx        = context.Background()
+		mppPayment *MPPayment
+	)
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		payment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		if err := payment.Status.updatable(); err != nil {
+			return fmt.Errorf("payment is not updatable: %w", err)
+		}
+
+		updateParams := sqlc.UpdateHtlcAttemptFailInfoParams{
+			AttemptIndex: int64(attemptID),
+			FailureSourceIndex: sql.NullInt32{
+				Int32: int32(failInfo.FailureSourceIndex),
+				Valid: true,
+			},
+			HtlcFailReason: sql.NullInt32{
+				Int32: int32(failInfo.Reason),
+				Valid: true,
+			},
+			FailTime: sql.NullTime{
+				Time:  failInfo.FailTime.UTC(),
+				Valid: true,
+			},
+		}
+
+		// If the failure message is not nil, we need to encode it.
+		if failInfo.Message != nil {
+			buf := bytes.NewBuffer(nil)
+			lnwire.EncodeFailureMessage(buf, failInfo.Message, 0)
+			updateParams.FailureMsg = buf.Bytes()
+		}
+
+		// Update the HTLC attempt with failure information
+		_, err = db.UpdateHtlcAttemptFailInfo(ctx, updateParams)
+		if err != nil {
+			return fmt.Errorf("unable to update htlc attempt"+
+				"fail info: %w", err)
+		}
+
+		// After updating the HTLC attempt, we need to fetch the
+		// updated payment again.
+		//
+		// NOTE: No need to fetch the main payment data again because
+		// nothing changed there. The failure reason is updated in
+		// `Fail` function only.
+		payment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete payment "+
+				"data: %w", err)
+		}
+
+		mppPayment = payment
+
+		return nil
+	}, func() {
+		mppPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fail attempt: %w", err)
+	}
+
+	return mppPayment, nil
 }
 
 // Fail transitions a payment into the Failed state, and records

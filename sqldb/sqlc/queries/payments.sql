@@ -214,3 +214,9 @@ UPDATE payment_htlc_attempts
 SET settle_preimage = @settle_preimage, settle_time = @settle_time
 WHERE attempt_index = @attempt_index
 RETURNING id;
+
+-- name: UpdateHtlcAttemptFailInfo :one
+UPDATE payment_htlc_attempts
+SET htlc_fail_reason = @htlc_fail_reason, fail_time = @fail_time, failure_source_index = @failure_source_index, failure_msg = @failure_msg
+WHERE attempt_index = @attempt_index
+RETURNING id;

@@ -166,6 +166,14 @@ circuit. The indices are only available for forwarding events saved after v0.20.
     * [2](https://github.com/lightningnetwork/lnd/pull/10050)
     * [3](https://github.com/lightningnetwork/lnd/pull/10038)
 
+* Payment Store SQL implementation and migration project:
+  * Introduce an [abstract payment 
+    store](https://github.com/lightningnetwork/lnd/pull/10153) interface and
+    refacotor the payment related LND code to make it more modular.
+  * Implement the SQL backend for the [payments 
+    database](https://github.com/lightningnetwork/lnd/pull/9147)
+
+
 ## RPC Updates
 * Previously the `RoutingPolicy` would return the inbound fee record in its
   `CustomRecords` field, which is duplicated info as it's already presented in

@@ -22,6 +22,30 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteFailedAttempts = `-- name: DeleteFailedAttempts :exec
+DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND htlc_fail_reason IS NOT NULL
+`
+
+// TODO(ziggie): Is the htlc_fail_reason always set for a failed attempt?
+func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
+	return err
+}
+
+const deletePayment = `-- name: DeletePayment :exec
+/* ─────────────────────────────────────────────
+   Delete queries
+   ─────────────────────────────────────────────
+*/
+
+DELETE FROM payments WHERE payment_hash = $1
+`
+
+func (q *Queries) DeletePayment(ctx context.Context, paymentHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deletePayment, paymentHash)
+	return err
+}
+
 const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
 SELECT id, attempt_index, payment_id, session_key, attempt_time, payment_hash, first_hop_amount_msat, route_total_time_lock, route_total_amount, route_source_key, failure_source_index, htlc_fail_reason, failure_msg, fail_time, settle_preimage, settle_time FROM payment_htlc_attempts ha
 WHERE ha.settle_preimage IS NULL AND ha.htlc_fail_reason IS NULL

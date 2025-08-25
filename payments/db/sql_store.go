@@ -33,6 +33,12 @@ type SQLQueries interface {
 
 	FetchPayment(ctx context.Context, paymentHash []byte) (sqlc.Payment, error)
 	FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]sqlc.Payment, error)
+
+	/*
+		Payment DB write operations.
+	*/
+	DeletePayment(ctx context.Context, paymentHash []byte) error
+	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable
@@ -463,6 +469,54 @@ func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment, error) {
 // This is part of the DB interface.
 func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 	failedAttemptsOnly bool) error {
+
+	ctx := context.Background()
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		payment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("payment not found: %w",
+					ErrPaymentNotInitiated)
+			}
+			return fmt.Errorf("unable to fetch payment: %w", err)
+		}
+
+		// We need to fetch the complete payment data to check if the
+		// payment is removable.
+		completePayment, err := s.fetchPaymentWithCompleteData(
+			ctx, db, payment,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to fetch complete "+
+				"payment data: %w", err)
+		}
+		if err := completePayment.Status.removable(); err != nil {
+			return fmt.Errorf("payment is still in flight: %w", err)
+		}
+
+		// If we selected to only delete failed attempts, we only
+		// delete the failed attempts rather than the payment itself.
+		if failedAttemptsOnly {
+			err = db.DeleteFailedAttempts(ctx, payment.ID)
+			if err != nil {
+				return fmt.Errorf("unable to delete failed "+
+					"attempts: %w", err)
+			}
+		} else {
+			err = db.DeletePayment(ctx, paymentHash[:])
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"payment: %w", err)
+			}
+		}
+
+		return nil
+	}, func() {})
+
+	if err != nil {
+		return fmt.Errorf("unable to delete payment: %w", err)
+	}
 
 	return nil
 }

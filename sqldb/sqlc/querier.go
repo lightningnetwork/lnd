@@ -119,6 +119,7 @@ type Querier interface {
 	// UpsertEdgePolicy query is used because of the constraint in that query that
 	// requires a policy update to have a newer last_update than the existing one).
 	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
+	InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
@@ -132,6 +133,7 @@ type Querier interface {
 	// is used because of the constraint in that query that requires a node update
 	// to have a newer last_update than the existing node).
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
+	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)

@@ -100,4 +100,29 @@ DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND htlc_fail_reason IS 
 -- name: DeleteFailedAttemptsByAttemptIndices :exec
 DELETE FROM payment_htlc_attempts WHERE attempt_index IN (sqlc.slice('attempt_indices')/*SLICE:attempt_indices*/);
 
+/* ─────────────────────────────────────────────
+   Insert queries
+   ─────────────────────────────────────────────
+*/
 
+-- name: InsertPayment :one
+INSERT INTO payments (
+    payment_request,
+    amount_msat,
+    created_at,
+    payment_hash
+) VALUES (
+    @payment_request,
+    @amount_msat,
+    @created_at,
+    @payment_hash
+) RETURNING id;
+
+-- name: InsertFirstHopCustomRecord :exec
+INSERT INTO payment_first_hop_custom_records (
+    payment_id,
+    key,
+    value
+) VALUES (
+    @payment_id, @key, @value
+);

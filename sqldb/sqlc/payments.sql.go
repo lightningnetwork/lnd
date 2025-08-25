@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+	"time"
 )
 
 const countPayments = `-- name: CountPayments :one
@@ -554,4 +555,63 @@ func (q *Queries) FilterPayments(ctx context.Context, arg FilterPaymentsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const insertFirstHopCustomRecord = `-- name: InsertFirstHopCustomRecord :exec
+INSERT INTO payment_first_hop_custom_records (
+    payment_id,
+    key,
+    value
+) VALUES (
+    $1, $2, $3
+)
+`
+
+type InsertFirstHopCustomRecordParams struct {
+	PaymentID int64
+	Key       int64
+	Value     []byte
+}
+
+func (q *Queries) InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertFirstHopCustomRecord, arg.PaymentID, arg.Key, arg.Value)
+	return err
+}
+
+const insertPayment = `-- name: InsertPayment :one
+/* ─────────────────────────────────────────────
+   Insert queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO payments (
+    payment_request,
+    amount_msat,
+    created_at,
+    payment_hash
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+) RETURNING id
+`
+
+type InsertPaymentParams struct {
+	PaymentRequest []byte
+	AmountMsat     int64
+	CreatedAt      time.Time
+	PaymentHash    []byte
+}
+
+func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPayment,
+		arg.PaymentRequest,
+		arg.AmountMsat,
+		arg.CreatedAt,
+		arg.PaymentHash,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

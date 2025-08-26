@@ -200,6 +200,15 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 	mux *runtime.ServeMux, dest string, opts []grpc.DialOption) error {
 
+	// We make sure that we register it with the main REST server to ensure
+	// all our methods are routed properly.
+	err := RegisterSwitchHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register Switch REST server "+
+			"with root REST server: %v", err)
+		return err
+	}
+
 	log.Debugf("Switch REST server successfully registered with " +
 		"root REST server")
 

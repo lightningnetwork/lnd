@@ -17,4 +17,9 @@ var migrationAdditions = []MigrationConfig{
 		// schema. This is optional and can be disabled by the
 		// user if necessary.
 	},
+	{
+		Name:          "000009_payments",
+		Version:       11,
+		SchemaVersion: 9,
+	},
 }

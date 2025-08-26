@@ -1,3 +1,5 @@
+//go:build !test_db_sqlite && !test_db_postgres
+
 package paymentsdb
 
 import (
@@ -14,7 +16,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,10 +63,12 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	var numSuccess, numInflight int
 
 	for _, p := range payments {
-		info, attempt, preimg, err := genInfo(t)
-		if err != nil {
-			t.Fatalf("unable to generate htlc message: %v", err)
-		}
+		info, preimg, err := createPaymentInfo(t)
+		require.NoError(t, err, "unable to create payment info")
+		attempt, err := createHtlcAttempt(
+			t, info.PaymentIdentifier, 0,
+		)
+		require.NoError(t, err, "unable to create htlc attempt")
 
 		// Sends base htlc message which initiate StatusInFlight.
 		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
@@ -243,83 +246,6 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-type htlcStatus struct {
-	*HTLCAttemptInfo
-	settle  *lntypes.Preimage
-	failure *HTLCFailReason
-}
-
-// fetchPaymentIndexEntry gets the payment hash for the sequence number provided
-// from our payment indexes bucket.
-func fetchPaymentIndexEntry(t *testing.T, p *KVStore,
-	sequenceNumber uint64) (*lntypes.Hash, error) {
-
-	t.Helper()
-
-	var hash lntypes.Hash
-
-	if err := kvdb.View(p.db, func(tx walletdb.ReadTx) error {
-		indexBucket := tx.ReadBucket(paymentsIndexBucket)
-		key := make([]byte, 8)
-		byteOrder.PutUint64(key, sequenceNumber)
-
-		indexValue := indexBucket.Get(key)
-		if indexValue == nil {
-			return ErrNoSequenceNrIndex
-		}
-
-		r := bytes.NewReader(indexValue)
-
-		var err error
-		hash, err = deserializePaymentIndex(r)
-
-		return err
-	}, func() {
-		hash = lntypes.Hash{}
-	}); err != nil {
-		return nil, err
-	}
-
-	return &hash, nil
-}
-
-// assertPaymentIndex looks up the index for a payment in the db and checks
-// that its payment hash matches the expected hash passed in.
-func assertPaymentIndex(t *testing.T, p DB, expectedHash lntypes.Hash) {
-	t.Helper()
-
-	// Only the kv implementation uses the index so we exit early if the
-	// payment db is not a kv implementation. This helps us to reuse the
-	// same test for both implementations.
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	// Lookup the payment so that we have its sequence number and check
-	// that is has correctly been indexed in the payment indexes bucket.
-	pmt, err := kvPaymentDB.FetchPayment(expectedHash)
-	require.NoError(t, err)
-
-	hash, err := fetchPaymentIndexEntry(t, kvPaymentDB, pmt.SequenceNum)
-	require.NoError(t, err)
-	assert.Equal(t, expectedHash, *hash)
-}
-
-// assertNoIndex checks that an index for the sequence number provided does not
-// exist.
-func assertNoIndex(t *testing.T, p DB, seqNr uint64) {
-	t.Helper()
-
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	_, err := fetchPaymentIndexEntry(t, kvPaymentDB, seqNr)
-	require.Equal(t, ErrNoSequenceNrIndex, err)
-}
-
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
 	*HTLCAttemptInfo) {
 
@@ -475,7 +401,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	paymentDB := NewKVTestDB(t)
 
 	// Generate a test payment which does not have duplicates.
-	noDuplicates, _, _, err := genInfo(t)
+	noDuplicates, _, err := createPaymentInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -491,7 +417,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate a test payment which we will add duplicates to.
-	hasDuplicates, _, preimg, err := genInfo(t)
+	hasDuplicates, preimg, err := createPaymentInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -649,7 +575,7 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	require.NoError(t, err)
 
 	// Generate fake information for the duplicate payment.
-	info, _, _, err := genInfo(t)
+	info, _, err := createPaymentInfo(t)
 	require.NoError(t, err)
 
 	// Write the payment info to disk under the creation info key. This code
@@ -957,11 +883,11 @@ func TestQueryPayments(t *testing.T) {
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
-				info, _, preimg, err := genInfo(t)
-				if err != nil {
-					t.Fatalf("unable to create test "+
-						"payment: %v", err)
-				}
+				info, preimg, err := createPaymentInfo(t)
+				require.NoError(
+					t, err, "unable to create payment info",
+				)
+
 				// Override creation time to allow for testing
 				// of CreationDateStart and CreationDateEnd.
 				info.CreationTime = time.Unix(int64(i+1), 0)

@@ -14,6 +14,7 @@ type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
+	CountPayments(ctx context.Context) (int64, error)
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)
 	CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error
@@ -21,18 +22,35 @@ type Querier interface {
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 	DeleteChannels(ctx context.Context, ids []int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
+	// TODO(ziggie): Is the htlc_fail_reason always set for a failed attempt?
+	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
+	DeleteFailedAttemptsByAttemptIndices(ctx context.Context, attemptIndices []int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
+	DeletePayment(ctx context.Context, paymentHash []byte) error
+	DeletePayments(ctx context.Context, paymentIds []int64) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
+	// Fetch all inflight attempts across all payments
+	FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error)
+	FetchCustomRecordsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentHtlcAttemptCustomRecord, error)
+	FetchCustomRecordsForHops(ctx context.Context, hopIds []int64) ([]PaymentRouteHopCustomRecord, error)
+	FetchFirstHopCustomRecords(ctx context.Context, paymentID int64) ([]PaymentFirstHopCustomRecord, error)
+	FetchHopsForAttempt(ctx context.Context, htlcAttemptIndex int64) ([]PaymentRouteHop, error)
+	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentRouteHop, error)
+	// This fetches all htlc attempts for a payment.
+	FetchHtlcAttempts(ctx context.Context, arg FetchHtlcAttemptsParams) ([]PaymentHtlcAttempt, error)
+	FetchPayment(ctx context.Context, paymentHash []byte) (Payment, error)
+	FetchPayments(ctx context.Context, paymentHashes [][]byte) ([]Payment, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
+	FilterPayments(ctx context.Context, arg FilterPaymentsParams) ([]Payment, error)
 	GetAMPInvoiceID(ctx context.Context, setID []byte) (int64, error)
 	GetChannelAndNodesBySCID(ctx context.Context, arg GetChannelAndNodesBySCIDParams) (GetChannelAndNodesBySCIDRow, error)
 	GetChannelByOutpointWithPolicies(ctx context.Context, arg GetChannelByOutpointWithPoliciesParams) (GetChannelByOutpointWithPoliciesRow, error)
@@ -91,6 +109,11 @@ type Querier interface {
 	InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error
 	InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error
 	InsertClosedChannel(ctx context.Context, scid []byte) error
+	InsertFirstHopCustomRecord(ctx context.Context, arg InsertFirstHopCustomRecordParams) error
+	InsertHop(ctx context.Context, arg InsertHopParams) (int64, error)
+	InsertHopCustomRecord(ctx context.Context, arg InsertHopCustomRecordParams) error
+	InsertHtlAttemptFirstHopCustomRecord(ctx context.Context, arg InsertHtlAttemptFirstHopCustomRecordParams) error
+	InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
@@ -99,6 +122,7 @@ type Querier interface {
 	InsertMigratedInvoice(ctx context.Context, arg InsertMigratedInvoiceParams) (int64, error)
 	InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error
 	InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error
+	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
@@ -120,10 +144,13 @@ type Querier interface {
 	SetMigration(ctx context.Context, arg SetMigrationParams) error
 	UpdateAMPSubInvoiceHTLCPreimage(ctx context.Context, arg UpdateAMPSubInvoiceHTLCPreimageParams) (sql.Result, error)
 	UpdateAMPSubInvoiceState(ctx context.Context, arg UpdateAMPSubInvoiceStateParams) error
+	UpdateHtlcAttemptFailInfo(ctx context.Context, arg UpdateHtlcAttemptFailInfoParams) (int64, error)
+	UpdateHtlcAttemptSettleInfo(ctx context.Context, arg UpdateHtlcAttemptSettleInfoParams) (int64, error)
 	UpdateInvoiceAmountPaid(ctx context.Context, arg UpdateInvoiceAmountPaidParams) (sql.Result, error)
 	UpdateInvoiceHTLC(ctx context.Context, arg UpdateInvoiceHTLCParams) error
 	UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error
 	UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error)
+	UpdatePaymentFailReason(ctx context.Context, arg UpdatePaymentFailReasonParams) (int64, error)
 	UpsertAMPSubInvoice(ctx context.Context, arg UpsertAMPSubInvoiceParams) (sql.Result, error)
 	UpsertEdgePolicy(ctx context.Context, arg UpsertEdgePolicyParams) (int64, error)
 	UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error)

@@ -10,12 +10,20 @@ type StoreOptions struct {
 	KeepFailedPaymentAttempts bool
 }
 
-// OptionModifier is a function signature for modifying the default
+// DefaultOptions returns a StoreOptions populated with default values.
+func DefaultOptions() *StoreOptions {
+	return &StoreOptions{
+		KeepFailedPaymentAttempts: false,
+		NoMigration:               false,
+	}
+}
+
+// StoreOptionModifier is a function signature for modifying the default
 // StoreOptions.
-type OptionModifier func(*StoreOptions)
+type StoreOptionModifier func(*StoreOptions)
 
 // WithKeepFailedPaymentAttempts sets the KeepFailedPaymentAttempts to n.
-func WithKeepFailedPaymentAttempts(n bool) OptionModifier {
+func WithKeepFailedPaymentAttempts(n bool) StoreOptionModifier {
 	return func(o *StoreOptions) {
 		o.KeepFailedPaymentAttempts = n
 	}
@@ -23,7 +31,7 @@ func WithKeepFailedPaymentAttempts(n bool) OptionModifier {
 
 // WithNoMigration allows the database to be opened in read only mode by
 // disabling migrations.
-func WithNoMigration(b bool) OptionModifier {
+func WithNoMigration(b bool) StoreOptionModifier {
 	return func(o *StoreOptions) {
 		o.NoMigration = b
 	}

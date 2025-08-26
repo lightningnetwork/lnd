@@ -365,7 +365,12 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 			return fmt.Errorf("expected *sql.Tx, got %T", tx)
 		}
 
+		if reset == nil {
+			return fmt.Errorf("reset function is nil")
+		}
+
 		reset()
+
 		return txBody(t.createQuery(sqlTx))
 	}
 

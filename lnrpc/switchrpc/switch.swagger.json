@@ -1,0 +1,496 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "switchrpc/switch.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "Switch"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/switch/build": {
+      "post": {
+        "summary": "BuildOnion attempts to build an onion packet for the specified route.",
+        "operationId": "Switch_BuildOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcBuildOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "BuildOnionRequest includes the necessary information to construct a Sphinx\nonion packet.",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcBuildOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/onion": {
+      "post": {
+        "summary": "SendOnion attempts to make a payment via the specified onion. This\nmethod differs from SendPayment in that the instance need not be aware of\nthe full details of the payment route.",
+        "operationId": "Switch_SendOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcSendOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcSendOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    },
+    "/v2/switch/track": {
+      "post": {
+        "summary": "TrackOnion allows callers to query whether or not a payment dispatched via\nSendOnion succeeded or failed.",
+        "description": "This RPC is designed to be called after a successful dispatch has been\nexplicitly confirmed via the SendOnion RPC. It should not be used to\ndetermine whether an HTLC dispatch was received in an ambiguous network\nscenario. That ambiguity must be resolved by retrying the idempotent\nSendOnion RPC until a definitive acknowledgement is received from the Switch\nRPC server.\n\nOnce dispatch is confirmed, TrackOnion provides the mechanism to wait for\nthe result of the in-flight HTLC.",
+        "operationId": "Switch_TrackOnion",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/switchrpcTrackOnionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/switchrpcTrackOnionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Switch"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "lnrpcAMPRecord": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte"
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte"
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "lnrpcHop": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unique channel ID for the channel. The first 3 bytes are the block\nheight, the next 3 the index within the block, and the last 2 bytes are the\noutput index for the channel."
+        },
+        "chan_capacity": {
+          "type": "string",
+          "format": "int64"
+        },
+        "amt_to_forward": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "amt_to_forward_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "fee_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "pub_key": {
+          "type": "string",
+          "description": "An optional public key of the hop. If the public key is given, the payment\ncan be executed without relying on a copy of the channel graph."
+        },
+        "tlv_payload": {
+          "type": "boolean",
+          "description": "If set to true, then this hop will be encoded using the new variable length\nTLV format. Note that if any custom tlv_records below are specified, then\nthis field MUST be set to true for them to be encoded properly."
+        },
+        "mpp_record": {
+          "$ref": "#/definitions/lnrpcMPPRecord",
+          "description": "An optional TLV record that signals the use of an MPP payment. If present,\nthe receiver will enforce that the same mpp_record is included in the final\nhop payload of all non-zero payments in the HTLC set. If empty, a regular\nsingle-shot payment is or was attempted."
+        },
+        "amp_record": {
+          "$ref": "#/definitions/lnrpcAMPRecord",
+          "description": "An optional TLV record that signals the use of an AMP payment. If present,\nthe receiver will treat all received payments including the same\n(payment_addr, set_id) pair  as being part of one logical payment. The\npayment will be settled by XORing the root_share's together and deriving the\nchild hashes and preimages according to BOLT XX. Must be used in conjunction\nwith mpp_record."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional set of key-value TLV records. This is useful within the context\nof the SendToRoute call as it allows callers to specify arbitrary K-V pairs\nto drop off at each hop within the onion."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment metadata to send along with the payment to the payee."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "Blinding point is an optional blinding point included for introduction\nnodes in blinded paths. This field is mandatory for hops that represents\nthe introduction point in a blinded path."
+        },
+        "encrypted_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Encrypted data is a receiver-produced blob of data that provides hops\nin a blinded route with forwarding data. As this data is encrypted by\nthe recipient, we will not be able to parse it - it is essentially an\narbitrary blob of data from our node's perspective. This field is\nmandatory for all hops in a blinded path, including the introduction\nnode."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount that is sent to the recipient (possibly across multiple\nHTLCs), as specified by the sender when making a payment to a blinded path.\nThis value is only set in the final hop payload of a blinded payment. This\nvalue is analogous to the MPPRecord that is used for regular (non-blinded)\nMPP payments."
+        }
+      }
+    },
+    "lnrpcMPPRecord": {
+      "type": "object",
+      "properties": {
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments. This is also called\npayment secret in specifications (e.g. BOLT 11)."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in milli-satoshis being sent as part of a larger multi-path\npayment. The caller is responsible for ensuring subpayments to the same node\nand payment_hash sum exactly to total_amt_msat. The same\ntotal_amt_msat must be used on all subpayments."
+        }
+      }
+    },
+    "lnrpcRoute": {
+      "type": "object",
+      "properties": {
+        "total_time_lock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The cumulative (final) time lock across the entire route. This is the CLTV\nvalue that should be extended to the first hop in the route. All other hops\nwill decrement the time-lock as advertised, leaving enough time for all\nhops to wait for or present the payment preimage to complete the payment."
+        },
+        "total_fees": {
+          "type": "string",
+          "format": "int64",
+          "description": "The sum of the fees paid at each hop within the final route. In the case\nof a one-hop payment, this value will be zero as we don't need to pay a fee\nto ourselves."
+        },
+        "total_amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount of funds required to complete a payment over this route.\nThis value includes the cumulative fees at each hop. As a result, the HTLC\nextended to the first-hop in the route will need to have at least this many\nsatoshis, otherwise the route will fail at an intermediate node due to an\ninsufficient amount of fees."
+        },
+        "hops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcHop"
+          },
+          "description": "Contains details concerning the specific forwarding details at each hop."
+        },
+        "total_fees_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total fees in millisatoshis."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in millisatoshis."
+        },
+        "first_hop_amount_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The actual on-chain amount that was sent out to the first hop. This value is\nonly different from the total_amt_msat field if this is a custom channel\npayment and the value transported in the HTLC is different from the BTC\namount in the HTLC. If this value is zero, then this is an old payment that\ndidn't have this value yet and can be ignored."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
+        }
+      },
+      "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "switchrpcBuildOnionRequest": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "$ref": "#/definitions/lnrpcRoute",
+          "description": "The route for which the onion packet should be built."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "A session key for onion packet construction, if not provided, a new one\nwill be generated."
+        }
+      },
+      "description": "BuildOnionRequest includes the necessary information to construct a Sphinx\nonion packet."
+    },
+    "switchrpcBuildOnionResponse": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The constructed onion packet in bytes."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The session key used for building the onion packet."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The serialized public keys of all nodes along the route for the\nconstructed onion."
+        }
+      },
+      "description": "BuildOnionResponse contains the constructed onion packet."
+    },
+    "switchrpcErrorCode": {
+      "type": "string",
+      "enum": [
+        "UNSPECIFIED",
+        "PAYMENT_ID_NOT_FOUND",
+        "FORWARDING_ERROR",
+        "CLEAR_TEXT_ERROR",
+        "UNREADABLE_FAILURE_MESSAGE",
+        "DUPLICATE_HTLC",
+        "NO_LINK",
+        "SWITCH_EXITING",
+        "INTERNAL"
+      ],
+      "default": "UNSPECIFIED",
+      "description": " - UNSPECIFIED: Default value for unset errors.\n - PAYMENT_ID_NOT_FOUND: Payment ID was not found.\n - FORWARDING_ERROR: Error occurred during forwarding.\n - CLEAR_TEXT_ERROR: Clear text error.\n - UNREADABLE_FAILURE_MESSAGE: Failure message could not be read.\n - DUPLICATE_HTLC: An HTLC with same ID is already in flight.\n - NO_LINK: No link available for payment.\n - SWITCH_EXITING: HTLC switch is exiting.\n - INTERNAL: Opaque internal server error."
+    },
+    "switchrpcSendOnionRequest": {
+      "type": "object",
+      "properties": {
+        "onion_blob": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw onion packet to be sent across the network."
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID uniquely identifying this payment attempt. The caller can\nexpect to track results for the payment via this attempt ID."
+        },
+        "first_hop_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The first hop's public key where the onion will be sent.\nThe first hop must be specified either by channel ID or public key."
+        },
+        "first_hop_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The channel id of the channel that must be taken to the first hop.\nThe first hop must be specified either by channel ID or public key."
+        },
+        "amount": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount in millisatoshis required to complete a payment over\nthis route. This value includes the cumulative fees at each hop. The HTLC\nextended to the first-hop in the route will need to have at least this\nmany (milli)satoshis."
+        },
+        "timelock": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The absolute timelock or CLTV value that should be extended to the first\nhop in the route. All other hops will decrement the time-lock as\ndescribed by the onion."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC. This is needed for tracking\nand debugging purposes."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional blinding point to use when constructing the HTLC.\nIf set, this will be used to blind the next hop in the route."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional custom TLV records to include in the UpdateAddHTLC message."
+        },
+        "extra_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional opaque extra data to attach to the UpdateAddHTLC message."
+        }
+      }
+    },
+    "switchrpcSendOnionResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "description": "Indicates if the onion was successfully sent or not.\nEquivalent to `error_code == ERROR_CODE_UNSPECIFIED`."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "error_code": {
+          "$ref": "#/definitions/switchrpcErrorCode",
+          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
+        }
+      }
+    },
+    "switchrpcTrackOnionRequest": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash associated with the HTLC. This is needed for tracking\nand debugging purposes."
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The attempt ID uniquely identifying this payment attempt. The caller can\nexpect to track results for the payment via this attempt ID."
+        },
+        "session_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional: Session key used to generate the onion/sphinx packet."
+        },
+        "hop_pubkeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Optional: Public keys of nodes along the route, used with session_key."
+        }
+      }
+    },
+    "switchrpcTrackOnionResponse": {
+      "type": "object",
+      "properties": {
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage obtained by making the payment. If this field is set,\nthe payment succeeded."
+        },
+        "error_message": {
+          "type": "string",
+          "description": "In case of failure, this field will provide more information about the\nerror."
+        },
+        "error_code": {
+          "$ref": "#/definitions/switchrpcErrorCode",
+          "description": "A code representing the type of error that occurred. This can be used\nto programmatically distinguish between different kinds of errors."
+        },
+        "encrypted_error": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the caller provides no means to decrypt the error, then we'll defer\nerror decryption on the server and return the encrypted error blob."
+        }
+      }
+    }
+  }
+}

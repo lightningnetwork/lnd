@@ -175,6 +175,20 @@ func (h *HTLCAttemptInfo) SessionKey() *btcec.PrivateKey {
 	return h.cachedSessionKey
 }
 
+// setSessionKey sets the session key for the htlc attempt.
+//
+// NOTE: Only used for testing.
+//
+//nolint:unused
+func (h *HTLCAttemptInfo) setSessionKey(sessionKey *btcec.PrivateKey) {
+	h.cachedSessionKey = sessionKey
+
+	// Also set the session key as a raw bytes.
+	var scratch [btcec.PrivKeyBytesLen]byte
+	copy(scratch[:], sessionKey.Serialize())
+	h.sessionKey = scratch
+}
+
 // OnionBlob returns the onion blob created from the sphinx construction.
 func (h *HTLCAttemptInfo) OnionBlob() ([lnwire.OnionPacketSize]byte, error) {
 	var zeroBytes [lnwire.OnionPacketSize]byte

@@ -24,6 +24,10 @@ type Init struct {
 	// Features field.
 	Features *RawFeatureVector
 
+	// CustomRecords maps TLV types to byte slices, storing arbitrary data
+	// intended for inclusion in the ExtraData field of the init message.
+	CustomRecords CustomRecords
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -35,7 +39,6 @@ func NewInitMessage(gf *RawFeatureVector, f *RawFeatureVector) *Init {
 	return &Init{
 		GlobalFeatures: gf,
 		Features:       f,
-		ExtraData:      make([]byte, 0),
 	}
 }
 
@@ -52,11 +55,28 @@ var _ SizeableMessage = (*Init)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	var msgExtraData ExtraOpaqueData
+
+	err := ReadElements(r,
 		&msg.GlobalFeatures,
 		&msg.Features,
-		&msg.ExtraData,
+		&msgExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	customRecords, _, extraDData, err := ParseAndExtractCustomRecords(
+		msgExtraData,
+	)
+	if err != nil {
+		return err
+	}
+
+	msg.CustomRecords = customRecords
+	msg.ExtraData = extraDData
+
+	return nil
 }
 
 // Encode serializes the target Init into the passed io.Writer observing
@@ -72,7 +92,12 @@ func (msg *Init) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return WriteBytes(w, msg.ExtraData)
+	extraData, err := MergeAndEncode(nil, msg.ExtraData, msg.CustomRecords)
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, extraData)
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

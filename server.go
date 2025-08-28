@@ -4431,6 +4431,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
 		AuxResolver:            s.implCfg.AuxContractResolver,
 		AuxTrafficShaper:       s.implCfg.TrafficShaper,
+		AuxChannelNegotiator:   s.implCfg.AuxChannelNegotiator,
 		ShouldFwdExpEndorsement: func() bool {
 			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
 				return false

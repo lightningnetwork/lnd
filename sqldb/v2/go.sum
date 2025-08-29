@@ -1,0 +1,4 @@
+github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c h1:4HxD1lBUGUddhzgaNgrCPsFWd7cGYNpeFUgd9ZIgyM0=
+github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c/go.mod h1:w7xnGOhwT3lmrS4H3b/D1XAXxvh+tbhUm8xeHN2y3TQ=
+github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084 h1:y3bvkt8ki0KX35eUEU8XShRHusz1S+55QwXUTmxn888=
+github.com/btcsuite/btclog/v2 v2.0.1-0.20250602222548-9967d19bb084/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=

@@ -35,6 +35,10 @@ const (
 	// header and it's MAC.
 	encHeaderSize = lengthHeaderSize + macSize
 
+	// maxMessageSize is the maximum size of an encrypted message including
+	// the MAC. This is the max payload (65535) plus the MAC size (16).
+	maxMessageSize = math.MaxUint16 + macSize
+
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
 	keyRotationInterval = 1000

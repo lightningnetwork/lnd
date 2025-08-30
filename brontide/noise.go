@@ -385,6 +385,9 @@ type Machine struct {
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [encHeaderSize]byte
 
+	// pktLenBuffer is a reusable buffer for encoding the packet length.
+	pktLenBuffer [lengthHeaderSize]byte
+
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout
 	// errors that cause partial writes.
@@ -751,11 +754,10 @@ func (b *Machine) WriteMessage(p []byte) error {
 	// NOT include the MAC.
 	fullLength := uint16(len(p))
 
-	var pktLen [2]byte
-	binary.BigEndian.PutUint16(pktLen[:], fullLength)
+	binary.BigEndian.PutUint16(b.pktLenBuffer[:], fullLength)
 
 	// First, generate the encrypted+MAC'd length prefix for the packet.
-	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, pktLen[:])
+	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, b.pktLenBuffer[:])
 
 	// Finally, generate the encrypted packet itself.
 	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)

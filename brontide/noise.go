@@ -378,14 +378,20 @@ type Machine struct {
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [encHeaderSize]byte
 
+	// nextHeaderBuffer is a static buffer for the encrypted header.
+	nextHeaderBuffer [encHeaderSize]byte
+
+	// nextBodyBuffer is a static buffer for the encrypted body.
+	nextBodyBuffer [maxMessageSize]byte
+
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout
-	// errors that cause partial writes.
+	// errors that cause partial writes. This slices into nextHeaderBuffer.
 	nextHeaderSend []byte
 
 	// nextBodySend holds a reference to the remaining body bytes to write
 	// out for a pending message. This allows us to tolerate timeout errors
-	// that cause partial writes.
+	// that cause partial writes. This slices into nextBodyBuffer.
 	nextBodySend []byte
 }
 
@@ -747,11 +753,17 @@ func (b *Machine) WriteMessage(p []byte) error {
 	var pktLen [2]byte
 	binary.BigEndian.PutUint16(pktLen[:], fullLength)
 
-	// First, generate the encrypted+MAC'd length prefix for the packet.
-	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, pktLen[:])
+	// First, generate the encrypted+MAC'd length prefix for the packet. We
+	// slice into nextHeaderBuffer with [:0] to provide a zero-length slice
+	// with the full capacity, allowing Encrypt to append without
+	// allocating.
+	b.nextHeaderSend = b.sendCipher.Encrypt(
+		nil, b.nextHeaderBuffer[:0], b.pktLenBuffer[:],
+	)
 
-	// Finally, generate the encrypted packet itself.
-	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)
+	// Finally, generate the encrypted packet itself. Similarly, we slice
+	// into nextBodyBuffer to reuse the buffer.
+	b.nextBodySend = b.sendCipher.Encrypt(nil, b.nextBodyBuffer[:0], p)
 
 	return nil
 }

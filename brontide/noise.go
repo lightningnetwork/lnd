@@ -91,6 +91,9 @@ type cipherState struct {
 	// TODO(roasbeef): this should actually be 96 bit
 	nonce uint64
 
+	// nonceBuffer is a reusable buffer for the nonce to avoid allocations.
+	nonceBuffer [12]byte
+
 	// secretKey is the shared symmetric key which will be used to
 	// instantiate the cipher.
 	//
@@ -117,10 +120,12 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Seal(cipherText, nonce[:], plainText, associatedData)
+	return c.cipher.Seal(
+		cipherText, c.nonceBuffer[:], plainText, associatedData,
+	)
 }
 
 // Decrypt attempts to decrypt the passed ciphertext observing the specified
@@ -135,10 +140,12 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Open(plainText, nonce[:], cipherText, associatedData)
+	return c.cipher.Open(
+		plainText, c.nonceBuffer[:], cipherText, associatedData,
+	)
 }
 
 // InitializeKey initializes the secret key and AEAD cipher scheme based off of

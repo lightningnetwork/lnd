@@ -391,6 +391,9 @@ type Machine struct {
 	// nextBodyBuffer is a static buffer for the encrypted body.
 	nextBodyBuffer [maxMessageSize]byte
 
+	// pktLenBuffer is a reusable buffer for encoding the packet length.
+	pktLenBuffer [lengthHeaderSize]byte
+
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout
 	// errors that cause partial writes. This slices into nextHeaderBuffer.
@@ -757,8 +760,7 @@ func (b *Machine) WriteMessage(p []byte) error {
 	// NOT include the MAC.
 	fullLength := uint16(len(p))
 
-	var pktLen [2]byte
-	binary.BigEndian.PutUint16(pktLen[:], fullLength)
+	binary.BigEndian.PutUint16(b.pktLenBuffer[:], fullLength)
 
 	// First, generate the encrypted+MAC'd length prefix for the packet. We
 	// slice into nextHeaderBuffer with [:0] to provide a zero-length slice

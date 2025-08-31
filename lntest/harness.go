@@ -934,6 +934,10 @@ type OpenChannelParams struct {
 	// should be confirmed in.
 	ConfTarget fn.Option[int32]
 
+	// SatPerKWeight is the amount of satoshis to spend in chain fees per
+	// KWeight of the transaction.
+	SatPerKWeight btcutil.Amount
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -1012,7 +1016,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 	confTarget := p.ConfTarget.UnwrapOr(6)
 
 	// If there's fee rate set, unset the conf target.
-	if p.SatPerVByte != 0 {
+	if p.SatPerVByte != 0 || p.SatPerKWeight != 0 {
 		confTarget = 0
 	}
 
@@ -1029,6 +1033,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 		SatPerVbyte:        uint64(p.SatPerVByte),
+		SatPerKw:           uint64(p.SatPerKWeight),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -2052,6 +2057,77 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	feeRate := totalFee * scale / totalWeight
 
 	return feeRate
+}
+
+// CalculateFeeRateSatPerVByte calculates the weight of a transaction in
+// sat_per_vbyte.
+func (h *HarnessTest) CalculateFeeRateSatPerVByte(tx *wire.MsgTx) int64 {
+	weight := h.CalculateTxWeight(tx)
+	// always rounding up because there are no decimal vbytes.
+	virtualSize := int64(weight+3) / 4
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee / virtualSize
+}
+
+// CalculateFeeRateSatPerKWeight calculates the weight of a transaction in
+// sat_per_kweight.
+func (h *HarnessTest) CalculateFeeRateSatPerKWeight(tx *wire.MsgTx) int64 {
+	weight := int64(h.CalculateTxWeight(tx))
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee * 1000 / weight
+}
+
+type SweptOutput struct {
+	OutPoint wire.OutPoint
+	SweepTx  *wire.MsgTx
+}
+
+// FindCommitAndAnchor looks for a commitment sweep and anchor sweep in the
+// mempool. Our anchor output is identified by having multiple inputs in its
+// sweep transition, because we have to bring another input to add fees to the
+// anchor. Note that the anchor swept output may be nil if the channel did not
+// have anchors.
+func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
+	closeTx string) (*SweptOutput, *SweptOutput) {
+
+	var commitSweep, anchorSweep *SweptOutput
+
+	for _, tx := range sweepTxns {
+		txHash := tx.TxHash()
+		sweepTx := h.miner.GetRawTransaction(txHash)
+
+		// We expect our commitment sweep to have a single input, and,
+		// our anchor sweep to have more inputs (because the wallet
+		// needs to add balance to the anchor amount). We find their
+		// sweep txids here to setup appropriate resolutions. We also
+		// need to find the outpoint for our resolution, which we do by
+		// matching the inputs to the sweep to the close transaction.
+		inputs := sweepTx.MsgTx().TxIn
+		if len(inputs) == 1 {
+			commitSweep = &SweptOutput{
+				OutPoint: inputs[0].PreviousOutPoint,
+				SweepTx:  tx,
+			}
+		} else {
+			// Since we have more than one input, we run through
+			// them to find the one whose previous outpoint matches
+			// the closing txid, which means this input is spending
+			// the close tx. This will be our anchor output.
+			for _, txin := range inputs {
+				op := txin.PreviousOutPoint.Hash.String()
+				if op == closeTx {
+					anchorSweep = &SweptOutput{
+						OutPoint: txin.PreviousOutPoint,
+						SweepTx:  tx,
+					}
+				}
+			}
+		}
+	}
+
+	return commitSweep, anchorSweep
 }
 
 // AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and

@@ -100,8 +100,9 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	_, err = st.ReceiveCloseChannelUpdate(bobCloseStream)
 	require.NoError(st, err)
 
-	// We'll now attempt a fee update that we can't actually pay for. This
-	// will actually show up as an error to the remote party.
+	// We'll now attempt a fee update greater than DefaultMaxFeeRate. It
+	// will be capped at DefaultMaxFeeRate, but we still can't afford it.
+	// This will result in an error shown to the remote party.
 	aliceRejectedFeeRate = 100_000
 	_, _ = st.CloseChannelAssertPending(
 		alice, chanPoint, false,
@@ -181,8 +182,8 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 				lnrpc.CommitmentType_SIMPLE_TAPROOT
 
 			params := lntest.OpenChannelParams{
-				Amt:            btcutil.Amount(1000000),
-				PushAmt:        btcutil.Amount(1000000 / 2),
+				Amt:            btcutil.Amount(100000),
+				PushAmt:        btcutil.Amount(100000 / 2),
 				CommitmentType: chanType.commitType,
 				Private:        isTaproot,
 			}

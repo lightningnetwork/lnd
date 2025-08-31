@@ -934,6 +934,10 @@ type OpenChannelParams struct {
 	// should be confirmed in.
 	ConfTarget fn.Option[int32]
 
+	// SatPerKWeight is the amount of satoshis to spend in chain fees per
+	// KWeight of the transaction.
+	SatPerKWeight btcutil.Amount
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -1012,7 +1016,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 	confTarget := p.ConfTarget.UnwrapOr(6)
 
 	// If there's fee rate set, unset the conf target.
-	if p.SatPerVByte != 0 {
+	if p.SatPerVByte != 0 || p.SatPerKWeight != 0 {
 		confTarget = 0
 	}
 
@@ -1029,6 +1033,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 		SatPerVbyte:        uint64(p.SatPerVByte),
+		SatPerKw:           uint64(p.SatPerKWeight),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -2072,6 +2077,31 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	feeRate := totalFee * scale / totalWeight
 
 	return feeRate
+}
+
+// CalculateFeeRateSatPerVByte calculates the weight of a transaction in
+// sat_per_vbyte.
+func (h *HarnessTest) CalculateFeeRateSatPerVByte(tx *wire.MsgTx) int64 {
+	weight := h.CalculateTxWeight(tx)
+	// always rounding up because there are no decimal vbytes.
+	virtualSize := int64(weight+3) / 4
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee / virtualSize
+}
+
+// CalculateFeeRateSatPerKWeight calculates the weight of a transaction in
+// sat_per_kweight.
+func (h *HarnessTest) CalculateFeeRateSatPerKWeight(tx *wire.MsgTx) int64 {
+	weight := int64(h.CalculateTxWeight(tx))
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee * 1000 / weight
+}
+
+type SweptOutput struct {
+	OutPoint wire.OutPoint
+	SweepTx  *wire.MsgTx
 }
 
 // AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and

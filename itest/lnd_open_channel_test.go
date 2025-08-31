@@ -1342,3 +1342,66 @@ func testOpenChannelWithShutdownAddr(ht *lntest.HarnessTest) {
 	require.Equal(ht, bobShutdownAddr.Address, bobUTXOConfirmed.Address)
 	require.Equal(ht, paymentAmount, bobUTXOConfirmed.AmountSat)
 }
+
+// testOpenChannelFeerate tests that we can open a channel with a specified
+// feerate either in sat_per_vbyte or in sat_per_kweight.
+func testOpenChannelFeerate(ht *lntest.HarnessTest) {
+	alice, bob := ht.NewNode("Alice", nil), ht.NewNode("Bob", nil)
+
+	// Ensure Alice is connected to Bob.
+	ht.EnsureConnected(alice, bob)
+
+	// Send Alice enough coins to be able to call OpenChannel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+	chanAmt := funding.MaxBtcFundingAmount / 3
+
+	// First we test opening a channel by specifying the feerate in
+	// sat_per_kweight
+	params := lntest.OpenChannelParams{
+		Amt:           chanAmt,
+		SatPerKWeight: 500,
+	}
+
+	// Create a channel Alice->Bob.
+	chanPoint := ht.OpenChannel(alice, bob, params)
+	defer ht.CloseChannel(alice, chanPoint)
+
+	// Calculate the feerate of the funding transaction.
+	fundingTxID := ht.GetChanPointFundingTxid(chanPoint)
+	rawTx := ht.Miner().GetRawTransaction(fundingTxID)
+	feerate := ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(params.SatPerKWeight), feerate, 0.01)
+
+	// Now we open another channel with the feerate sat_per_vbyte
+	params = lntest.OpenChannelParams{
+		Amt:         chanAmt,
+		SatPerVByte: 100,
+	}
+
+	// Create a channel Alice->Bob.
+	chanPoint = ht.OpenChannel(alice, bob, params)
+	defer ht.CloseChannel(alice, chanPoint)
+
+	// Calculate the feerate of the funding transaction.
+	fundingTxID = ht.GetChanPointFundingTxid(chanPoint)
+	rawTx = ht.Miner().GetRawTransaction(fundingTxID)
+	feerate = ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(params.SatPerVByte), feerate, 0.01)
+
+	// Test when specififying both feerate options we should fail.
+	params = lntest.OpenChannelParams{
+		Amt:           chanAmt,
+		SatPerVByte:   2,
+		SatPerKWeight: 500,
+	}
+
+	ht.OpenChannelAssertErr(alice, bob, params, fmt.Errorf("only one fee "+
+		"field may be set"))
+}

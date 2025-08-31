@@ -24,8 +24,8 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	// enough coins to make a 50/50 channel.
 	cfgs := [][]string{rbfCoopFlags, rbfCoopFlags}
 	params := lntest.OpenChannelParams{
-		Amt:     btcutil.Amount(1000000),
-		PushAmt: btcutil.Amount(1000000 / 2),
+		Amt:     btcutil.Amount(100000),
+		PushAmt: btcutil.Amount(100000 / 2),
 	}
 	chanPoints, nodes := ht.CreateSimpleNetwork(cfgs, params)
 	alice, bob := nodes[0], nodes[1]
@@ -97,8 +97,9 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	_, err = ht.ReceiveCloseChannelUpdate(bobCloseStream)
 	require.NoError(ht, err)
 
-	// We'll now attempt a fee update that we can't actually pay for. This
-	// will actually show up as an error to the remote party.
+	// We'll now attempt a fee update greater than DefaultMaxFeeRate. It
+	// will be capped at DefaultMaxFeeRate, but we still can't afford it.
+	// This will result in an error shown to the remote party.
 	aliceRejectedFeeRate = 100_000
 	_, _ = ht.CloseChannelAssertPending(
 		alice, chanPoint, false,

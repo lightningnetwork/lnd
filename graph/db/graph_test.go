@@ -69,7 +69,7 @@ var (
 	}
 )
 
-func createLightningNode(priv *btcec.PrivateKey) *models.Node {
+func createNode(priv *btcec.PrivateKey) *models.Node {
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.Node{
 		HaveNodeAnnouncement: true,
@@ -91,7 +91,7 @@ func createTestVertex(t testing.TB) *models.Node {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	return createLightningNode(priv)
+	return createNode(priv)
 }
 
 // TestNodeInsertionAndDeletion tests the CRUD operations for a Node.
@@ -4069,7 +4069,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 	}
 
 	// Create a Node from the same private key.
-	node := createLightningNode(priv)
+	node := createNode(priv)
 
 	// And finally check that we can verify the same signature from the
 	// pubkey returned from the lightning node.

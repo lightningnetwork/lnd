@@ -1257,15 +1257,15 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. graphdb.ErrGraphNodeNotFound is returned if the node doesn't exist
 // within the graph.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) FetchLightningNode(ctx context.Context,
+func (b *Builder) FetchNode(ctx context.Context,
 	node route.Vertex) (*models.Node, error) {
 
-	return b.cfg.Graph.FetchLightningNode(ctx, node)
+	return b.cfg.Graph.FetchNode(ctx, node)
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by

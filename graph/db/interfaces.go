@@ -112,11 +112,11 @@ type V1Store interface { //nolint:interfacebloat
 	NodeUpdatesInHorizon(startTime,
 		endTime time.Time) ([]models.Node, error)
 
-	// FetchLightningNode attempts to look up a target node by its identity
+	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(ctx context.Context,
-		nodePub route.Vertex) (*models.Node, error)
+	FetchNode(ctx context.Context, nodePub route.Vertex) (*models.Node,
+		error)
 
 	// HasLightningNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the

@@ -382,7 +382,7 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 		return false, nil, err
 	}
 
-	node, err := c.FetchLightningNode(ctx, pubKey)
+	node, err := c.FetchNode(ctx, pubKey)
 	// We don't consider it an error if the graph is unaware of the node.
 	switch {
 	case err != nil && !errors.Is(err, ErrGraphNodeNotFound):
@@ -629,7 +629,7 @@ func (c *KVStore) fetchNodeFeatures(tx kvdb.RTx,
 	node route.Vertex) (*lnwire.FeatureVector, error) {
 
 	// Fallback that uses the database.
-	targetNode, err := c.FetchLightningNodeTx(tx, node)
+	targetNode, err := c.fetchNodeTx(tx, node)
 	switch {
 	// If the node exists and has features, return them directly.
 	case err == nil:
@@ -3043,20 +3043,20 @@ func (c *KVStore) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 	return nodeIsPublic, nil
 }
 
-// FetchLightningNodeTx attempts to look up a target node by its identity
+// fetchNodeTx attempts to look up a target node by its identity
 // public key. If the node isn't found in the database, then
 // ErrGraphNodeNotFound is returned. An optional transaction may be provided.
 // If none is provided, then a new one will be created.
-func (c *KVStore) FetchLightningNodeTx(tx kvdb.RTx, nodePub route.Vertex) (
-	*models.Node, error) {
+func (c *KVStore) fetchNodeTx(tx kvdb.RTx, nodePub route.Vertex) (*models.Node,
+	error) {
 
 	return c.fetchLightningNode(tx, nodePub)
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *KVStore) FetchLightningNode(_ context.Context,
+func (c *KVStore) FetchNode(_ context.Context,
 	nodePub route.Vertex) (*models.Node, error) {
 
 	return c.fetchLightningNode(nil, nodePub)

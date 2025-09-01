@@ -412,7 +412,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(ctx, vertex)
+			dbNode, err := d.db.FetchNode(ctx, vertex)
 			switch {
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough

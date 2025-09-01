@@ -2235,7 +2235,7 @@ func (d *AuthenticatedGossiper) processZombieUpdate(_ context.Context,
 func (d *AuthenticatedGossiper) fetchNodeAnn(ctx context.Context,
 	pubKey [33]byte) (*lnwire.NodeAnnouncement, error) {
 
-	node, err := d.cfg.Graph.FetchLightningNode(ctx, pubKey)
+	node, err := d.cfg.Graph.FetchNode(ctx, pubKey)
 	if err != nil {
 		return nil, err
 	}

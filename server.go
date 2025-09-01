@@ -5208,7 +5208,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(ctx, vertex)
+	node, err := s.graphDB.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}

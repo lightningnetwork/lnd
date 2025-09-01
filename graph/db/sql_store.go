@@ -261,12 +261,12 @@ func (s *SQLStore) AddNode(ctx context.Context,
 	return s.nodeScheduler.Execute(ctx, r)
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) FetchLightningNode(ctx context.Context,
+func (s *SQLStore) FetchNode(ctx context.Context,
 	pubKey route.Vertex) (*models.Node, error) {
 
 	var node *models.Node

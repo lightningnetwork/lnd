@@ -980,7 +980,7 @@ func (c *KVStore) SetSourceNode(_ context.Context,
 	}, func() {})
 }
 
-// AddLightningNode adds a vertex/node to the graph database. If the node is not
+// AddNode adds a vertex/node to the graph database. If the node is not
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
 // information. Note that this method is expected to only be called to update an
@@ -988,7 +988,7 @@ func (c *KVStore) SetSourceNode(_ context.Context,
 // channel update.
 //
 // TODO(roasbeef): also need sig of announcement.
-func (c *KVStore) AddLightningNode(ctx context.Context,
+func (c *KVStore) AddNode(ctx context.Context,
 	node *models.Node, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[kvdb.RwTx]{

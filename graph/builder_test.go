@@ -1475,7 +1475,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// With the node fully parsed, add it as a vertex within the
 		// graph.
-		if err := graph.AddLightningNode(ctx, dbNode); err != nil {
+		if err := graph.AddNode(ctx, dbNode); err != nil {
 			return nil, err
 		}
 	}
@@ -1806,7 +1806,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			err = graph.SetSourceNode(ctx, dbNode)
 			require.NoError(t, err)
 		} else {
-			err := graph.AddLightningNode(ctx, dbNode)
+			err := graph.AddNode(ctx, dbNode)
 			require.NoError(t, err)
 		}
 

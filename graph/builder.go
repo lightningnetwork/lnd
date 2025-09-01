@@ -1003,7 +1003,7 @@ func (b *Builder) addNode(ctx context.Context, node *models.Node,
 		return err
 	}
 
-	if err := b.cfg.Graph.AddLightningNode(ctx, node, op...); err != nil {
+	if err := b.cfg.Graph.AddNode(ctx, node, op...); err != nil {
 		return fmt.Errorf("unable to add node %x to the "+
 			"graph: %w", node.PubKeyBytes, err)
 	}

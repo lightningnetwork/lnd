@@ -260,7 +260,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 			return nil, err
 		}
 
-		if err := graphDB.AddLightningNode(ctx, node); err != nil {
+		if err := graphDB.AddNode(ctx, node); err != nil {
 			return nil, fmt.Errorf("unable to add node %v: %w",
 				rpcNode.PubKey, err)
 		}

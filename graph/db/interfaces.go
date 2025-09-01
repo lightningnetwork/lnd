@@ -32,13 +32,13 @@ type NodeTraverser interface {
 type V1Store interface { //nolint:interfacebloat
 	NodeTraverser
 
-	// AddLightningNode adds a vertex/node to the graph database. If the
+	// AddNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
 	// unconnected one to the graph. If it is present from before, this will
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(ctx context.Context, node *models.Node,
+	AddNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddrsForNode returns all known addresses for the target node public

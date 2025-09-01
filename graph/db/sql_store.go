@@ -241,13 +241,13 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	return s, nil
 }
 
-// AddLightningNode adds a vertex/node to the graph database. If the node is not
+// AddNode adds a vertex/node to the graph database. If the node is not
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
 // information.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddLightningNode(ctx context.Context,
+func (s *SQLStore) AddNode(ctx context.Context,
 	node *models.Node, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[SQLQueries]{

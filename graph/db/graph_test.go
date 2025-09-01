@@ -122,7 +122,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
 	node := nodeWithAddrs(testAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 	assertNodeInCache(t, graph, node, testFeatures)
 
 	// Next, fetch the node from the database to ensure everything was
@@ -182,7 +182,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Add the node without any addresses.
 	node = nodeWithAddrs(nil)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the empty addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
@@ -211,7 +211,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testOpaqueAddr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
@@ -232,7 +232,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testIPV6Addr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
@@ -245,7 +245,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testOnionV3Addr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
 	dbNode, err = graph.FetchLightningNode(ctx, testPub)
@@ -353,7 +353,7 @@ func TestAliasLookup(t *testing.T) {
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
-	require.NoError(t, graph.AddLightningNode(ctx, testNode))
+	require.NoError(t, graph.AddNode(ctx, testNode))
 
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
@@ -824,12 +824,12 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	assertNodeInCache(t, graph, node1, testFeatures)
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	assertNodeInCache(t, graph, node2, testFeatures)
@@ -1595,7 +1595,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	// Add each of the nodes into the graph, they should be inserted
 	// without error.
 	for _, node := range nodes {
-		require.NoError(t, graph.AddLightningNode(ctx, node))
+		require.NoError(t, graph.AddNode(ctx, node))
 	}
 
 	// Iterate over each node as returned by the graph, if all nodes are
@@ -1788,7 +1788,7 @@ func TestGraphPruning(t *testing.T) {
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t)
 
-		if err := graph.AddLightningNode(ctx, node); err != nil {
+		if err := graph.AddNode(ctx, node); err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
@@ -2039,11 +2039,11 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -2212,7 +2212,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 		nodeAnns = append(nodeAnns, *nodeAnn)
 
-		require.NoError(t, graph.AddLightningNode(ctx, nodeAnn))
+		require.NoError(t, graph.AddNode(ctx, nodeAnn))
 	}
 
 	queryCases := []struct {
@@ -2384,11 +2384,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -2539,10 +2539,10 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// We need to update the node's timestamp since this call to
 	// SetSourceNode will trigger an upsert which will only be allowed if
@@ -2830,10 +2830,10 @@ func TestFilterChannelRange(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
@@ -3049,11 +3049,11 @@ func TestFetchChanInfos(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3151,11 +3151,11 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	// Create two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3256,11 +3256,11 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3401,15 +3401,15 @@ func TestPruneGraphNodes(t *testing.T) {
 	// channel graph, at the end of the scenario, only two of these nodes
 	// should still be in the graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node3 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node3); err != nil {
+	if err := graph.AddNode(ctx, node3); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3483,7 +3483,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
 	// Show that updating the shell node to a full node record works.
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed
@@ -3498,7 +3498,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3591,7 +3591,7 @@ func TestNodeIsPublic(t *testing.T) {
 	for _, graph := range graphs {
 		for _, node := range nodes {
 			node.LastUpdate = nextUpdateTime()
-			err := graph.AddLightningNode(ctx, node)
+			err := graph.AddNode(ctx, node)
 			require.NoError(t, err)
 		}
 		for _, edge := range edges {
@@ -3693,20 +3693,20 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Create first node and add it to the graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Create second node and add it to the graph.
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 	node2.LastUpdate = nextUpdateTime()
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3785,13 +3785,13 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
 
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	if err := graph.AddChannelEdge(ctx, edgeInfo); err != nil {
@@ -4186,9 +4186,9 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
@@ -4294,9 +4294,9 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	graph.graphCache = nil
 
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
 	edgeInfo, e1, e2 := createChannelEdge(node1, node2)
@@ -4466,7 +4466,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	node := models.NodeFromWireAnnouncement(na)
 
 	// Persist the node to disk.
-	err = graph.AddLightningNode(ctx, node)
+	err = graph.AddNode(ctx, node)
 	require.NoError(t, err)
 
 	// Read the node from disk.

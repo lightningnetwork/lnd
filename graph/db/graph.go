@@ -266,16 +266,16 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 	return c.V1Store.ForEachNodeCached(ctx, withAddrs, cb, reset)
 }
 
-// AddLightningNode adds a vertex/node to the graph database. If the node is not
+// AddNode adds a vertex/node to the graph database. If the node is not
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
 // information. Note that this method is expected to only be called to update an
 // already present node from a node announcement, or to insert a node found in a
 // channel update.
-func (c *ChannelGraph) AddLightningNode(ctx context.Context,
+func (c *ChannelGraph) AddNode(ctx context.Context,
 	node *models.Node, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddLightningNode(ctx, node, op...)
+	err := c.V1Store.AddNode(ctx, node, op...)
 	if err != nil {
 		return err
 	}

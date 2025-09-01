@@ -585,7 +585,7 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 		go func() {
 			defer wgNodes.Done()
 
-			err := dest.AddLightningNode(ctx, node, batch.LazyAdd())
+			err := dest.AddNode(ctx, node, batch.LazyAdd())
 			require.NoError(t, err)
 
 			mu.Lock()

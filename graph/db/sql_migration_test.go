@@ -74,7 +74,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 		var err error
 		switch obj := object.(type) {
 		case *models.Node:
-			err = db.AddLightningNode(ctx, obj)
+			err = db.AddNode(ctx, obj)
 		case *models.ChannelEdgeInfo:
 			err = db.AddChannelEdge(ctx, obj)
 		case *models.ChannelEdgePolicy:
@@ -939,8 +939,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 		}
 
 		runTestMigration(t, populateKV, dbState{
@@ -978,8 +978,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert both channels into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c1))
@@ -1032,8 +1032,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert the channel into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c))
@@ -1113,8 +1113,8 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 
 		populateKV := func(t *testing.T, db *KVStore) {
 			// Insert both nodes into the KV store.
-			require.NoError(t, db.AddLightningNode(ctx, n1))
-			require.NoError(t, db.AddLightningNode(ctx, n2))
+			require.NoError(t, db.AddNode(ctx, n1))
+			require.NoError(t, db.AddNode(ctx, n2))
 
 			// Insert the channel into the KV store.
 			require.NoError(t, db.AddChannelEdge(ctx, c))
@@ -1371,7 +1371,7 @@ func testMigrateGraphToSQLRapidOnce(t *testing.T, rt *rapid.T,
 
 	// Write the test objects to the kvdb store.
 	for _, node := range allNodes {
-		err := kvDB.AddLightningNode(ctx, node)
+		err := kvDB.AddNode(ctx, node)
 		require.NoError(t, err)
 	}
 	for _, channel := range channels {

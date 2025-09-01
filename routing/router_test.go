@@ -2882,7 +2882,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n1))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n1))
 
 	n2 := &models.Node{
 		HaveNodeAnnouncement: true,
@@ -2895,7 +2895,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n2))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n2))
 
 	// Should still be able to find the route, and the info should be
 	// updated.

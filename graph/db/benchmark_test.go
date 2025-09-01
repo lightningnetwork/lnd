@@ -350,7 +350,7 @@ func TestPopulateDBs(t *testing.T) {
 	countNodes := func(graph *ChannelGraph) int {
 		numNodes := 0
 		err := graph.ForEachNode(
-			ctx, func(node *models.LightningNode) error {
+			ctx, func(node *models.Node) error {
 				numNodes++
 
 				return nil
@@ -580,7 +580,7 @@ func syncGraph(t *testing.T, src, dest *ChannelGraph) {
 	}
 
 	var wgNodes sync.WaitGroup
-	err := src.ForEachNode(ctx, func(node *models.LightningNode) error {
+	err := src.ForEachNode(ctx, func(node *models.Node) error {
 		wgNodes.Add(1)
 		go func() {
 			defer wgNodes.Done()
@@ -746,7 +746,7 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 			fn: func(b testing.TB, store V1Store) {
 				err := store.ForEachNode(
 					ctx,
-					func(_ *models.LightningNode) error {
+					func(_ *models.Node) error {
 						// Increment the counter to
 						// ensure the callback is doing
 						// something.
@@ -932,10 +932,9 @@ func BenchmarkFindOptimalSQLQueryConfig(b *testing.B) {
 						numChannels = 0
 					)
 
-					//nolint:ll
 					err := store.ForEachNode(
 						ctx,
-						func(_ *models.LightningNode) error {
+						func(_ *models.Node) error {
 							numNodes++
 
 							return nil

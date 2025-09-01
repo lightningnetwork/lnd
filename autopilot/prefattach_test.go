@@ -403,7 +403,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	ctx := context.Background()
 
-	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
+	fetchNode := func(pub *btcec.PublicKey) (*models.Node, error) {
 		if pub != nil {
 			vertex, err := route.NewVertexFromBytes(
 				pub.SerializeCompressed(),
@@ -417,7 +417,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
 			case errors.Is(err, graphdb.ErrGraphNotFound):
-				graphNode := &models.LightningNode{
+				graphNode := &models.Node{
 					HaveNodeAnnouncement: true,
 					Addresses: []net.Addr{&net.TCPAddr{
 						IP: bytes.Repeat(
@@ -447,7 +447,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if err != nil {
 			return nil, err
 		}
-		dbNode := &models.LightningNode{
+		dbNode := &models.Node{
 			HaveNodeAnnouncement: true,
 			Addresses: []net.Addr{
 				&net.TCPAddr{
@@ -548,7 +548,7 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbNode := &models.LightningNode{
+	dbNode := &models.Node{
 		HaveNodeAnnouncement: true,
 		Addresses: []net.Addr{
 			&net.TCPAddr{

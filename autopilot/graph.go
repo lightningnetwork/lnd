@@ -48,7 +48,7 @@ func ChannelGraphFromDatabase(db GraphSource) ChannelGraph {
 }
 
 // type dbNode is a wrapper struct around a database transaction an
-// channeldb.LightningNode. The wrapper method implement the autopilot.Node
+// channeldb.Node. The wrapper method implement the autopilot.Node
 // interface.
 type dbNode struct {
 	pub   [33]byte
@@ -84,7 +84,7 @@ func (d *dbNode) Addrs() []net.Addr {
 func (d *databaseChannelGraph) ForEachNode(ctx context.Context,
 	cb func(context.Context, Node) error, reset func()) error {
 
-	return d.db.ForEachNode(ctx, func(n *models.LightningNode) error {
+	return d.db.ForEachNode(ctx, func(n *models.Node) error {
 		// We'll skip over any node that doesn't have any advertised
 		// addresses. As we won't be able to reach them to actually
 		// open any channels.
@@ -161,7 +161,7 @@ func ChannelGraphFromCachedDatabase(db GraphSource) ChannelGraph {
 }
 
 // dbNodeCached is a wrapper struct around a database transaction for a
-// channeldb.LightningNode. The wrapper methods implement the autopilot.Node
+// channeldb.Node. The wrapper methods implement the autopilot.Node
 // interface.
 type dbNodeCached struct {
 	node     route.Vertex

@@ -226,7 +226,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 
 	var err error
 	for _, rpcNode := range graph.Nodes {
-		node := &models.LightningNode{
+		node := &models.Node{
 			HaveNodeAnnouncement: true,
 			LastUpdate: time.Unix(
 				int64(rpcNode.LastUpdate), 0,

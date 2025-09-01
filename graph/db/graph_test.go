@@ -69,9 +69,9 @@ var (
 	}
 )
 
-func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
+func createLightningNode(priv *btcec.PrivateKey) *models.Node {
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
+	n := &models.Node{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           nextUpdateTime(),
@@ -85,7 +85,7 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	return n
 }
 
-func createTestVertex(t testing.TB) *models.LightningNode {
+func createTestVertex(t testing.TB) *models.Node {
 	t.Helper()
 
 	priv, err := btcec.NewPrivateKey()
@@ -94,7 +94,7 @@ func createTestVertex(t testing.TB) *models.LightningNode {
 	return createLightningNode(priv)
 }
 
-// TestNodeInsertionAndDeletion tests the CRUD operations for a LightningNode.
+// TestNodeInsertionAndDeletion tests the CRUD operations for a Node.
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -104,9 +104,9 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
 	timeStamp := int64(1232342)
-	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
 		timeStamp++
-		return &models.LightningNode{
+		return &models.Node{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           time.Unix(timeStamp, 0),
@@ -271,7 +271,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestPartialNode checks that we can add and retrieve a LightningNode where
+// TestPartialNode checks that we can add and retrieve a Node where
 // only the pubkey is known to the database.
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
@@ -281,7 +281,7 @@ func TestPartialNode(t *testing.T) {
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
-	var node1, node2 models.LightningNode
+	var node1, node2 models.Node
 	copy(node1.PubKeyBytes[:], pubKey1Bytes)
 	copy(node2.PubKeyBytes[:], pubKey2Bytes)
 
@@ -307,7 +307,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode1 := &models.LightningNode{
+	expectedNode1 := &models.Node{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey1,
@@ -321,7 +321,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode2 := &models.LightningNode{
+	expectedNode2 := &models.Node{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey2,
@@ -484,7 +484,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
-	node1, node2 *models.LightningNode) (models.ChannelEdgeInfo,
+	node1, node2 *models.Node) (models.ChannelEdgeInfo,
 	lnwire.ShortChannelID) {
 
 	shortChanID := lnwire.ShortChannelID{
@@ -724,7 +724,7 @@ func withSkipProofs() createEdgeOpt {
 	}
 }
 
-func createChannelEdge(node1, node2 *models.LightningNode,
+func createChannelEdge(node1, node2 *models.Node,
 	options ...createEdgeOpt) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
 
@@ -982,7 +982,7 @@ func TestEdgePolicyCRUD(t *testing.T) {
 	updateAndAssertPolicies()
 }
 
-func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
+func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.Node,
 	expectedFeatures *lnwire.FeatureVector) {
 
 	// Let's check the internal view first.
@@ -1335,7 +1335,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	// Now, we'll use the ForEachSourceNodeChannel and assert that it
 	// returns the expected data in the call-back.
 	err := graph.ForEachSourceNodeChannel(ctx, func(chanPoint wire.OutPoint,
-		havePolicy bool, otherNode *models.LightningNode) error {
+		havePolicy bool, otherNode *models.Node) error {
 
 		require.Contains(t, expectedSrcChans, chanPoint)
 		expected := expectedSrcChans[chanPoint]
@@ -1468,7 +1468,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+	err := graph.ForEachNode(ctx, func(n *models.Node) error {
 		nodeMap[n.PubKeyBytes] = struct{}{}
 
 		return nil
@@ -1579,11 +1579,11 @@ func TestGraphCacheTraversal(t *testing.T) {
 }
 
 func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
-	numChannels int) (map[uint64]struct{}, []*models.LightningNode) {
+	numChannels int) (map[uint64]struct{}, []*models.Node) {
 
 	ctx := t.Context()
 
-	nodes := make([]*models.LightningNode, numNodes)
+	nodes := make([]*models.Node, numNodes)
 	nodeIndex := map[string]struct{}{}
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t)
@@ -1600,7 +1600,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+	err := graph.ForEachNode(ctx, func(n *models.Node) error {
 		delete(nodeIndex, n.Alias)
 		return nil
 	}, func() {})
@@ -1710,7 +1710,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
 	err := graph.ForEachNode(t.Context(),
-		func(_ *models.LightningNode) error {
+		func(_ *models.Node) error {
 			numNodes++
 
 			return nil
@@ -1784,7 +1784,7 @@ func TestGraphPruning(t *testing.T) {
 	// and enough edges to create a fully connected graph. The graph will
 	// be rather simple, representing a straight line.
 	const numNodes = 5
-	graphNodes := make([]*models.LightningNode, numNodes)
+	graphNodes := make([]*models.Node, numNodes)
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t)
 
@@ -2198,7 +2198,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
 	const numNodes = 10
-	nodeAnns := make([]models.LightningNode, 0, numNodes)
+	nodeAnns := make([]models.Node, 0, numNodes)
 	for i := 0; i < numNodes; i++ {
 		nodeAnn := createTestVertex(t)
 
@@ -2219,7 +2219,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		start time.Time
 		end   time.Time
 
-		resp []models.LightningNode
+		resp []models.Node
 	}{
 		// If we query for a time range that's strictly below our set
 		// of updates, then we'll get an empty result back.
@@ -2857,7 +2857,7 @@ func TestFilterChannelRange(t *testing.T) {
 	)
 
 	updateTimeSeed := time.Now().Unix()
-	maybeAddPolicy := func(chanID uint64, node *models.LightningNode,
+	maybeAddPolicy := func(chanID uint64, node *models.Node,
 		node2 bool) time.Time {
 
 		var chanFlags lnwire.ChanUpdateChanFlags
@@ -3168,7 +3168,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	}
 
 	// Ensure that channel is reported with unknown policies.
-	checkPolicies := func(node *models.LightningNode, expectedIn,
+	checkPolicies := func(node *models.Node, expectedIn,
 		expectedOut bool) {
 
 		calls := 0
@@ -3585,7 +3585,7 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// After creating all of our nodes and edges, we'll add them to each
 	// participant's graph.
-	nodes := []*models.LightningNode{aliceNode, bobNode, carolNode}
+	nodes := []*models.Node{aliceNode, bobNode, carolNode}
 	edges := []*models.ChannelEdgeInfo{&aliceBobEdge, &bobCarolEdge}
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
@@ -3602,7 +3602,7 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// checkNodes is a helper closure that will be used to assert that the
 	// given nodes are seen as public/private within the given graphs.
-	checkNodes := func(nodes []*models.LightningNode,
+	checkNodes := func(nodes []*models.Node,
 		graphs []*ChannelGraph, public bool) {
 
 		t.Helper()
@@ -3645,7 +3645,7 @@ func TestNodeIsPublic(t *testing.T) {
 		}
 	}
 	checkNodes(
-		[]*models.LightningNode{aliceNode},
+		[]*models.Node{aliceNode},
 		[]*ChannelGraph{bobGraph, carolGraph},
 		false,
 	)
@@ -3676,7 +3676,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// With the modifications above, Bob should now be seen as a private
 	// node from both Alice's and Carol's perspective.
 	checkNodes(
-		[]*models.LightningNode{bobNode},
+		[]*models.Node{bobNode},
 		[]*ChannelGraph{aliceGraph, carolGraph},
 		false,
 	)
@@ -3979,8 +3979,8 @@ func TestGraphZombieIndex(t *testing.T) {
 	assertNumZombies(t, graph, 1)
 }
 
-// compareNodes is used to compare two LightningNodes.
-func compareNodes(t *testing.T, a, b *models.LightningNode) {
+// compareNodes is used to compare two Nodes.
+func compareNodes(t *testing.T, a, b *models.Node) {
 	t.Helper()
 
 	// Call the PubKey method for each node to ensure that the internal
@@ -4046,7 +4046,7 @@ func compareEdgePolicies(a, b *models.ChannelEdgePolicy) error {
 	return nil
 }
 
-// TestLightningNodeSigVerification checks that we can use the LightningNode's
+// TestLightningNodeSigVerification checks that we can use the Node's
 // pubkey to verify signatures.
 func TestLightningNodeSigVerification(t *testing.T) {
 	t.Parallel()
@@ -4068,7 +4068,7 @@ func TestLightningNodeSigVerification(t *testing.T) {
 		t.Fatalf("signature doesn't check out")
 	}
 
-	// Create a LightningNode from the same private key.
+	// Create a Node from the same private key.
 	node := createLightningNode(priv)
 
 	// And finally check that we can verify the same signature from the
@@ -4442,7 +4442,7 @@ var testNodeAnn = "01012674c2e7ef68c73a086b7de2603f4ef1567358df84bb4edaa06c" +
 	"80000000d0000000005cd2a001260706204c"
 
 // TestLightningNodePersistence takes a raw serialized node announcement
-// message, converts it to our internal models.LightningNode type, persists it
+// message, converts it to our internal models.Node type, persists it
 // to disk, reads it again and converts it back to a wire message and asserts
 // that the two messages are equal.
 func TestLightningNodePersistence(t *testing.T) {

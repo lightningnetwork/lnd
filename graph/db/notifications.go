@@ -382,7 +382,7 @@ func (c *ChannelGraph) addToTopologyChange(update *TopologyChange,
 
 	// Any node announcement maps directly to a NetworkNodeUpdate struct.
 	// No further data munging or db queries are required.
-	case *models.LightningNode:
+	case *models.Node:
 		pubKey, err := m.PubKey()
 		if err != nil {
 			return err

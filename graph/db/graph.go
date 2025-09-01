@@ -273,7 +273,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 // already present node from a node announcement, or to insert a node found in a
 // channel update.
 func (c *ChannelGraph) AddLightningNode(ctx context.Context,
-	node *models.LightningNode, op ...batch.SchedulerOption) error {
+	node *models.Node, op ...batch.SchedulerOption) error {
 
 	err := c.V1Store.AddLightningNode(ctx, node, op...)
 	if err != nil {

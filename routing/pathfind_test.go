@@ -219,7 +219,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	privKeyMap := make(map[string]*btcec.PrivateKey)
 	channelIDs := make(map[route.Vertex]map[route.Vertex]uint64)
 	links := make(map[lnwire.ShortChannelID]htlcswitch.ChannelLink)
-	var source *models.LightningNode
+	var source *models.Node
 
 	// First we insert all the nodes within the graph as vertexes.
 	for _, node := range g.Nodes {
@@ -228,7 +228,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.LightningNode{
+		dbNode := &models.Node{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -565,7 +565,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.LightningNode{
+		dbNode := &models.Node{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           testTime,
@@ -1253,7 +1253,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
 	require.NoError(t, err, "unable to parse public key from bytes")
 
-	doge := &models.LightningNode{}
+	doge := &models.Node{}
 	doge.AddPubKey(dogePubKey)
 	doge.Alias = "doge"
 	copy(doge.PubKeyBytes[:], dogePubKeyBytes)

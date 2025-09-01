@@ -23,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(ctx context.Context, node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -87,7 +87,7 @@ type ChannelGraphSource interface {
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
 	FetchLightningNode(context.Context,
-		route.Vertex) (*models.LightningNode, error)
+		route.Vertex) (*models.Node, error)
 
 	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
 	MarkZombieEdge(chanID uint64) error
@@ -135,7 +135,7 @@ type DB interface {
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode(ctx context.Context) (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.Node, error)
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
@@ -206,7 +206,7 @@ type DB interface {
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(ctx context.Context, node *models.LightningNode,
+	AddLightningNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
@@ -247,7 +247,7 @@ type DB interface {
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
 	FetchLightningNode(ctx context.Context,
-		nodePub route.Vertex) (*models.LightningNode, error)
+		nodePub route.Vertex) (*models.Node, error)
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

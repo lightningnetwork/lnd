@@ -683,7 +683,7 @@ func (c *KVStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 	// node, and construct a similar callback functiopn signature as the
 	// main funcotin expects.
 	return forEachNode(c.db, func(tx kvdb.RTx,
-		node *models.LightningNode) error {
+		node *models.Node) error {
 
 		channels := make(map[uint64]*DirectedChannel)
 
@@ -804,10 +804,10 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 //
 // NOTE: this is part of the V1Store interface.
 func (c *KVStore) ForEachNode(_ context.Context,
-	cb func(*models.LightningNode) error, reset func()) error {
+	cb func(*models.Node) error, reset func()) error {
 
 	return forEachNode(c.db, func(tx kvdb.RTx,
-		node *models.LightningNode) error {
+		node *models.Node) error {
 
 		return cb(node)
 	}, reset)
@@ -821,7 +821,7 @@ func (c *KVStore) ForEachNode(_ context.Context,
 // TODO(roasbeef): add iterator interface to allow for memory efficient graph
 // traversal when graph gets mega.
 func forEachNode(db kvdb.Backend,
-	cb func(kvdb.RTx, *models.LightningNode) error, reset func()) error {
+	cb func(kvdb.RTx, *models.Node) error, reset func()) error {
 
 	traversal := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
@@ -899,14 +899,14 @@ func (c *KVStore) ForEachNodeCacheable(_ context.Context,
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
-func (c *KVStore) SourceNode(_ context.Context) (*models.LightningNode, error) {
+func (c *KVStore) SourceNode(_ context.Context) (*models.Node, error) {
 	return sourceNode(c.db)
 }
 
 // sourceNode fetches the source node of the graph. The source node is treated
 // as the center node within a star-graph.
-func sourceNode(db kvdb.Backend) (*models.LightningNode, error) {
-	var source *models.LightningNode
+func sourceNode(db kvdb.Backend) (*models.Node, error) {
+	var source *models.Node
 	err := kvdb.View(db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -936,7 +936,7 @@ func sourceNode(db kvdb.Backend) (*models.LightningNode, error) {
 // node of the graph. The source node is treated as the center node within a
 // star-graph. This method may be used to kick off a path finding algorithm in
 // order to explore the reachability of another node based off the source node.
-func sourceNodeWithTx(nodes kvdb.RBucket) (*models.LightningNode, error) {
+func sourceNodeWithTx(nodes kvdb.RBucket) (*models.Node, error) {
 	selfPub := nodes.Get(sourceKey)
 	if selfPub == nil {
 		return nil, ErrSourceNodeNotSet
@@ -956,7 +956,7 @@ func sourceNodeWithTx(nodes kvdb.RBucket) (*models.LightningNode, error) {
 // node is to be used as the center of a star-graph within path finding
 // algorithms.
 func (c *KVStore) SetSourceNode(_ context.Context,
-	node *models.LightningNode) error {
+	node *models.Node) error {
 
 	nodePubBytes := node.PubKeyBytes[:]
 
@@ -989,7 +989,7 @@ func (c *KVStore) SetSourceNode(_ context.Context,
 //
 // TODO(roasbeef): also need sig of announcement.
 func (c *KVStore) AddLightningNode(ctx context.Context,
-	node *models.LightningNode, opts ...batch.SchedulerOption) error {
+	node *models.Node, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[kvdb.RwTx]{
 		Opts: batch.NewSchedulerOptions(opts...),
@@ -1001,7 +1001,7 @@ func (c *KVStore) AddLightningNode(ctx context.Context,
 	return c.nodeScheduler.Execute(ctx, r)
 }
 
-func addLightningNode(tx kvdb.RwTx, node *models.LightningNode) error {
+func addLightningNode(tx kvdb.RwTx, node *models.Node) error {
 	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
 		return err
@@ -1204,7 +1204,7 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	_, node1Err := fetchLightningNode(nodes, edge.NodeKey1Bytes[:])
 	switch {
 	case errors.Is(node1Err, ErrGraphNodeNotFound):
-		node1Shell := models.LightningNode{
+		node1Shell := models.Node{
 			PubKeyBytes:          edge.NodeKey1Bytes,
 			HaveNodeAnnouncement: false,
 		}
@@ -1220,7 +1220,7 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	_, node2Err := fetchLightningNode(nodes, edge.NodeKey2Bytes[:])
 	switch {
 	case errors.Is(node2Err, ErrGraphNodeNotFound):
-		node2Shell := models.LightningNode{
+		node2Shell := models.Node{
 			PubKeyBytes:          edge.NodeKey2Bytes,
 			HaveNodeAnnouncement: false,
 		}
@@ -2032,11 +2032,11 @@ type ChannelEdge struct {
 
 	// Node1 is "node 1" in the channel. This is the node that would have
 	// produced Policy1 if it exists.
-	Node1 *models.LightningNode
+	Node1 *models.Node
 
 	// Node2 is "node 2" in the channel. This is the node that would have
 	// produced Policy2 if it exists.
-	Node2 *models.LightningNode
+	Node2 *models.Node
 }
 
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
@@ -2199,9 +2199,9 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 // nodes to quickly determine if they have the same set of up to date node
 // announcements.
 func (c *KVStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.LightningNode, error) {
+	endTime time.Time) ([]models.Node, error) {
 
-	var nodesInHorizon []models.LightningNode
+	var nodesInHorizon []models.Node
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
@@ -3048,7 +3048,7 @@ func (c *KVStore) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 // ErrGraphNodeNotFound is returned. An optional transaction may be provided.
 // If none is provided, then a new one will be created.
 func (c *KVStore) FetchLightningNodeTx(tx kvdb.RTx, nodePub route.Vertex) (
-	*models.LightningNode, error) {
+	*models.Node, error) {
 
 	return c.fetchLightningNode(tx, nodePub)
 }
@@ -3057,7 +3057,7 @@ func (c *KVStore) FetchLightningNodeTx(tx kvdb.RTx, nodePub route.Vertex) (
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
 func (c *KVStore) FetchLightningNode(_ context.Context,
-	nodePub route.Vertex) (*models.LightningNode, error) {
+	nodePub route.Vertex) (*models.Node, error) {
 
 	return c.fetchLightningNode(nil, nodePub)
 }
@@ -3067,9 +3067,9 @@ func (c *KVStore) FetchLightningNode(_ context.Context,
 // returned. An optional transaction may be provided. If none is provided, then
 // a new one will be created.
 func (c *KVStore) fetchLightningNode(tx kvdb.RTx,
-	nodePub route.Vertex) (*models.LightningNode, error) {
+	nodePub route.Vertex) (*models.Node, error) {
 
-	var node *models.LightningNode
+	var node *models.Node
 	fetch := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -3287,7 +3287,7 @@ func (c *KVStore) ForEachNodeChannel(_ context.Context, nodePub route.Vertex,
 // peer's node information.
 func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.LightningNode) error, reset func()) error {
+		otherNode *models.Node) error, reset func()) error {
 
 	return kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
@@ -3343,13 +3343,13 @@ func (c *KVStore) forEachNodeChannelTx(tx kvdb.RTx,
 	return nodeTraversal(tx, nodePub[:], c.db, cb, reset)
 }
 
-// fetchOtherNode attempts to fetch the full LightningNode that's opposite of
+// fetchOtherNode attempts to fetch the full Node that's opposite of
 // the target node in the channel. This is useful when one knows the pubkey of
-// one of the nodes, and wishes to obtain the full LightningNode for the other
+// one of the nodes, and wishes to obtain the full Node for the other
 // end of the channel.
 func (c *KVStore) fetchOtherNode(tx kvdb.RTx,
 	channel *models.ChannelEdgeInfo, thisNodeKey []byte) (
-	*models.LightningNode, error) {
+	*models.Node, error) {
 
 	// Ensure that the node passed in is actually a member of the channel.
 	var targetNodeBytes [33]byte
@@ -3362,7 +3362,7 @@ func (c *KVStore) fetchOtherNode(tx kvdb.RTx,
 		return nil, fmt.Errorf("node not participating in this channel")
 	}
 
-	var targetNode *models.LightningNode
+	var targetNode *models.Node
 	fetchNodeFunc := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
@@ -4019,7 +4019,7 @@ func (c *nodeTraverserSession) FetchNodeFeatures(nodePub route.Vertex) (
 }
 
 func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
-	node *models.LightningNode) error {
+	node *models.Node) error {
 
 	var (
 		scratch [16]byte
@@ -4148,11 +4148,11 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 }
 
 func fetchLightningNode(nodeBucket kvdb.RBucket,
-	nodePub []byte) (models.LightningNode, error) {
+	nodePub []byte) (models.Node, error) {
 
 	nodeBytes := nodeBucket.Get(nodePub)
 	if nodeBytes == nil {
-		return models.LightningNode{}, ErrGraphNodeNotFound
+		return models.Node{}, ErrGraphNodeNotFound
 	}
 
 	nodeReader := bytes.NewReader(nodeBytes)
@@ -4215,9 +4215,9 @@ func deserializeLightningNodeCacheable(r io.Reader) (route.Vertex,
 	return pubKey, features, nil
 }
 
-func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
+func deserializeLightningNode(r io.Reader) (models.Node, error) {
 	var (
-		node    models.LightningNode
+		node    models.Node
 		scratch [8]byte
 		err     error
 	)
@@ -4227,18 +4227,18 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	node.Features = lnwire.EmptyFeatureVector()
 
 	if _, err := r.Read(scratch[:]); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	unix := int64(byteOrder.Uint64(scratch[:]))
 	node.LastUpdate = time.Unix(unix, 0)
 
 	if _, err := io.ReadFull(r, node.PubKeyBytes[:]); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	hasNodeAnn := byteOrder.Uint16(scratch[:2])
@@ -4257,27 +4257,27 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	// We did get a node announcement for this node, so we'll have the rest
 	// of the data available.
 	if err := binary.Read(r, byteOrder, &node.Color.R); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 	if err := binary.Read(r, byteOrder, &node.Color.G); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 	if err := binary.Read(r, byteOrder, &node.Color.B); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	node.Alias, err = wire.ReadVarString(r, 0)
 	if err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	err = node.Features.Decode(r)
 	if err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
@@ -4285,7 +4285,7 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	for i := 0; i < numAddresses; i++ {
 		address, err := DeserializeAddr(r)
 		if err != nil {
-			return models.LightningNode{}, err
+			return models.Node{}, err
 		}
 		addresses = append(addresses, address)
 	}
@@ -4293,7 +4293,7 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 
 	node.AuthSigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")
 	if err != nil {
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	// We'll try and see if there are any opaque bytes left, if not, then
@@ -4305,7 +4305,7 @@ func deserializeLightningNode(r io.Reader) (models.LightningNode, error) {
 	case errors.Is(err, io.ErrUnexpectedEOF):
 	case errors.Is(err, io.EOF):
 	case err != nil:
-		return models.LightningNode{}, err
+		return models.Node{}, err
 	}
 
 	if len(extraBytes) > 0 {

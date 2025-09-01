@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
 	"io"
@@ -53,6 +54,43 @@ type MigrationConfig struct {
 	// performed through SQL alone. If set to nil, no custom migration is
 	// applied.
 	MigrationFn func(tx *sqlc.Queries) error
+}
+
+// MigrationStream encapsulates all necessary information to manage and apply
+// a series of SQL migrations, and corresponding code migrations, to a database.
+type MigrationStream struct {
+	// TrackingTableName is the name of the table used by golang-migrate to
+	// track the current schema version.
+	TrackingTableName string
+
+	// SQLFiles is the embedded file system containing the SQL migration
+	// files.
+	SQLFiles embed.FS
+
+	// SQLFileDirectory is the directory containing the SQL migration files.
+	SQLFileDirectory string
+
+	// MakeProgrammaticMigrations is a function that returns a map of
+	// ProgrammaticMigrEntry functions that can be used to execute a Golang
+	// based migration step. The key is the migration version and the value
+	// is the Golang migration function entry that should be run for the
+	// migration version.
+	MakeProgrammaticMigrations func(
+		*BaseDB) (map[uint]migrate.ProgrammaticMigrEntry, error)
+
+	// LatestMigrationVersion is the latest migration version of the
+	// database. This is used to implement downgrade protection for the
+	// daemon.
+	LatestMigrationVersion uint
+
+	// Configs defines a list of migrations to be applied to the
+	// database. Each migration is assigned a version number, determining
+	// its execution order.
+	// The schema version, tracked by golang-migrate, ensures migrations are
+	// applied to the correct schema. For migrations involving only schema
+	// changes, the migration function can be left nil. For custom
+	// migrations an implemented migration function is required.
+	Configs []MigrationConfig
 }
 
 // MigrationTarget is a functional option that can be passed to applyMigrations

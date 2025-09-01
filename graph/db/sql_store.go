@@ -369,11 +369,11 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 	return known, addresses, nil
 }
 
-// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) DeleteLightningNode(ctx context.Context,
+func (s *SQLStore) DeleteNode(ctx context.Context,
 	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {

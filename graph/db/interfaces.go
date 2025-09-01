@@ -101,9 +101,9 @@ type V1Store interface { //nolint:interfacebloat
 	// node.
 	LookupAlias(ctx context.Context, pub *btcec.PublicKey) (string, error)
 
-	// DeleteLightningNode starts a new database transaction to remove a
+	// DeleteNode starts a new database transaction to remove a
 	// vertex/node from the database according to the node's public key.
-	DeleteLightningNode(ctx context.Context, nodePub route.Vertex) error
+	DeleteNode(ctx context.Context, nodePub route.Vertex) error
 
 	// NodeUpdatesInHorizon returns all the known lightning node which have
 	// an update timestamp within the passed range. This method can be used

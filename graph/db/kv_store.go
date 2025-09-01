@@ -1061,9 +1061,9 @@ func (c *KVStore) LookupAlias(_ context.Context,
 	return alias, nil
 }
 
-// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *KVStore) DeleteLightningNode(_ context.Context,
+func (c *KVStore) DeleteNode(_ context.Context,
 	nodePub route.Vertex) error {
 
 	// TODO(roasbeef): ensure dangling edges are removed...

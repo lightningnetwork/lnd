@@ -120,29 +120,6 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (i
 	return id, err
 }
 
-const createChannelExtraType = `-- name: CreateChannelExtraType :exec
-/* ─────────────────────────────────────────────
-   graph_channel_extra_types table queries
-   ─────────────────────────────────────────────
-*/
-
-INSERT INTO graph_channel_extra_types (
-    channel_id, type, value
-)
-VALUES ($1, $2, $3)
-`
-
-type CreateChannelExtraTypeParams struct {
-	ChannelID int64
-	Type      int64
-	Value     []byte
-}
-
-func (q *Queries) CreateChannelExtraType(ctx context.Context, arg CreateChannelExtraTypeParams) error {
-	_, err := q.db.ExecContext(ctx, createChannelExtraType, arg.ChannelID, arg.Type, arg.Value)
-	return err
-}
-
 const deleteChannelPolicyExtraTypes = `-- name: DeleteChannelPolicyExtraTypes :exec
 DELETE FROM graph_channel_policy_extra_types
 WHERE channel_policy_id = $1
@@ -2327,29 +2304,6 @@ func (q *Queries) HighestSCID(ctx context.Context, version int16) ([]byte, error
 	return scid, err
 }
 
-const insertChanPolicyExtraType = `-- name: InsertChanPolicyExtraType :exec
-/* ─────────────────────────────────────────────
-   graph_channel_policy_extra_types table queries
-   ─────────────────────────────────────────────
-*/
-
-INSERT INTO graph_channel_policy_extra_types (
-    channel_policy_id, type, value
-)
-VALUES ($1, $2, $3)
-`
-
-type InsertChanPolicyExtraTypeParams struct {
-	ChannelPolicyID int64
-	Type            int64
-	Value           []byte
-}
-
-func (q *Queries) InsertChanPolicyExtraType(ctx context.Context, arg InsertChanPolicyExtraTypeParams) error {
-	_, err := q.db.ExecContext(ctx, insertChanPolicyExtraType, arg.ChannelPolicyID, arg.Type, arg.Value)
-	return err
-}
-
 const insertChannelFeature = `-- name: InsertChannelFeature :exec
 /* ─────────────────────────────────────────────
    graph_channel_features table queries
@@ -2360,7 +2314,9 @@ INSERT INTO graph_channel_features (
     channel_id, feature_bit
 ) VALUES (
     $1, $2
-)
+) ON CONFLICT (channel_id, feature_bit)
+    -- Do nothing if the channel_id and feature_bit already exist.
+    DO NOTHING
 `
 
 type InsertChannelFeatureParams struct {
@@ -2371,6 +2327,72 @@ type InsertChannelFeatureParams struct {
 func (q *Queries) InsertChannelFeature(ctx context.Context, arg InsertChannelFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertChannelFeature, arg.ChannelID, arg.FeatureBit)
 	return err
+}
+
+const insertChannelMig = `-- name: InsertChannelMig :one
+INSERT INTO graph_channels (
+    version, scid, node_id_1, node_id_2,
+    outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
+    node_1_signature, node_2_signature, bitcoin_1_signature,
+    bitcoin_2_signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+) ON CONFLICT (scid, version)
+    -- If a conflict occurs, we have already migrated this channel. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        node_id_1 = EXCLUDED.node_id_1,
+        node_id_2 = EXCLUDED.node_id_2,
+        outpoint = EXCLUDED.outpoint,
+        capacity = EXCLUDED.capacity,
+        bitcoin_key_1 = EXCLUDED.bitcoin_key_1,
+        bitcoin_key_2 = EXCLUDED.bitcoin_key_2,
+        node_1_signature = EXCLUDED.node_1_signature,
+        node_2_signature = EXCLUDED.node_2_signature,
+        bitcoin_1_signature = EXCLUDED.bitcoin_1_signature,
+        bitcoin_2_signature = EXCLUDED.bitcoin_2_signature
+RETURNING id
+`
+
+type InsertChannelMigParams struct {
+	Version           int16
+	Scid              []byte
+	NodeID1           int64
+	NodeID2           int64
+	Outpoint          string
+	Capacity          sql.NullInt64
+	BitcoinKey1       []byte
+	BitcoinKey2       []byte
+	Node1Signature    []byte
+	Node2Signature    []byte
+	Bitcoin1Signature []byte
+	Bitcoin2Signature []byte
+}
+
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same channel again (which would error if the normal
+// CreateChannel query is used because of the uniqueness constraint on the scid
+// and version columns).
+func (q *Queries) InsertChannelMig(ctx context.Context, arg InsertChannelMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertChannelMig,
+		arg.Version,
+		arg.Scid,
+		arg.NodeID1,
+		arg.NodeID2,
+		arg.Outpoint,
+		arg.Capacity,
+		arg.BitcoinKey1,
+		arg.BitcoinKey2,
+		arg.Node1Signature,
+		arg.Node2Signature,
+		arg.Bitcoin1Signature,
+		arg.Bitcoin2Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertClosedChannel = `-- name: InsertClosedChannel :exec
@@ -2389,37 +2411,80 @@ func (q *Queries) InsertClosedChannel(ctx context.Context, scid []byte) error {
 	return err
 }
 
-const insertNodeAddress = `-- name: InsertNodeAddress :exec
-/* ─────────────────────────────────────────────
-   graph_node_addresses table queries
-   ───────────────────────────────────��─────────
-*/
-
-INSERT INTO graph_node_addresses (
-    node_id,
-    type,
-    address,
-    position
-) VALUES (
-    $1, $2, $3, $4
- )
+const insertEdgePolicyMig = `-- name: InsertEdgePolicyMig :one
+INSERT INTO graph_channel_policies (
+    version, channel_id, node_id, timelock, fee_ppm,
+    base_fee_msat, min_htlc_msat, last_update, disabled,
+    max_htlc_msat, inbound_base_fee_msat,
+    inbound_fee_rate_milli_msat, message_flags, channel_flags,
+    signature
+) VALUES  (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+)
+ON CONFLICT (channel_id, node_id, version)
+    -- If a conflict occurs, we have already migrated this policy. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        timelock = EXCLUDED.timelock,
+        fee_ppm = EXCLUDED.fee_ppm,
+        base_fee_msat = EXCLUDED.base_fee_msat,
+        min_htlc_msat = EXCLUDED.min_htlc_msat,
+        last_update = EXCLUDED.last_update,
+        disabled = EXCLUDED.disabled,
+        max_htlc_msat = EXCLUDED.max_htlc_msat,
+        inbound_base_fee_msat = EXCLUDED.inbound_base_fee_msat,
+        inbound_fee_rate_milli_msat = EXCLUDED.inbound_fee_rate_milli_msat,
+        message_flags = EXCLUDED.message_flags,
+        channel_flags = EXCLUDED.channel_flags,
+        signature = EXCLUDED.signature
+RETURNING id
 `
 
-type InsertNodeAddressParams struct {
-	NodeID   int64
-	Type     int16
-	Address  string
-	Position int32
+type InsertEdgePolicyMigParams struct {
+	Version                 int16
+	ChannelID               int64
+	NodeID                  int64
+	Timelock                int32
+	FeePpm                  int64
+	BaseFeeMsat             int64
+	MinHtlcMsat             int64
+	LastUpdate              sql.NullInt64
+	Disabled                sql.NullBool
+	MaxHtlcMsat             sql.NullInt64
+	InboundBaseFeeMsat      sql.NullInt64
+	InboundFeeRateMilliMsat sql.NullInt64
+	MessageFlags            sql.NullInt16
+	ChannelFlags            sql.NullInt16
+	Signature               []byte
 }
 
-func (q *Queries) InsertNodeAddress(ctx context.Context, arg InsertNodeAddressParams) error {
-	_, err := q.db.ExecContext(ctx, insertNodeAddress,
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same policy (which would error if the normal
+// UpsertEdgePolicy query is used because of the constraint in that query that
+// requires a policy update to have a newer last_update than the existing one).
+func (q *Queries) InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertEdgePolicyMig,
+		arg.Version,
+		arg.ChannelID,
 		arg.NodeID,
-		arg.Type,
-		arg.Address,
-		arg.Position,
+		arg.Timelock,
+		arg.FeePpm,
+		arg.BaseFeeMsat,
+		arg.MinHtlcMsat,
+		arg.LastUpdate,
+		arg.Disabled,
+		arg.MaxHtlcMsat,
+		arg.InboundBaseFeeMsat,
+		arg.InboundFeeRateMilliMsat,
+		arg.MessageFlags,
+		arg.ChannelFlags,
+		arg.Signature,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertNodeFeature = `-- name: InsertNodeFeature :exec
@@ -2432,7 +2497,9 @@ INSERT INTO graph_node_features (
     node_id, feature_bit
 ) VALUES (
     $1, $2
-)
+) ON CONFLICT (node_id, feature_bit)
+    -- Do nothing if the feature already exists for the node.
+    DO NOTHING
 `
 
 type InsertNodeFeatureParams struct {
@@ -2443,6 +2510,61 @@ type InsertNodeFeatureParams struct {
 func (q *Queries) InsertNodeFeature(ctx context.Context, arg InsertNodeFeatureParams) error {
 	_, err := q.db.ExecContext(ctx, insertNodeFeature, arg.NodeID, arg.FeatureBit)
 	return err
+}
+
+const insertNodeMig = `-- name: InsertNodeMig :one
+/* ─────────────────────────────────────────────
+   Migration specific queries
+
+   NOTE: once sqldbv2 is in place, these queries can be contained to a package
+   dedicated to the migration that requires it, and so we can then remove
+   it from the main set of "live" queries that the code-base has access to.
+   ────────────────────────────────────────────-
+*/
+
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- If a conflict occurs, we have already migrated this node. However, we
+    -- still need to do an "UPDATE SET" here instead of "DO NOTHING" because
+    -- otherwise, the "RETURNING id" part does not work.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+RETURNING id
+`
+
+type InsertNodeMigParams struct {
+	Version    int16
+	PubKey     []byte
+	Alias      sql.NullString
+	LastUpdate sql.NullInt64
+	Color      sql.NullString
+	Signature  []byte
+}
+
+// NOTE: This query is only meant to be used by the graph SQL migration since
+// for that migration, in order to be retry-safe, we don't want to error out if
+// we re-insert the same node (which would error if the normal UpsertNode query
+// is used because of the constraint in that query that requires a node update
+// to have a newer last_update than the existing node).
+func (q *Queries) InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertNodeMig,
+		arg.Version,
+		arg.PubKey,
+		arg.Alias,
+		arg.LastUpdate,
+		arg.Color,
+		arg.Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const isClosedChannel = `-- name: IsClosedChannel :one
@@ -3284,6 +3406,59 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 	return items, nil
 }
 
+const upsertChanPolicyExtraType = `-- name: UpsertChanPolicyExtraType :exec
+/* ─────────────────────────────────────────────
+   graph_channel_policy_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO graph_channel_policy_extra_types (
+    channel_policy_id, type, value
+)
+VALUES ($1, $2, $3)
+ON CONFLICT (channel_policy_id, type)
+    -- If a conflict occurs on channel_policy_id and type, then we update the
+    -- value.
+    DO UPDATE SET value = EXCLUDED.value
+`
+
+type UpsertChanPolicyExtraTypeParams struct {
+	ChannelPolicyID int64
+	Type            int64
+	Value           []byte
+}
+
+func (q *Queries) UpsertChanPolicyExtraType(ctx context.Context, arg UpsertChanPolicyExtraTypeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertChanPolicyExtraType, arg.ChannelPolicyID, arg.Type, arg.Value)
+	return err
+}
+
+const upsertChannelExtraType = `-- name: UpsertChannelExtraType :exec
+/* ─────────────────────────────────────────────
+   graph_channel_extra_types table queries
+   ─────────────────────────────────────────────
+*/
+
+INSERT INTO graph_channel_extra_types (
+    channel_id, type, value
+)
+VALUES ($1, $2, $3)
+    ON CONFLICT (channel_id, type)
+    -- Update the value if a conflict occurs on channel_id and type.
+    DO UPDATE SET value = EXCLUDED.value
+`
+
+type UpsertChannelExtraTypeParams struct {
+	ChannelID int64
+	Type      int64
+	Value     []byte
+}
+
+func (q *Queries) UpsertChannelExtraType(ctx context.Context, arg UpsertChannelExtraTypeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertChannelExtraType, arg.ChannelID, arg.Type, arg.Value)
+	return err
+}
+
 const upsertEdgePolicy = `-- name: UpsertEdgePolicy :one
 /* ─────────────────────────────────────────────
    graph_channel_policies table queries
@@ -3405,6 +3580,40 @@ func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertNodeAddress = `-- name: UpsertNodeAddress :exec
+/* ─────────────────────────────────────────────
+   graph_node_addresses table queries
+   ───────────────────────────────────��─────────
+*/
+
+INSERT INTO graph_node_addresses (
+    node_id,
+    type,
+    address,
+    position
+) VALUES (
+    $1, $2, $3, $4
+) ON CONFLICT (node_id, type, position)
+    DO UPDATE SET address = EXCLUDED.address
+`
+
+type UpsertNodeAddressParams struct {
+	NodeID   int64
+	Type     int16
+	Address  string
+	Position int32
+}
+
+func (q *Queries) UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNodeAddress,
+		arg.NodeID,
+		arg.Type,
+		arg.Address,
+		arg.Position,
+	)
+	return err
 }
 
 const upsertNodeExtraType = `-- name: UpsertNodeExtraType :exec

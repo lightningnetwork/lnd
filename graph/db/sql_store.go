@@ -70,7 +70,7 @@ type SQLQueries interface {
 	UpsertNodeExtraType(ctx context.Context, arg sqlc.UpsertNodeExtraTypeParams) error
 	DeleteExtraNodeType(ctx context.Context, arg sqlc.DeleteExtraNodeTypeParams) error
 
-	InsertNodeAddress(ctx context.Context, arg sqlc.InsertNodeAddressParams) error
+	UpsertNodeAddress(ctx context.Context, arg sqlc.UpsertNodeAddressParams) error
 	GetNodeAddresses(ctx context.Context, nodeID int64) ([]sqlc.GetNodeAddressesRow, error)
 	GetNodeAddressesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeAddress, error)
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
@@ -112,7 +112,7 @@ type SQLQueries interface {
 	GetSCIDByOutpoint(ctx context.Context, arg sqlc.GetSCIDByOutpointParams) ([]byte, error)
 	DeleteChannels(ctx context.Context, ids []int64) error
 
-	CreateChannelExtraType(ctx context.Context, arg sqlc.CreateChannelExtraTypeParams) error
+	UpsertChannelExtraType(ctx context.Context, arg sqlc.UpsertChannelExtraTypeParams) error
 	GetChannelExtrasBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelExtraType, error)
 	InsertChannelFeature(ctx context.Context, arg sqlc.InsertChannelFeatureParams) error
 	GetChannelFeaturesBatch(ctx context.Context, chanIds []int64) ([]sqlc.GraphChannelFeature, error)
@@ -124,7 +124,7 @@ type SQLQueries interface {
 	GetChannelPolicyByChannelAndNode(ctx context.Context, arg sqlc.GetChannelPolicyByChannelAndNodeParams) (sqlc.GraphChannelPolicy, error)
 	GetV1DisabledSCIDs(ctx context.Context) ([][]byte, error)
 
-	InsertChanPolicyExtraType(ctx context.Context, arg sqlc.InsertChanPolicyExtraTypeParams) error
+	UpsertChanPolicyExtraType(ctx context.Context, arg sqlc.UpsertChanPolicyExtraTypeParams) error
 	GetChannelPolicyExtraTypesBatch(ctx context.Context, policyIds []int64) ([]sqlc.GetChannelPolicyExtraTypesBatchRow, error)
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 
@@ -153,6 +153,18 @@ type SQLQueries interface {
 	InsertClosedChannel(ctx context.Context, scid []byte) error
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	GetClosedChannelsSCIDs(ctx context.Context, scids [][]byte) ([][]byte, error)
+
+	/*
+		Migration specific queries.
+
+		NOTE: these should not be used in code other than migrations.
+		Once sqldbv2 is in place, these can be removed from this struct
+		as then migrations will have their own dedicated queries
+		structs.
+	*/
+	InsertNodeMig(ctx context.Context, arg sqlc.InsertNodeMigParams) (int64, error)
+	InsertChannelMig(ctx context.Context, arg sqlc.InsertChannelMigParams) (int64, error)
+	InsertEdgePolicyMig(ctx context.Context, arg sqlc.InsertEdgePolicyMigParams) (int64, error)
 }
 
 // BatchedSQLQueries is a version of SQLQueries that's capable of batched
@@ -617,9 +629,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 					err)
 			}
 
-			_, err = insertChannel(ctx, tx, edge)
-
-			return err
+			return insertChannel(ctx, tx, edge)
 		},
 		OnCommit: func(err error) error {
 			switch {
@@ -3523,23 +3533,11 @@ const (
 	addressTypeOpaque dbAddressType = math.MaxInt8
 )
 
-// upsertNodeAddresses updates the node's addresses in the database. This
-// includes deleting any existing addresses and inserting the new set of
-// addresses. The deletion is necessary since the ordering of the addresses may
-// change, and we need to ensure that the database reflects the latest set of
-// addresses so that at the time of reconstructing the node announcement, the
-// order is preserved and the signature over the message remains valid.
-func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
-	addresses []net.Addr) error {
-
-	// Delete any existing addresses for the node. This is required since
-	// even if the new set of addresses is the same, the ordering may have
-	// changed for a given address type.
-	err := db.DeleteNodeAddresses(ctx, nodeID)
-	if err != nil {
-		return fmt.Errorf("unable to delete node(%d) addresses: %w",
-			nodeID, err)
-	}
+// collectAddressRecords collects the addresses from the provided
+// net.Addr slice and returns a map of dbAddressType to a slice of address
+// strings.
+func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
+	error) {
 
 	// Copy the nodes latest set of addresses.
 	newAddresses := map[dbAddressType][]string{
@@ -3561,8 +3559,8 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 			} else if ip6 := addr.IP.To16(); ip6 != nil {
 				addAddr(addressTypeIPv6, addr)
 			} else {
-				return fmt.Errorf("unhandled IP address: %v",
-					addr)
+				return nil, fmt.Errorf("unhandled IP "+
+					"address: %v", addr)
 			}
 
 		case *tor.OnionAddr:
@@ -3572,24 +3570,51 @@ func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
 			case tor.V3Len:
 				addAddr(addressTypeTorV3, addr)
 			default:
-				return fmt.Errorf("invalid length for a tor " +
-					"address")
+				return nil, fmt.Errorf("invalid length for " +
+					"a tor address")
 			}
 
 		case *lnwire.OpaqueAddrs:
 			addAddr(addressTypeOpaque, addr)
 
 		default:
-			return fmt.Errorf("unhandled address type: %T", addr)
+			return nil, fmt.Errorf("unhandled address type: %T",
+				addr)
 		}
+	}
+
+	return newAddresses, nil
+}
+
+// upsertNodeAddresses updates the node's addresses in the database. This
+// includes deleting any existing addresses and inserting the new set of
+// addresses. The deletion is necessary since the ordering of the addresses may
+// change, and we need to ensure that the database reflects the latest set of
+// addresses so that at the time of reconstructing the node announcement, the
+// order is preserved and the signature over the message remains valid.
+func upsertNodeAddresses(ctx context.Context, db SQLQueries, nodeID int64,
+	addresses []net.Addr) error {
+
+	// Delete any existing addresses for the node. This is required since
+	// even if the new set of addresses is the same, the ordering may have
+	// changed for a given address type.
+	err := db.DeleteNodeAddresses(ctx, nodeID)
+	if err != nil {
+		return fmt.Errorf("unable to delete node(%d) addresses: %w",
+			nodeID, err)
+	}
+
+	newAddresses, err := collectAddressRecords(addresses)
+	if err != nil {
+		return err
 	}
 
 	// Any remaining entries in newAddresses are new addresses that need to
 	// be added to the database for the first time.
 	for addrType, addrList := range newAddresses {
 		for position, addr := range addrList {
-			err := db.InsertNodeAddress(
-				ctx, sqlc.InsertNodeAddressParams{
+			err := db.UpsertNodeAddress(
+				ctx, sqlc.UpsertNodeAddressParams{
 					NodeID:   nodeID,
 					Type:     int16(addrType),
 					Address:  addr,
@@ -3774,28 +3799,20 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 	return records, nil
 }
 
-// dbChanInfo holds the DB level IDs of a channel and the nodes involved in the
-// channel.
-type dbChanInfo struct {
-	channelID int64
-	node1ID   int64
-	node2ID   int64
-}
-
 // insertChannel inserts a new channel record into the database.
 func insertChannel(ctx context.Context, db SQLQueries,
-	edge *models.ChannelEdgeInfo) (*dbChanInfo, error) {
+	edge *models.ChannelEdgeInfo) error {
 
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create shell node: %w", err)
+		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create shell node: %w", err)
+		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
 	var capacity sql.NullInt64
@@ -3826,7 +3843,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Insert the new channel record.
 	dbChanID, err := db.CreateChannel(ctx, createParams)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Insert any channel features.
@@ -3838,7 +3855,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to insert channel(%d) "+
+			return fmt.Errorf("unable to insert channel(%d) "+
 				"feature(%v): %w", dbChanID, feature, err)
 		}
 	}
@@ -3846,30 +3863,26 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	// Finally, insert any extra TLV fields in the channel announcement.
 	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
 	if err != nil {
-		return nil, fmt.Errorf("unable to marshal extra opaque "+
-			"data: %w", err)
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
 	}
 
 	for tlvType, value := range extra {
-		err := db.CreateChannelExtraType(
-			ctx, sqlc.CreateChannelExtraTypeParams{
+		err := db.UpsertChannelExtraType(
+			ctx, sqlc.UpsertChannelExtraTypeParams{
 				ChannelID: dbChanID,
 				Type:      int64(tlvType),
 				Value:     value,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to upsert "+
-				"channel(%d) extra signed field(%v): %w",
-				edge.ChannelID, tlvType, err)
+			return fmt.Errorf("unable to upsert channel(%d) "+
+				"extra signed field(%v): %w", edge.ChannelID,
+				tlvType, err)
 		}
 	}
 
-	return &dbChanInfo{
-		channelID: dbChanID,
-		node1ID:   node1DBID,
-		node2ID:   node2DBID,
-	}, nil
+	return nil
 }
 
 // maybeCreateShellNode checks if a shell node entry exists for the
@@ -3921,8 +3934,8 @@ func upsertChanPolicyExtraSignedFields(ctx context.Context, db SQLQueries,
 
 	// Insert all new extra signed fields for the channel policy.
 	for tlvType, value := range extraFields {
-		err = db.InsertChanPolicyExtraType(
-			ctx, sqlc.InsertChanPolicyExtraTypeParams{
+		err = db.UpsertChanPolicyExtraType(
+			ctx, sqlc.UpsertChanPolicyExtraTypeParams{
 				ChannelPolicyID: chanPolicyID,
 				Type:            int64(tlvType),
 				Value:           value,

@@ -568,6 +568,11 @@ type Config struct {
 	// AuxResolver is an optional interface that can be used to modify the
 	// way contracts are resolved.
 	AuxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// AuxChannelNegotiator is an optional interface that allows aux channel
+	// implementations to inject and process custom records over channel
+	// related wire messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -4018,6 +4023,14 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	msg *lnwire.ChannelReady) {
 
 	defer f.wg.Done()
+
+	// Notify the aux hook that the specified peer just established a
+	// channel with us, identified by the given channel ID.
+	f.cfg.AuxChannelNegotiator.WhenSome(
+		func(acn lnwallet.AuxChannelNegotiator) {
+			acn.ProcessChannelReady(msg.ChanID, peer.PubKey())
+		},
+	)
 
 	// If we are in development mode, we'll wait for specified duration
 	// before processing the channel ready message.

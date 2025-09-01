@@ -2718,11 +2718,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err := ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists1)
 
-	_, exists2, err := ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err := ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists2)
 
@@ -2779,11 +2779,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err = ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists1)
 
-	_, exists2, err = ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err = ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists2)
 

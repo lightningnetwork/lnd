@@ -130,7 +130,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	dbNode, err := graph.FetchNode(ctx, testPub)
 	require.NoError(t, err, "unable to locate node")
 
-	_, exists, err := graph.HasLightningNode(ctx, dbNode.PubKeyBytes)
+	_, exists, err := graph.HasNode(ctx, dbNode.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
@@ -301,7 +301,7 @@ func TestPartialNode(t *testing.T) {
 	dbNode2, err := graph.FetchNode(ctx, pubKey2)
 	require.NoError(t, err)
 
-	_, exists, err := graph.HasLightningNode(ctx, dbNode1.PubKeyBytes)
+	_, exists, err := graph.HasNode(ctx, dbNode1.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
@@ -315,7 +315,7 @@ func TestPartialNode(t *testing.T) {
 	}
 	compareNodes(t, expectedNode1, dbNode1)
 
-	_, exists, err = graph.HasLightningNode(ctx, dbNode2.PubKeyBytes)
+	_, exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 

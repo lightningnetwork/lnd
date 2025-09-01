@@ -234,13 +234,12 @@ type DB interface {
 	UpdateEdgePolicy(ctx context.Context, edge *models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) error
 
-	// HasLightningNode determines if the graph has a vertex identified by
+	// HasNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
-		bool, error)
+	HasNode(ctx context.Context, nodePub [33]byte) (time.Time, bool, error)
 
 	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then

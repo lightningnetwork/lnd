@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -2850,7 +2849,7 @@ func (lc *LightningChannel) fetchCommitmentView(
 		return nil, fmt.Errorf("height=%v, for ChannelPoint(%v) "+
 			"attempts to create commitment with feerate %v: %v",
 			nextHeight, lc.channelState.FundingOutpoint,
-			effFeeRate, spew.Sdump(commitTx))
+			effFeeRate, lnutils.SpewLogClosure(commitTx))
 	}
 
 	// Given the custom blob of the past state, and this new HTLC view,

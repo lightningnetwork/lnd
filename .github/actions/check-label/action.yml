@@ -1,0 +1,30 @@
+name: "Check PR labels"
+description: "Checks if specific labels are present on a PR and sets outputs accordingly."
+
+inputs:
+  label:
+    description: "The label to check for"
+    required: true
+  skip-message:
+    description: "The message to display when skipping due to label"
+    required: true
+
+outputs:
+  skip:
+    description: "Whether to skip the tests (true/false)"
+    value: ${{ steps.check.outputs.skip }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check for label
+      id: check
+      shell: bash
+      run: |
+        if [[ "${{ contains(github.event.pull_request.labels.*.name, inputs.label) }}" == "true" ]]; then
+          echo "::notice::${{ inputs.skip-message }}"
+          echo "${{ inputs.skip-message }}" >> $GITHUB_STEP_SUMMARY
+          echo "skip=true" >> $GITHUB_OUTPUT
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+        fi

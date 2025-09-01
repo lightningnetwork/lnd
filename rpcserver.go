@@ -7986,7 +7986,7 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		errMsg := "cannot set both FeeRate and FeeRatePpm at the " +
 			"same time"
 
-		return nil, status.Errorf(codes.InvalidArgument, errMsg)
+		return nil, status.Errorf(codes.InvalidArgument, "%v", errMsg)
 
 	// If the request is using fee_rate.
 	case req.FeeRate != 0:

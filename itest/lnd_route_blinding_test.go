@@ -335,7 +335,7 @@ type blindedForwardTest struct {
 func newBlindedForwardTest(ht *lntest.HarnessTest) (context.Context,
 	*blindedForwardTest) {
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ht.Context())
 
 	return ctx, &blindedForwardTest{
 		ht:       ht,

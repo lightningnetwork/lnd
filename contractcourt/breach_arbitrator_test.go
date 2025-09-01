@@ -2070,7 +2070,7 @@ func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
 
 	}, 5*time.Second)
 	if err != nil {
-		t.Fatalf(err.Error())
+		t.Fatal(err)
 	}
 }
 

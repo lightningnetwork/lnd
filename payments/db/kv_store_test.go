@@ -2,7 +2,6 @@ package paymentsdb
 
 import (
 	"bytes"
-	"context"
 	"math"
 	"reflect"
 	"testing"
@@ -932,7 +931,7 @@ func TestQueryPayments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 
 			paymentDB := NewKVTestDB(t)
 

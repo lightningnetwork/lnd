@@ -59,7 +59,7 @@ func openTestStore(t *testing.T, tempDir string) *macaroons.RootKeyStorage {
 // reading keys and closing it.
 func TestStore(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tempDir, store := newTestStore(t)
 

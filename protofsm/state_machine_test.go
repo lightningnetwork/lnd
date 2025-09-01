@@ -1,7 +1,6 @@
 package protofsm
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"sync/atomic"
@@ -410,7 +409,7 @@ func (d *dummyAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
 // TestStateMachineOnInitDaemonEvent tests that the state machine will properly
 // execute any init-level daemon events passed into it.
 func TestStateMachineOnInitDaemonEvent(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.
@@ -464,7 +463,7 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 // transition.
 func TestStateMachineInternalEvents(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.
@@ -513,7 +512,7 @@ func TestStateMachineInternalEvents(t *testing.T) {
 // daemon emitted as part of the state transition process.
 func TestStateMachineDaemonEvents(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.
@@ -598,7 +597,7 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 // scenario where full block details are requested in the confirmation
 // notification.
 func testStateMachineConfMapperImpl(t *testing.T, fullBlock bool) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create the state machine.
 	env := &dummyEnv{}
@@ -722,7 +721,7 @@ func TestStateMachineConfMapper(t *testing.T) {
 // transition.
 func TestStateMachineSpendMapper(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create the state machine.
 	env := &dummyEnv{}
@@ -808,7 +807,7 @@ func (d *dummyMsgMapper) MapMsg(wireMsg msgmux.PeerMsg) fn.Option[dummyEvents] {
 // TestStateMachineMsgMapper tests that given a message mapper, we can properly
 // send in wire messages get mapped to FSM events.
 func TestStateMachineMsgMapper(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, we'll create our state machine given the env, and our
 	// starting state.

@@ -662,7 +662,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			if err != nil {
 				switch {
 				case test.expectErr == "":
-					t.Fatalf(err.Error())
+					t.Fatal(err)
 
 				case test.expectErr != removeAmounts(err.Error()):
 					t.Fatalf("expected error '%v', got '%v'",

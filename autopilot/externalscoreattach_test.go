@@ -1,7 +1,6 @@
 package autopilot_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -23,7 +22,7 @@ func randKey() (*btcec.PublicKey, error) {
 // ExternalScoreAttachment correctly reflects the scores we set last.
 func TestSetNodeScores(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	const name = "externalscore"
 

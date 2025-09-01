@@ -1,7 +1,6 @@
 package channeldb
 
 import (
-	"context"
 	"image/color"
 	"math"
 	"math/rand"
@@ -181,7 +180,7 @@ func TestFetchClosedChannelForID(t *testing.T) {
 // channel db and graph db.
 func TestMultiSourceAddrsForNode(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	fullDB, err := MakeTestDB(t)
 	require.NoError(t, err, "unable to make test database")

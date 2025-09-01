@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/walletdb/walletdbtest"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
 )
 
 // TestInterface performs all interfaces tests for this database driver.
@@ -24,7 +23,7 @@ func TestInterface(t *testing.T) {
 	// dbType is the database type name for this driver.
 	const dbType = "postgres"
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cfg := &Config{
 		Dsn: f.Dsn,
 	}

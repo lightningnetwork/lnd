@@ -11,7 +11,9 @@
 - The line length MUST NOT exceed 80 characters, this is very important. 
   You must count the Golang indentation (tabulator character) as 8 spaces when 
   determining the line length. Use creative approaches or the wrapping rules 
-  specified below to make sure the line length isn't exceeded.
+  specified below to make sure the line length isn't exceeded. HOWEVER: during
+  code reviews, please leave this check up to the linter and do not comment on
+  it (why? because gemini is bad at counting characters).
 - Every function must be commented with its purpose and assumptions.
 - Function comments must begin with the function name.
 - Function comments should be complete sentences.

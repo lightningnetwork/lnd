@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"math"
 	"math/rand"
 	prand "math/rand"
@@ -29,6 +28,21 @@ const (
 
 	// DefaultMaxRetryDelay is the default maximum delay between retries.
 	DefaultMaxRetryDelay = time.Second
+)
+
+// BackendType is an enum that represents the type of database backend we're
+// using.
+type BackendType uint8
+
+const (
+	// BackendTypeUnknown indicates we're using an unknown backend.
+	BackendTypeUnknown BackendType = iota
+
+	// BackendTypeSqlite indicates we're using a SQLite backend.
+	BackendTypeSqlite
+
+	// BackendTypePostgres indicates we're using a Postgres backend.
+	BackendTypePostgres
 )
 
 // TxOptions represents a set of options one can use to control what type of
@@ -67,12 +81,20 @@ func ReadTxOpt() TxOptions {
 	}
 }
 
+// BaseQuerier is a generic interface that represents the base methods that any
+// database backend implementation which uses a Querier for its operations must
+// implement.
+type BaseQuerier interface {
+	// Backend returns the type of the database backend used.
+	Backend() BackendType
+}
+
 // BatchedTx is a generic interface that represents the ability to execute
 // several operations to a given storage interface in a single atomic
 // transaction. Typically, Q here will be some subset of the main sqlc.Querier
 // interface allowing it to only depend on the routines it needs to implement
 // any additional business logic.
-type BatchedTx[Q any] interface {
+type BatchedTx[Q BaseQuerier] interface {
 	// ExecTx will execute the passed txBody, operating upon generic
 	// parameter Q (usually a storage interface) in a single transaction.
 	//
@@ -81,6 +103,9 @@ type BatchedTx[Q any] interface {
 	// type of concurrency control should be used.
 	ExecTx(ctx context.Context, txOptions TxOptions,
 		txBody func(Q) error, reset func()) error
+
+	// Backend returns the type of the database backend used.
+	Backend() BackendType
 }
 
 // Tx represents a database transaction that can be committed or rolled back.
@@ -158,7 +183,7 @@ func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 // query a type needs to run under a database transaction, and also the set of
 // options for that transaction. The QueryCreator is used to create a query
 // given a database transaction created by the BatchedQuerier.
-type TransactionExecutor[Query any] struct {
+type TransactionExecutor[Query BaseQuerier] struct {
 	BatchedQuerier
 
 	createQuery QueryCreator[Query]
@@ -169,7 +194,7 @@ type TransactionExecutor[Query any] struct {
 // NewTransactionExecutor creates a new instance of a TransactionExecutor given
 // a Querier query object and a concrete type for the type of transactions the
 // Querier understands.
-func NewTransactionExecutor[Querier any](db BatchedQuerier,
+func NewTransactionExecutor[Querier BaseQuerier](db BatchedQuerier,
 	createQuery QueryCreator[Querier],
 	opts ...TxExecutorOption) *TransactionExecutor[Querier] {
 
@@ -399,7 +424,12 @@ type DB interface {
 type BaseDB struct {
 	*sql.DB
 
-	*sqlc.Queries
+	// BackendType defines the type of database backend the database is.
+	BackendType BackendType
+
+	// SkipMigrations can be set to true to skip running any migrations
+	// during the iinitialization of the database.
+	SkipMigrations bool
 }
 
 // BeginTx wraps the normal sql specific BeginTx method with the TxOptions
@@ -412,4 +442,9 @@ func (s *BaseDB) BeginTx(ctx context.Context, opts TxOptions) (*sql.Tx, error) {
 	}
 
 	return s.DB.BeginTx(ctx, &sqlOptions)
+}
+
+// Backend returns the type of the database backend used.
+func (s *BaseDB) Backend() BackendType {
+	return s.BackendType
 }

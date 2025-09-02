@@ -12,7 +12,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
 	_ "github.com/jackc/pgx/v5"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 var (
@@ -131,13 +130,12 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	db.SetMaxIdleConns(maxConns)
 	db.SetConnMaxLifetime(connIdleLifetime)
 
-	queries := sqlc.New(db)
-
 	return &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
-			DB:      db,
-			Queries: queries,
+			DB:             db,
+			BackendType:    BackendTypePostgres,
+			SkipMigrations: cfg.SkipMigrations,
 		},
 	}, nil
 }

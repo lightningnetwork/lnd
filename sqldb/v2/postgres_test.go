@@ -1,5 +1,4 @@
 //go:build test_db_postgres
-// +build test_db_postgres
 
 package sqldb
 

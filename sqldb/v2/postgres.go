@@ -9,7 +9,7 @@ import (
 	"time"
 
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
-	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5"
 	"github.com/lightningnetwork/lnd/fn/v2"
 )
@@ -33,6 +33,7 @@ var (
 		// avoid replacing words which just have the word "TIMESTAMP" in
 		// them.
 		"TIMESTAMP": " TIMESTAMP WITHOUT TIME ZONE",
+		"UNHEX":     "DECODE",
 	}
 
 	// Make sure PostgresStore implements the MigrationExecutor interface.
@@ -122,13 +123,29 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	}
 
 	maxConns := defaultMaxConns
-	if cfg.MaxConnections > 0 {
-		maxConns = cfg.MaxConnections
+	if cfg.MaxOpenConnections > 0 {
+		maxConns = cfg.MaxOpenConnections
+	}
+
+	maxIdleConns := defaultMaxIdleConns
+	if cfg.MaxIdleConnections > 0 {
+		maxIdleConns = cfg.MaxIdleConnections
+	}
+
+	connMaxLifetime := defaultConnMaxLifetime
+	if cfg.ConnMaxLifetime > 0 {
+		connMaxLifetime = cfg.ConnMaxLifetime
+	}
+
+	connMaxIdleTime := defaultConnMaxIdleTime
+	if cfg.ConnMaxIdleTime > 0 {
+		connMaxIdleTime = cfg.ConnMaxIdleTime
 	}
 
 	db.SetMaxOpenConns(maxConns)
-	db.SetMaxIdleConns(maxConns)
-	db.SetConnMaxLifetime(connIdleLifetime)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
 	return &PostgresStore{
 		cfg: cfg,

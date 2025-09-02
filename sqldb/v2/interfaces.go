@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	prand "math/rand"
 	"time"
 )
 
@@ -22,12 +21,16 @@ const (
 	// repetition.
 	DefaultNumTxRetries = 20
 
-	// DefaultRetryDelay is the default delay between retries. This will be
-	// used to generate a random delay between 0 and this value.
-	DefaultRetryDelay = time.Millisecond * 50
+	// DefaultInitialRetryDelay is the default initial delay between
+	// retries. This will be used to generate a random delay between -50%
+	// and +50% of this value, so 20 to 60 milliseconds. The retry will be
+	// doubled after each attempt until we reach DefaultMaxRetryDelay. We
+	// start with a random value to avoid multiple goroutines that are
+	// created at the same time to effectively retry at the same time.
+	DefaultInitialRetryDelay = time.Millisecond * 40
 
 	// DefaultMaxRetryDelay is the default maximum delay between retries.
-	DefaultMaxRetryDelay = time.Second
+	DefaultMaxRetryDelay = time.Second * 3
 )
 
 // BackendType is an enum that represents the type of database backend we're
@@ -140,23 +143,25 @@ type BatchedQuerier interface {
 // executor. This can be used to do things like retry a transaction due to an
 // error a certain amount of times.
 type txExecutorOptions struct {
-	numRetries int
-	retryDelay time.Duration
+	numRetries        int
+	initialRetryDelay time.Duration
+	maxRetryDelay     time.Duration
 }
 
 // defaultTxExecutorOptions returns the default options for the transaction
 // executor.
 func defaultTxExecutorOptions() *txExecutorOptions {
 	return &txExecutorOptions{
-		numRetries: DefaultNumTxRetries,
-		retryDelay: DefaultRetryDelay,
+		numRetries:        DefaultNumTxRetries,
+		initialRetryDelay: DefaultInitialRetryDelay,
+		maxRetryDelay:     DefaultMaxRetryDelay,
 	}
 }
 
 // randRetryDelay returns a random retry delay between 0 and the configured max
 // delay.
 func (t *txExecutorOptions) randRetryDelay() time.Duration {
-	return time.Duration(prand.Int63n(int64(t.retryDelay))) //nolint:gosec
+	return time.Duration(rand.Int63n(int64(t.maxRetryDelay))) //nolint:gosec
 }
 
 // TxExecutorOption is a functional option that allows us to pass in optional
@@ -175,7 +180,7 @@ func WithTxRetries(numRetries int) TxExecutorOption {
 // to wait before a transaction is retried.
 func WithTxRetryDelay(delay time.Duration) TxExecutorOption {
 	return func(o *txExecutorOptions) {
-		o.retryDelay = delay
+		o.initialRetryDelay = delay
 	}
 }
 
@@ -270,11 +275,12 @@ type OnBackoff func(retry int, delay time.Duration)
 // retries is exceeded.
 func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 	rollbackTx RollbackTx, txBody TxBody, onBackoff OnBackoff,
-	numRetries int) error {
+	opts *txExecutorOptions) error {
 
 	waitBeforeRetry := func(attemptNumber int) bool {
 		retryDelay := randRetryDelay(
-			DefaultRetryDelay, DefaultMaxRetryDelay, attemptNumber,
+			opts.initialRetryDelay, opts.maxRetryDelay,
+			attemptNumber,
 		)
 
 		onBackoff(attemptNumber, retryDelay)
@@ -291,14 +297,14 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 		}
 	}
 
-	for i := 0; i < numRetries; i++ {
+	for i := 0; i < opts.numRetries; i++ {
 		tx, err := makeTx()
 		if err != nil {
 			dbErr := MapSQLError(err)
 			log.Tracef("Failed to makeTx: err=%v, dbErr=%v", err,
 				dbErr)
 
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we haven't
 				// even get a transaction yet. We'll just wait
 				// and try again.
@@ -327,7 +333,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			}
 
 			dbErr := MapSQLError(bodyErr)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				if waitBeforeRetry(i) {
 					continue
 				}
@@ -348,7 +354,7 @@ func ExecuteSQLTransactionWithRetry(ctx context.Context, makeTx MakeTx,
 			}
 
 			dbErr := MapSQLError(commitErr)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				if waitBeforeRetry(i) {
 					continue
 				}
@@ -405,8 +411,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	}
 
 	return ExecuteSQLTransactionWithRetry(
-		ctx, makeTx, rollbackTx, execTxBody, onBackoff,
-		t.opts.numRetries,
+		ctx, makeTx, rollbackTx, execTxBody, onBackoff, t.opts,
 	)
 }
 

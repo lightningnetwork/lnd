@@ -23,7 +23,7 @@ const (
 	testPgUser   = "test"
 	testPgPass   = "test"
 	testPgDBName = "test"
-	PostgresTag  = "11"
+	PostgresTag  = "15"
 )
 
 // TestPgFixture is a test fixture that starts a Postgres 11 instance in a
@@ -37,7 +37,7 @@ type TestPgFixture struct {
 }
 
 // NewTestPgFixture constructs a new TestPgFixture starting up a docker
-// container running Postgres 11. The started container will expire in after
+// container running Postgres 15. The started container will expire in after
 // the passed duration.
 func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 	// Use a sensible default on Windows (tcp/http) and linux/osx (socket)
@@ -122,6 +122,10 @@ func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 func (f *TestPgFixture) TearDown(t testing.TB) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
+}
+
+func (f *TestPgFixture) DB() *sql.DB {
+	return f.db
 }
 
 // RandomDBName generates a random database name.

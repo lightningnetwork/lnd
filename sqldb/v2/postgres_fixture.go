@@ -124,8 +124,8 @@ func (f *TestPgFixture) TearDown(t testing.TB) {
 	require.NoError(t, err, "Could not purge resource")
 }
 
-// randomDBName generates a random database name.
-func randomDBName(t testing.TB) string {
+// RandomDBName generates a random database name.
+func RandomDBName(t testing.TB) string {
 	randBytes := make([]byte, 8)
 	_, err := rand.Read(randBytes)
 	require.NoError(t, err)
@@ -135,16 +135,12 @@ func randomDBName(t testing.TB) string {
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
 // testing using the given fixture.
-//
-// NOTE: This function differs from the one in sqldb/postgres_fixture.go as that
-// function does not expect any migrations to be passed in, and instead always
-// applies the lnd specific migrations.
 func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture,
-	migrations []MigrationConfig) *PostgresStore {
+	streams []MigrationStream) *PostgresStore {
 
 	t.Helper()
 
-	dbName := randomDBName(t)
+	dbName := RandomDBName(t)
 
 	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
 
@@ -157,24 +153,22 @@ func NewTestPostgresDB(t testing.TB, fixture *TestPgFixture,
 	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
 
-	require.NoError(t, store.ApplyAllMigrations(
-		context.Background(), migrations),
-	)
+	require.NoError(t, ApplyAllMigrations(store, streams))
 
 	return store
 }
 
 // NewTestPostgresDBWithVersion is a helper function that creates a Postgres
 // database for testing and migrates it to the given version.
-func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
-	version uint) *PostgresStore {
+func NewTestPostgresDBWithVersion(t testing.TB, fixture *TestPgFixture,
+	stream MigrationStream, version uint) *PostgresStore {
 
 	t.Helper()
 
 	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
 		version)
 
-	dbName := randomDBName(t)
+	dbName := RandomDBName(t)
 	_, err := fixture.db.ExecContext(
 		context.Background(), "CREATE DATABASE "+dbName,
 	)
@@ -185,7 +179,7 @@ func NewTestPostgresDBWithVersion(t *testing.T, fixture *TestPgFixture,
 	store, err := NewPostgresStore(storeCfg)
 	require.NoError(t, err)
 
-	err = store.ExecuteMigrations(TargetVersion(version))
+	err = store.ExecuteMigrations(TargetVersion(version), stream)
 	require.NoError(t, err)
 
 	return store

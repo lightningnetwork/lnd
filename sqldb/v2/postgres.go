@@ -1,7 +1,6 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -12,6 +11,7 @@ import (
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
 	_ "github.com/jackc/pgx/v5"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -148,41 +148,45 @@ func (s *PostgresStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
 }
 
-// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
-// Postgres database.
-func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
-	migrations []MigrationConfig) error {
-
-	// Execute migrations unless configured to skip them.
-	if s.cfg.SkipMigrations {
-		return nil
-	}
-
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
-}
-
 func errPostgresMigration(err error) error {
 	return fmt.Errorf("error creating postgres migration: %w", err)
 }
 
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
+	stream MigrationStream) error {
+
 	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
 	if err != nil {
 		return err
 	}
 
-	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{
+		MigrationsTable: stream.TrackingTableName,
+	})
 	if err != nil {
 		return errPostgresMigration(err)
 	}
 
+	opts := &migrateOptions{
+		latestVersion: fn.Some(stream.LatestMigrationVersion),
+	}
+
+	if stream.MakeProgrammaticMigrations != nil {
+		postMigSteps, err := stream.MakeProgrammaticMigrations(s.BaseDB)
+		if err != nil {
+			return errPostgresMigration(err)
+		}
+		opts.programmaticMigrs = postMigSteps
+	}
+
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
-	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
+	postgresFS := newReplacerFS(stream.SQLFiles, postgresSchemaReplacements)
 	return applyMigrations(
-		postgresFS, driver, "../sqlc/migrations", dbName, target,
+		postgresFS, driver, stream.SQLFileDirectory, dbName, target,
+		opts,
 	)
 }
 
@@ -212,4 +216,12 @@ func (s *PostgresStore) SetSchemaVersion(version int, dirty bool) error {
 	}
 
 	return driver.SetVersion(version, dirty)
+}
+
+func (s *PostgresStore) DefaultTarget() MigrationTarget {
+	return TargetLatest
+}
+
+func (s *PostgresStore) SkipMigrations() bool {
+	return s.cfg.SkipMigrations
 }

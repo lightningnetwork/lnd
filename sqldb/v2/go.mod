@@ -7,6 +7,7 @@ require (
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.5.4
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
 	github.com/lightningnetwork/lnd/sqldb v1.0.10
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/pmezard/go-difflib v1.0.0

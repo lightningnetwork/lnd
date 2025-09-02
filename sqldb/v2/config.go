@@ -28,7 +28,12 @@ type SqliteConfig struct {
 	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
 	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
 	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
-	QueryConfig    `group:"query" namespace:"query"`
+
+	// SkipMigrationDbBackup if true, then a backup of the database will not
+	// be created before applying migrations.
+	SkipMigrationDbBackup bool `long:"skipmigrationdbbackup" description:"Skip creating a backup of the database before applying migrations."`
+
+	QueryConfig `group:"query" namespace:"query"`
 }
 
 // Validate checks that the SqliteConfig values are valid.

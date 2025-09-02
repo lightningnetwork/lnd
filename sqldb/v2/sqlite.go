@@ -3,12 +3,14 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"net/url"
 	"path/filepath"
 	"testing"
+	"time"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -48,7 +50,9 @@ type pragmaOption struct {
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
-	cfg *SqliteConfig
+	DbPath string
+
+	Config *SqliteConfig
 
 	*BaseDB
 }
@@ -136,7 +140,8 @@ func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	queries := sqlc.New(db)
 
 	s := &SqliteStore{
-		cfg: cfg,
+		Config: cfg,
+		DbPath: dbPath,
 		BaseDB: &BaseDB{
 			DB:      db,
 			Queries: queries,
@@ -152,39 +157,124 @@ func (s *SqliteStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
 }
 
-// ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
-// SQLite database.
-func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
-	migrations []MigrationConfig) error {
-
-	// Execute migrations unless configured to skip them.
-	if s.cfg.SkipMigrations {
-		return nil
-	}
-
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
-}
-
 func errSqliteMigration(err error) error {
 	return fmt.Errorf("error creating sqlite migration: %w", err)
 }
 
+// backupSqliteDatabase creates a backup of the given SQLite database.
+func backupSqliteDatabase(srcDB *sql.DB, dbFullFilePath string) error {
+	if srcDB == nil {
+		return fmt.Errorf("backup source database is nil")
+	}
+
+	// Create a database backup file full path from the given source
+	// database full file path.
+	//
+	// Get the current time and format it as a Unix timestamp in
+	// nanoseconds.
+	timestamp := time.Now().UnixNano()
+
+	// Add the timestamp to the backup name.
+	backupFullFilePath := fmt.Sprintf(
+		"%s.%d.backup", dbFullFilePath, timestamp,
+	)
+
+	log.Infof("Creating backup of database file: %v -> %v",
+		dbFullFilePath, backupFullFilePath)
+
+	// Create the database backup.
+	vacuumIntoQuery := "VACUUM INTO ?;"
+	stmt, err := srcDB.Prepare(vacuumIntoQuery)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(backupFullFilePath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// backupAndMigrate is a helper function that creates a database backup before
+// initiating the migration, and then migrates the database to the latest
+// version.
+func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
+	currentDbVersion int, maxMigrationVersion uint) error {
+
+	// Determine if a database migration is necessary given the current
+	// database version and the maximum migration version.
+	versionUpgradePending := currentDbVersion < int(maxMigrationVersion)
+	if !versionUpgradePending {
+		log.Infof("Current database version is up-to-date, skipping "+
+			"migration attempt and backup creation "+
+			"(current_db_version=%v, max_migration_version=%v)",
+			currentDbVersion, maxMigrationVersion)
+		return nil
+	}
+
+	// At this point, we know that a database migration is necessary.
+	// Create a backup of the database before starting the migration.
+	if !s.Config.SkipMigrationDbBackup {
+		log.Infof("Creating database backup (before applying " +
+			"migration(s))")
+
+		err := backupSqliteDatabase(s.DB, s.DbPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		log.Infof("Skipping database backup creation before applying " +
+			"migration(s)")
+	}
+
+	log.Infof("Applying migrations to database")
+	return mig.Up()
+}
+
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
+	stream MigrationStream) error {
+
 	driver, err := sqlite_migrate.WithInstance(
-		s.DB, &sqlite_migrate.Config{},
+		s.DB, &sqlite_migrate.Config{
+			MigrationsTable: stream.TrackingTableName,
+		},
 	)
 	if err != nil {
 		return errSqliteMigration(err)
 	}
 
+	opts := &migrateOptions{
+		latestVersion: fn.Some(stream.LatestMigrationVersion),
+	}
+
+	if stream.MakeProgrammaticMigrations != nil {
+		postMigSteps, err := stream.MakeProgrammaticMigrations(s.BaseDB)
+		if err != nil {
+			return errPostgresMigration(err)
+		}
+		opts.programmaticMigrs = postMigSteps
+	}
+
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.
-	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
+	sqliteFS := newReplacerFS(stream.SQLFiles, sqliteSchemaReplacements)
 	return applyMigrations(
-		sqliteFS, driver, "../sqlc/migrations", "sqlite", target,
+		sqliteFS, driver, stream.SQLFileDirectory, "sqlite", target,
+		opts,
 	)
+}
+
+func (s *SqliteStore) DefaultTarget() MigrationTarget {
+	return s.backupAndMigrate
+}
+
+func (s *SqliteStore) SkipMigrations() bool {
+	return s.Config.SkipMigrations
 }
 
 // GetSchemaVersion returns the current schema version of the SQLite database.
@@ -220,11 +310,7 @@ func (s *SqliteStore) SetSchemaVersion(version int, dirty bool) error {
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
-//
-// NOTE: This function differs from the one in sqldb/sqlite.go as that
-// function does not expect any migrations to be passed in, and instead always
-// applies the lnd specific migrations.
-func NewTestSqliteDB(t testing.TB, migrations []MigrationConfig) *SqliteStore {
+func NewTestSqliteDB(t testing.TB, streams []MigrationStream) *SqliteStore {
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing")
@@ -237,9 +323,7 @@ func NewTestSqliteDB(t testing.TB, migrations []MigrationConfig) *SqliteStore {
 	}, dbFileName)
 	require.NoError(t, err)
 
-	require.NoError(t, sqlDB.ApplyAllMigrations(
-		context.Background(), migrations),
-	)
+	require.NoError(t, ApplyAllMigrations(sqlDB, streams))
 
 	t.Cleanup(func() {
 		require.NoError(t, sqlDB.DB.Close())
@@ -250,7 +334,9 @@ func NewTestSqliteDB(t testing.TB, migrations []MigrationConfig) *SqliteStore {
 
 // NewTestSqliteDBWithVersion is a helper function that creates an SQLite
 // database for testing and migrates it to the given version.
-func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
+func NewTestSqliteDBWithVersion(t *testing.T, stream MigrationStream,
+	version uint) *SqliteStore {
+
 	t.Helper()
 
 	t.Logf("Creating new SQLite DB for testing, migrating to version %d",
@@ -264,7 +350,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	}, dbFileName)
 	require.NoError(t, err)
 
-	err = sqlDB.ExecuteMigrations(TargetVersion(version))
+	err = sqlDB.ExecuteMigrations(TargetVersion(version), stream)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

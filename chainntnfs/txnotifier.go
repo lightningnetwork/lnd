@@ -356,11 +356,22 @@ func NewSpendRequest(op *wire.OutPoint, pkScript []byte) (SpendRequest, error) {
 
 // String returns the string representation of the SpendRequest.
 func (r SpendRequest) String() string {
-	if r.OutPoint != ZeroOutPoint {
-		return fmt.Sprintf("outpoint=%v, script=%v", r.OutPoint,
-			r.PkScript)
+	var (
+		outpointStr = fmt.Sprintf("%v", r.OutPoint)
+		scriptStr   = fmt.Sprintf("%v", r.PkScript)
+	)
+
+	if r.OutPoint == ZeroOutPoint {
+		outpointStr = "<zero>"
 	}
-	return fmt.Sprintf("outpoint=<zero>, script=%v", r.PkScript)
+
+	// If the pk script is all zeros, we blank the pk script.
+	// Currently we do not support taproot pk scripts for notifications.
+	if r.PkScript == ZeroTaprootPkScript {
+		scriptStr = "<zero> (taproot pk script not supported)"
+	}
+
+	return fmt.Sprintf("outpoint=%s, script=%s", outpointStr, scriptStr)
 }
 
 // MatchesTx determines whether the given transaction satisfies the spend

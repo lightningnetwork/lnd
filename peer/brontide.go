@@ -646,6 +646,9 @@ type Brontide struct {
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
+
+	// onionMessageEndpoint is the endpoint that handles onion messages.
+	onionMessageEndpoint *onion_message.OnionEndpoint
 }
 
 // A compile-time check to ensure that Brontide satisfies the lnpeer.Peer
@@ -899,17 +902,18 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
-	onionMessageEndpoint := onion_message.NewOnionEndpoint(
+	p.onionMessageEndpoint = onion_message.NewOnionEndpoint(
 		onion_message.WithMessageServer(p.cfg.OnionMessageServer),
 		onion_message.WithOnionProcessor(p.cfg.Sphinx),
 		onion_message.WithMessageSender(p.cfg.OnionMsgSender),
 	)
+	p.onionMessageEndpoint.Start()
 
 	// We register the onion message endpoint with the message router.
 	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
-		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+		_ = r.UnregisterEndpoint(p.onionMessageEndpoint.Name())
 
-		return r.RegisterEndpoint(onionMessageEndpoint)
+		return r.RegisterEndpoint(p.onionMessageEndpoint)
 	})
 	if err != nil {
 		return fmt.Errorf("unable to register endpoint for onion "+
@@ -1655,6 +1659,11 @@ func (p *Brontide) Disconnect(reason error) {
 
 	// Stop PingManager before closing TCP connection.
 	p.pingManager.Stop()
+
+	// Stop the onion message endpoint if we have one.
+	if p.onionMessageEndpoint != nil {
+		p.onionMessageEndpoint.Stop()
+	}
 
 	// Ensure that the TCP connection is properly closed before continuing.
 	p.cfg.Conn.Close()

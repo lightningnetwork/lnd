@@ -5,14 +5,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
+	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+const (
+	// defaultOnionMessageQueueSize is the default size of the onion
+	// message queue.
+	defaultOnionMessageQueueSize = 50
+
+	// defaultMinRedThreshold is the default minimum threshold for the Random
+	// Early Drop queue. It is set to 80% of the queue size.
+	defaultMinRedThreshold = 40
 )
 
 var (
@@ -108,6 +120,16 @@ type OnionEndpoint struct {
 
 	// MsgSender sends a onion message to the target peer.
 	MsgSender OnionMessageSender
+
+	// onionMsgQueue is a queue that contains incoming onion messages.
+	onionMsgQueue *queue.BackpressureQueue[msgmux.PeerMsg]
+
+	// quit is a channel that is closed when the endpoint is shutting down.
+	quit chan struct{}
+
+	// wg is a wait group that is used to wait for the message handler to
+	// exit.
+	wg sync.WaitGroup
 }
 
 // A compile-time check to ensure OnionEndpoint implements the Endpoint
@@ -116,8 +138,17 @@ var _ msgmux.Endpoint = (*OnionEndpoint)(nil)
 
 // NewOnionEndpoint creates a new OnionEndpoint with the given options.
 func NewOnionEndpoint(opts ...OnionEndpointOption) *OnionEndpoint {
+	// By default, we will drop onion messages if the queue is full.
+	dropPredicate := queue.RandomEarlyDrop[msgmux.PeerMsg](
+		defaultMinRedThreshold, defaultOnionMessageQueueSize,
+	)
+
 	o := &OnionEndpoint{
 		onionMessageServer: nil,
+		onionMsgQueue: queue.NewBackpressureQueue[msgmux.PeerMsg](
+			defaultOnionMessageQueueSize, dropPredicate,
+		),
+		quit: make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -137,14 +168,74 @@ func (o *OnionEndpoint) CanHandle(msg msgmux.PeerMsg) bool {
 	return ok
 }
 
-// SendMessage processes the incoming onion message.
-// It returns true if the message was successfully processed.
+// SendMessage processes the incoming onion message. It returns true if the
+// message was successfully processed.
 func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	msg msgmux.PeerMsg) bool {
 
-	onionMsg, ok := msg.Message.(*lnwire.OnionMessage)
+	_, ok := msg.Message.(*lnwire.OnionMessage)
 	if !ok {
 		return false
+	}
+
+	err := o.onionMsgQueue.Enqueue(ctx, msg)
+	if err != nil {
+		if errors.Is(err, queue.ErrQueueFullAndDropped) {
+			log.Warnf("Onion message queue full, dropping message")
+		} else {
+			log.Errorf("Failed to enqueue onion message: %v", err)
+		}
+	}
+
+	return true
+}
+
+// Start starts the onion message handler.
+func (o *OnionEndpoint) Start() {
+	o.wg.Add(1)
+	go o.messageHandler()
+}
+
+// Stop stops the onion message handler.
+func (o *OnionEndpoint) Stop() {
+	close(o.quit)
+	o.wg.Wait()
+}
+
+// messageHandler is the main goroutine that processes onion messages from the
+// queue.
+func (o *OnionEndpoint) messageHandler() {
+	defer o.wg.Done()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		<-o.quit
+		cancel()
+	}()
+
+	for {
+		result := o.onionMsgQueue.Dequeue(ctx)
+
+		if result.IsErr() {
+			if errors.Is(result.Err(), context.Canceled) {
+				return
+			}
+
+			log.Errorf("OnionEndpoint Dequeue failed: %v",
+				result.Err())
+			continue
+		}
+
+		result.WhenOk(o.processMessage)
+	}
+}
+
+// processMessage processes an onion message.
+func (o *OnionEndpoint) processMessage(msg msgmux.PeerMsg) {
+	onionMsg, ok := msg.Message.(*lnwire.OnionMessage)
+	if !ok {
+		// This should not happen as we check it before enqueueing.
+		return
 	}
 
 	peer := msg.PeerPub.SerializeCompressed()
@@ -176,15 +267,7 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	// Send the update to any subscribers.
 	if sendErr := o.onionMessageServer.SendUpdate(update); sendErr != nil {
 		log.Errorf("Failed to send onion message update: %v", sendErr)
-		return false
 	}
-
-	// If we failed to handle the onion message, we return false.
-	if err != nil {
-		return false
-	}
-
-	return true
 }
 
 // handleOnionMessage decodes and processes an onion message.

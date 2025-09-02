@@ -1668,6 +1668,16 @@ func prepareSweepTx(inputs []input.Input, changePkScript lnwallet.AddrWithKey,
 		return 0, noChange, noLocktime, err
 	}
 
+	// We also add the extra change output to the change pk scripts.
+	//
+	// NOTE: The weight estimation will not be quite accurate because the
+	// witness data is greater when overlay channels are used. But that
+	// shouldn't be a problem since we will increase the fee rate
+	// incrementally via the fee function.
+	extraChangeOut.WhenSome(func(o SweepOutput) {
+		changePkScripts = append(changePkScripts, o.TxOut.PkScript)
+	})
+
 	// Creating a weight estimator with nil outputs and zero max fee rate.
 	// We don't allow adding customized outputs in the sweeping tx, and the
 	// fee rate is already being managed before we get here.

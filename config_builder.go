@@ -1807,8 +1807,11 @@ func broadcastErrorMapper(err error) error {
 	// in the first place are rebroadcasted despite of their backend error.
 	// Mempool conditions change over time so it makes sense to retry
 	// publishing the transaction. Moreover we log the detailed error so the
-	// user can intervene and increase the size of his mempool.
-	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+	// user can intervene and increase the size of his mempool or increase
+	// his min relay fee configuration.
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet),
+		errors.Is(err, chain.ErrMinRelayFeeNotMet):
+
 		ltndLog.Warnf("Error while broadcasting transaction: %v", err)
 
 		returnErr = &pushtx.BroadcastError{

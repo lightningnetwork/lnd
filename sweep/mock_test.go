@@ -338,7 +338,7 @@ func (m *MockAuxSweeper) DeriveSweepAddr(_ []input.Input,
 			Value:    123,
 			PkScript: changePkScript.DeliveryAddress,
 		},
-		IsExtra:     false,
+		IsExtra:     true,
 		InternalKey: fn.None[keychain.KeyDescriptor](),
 	})
 }

@@ -435,6 +435,13 @@ func TestPopulateDBs(t *testing.T) {
 // NOTE: the testPostgres variable can be set to true to test with a
 // postgres backend instead of the kvdb-sqlite backend.
 //
+// NOTE: you will need to set the following build tags in order to run this
+// test:
+//
+//	test_native_sql
+//	kvdb_sqlite // If your source is kvdb-sqlite
+//	kvdb_postgres // If your source is kvdb-postgres
+//
 // NOTE: this is a helper test and is not run by default.
 func TestPopulateViaMigration(t *testing.T) {
 	// ======= STEP 0 ===========

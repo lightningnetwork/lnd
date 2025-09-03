@@ -1380,8 +1380,8 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 
 	if node.HaveNodeAnnouncement {
 		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
-		params.Color = sqldb.SQLStr(EncodeHexColor(node.Color))
-		params.Alias = sqldb.SQLStr(node.Alias)
+		params.Color = sqldb.SQLStrValid(EncodeHexColor(node.Color))
+		params.Alias = sqldb.SQLStrValid(node.Alias)
 		params.Signature = node.AuthSigBytes
 	}
 

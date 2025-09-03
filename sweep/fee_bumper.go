@@ -565,7 +565,10 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 		// If the error indicates the fees paid is not enough, we will
 		// ask the fee function to increase the fee rate and retry.
-		case errors.Is(err, lnwallet.ErrMempoolFee):
+		case errors.Is(err, lnwallet.ErrMempoolFee),
+			errors.Is(err, chain.ErrMinRelayFeeNotMet),
+			errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+
 			// We should at least start with a feerate above the
 			// mempool min feerate, so if we get this error, it
 			// means something is wrong earlier in the pipeline.
@@ -574,7 +577,8 @@ func (t *TxPublisher) createRBFCompliantTx(
 
 			fallthrough
 
-		// We are not paying enough fees so we increase it.
+		// We are not paying enough fees to RBF a previous tx, so we
+		// increase it.
 		case errors.Is(err, chain.ErrInsufficientFee):
 			increased := false
 

@@ -3530,6 +3530,7 @@ const (
 	addressTypeIPv6   dbAddressType = 2
 	addressTypeTorV2  dbAddressType = 3
 	addressTypeTorV3  dbAddressType = 4
+	addressTypeDNS    dbAddressType = 5
 	addressTypeOpaque dbAddressType = math.MaxInt8
 )
 
@@ -3545,6 +3546,7 @@ func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
 		addressTypeIPv6:   {},
 		addressTypeTorV2:  {},
 		addressTypeTorV3:  {},
+		addressTypeDNS:    {},
 		addressTypeOpaque: {},
 	}
 	addAddr := func(t dbAddressType, addr net.Addr) {
@@ -3573,6 +3575,9 @@ func collectAddressRecords(addresses []net.Addr) (map[dbAddressType][]string,
 				return nil, fmt.Errorf("invalid length for " +
 					"a tor address")
 			}
+
+		case *lnwire.DNSAddress:
+			addAddr(addressTypeDNS, addr)
 
 		case *lnwire.OpaqueAddrs:
 			addAddr(addressTypeOpaque, addr)
@@ -4661,6 +4666,23 @@ func parseAddress(addrType dbAddressType, address string) (net.Addr, error) {
 		return &tor.OnionAddr{
 			OnionService: service,
 			Port:         port,
+		}, nil
+
+	case addressTypeDNS:
+		hostname, portStr, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("unable to split DNS "+
+				"address: %v", address)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return nil, err
+		}
+
+		return &lnwire.DNSAddress{
+			Hostname: hostname,
+			Port:     uint16(port),
 		}, nil
 
 	case addressTypeOpaque:

@@ -2,6 +2,7 @@ package netann
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image/color"
 	"net"
@@ -81,10 +82,45 @@ func SignNodeAnnouncement(signer lnwallet.MessageSigner,
 	return err
 }
 
-// ValidateNodeAnn validates the node announcement by ensuring that the
+// ValidateNodeAnn validates the fields and signature of a node announcement.
+func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
+	err := ValidateNodeAnnFields(a)
+	if err != nil {
+		return fmt.Errorf("invalid node announcement fields: %w", err)
+	}
+
+	return ValidateNodeAnnSignature(a)
+}
+
+// ValidateNodeAnnFields validates the fields of a node announcement.
+func ValidateNodeAnnFields(a *lnwire.NodeAnnouncement) error {
+	// Check that it only has at most one DNS address.
+	hasDNSAddr := false
+	for _, addr := range a.Addresses {
+		dnsAddr, ok := addr.(*lnwire.DNSAddress)
+		if !ok {
+			continue
+		}
+		if hasDNSAddr {
+			return errors.New("node announcement contains " +
+				"multiple DNS addresses. Only one is allowed")
+		}
+
+		hasDNSAddr = true
+
+		err := lnwire.ValidateDNSAddr(dnsAddr.Hostname, dnsAddr.Port)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ValidateNodeAnnSignature validates the node announcement by ensuring that the
 // attached signature is needed a signature of the node announcement under the
 // specified node public key.
-func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
+func ValidateNodeAnnSignature(a *lnwire.NodeAnnouncement) error {
 	// Reconstruct the data of announcement which should be covered by the
 	// signature so we can verify the signature shortly below
 	data, err := a.DataToSign()

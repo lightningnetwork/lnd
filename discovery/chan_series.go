@@ -231,6 +231,13 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			return nil, err
 		}
 
+		if err := netann.ValidateNodeAnnFields(nodeUpdate); err != nil {
+			log.Debugf("Skipping forwarding invalid node "+
+				"announcement %x: %v", nodeAnn.PubKeyBytes, err)
+
+			continue
+		}
+
 		updates = append(updates, nodeUpdate)
 	}
 
@@ -282,6 +289,7 @@ func (c *ChanSeries) FilterChannelRange(_ chainhash.Hash, startHeight,
 // to reply to a QueryShortChanIDs message sent by a remote peer. The response
 // will contain a unique set of ChannelAnnouncements, the latest ChannelUpdate
 // for each of the announcements, and a unique set of NodeAnnouncements.
+// Invalid node announcements are skipped and logged for debugging purposes.
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
@@ -335,8 +343,15 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 					return nil, err
 				}
 
-				chanAnns = append(chanAnns, nodeAnn)
-				nodePubsSent[nodePub] = struct{}{}
+				err = netann.ValidateNodeAnnFields(nodeAnn)
+				if err != nil {
+					log.Debugf("Skipping forwarding "+
+						"invalid node announcement "+
+						"%x: %v", nodeAnn.NodeID, err)
+				} else {
+					chanAnns = append(chanAnns, nodeAnn)
+					nodePubsSent[nodePub] = struct{}{}
+				}
 			}
 		}
 		if edge2 != nil {
@@ -354,8 +369,15 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 					return nil, err
 				}
 
-				chanAnns = append(chanAnns, nodeAnn)
-				nodePubsSent[nodePub] = struct{}{}
+				err = netann.ValidateNodeAnnFields(nodeAnn)
+				if err != nil {
+					log.Debugf("Skipping forwarding "+
+						"invalid node announcement "+
+						"%x: %v", nodeAnn.NodeID, err)
+				} else {
+					chanAnns = append(chanAnns, nodeAnn)
+					nodePubsSent[nodePub] = struct{}{}
+				}
 			}
 		}
 	}

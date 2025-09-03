@@ -744,146 +744,19 @@ func ReadElement(r io.Reader, element interface{}) error {
 		)
 
 		for addrBytesRead < addrsLen {
-			var descriptor [1]byte
-			if _, err = io.ReadFull(addrBuf, descriptor[:]); err != nil {
-				return err
+			bytesRead, address, err := ReadAddress(
+				addrBuf, addrsLen-addrBytesRead,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to read address: %w",
+					err)
 			}
+			addrBytesRead += bytesRead
 
-			addrBytesRead++
-
-			var address net.Addr
-			switch aType := addressType(descriptor[0]); aType {
-			case noAddr:
+			// If we encounter a noAddr descriptor, then we'll move
+			// on to the next address.
+			if address == nil {
 				continue
-
-			case tcp4Addr:
-				var ip [4]byte
-				if _, err := io.ReadFull(addrBuf, ip[:]); err != nil {
-					return err
-				}
-
-				var port [2]byte
-				if _, err := io.ReadFull(addrBuf, port[:]); err != nil {
-					return err
-				}
-
-				address = &net.TCPAddr{
-					IP:   net.IP(ip[:]),
-					Port: int(binary.BigEndian.Uint16(port[:])),
-				}
-				addrBytesRead += tcp4AddrLen
-
-			case tcp6Addr:
-				var ip [16]byte
-				if _, err := io.ReadFull(addrBuf, ip[:]); err != nil {
-					return err
-				}
-
-				var port [2]byte
-				if _, err := io.ReadFull(addrBuf, port[:]); err != nil {
-					return err
-				}
-
-				address = &net.TCPAddr{
-					IP:   net.IP(ip[:]),
-					Port: int(binary.BigEndian.Uint16(port[:])),
-				}
-				addrBytesRead += tcp6AddrLen
-
-			case v2OnionAddr:
-				var h [tor.V2DecodedLen]byte
-				if _, err := io.ReadFull(addrBuf, h[:]); err != nil {
-					return err
-				}
-
-				var p [2]byte
-				if _, err := io.ReadFull(addrBuf, p[:]); err != nil {
-					return err
-				}
-
-				onionService := tor.Base32Encoding.EncodeToString(h[:])
-				onionService += tor.OnionSuffix
-				port := int(binary.BigEndian.Uint16(p[:]))
-
-				address = &tor.OnionAddr{
-					OnionService: onionService,
-					Port:         port,
-				}
-				addrBytesRead += v2OnionAddrLen
-
-			case v3OnionAddr:
-				var h [tor.V3DecodedLen]byte
-				if _, err := io.ReadFull(addrBuf, h[:]); err != nil {
-					return err
-				}
-
-				var p [2]byte
-				if _, err := io.ReadFull(addrBuf, p[:]); err != nil {
-					return err
-				}
-
-				onionService := tor.Base32Encoding.EncodeToString(h[:])
-				onionService += tor.OnionSuffix
-				port := int(binary.BigEndian.Uint16(p[:]))
-
-				address = &tor.OnionAddr{
-					OnionService: onionService,
-					Port:         port,
-				}
-				addrBytesRead += v3OnionAddrLen
-
-			case dnsAddr:
-				var hostnameLen [1]byte
-				_, err := io.ReadFull(addrBuf, hostnameLen[:])
-				if err != nil {
-					return err
-				}
-
-				hostname := make([]byte, hostnameLen[0])
-				_, err = io.ReadFull(addrBuf, hostname)
-				if err != nil {
-					return err
-				}
-
-				var port [2]byte
-				_, err = io.ReadFull(addrBuf, port[:])
-				if err != nil {
-					return err
-				}
-
-				address = &DNSAddress{
-					Hostname: string(hostname),
-					Port: binary.BigEndian.Uint16(
-						port[:],
-					),
-				}
-				addrBytesRead += dnsAddrOverhead +
-					uint16(len(hostname))
-
-			default:
-				// If we don't understand this address type,
-				// we just store it along with the remaining
-				// address bytes as type OpaqueAddrs. We need
-				// to hold onto the bytes so that we can still
-				// write them back to the wire when we
-				// propagate this message.
-				payloadLen := 1 + addrsLen - addrBytesRead
-				payload := make([]byte, payloadLen)
-
-				// First write a byte for the address type that
-				// we already read.
-				payload[0] = byte(aType)
-
-				// Now append the rest of the address bytes.
-				_, err := io.ReadFull(addrBuf, payload[1:])
-				if err != nil {
-					return err
-				}
-
-				address = &OpaqueAddrs{
-					Payload: payload,
-				}
-				addrBytesRead = addrsLen
 			}
 
 			addresses = append(addresses, address)
@@ -948,4 +821,148 @@ func ReadElements(r io.Reader, elements ...interface{}) error {
 		}
 	}
 	return nil
+}
+
+// ReadAddress attempts to read a single address descriptor (as defined in
+// Bolt 7) from the passed io.Reader. The total length of the address section
+// (in bytes) must be provided so that we can ensure we don't read beyond the
+// end of the address section. The number of bytes read from the reader and the
+// parsed net.Addr are returned.
+//
+// NOTE: it is possible for the number of bytes read to be 1 even if a nil
+// address is returned.
+func ReadAddress(addrBuf io.Reader, addrsLen uint16) (uint16, net.Addr, error) {
+	var descriptor [1]byte
+	if _, err := io.ReadFull(addrBuf, descriptor[:]); err != nil {
+		return 0, nil, err
+	}
+
+	addrBytesRead := uint16(1)
+
+	var address net.Addr
+	switch aType := addressType(descriptor[0]); aType {
+	case noAddr:
+		return addrBytesRead, nil, nil
+
+	case tcp4Addr:
+		var ip [4]byte
+		if _, err := io.ReadFull(addrBuf, ip[:]); err != nil {
+			return 0, nil, err
+		}
+
+		var port [2]byte
+		if _, err := io.ReadFull(addrBuf, port[:]); err != nil {
+			return 0, nil, err
+		}
+
+		address = &net.TCPAddr{
+			IP:   net.IP(ip[:]),
+			Port: int(binary.BigEndian.Uint16(port[:])),
+		}
+		addrBytesRead += tcp4AddrLen
+
+	case tcp6Addr:
+		var ip [16]byte
+		if _, err := io.ReadFull(addrBuf, ip[:]); err != nil {
+			return 0, nil, err
+		}
+
+		var port [2]byte
+		if _, err := io.ReadFull(addrBuf, port[:]); err != nil {
+			return 0, nil, err
+		}
+
+		address = &net.TCPAddr{
+			IP:   net.IP(ip[:]),
+			Port: int(binary.BigEndian.Uint16(port[:])),
+		}
+		addrBytesRead += tcp6AddrLen
+
+	case v2OnionAddr:
+		var h [tor.V2DecodedLen]byte
+		if _, err := io.ReadFull(addrBuf, h[:]); err != nil {
+			return 0, nil, err
+		}
+
+		var p [2]byte
+		if _, err := io.ReadFull(addrBuf, p[:]); err != nil {
+			return 0, nil, err
+		}
+
+		onionService := tor.Base32Encoding.EncodeToString(h[:])
+		onionService += tor.OnionSuffix
+		port := int(binary.BigEndian.Uint16(p[:]))
+
+		address = &tor.OnionAddr{
+			OnionService: onionService,
+			Port:         port,
+		}
+		addrBytesRead += v2OnionAddrLen
+
+	case v3OnionAddr:
+		var h [tor.V3DecodedLen]byte
+		if _, err := io.ReadFull(addrBuf, h[:]); err != nil {
+			return 0, nil, err
+		}
+
+		var p [2]byte
+		if _, err := io.ReadFull(addrBuf, p[:]); err != nil {
+			return 0, nil, err
+		}
+
+		onionService := tor.Base32Encoding.EncodeToString(h[:])
+		onionService += tor.OnionSuffix
+		port := int(binary.BigEndian.Uint16(p[:]))
+
+		address = &tor.OnionAddr{
+			OnionService: onionService,
+			Port:         port,
+		}
+		addrBytesRead += v3OnionAddrLen
+
+	case dnsAddr:
+		var hostnameLen [1]byte
+		if _, err := io.ReadFull(addrBuf, hostnameLen[:]); err != nil {
+			return 0, nil, err
+		}
+
+		hostname := make([]byte, hostnameLen[0])
+		if _, err := io.ReadFull(addrBuf, hostname); err != nil {
+			return 0, nil, err
+		}
+
+		var port [2]byte
+		if _, err := io.ReadFull(addrBuf, port[:]); err != nil {
+			return 0, nil, err
+		}
+
+		address = &DNSAddress{
+			Hostname: string(hostname),
+			Port:     binary.BigEndian.Uint16(port[:]),
+		}
+		addrBytesRead += dnsAddrOverhead + uint16(len(hostname))
+
+	default:
+		// If we don't understand this address type, we just store it
+		// along with the remaining address bytes as type OpaqueAddrs.
+		// We need to hold onto the bytes so that we can still write
+		// them back to the wire when we propagate this message.
+		payloadLen := 1 + addrsLen - addrBytesRead
+		payload := make([]byte, payloadLen)
+
+		// First write a byte for the address type that we already read.
+		payload[0] = byte(aType)
+
+		// Now append the rest of the address bytes.
+		if _, err := io.ReadFull(addrBuf, payload[1:]); err != nil {
+			return 0, nil, err
+		}
+
+		address = &OpaqueAddrs{
+			Payload: payload,
+		}
+		addrBytesRead = addrsLen
+	}
+
+	return addrBytesRead, address, nil
 }

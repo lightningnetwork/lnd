@@ -234,7 +234,10 @@ func (c *Conn) Flush() (int, error) {
 //
 // Part of the net.Conn interface.
 func (c *Conn) Close() error {
-	// TODO(roasbeef): reset brontide state?
+	// Clear the state we created to be able to handle this connection.
+	c.noise = nil
+	c.readBuf = bytes.Buffer{}
+
 	return c.conn.Close()
 }
 

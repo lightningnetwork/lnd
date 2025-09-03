@@ -260,17 +260,16 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 				"opaque data for node %x: %w", pub, err)
 		}
 
+		if err = maybeOverrideNodeAddresses(node); err != nil {
+			skipped++
+			log.Warnf("Skipping migration of node %x with invalid "+
+				"address (%v): %v", pub, node.Addresses, err)
+
+			return nil
+		}
+
 		count++
 		chunk++
-
-		// TODO(elle): At this point, we should check the loaded node
-		// to see if we should extract any DNS addresses from its
-		// opaque type addresses. This is expected to be done in:
-		// https://github.com/lightningnetwork/lnd/pull/9455.
-		// This TODO is being tracked in
-		//  https://github.com/lightningnetwork/lnd/issues/9795 as this
-		// must be addressed before making this code path active in
-		// production.
 
 		// Write the node to the SQL database.
 		id, err := insertNodeSQLMig(ctx, sqlDB, node)
@@ -323,8 +322,78 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	log.Infof("Migrated %d nodes from KV to SQL in %v (skipped %d nodes "+
-		"due to invalid TLV streams)", count, time.Since(totalTime),
+		"due to invalid TLV streams or invalid addresses)", count,
+		time.Since(totalTime),
+
 		skipped)
+
+	return nil
+}
+
+// maybeOverrideNodeAddresses checks if the node has any opaque addresses that
+// can be parsed. If so, it replaces the node's addresses with the parsed
+// addresses. If the address is unparseable, it returns an error.
+func maybeOverrideNodeAddresses(node *models.LightningNode) error {
+	// In the majority of cases, the number of node addresses will remain
+	// unchanged, so we pre-allocate a slice of the same length.
+	addrs := make([]net.Addr, 0, len(node.Addresses))
+
+	// Iterate over each address in search of any opaque addresses that we
+	// can inspect.
+	for _, addr := range node.Addresses {
+		opaque, ok := addr.(*lnwire.OpaqueAddrs)
+		if !ok {
+			// Any non-opaque address is left unchanged.
+			addrs = append(addrs, addr)
+			continue
+		}
+
+		// For each opaque address, we'll now attempt to parse out any
+		// known addresses. We'll do this in a loop, as it's possible
+		// that there are several addresses encoded in a single opaque
+		// address.
+		payload := opaque.Payload
+		for len(payload) > 0 {
+			var (
+				r            = bytes.NewReader(payload)
+				numAddrBytes = uint16(len(payload))
+			)
+			byteRead, readAddr, err := lnwire.ReadAddress(
+				r, numAddrBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			// If we were able to read an address, we'll add it to
+			// our list of addresses.
+			if readAddr != nil {
+				addrs = append(addrs, readAddr)
+			}
+
+			// If the address we read was an opaque address, it
+			// means we've hit an unknown address type, and it has
+			// consumed the rest of the payload. We can break out
+			// of the loop.
+			if _, ok := readAddr.(*lnwire.OpaqueAddrs); ok {
+				break
+			}
+
+			// If we've read all the bytes, we can also break.
+			if byteRead >= numAddrBytes {
+				break
+			}
+
+			// Otherwise, we'll advance our payload slice and
+			// continue.
+			payload = payload[byteRead:]
+		}
+	}
+
+	// Override the node addresses if we have any.
+	if len(addrs) != 0 {
+		node.Addresses = addrs
+	}
 
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"iter"
 	"math"
@@ -848,7 +849,7 @@ func forEachNode(db kvdb.Backend,
 
 			// Execute the callback, the transaction will abort if
 			// this returns an error.
-			return cb(tx, &node)
+			return cb(tx, node)
 		})
 	}
 
@@ -945,12 +946,7 @@ func sourceNodeWithTx(nodes kvdb.RBucket) (*models.Node, error) {
 
 	// With the pubKey of the source node retrieved, we're able to
 	// fetch the full node information.
-	node, err := fetchLightningNode(nodes, selfPub)
-	if err != nil {
-		return nil, err
-	}
-
-	return &node, nil
+	return fetchLightningNode(nodes, selfPub)
 }
 
 // SetSourceNode sets the source node within the graph database. The source
@@ -1205,10 +1201,9 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	_, node1Err := fetchLightningNode(nodes, edge.NodeKey1Bytes[:])
 	switch {
 	case errors.Is(node1Err, ErrGraphNodeNotFound):
-		node1Shell := models.Node{
-			PubKeyBytes: edge.NodeKey1Bytes,
-		}
-		err := addLightningNode(tx, &node1Shell)
+		err := addLightningNode(
+			tx, models.NewV1ShellNode(edge.NodeKey1Bytes),
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
 				"for: %x: %w", edge.NodeKey1Bytes, err)
@@ -1220,10 +1215,9 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	_, node2Err := fetchLightningNode(nodes, edge.NodeKey2Bytes[:])
 	switch {
 	case errors.Is(node2Err, ErrGraphNodeNotFound):
-		node2Shell := models.Node{
-			PubKeyBytes: edge.NodeKey2Bytes,
-		}
-		err := addLightningNode(tx, &node2Shell)
+		err := addLightningNode(
+			tx, models.NewV1ShellNode(edge.NodeKey2Bytes),
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create shell node "+
 				"for: %x: %w", edge.NodeKey2Bytes, err)
@@ -2247,8 +2241,8 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 				Info:    &edgeInfo,
 				Policy1: edge1,
 				Policy2: edge2,
-				Node1:   &node1,
-				Node2:   &node2,
+				Node1:   node1,
+				Node2:   node2,
 			}
 
 			state.edgesSeen[chanIDInt] = struct{}{}
@@ -2394,10 +2388,10 @@ func newNodeUpdatesIterator(batchSize int, startTime, endTime time.Time,
 // fetchNextNodeBatch fetches the next batch of node announcements using the
 // iterator state.
 func (c *KVStore) fetchNextNodeBatch(
-	state *nodeUpdatesIterator) ([]models.Node, bool, error) {
+	state *nodeUpdatesIterator) ([]*models.Node, bool, error) {
 
 	var (
-		nodeBatch []models.Node
+		nodeBatch []*models.Node
 		hasMore   bool
 	)
 
@@ -2536,14 +2530,14 @@ func (c *KVStore) fetchNextNodeBatch(
 // update timestamp within the passed range.
 func (c *KVStore) NodeUpdatesInHorizon(startTime,
 	endTime time.Time,
-	opts ...IteratorOption) iter.Seq2[models.Node, error] {
+	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return func(yield func(models.Node, error) bool) {
+	return func(yield func(*models.Node, error) bool) {
 		// Initialize iterator state.
 		state := newNodeUpdatesIterator(
 			cfg.nodeUpdateIterBatchSize,
@@ -2557,7 +2551,7 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 				log.Errorf("unable to read node updates in "+
 					"horizon: %v", err)
 
-				yield(models.Node{}, err)
+				yield(&models.Node{}, err)
 
 				return
 			}
@@ -2945,8 +2939,8 @@ func (c *KVStore) fetchChanInfos(tx kvdb.RTx, chanIDs []uint64) (
 				Info:    &edgeInfo,
 				Policy1: edge1,
 				Policy2: edge2,
-				Node1:   &node1,
-				Node2:   &node2,
+				Node1:   node1,
+				Node2:   node2,
 			})
 		}
 
@@ -3411,7 +3405,7 @@ func (c *KVStore) fetchLightningNode(tx kvdb.RTx,
 			return err
 		}
 
-		node = &n
+		node = n
 
 		return nil
 	}
@@ -3694,7 +3688,7 @@ func (c *KVStore) fetchOtherNode(tx kvdb.RTx,
 			return err
 		}
 
-		targetNode = &node
+		targetNode = node
 
 		return nil
 	}
@@ -4383,17 +4377,20 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 		return err
 	}
 
-	if err := binary.Write(&b, byteOrder, node.Color.R); err != nil {
+	nodeColor := node.Color.UnwrapOr(color.RGBA{})
+
+	if err := binary.Write(&b, byteOrder, nodeColor.R); err != nil {
 		return err
 	}
-	if err := binary.Write(&b, byteOrder, node.Color.G); err != nil {
+	if err := binary.Write(&b, byteOrder, nodeColor.G); err != nil {
 		return err
 	}
-	if err := binary.Write(&b, byteOrder, node.Color.B); err != nil {
+	if err := binary.Write(&b, byteOrder, nodeColor.B); err != nil {
 		return err
 	}
 
-	if err := wire.WriteVarString(&b, 0, node.Alias); err != nil {
+	err = wire.WriteVarString(&b, 0, node.Alias.UnwrapOr(""))
+	if err != nil {
 		return err
 	}
 
@@ -4432,7 +4429,8 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 		return err
 	}
 
-	if err := aliasBucket.Put(nodePub, []byte(node.Alias)); err != nil {
+	err = aliasBucket.Put(nodePub, []byte(node.Alias.UnwrapOr("")))
+	if err != nil {
 		return err
 	}
 
@@ -4466,11 +4464,11 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 }
 
 func fetchLightningNode(nodeBucket kvdb.RBucket,
-	nodePub []byte) (models.Node, error) {
+	nodePub []byte) (*models.Node, error) {
 
 	nodeBytes := nodeBucket.Get(nodePub)
 	if nodeBytes == nil {
-		return models.Node{}, ErrGraphNodeNotFound
+		return nil, ErrGraphNodeNotFound
 	}
 
 	nodeReader := bytes.NewReader(nodeBytes)
@@ -4533,30 +4531,29 @@ func deserializeLightningNodeCacheable(r io.Reader) (route.Vertex,
 	return pubKey, features, nil
 }
 
-func deserializeLightningNode(r io.Reader) (models.Node, error) {
+func deserializeLightningNode(r io.Reader) (*models.Node, error) {
 	var (
-		node    models.Node
 		scratch [8]byte
 		err     error
+		pubKey  [33]byte
 	)
 
-	// Always populate a feature vector, even if we don't have a node
-	// announcement and short circuit below.
-	node.Features = lnwire.EmptyFeatureVector()
-
 	if _, err := r.Read(scratch[:]); err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
 
 	unix := int64(byteOrder.Uint64(scratch[:]))
-	node.LastUpdate = time.Unix(unix, 0)
+	lastUpdate := time.Unix(unix, 0)
 
-	if _, err := io.ReadFull(r, node.PubKeyBytes[:]); err != nil {
-		return models.Node{}, err
+	if _, err := io.ReadFull(r, pubKey[:]); err != nil {
+		return nil, err
 	}
 
+	node := models.NewV1ShellNode(pubKey)
+	node.LastUpdate = lastUpdate
+
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
 
 	hasNodeAnn := byteOrder.Uint16(scratch[:2])
@@ -4568,28 +4565,31 @@ func deserializeLightningNode(r io.Reader) (models.Node, error) {
 
 	// We did get a node announcement for this node, so we'll have the rest
 	// of the data available.
-	if err := binary.Read(r, byteOrder, &node.Color.R); err != nil {
-		return models.Node{}, err
+	var nodeColor color.RGBA
+	if err := binary.Read(r, byteOrder, &nodeColor.R); err != nil {
+		return nil, err
 	}
-	if err := binary.Read(r, byteOrder, &node.Color.G); err != nil {
-		return models.Node{}, err
+	if err := binary.Read(r, byteOrder, &nodeColor.G); err != nil {
+		return nil, err
 	}
-	if err := binary.Read(r, byteOrder, &node.Color.B); err != nil {
-		return models.Node{}, err
+	if err := binary.Read(r, byteOrder, &nodeColor.B); err != nil {
+		return nil, err
 	}
+	node.Color = fn.Some(nodeColor)
 
-	node.Alias, err = wire.ReadVarString(r, 0)
+	alias, err := wire.ReadVarString(r, 0)
 	if err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
+	node.Alias = fn.Some(alias)
 
 	err = node.Features.Decode(r)
 	if err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
 
 	if _, err := r.Read(scratch[:2]); err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
 	numAddresses := int(byteOrder.Uint16(scratch[:2]))
 
@@ -4597,7 +4597,7 @@ func deserializeLightningNode(r io.Reader) (models.Node, error) {
 	for i := 0; i < numAddresses; i++ {
 		address, err := DeserializeAddr(r)
 		if err != nil {
-			return models.Node{}, err
+			return nil, err
 		}
 		addresses = append(addresses, address)
 	}
@@ -4605,7 +4605,7 @@ func deserializeLightningNode(r io.Reader) (models.Node, error) {
 
 	node.AuthSigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")
 	if err != nil {
-		return models.Node{}, err
+		return nil, err
 	}
 
 	// We'll try and see if there are any opaque bytes left, if not, then
@@ -4617,7 +4617,7 @@ func deserializeLightningNode(r io.Reader) (models.Node, error) {
 	case errors.Is(err, io.ErrUnexpectedEOF):
 	case errors.Is(err, io.EOF):
 	case err != nil:
-		return models.Node{}, err
+		return nil, err
 	}
 
 	if len(extraBytes) > 0 {

@@ -228,14 +228,15 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.Node{
+		var pubKey [33]byte
+		copy(pubKey[:], pubBytes)
+		dbNode := models.NewV1Node(pubKey, &models.NodeV1Fields{
 			AuthSigBytes: testSig.Serialize(),
 			LastUpdate:   testTime,
 			Addresses:    testAddrs,
 			Alias:        node.Alias,
-			Features:     testFeatures,
-		}
-		copy(dbNode.PubKeyBytes[:], pubBytes)
+			Features:     testFeatures.RawFeatureVector,
+		})
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
@@ -564,13 +565,15 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.Node{
+		var pubKeyBytes [33]byte
+		copy(pubKeyBytes[:], pubKey.SerializeCompressed())
+		dbNode := models.NewV1Node(pubKeyBytes, &models.NodeV1Fields{
 			AuthSigBytes: testSig.Serialize(),
 			LastUpdate:   testTime,
 			Addresses:    testAddrs,
 			Alias:        alias,
-			Features:     features,
-		}
+			Features:     features.RawFeatureVector,
+		})
 
 		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
 
@@ -1249,10 +1252,11 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
 	require.NoError(t, err, "unable to decode public key")
 
-	doge := &models.Node{}
-	copy(doge.PubKeyBytes[:], dogePubKeyBytes[:])
-	doge.Alias = "doge"
-	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
+	var pubKey [33]byte
+	copy(pubKey[:], dogePubKeyBytes)
+	doge := models.NewV1Node(pubKey, &models.NodeV1Fields{
+		Alias: "doge",
+	})
 	graph.aliasMap["doge"] = doge.PubKeyBytes
 
 	// Create the channel edge going from songoku to doge and include it in

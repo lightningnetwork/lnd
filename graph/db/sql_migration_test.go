@@ -384,9 +384,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				// The PruneGraph call requires that the source
 				// node be set. So that is the first object
 				// we will write.
-				&models.Node{
-					PubKeyBytes: testPub,
-				},
+				models.NewV1ShellNode(testPub),
 				// Now we add some block heights to prune
 				// the graph at.
 				uint32(1), uint32(2), uint32(20), uint32(3),
@@ -746,16 +744,15 @@ type testNodeOpt func(*models.Node)
 // makeTestNode can be used to create a test models.Node. The
 // functional options can be used to modify the node's attributes.
 func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.Node {
-	n := &models.Node{
+	n := models.NewV1Node(genPubKey(t), &models.NodeV1Fields{
 		AuthSigBytes:    testSigBytes,
 		LastUpdate:      testTime,
 		Color:           testColor,
 		Alias:           "kek",
-		Features:        testFeatures,
+		Features:        testFeatures.RawFeatureVector,
 		Addresses:       testAddrs,
 		ExtraOpaqueData: testExtraData,
-		PubKeyBytes:     genPubKey(t),
-	}
+	})
 
 	for _, opt := range opts {
 		opt(n)
@@ -774,11 +771,7 @@ func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.Node {
 func makeTestShellNode(t *testing.T,
 	opts ...testNodeOpt) *models.Node {
 
-	n := &models.Node{
-		PubKeyBytes: genPubKey(t),
-		Features:    testEmptyFeatures,
-		LastUpdate:  time.Unix(0, 0),
-	}
+	n := models.NewV1ShellNode(genPubKey(t))
 
 	for _, opt := range opts {
 		opt(n)
@@ -1813,18 +1806,15 @@ func genRandomNode(t *rapid.T) *models.Node {
 		extraOpaqueData = nil
 	}
 
-	node := &models.Node{
-		AuthSigBytes: sigBytes,
-		LastUpdate:   randTime,
-		Color:        randColor,
-		Alias:        alias.String(),
-		Features: lnwire.NewFeatureVector(
-			features, lnwire.Features,
-		),
+	node := models.NewV1Node(pubKeyBytes, &models.NodeV1Fields{
+		AuthSigBytes:    sigBytes,
+		LastUpdate:      randTime,
+		Color:           randColor,
+		Alias:           alias.String(),
+		Features:        features,
 		Addresses:       addrs,
 		ExtraOpaqueData: extraOpaqueData,
-		PubKeyBytes:     pubKeyBytes,
-	}
+	})
 
 	// We call this method so that the internal pubkey field is populated
 	// which then lets us to proper struct comparison later on.

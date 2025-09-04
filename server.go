@@ -1482,16 +1482,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		DefaultMinHtlcIn:     cc.MinHtlcIn,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
 			pushAmt lnwire.MilliSatoshi) uint16 {
-			// For large channels we increase the number
-			// of confirmations we require for the
-			// channel to be considered open. As it is
-			// always the responder that gets to choose
-			// value, the pushAmt is value being pushed
-			// to us. This means we have more to lose
-			// in the case this gets re-orged out, and
-			// we will require more confirmations before
-			// we consider it open.
-
 			// In case the user has explicitly specified
 			// a default value for the number of
 			// confirmations, we use it.
@@ -1500,29 +1490,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				return defaultConf
 			}
 
-			minConf := uint64(3)
-			maxConf := uint64(6)
-
-			// If this is a wumbo channel, then we'll require the
-			// max amount of confirmations.
-			if chanAmt > MaxFundingAmount {
-				return uint16(maxConf)
-			}
-
-			// If not we return a value scaled linearly
-			// between 3 and 6, depending on channel size.
-			// TODO(halseth): Use 1 as minimum?
-			maxChannelSize := uint64(
-				lnwire.NewMSatFromSatoshis(MaxFundingAmount))
-			stake := lnwire.NewMSatFromSatoshis(chanAmt) + pushAmt
-			conf := maxConf * uint64(stake) / maxChannelSize
-			if conf < minConf {
-				conf = minConf
-			}
-			if conf > maxConf {
-				conf = maxConf
-			}
-			return uint16(conf)
+			// Otherwise, scale the number of confirmations based on
+			// the channel amount and push amount. For large
+			// channels we increase the number of
+			// confirmations we require for the channel to be
+			// considered open. As it is always the
+			// responder that gets to choose value, the
+			// pushAmt is value being pushed to us. This
+			// means we have more to lose in the case this
+			// gets re-orged out, and we will require more
+			// confirmations before we consider it open.
+			return lnwallet.FundingConfsForAmounts(chanAmt, pushAmt)
 		},
 		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
 			// We scale the remote CSV delay (the time the

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
 )
@@ -811,15 +812,17 @@ func createNode(priv *btcec.PrivateKey) *models.Node {
 	updateTime := rand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.Node{
-		AuthSigBytes: testSig.Serialize(),
-		LastUpdate:   time.Unix(updateTime, 0),
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "kek" + string(pub),
-		Features:     testFeatures,
-		Addresses:    testAddrs,
-	}
-	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()),
+		&models.NodeV1Fields{
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   time.Unix(updateTime, 0),
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + string(pub),
+			Features:     testFeatures.RawFeatureVector,
+			Addresses:    testAddrs,
+		},
+	)
 
 	return n
 }

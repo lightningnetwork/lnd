@@ -192,15 +192,16 @@ func createTestNode() (*models.Node, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.Node{
-		LastUpdate:   time.Unix(updateTime, 0),
-		Addresses:    testAddrs,
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "kek" + string(pub),
-		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n.PubKeyBytes[:], pub)
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(updateTime, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + string(pub),
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	return n, nil
 }
@@ -2870,27 +2871,29 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &models.Node{
-		LastUpdate:   time.Unix(123, 0),
-		Addresses:    testAddrs,
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "node11",
-		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+	n1 := models.NewV1Node(
+		route.NewVertex(priv1.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(123, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	require.NoError(t, ctx.graph.AddNode(ctxb, n1))
 
-	n2 := &models.Node{
-		LastUpdate:   time.Unix(123, 0),
-		Addresses:    testAddrs,
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "node22",
-		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
+	n2 := models.NewV1Node(
+		route.NewVertex(priv2.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(123, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node22",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	require.NoError(t, ctx.graph.AddNode(ctxb, n2))
 

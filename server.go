@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"math/big"
 	prand "math/rand"
 	"net"
@@ -3327,17 +3328,17 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
-	selfNode := &models.Node{
-		LastUpdate: time.Unix(int64(newNodeAnn.Timestamp), 0),
-		Addresses:  newNodeAnn.Addresses,
-		Alias:      newNodeAnn.Alias.String(),
-		Features: lnwire.NewFeatureVector(
-			newNodeAnn.Features, lnwire.Features,
-		),
-		Color:        newNodeAnn.RGBColor,
-		AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
-	}
-	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
+	selfNode := models.NewV1Node(
+		route.NewVertex(s.identityECDH.PubKey()), &models.NodeV1Fields{
+			Addresses:    newNodeAnn.Addresses,
+			Features:     newNodeAnn.Features,
+			AuthSigBytes: newNodeAnn.Signature.ToSignatureBytes(),
+			Color:        newNodeAnn.RGBColor,
+			Alias:        newNodeAnn.Alias.String(),
+			LastUpdate:   time.Unix(int64(newNodeAnn.Timestamp), 0),
+		},
+	)
+
 	if err := s.graphDB.SetSourceNode(ctx, selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %w", err)
 	}
@@ -3453,9 +3454,9 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 
 	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
 	selfNode.Addresses = newNodeAnn.Addresses
-	selfNode.Alias = newNodeAnn.Alias.String()
+	selfNode.Alias = fn.Some(newNodeAnn.Alias.String())
 	selfNode.Features = s.featureMgr.Get(feature.SetNodeAnn)
-	selfNode.Color = newNodeAnn.RGBColor
+	selfNode.Color = fn.Some(newNodeAnn.RGBColor)
 	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
 
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
@@ -5611,7 +5612,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	// Parse the color from config. We will update this later if the config
 	// color is not changed from default (#3399FF) and we have a value in
 	// the source node.
-	color, err := lncfg.ParseHexColor(s.cfg.Color)
+	nodeColor, err := lncfg.ParseHexColor(s.cfg.Color)
 	if err != nil {
 		return fmt.Errorf("unable to parse color: %w", err)
 	}
@@ -5635,13 +5636,17 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		// didn't specify a different color in the config. We'll use the
 		// source node's color.
 		if s.cfg.Color == defaultColor {
-			color = srcNode.Color
+			srcNode.Color.WhenSome(func(rgba color.RGBA) {
+				nodeColor = rgba
+			})
 		}
 
 		// If an alias is not specified in the config, we'll use the
 		// source node's alias.
 		if alias == "" {
-			alias = srcNode.Alias
+			srcNode.Alias.WhenSome(func(s string) {
+				alias = s
+			})
 		}
 
 		// If the `externalip` is not specified in the config, it means
@@ -5671,15 +5676,15 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 	// TODO(abdulkbk): potentially find a way to use the source node's
 	// features in the self node.
-	selfNode := &models.Node{
-		LastUpdate: nodeLastUpdate,
-		Addresses:  addrs,
-		Alias:      nodeAlias.String(),
-		Color:      color,
-		Features:   s.featureMgr.Get(feature.SetNodeAnn),
-	}
-
-	copy(selfNode.PubKeyBytes[:], nodePub[:])
+	selfNode := models.NewV1Node(
+		nodePub, &models.NodeV1Fields{
+			Alias:      nodeAlias.String(),
+			Color:      nodeColor,
+			LastUpdate: nodeLastUpdate,
+			Addresses:  addrs,
+			Features:   s.featureMgr.GetRaw(feature.SetNodeAnn),
+		},
+	)
 
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the

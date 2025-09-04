@@ -418,7 +418,6 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				fallthrough
 			case errors.Is(err, graphdb.ErrGraphNotFound):
 				graphNode := &models.Node{
-					HaveNodeAnnouncement: true,
 					Addresses: []net.Addr{&net.TCPAddr{
 						IP: bytes.Repeat(
 							[]byte("a"), 16,
@@ -451,7 +450,6 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			return nil, err
 		}
 		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
 			Addresses: []net.Addr{
 				&net.TCPAddr{
 					IP: bytes.Repeat([]byte("a"), 16),
@@ -552,7 +550,6 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 	dbNode := &models.Node{
-		HaveNodeAnnouncement: true,
 		Addresses: []net.Addr{
 			&net.TCPAddr{
 				IP: bytes.Repeat([]byte("a"), 16),

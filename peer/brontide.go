@@ -4444,14 +4444,19 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	localOut := chanCloser.LocalCloseOutput()
 	remoteOut := chanCloser.RemoteCloseOutput()
 	auxOut := chanCloser.AuxOutputs()
-	go WaitForChanToClose(
-		chanCloser.NegotiationHeight(), notifier, errChan,
-		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
-			// Respond to the local subsystem which requested the
-			// channel closure.
-			if closeReq != nil {
-				closeReq.Updates <- &ChannelCloseUpdate{
-					ClosingTxid:       closingTxid[:],
+    // Determine the number of confirmations to wait before
+    // signaling a successful cooperative close, scaled by
+    // channel capacity (see CloseConfsForCapacity).
+    numConfs := lnwallet.CloseConfsForCapacity(chanCloser.Channel().Capacity)
+
+    go WaitForChanToClose(
+        chanCloser.NegotiationHeight(), notifier, errChan,
+        &chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, numConfs, func() {
+            // Respond to the local subsystem which requested the
+            // channel closure.
+            if closeReq != nil {
+                closeReq.Updates <- &ChannelCloseUpdate{
+                    ClosingTxid:       closingTxid[:],
 					Success:           true,
 					LocalCloseOutput:  localOut,
 					RemoteCloseOutput: remoteOut,
@@ -4468,16 +4473,15 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 // finally the callback will be executed. If any error is encountered within
 // the function, then it will be sent over the errChan.
 func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
-	errChan chan error, chanPoint *wire.OutPoint,
-	closingTxID *chainhash.Hash, closeScript []byte, cb func()) {
+    errChan chan error, chanPoint *wire.OutPoint,
+    closingTxID *chainhash.Hash, closeScript []byte, numConfs uint32, cb func()) {
 
 	peerLog.Infof("Waiting for confirmation of close of ChannelPoint(%v) "+
 		"with txid: %v", chanPoint, closingTxID)
 
-	// TODO(roasbeef): add param for num needed confs
-	confNtfn, err := notifier.RegisterConfirmationsNtfn(
-		closingTxID, closeScript, 1, bestHeight,
-	)
+    confNtfn, err := notifier.RegisterConfirmationsNtfn(
+        closingTxID, closeScript, numConfs, bestHeight,
+    )
 	if err != nil {
 		if errChan != nil {
 			errChan <- err

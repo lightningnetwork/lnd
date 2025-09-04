@@ -19,11 +19,6 @@ type Node struct {
 	PubKeyBytes [33]byte
 	pubKey      *btcec.PublicKey
 
-	// HaveNodeAnnouncement indicates whether we received a node
-	// announcement for this particular node. If true, the remaining fields
-	// will be set, if false only the PubKey is known for this node.
-	HaveNodeAnnouncement bool
-
 	// LastUpdate is the last time the vertex information for this node has
 	// been updated.
 	LastUpdate time.Time
@@ -54,53 +49,62 @@ type Node struct {
 	ExtraOpaqueData []byte
 }
 
+// HaveAnnouncement returns true if we have received a node announcement for
+// this node. We determine this by checking if we have a signature for the
+// announcement.
+func (n *Node) HaveAnnouncement() bool {
+	return len(n.AuthSigBytes) > 0
+}
+
 // PubKey is the node's long-term identity public key. This key will be used to
 // authenticated any advertisements/updates sent by the node.
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (l *Node) PubKey() (*btcec.PublicKey, error) {
-	if l.pubKey != nil {
-		return l.pubKey, nil
+func (n *Node) PubKey() (*btcec.PublicKey, error) {
+	if n.pubKey != nil {
+		return n.pubKey, nil
 	}
 
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
+	key, err := btcec.ParsePubKey(n.PubKeyBytes[:])
 	if err != nil {
 		return nil, err
 	}
-	l.pubKey = key
+	n.pubKey = key
 
 	return key, nil
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
+func (n *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 	error) {
 
-	if !l.HaveNodeAnnouncement {
+	// Error out if we request the signed announcement, but we don't have
+	// a signature for this announcement.
+	if !n.HaveAnnouncement() && signed {
 		return nil, fmt.Errorf("node does not have node announcement")
 	}
 
-	alias, err := lnwire.NewNodeAlias(l.Alias)
+	alias, err := lnwire.NewNodeAlias(n.Alias)
 	if err != nil {
 		return nil, err
 	}
 
 	nodeAnn := &lnwire.NodeAnnouncement1{
-		Features:        l.Features.RawFeatureVector,
-		NodeID:          l.PubKeyBytes,
-		RGBColor:        l.Color,
+		Features:        n.Features.RawFeatureVector,
+		NodeID:          n.PubKeyBytes,
+		RGBColor:        n.Color,
 		Alias:           alias,
-		Addresses:       l.Addresses,
-		Timestamp:       uint32(l.LastUpdate.Unix()),
-		ExtraOpaqueData: l.ExtraOpaqueData,
+		Addresses:       n.Addresses,
+		Timestamp:       uint32(n.LastUpdate.Unix()),
+		ExtraOpaqueData: n.ExtraOpaqueData,
 	}
 
 	if !signed {
 		return nodeAnn, nil
 	}
 
-	sig, err := lnwire.NewSigFromECDSARawSignature(l.AuthSigBytes)
+	sig, err := lnwire.NewSigFromECDSARawSignature(n.AuthSigBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -117,14 +121,13 @@ func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
 
 	return &Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           timestamp,
-		Addresses:            msg.Addresses,
-		PubKeyBytes:          msg.NodeID,
-		Alias:                msg.Alias.String(),
-		AuthSigBytes:         msg.Signature.ToSignatureBytes(),
-		Features:             features,
-		Color:                msg.RGBColor,
-		ExtraOpaqueData:      msg.ExtraOpaqueData,
+		LastUpdate:      timestamp,
+		Addresses:       msg.Addresses,
+		PubKeyBytes:     msg.NodeID,
+		Alias:           msg.Alias.String(),
+		AuthSigBytes:    msg.Signature.ToSignatureBytes(),
+		Features:        features,
+		Color:           msg.RGBColor,
+		ExtraOpaqueData: msg.ExtraOpaqueData,
 	}
 }

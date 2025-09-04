@@ -403,7 +403,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	ctx := context.Background()
 
-	fetchNode := func(pub *btcec.PublicKey) (*models.LightningNode, error) {
+	fetchNode := func(pub *btcec.PublicKey) (*models.Node, error) {
 		if pub != nil {
 			vertex, err := route.NewVertexFromBytes(
 				pub.SerializeCompressed(),
@@ -412,12 +412,12 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(ctx, vertex)
+			dbNode, err := d.db.FetchNode(ctx, vertex)
 			switch {
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
 			case errors.Is(err, graphdb.ErrGraphNotFound):
-				graphNode := &models.LightningNode{
+				graphNode := &models.Node{
 					HaveNodeAnnouncement: true,
 					Addresses: []net.Addr{&net.TCPAddr{
 						IP: bytes.Repeat(
@@ -430,7 +430,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					AuthSigBytes: testSig.Serialize(),
 				}
 				graphNode.AddPubKey(pub)
-				err := d.db.AddLightningNode(
+				err := d.db.AddNode(
 					context.Background(), graphNode,
 				)
 				if err != nil {
@@ -447,7 +447,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if err != nil {
 			return nil, err
 		}
-		dbNode := &models.LightningNode{
+		dbNode := &models.Node{
 			HaveNodeAnnouncement: true,
 			Addresses: []net.Addr{
 				&net.TCPAddr{
@@ -460,7 +460,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			AuthSigBytes: testSig.Serialize(),
 		}
 		dbNode.AddPubKey(nodeKey)
-		if err := d.db.AddLightningNode(
+		if err := d.db.AddNode(
 			context.Background(), dbNode,
 		); err != nil {
 			return nil, err
@@ -548,7 +548,7 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbNode := &models.LightningNode{
+	dbNode := &models.Node{
 		HaveNodeAnnouncement: true,
 		Addresses: []net.Addr{
 			&net.TCPAddr{
@@ -561,7 +561,7 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 		AuthSigBytes: testSig.Serialize(),
 	}
 	dbNode.AddPubKey(nodeKey)
-	err = d.db.AddLightningNode(context.Background(), dbNode)
+	err = d.db.AddNode(context.Background(), dbNode)
 	if err != nil {
 		return nil, err
 	}

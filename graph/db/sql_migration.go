@@ -137,7 +137,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	// fetch the corresponding node object in the SQL store, and it will
 	// then be compared against the original KVDB node object.
 	batch := make(
-		map[int64]*models.LightningNode, cfg.MaxBatchSize,
+		map[int64]*models.Node, cfg.MaxBatchSize,
 	)
 
 	// validateBatch validates that the batch of nodes in the 'batch' map
@@ -226,7 +226,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		// Clear the batch map for the next iteration.
 		batch = make(
-			map[int64]*models.LightningNode, cfg.MaxBatchSize,
+			map[int64]*models.Node, cfg.MaxBatchSize,
 		)
 
 		return nil
@@ -235,7 +235,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 	// Loop through each node in the KV store and insert it into the SQL
 	// database.
 	err := forEachNode(kvBackend, func(_ kvdb.RTx,
-		node *models.LightningNode) error {
+		node *models.Node) error {
 
 		pub := node.PubKeyBytes
 
@@ -307,7 +307,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 		chunk = 0
 		skipped = 0
 		t0 = time.Now()
-		batch = make(map[int64]*models.LightningNode, cfg.MaxBatchSize)
+		batch = make(map[int64]*models.Node, cfg.MaxBatchSize)
 	})
 	if err != nil {
 		return fmt.Errorf("could not migrate nodes: %w", err)
@@ -1371,7 +1371,7 @@ func forEachClosedSCID(db kvdb.Backend,
 // the migration to be idempotent and dont want to error out if we re-insert the
 // exact same node.
 func insertNodeSQLMig(ctx context.Context, db SQLQueries,
-	node *models.LightningNode) (int64, error) {
+	node *models.Node) (int64, error) {
 
 	params := sqlc.InsertNodeMigParams{
 		Version: int16(ProtocolV1),

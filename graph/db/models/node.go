@@ -11,11 +11,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// LightningNode represents an individual vertex/node within the channel graph.
+// Node represents an individual vertex/node within the channel graph.
 // A node is connected to other nodes by one or more channel edges emanating
 // from it. As the graph is directed, a node will also have an incoming edge
 // attached to it for each outgoing edge.
-type LightningNode struct {
+type Node struct {
 	// PubKeyBytes is the raw bytes of the public key of the target node.
 	PubKeyBytes [33]byte
 	pubKey      *btcec.PublicKey
@@ -65,7 +65,7 @@ type LightningNode struct {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
+func (l *Node) PubKey() (*btcec.PublicKey, error) {
 	if l.pubKey != nil {
 		return l.pubKey, nil
 	}
@@ -84,19 +84,19 @@ func (l *LightningNode) PubKey() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the signature if absolutely necessary.
-func (l *LightningNode) AuthSig() (*ecdsa.Signature, error) {
+func (l *Node) AuthSig() (*ecdsa.Signature, error) {
 	return ecdsa.ParseSignature(l.AuthSigBytes)
 }
 
 // AddPubKey is a setter-link method that can be used to swap out the public
 // key for a node.
-func (l *LightningNode) AddPubKey(key *btcec.PublicKey) {
+func (l *Node) AddPubKey(key *btcec.PublicKey) {
 	l.pubKey = key
 	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
+func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 	error) {
 
 	if !l.HaveNodeAnnouncement {
@@ -132,13 +132,13 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 	return nodeAnn, nil
 }
 
-// NodeFromWireAnnouncement creates a LightningNode instance from an
+// NodeFromWireAnnouncement creates a Node instance from an
 // lnwire.NodeAnnouncement message.
-func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement) *LightningNode {
+func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement) *Node {
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
 
-	return &LightningNode{
+	return &Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           timestamp,
 		Addresses:            msg.Addresses,

@@ -183,7 +183,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	return ctx
 }
 
-func createTestNode() (*models.LightningNode, error) {
+func createTestNode() (*models.Node, error) {
 	updateTime := rand.Int63()
 
 	priv, err := btcec.NewPrivateKey()
@@ -192,7 +192,7 @@ func createTestNode() (*models.LightningNode, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
+	n := &models.Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(updateTime, 0),
 		Addresses:            testAddrs,
@@ -2718,11 +2718,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err := ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists1)
 
-	_, exists2, err := ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err := ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists2)
 
@@ -2779,11 +2779,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasLightningNode(ctxb, pub1)
+	_, exists1, err = ctx.graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists1)
 
-	_, exists2, err = ctx.graph.HasLightningNode(ctxb, pub2)
+	_, exists2, err = ctx.graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists2)
 
@@ -2871,7 +2871,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &models.LightningNode{
+	n1 := &models.Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -2882,9 +2882,9 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n1))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n1))
 
-	n2 := &models.LightningNode{
+	n2 := &models.Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(123, 0),
 		Addresses:            testAddrs,
@@ -2895,7 +2895,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
 
-	require.NoError(t, ctx.graph.AddLightningNode(ctxb, n2))
+	require.NoError(t, ctx.graph.AddNode(ctxb, n2))
 
 	// Should still be able to find the route, and the info should be
 	// updated.
@@ -2908,12 +2908,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
-	copy1, err := ctx.graph.FetchLightningNode(ctxb, pub1)
+	copy1, err := ctx.graph.FetchNode(ctxb, pub1)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n1.Alias, copy1.Alias)
 
-	copy2, err := ctx.graph.FetchLightningNode(ctxb, pub2)
+	copy2, err := ctx.graph.FetchNode(ctxb, pub2)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n2.Alias, copy2.Alias)

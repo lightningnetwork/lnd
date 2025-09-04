@@ -241,14 +241,14 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	return s, nil
 }
 
-// AddLightningNode adds a vertex/node to the graph database. If the node is not
+// AddNode adds a vertex/node to the graph database. If the node is not
 // in the database from before, this will add a new, unconnected one to the
 // graph. If it is present from before, this will update that node's
 // information.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) AddLightningNode(ctx context.Context,
-	node *models.LightningNode, opts ...batch.SchedulerOption) error {
+func (s *SQLStore) AddNode(ctx context.Context,
+	node *models.Node, opts ...batch.SchedulerOption) error {
 
 	r := &batch.Request[SQLQueries]{
 		Opts: batch.NewSchedulerOptions(opts...),
@@ -261,15 +261,15 @@ func (s *SQLStore) AddLightningNode(ctx context.Context,
 	return s.nodeScheduler.Execute(ctx, r)
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) FetchLightningNode(ctx context.Context,
-	pubKey route.Vertex) (*models.LightningNode, error) {
+func (s *SQLStore) FetchNode(ctx context.Context,
+	pubKey route.Vertex) (*models.Node, error) {
 
-	var node *models.LightningNode
+	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, pubKey)
@@ -283,14 +283,14 @@ func (s *SQLStore) FetchLightningNode(ctx context.Context,
 	return node, nil
 }
 
-// HasLightningNode determines if the graph has a vertex identified by the
+// HasNode determines if the graph has a vertex identified by the
 // target node identity public key. If the node exists in the database, a
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
 // boolean.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) HasLightningNode(ctx context.Context,
+func (s *SQLStore) HasNode(ctx context.Context,
 	pubKey [33]byte) (time.Time, bool, error) {
 
 	var (
@@ -369,11 +369,11 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 	return known, addresses, nil
 }
 
-// DeleteLightningNode starts a new database transaction to remove a vertex/node
+// DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) DeleteLightningNode(ctx context.Context,
+func (s *SQLStore) DeleteNode(ctx context.Context,
 	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
@@ -489,10 +489,10 @@ func (s *SQLStore) LookupAlias(ctx context.Context,
 // node based off the source node.
 //
 // NOTE: part of the V1Store interface.
-func (s *SQLStore) SourceNode(ctx context.Context) (*models.LightningNode,
+func (s *SQLStore) SourceNode(ctx context.Context) (*models.Node,
 	error) {
 
-	var node *models.LightningNode
+	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		_, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
 		if err != nil {
@@ -517,7 +517,7 @@ func (s *SQLStore) SourceNode(ctx context.Context) (*models.LightningNode,
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) SetSourceNode(ctx context.Context,
-	node *models.LightningNode) error {
+	node *models.Node) error {
 
 	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		id, err := upsertNode(ctx, db, node)
@@ -553,11 +553,11 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.LightningNode, error) {
+	endTime time.Time) ([]models.Node, error) {
 
 	ctx := context.TODO()
 
-	var nodes []models.LightningNode
+	var nodes []models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNodes, err := db.GetNodesByLastUpdateRange(
 			ctx, sqlc.GetNodesByLastUpdateRangeParams{
@@ -571,7 +571,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime,
 
 		err = forEachNodeInBatch(
 			ctx, s.cfg.QueryCfg, db, dbNodes,
-			func(_ int64, node *models.LightningNode) error {
+			func(_ int64, node *models.Node) error {
 				nodes = append(nodes, *node)
 
 				return nil
@@ -776,7 +776,7 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
-		otherNode *models.LightningNode) error, reset func()) error {
+		otherNode *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
@@ -832,13 +832,13 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 //
 // NOTE: part of the V1Store interface.
 func (s *SQLStore) ForEachNode(ctx context.Context,
-	cb func(node *models.LightningNode) error, reset func()) error {
+	cb func(node *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodePaginated(
 			ctx, s.cfg.QueryCfg, db,
 			ProtocolV1, func(_ context.Context, _ int64,
-				node *models.LightningNode) error {
+				node *models.Node) error {
 
 				return cb(node)
 			},
@@ -3201,7 +3201,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 
 // getNodeByPubKey attempts to look up a target node by its public key.
 func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
-	pubKey route.Vertex) (int64, *models.LightningNode, error) {
+	pubKey route.Vertex) (int64, *models.Node, error) {
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
@@ -3236,11 +3236,11 @@ func buildCacheableChannelInfo(scid []byte, capacity int64, node1Pub,
 	}
 }
 
-// buildNode constructs a LightningNode instance from the given database node
+// buildNode constructs a Node instance from the given database node
 // record. The node's features, addresses and extra signed fields are also
 // fetched from the database and set on the node.
 func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
-	dbNode sqlc.GraphNode) (*models.LightningNode, error) {
+	dbNode sqlc.GraphNode) (*models.Node, error) {
 
 	data, err := batchLoadNodeData(ctx, cfg, db, []int64{dbNode.ID})
 	if err != nil {
@@ -3251,12 +3251,12 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	return buildNodeWithBatchData(dbNode, data)
 }
 
-// buildNodeWithBatchData builds a models.LightningNode instance
+// buildNodeWithBatchData builds a models.Node instance
 // from the provided sqlc.GraphNode and batchNodeData. If the node does have
 // features/addresses/extra fields, then the corresponding fields are expected
 // to be present in the batchNodeData.
 func buildNodeWithBatchData(dbNode sqlc.GraphNode,
-	batchData *batchNodeData) (*models.LightningNode, error) {
+	batchData *batchNodeData) (*models.Node, error) {
 
 	if dbNode.Version != int16(ProtocolV1) {
 		return nil, fmt.Errorf("unsupported node version: %d",
@@ -3266,7 +3266,7 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	var pub [33]byte
 	copy(pub[:], dbNode.PubKey)
 
-	node := &models.LightningNode{
+	node := &models.Node{
 		PubKeyBytes: pub,
 		Features:    lnwire.EmptyFeatureVector(),
 		LastUpdate:  time.Unix(0, 0),
@@ -3328,7 +3328,7 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 // with the preloaded data, and executes the provided callback for each node.
 func forEachNodeInBatch(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, nodes []sqlc.GraphNode,
-	cb func(dbID int64, node *models.LightningNode) error) error {
+	cb func(dbID int64, node *models.Node) error) error {
 
 	// Extract node IDs for batch loading.
 	nodeIDs := make([]int64, len(nodes))
@@ -3382,7 +3382,7 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 // then a new node is created. The node's features, addresses and extra TLV
 // types are also updated. The node's DB ID is returned.
 func upsertNode(ctx context.Context, db SQLQueries,
-	node *models.LightningNode) (int64, error) {
+	node *models.Node) (int64, error) {
 
 	params := sqlc.UpsertNodeParams{
 		Version: int16(ProtocolV1),
@@ -5064,7 +5064,7 @@ func batchLoadChannelPolicyExtrasHelper(ctx context.Context,
 func forEachNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, protocol ProtocolVersion,
 	processNode func(context.Context, int64,
-		*models.LightningNode) error) error {
+		*models.Node) error) error {
 
 	pageQueryFunc := func(ctx context.Context, lastID int64,
 		limit int32) ([]sqlc.GraphNode, error) {

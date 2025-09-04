@@ -873,7 +873,7 @@ func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 	// node announcements, we will ignore such nodes. If we do know about
 	// this node, check that this update brings info newer than what we
 	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasLightningNode(ctx, node)
+	lastUpdate, exists, err := b.cfg.Graph.HasNode(ctx, node)
 	if err != nil {
 		return fmt.Errorf("unable to query for the "+
 			"existence of node: %w", err)
@@ -975,7 +975,7 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 // be ignored.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) AddNode(ctx context.Context, node *models.LightningNode,
+func (b *Builder) AddNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
 	err := b.addNode(ctx, node, op...)
@@ -988,11 +988,11 @@ func (b *Builder) AddNode(ctx context.Context, node *models.LightningNode,
 	return nil
 }
 
-// addNode does some basic checks on the given LightningNode against what we
+// addNode does some basic checks on the given Node against what we
 // currently have persisted in the graph, and then adds it to the graph. If we
 // already know about the node, then we only update our DB if the new update
 // has a newer timestamp than the last one we received.
-func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
+func (b *Builder) addNode(ctx context.Context, node *models.Node,
 	op ...batch.SchedulerOption) error {
 
 	// Before we add the node to the database, we'll check to see if the
@@ -1003,7 +1003,7 @@ func (b *Builder) addNode(ctx context.Context, node *models.LightningNode,
 		return err
 	}
 
-	if err := b.cfg.Graph.AddLightningNode(ctx, node, op...); err != nil {
+	if err := b.cfg.Graph.AddNode(ctx, node, op...); err != nil {
 		return fmt.Errorf("unable to add node %x to the "+
 			"graph: %w", node.PubKeyBytes, err)
 	}
@@ -1257,15 +1257,15 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
 
-// FetchLightningNode attempts to look up a target node by its identity public
+// FetchNode attempts to look up a target node by its identity public
 // key. graphdb.ErrGraphNodeNotFound is returned if the node doesn't exist
 // within the graph.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) FetchLightningNode(ctx context.Context,
-	node route.Vertex) (*models.LightningNode, error) {
+func (b *Builder) FetchNode(ctx context.Context,
+	node route.Vertex) (*models.Node, error) {
 
-	return b.cfg.Graph.FetchLightningNode(ctx, node)
+	return b.cfg.Graph.FetchNode(ctx, node)
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by

@@ -3316,7 +3316,7 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
-	selfNode := &models.LightningNode{
+	selfNode := &models.Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
 		Addresses:            newNodeAnn.Addresses,
@@ -3505,7 +3505,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 	// each of the nodes.
 	graphAddrs := make(map[string]*nodeAddresses)
 	forEachSrcNodeChan := func(chanPoint wire.OutPoint,
-		havePolicy bool, channelPeer *models.LightningNode) error {
+		havePolicy bool, channelPeer *models.Node) error {
 
 		// If the remote party has announced the channel to us, but we
 		// haven't yet, then we won't have a policy. However, we don't
@@ -5208,7 +5208,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(ctx, vertex)
+	node, err := s.graphDB.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}
@@ -5634,7 +5634,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 
 	// TODO(abdulkbk): potentially find a way to use the source node's
 	// features in the self node.
-	selfNode := &models.LightningNode{
+	selfNode := &models.Node{
 		HaveNodeAnnouncement: true,
 		LastUpdate:           nodeLastUpdate,
 		Addresses:            addrs,

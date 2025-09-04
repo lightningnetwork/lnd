@@ -69,9 +69,9 @@ var (
 	}
 )
 
-func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
+func createNode(priv *btcec.PrivateKey) *models.Node {
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
+	n := &models.Node{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           nextUpdateTime(),
@@ -85,16 +85,16 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	return n
 }
 
-func createTestVertex(t testing.TB) *models.LightningNode {
+func createTestVertex(t testing.TB) *models.Node {
 	t.Helper()
 
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	return createLightningNode(priv)
+	return createNode(priv)
 }
 
-// TestNodeInsertionAndDeletion tests the CRUD operations for a LightningNode.
+// TestNodeInsertionAndDeletion tests the CRUD operations for a Node.
 func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -104,9 +104,9 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
 	timeStamp := int64(1232342)
-	nodeWithAddrs := func(addrs []net.Addr) *models.LightningNode {
+	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
 		timeStamp++
-		return &models.LightningNode{
+		return &models.Node{
 			HaveNodeAnnouncement: true,
 			AuthSigBytes:         testSig.Serialize(),
 			LastUpdate:           time.Unix(timeStamp, 0),
@@ -122,15 +122,15 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.
 	node := nodeWithAddrs(testAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 	assertNodeInCache(t, graph, node, testFeatures)
 
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
-	dbNode, err := graph.FetchLightningNode(ctx, testPub)
+	dbNode, err := graph.FetchNode(ctx, testPub)
 	require.NoError(t, err, "unable to locate node")
 
-	_, exists, err := graph.HasLightningNode(ctx, dbNode.PubKeyBytes)
+	_, exists, err := graph.HasNode(ctx, dbNode.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
@@ -151,19 +151,19 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	require.NoError(t, graph.DeleteLightningNode(ctx, testPub))
+	require.NoError(t, graph.DeleteNode(ctx, testPub))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Attempting to delete the node again should return an error since
 	// the node is no longer known.
 	require.ErrorIs(
-		t, graph.DeleteLightningNode(ctx, testPub),
+		t, graph.DeleteNode(ctx, testPub),
 		ErrGraphNodeNotFound,
 	)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(ctx, testPub)
+	_, err = graph.FetchNode(ctx, testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 
 	// Now, we'll specifically test the updating of addresses of a node
@@ -182,10 +182,10 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Add the node without any addresses.
 	node = nodeWithAddrs(nil)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the empty addresses.
-	dbNode, err = graph.FetchLightningNode(ctx, testPub)
+	dbNode, err = graph.FetchNode(ctx, testPub)
 	require.NoError(t, err)
 	compareNodes(t, node, dbNode)
 
@@ -211,10 +211,10 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testOpaqueAddr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(ctx, testPub)
+	dbNode, err = graph.FetchNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
@@ -232,10 +232,10 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testIPV6Addr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(ctx, testPub)
+	dbNode, err = graph.FetchNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
@@ -245,10 +245,10 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 		testOnionV3Addr,
 	}
 	node = nodeWithAddrs(expAddrs)
-	require.NoError(t, graph.AddLightningNode(ctx, node))
+	require.NoError(t, graph.AddNode(ctx, node))
 
 	// Fetch the node and assert the updated addresses.
-	dbNode, err = graph.FetchLightningNode(ctx, testPub)
+	dbNode, err = graph.FetchNode(ctx, testPub)
 	require.NoError(t, err)
 	require.Equal(t, expAddrs, dbNode.Addresses)
 
@@ -271,7 +271,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestPartialNode checks that we can add and retrieve a LightningNode where
+// TestPartialNode checks that we can add and retrieve a Node where
 // only the pubkey is known to the database.
 func TestPartialNode(t *testing.T) {
 	t.Parallel()
@@ -281,7 +281,7 @@ func TestPartialNode(t *testing.T) {
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
-	var node1, node2 models.LightningNode
+	var node1, node2 models.Node
 	copy(node1.PubKeyBytes[:], pubKey1Bytes)
 	copy(node2.PubKeyBytes[:], pubKey2Bytes)
 
@@ -296,18 +296,18 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, fetch the node2 from the database to ensure everything was
 	// serialized properly.
-	dbNode1, err := graph.FetchLightningNode(ctx, pubKey1)
+	dbNode1, err := graph.FetchNode(ctx, pubKey1)
 	require.NoError(t, err)
-	dbNode2, err := graph.FetchLightningNode(ctx, pubKey2)
+	dbNode2, err := graph.FetchNode(ctx, pubKey2)
 	require.NoError(t, err)
 
-	_, exists, err := graph.HasLightningNode(ctx, dbNode1.PubKeyBytes)
+	_, exists, err := graph.HasNode(ctx, dbNode1.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode1 := &models.LightningNode{
+	expectedNode1 := &models.Node{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey1,
@@ -315,13 +315,13 @@ func TestPartialNode(t *testing.T) {
 	}
 	compareNodes(t, expectedNode1, dbNode1)
 
-	_, exists, err = graph.HasLightningNode(ctx, dbNode2.PubKeyBytes)
+	_, exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode2 := &models.LightningNode{
+	expectedNode2 := &models.Node{
 		HaveNodeAnnouncement: false,
 		LastUpdate:           time.Unix(0, 0),
 		PubKeyBytes:          pubKey2,
@@ -331,12 +331,12 @@ func TestPartialNode(t *testing.T) {
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
-	require.NoError(t, graph.DeleteLightningNode(ctx, pubKey1))
+	require.NoError(t, graph.DeleteNode(ctx, pubKey1))
 	assertNodeNotInCache(t, graph, testPub)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
-	_, err = graph.FetchLightningNode(ctx, testPub)
+	_, err = graph.FetchNode(ctx, testPub)
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
@@ -353,7 +353,7 @@ func TestAliasLookup(t *testing.T) {
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
-	require.NoError(t, graph.AddLightningNode(ctx, testNode))
+	require.NoError(t, graph.AddNode(ctx, testNode))
 
 	// Next, attempt to lookup the alias. The alias should exactly match
 	// the one which the test node was assigned.
@@ -484,7 +484,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
-	node1, node2 *models.LightningNode) (models.ChannelEdgeInfo,
+	node1, node2 *models.Node) (models.ChannelEdgeInfo,
 	lnwire.ShortChannelID) {
 
 	shortChanID := lnwire.ShortChannelID{
@@ -724,7 +724,7 @@ func withSkipProofs() createEdgeOpt {
 	}
 }
 
-func createChannelEdge(node1, node2 *models.LightningNode,
+func createChannelEdge(node1, node2 *models.Node,
 	options ...createEdgeOpt) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
 
@@ -824,12 +824,12 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	assertNodeInCache(t, graph, node1, testFeatures)
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	assertNodeInCache(t, graph, node2, testFeatures)
@@ -982,7 +982,7 @@ func TestEdgePolicyCRUD(t *testing.T) {
 	updateAndAssertPolicies()
 }
 
-func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.LightningNode,
+func assertNodeInCache(t *testing.T, g *ChannelGraph, n *models.Node,
 	expectedFeatures *lnwire.FeatureVector) {
 
 	// Let's check the internal view first.
@@ -1335,7 +1335,7 @@ func TestForEachSourceNodeChannel(t *testing.T) {
 	// Now, we'll use the ForEachSourceNodeChannel and assert that it
 	// returns the expected data in the call-back.
 	err := graph.ForEachSourceNodeChannel(ctx, func(chanPoint wire.OutPoint,
-		havePolicy bool, otherNode *models.LightningNode) error {
+		havePolicy bool, otherNode *models.Node) error {
 
 		require.Contains(t, expectedSrcChans, chanPoint)
 		expected := expectedSrcChans[chanPoint]
@@ -1468,7 +1468,7 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	// Create a map of all nodes with the iteration we know works (because
 	// it is tested in another test).
 	nodeMap := make(map[route.Vertex]struct{})
-	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+	err := graph.ForEachNode(ctx, func(n *models.Node) error {
 		nodeMap[n.PubKeyBytes] = struct{}{}
 
 		return nil
@@ -1579,11 +1579,11 @@ func TestGraphCacheTraversal(t *testing.T) {
 }
 
 func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
-	numChannels int) (map[uint64]struct{}, []*models.LightningNode) {
+	numChannels int) (map[uint64]struct{}, []*models.Node) {
 
 	ctx := t.Context()
 
-	nodes := make([]*models.LightningNode, numNodes)
+	nodes := make([]*models.Node, numNodes)
 	nodeIndex := map[string]struct{}{}
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t)
@@ -1595,12 +1595,12 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	// Add each of the nodes into the graph, they should be inserted
 	// without error.
 	for _, node := range nodes {
-		require.NoError(t, graph.AddLightningNode(ctx, node))
+		require.NoError(t, graph.AddNode(ctx, node))
 	}
 
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
-	err := graph.ForEachNode(ctx, func(n *models.LightningNode) error {
+	err := graph.ForEachNode(ctx, func(n *models.Node) error {
 		delete(nodeIndex, n.Alias)
 		return nil
 	}, func() {})
@@ -1710,7 +1710,7 @@ func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 func assertNumNodes(t *testing.T, graph *ChannelGraph, n int) {
 	numNodes := 0
 	err := graph.ForEachNode(t.Context(),
-		func(_ *models.LightningNode) error {
+		func(_ *models.Node) error {
 			numNodes++
 
 			return nil
@@ -1784,11 +1784,11 @@ func TestGraphPruning(t *testing.T) {
 	// and enough edges to create a fully connected graph. The graph will
 	// be rather simple, representing a straight line.
 	const numNodes = 5
-	graphNodes := make([]*models.LightningNode, numNodes)
+	graphNodes := make([]*models.Node, numNodes)
 	for i := 0; i < numNodes; i++ {
 		node := createTestVertex(t)
 
-		if err := graph.AddLightningNode(ctx, node); err != nil {
+		if err := graph.AddNode(ctx, node); err != nil {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
@@ -2039,11 +2039,11 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -2198,7 +2198,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 	// We'll create 10 node announcements, each with an update timestamp 10
 	// seconds after the other.
 	const numNodes = 10
-	nodeAnns := make([]models.LightningNode, 0, numNodes)
+	nodeAnns := make([]models.Node, 0, numNodes)
 	for i := 0; i < numNodes; i++ {
 		nodeAnn := createTestVertex(t)
 
@@ -2212,14 +2212,14 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 		nodeAnns = append(nodeAnns, *nodeAnn)
 
-		require.NoError(t, graph.AddLightningNode(ctx, nodeAnn))
+		require.NoError(t, graph.AddNode(ctx, nodeAnn))
 	}
 
 	queryCases := []struct {
 		start time.Time
 		end   time.Time
 
-		resp []models.LightningNode
+		resp []models.Node
 	}{
 		// If we query for a time range that's strictly below our set
 		// of updates, then we'll get an empty result back.
@@ -2384,11 +2384,11 @@ func TestFilterKnownChanIDs(t *testing.T) {
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -2539,10 +2539,10 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// We need to update the node's timestamp since this call to
 	// SetSourceNode will trigger an upsert which will only be allowed if
@@ -2830,10 +2830,10 @@ func TestFilterChannelRange(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
@@ -2857,7 +2857,7 @@ func TestFilterChannelRange(t *testing.T) {
 	)
 
 	updateTimeSeed := time.Now().Unix()
-	maybeAddPolicy := func(chanID uint64, node *models.LightningNode,
+	maybeAddPolicy := func(chanID uint64, node *models.Node,
 		node2 bool) time.Time {
 
 		var chanFlags lnwire.ChanUpdateChanFlags
@@ -3049,11 +3049,11 @@ func TestFetchChanInfos(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3151,11 +3151,11 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 
 	// Create two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3168,7 +3168,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	}
 
 	// Ensure that channel is reported with unknown policies.
-	checkPolicies := func(node *models.LightningNode, expectedIn,
+	checkPolicies := func(node *models.Node, expectedIn,
 		expectedOut bool) {
 
 		calls := 0
@@ -3256,11 +3256,11 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3401,15 +3401,15 @@ func TestPruneGraphNodes(t *testing.T) {
 	// channel graph, at the end of the scenario, only two of these nodes
 	// should still be in the graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node3 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node3); err != nil {
+	if err := graph.AddNode(ctx, node3); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3443,7 +3443,7 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
-	_, err := graph.FetchLightningNode(ctx, node3.PubKeyBytes)
+	_, err := graph.FetchNode(ctx, node3.PubKeyBytes)
 	require.NotNil(t, err)
 }
 
@@ -3469,11 +3469,11 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	// Ensure that node1 was inserted as a full node, while node2 only has
 	// a shell node present.
-	node1, err := graph.FetchLightningNode(ctx, node1.PubKeyBytes)
+	node1, err := graph.FetchNode(ctx, node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
 	require.True(t, node1.HaveNodeAnnouncement)
 
-	node2, err = graph.FetchLightningNode(ctx, node2.PubKeyBytes)
+	node2, err = graph.FetchNode(ctx, node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
 	require.False(t, node2.HaveNodeAnnouncement)
 
@@ -3483,7 +3483,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
 	// Show that updating the shell node to a full node record works.
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 }
 
 // TestNodePruningUpdateIndexDeletion tests that once a node has been removed
@@ -3498,7 +3498,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3520,7 +3520,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 
 	// We'll now delete the node from the graph, this should result in it
 	// being removed from the update index as well.
-	err = graph.DeleteLightningNode(ctx, node1.PubKeyBytes)
+	err = graph.DeleteNode(ctx, node1.PubKeyBytes)
 	require.NoError(t, err)
 
 	// Now that the node has been deleted, we'll again query the nodes in
@@ -3585,13 +3585,13 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// After creating all of our nodes and edges, we'll add them to each
 	// participant's graph.
-	nodes := []*models.LightningNode{aliceNode, bobNode, carolNode}
+	nodes := []*models.Node{aliceNode, bobNode, carolNode}
 	edges := []*models.ChannelEdgeInfo{&aliceBobEdge, &bobCarolEdge}
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
 			node.LastUpdate = nextUpdateTime()
-			err := graph.AddLightningNode(ctx, node)
+			err := graph.AddNode(ctx, node)
 			require.NoError(t, err)
 		}
 		for _, edge := range edges {
@@ -3602,7 +3602,7 @@ func TestNodeIsPublic(t *testing.T) {
 
 	// checkNodes is a helper closure that will be used to assert that the
 	// given nodes are seen as public/private within the given graphs.
-	checkNodes := func(nodes []*models.LightningNode,
+	checkNodes := func(nodes []*models.Node,
 		graphs []*ChannelGraph, public bool) {
 
 		t.Helper()
@@ -3645,7 +3645,7 @@ func TestNodeIsPublic(t *testing.T) {
 		}
 	}
 	checkNodes(
-		[]*models.LightningNode{aliceNode},
+		[]*models.Node{aliceNode},
 		[]*ChannelGraph{bobGraph, carolGraph},
 		false,
 	)
@@ -3676,7 +3676,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// With the modifications above, Bob should now be seen as a private
 	// node from both Alice's and Carol's perspective.
 	checkNodes(
-		[]*models.LightningNode{bobNode},
+		[]*models.Node{bobNode},
 		[]*ChannelGraph{aliceGraph, carolGraph},
 		false,
 	)
@@ -3693,20 +3693,20 @@ func TestDisabledChannelIDs(t *testing.T) {
 
 	// Create first node and add it to the graph.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Create second node and add it to the graph.
 	node2 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
 	// Adding a new channel edge to the graph.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
 	node2.LastUpdate = nextUpdateTime()
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 
@@ -3785,13 +3785,13 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	if err := graph.AddLightningNode(ctx, node1); err != nil {
+	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	node2 := createTestVertex(t)
 
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
-	if err := graph.AddLightningNode(ctx, node2); err != nil {
+	if err := graph.AddNode(ctx, node2); err != nil {
 		t.Fatalf("unable to add node: %v", err)
 	}
 	if err := graph.AddChannelEdge(ctx, edgeInfo); err != nil {
@@ -3979,8 +3979,8 @@ func TestGraphZombieIndex(t *testing.T) {
 	assertNumZombies(t, graph, 1)
 }
 
-// compareNodes is used to compare two LightningNodes.
-func compareNodes(t *testing.T, a, b *models.LightningNode) {
+// compareNodes is used to compare two Nodes.
+func compareNodes(t *testing.T, a, b *models.Node) {
 	t.Helper()
 
 	// Call the PubKey method for each node to ensure that the internal
@@ -4046,7 +4046,7 @@ func compareEdgePolicies(a, b *models.ChannelEdgePolicy) error {
 	return nil
 }
 
-// TestLightningNodeSigVerification checks that we can use the LightningNode's
+// TestLightningNodeSigVerification checks that we can use the Node's
 // pubkey to verify signatures.
 func TestLightningNodeSigVerification(t *testing.T) {
 	t.Parallel()
@@ -4068,8 +4068,8 @@ func TestLightningNodeSigVerification(t *testing.T) {
 		t.Fatalf("signature doesn't check out")
 	}
 
-	// Create a LightningNode from the same private key.
-	node := createLightningNode(priv)
+	// Create a Node from the same private key.
+	node := createNode(priv)
 
 	// And finally check that we can verify the same signature from the
 	// pubkey returned from the lightning node.
@@ -4186,9 +4186,9 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	// We'd like to test the update of edges inserted into the database, so
 	// we create two vertexes to connect.
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
 	edgeInfo, edge1, edge2 := createChannelEdge(node1, node2)
@@ -4294,9 +4294,9 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	graph.graphCache = nil
 
 	node1 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node1))
+	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t)
-	require.NoError(t, graph.AddLightningNode(ctx, node2))
+	require.NoError(t, graph.AddNode(ctx, node2))
 
 	// Create an edge and add it to the db.
 	edgeInfo, e1, e2 := createChannelEdge(node1, node2)
@@ -4442,7 +4442,7 @@ var testNodeAnn = "01012674c2e7ef68c73a086b7de2603f4ef1567358df84bb4edaa06c" +
 	"80000000d0000000005cd2a001260706204c"
 
 // TestLightningNodePersistence takes a raw serialized node announcement
-// message, converts it to our internal models.LightningNode type, persists it
+// message, converts it to our internal models.Node type, persists it
 // to disk, reads it again and converts it back to a wire message and asserts
 // that the two messages are equal.
 func TestLightningNodePersistence(t *testing.T) {
@@ -4466,11 +4466,11 @@ func TestLightningNodePersistence(t *testing.T) {
 	node := models.NodeFromWireAnnouncement(na)
 
 	// Persist the node to disk.
-	err = graph.AddLightningNode(ctx, node)
+	err = graph.AddNode(ctx, node)
 	require.NoError(t, err)
 
 	// Read the node from disk.
-	diskNode, err := graph.FetchLightningNode(ctx, node.PubKeyBytes)
+	diskNode, err := graph.FetchNode(ctx, node.PubKeyBytes)
 	require.NoError(t, err)
 
 	// Convert it back to a wire message.

@@ -89,7 +89,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 
 	// Create a minimal test node using the private key priv1.
 	pub := priv1.PubKey().SerializeCompressed()
-	testNode := &models.LightningNode{}
+	testNode := &models.Node{}
 	copy(testNode.PubKeyBytes[:], pub)
 
 	nodeID, err := testNode.PubKey()

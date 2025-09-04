@@ -23,7 +23,7 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(ctx context.Context, node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
@@ -83,11 +83,10 @@ type ChannelGraphSource interface {
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
-	// FetchLightningNode attempts to look up a target node by its identity
+	// FetchNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
 	// doesn't exist within the graph.
-	FetchLightningNode(context.Context,
-		route.Vertex) (*models.LightningNode, error)
+	FetchNode(context.Context, route.Vertex) (*models.Node, error)
 
 	// MarkZombieEdge marks the channel with the given ID as a zombie edge.
 	MarkZombieEdge(chanID uint64) error
@@ -135,7 +134,7 @@ type DB interface {
 	// treated as the center node within a star-graph. This method may be
 	// used to kick off a path finding algorithm in order to explore the
 	// reachability of another node based off the source node.
-	SourceNode(ctx context.Context) (*models.LightningNode, error)
+	SourceNode(ctx context.Context) (*models.Node, error)
 
 	// DisabledChannelIDs returns the channel ids of disabled channels.
 	// A channel is disabled when two of the associated ChanelEdgePolicies
@@ -200,13 +199,13 @@ type DB interface {
 	FetchChannelEdgesByID(chanID uint64) (*models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error)
 
-	// AddLightningNode adds a vertex/node to the graph database. If the
+	// AddNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
 	// unconnected one to the graph. If it is present from before, this will
 	// update that node's information. Note that this method is expected to
 	// only be called to update an already present node from a node
 	// announcement, or to insert a node found in a channel update.
-	AddLightningNode(ctx context.Context, node *models.LightningNode,
+	AddNode(ctx context.Context, node *models.Node,
 		op ...batch.SchedulerOption) error
 
 	// AddChannelEdge adds a new (undirected, blank) edge to the graph
@@ -235,19 +234,18 @@ type DB interface {
 	UpdateEdgePolicy(ctx context.Context, edge *models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) error
 
-	// HasLightningNode determines if the graph has a vertex identified by
+	// HasNode determines if the graph has a vertex identified by
 	// the target node identity public key. If the node exists in the
 	// database, a timestamp of when the data for the node was lasted
 	// updated is returned along with a true boolean. Otherwise, an empty
 	// time.Time is returned with a false boolean.
-	HasLightningNode(ctx context.Context, nodePub [33]byte) (time.Time,
-		bool, error)
+	HasNode(ctx context.Context, nodePub [33]byte) (time.Time, bool, error)
 
-	// FetchLightningNode attempts to look up a target node by its identity
+	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
 	// ErrGraphNodeNotFound is returned.
-	FetchLightningNode(ctx context.Context,
-		nodePub route.Vertex) (*models.LightningNode, error)
+	FetchNode(ctx context.Context, nodePub route.Vertex) (*models.Node,
+		error)
 
 	// ForEachNodeChannel iterates through all channels of the given node,
 	// executing the passed callback with an edge info structure and the

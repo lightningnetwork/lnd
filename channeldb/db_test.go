@@ -807,11 +807,11 @@ func TestFetchPermTempPeer(t *testing.T) {
 	)
 }
 
-func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
+func createNode(priv *btcec.PrivateKey) *models.Node {
 	updateTime := rand.Int63()
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.LightningNode{
+	n := &models.Node{
 		HaveNodeAnnouncement: true,
 		AuthSigBytes:         testSig.Serialize(),
 		LastUpdate:           time.Unix(updateTime, 0),
@@ -825,9 +825,9 @@ func createLightningNode(priv *btcec.PrivateKey) *models.LightningNode {
 	return n
 }
 
-func createTestVertex(t *testing.T) *models.LightningNode {
+func createTestVertex(t *testing.T) *models.Node {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
-	return createLightningNode(priv)
+	return createNode(priv)
 }

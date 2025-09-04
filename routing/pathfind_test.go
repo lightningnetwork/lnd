@@ -229,12 +229,11 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                node.Alias,
-			Features:             testFeatures,
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        node.Alias,
+			Features:     testFeatures,
 		}
 		copy(dbNode.PubKeyBytes[:], pubBytes)
 
@@ -566,12 +565,11 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		}
 
 		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                alias,
-			Features:             features,
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        alias,
+			Features:     features,
 		}
 
 		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())

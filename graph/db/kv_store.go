@@ -1206,8 +1206,7 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	switch {
 	case errors.Is(node1Err, ErrGraphNodeNotFound):
 		node1Shell := models.Node{
-			PubKeyBytes:          edge.NodeKey1Bytes,
-			HaveNodeAnnouncement: false,
+			PubKeyBytes: edge.NodeKey1Bytes,
 		}
 		err := addLightningNode(tx, &node1Shell)
 		if err != nil {
@@ -1222,8 +1221,7 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 	switch {
 	case errors.Is(node2Err, ErrGraphNodeNotFound):
 		node2Shell := models.Node{
-			PubKeyBytes:          edge.NodeKey2Bytes,
-			HaveNodeAnnouncement: false,
+			PubKeyBytes: edge.NodeKey2Bytes,
 		}
 		err := addLightningNode(tx, &node2Shell)
 		if err != nil {
@@ -4369,7 +4367,7 @@ func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 
 	// If we got a node announcement for this node, we will have the rest
 	// of the data available. If not we don't have more data to write.
-	if !node.HaveNodeAnnouncement {
+	if !node.HaveAnnouncement() {
 		// Write HaveNodeAnnouncement=0.
 		byteOrder.PutUint16(scratch[:2], 0)
 		if _, err := b.Write(scratch[:2]); err != nil {
@@ -4562,15 +4560,9 @@ func deserializeLightningNode(r io.Reader) (models.Node, error) {
 	}
 
 	hasNodeAnn := byteOrder.Uint16(scratch[:2])
-	if hasNodeAnn == 1 {
-		node.HaveNodeAnnouncement = true
-	} else {
-		node.HaveNodeAnnouncement = false
-	}
-
 	// The rest of the data is optional, and will only be there if we got a
 	// node announcement for this node.
-	if !node.HaveNodeAnnouncement {
+	if hasNodeAnn == 0 {
 		return node, nil
 	}
 

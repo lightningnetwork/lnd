@@ -3318,10 +3318,9 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Finally, we'll update the on-disk version of our announcement so it
 	// will eventually propagate to nodes in the network.
 	selfNode := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(int64(newNodeAnn.Timestamp), 0),
-		Addresses:            newNodeAnn.Addresses,
-		Alias:                newNodeAnn.Alias.String(),
+		LastUpdate: time.Unix(int64(newNodeAnn.Timestamp), 0),
+		Addresses:  newNodeAnn.Addresses,
+		Alias:      newNodeAnn.Alias.String(),
 		Features: lnwire.NewFeatureVector(
 			newNodeAnn.Features, lnwire.Features,
 		),
@@ -3442,7 +3441,6 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 		return fmt.Errorf("unable to get current source node: %w", err)
 	}
 
-	selfNode.HaveNodeAnnouncement = true
 	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
 	selfNode.Addresses = newNodeAnn.Addresses
 	selfNode.Alias = newNodeAnn.Alias.String()
@@ -5625,12 +5623,16 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 	// TODO(abdulkbk): potentially find a way to use the source node's
 	// features in the self node.
 	selfNode := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           nodeLastUpdate,
-		Addresses:            addrs,
-		Alias:                nodeAlias.String(),
-		Color:                color,
-		Features:             s.featureMgr.Get(feature.SetNodeAnn),
+		LastUpdate: nodeLastUpdate,
+		Addresses:  addrs,
+		Alias:      nodeAlias.String(),
+		Color:      color,
+		Features:   s.featureMgr.Get(feature.SetNodeAnn),
+		// NOTE: just a workaround to pass the below call to
+		// NodeAnnouncement which would otherwise fail because of
+		// missing AuthSigBytes. The AutSigBytes is set properly
+		// when SigneAnnouncement is called below.
+		AuthSigBytes: []byte{0},
 	}
 
 	copy(selfNode.PubKeyBytes[:], nodePub[:])

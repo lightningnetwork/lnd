@@ -98,13 +98,12 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 
 	pub := priv1.PubKey()
 	node := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(123, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
+		LastUpdate:   time.Unix(123, 0),
+		Addresses:    testAddrs,
+		Color:        color.RGBA{1, 2, 3, 0},
+		Alias:        "node11",
+		AuthSigBytes: testSig.Serialize(),
+		Features:     testFeatures,
 	}
 	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
 
@@ -1085,13 +1084,12 @@ func TestIsStaleNode(t *testing.T) {
 	// With the node stub in the database, we'll add the fully node
 	// announcement to the database.
 	n1 := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           updateTimeStamp,
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "node11",
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
+		LastUpdate:   updateTimeStamp,
+		Addresses:    testAddrs,
+		Color:        color.RGBA{1, 2, 3, 0},
+		Alias:        "node11",
+		AuthSigBytes: testSig.Serialize(),
+		Features:     testFeatures,
 	}
 	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
 	if err := ctx.builder.AddNode(t.Context(), n1); err != nil {
@@ -1402,12 +1400,11 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                node.Alias,
-			Features:             testFeatures,
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        node.Alias,
+			Features:     testFeatures,
 		}
 		copy(dbNode.PubKeyBytes[:], pubBytes)
 
@@ -1788,12 +1785,11 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		}
 
 		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                alias,
-			Features:             features,
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        alias,
+			Features:     features,
 		}
 
 		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())

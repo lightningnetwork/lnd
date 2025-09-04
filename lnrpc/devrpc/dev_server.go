@@ -227,11 +227,14 @@ func (s *Server) ImportGraph(ctx context.Context,
 	var err error
 	for _, rpcNode := range graph.Nodes {
 		node := &models.Node{
-			HaveNodeAnnouncement: true,
 			LastUpdate: time.Unix(
 				int64(rpcNode.LastUpdate), 0,
 			),
 			Alias: rpcNode.Alias,
+			// NOTE: this is a workaround to ensure that
+			// HaveAnnouncement() returns true so that the other
+			// fields are properly persisted. However,
+			AuthSigBytes: []byte{0},
 		}
 
 		node.PubKeyBytes, err = parsePubKey(rpcNode.PubKey)

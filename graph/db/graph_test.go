@@ -72,13 +72,12 @@ var (
 func createNode(priv *btcec.PrivateKey) *models.Node {
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           nextUpdateTime(),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + hex.EncodeToString(pub),
-		Features:             testFeatures,
-		Addresses:            testAddrs,
+		AuthSigBytes: testSig.Serialize(),
+		LastUpdate:   nextUpdateTime(),
+		Color:        color.RGBA{1, 2, 3, 0},
+		Alias:        "kek" + hex.EncodeToString(pub),
+		Features:     testFeatures,
+		Addresses:    testAddrs,
 	}
 	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
 
@@ -107,15 +106,14 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
 		timeStamp++
 		return &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Unix(timeStamp, 0),
-			Color:                color.RGBA{1, 2, 3, 0},
-			Alias:                "kek",
-			Features:             testFeatures,
-			Addresses:            addrs,
-			ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
-			PubKeyBytes:          testPub,
+			AuthSigBytes:    testSig.Serialize(),
+			LastUpdate:      time.Unix(timeStamp, 0),
+			Color:           color.RGBA{1, 2, 3, 0},
+			Alias:           "kek",
+			Features:        testFeatures,
+			Addresses:       addrs,
+			ExtraOpaqueData: []byte{1, 1, 1, 2, 2, 2, 2},
+			PubKeyBytes:     testPub,
 		}
 	}
 
@@ -316,10 +314,9 @@ func TestPartialNode(t *testing.T) {
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
 	expectedNode1 := &models.Node{
-		HaveNodeAnnouncement: false,
-		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          pubKey1,
-		Features:             lnwire.EmptyFeatureVector(),
+		LastUpdate:  time.Unix(0, 0),
+		PubKeyBytes: pubKey1,
+		Features:    lnwire.EmptyFeatureVector(),
 	}
 	compareNodes(t, expectedNode1, dbNode1)
 
@@ -330,10 +327,9 @@ func TestPartialNode(t *testing.T) {
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
 	expectedNode2 := &models.Node{
-		HaveNodeAnnouncement: false,
-		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          pubKey2,
-		Features:             lnwire.EmptyFeatureVector(),
+		LastUpdate:  time.Unix(0, 0),
+		PubKeyBytes: pubKey2,
+		Features:    lnwire.EmptyFeatureVector(),
 	}
 	compareNodes(t, expectedNode2, dbNode2)
 
@@ -3782,11 +3778,11 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// a shell node present.
 	node1, err := graph.FetchNode(ctx, node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
-	require.True(t, node1.HaveNodeAnnouncement)
+	require.True(t, node1.HaveAnnouncement())
 
 	node2, err = graph.FetchNode(ctx, node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
-	require.False(t, node2.HaveNodeAnnouncement)
+	require.False(t, node2.HaveAnnouncement())
 
 	// Show that attempting to add the channel again will result in an
 	// error.

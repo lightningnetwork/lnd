@@ -429,7 +429,10 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 					),
 					AuthSigBytes: testSig.Serialize(),
 				}
-				graphNode.AddPubKey(pub)
+				copy(
+					graphNode.PubKeyBytes[:],
+					pub.SerializeCompressed(),
+				)
 				err := d.db.AddNode(
 					context.Background(), graphNode,
 				)
@@ -459,7 +462,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			),
 			AuthSigBytes: testSig.Serialize(),
 		}
-		dbNode.AddPubKey(nodeKey)
+		copy(dbNode.PubKeyBytes[:], nodeKey.SerializeCompressed())
 		if err := d.db.AddNode(
 			context.Background(), dbNode,
 		); err != nil {
@@ -560,7 +563,7 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 		),
 		AuthSigBytes: testSig.Serialize(),
 	}
-	dbNode.AddPubKey(nodeKey)
+	copy(dbNode.PubKeyBytes[:], nodeKey.SerializeCompressed())
 	err = d.db.AddNode(context.Background(), dbNode)
 	if err != nil {
 		return nil, err

@@ -417,20 +417,20 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
 				fallthrough
 			case errors.Is(err, graphdb.ErrGraphNotFound):
-				graphNode := &models.Node{
-					Addresses: []net.Addr{&net.TCPAddr{
-						IP: bytes.Repeat(
-							[]byte("a"), 16,
-						),
-					}},
-					Features: lnwire.NewFeatureVector(
-						nil, lnwire.Features,
-					),
-					AuthSigBytes: testSig.Serialize(),
-				}
-				copy(
-					graphNode.PubKeyBytes[:],
-					pub.SerializeCompressed(),
+				//nolint:ll
+				graphNode := models.NewV1Node(
+					route.NewVertex(pub),
+					&models.NodeV1Fields{
+						Addresses: []net.Addr{&net.TCPAddr{
+							IP: bytes.Repeat(
+								[]byte("a"), 16,
+							),
+						}},
+						Features: lnwire.NewFeatureVector(
+							nil, lnwire.Features,
+						).RawFeatureVector,
+						AuthSigBytes: testSig.Serialize(),
+					},
 				)
 				err := d.db.AddNode(
 					context.Background(), graphNode,
@@ -449,18 +449,18 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		if err != nil {
 			return nil, err
 		}
-		dbNode := &models.Node{
-			Addresses: []net.Addr{
-				&net.TCPAddr{
+
+		dbNode := models.NewV1Node(
+			route.NewVertex(nodeKey), &models.NodeV1Fields{
+				Addresses: []net.Addr{&net.TCPAddr{
 					IP: bytes.Repeat([]byte("a"), 16),
-				},
+				}},
+				Features: lnwire.NewFeatureVector(
+					nil, lnwire.Features,
+				).RawFeatureVector,
+				AuthSigBytes: testSig.Serialize(),
 			},
-			Features: lnwire.NewFeatureVector(
-				nil, lnwire.Features,
-			),
-			AuthSigBytes: testSig.Serialize(),
-		}
-		copy(dbNode.PubKeyBytes[:], nodeKey.SerializeCompressed())
+		)
 		if err := d.db.AddNode(
 			context.Background(), dbNode,
 		); err != nil {
@@ -549,18 +549,19 @@ func (d *testDBGraph) addRandNode() (*btcec.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbNode := &models.Node{
-		Addresses: []net.Addr{
-			&net.TCPAddr{
-				IP: bytes.Repeat([]byte("a"), 16),
+	dbNode := models.NewV1Node(
+		route.NewVertex(nodeKey), &models.NodeV1Fields{
+			Addresses: []net.Addr{
+				&net.TCPAddr{
+					IP: bytes.Repeat([]byte("a"), 16),
+				},
 			},
+			Features: lnwire.NewFeatureVector(
+				nil, lnwire.Features,
+			).RawFeatureVector,
+			AuthSigBytes: testSig.Serialize(),
 		},
-		Features: lnwire.NewFeatureVector(
-			nil, lnwire.Features,
-		),
-		AuthSigBytes: testSig.Serialize(),
-	}
-	copy(dbNode.PubKeyBytes[:], nodeKey.SerializeCompressed())
+	)
 	err = d.db.AddNode(context.Background(), dbNode)
 	if err != nil {
 		return nil, err

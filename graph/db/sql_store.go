@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	color "image/color"
 	"iter"
 	"maps"
 	"math"
@@ -555,14 +556,14 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) iter.Seq2[models.Node, error] {
+	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return func(yield func(models.Node, error) bool) {
+	return func(yield func(*models.Node, error) bool) {
 		var (
 			ctx            = context.TODO()
 			lastUpdateTime sql.NullInt64
@@ -573,7 +574,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 		// Each iteration, we'll read a batch amount of nodes, yield
 		// them, then decide is we have more or not.
 		for hasMore {
-			var batch []models.Node
+			var batch []*models.Node
 
 			//nolint:ll
 			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -607,7 +608,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 				err = forEachNodeInBatch(
 					ctx, s.cfg.QueryCfg, db, rows,
 					func(_ int64, node *models.Node) error {
-						batch = append(batch, *node)
+						batch = append(batch, node)
 
 						// Update pagination cursors
 						// based on the last processed
@@ -629,14 +630,14 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 
 				return nil
 			}, func() {
-				batch = []models.Node{}
+				batch = []*models.Node{}
 			})
 
 			if err != nil {
 				log.Errorf("NodeUpdatesInHorizon batch "+
 					"error: %v", err)
 
-				yield(models.Node{}, err)
+				yield(&models.Node{}, err)
 
 				return
 			}
@@ -3485,27 +3486,30 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	var pub [33]byte
 	copy(pub[:], dbNode.PubKey)
 
-	node := &models.Node{
-		PubKeyBytes: pub,
-		Features:    lnwire.EmptyFeatureVector(),
-		LastUpdate:  time.Unix(0, 0),
-	}
+	node := models.NewV1ShellNode(pub)
 
 	if len(dbNode.Signature) == 0 {
 		return node, nil
 	}
 
 	node.AuthSigBytes = dbNode.Signature
-	node.Alias = dbNode.Alias.String
-	node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
+
+	if dbNode.Alias.Valid {
+		node.Alias = fn.Some(dbNode.Alias.String)
+	}
+	if dbNode.LastUpdate.Valid {
+		node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
+	}
 
 	var err error
 	if dbNode.Color.Valid {
-		node.Color, err = DecodeHexColor(dbNode.Color.String)
+		nodeColor, err := DecodeHexColor(dbNode.Color.String)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode color: %w",
 				err)
 		}
+
+		node.Color = fn.Some(nodeColor)
 	}
 
 	// Use preloaded features.
@@ -3608,9 +3612,26 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	}
 
 	if node.HaveAnnouncement() {
-		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
-		params.Color = sqldb.SQLStrValid(EncodeHexColor(node.Color))
-		params.Alias = sqldb.SQLStrValid(node.Alias)
+		switch node.Version {
+		case lnwire.GossipVersion1:
+			params.LastUpdate = sqldb.SQLInt64(
+				node.LastUpdate.Unix(),
+			)
+
+		case lnwire.GossipVersion2:
+
+		default:
+			return 0, fmt.Errorf("unknown gossip version: %d",
+				node.Version)
+		}
+
+		node.Color.WhenSome(func(rgba color.RGBA) {
+			params.Color = sqldb.SQLStrValid(EncodeHexColor(rgba))
+		})
+		node.Alias.WhenSome(func(s string) {
+			params.Alias = sqldb.SQLStrValid(s)
+		})
+
 		params.Signature = node.AuthSigBytes
 	}
 

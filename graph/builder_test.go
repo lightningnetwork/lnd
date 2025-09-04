@@ -97,15 +97,16 @@ func TestIgnoreNodeAnnouncement(t *testing.T) {
 	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
 
 	pub := priv1.PubKey()
-	node := &models.Node{
-		LastUpdate:   time.Unix(123, 0),
-		Addresses:    testAddrs,
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "node11",
-		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(node.PubKeyBytes[:], pub.SerializeCompressed())
+	node := models.NewV1Node(
+		route.NewVertex(pub), &models.NodeV1Fields{
+			Addresses:    testAddrs,
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+			LastUpdate:   time.Unix(123, 0),
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+		},
+	)
 
 	err := ctx.builder.AddNode(t.Context(), node)
 	if !IsError(err, ErrIgnored) {
@@ -1083,15 +1084,16 @@ func TestIsStaleNode(t *testing.T) {
 
 	// With the node stub in the database, we'll add the fully node
 	// announcement to the database.
-	n1 := &models.Node{
-		LastUpdate:   updateTimeStamp,
-		Addresses:    testAddrs,
-		Color:        color.RGBA{1, 2, 3, 0},
-		Alias:        "node11",
-		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+	n1 := models.NewV1Node(
+		route.NewVertex(priv1.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   updateTimeStamp,
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "node11",
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 	if err := ctx.builder.AddNode(t.Context(), n1); err != nil {
 		t.Fatalf("could not add node: %v", err)
 	}
@@ -1399,14 +1401,16 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.Node{
+		pubKey, err := route.NewVertexFromBytes(pubBytes)
+		require.NoError(t, err)
+
+		dbNode := models.NewV1Node(pubKey, &models.NodeV1Fields{
 			AuthSigBytes: testSig.Serialize(),
 			LastUpdate:   testTime,
 			Addresses:    testAddrs,
 			Alias:        node.Alias,
-			Features:     testFeatures,
-		}
-		copy(dbNode.PubKeyBytes[:], pubBytes)
+			Features:     testFeatures.RawFeatureVector,
+		})
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
@@ -1784,15 +1788,15 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.Node{
-			AuthSigBytes: testSig.Serialize(),
-			LastUpdate:   testTime,
-			Addresses:    testAddrs,
-			Alias:        alias,
-			Features:     features,
-		}
-
-		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+		dbNode := models.NewV1Node(
+			route.NewVertex(pubKey), &models.NodeV1Fields{
+				AuthSigBytes: testSig.Serialize(),
+				LastUpdate:   testTime,
+				Addresses:    testAddrs,
+				Alias:        alias,
+				Features:     features.RawFeatureVector,
+			},
+		)
 
 		privKeyMap[alias] = privKey
 

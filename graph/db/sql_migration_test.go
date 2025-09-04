@@ -1255,12 +1255,12 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 		func(t *testing.T) {
 			t.Parallel()
 
-			var expectedNodes []*models.LightningNode
+			var expectedNodes []*models.Node
 
 			// Let the first node have an opaque address that we
 			// still don't understand. This node will remain the
 			// same in the SQL store.
-			n1 := makeTestNode(t, func(n *models.LightningNode) {
+			n1 := makeTestNode(t, func(n *models.Node) {
 				n.Addresses = []net.Addr{
 					testOpaqueAddr,
 				}
@@ -1272,7 +1272,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			// only contain a DNS address and so the migrated node
 			// will only contain a DNS address and no opaque
 			// address.
-			n2 := makeTestNode(t, func(n *models.LightningNode) {
+			n2 := makeTestNode(t, func(n *models.Node) {
 				n.Addresses = []net.Addr{
 					testOpaqueAddrWithEmbeddedDNSAddr,
 				}
@@ -1287,7 +1287,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			// wraps a DNS address along with some other data.
 			// So the resulting migrated node should have both
 			// the DNS address and remaining opaque address data.
-			n3 := makeTestNode(t, func(n *models.LightningNode) {
+			n3 := makeTestNode(t, func(n *models.Node) {
 				n.Addresses = []net.Addr{
 					//nolint:ll
 					testOpaqueAddrWithEmbeddedDNSAddrAndMore,
@@ -1304,7 +1304,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			// wraps an invalid DNS address. Such a node will not be
 			// migrated since propagating an invalid DNS address
 			// is not allowed.
-			n4 := makeTestNode(t, func(n *models.LightningNode) {
+			n4 := makeTestNode(t, func(n *models.Node) {
 				n.Addresses = []net.Addr{
 					testOpaqueAddrWithEmbeddedBadDNSAddr,
 				}
@@ -1318,7 +1318,7 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			// invalid at a protocol level, and so we should not
 			// propagate such addresses, but this is left to higher
 			// level gossip logic.
-			n5 := makeTestNode(t, func(n *models.LightningNode) {
+			n5 := makeTestNode(t, func(n *models.Node) {
 				n.Addresses = []net.Addr{
 					testOpaqueAddrWithTwoEmbeddedDNSAddrs,
 				}
@@ -1331,11 +1331,11 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			expectedNodes = append(expectedNodes, &n5Expected)
 
 			populateKV := func(t *testing.T, db *KVStore) {
-				require.NoError(t, db.AddLightningNode(ctx, n1))
-				require.NoError(t, db.AddLightningNode(ctx, n2))
-				require.NoError(t, db.AddLightningNode(ctx, n3))
-				require.NoError(t, db.AddLightningNode(ctx, n4))
-				require.NoError(t, db.AddLightningNode(ctx, n5))
+				require.NoError(t, db.AddNode(ctx, n1))
+				require.NoError(t, db.AddNode(ctx, n2))
+				require.NoError(t, db.AddNode(ctx, n3))
+				require.NoError(t, db.AddNode(ctx, n4))
+				require.NoError(t, db.AddNode(ctx, n5))
 			}
 
 			runTestMigration(t, populateKV, dbState{

@@ -49,6 +49,78 @@ var (
 		BitcoinSig1Bytes: testSig.Serialize(),
 		BitcoinSig2Bytes: testSig.Serialize(),
 	}
+
+	// testOpaqueAddrWithEmbeddedDNSAddr is an opaque address that contains
+	// a single DNS address within it.
+	testOpaqueAddrWithEmbeddedDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0b,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// Port 8080 in big-endian.
+			0x1f, 0x90,
+		},
+	}
+
+	// testOpaqueAddrWithEmbeddedDNSAddrAndMore is an opaque address that
+	// contains a DNS address within it, along with some extra bytes that
+	// represent some other unknown address type.
+	testOpaqueAddrWithEmbeddedDNSAddrAndMore = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Now we add more opaque bytes to represent more
+			// addresses that we don't know about yet.
+			// NOTE: the 0xff is an address type that we definitely
+			// don't know about yet
+			0xff, 0x02, 0x03, 0x04, 0x05, 0x06,
+		},
+	}
+
+	// testOpaqueAddrWithEmbeddedBadDNSAddr is an opaque address that
+	// contains an invalid DNS address within it.
+	testOpaqueAddrWithEmbeddedBadDNSAddr = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: We set this to a size that is
+			// incorrect in order to simulate the bad DNS address.
+			0xAA,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 9735 in big-endian.
+			0x26, 0x07,
+		},
+	}
+
+	// testOpaqueAddrWithTwoEmbeddedDNSAddrs is an opaque address that
+	// contains two valid DNS addresses within it.
+	testOpaqueAddrWithTwoEmbeddedDNSAddrs = &lnwire.OpaqueAddrs{
+		Payload: []byte{
+			// The protocol level type for DNS addresses.
+			0x05,
+			// Hostname length: 11.
+			0x0B,
+			// The hostname itself.
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			// port 8080 in big-endian.
+			0x1F, 0x90,
+			// Another DNS address.
+			0x05,
+			0x0B,
+			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
+			0x1F, 0x90,
+		},
+	}
 )
 
 // TestMigrateGraphToSQL tests various deterministic cases that we want to test
@@ -1173,6 +1245,104 @@ func TestSQLMigrationEdgeCases(t *testing.T) {
 			zombies: []uint64{2},
 		})
 	})
+
+	// We have used this migration as a chance to also extract any DNS
+	// addresses that we previously may have wrapped in an opaque address.
+	// If we do encounter such a case, then the migrated node set will look
+	// slightly different from the original node set in the KV store, and so
+	// we test for that here.
+	t.Run("node with wrapped DNS address inside opaque addr",
+		func(t *testing.T) {
+			t.Parallel()
+
+			var expectedNodes []*models.LightningNode
+
+			// Let the first node have an opaque address that we
+			// still don't understand. This node will remain the
+			// same in the SQL store.
+			n1 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddr,
+				}
+			})
+			expectedNodes = append(expectedNodes, n1)
+
+			// The second node will have a wrapped DNS address
+			// inside an opaque address. The opaque address will
+			// only contain a DNS address and so the migrated node
+			// will only contain a DNS address and no opaque
+			// address.
+			n2 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedDNSAddr,
+				}
+			})
+			n2Expected := *n2
+			n2Expected.Addresses = []net.Addr{
+				testDNSAddr,
+			}
+			expectedNodes = append(expectedNodes, &n2Expected)
+
+			// The third node will have an opaque address that
+			// wraps a DNS address along with some other data.
+			// So the resulting migrated node should have both
+			// the DNS address and remaining opaque address data.
+			n3 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					//nolint:ll
+					testOpaqueAddrWithEmbeddedDNSAddrAndMore,
+				}
+			})
+			n3Expected := *n3
+			n3Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testOpaqueAddr,
+			}
+			expectedNodes = append(expectedNodes, &n3Expected)
+
+			// The fourth node will have an opaque address that
+			// wraps an invalid DNS address. Such a node will not be
+			// migrated since propagating an invalid DNS address
+			// is not allowed.
+			n4 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithEmbeddedBadDNSAddr,
+				}
+			})
+			// NOTE: we don't add this node to the expected nodes
+			// slice.
+
+			// The fifth node will have 2 DNS addresses embedded
+			// in the opaque address. The migration will result
+			// in _both_ dns addresses being extracted. This is
+			// invalid at a protocol level, and so we should not
+			// propagate such addresses, but this is left to higher
+			// level gossip logic.
+			n5 := makeTestNode(t, func(n *models.LightningNode) {
+				n.Addresses = []net.Addr{
+					testOpaqueAddrWithTwoEmbeddedDNSAddrs,
+				}
+			})
+			n5Expected := *n5
+			n5Expected.Addresses = []net.Addr{
+				testDNSAddr,
+				testDNSAddr,
+			}
+			expectedNodes = append(expectedNodes, &n5Expected)
+
+			populateKV := func(t *testing.T, db *KVStore) {
+				require.NoError(t, db.AddLightningNode(ctx, n1))
+				require.NoError(t, db.AddLightningNode(ctx, n2))
+				require.NoError(t, db.AddLightningNode(ctx, n3))
+				require.NoError(t, db.AddLightningNode(ctx, n4))
+				require.NoError(t, db.AddLightningNode(ctx, n5))
+			}
+
+			runTestMigration(t, populateKV, dbState{
+				nodes: expectedNodes,
+			})
+		},
+	)
 }
 
 // runTestMigration is a helper function that sets up the KVStore and SQLStore,

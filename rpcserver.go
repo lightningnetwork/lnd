@@ -2800,14 +2800,14 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		errChan = make(chan error, 1)
 		notifier := r.server.cc.ChainNotifier
-		go peer.WaitForChanToClose(
-			uint32(bestHeight), notifier, errChan, chanPoint,
-			&closingTxid, closingTx.TxOut[0].PkScript, func() {
-				// Respond to the local subsystem which
-				// requested the channel closure.
-				updateChan <- &peer.ChannelCloseUpdate{
-					ClosingTxid: closingTxid[:],
-					Success:     true,
+        go peer.WaitForChanToClose(
+            uint32(bestHeight), notifier, errChan, chanPoint,
+            &closingTxid, closingTx.TxOut[0].PkScript, 1, func() {
+                // Respond to the local subsystem which
+                // requested the channel closure.
+                updateChan <- &peer.ChannelCloseUpdate{
+                    ClosingTxid: closingTxid[:],
+                    Success:     true,
 					// Force closure transactions don't have
 					// additional local/remote outputs.
 				}

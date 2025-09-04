@@ -333,7 +333,7 @@ func migrateNodes(ctx context.Context, cfg *sqldb.QueryConfig,
 // maybeOverrideNodeAddresses checks if the node has any opaque addresses that
 // can be parsed. If so, it replaces the node's addresses with the parsed
 // addresses. If the address is unparseable, it returns an error.
-func maybeOverrideNodeAddresses(node *models.LightningNode) error {
+func maybeOverrideNodeAddresses(node *models.Node) error {
 	// In the majority of cases, the number of node addresses will remain
 	// unchanged, so we pre-allocate a slice of the same length.
 	addrs := make([]net.Addr, 0, len(node.Addresses))

@@ -192,15 +192,16 @@ func createTestNode() (*models.Node, error) {
 	}
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.Node{
+	var pubKey [33]byte
+	copy(pubKey[:], pub)
+	n := models.NewV1Node(pubKey, &models.NodeV1Fields{
 		LastUpdate:   time.Unix(updateTime, 0),
 		Addresses:    testAddrs,
 		Color:        color.RGBA{1, 2, 3, 0},
 		Alias:        "kek" + string(pub),
 		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n.PubKeyBytes[:], pub)
+		Features:     testFeatures.RawFeatureVector,
+	})
 
 	return n, nil
 }
@@ -2870,27 +2871,29 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Now check that we can update the node info for the partial node
 	// without messing up the channel graph.
-	n1 := &models.Node{
+	var pubKeyBytes1 [33]byte
+	copy(pubKeyBytes1[:], priv1.PubKey().SerializeCompressed())
+	n1 := models.NewV1Node(pubKeyBytes1, &models.NodeV1Fields{
 		LastUpdate:   time.Unix(123, 0),
 		Addresses:    testAddrs,
 		Color:        color.RGBA{1, 2, 3, 0},
 		Alias:        "node11",
 		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n1.PubKeyBytes[:], priv1.PubKey().SerializeCompressed())
+		Features:     testFeatures.RawFeatureVector,
+	})
 
 	require.NoError(t, ctx.graph.AddNode(ctxb, n1))
 
-	n2 := &models.Node{
+	var pubKeyBytes2 [33]byte
+	copy(pubKeyBytes2[:], priv2.PubKey().SerializeCompressed())
+	n2 := models.NewV1Node(pubKeyBytes2, &models.NodeV1Fields{
 		LastUpdate:   time.Unix(123, 0),
 		Addresses:    testAddrs,
 		Color:        color.RGBA{1, 2, 3, 0},
 		Alias:        "node22",
 		AuthSigBytes: testSig.Serialize(),
-		Features:     testFeatures,
-	}
-	copy(n2.PubKeyBytes[:], priv2.PubKey().SerializeCompressed())
+		Features:     testFeatures.RawFeatureVector,
+	})
 
 	require.NoError(t, ctx.graph.AddNode(ctxb, n2))
 

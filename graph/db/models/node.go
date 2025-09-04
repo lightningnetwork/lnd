@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -53,11 +52,6 @@ type Node struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData []byte
-
-	// TODO(roasbeef): discovery will need storage to keep it's last IP
-	// address and re-announce if interface changes?
-
-	// TODO(roasbeef): add update method and fetch?
 }
 
 // PubKey is the node's long-term identity public key. This key will be used to
@@ -77,22 +71,6 @@ func (l *Node) PubKey() (*btcec.PublicKey, error) {
 	l.pubKey = key
 
 	return key, nil
-}
-
-// AuthSig is a signature under the advertised public key which serves to
-// authenticate the attributes announced by this node.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (l *Node) AuthSig() (*ecdsa.Signature, error) {
-	return ecdsa.ParseSignature(l.AuthSigBytes)
-}
-
-// AddPubKey is a setter-link method that can be used to swap out the public
-// key for a node.
-func (l *Node) AddPubKey(key *btcec.PublicKey) {
-	l.pubKey = key
-	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.

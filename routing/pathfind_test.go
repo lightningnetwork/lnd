@@ -1250,11 +1250,9 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
 	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
 	require.NoError(t, err, "unable to decode public key")
-	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
-	require.NoError(t, err, "unable to parse public key from bytes")
 
 	doge := &models.Node{}
-	doge.AddPubKey(dogePubKey)
+	copy(doge.PubKeyBytes[:], dogePubKeyBytes[:])
 	doge.Alias = "doge"
 	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
 	graph.aliasMap["doge"] = doge.PubKeyBytes

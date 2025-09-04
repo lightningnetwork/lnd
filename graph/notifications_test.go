@@ -84,13 +84,12 @@ func createTestNode(t *testing.T) *models.Node {
 
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(updateTime, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + hex.EncodeToString(pub),
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
+		LastUpdate:   time.Unix(updateTime, 0),
+		Addresses:    testAddrs,
+		Color:        color.RGBA{1, 2, 3, 0},
+		Alias:        "kek" + hex.EncodeToString(pub),
+		AuthSigBytes: testSig.Serialize(),
+		Features:     testFeatures,
 	}
 	copy(n.PubKeyBytes[:], pub)
 

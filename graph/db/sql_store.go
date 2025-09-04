@@ -3495,7 +3495,6 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 		return node, nil
 	}
 
-	node.HaveNodeAnnouncement = true
 	node.AuthSigBytes = dbNode.Signature
 	node.Alias = dbNode.Alias.String
 	node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
@@ -3608,7 +3607,7 @@ func upsertNode(ctx context.Context, db SQLQueries,
 		PubKey:  node.PubKeyBytes[:],
 	}
 
-	if node.HaveNodeAnnouncement {
+	if node.HaveAnnouncement() {
 		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
 		params.Color = sqldb.SQLStrValid(EncodeHexColor(node.Color))
 		params.Alias = sqldb.SQLStrValid(node.Alias)
@@ -3622,7 +3621,7 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	}
 
 	// We can exit here if we don't have the announcement yet.
-	if !node.HaveNodeAnnouncement {
+	if !node.HaveAnnouncement() {
 		return nodeID, nil
 	}
 

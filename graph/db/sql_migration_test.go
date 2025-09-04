@@ -385,8 +385,7 @@ func TestMigrateGraphToSQL(t *testing.T) {
 				// node be set. So that is the first object
 				// we will write.
 				&models.Node{
-					HaveNodeAnnouncement: false,
-					PubKeyBytes:          testPub,
+					PubKeyBytes: testPub,
 				},
 				// Now we add some block heights to prune
 				// the graph at.
@@ -748,15 +747,14 @@ type testNodeOpt func(*models.Node)
 // functional options can be used to modify the node's attributes.
 func makeTestNode(t *testing.T, opts ...testNodeOpt) *models.Node {
 	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSigBytes,
-		LastUpdate:           testTime,
-		Color:                testColor,
-		Alias:                "kek",
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-		ExtraOpaqueData:      testExtraData,
-		PubKeyBytes:          genPubKey(t),
+		AuthSigBytes:    testSigBytes,
+		LastUpdate:      testTime,
+		Color:           testColor,
+		Alias:           "kek",
+		Features:        testFeatures,
+		Addresses:       testAddrs,
+		ExtraOpaqueData: testExtraData,
+		PubKeyBytes:     genPubKey(t),
 	}
 
 	for _, opt := range opts {
@@ -777,10 +775,9 @@ func makeTestShellNode(t *testing.T,
 	opts ...testNodeOpt) *models.Node {
 
 	n := &models.Node{
-		HaveNodeAnnouncement: false,
-		PubKeyBytes:          genPubKey(t),
-		Features:             testEmptyFeatures,
-		LastUpdate:           time.Unix(0, 0),
+		PubKeyBytes: genPubKey(t),
+		Features:    testEmptyFeatures,
+		LastUpdate:  time.Unix(0, 0),
 	}
 
 	for _, opt := range opts {
@@ -1817,11 +1814,10 @@ func genRandomNode(t *rapid.T) *models.Node {
 	}
 
 	node := &models.Node{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         sigBytes,
-		LastUpdate:           randTime,
-		Color:                randColor,
-		Alias:                alias.String(),
+		AuthSigBytes: sigBytes,
+		LastUpdate:   randTime,
+		Color:        randColor,
+		Alias:        alias.String(),
 		Features: lnwire.NewFeatureVector(
 			features, lnwire.Features,
 		),

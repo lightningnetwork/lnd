@@ -812,13 +812,12 @@ func createNode(priv *btcec.PrivateKey) *models.Node {
 
 	pub := priv.PubKey().SerializeCompressed()
 	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           time.Unix(updateTime, 0),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + string(pub),
-		Features:             testFeatures,
-		Addresses:            testAddrs,
+		AuthSigBytes: testSig.Serialize(),
+		LastUpdate:   time.Unix(updateTime, 0),
+		Color:        color.RGBA{1, 2, 3, 0},
+		Alias:        "kek" + string(pub),
+		Features:     testFeatures,
+		Addresses:    testAddrs,
 	}
 	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
 

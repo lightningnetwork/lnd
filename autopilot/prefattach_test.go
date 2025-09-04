@@ -495,7 +495,11 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		Capacity:  capacity,
 		Features:  lnwire.EmptyFeatureVector(),
 	}
-	edge.AddNodeKeys(lnNode1, lnNode2, lnNode1, lnNode2)
+	copy(edge.NodeKey1Bytes[:], lnNode1.SerializeCompressed())
+	copy(edge.NodeKey2Bytes[:], lnNode2.SerializeCompressed())
+	copy(edge.BitcoinKey1Bytes[:], lnNode1.SerializeCompressed())
+	copy(edge.BitcoinKey2Bytes[:], lnNode2.SerializeCompressed())
+
 	if err := d.db.AddChannelEdge(ctx, edge); err != nil {
 		return nil, nil, err
 	}

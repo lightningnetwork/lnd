@@ -56,6 +56,7 @@ import (
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
+	sqldbv2 "github.com/lightningnetwork/lnd/sqldb/v2"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower"
@@ -208,6 +209,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, chainio.Subsystem, interceptor, chainio.UseLogger)
 	AddSubLogger(root, msgmux.Subsystem, interceptor, msgmux.UseLogger)
 	AddSubLogger(root, sqldb.Subsystem, interceptor, sqldb.UseLogger)
+	AddSubLogger(root, sqldbv2.Subsystem, interceptor, sqldbv2.UseLogger)
 	AddSubLogger(
 		root, paymentsdb.Subsystem, interceptor, paymentsdb.UseLogger,
 	)

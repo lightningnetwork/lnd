@@ -248,6 +248,11 @@ reader of a payment request.
 * Add missing [sql index](https://github.com/lightningnetwork/lnd/pull/10155)
   for settled invoices to increase query speed.
 
+* [Migrate the KV graph store to native 
+  SQL](https://github.com/lightningnetwork/lnd/pull/10163). For this migration 
+  to take place, the db backend must already be either `postgres` or `sqlite` 
+  and the `--use-native-sql` flag must be set.
+
 ## Code Health
 
 ## Tooling and Documentation

@@ -70,6 +70,10 @@ const (
 	// invoiceMigration is the version of the migration that will be used to
 	// migrate invoices from the kvdb to the sql database.
 	invoiceMigration = 7
+
+	// graphMigration is the version number for the graph migration
+	// that migrates the KV graph to the native SQL schema.
+	graphMigration = 10
 )
 
 // GrpcRegistrar is an interface that must be satisfied by an external subserver
@@ -1091,6 +1095,11 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	if d.cfg.DB.UseNativeSQL {
 		migrations := sqldb.GetMigrations()
 
+		queryCfg := &d.cfg.DB.Sqlite.QueryConfig
+		if d.cfg.DB.Backend == lncfg.PostgresBackend {
+			queryCfg = &d.cfg.DB.Postgres.QueryConfig
+		}
+
 		// If the user has not explicitly disabled the SQL invoice
 		// migration, attach the custom migration function to invoice
 		// migration (version 7). Even if this custom migration is
@@ -1115,17 +1124,42 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 				d.logger.Debugf("Setting invoice bucket " +
 					"tombstone")
 
-				return dbs.ChanStateDB.SetInvoiceBucketTombstone() //nolint:ll
+				//nolint:ll
+				return dbs.ChanStateDB.SetInvoiceBucketTombstone()
+			}
+
+			graphMig := func(tx *sqlc.Queries) error {
+				cfg := &graphdb.SQLStoreConfig{
+					//nolint:ll
+					ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+					QueryCfg:  queryCfg,
+				}
+				err := graphdb.MigrateGraphToSQL(
+					ctx, cfg, dbs.ChanStateDB.Backend, tx,
+				)
+				if err != nil {
+					return fmt.Errorf("failed to migrate "+
+						"graph to SQL: %w", err)
+				}
+
+				return nil
 			}
 
 			// Make sure we attach the custom migration function to
 			// the correct migration version.
 			for i := 0; i < len(migrations); i++ {
 				version := migrations[i].Version
-				if version == invoiceMigration {
+				switch version {
+				case invoiceMigration:
 					migrations[i].MigrationFn = invoiceMig
 
 					continue
+				case graphMigration:
+					migrations[i].MigrationFn = graphMig
+
+					continue
+
+				default:
 				}
 
 				migFn, ok := d.getSQLMigration(
@@ -1167,8 +1201,18 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		dbs.InvoiceDB = sqlInvoiceDB
 
-		graphStore, err = d.getGraphStore(
-			baseDB, databaseBackends.GraphDB, graphDBOptions...,
+		graphExecutor := sqldb.NewTransactionExecutor(
+			baseDB, func(tx *sql.Tx) graphdb.SQLQueries {
+				return baseDB.WithTx(tx)
+			},
+		)
+
+		graphStore, err = graphdb.NewSQLStore(
+			&graphdb.SQLStoreConfig{
+				ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
+				QueryCfg:  queryCfg,
+			},
+			graphExecutor, graphDBOptions...,
 		)
 		if err != nil {
 			err = fmt.Errorf("unable to get graph store: %w", err)

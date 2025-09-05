@@ -5,24 +5,13 @@ package lnd
 import (
 	"context"
 
-	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
 // RunTestSQLMigration is a build tag that indicates whether the test_native_sql
 // build tag is set.
 var RunTestSQLMigration = false
-
-// getGraphStore returns a graphdb.V1Store backed by a graphdb.KVStore
-// implementation.
-func (d *DefaultDatabaseBuilder) getGraphStore(_ *sqldb.BaseDB,
-	kvBackend kvdb.Backend,
-	opts ...graphdb.StoreOptionModifier) (graphdb.V1Store, error) {
-
-	return graphdb.NewKVStore(kvBackend, opts...)
-}
 
 // getSQLMigration returns a migration function for the given version.
 //

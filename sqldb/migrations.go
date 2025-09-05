@@ -78,6 +78,20 @@ var (
 			Version:       8,
 			SchemaVersion: 7,
 		},
+		{
+			Name:          "000008_graph",
+			Version:       9,
+			SchemaVersion: 8,
+		},
+		{
+			Name:          "kv_graph_migration",
+			Version:       10,
+			SchemaVersion: 8,
+			// A migration function may be attached to this
+			// migration to migrate KV graph to the native SQL
+			// schema. This is optional and can be disabled by the
+			// user if necessary.
+		},
 	}, migrationAdditions...)
 
 	// ErrMigrationMismatch is returned when a migrated record does not

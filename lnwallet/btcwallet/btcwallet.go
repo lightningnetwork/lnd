@@ -1842,6 +1842,10 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	if !result.Allowed {
 		err := b.chain.MapRPCErr(errors.New(result.RejectReason))
 
+		// We also need to map the error from the backend to the wallet
+		// specific errors.
+		err = mapRpcclientError(err)
+
 		return fmt.Errorf("mempool rejection: %w", err)
 	}
 

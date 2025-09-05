@@ -1,0 +1,121 @@
+name: Bug report
+description: Create a bug report. Please use the discussions section for general or troubleshooting questions.
+title: '[bug]: '
+labels: ["bug", "needs triage"]
+
+body:
+ - type: markdown
+   attributes:
+     value: |
+       Thanks for taking the time to fill out this bug report! Please provide as much detail as possible.
+
+ - type: checkboxes
+   id: pre-check
+   attributes:
+     label: Pre-submission Checklist
+     description: "Please verify the following before submitting the bug report."
+     options:
+       - label: "I have searched the existing issues and believe this is a new bug."
+         required: true
+       - label: "I am not asking a question about how to use lnd, but reporting a bug (otherwise open a discussion)."
+         required: true
+
+ - type: input
+   id: environment-lnd-version
+   attributes:
+     label: LND version
+     description: "The version of lnd, get with `lncli version` or `lnd --version`."
+     placeholder: "e.g., v0.19.3-beta-1-gfbe71ced3"
+   validations:
+     required: true
+
+ - type: textarea
+   id: environment-lnd-config
+   attributes:
+     label: LND Configuration
+     description: "Please provide details about your lnd setup. Include/upload `lnd/lnd.conf` contents (with sensitive data removed)."
+     placeholder: |
+       lnd.conf:
+       ...
+   validations:
+     required: true
+
+ - type: input
+   id: environment-backend-version
+   attributes:
+     label: Backend version
+     description: "The version of bitcoind/btcd, get with `bitcoind/btcd --version`."
+     placeholder: "e.g., Bitcoin Core v29.0.0"
+   validations:
+     required: true
+
+ - type: textarea
+   id: environment-backend-config
+   attributes:
+     label: Backend Configuration
+     description: "Please provide details about your backend. Include/upload `bitcoin.conf`/`btcd.conf` contents (with sensitive data removed)."
+     placeholder: |
+       bitcoin/btcd.conf:
+       ...
+   validations:
+     required: true
+
+ - type: input
+   id: environment-os
+   attributes:
+     label: OS/Distribution
+     description: "The operating system/distro (`uname -a`) and/or node package"
+     placeholder: "e.g., Ubuntu 22.04 or SomeNodeProject"
+   validations:
+     required: true
+
+ - type: textarea
+   id: environment-network
+   attributes:
+     label: Network Setup
+     description: "Describe your network setup, including any proxies or container configurations."
+     placeholder: "e.g., behind VPN, in a Docker container"
+
+ - type: textarea
+   id: environment-other-apps
+   attributes:
+     label: Other Applications
+     description: "List any other applications configured/interacting with lnd."
+
+ - type: textarea
+   id: bug-description
+   attributes:
+     label: Bug Details & Steps to Reproduce
+     description: "Describe the action you attempted and what you found not to work. Provide clear steps to reproduce the issue."
+     placeholder: |
+       1. I tried to...
+       2. Then I...
+       3. The error occurred.
+   validations:
+     required: true
+
+ - type: textarea
+   id: logs
+   attributes:
+     label: Logs
+     description: "Please inclued/upload relevant logs or stack traces with [appropriate subsystem log levels](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#debug-logging)."
+
+ - type: textarea
+   id: goroutine-dump
+   attributes:
+     label: Goroutine Dump (if applicable)
+     description: "For hanging commands or daemons, please provide a [goroutine dump](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#goroutine-profile)."
+
+ - type: textarea
+   id: memory-profile
+   attributes:
+     label: Memory Profile (if applicable)
+     description: "For memory issues, please provide a [memory profile](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#heap-profile)."
+
+ - type: textarea
+   id: expected-behaviour
+   attributes:
+     label: Expected Behaviour
+     description: "Explain what you expected to happen."
+   validations:
+     required: true

@@ -35,6 +35,10 @@ const (
 	// header and it's MAC.
 	encHeaderSize = lengthHeaderSize + macSize
 
+	// maxMessageSize is the maximum size of an encrypted message including
+	// the MAC. This is the max payload (65535) plus the MAC size (16).
+	maxMessageSize = math.MaxUint16 + macSize
+
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
 	keyRotationInterval = 1000
@@ -87,6 +91,9 @@ type cipherState struct {
 	// TODO(roasbeef): this should actually be 96 bit
 	nonce uint64
 
+	// nonceBuffer is a reusable buffer for the nonce to avoid allocations.
+	nonceBuffer [12]byte
+
 	// secretKey is the shared symmetric key which will be used to
 	// instantiate the cipher.
 	//
@@ -113,10 +120,12 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Seal(cipherText, nonce[:], plainText, associatedData)
+	return c.cipher.Seal(
+		cipherText, c.nonceBuffer[:], plainText, associatedData,
+	)
 }
 
 // Decrypt attempts to decrypt the passed ciphertext observing the specified
@@ -131,10 +140,12 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Open(plainText, nonce[:], cipherText, associatedData)
+	return c.cipher.Open(
+		plainText, c.nonceBuffer[:], cipherText, associatedData,
+	)
 }
 
 // InitializeKey initializes the secret key and AEAD cipher scheme based off of
@@ -374,14 +385,23 @@ type Machine struct {
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [encHeaderSize]byte
 
+	// nextHeaderBuffer is a static buffer for the encrypted header.
+	nextHeaderBuffer [encHeaderSize]byte
+
+	// nextBodyBuffer is a static buffer for the encrypted body.
+	nextBodyBuffer [maxMessageSize]byte
+
+	// pktLenBuffer is a reusable buffer for encoding the packet length.
+	pktLenBuffer [lengthHeaderSize]byte
+
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout
-	// errors that cause partial writes.
+	// errors that cause partial writes. This slices into nextHeaderBuffer.
 	nextHeaderSend []byte
 
 	// nextBodySend holds a reference to the remaining body bytes to write
 	// out for a pending message. This allows us to tolerate timeout errors
-	// that cause partial writes.
+	// that cause partial writes. This slices into nextBodyBuffer.
 	nextBodySend []byte
 }
 
@@ -740,14 +760,19 @@ func (b *Machine) WriteMessage(p []byte) error {
 	// NOT include the MAC.
 	fullLength := uint16(len(p))
 
-	var pktLen [2]byte
-	binary.BigEndian.PutUint16(pktLen[:], fullLength)
+	binary.BigEndian.PutUint16(b.pktLenBuffer[:], fullLength)
 
-	// First, generate the encrypted+MAC'd length prefix for the packet.
-	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, pktLen[:])
+	// First, generate the encrypted+MAC'd length prefix for the packet. We
+	// slice into nextHeaderBuffer with [:0] to provide a zero-length slice
+	// with the full capacity, allowing Encrypt to append without
+	// allocating.
+	b.nextHeaderSend = b.sendCipher.Encrypt(
+		nil, b.nextHeaderBuffer[:0], b.pktLenBuffer[:],
+	)
 
-	// Finally, generate the encrypted packet itself.
-	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)
+	// Finally, generate the encrypted packet itself. Similarly, we slice
+	// into nextBodyBuffer to reuse the buffer.
+	b.nextBodySend = b.sendCipher.Encrypt(nil, b.nextBodyBuffer[:0], p)
 
 	return nil
 }

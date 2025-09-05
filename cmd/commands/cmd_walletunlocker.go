@@ -935,4 +935,6 @@ func printCipherSeedWords(mnemonicWords []string) {
 
 	fmt.Println("\n!!!YOU MUST WRITE DOWN THIS SEED TO BE ABLE TO " +
 		"RESTORE THE WALLET!!!")
+	fmt.Println("\n!!! DO NOT UNDER ANY CIRCUMSTANCES SHARE THIS SEED " +
+		"WITH ANYONE AS IT MAY RESULT IN LOSS OF YOUR FUNDS !!!")
 }

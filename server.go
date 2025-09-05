@@ -1042,6 +1042,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
 		ClosedSCIDs:        s.fetchClosedChannelSCIDs(),
 		TrafficShaper:      implCfg.TrafficShaper,
+		ManagedExternally:     cfg.Routing.ManagedExternally,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

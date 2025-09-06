@@ -553,7 +553,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 	require.NoError(t, err)
 
 	err = hop.ValidateTLVPayload(
-		parsedTypes, test.isFinalHop, test.updateAddBlinded,
+		parsedTypes, test.isFinalHop, test.updateAddBlinded, false,
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",

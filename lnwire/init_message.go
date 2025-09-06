@@ -3,6 +3,9 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // Init is the first message reveals the features supported or required by this
@@ -23,6 +26,11 @@ type Init struct {
 	// message, any GlobalFeatures should be merged into the unified
 	// Features field.
 	Features *RawFeatureVector
+
+	// AuxFeatures is an optional field that stores auxiliary feature bits
+	// for custom channel negotiation. This is used by aux channel
+	// implementations to negotiate custom channel behavior.
+	AuxFeatures fn.Option[AuxFeatureBits]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -52,11 +60,32 @@ var _ SizeableMessage = (*Init)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (msg *Init) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	err := ReadElements(r,
 		&msg.GlobalFeatures,
 		&msg.Features,
 		&msg.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Extract any TLV records from the extra data.
+	var auxFeatures AuxFeatureBits
+	auxFeaturesRecord := tlv.MakePrimitiveRecord(
+		AuxFeatureBitsTLV, &auxFeatures,
+	)
+
+	typeMap, err := msg.ExtraData.ExtractRecords(&auxFeaturesRecord)
+	if err != nil {
+		return err
+	}
+
+	// If the aux features TLV was present, set it in the message.
+	if val, ok := typeMap[AuxFeatureBitsTLV]; ok && val == nil {
+		msg.AuxFeatures = fn.Some(auxFeatures)
+	}
+
+	return nil
 }
 
 // Encode serializes the target Init into the passed io.Writer observing
@@ -70,6 +99,22 @@ func (msg *Init) Encode(w *bytes.Buffer, pver uint32) error {
 
 	if err := WriteRawFeatureVector(w, msg.Features); err != nil {
 		return err
+	}
+
+	// If we have aux features, encode them into the extra data.
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	msg.AuxFeatures.WhenSome(func(features AuxFeatureBits) {
+		record := tlv.MakePrimitiveRecord(AuxFeatureBitsTLV, &features)
+		recordProducers = append(recordProducers, &record)
+	})
+
+	if len(recordProducers) > 0 {
+		err := EncodeMessageExtraData(
+			&msg.ExtraData, recordProducers...,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return WriteBytes(w, msg.ExtraData)

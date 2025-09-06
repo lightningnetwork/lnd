@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -167,7 +166,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 
 	log.Infof("%T(%v): extracting preimage! remote party spent "+
 		"HTLC with tx=%v", h, h.htlcResolution.ClaimOutpoint,
-		spew.Sdump(commitSpend.SpendingTx))
+		lnutils.SpewLogClosure(commitSpend.SpendingTx))
 
 	// If this is the remote party's commitment, then we'll be looking for
 	// them to spend using the second-level success transaction.

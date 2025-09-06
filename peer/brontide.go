@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -1230,7 +1229,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		}
 
 		p.log.Tracef("Using link policy of: %v",
-			spew.Sdump(forwardingPolicy))
+			lnutils.SpewLogClosure(forwardingPolicy))
 
 		// If the channel is pending, set the value to nil in the
 		// activeChannels map. This is done to signify that the channel
@@ -2839,7 +2838,7 @@ func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
 	case <-p.cg.Done():
 		p.log.Tracef("Peer shutting down, could not enqueue msg: %v.",
-			spew.Sdump(msg))
+			lnutils.SpewLogClosure(msg))
 		if errChan != nil {
 			errChan <- lnpeer.ErrPeerExiting
 		}

@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -197,7 +196,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight lntypes.WeightUnit,
 		}
 		if err := vm.Execute(); err != nil {
 			log.Debugf("Failed to validate justice transaction: %s",
-				spew.Sdump(justiceTxn))
+				lnutils.SpewLogClosure(justiceTxn))
 			return nil, fmt.Errorf("error validating TX: %w", err)
 		}
 	}

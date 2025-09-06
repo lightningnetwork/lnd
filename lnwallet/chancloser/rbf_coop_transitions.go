@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -799,7 +798,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 			l.RemoteDeliveryScript[:], absoluteFee)
 
 		chancloserLog.Infof("proposing closing_tx=%v",
-			spew.Sdump(closeTx))
+			lnutils.SpewLogClosure(closeTx))
 
 		// Now that we have our signature, we'll set the proper
 		// closingSigs field based on if the remote party's output is

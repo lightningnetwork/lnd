@@ -24,12 +24,12 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/wtxmgr"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -1184,7 +1184,8 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	}
 
 	result := results[0]
-	log.Debugf("TestMempoolAccept result: %s", spew.Sdump(result))
+	log.Debugf("TestMempoolAccept result: %s",
+		lnutils.SpewLogClosure(result))
 
 	// Once mempool check passed, we can publish the transaction.
 	if result.Allowed {
@@ -1833,7 +1834,8 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	}
 
 	result := results[0]
-	log.Debugf("TestMempoolAccept result: %s", spew.Sdump(result))
+	log.Debugf("TestMempoolAccept result: %s",
+		lnutils.SpewLogClosure(result))
 
 	// Mempool check failed, we now map the reject reason to a proper RPC
 	// error and return it.

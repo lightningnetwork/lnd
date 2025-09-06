@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -1625,7 +1624,7 @@ out:
 			}
 
 			log.Debugf("Received outside contract resolution, "+
-				"mapping to: %v", spew.Sdump(pkt))
+				"mapping to: %v", lnutils.SpewLogClosure(pkt))
 
 			// We don't check the error, as the only failure we can
 			// encounter is due to the circuit already being

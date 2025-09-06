@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/batch"
@@ -1650,7 +1649,7 @@ func (d *AuthenticatedGossiper) handleNetworkMessages(ctx context.Context,
 	if err != nil {
 		// Something is wrong if SignalDependents returns an error.
 		log.Errorf("SignalDependents returned error for msg=%v with "+
-			"JobID=%v", spew.Sdump(nMsg.msg), jobID)
+			"JobID=%v", lnutils.SpewLogClosure(nMsg.msg), jobID)
 
 		nMsg.err <- err
 
@@ -3196,7 +3195,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(ctx context.Context,
 	if err != nil {
 		rErr := fmt.Errorf("unable to validate channel update "+
 			"announcement for short_chan_id=%v: %v",
-			spew.Sdump(upd.ShortChannelID), err)
+			lnutils.SpewLogClosure(upd.ShortChannelID), err)
 
 		log.Error(rErr)
 		nMsg.err <- rErr

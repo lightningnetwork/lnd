@@ -8,9 +8,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -226,7 +226,7 @@ func verifyChannelUpdate1Signature(msg *lnwire.ChannelUpdate1,
 
 	if !nodeSig.Verify(dataHash, pubKey) {
 		return fmt.Errorf("invalid signature for channel update %v",
-			spew.Sdump(msg))
+			lnutils.SpewLogClosure(msg))
 	}
 
 	return nil
@@ -249,7 +249,7 @@ func verifyChannelUpdate2Signature(c *lnwire.ChannelUpdate2,
 
 	if !nodeSig.Verify(digest, pubKey) {
 		return fmt.Errorf("invalid signature for channel update %v",
-			spew.Sdump(c))
+			lnutils.SpewLogClosure(c))
 	}
 
 	return nil
@@ -279,13 +279,13 @@ func validateChannelUpdate1Fields(capacity btcutil.Amount,
 	// The maxHTLC flag is mandatory.
 	if !msg.MessageFlags.HasMaxHtlc() {
 		return fmt.Errorf("max htlc flag not set for channel "+
-			"update %v", spew.Sdump(msg))
+			"update %v", lnutils.SpewLogClosure(msg))
 	}
 
 	maxHtlc := msg.HtlcMaximumMsat
 	if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
 		return fmt.Errorf("invalid max htlc for channel "+
-			"update %v", spew.Sdump(msg))
+			"update %v", lnutils.SpewLogClosure(msg))
 	}
 
 	// For light clients, the capacity will not be set so we'll skip
@@ -308,7 +308,7 @@ func validateChannelUpdate2Fields(capacity btcutil.Amount,
 	maxHtlc := c.HTLCMaximumMsat.Val
 	if maxHtlc == 0 || maxHtlc < c.HTLCMinimumMsat.Val {
 		return fmt.Errorf("invalid max htlc for channel update %v",
-			spew.Sdump(c))
+			lnutils.SpewLogClosure(c))
 	}
 
 	// Checking whether the MaxHTLC value respects the channel's capacity.

@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -409,7 +409,7 @@ func getInvoiceByRef(ctx context.Context,
 		// In case the reference is ambiguous, meaning it matches more
 		// than	one invoice, we'll return an error.
 		return sqlc.Invoice{}, fmt.Errorf("ambiguous invoice ref: "+
-			"%s: %s", ref.String(), spew.Sdump(rows))
+			"%s: %s", ref.String(), lnutils.SpewLogClosure(rows))
 
 	case err != nil:
 		return sqlc.Invoice{}, fmt.Errorf("unable to fetch invoice: %w",

@@ -1,5 +1,11 @@
 package paymentsdb
 
+const (
+	// DefaultMaxPayments is the default maximum number of payments returned
+	// in the payments query pagination.
+	DefaultMaxPayments = 100
+)
+
 // Query represents a query to the payments database starting or ending
 // at a certain offset index. The number of retrieved records can be limited.
 type Query struct {

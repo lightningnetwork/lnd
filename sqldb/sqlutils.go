@@ -75,6 +75,15 @@ func SQLStrValid(s string) sql.NullString {
 	}
 }
 
+// SQLBool turns a boolean into the NullBool that sql/sqlc uses when a boolean
+// can be permitted to be NULL.
+func SQLBool(b bool) sql.NullBool {
+	return sql.NullBool{
+		Bool:  b,
+		Valid: true,
+	}
+}
+
 // SQLTime turns a time.Time into the NullTime that sql/sqlc uses when a time
 // can be permitted to be NULL.
 func SQLTime(t time.Time) sql.NullTime {

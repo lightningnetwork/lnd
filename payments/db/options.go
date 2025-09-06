@@ -10,6 +10,14 @@ type StoreOptions struct {
 	KeepFailedPaymentAttempts bool
 }
 
+// DefaultOptions returns a StoreOptions populated with default values.
+func DefaultOptions() *StoreOptions {
+	return &StoreOptions{
+		KeepFailedPaymentAttempts: false,
+		NoMigration:               false,
+	}
+}
+
 // OptionModifier is a function signature for modifying the default
 // StoreOptions.
 type OptionModifier func(*StoreOptions)

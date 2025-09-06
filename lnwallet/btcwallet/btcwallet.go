@@ -1133,7 +1133,9 @@ func mapRpcclientError(err error) error {
 	// If the wallet reports that fee requirements for accepting the tx
 	// into mempool are not met, convert it to our internal ErrMempoolFee
 	// and return.
-	case errors.Is(err, chain.ErrMempoolMinFeeNotMet):
+	case errors.Is(err, chain.ErrMempoolMinFeeNotMet),
+		errors.Is(err, chain.ErrMinRelayFeeNotMet):
+
 		return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee, err.Error())
 	}
 
@@ -1839,6 +1841,10 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	// error and return it.
 	if !result.Allowed {
 		err := b.chain.MapRPCErr(errors.New(result.RejectReason))
+
+		// We also need to map the error from the backend to the wallet
+		// specific errors.
+		err = mapRpcclientError(err)
 
 		return fmt.Errorf("mempool rejection: %w", err)
 	}

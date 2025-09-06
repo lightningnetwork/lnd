@@ -203,6 +203,20 @@ type TxConfirmation struct {
 	Block *wire.MsgBlock
 }
 
+// TxUpdateInfo contains information about a transaction before it has reached
+// its required number of confirmations. Transactions are registered for
+// notification for a specific number of "required" confirmations, this struct
+// will update the caller incrementally after each new block is found as long as
+// the transaction is not yet fully regarded as confirmed.
+type TxUpdateInfo struct {
+	// BlockHeight is the height of the block that contains the transaction.
+	BlockHeight uint32
+
+	// NumConfsLeft is the number of confirmations left for the transaction
+	// to be regarded as fully confirmed.
+	NumConfsLeft uint32
+}
+
 // ConfirmationEvent encapsulates a confirmation notification. With this struct,
 // callers can be notified of: the instance the target txid reaches the targeted
 // number of confirmations, how many confirmations are left for the target txid
@@ -229,11 +243,12 @@ type ConfirmationEvent struct {
 
 	// Updates is a channel that will sent upon, at every incremental
 	// confirmation, how many confirmations are left to declare the
-	// transaction as fully confirmed.
+	// transaction as fully confirmed, along with the height of the block
+	// that contains the transaction.
 	//
 	// NOTE: This channel must be buffered with the number of required
 	// confirmations.
-	Updates chan uint32
+	Updates chan TxUpdateInfo
 
 	// NegativeConf is a channel that will be sent upon if the transaction
 	// confirms, but is later reorged out of the chain. The integer sent
@@ -262,7 +277,7 @@ func NewConfirmationEvent(numConfs uint32, cancel func()) *ConfirmationEvent {
 		// the channel so we need to create a larger buffer to avoid
 		// blocking the notifier.
 		Confirmed:    make(chan *TxConfirmation, 1),
-		Updates:      make(chan uint32, numConfs),
+		Updates:      make(chan TxUpdateInfo, numConfs),
 		NegativeConf: make(chan int32, 1),
 		Done:         make(chan struct{}, 1),
 		Cancel:       cancel,

@@ -21,12 +21,12 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
@@ -1733,7 +1733,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		}
 
 		walletLog.Tracef("Funding tx for ChannelPoint(%v) "+
-			"generated: %v", chanPoint, spew.Sdump(fundingTx))
+			"generated: %v", chanPoint,
+			lnutils.SpewLogClosure(fundingTx))
 	}
 
 	// If we landed here and didn't exit early, it means we already have
@@ -2001,9 +2002,9 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	txsort.InPlaceSort(theirCommitTx)
 
 	walletLog.Tracef("Local commit tx for ChannelPoint(%v): %v",
-		chanPoint, spew.Sdump(ourCommitTx))
+		chanPoint, lnutils.SpewLogClosure(ourCommitTx))
 	walletLog.Tracef("Remote commit tx for ChannelPoint(%v): %v",
-		chanPoint, spew.Sdump(theirCommitTx))
+		chanPoint, lnutils.SpewLogClosure(theirCommitTx))
 
 	// Record newly available information within the open channel state.
 	chanState.FundingOutpoint = chanPoint
@@ -2449,9 +2450,9 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
 
 	walletLog.Debugf("Local commit tx for ChannelPoint(%v): %v",
-		req.fundingOutpoint, spew.Sdump(ourCommitTx))
+		req.fundingOutpoint, lnutils.SpewLogClosure(ourCommitTx))
 	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
-		req.fundingOutpoint, spew.Sdump(theirCommitTx))
+		req.fundingOutpoint, lnutils.SpewLogClosure(theirCommitTx))
 
 	// With both commitment transactions created, we'll now verify their
 	// signature on our commitment.

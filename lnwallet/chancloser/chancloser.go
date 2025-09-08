@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -414,7 +413,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 		)
 
 		chancloserLog.Infof("Initiating shutdown w/ nonce: %v",
-			spew.Sdump(firstClosingNonce.PubNonce))
+			lnutils.SpewLogClosure(firstClosingNonce.PubNonce))
 	}
 
 	// Before closing, we'll attempt to send a disable update for the

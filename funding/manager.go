@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -992,7 +991,9 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 	}
 
 	log.Debugf("Sending funding error to peer (%x): %v",
-		peer.IdentityKey().SerializeCompressed(), spew.Sdump(errMsg))
+		peer.IdentityKey().SerializeCompressed(),
+		lnutils.SpewLogClosure(errMsg))
+
 	if err := peer.SendMessage(false, errMsg); err != nil {
 		log.Errorf("unable to send error message to peer %v", err)
 	}
@@ -1012,7 +1013,7 @@ func (f *Manager) sendWarning(peer lnpeer.Peer, cid *chanIdentifier,
 
 	log.Debugf("Sending funding warning to peer (%x): %v",
 		peer.IdentityKey().SerializeCompressed(),
-		spew.Sdump(errMsg),
+		lnutils.SpewLogClosure(errMsg),
 	)
 
 	if err := peer.SendMessage(false, errMsg); err != nil {

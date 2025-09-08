@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -964,7 +963,7 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 		!errors.Is(err, lnwallet.ErrMempoolFee) {
 
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
-			"%v, %v", err, spew.Sdump(baby.timeoutTx))
+			"%v, %v", err, lnutils.SpewLogClosure(baby.timeoutTx))
 		return err
 	}
 

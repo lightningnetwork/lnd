@@ -13,7 +13,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -958,7 +957,8 @@ func spewPayment(payment *LightningPayment) lnutils.LogClosure {
 		}
 		p := *payment
 		p.RouteHints = routeHints
-		return spew.Sdump(p)
+
+		return lnutils.SpewLogClosure(p)()
 	})
 }
 

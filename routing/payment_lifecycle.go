@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -301,7 +300,7 @@ lifecycle:
 			continue lifecycle
 		}
 
-		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
+		log.Tracef("Found route: %s", lnutils.SpewLogClosure(rt.Hops))
 
 		// We found a route to try, create a new HTLC attempt to try.
 		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
@@ -767,7 +766,7 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 
 			log.Debugf("Aux traffic shaper returned custom "+
 				"records %v and amount %d msat for HTLC",
-				spew.Sdump(newRecords), newAmt)
+				lnutils.SpewLogClosure(newRecords), newAmt)
 
 			return fn.Ok(extraDataRequest{
 				customRecords: fn.Some(newRecords),

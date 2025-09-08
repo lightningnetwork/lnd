@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -626,7 +625,7 @@ func (s *UtxoSweeper) removeConflictSweepDescendants(
 		// all the transactions that are descendants of outputs created
 		// by the sweepTx and the sweepTx itself.
 		log.Debugf("Removing sweep txid=%v from wallet: %v",
-			sweepTx.TxHash(), spew.Sdump(sweepTx))
+			sweepTx.TxHash(), lnutils.SpewLogClosure(sweepTx))
 
 		err = s.cfg.Wallet.RemoveDescendants(sweepTx)
 		if err != nil {
@@ -1435,7 +1434,7 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 
 		log.Debugf("Attempting to remove descendant txns invalidated "+
 			"by (txid=%v): %v", spendingTx.TxHash(),
-			spew.Sdump(spendingTx))
+			lnutils.SpewLogClosure(spendingTx))
 
 		err := s.removeConflictSweepDescendants(inputsSpent)
 		if err != nil {

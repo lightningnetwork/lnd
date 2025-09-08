@@ -33,7 +33,6 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
-	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/build"
@@ -1526,7 +1525,8 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		}
 
 		rpcsLog.Debugf("Sweeping coins from wallet to addr=%v, "+
-			"with tx=%v", in.Addr, spew.Sdump(sweepTxPkg.SweepTx))
+			"with tx=%v", in.Addr,
+			lnutils.SpewLogClosure(sweepTxPkg.SweepTx))
 
 		// As our sweep transaction was created, successfully, we'll
 		// now attempt to publish it, cancelling the sweep pkg to
@@ -1612,7 +1612,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
-		spew.Sdump(in.AddrToAmount), int64(feePerKw))
+		lnutils.SpewLogClosure(in.AddrToAmount), int64(feePerKw))
 
 	var txid *chainhash.Hash
 

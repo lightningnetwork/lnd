@@ -2128,6 +2128,12 @@ func (m *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
 	return nil
 }
 
+func (p *mockPeer) RecordProofSent(chanID lnwire.ChannelID) {}
+
+func (p *mockPeer) HasSentProof(chanID lnwire.ChannelID) bool {
+	return false
+}
+
 type singleLinkTestHarness struct {
 	aliceSwitch      *Switch
 	aliceLink        ChannelLink

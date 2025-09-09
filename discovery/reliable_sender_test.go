@@ -3,7 +3,6 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,7 +77,7 @@ func TestReliableSenderFlow(t *testing.T) {
 	// Create a mock peer to send the messages to.
 	pubKey := randPubKey(t)
 	msgsSent := make(chan lnwire.Message)
-	peer := &mockPeer{pubKey, msgsSent, reliableSender.quit, atomic.Bool{}}
+	peer := newMockPeer(pubKey, msgsSent, reliableSender.quit, false)
 
 	// Override NotifyWhenOnline and NotifyWhenOffline to provide the
 	// notification channels so that we can control when notifications get
@@ -195,7 +194,7 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	// Create a mock peer to send the messages to.
 	pubKey := randPubKey(t)
 	msgsSent := make(chan lnwire.Message)
-	peer := &mockPeer{pubKey, msgsSent, reliableSender.quit, atomic.Bool{}}
+	peer := newMockPeer(pubKey, msgsSent, reliableSender.quit, false)
 
 	// Override NotifyWhenOnline to provide the notification channel so that
 	// we can control when notifications get dispatched.

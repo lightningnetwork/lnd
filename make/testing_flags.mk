@@ -1,5 +1,5 @@
 DEV_TAGS = dev
-RPC_TAGS = autopilotrpc chainrpc invoicesrpc neutrinorpc peersrpc signrpc walletrpc watchtowerrpc
+RPC_TAGS = autopilotrpc chainrpc invoicesrpc neutrinorpc peersrpc signrpc switchrpc walletrpc watchtowerrpc
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS =

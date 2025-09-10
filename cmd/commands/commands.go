@@ -1124,12 +1124,27 @@ func closeChannel(ctx *cli.Context) error {
 		return err
 	}
 
+	// satPerVByteRaw retrieves the raw value of the fee rate flag (sat_per_vbyte)
+	// as a signed 64-bit integer, allowing us to check for negative values.
+	satPerVByteRaw := ctx.Int64(feeRateFlag)
+	if satPerVByteRaw < 0 {
+		// Validates that the fee rate is not negative. If it is (e.g., -1),
+		// returns an error with a message indicating the invalid value,
+		// aligning with gRPC's rejection of negative sat_per_vbyte.
+		return fmt.Errorf("%s cannot be negative, got %d", feeRateFlag, satPerVByteRaw)
+	}
+
+	// satPerVByte converts the validated raw value to an unsigned 64-bit integer
+	// (uint64) for use in the CloseChannelRequest, ensuring no overflow occurs
+	// since negativity was already checked.
+	satPerVByte := uint64(satPerVByteRaw)
+
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint:    channelPoint,
 		Force:           ctx.Bool("force"),
 		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag),
+		SatPerVbyte:     satPerVByte,
 		DeliveryAddress: ctx.String("delivery_addr"),
 		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
 		// This makes sure that a coop close will also be executed if

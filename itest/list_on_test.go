@@ -775,6 +775,10 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "estimate on chain fee auto selected inputs",
 		TestFunc: testEstimateOnChainFeeAutoSelectedInputs,
 	},
+	{
+		Name:     "send onion",
+		TestFunc: testSendOnion,
+	},
 }
 
 // appendPrefixed is used to add a prefix to each test name in the subtests

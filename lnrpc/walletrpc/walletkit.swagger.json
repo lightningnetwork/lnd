@@ -1453,6 +1453,11 @@
           "type": "integer",
           "format": "int64",
           "description": "Optional. The deadline delta in number of blocks that the output\nshould be spent within. This translates internally to the width of the\nfee function that the sweeper will use to bump the fee rate. When the\ndeadline is reached, ALL the budget will be spent as fees."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate, expressed in sat/kweight, that should be used to spend the\ninput with."
         }
       }
     },
@@ -1946,6 +1951,16 @@
           "format": "int64",
           "description": "Deprecated, use sat_per_vbyte.\nThe fee rate we'll use to sweep the output, expressed in sat/vbyte. The fee\nrate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
         },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The current fee rate we'll use to sweep the output, expressed in sat/vbyte.\nThe fee rate is only determined once a sweeping transaction for the output\nis created, so it's possible for this to be 0 before this."
+        },
+        "sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate we'll use to sweep the output, expressed in sat/kweight. The\nfee rate is only determined once a sweeping transaction for the output is\ncreated, so it's possible for this to be 0 before this."
+        },
         "broadcast_attempts": {
           "type": "integer",
           "format": "int64",
@@ -1970,15 +1985,15 @@
           "format": "int64",
           "description": "Deprecated, use requested_sat_per_vbyte.\nThe requested fee rate, expressed in sat/vbyte, for this output."
         },
-        "sat_per_vbyte": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The current fee rate we'll use to sweep the output, expressed in sat/vbyte.\nThe fee rate is only determined once a sweeping transaction for the output\nis created, so it's possible for this to be 0 before this."
-        },
         "requested_sat_per_vbyte": {
           "type": "string",
           "format": "uint64",
           "description": "The requested starting fee rate, expressed in sat/vbyte, for this\noutput. When not requested, this field will be 0."
+        },
+        "requested_sat_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The requested fee rate, expressed in sat/kweight, for this output."
         },
         "immediate": {
           "type": "boolean",

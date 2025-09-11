@@ -112,7 +112,7 @@ func TestAliasLifecycle(t *testing.T) {
 	aliasScid2 := lnwire.NewShortChanIDFromInt(alias + 1)
 
 	// Add the first alias.
-	err = aliasStore.AddLocalAlias(aliasScid, baseScid, false, true)
+	err = aliasStore.AddLocalAlias(aliasScid, baseScid, false, false, true)
 	require.NoError(t, err)
 
 	// The link updater should be called.
@@ -124,7 +124,7 @@ func TestAliasLifecycle(t *testing.T) {
 	require.Contains(t, aliasList, aliasScid)
 
 	// Add the second alias.
-	err = aliasStore.AddLocalAlias(aliasScid2, baseScid, false, true)
+	err = aliasStore.AddLocalAlias(aliasScid2, baseScid, false, false, true)
 	require.NoError(t, err)
 
 	// The link updater should be called.
@@ -179,9 +179,18 @@ func TestAliasLifecycle(t *testing.T) {
 	require.Equal(t, StartingAlias, firstRequested)
 
 	// We now manually add the next alias from the range as a custom alias.
+	// This time we also set the base lookup flag, in order to be able to
+	// go from alias back to the base scid.
 	secondAlias := getNextScid(firstRequested)
-	err = aliasStore.AddLocalAlias(secondAlias, baseScid, false, true)
+	err = aliasStore.AddLocalAlias(
+		secondAlias, baseScid, false, true, true,
+	)
 	require.NoError(t, err)
+
+	baseLookup, err := aliasStore.FindBaseSCID(secondAlias)
+	require.NoError(t, err)
+
+	require.Equal(t, baseScid, baseLookup)
 
 	// When we now request another alias from the allocation list, we expect
 	// the third one (tx position 2) to be returned.

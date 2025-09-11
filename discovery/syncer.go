@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"math/rand"
 	"sort"
@@ -1324,32 +1325,73 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
-	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
+	newUpdatestoSend := g.cfg.channelSeries.UpdatesInHorizon(
 		g.cfg.chainHash, startTime, endTime,
 	)
-	if err != nil {
+
+	// Create a pull-based iterator so we can check if there are any
+	// updates before launching the goroutine.
+	next, stop := iter.Pull2(newUpdatestoSend)
+
+	// Check if we have any updates to send by attempting to get the first
+	// message.
+	firstMsg, firstErr, ok := next()
+	if firstErr != nil {
+		stop()
 		returnSema()
-		return err
+		return firstErr
 	}
 
 	log.Infof("GossipSyncer(%x): applying new remote update horizon: "+
-		"start=%v, end=%v, backlog_size=%v", g.cfg.peerPub[:],
-		startTime, endTime, len(newUpdatestoSend))
+		"start=%v, end=%v, has_updates=%v", g.cfg.peerPub[:],
+		startTime, endTime, ok)
 
 	// If we don't have any to send, then we can return early.
-	if len(newUpdatestoSend) == 0 {
+	if !ok {
+		stop()
 		returnSema()
 		return nil
 	}
 
 	// We'll conclude by launching a goroutine to send out any updates.
+	// The goroutine takes ownership of the iterator.
 	g.cg.WgAdd(1)
 	go func() {
 		defer g.cg.WgDone()
 		defer returnSema()
+		defer stop()
 
-		for _, msg := range newUpdatestoSend {
-			err := g.cfg.sendToPeerSync(ctx, msg)
+		// Send the first message we already pulled.
+		err := g.cfg.sendToPeerSync(ctx, firstMsg)
+		switch {
+		case err == ErrGossipSyncerExiting:
+			return
+
+		case err == lnpeer.ErrPeerExiting:
+			return
+
+		case err != nil:
+			log.Errorf("Unable to send message for "+
+				"peer catch up: %v", err)
+		}
+
+		// Continue with the rest of the messages using the same pull
+		// iterator.
+		for {
+			msg, err, ok := next()
+			if !ok {
+				return
+			}
+
+			// If the iterator yielded an error, log it and
+			// continue.
+			if err != nil {
+				log.Errorf("Error fetching update for peer "+
+					"catch up: %v", err)
+				continue
+			}
+
+			err = g.cfg.sendToPeerSync(ctx, msg)
 			switch {
 			case err == ErrGossipSyncerExiting:
 				return

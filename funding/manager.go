@@ -3065,7 +3065,8 @@ func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
 // process once the funding transaction has been broadcast. The primary
 // function of waitForFundingConfirmation is to wait for blockchain
 // confirmation, and then to notify the other systems that must be notified
-// when a channel has become active for lightning transactions.
+// when a channel has become active for lightning transactions. It also updates
+// the channel’s opening transaction block height in the database.
 // The wait can be canceled by closing the cancelChan. In case of success,
 // a *lnwire.ShortChannelID will be passed to confChan.
 //
@@ -3109,34 +3110,135 @@ func (f *Manager) waitForFundingConfirmation(
 	log.Infof("Waiting for funding tx (%v) to reach %v confirmations",
 		txid, numConfs)
 
-	var confDetails *chainntnfs.TxConfirmation
-	var ok bool
-
 	// Wait until the specified number of confirmations has been reached,
 	// we get a cancel signal, or the wallet signals a shutdown.
-	select {
-	case confDetails, ok = <-confNtfn.Confirmed:
-		// fallthrough
+	for {
+		select {
+		case updDetails, ok := <-confNtfn.Updates:
+			if !ok {
+				log.Warnf("ChainNotifier shutting down, "+
+					"cannot process updates for "+
+					"ChannelPoint(%v)",
+					completeChan.FundingOutpoint)
 
-	case <-cancelChan:
-		log.Warnf("canceled waiting for funding confirmation, "+
-			"stopping funding flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
+				return
+			}
 
-	case <-f.quit:
-		log.Warnf("fundingManager shutting down, stopping funding "+
-			"flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
+			log.Debugf("funding tx %s received confirmation in "+
+				"block %d, %d confirmations left", txid,
+				updDetails.BlockHeight, updDetails.NumConfsLeft)
+
+			// Only update the ConfirmationHeight the first time a
+			// confirmation is received, since on subsequent
+			// confirmations the block height will remain the same.
+			if completeChan.ConfirmationHeight == 0 {
+				err := completeChan.MarkConfirmationHeight(
+					updDetails.BlockHeight,
+				)
+				if err != nil {
+					log.Errorf("failed to update "+
+						"confirmed state for "+
+						"ChannelPoint(%v): %v",
+						completeChan.FundingOutpoint,
+						err)
+
+					return
+				}
+			}
+
+		case _, ok := <-confNtfn.NegativeConf:
+			if !ok {
+				log.Warnf("ChainNotifier shutting down, "+
+					"cannot track negative confirmations "+
+					"for ChannelPoint(%v)",
+					completeChan.FundingOutpoint)
+
+				return
+			}
+
+			log.Warnf("funding tx %s was reorged out; channel "+
+				"point: %s", txid, completeChan.FundingOutpoint)
+
+			// Reset the confirmation height to 0 because the
+			// funding transaction was reorged out.
+			err := completeChan.MarkConfirmationHeight(uint32(0))
+			if err != nil {
+				log.Errorf("failed to update state for "+
+					"ChannelPoint(%v): %v",
+					completeChan.FundingOutpoint, err)
+
+				return
+			}
+
+		case confDetails, ok := <-confNtfn.Confirmed:
+			if !ok {
+				log.Warnf("ChainNotifier shutting down, "+
+					"cannot complete funding flow for "+
+					"ChannelPoint(%v)",
+					completeChan.FundingOutpoint)
+
+				return
+			}
+
+			log.Debugf("funding tx %s for ChannelPoint(%v) "+
+				"confirmed in block %d", txid,
+				completeChan.FundingOutpoint,
+				confDetails.BlockHeight)
+
+			// In the case of requiring a single confirmation, it
+			// can happen that the `Confirmed` channel is read
+			// from first, in which case the confirmation height
+			// will not be set. If this happens, we take the
+			// confirmation height from the `Confirmed` channel.
+			if completeChan.ConfirmationHeight == 0 {
+				err := completeChan.MarkConfirmationHeight(
+					confDetails.BlockHeight,
+				)
+				if err != nil {
+					log.Errorf("failed to update "+
+						"confirmed state for "+
+						"ChannelPoint(%v): %v",
+						completeChan.FundingOutpoint,
+						err)
+
+					return
+				}
+			}
+
+			err := f.handleConfirmation(
+				confDetails, completeChan, confChan,
+			)
+			if err != nil {
+				log.Errorf("Error handling confirmation for "+
+					"ChannelPoint(%v), txid=%v: %v",
+					completeChan.FundingOutpoint, txid, err)
+			}
+
+			return
+
+		case <-cancelChan:
+			log.Warnf("canceled waiting for funding confirmation, "+
+				"stopping funding flow for ChannelPoint(%v)",
+				completeChan.FundingOutpoint)
+
+			return
+
+		case <-f.quit:
+			log.Warnf("fundingManager shutting down, stopping "+
+				"funding flow for ChannelPoint(%v)",
+				completeChan.FundingOutpoint)
+
+			return
+		}
 	}
+}
 
-	if !ok {
-		log.Warnf("ChainNotifier shutting down, cannot complete "+
-			"funding flow for ChannelPoint(%v)",
-			completeChan.FundingOutpoint)
-		return
-	}
+// handleConfirmation is a helper function that constructs a ShortChannelID
+// based on the confirmation details and sends this information, along with the
+// funding transaction, to the provided confirmation channel.
+func (f *Manager) handleConfirmation(confDetails *chainntnfs.TxConfirmation,
+	completeChan *channeldb.OpenChannel,
+	confChan chan<- *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
 	log.Infof("ChannelPoint(%v) is now active: ChannelID(%v)",
@@ -3157,8 +3259,10 @@ func (f *Manager) waitForFundingConfirmation(
 		fundingTx:   confDetails.Tx,
 	}:
 	case <-f.quit:
-		return
+		return fmt.Errorf("manager shutting down")
 	}
+
+	return nil
 }
 
 // waitForTimeout will close the timeout channel if MaxWaitNumBlocksFundingConf

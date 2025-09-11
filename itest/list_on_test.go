@@ -63,6 +63,14 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testFundingExpiryBlocksOnPending,
 	},
 	{
+		Name:     "pending channel confirmation until active",
+		TestFunc: testPendingChannelConfirmationUntilActive,
+	},
+	{
+		Name:     "pending channel reorg test",
+		TestFunc: testPendingChannelAfterReorg,
+	},
+	{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},

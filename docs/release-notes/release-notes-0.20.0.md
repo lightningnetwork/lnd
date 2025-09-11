@@ -56,6 +56,14 @@ reflect their state on the channel commitment without having to send or receive
 a certain amount of msats.
 
 ## Functional Enhancements
+* [Add](https://github.com/lightningnetwork/lnd/pull/9677)
+  `ConfirmationsUntilActive` and `ConfirmationHeight` field to the
+  `PendingChannelsResponse_PendingChannel` message, providing users with the
+  number of confirmations remaining before a pending channel becomes active and 
+  the block height at which the funding transaction was first confirmed.
+  This change also persists the channel's confirmation height in the database 
+  once its funding transaction receives one confirmation, allowing tracking of 
+  confirmation progress before the channel becomes active.
 
 * RPCs `walletrpc.EstimateFee` and `walletrpc.FundPsbt` now
    [allow](https://github.com/lightningnetwork/lnd/pull/10087)

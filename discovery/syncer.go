@@ -1442,23 +1442,12 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
-	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
+	newUpdatestoSend := g.cfg.channelSeries.UpdatesInHorizon(
 		g.cfg.chainHash, startTime, endTime,
 	)
-	if err != nil {
-		returnSema()
-		return err
-	}
 
 	log.Infof("GossipSyncer(%x): applying new remote update horizon: "+
-		"start=%v, end=%v, backlog_size=%v", g.cfg.peerPub[:],
-		startTime, endTime, len(newUpdatestoSend))
-
-	// If we don't have any to send, then we can return early.
-	if len(newUpdatestoSend) == 0 {
-		returnSema()
-		return nil
-	}
+		"start=%v, end=%v", g.cfg.peerPub[:], startTime, endTime)
 
 	// Set the atomic flag to indicate we're starting to send the backlog.
 	// If the swap fails, it means another goroutine is already active, so
@@ -1478,7 +1467,7 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 		defer returnSema()
 		defer g.isSendingBacklog.Store(false)
 
-		for _, msg := range newUpdatestoSend {
+		for msg := range newUpdatestoSend {
 			err := g.sendToPeerSync(ctx, msg)
 			switch {
 			case err == ErrGossipSyncerExiting:

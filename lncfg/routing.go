@@ -11,6 +11,10 @@ type Routing struct {
 	StrictZombiePruning bool `long:"strictgraphpruning" description:"If true, then the graph will be pruned more aggressively for zombies. In practice this means that edges with a single stale edge will be considered a zombie."`
 
 	BlindedPaths BlindedPaths `group:"blinding" namespace:"blinding"`
+
+	// ManagedExternally indicates that the lifecycle of *all* HTLC attempts
+	// should be considered as if they are managed by a remote controller.
+	ManagedExternally bool `long:"managed-externally" description:"If true, all HTLC attempts will be considered managed by a remote routing (payment life-cycle) entity. This allows for external control over when the attempt information is deleted."`
 }
 
 // BlindedPaths holds the configuration options for blinded path construction.

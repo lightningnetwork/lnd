@@ -727,6 +727,7 @@ func DefaultConfig() Config {
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
 		},
 		Routing: &lncfg.Routing{
+			ManagedExternally: false,
 			BlindedPaths: lncfg.BlindedPaths{
 				MinNumRealHops:           lncfg.DefaultMinNumRealBlindedPathHops,
 				NumHops:                  lncfg.DefaultNumBlindedPathHops,

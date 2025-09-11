@@ -94,6 +94,8 @@ func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 			chain, startTime, endTime,
 		}
 
+		// We'll get the response from the channel, then yield it
+		// immediately.
 		msgs := <-m.horizonResp
 		for _, msg := range msgs {
 			if !yield(msg, nil) {

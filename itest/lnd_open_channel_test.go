@@ -877,6 +877,236 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 }
 
+// assertConfirmation is a helper to assert the ConfirmationsUntilActive and
+// ConfirmationHeight has been updated to the expected value.
+func assertConfirmation(ht *lntest.HarnessTest, hn *node.HarnessNode,
+	expConfLeft, expConfHeight uint32) {
+
+	ht.Helper()
+
+	err := wait.NoError(func() error {
+		// Node should have one pending open channel.
+		pendingChan := ht.AssertNumPendingOpenChannels(hn, 1)[0]
+
+		// Check if the ConfirmationsUntilActive is updated to the
+		// expected value.
+		if expConfLeft != pendingChan.ConfirmationsUntilActive {
+			return fmt.Errorf("remaining confirmations mismatch, "+
+				"want %v, got %v", expConfLeft,
+				pendingChan.ConfirmationsUntilActive)
+		}
+
+		// Check if the ConfirmationHeight is updated to the expected
+		// value.
+		if expConfHeight != pendingChan.ConfirmationHeight {
+			return fmt.Errorf("confirmation height mismatch, want "+
+				"%v, got %v", expConfHeight,
+				pendingChan.ConfirmationHeight)
+		}
+
+		return nil
+	}, defaultTimeout)
+
+	require.NoError(ht, err)
+}
+
+// testPendingChannelConfirmationUntilActive verifies the value for the rpc
+// field ConfirmationUntilActive updates correctly as soon as blocks are
+// confirmed.
+func testPendingChannelConfirmationUntilActive(ht *lntest.HarnessTest) {
+	var (
+		numConfs uint32         = 5
+		chanAmt  btcutil.Amount = 100000
+	)
+
+	// Since we want Bob's channels to require more than 1 on-chain
+	// confirmation before becoming active, we will launch Bob with the
+	// custom defaultchanconfs flag.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", []string{
+		fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs),
+	})
+
+	// Ensure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Alice initiates a channel opening to Bob.
+	param := lntest.OpenChannelParams{Amt: chanAmt}
+	ht.OpenChannelAssertPending(alice, bob, param)
+
+	// Both Alice and Bob have one pending open channel.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Since the funding transaction is not confirmed yet,
+	// ConfirmationsUntilActive will always be numConfs, and confirmation
+	// height will be 0.
+	assertConfirmation(ht, alice, numConfs, 0)
+	assertConfirmation(ht, bob, numConfs, 0)
+
+	// Mine the first block containing the funding transaction, This
+	// confirms the funding transaction but the channel should still remain
+	// pending.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Decrement numConfs to reflect that one confirmation has been
+	// received.
+	numConfs--
+
+	// Since the funding transaction has been mined, the best block height
+	// corresponds to the confirmation height of the channel's opening tx.
+	_, expConfHeight := ht.GetBestBlock()
+
+	// Channel remains pending after the first confirmation.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Make sure the ConfirmationsUntilActive and ConfirmationHeight
+	// fields have been updated to the expected values before restarting the
+	// nodes.
+	assertConfirmation(ht, alice, numConfs, uint32(expConfHeight))
+	assertConfirmation(ht, bob, numConfs, uint32(expConfHeight))
+
+	// Restart both nodes to test that the appropriate state has been
+	// persisted and that both nodes recover gracefully.
+	ht.RestartNode(alice)
+	ht.RestartNode(bob)
+	ht.EnsureConnected(alice, bob)
+
+	// ConfirmationsUntilActive field should decrease as each block is
+	// mined until the required number of confirmations is reached. Let's
+	// mine a few blocks and verify the value of ConfirmationsUntilActive at
+	// each step.
+	for i := numConfs; i > 0; i-- {
+		expConfLeft := i
+
+		// Retrieve pending channels for both Alice and Bob and verify
+		// the remaining confirmations and confirmation height.
+		assertConfirmation(
+			ht, alice, expConfLeft, uint32(expConfHeight),
+		)
+		assertConfirmation(ht, bob, expConfLeft, uint32(expConfHeight))
+
+		// Mine the next block.
+		ht.MineBlocks(1)
+	}
+
+	// After the required number of confirmations, the channel should be
+	// marked as active.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertNumPendingOpenChannels(bob, 0)
+}
+
+// testPendingChannelAfterReorg verifies the value for the rpc field
+// ConfirmationUntilActive updates correctly as blocks are confirmed and after
+// chain reorgs.
+func testPendingChannelAfterReorg(ht *lntest.HarnessTest) {
+	// Skip test for neutrino, as we cannot disconnect the miner at will.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping reorg test for neutrino backend")
+	}
+
+	var numConfs uint32 = 3
+
+	// Since we want Bob's channels to require more than 1 on-chain
+	// confirmation before becoming active, we will launch Bob with the
+	// custom defaultchanconfs flag.
+	miner := ht.Miner()
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", []string{
+		fmt.Sprintf("--bitcoin.defaultchanconfs=%v", numConfs),
+	})
+	ht.EnsureConnected(alice, bob)
+
+	// Spawn a temporary miner to simulate a chain reorg with a longer
+	// chain.
+	tempMiner := ht.SpawnTempMiner()
+
+	// Alice initiates a channel opening to Bob.
+	params := lntest.OpenChannelParams{Amt: funding.MaxBtcFundingAmount}
+	ht.OpenChannelAssertPending(alice, bob, params)
+
+	// Mine the first block containing the funding transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Channel remains pending after the first confirmation.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Since the funding transaction has been mined, the best block height
+	// corresponds to the confirmation height of the channel's opening tx.
+	_, expConfHeight := ht.GetBestBlock()
+
+	// Make sure the ConfirmationsUntilActive and ConfirmationHeight
+	// fields have been updated to the expected values before reorg.
+	//
+	// Decrement numConfs to reflect one confirmation received.
+	assertConfirmation(ht, alice, numConfs-1, uint32(expConfHeight))
+	assertConfirmation(ht, bob, numConfs-1, uint32(expConfHeight))
+
+	// We now cause a fork, by letting our original miner mine 1 blocks,
+	// and our new miner mine 3.
+	_, err := tempMiner.Client.Generate(3)
+	require.NoError(ht, err, "unable to generate blocks on temp miner")
+
+	// Ensure the chain lengths are what we expect, with the temp miner
+	// being 2 blocks ahead.
+	miner.AssertMinerBlockHeightDelta(tempMiner, 2)
+
+	// Now we disconnect Alice's chain backend from the original miner, and
+	// connect the two miners together. Since the temporary miner knows
+	// about a longer chain, both miners should sync to that chain.
+	ht.DisconnectMiner()
+
+	// Connecting to the temporary miner should now cause our original
+	// chain to be re-orged out.
+	miner.ConnectMiner(tempMiner)
+
+	// Once again they should be on the same chain.
+	miner.AssertMinerBlockHeightDelta(tempMiner, 0)
+
+	// Now we disconnect the two miners, and connect our original miner to
+	// our chain backend once again.
+	miner.DisconnectMiner(tempMiner)
+	ht.ConnectMiner()
+
+	// This should have caused a reorg, and Alice should sync to the longer
+	// chain, where the funding transaction is not confirmed.
+	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+	require.NoError(ht, err, "unable to get current blockheight")
+	ht.WaitForNodeBlockHeight(alice, tempMinerHeight)
+
+	// After the reorg, the funding transaction's confirmation is removed,
+	// so the pending channel should again require the original number of
+	// confirmations and have a confirmation height of 0.
+	assertConfirmation(ht, alice, numConfs, 0)
+	assertConfirmation(ht, bob, numConfs, 0)
+
+	// Mine the first block containing the funding transaction again.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Decrement numConfs to reflect one confirmation received.
+	numConfs--
+
+	// Since the funding transaction has been mined, the best block height
+	// corresponds to the confirmation height of the channel's opening tx.
+	_, expConfHeight = ht.GetBestBlock()
+
+	// Make sure the ConfirmationsUntilActive and ConfirmationHeight
+	// fields have been updated to the expected values after reorg.
+	assertConfirmation(ht, alice, numConfs, uint32(expConfHeight))
+	assertConfirmation(ht, bob, numConfs, uint32(expConfHeight))
+
+	// Cleanup by mining the remaining blocks to reach the required number
+	// of confirmations.
+	ht.MineBlocks(int(numConfs))
+
+	// After the required number of confirmations, the channel should be
+	// marked as active.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+	ht.AssertNumPendingOpenChannels(bob, 0)
+}
+
 // testSimpleTaprootChannelActivation ensures that a simple taproot channel is
 // active if the initiator disconnects and reconnects in between channel opening
 // and channel confirmation.

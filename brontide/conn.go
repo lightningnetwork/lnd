@@ -59,7 +59,8 @@ func Dial(local keychain.SingleKeyECDH, netAddr *lnwire.NetAddress,
 	b := &Conn{
 		conn: conn,
 	}
-	b.noise.Store(NewBrontideMachine(true, local, netAddr.IdentityKey))
+	// Use a Machine from the pool instead of allocating a new one.
+	b.noise.Store(getMachineFromPool(true, local, netAddr.IdentityKey))
 
 	// Initiate the handshake by sending the first act to the receiver.
 	noise := b.noise.Load()
@@ -306,11 +307,15 @@ func (c *Conn) Close() error {
 		return ErrConnClosed
 	}
 
-	// Clear the state we created to be able to handle this connection.
-	// We atomically swap the noise pointer to nil, which allows the ~64KB
-	// buffers to be garbage collected immediately while preventing any
-	// nil pointer dereferences from concurrent operations.
-	c.noise.Store(nil)
+	// Atomically swap the noise pointer to nil and return the Machine
+	// to the pool for reuse. This allows the ~64KB buffers to be reused
+	// for future connections while preventing nil pointer dereferences
+	// from concurrent operations.
+	machine := c.noise.Swap(nil)
+	if machine != nil {
+		// Return the Machine to the pool after resetting its state.
+		ReturnMachineToPool(machine)
+	}
 	c.readBuf = bytes.Buffer{}
 
 	return c.conn.Close()

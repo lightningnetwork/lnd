@@ -118,7 +118,8 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	brontideConn := &Conn{
 		conn: conn,
 	}
-	brontideConn.noise.Store(NewBrontideMachine(false, l.localStatic, nil))
+	// Use a Machine from the pool instead of allocating a new one.
+	brontideConn.noise.Store(getMachineFromPool(false, l.localStatic, nil))
 
 	// We'll ensure that we get ActOne from the remote peer in a timely
 	// manner. If they don't respond within handshakeReadTimeout, then

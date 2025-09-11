@@ -116,9 +116,9 @@ func (l *Listener) doHandshake(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
 
 	brontideConn := &Conn{
-		conn:  conn,
-		noise: NewBrontideMachine(false, l.localStatic, nil),
+		conn: conn,
 	}
+	brontideConn.noise.Store(NewBrontideMachine(false, l.localStatic, nil))
 
 	// We'll ensure that we get ActOne from the remote peer in a timely
 	// manner. If they don't respond within handshakeReadTimeout, then
@@ -139,7 +139,8 @@ func (l *Listener) doHandshake(conn net.Conn) {
 		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
-	if err := brontideConn.noise.RecvActOne(actOne); err != nil {
+	noise := brontideConn.noise.Load()
+	if err := noise.RecvActOne(actOne); err != nil {
 		brontideConn.conn.Close()
 		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
@@ -147,7 +148,7 @@ func (l *Listener) doHandshake(conn net.Conn) {
 
 	// Next, progress the handshake processes by sending over our ephemeral
 	// key for the session along with an authenticating tag.
-	actTwo, err := brontideConn.noise.GenActTwo()
+	actTwo, err := noise.GenActTwo()
 	if err != nil {
 		brontideConn.conn.Close()
 		l.rejectConn(rejectedConnErr(err, remoteAddr))
@@ -184,7 +185,7 @@ func (l *Listener) doHandshake(conn net.Conn) {
 		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return
 	}
-	if err := brontideConn.noise.RecvActThree(actThree); err != nil {
+	if err := noise.RecvActThree(actThree); err != nil {
 		brontideConn.conn.Close()
 		l.rejectConn(rejectedConnErr(err, remoteAddr))
 		return

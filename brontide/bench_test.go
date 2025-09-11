@@ -31,8 +31,9 @@ func BenchmarkReadHeaderAndBody(t *testing.B) {
 	err = noiseRemoteConn.WriteMessage(msg)
 	require.NoError(t, err, "unable to write encrypted message: %v", err)
 
-	cipherHeader := noiseRemoteConn.noise.nextHeaderSend
-	cipherMsg := noiseRemoteConn.noise.nextBodySend
+	noise := noiseRemoteConn.noise.Load()
+	cipherHeader := noise.nextHeaderSend
+	cipherMsg := noise.nextBodySend
 
 	var (
 		benchErr error
@@ -42,15 +43,16 @@ func BenchmarkReadHeaderAndBody(t *testing.B) {
 	t.ReportAllocs()
 	t.ResetTimer()
 
-	nonceValue := noiseLocalConn.noise.recvCipher.nonce
+	localNoise := noiseLocalConn.noise.Load()
+	nonceValue := localNoise.recvCipher.nonce
 	for i := 0; i < t.N; i++ {
-		pktLen, benchErr := noiseLocalConn.noise.ReadHeader(
+		pktLen, benchErr := localNoise.ReadHeader(
 			bytes.NewReader(cipherHeader),
 		)
 		require.NoError(
 			t, benchErr, "#%v: failed decryption: %v", i, benchErr,
 		)
-		_, benchErr = noiseLocalConn.noise.ReadBody(
+		_, benchErr = localNoise.ReadBody(
 			bytes.NewReader(cipherMsg), msgBuf[:pktLen],
 		)
 		require.NoError(
@@ -60,7 +62,7 @@ func BenchmarkReadHeaderAndBody(t *testing.B) {
 		// We reset the internal nonce each time as otherwise, we'd
 		// continue to increment it which would cause a decryption
 		// failure.
-		noiseLocalConn.noise.recvCipher.nonce = nonceValue
+		localNoise.recvCipher.nonce = nonceValue
 	}
 	require.NoError(t, benchErr)
 }
@@ -87,15 +89,16 @@ func BenchmarkWriteMessage(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
+	noise := noiseLocalConn.noise.Load()
 	for i := 0; i < b.N; i++ {
 		// Write our massive message, then call flush to actually write
 		// the encrypted message This simulates a full write operation
 		// to a network.
-		err := noiseLocalConn.noise.WriteMessage(largeMsg)
+		err := noise.WriteMessage(largeMsg)
 		if err != nil {
 			b.Fatalf("WriteMessage failed: %v", err)
 		}
-		_, err = noiseLocalConn.noise.Flush(discard)
+		_, err = noise.Flush(discard)
 		if err != nil {
 			b.Fatalf("Flush failed: %v", err)
 		}

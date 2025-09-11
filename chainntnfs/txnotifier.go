@@ -2011,6 +2011,20 @@ func (n *TxNotifier) dispatchConfReorg(ntfn *ConfNtfn,
 	if !ntfn.dispatched {
 		confHeight := heightDisconnected + ntfn.NumConfirmations - 1
 		ntfnSet, exists := n.ntfnsByConfirmHeight[confHeight]
+
+		// We also signal the reorg to the notifier in case the
+		// subscriber is also interested in the reorgs before the
+		// transaction received its required confirmation.
+		//
+		// Because as soon as a new block is connected which has the
+		// transaction included again we preemptively read the buffered
+		// channel.
+		select {
+		case ntfn.Event.NegativeConf <- int32(n.reorgDepth):
+		case <-n.quit:
+			return ErrTxNotifierExiting
+		}
+
 		if exists {
 			delete(ntfnSet, ntfn)
 		}

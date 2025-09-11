@@ -1548,6 +1548,56 @@ func TestTxNotifierConfReorg(t *testing.T) {
 	}
 }
 
+// TestTxNotifierReorgPartialConfirmation ensures that a tx with intermediate
+// confirmations handles a reorg correctly and emits the appropriate reorg ntfn.
+func TestTxNotifierReorgPartialConfirmation(t *testing.T) {
+	t.Parallel()
+
+	const txNumConfs uint32 = 2
+	hintCache := newMockHintCache()
+	n := chainntnfs.NewTxNotifier(
+		7, chainntnfs.ReorgSafetyLimit, hintCache, hintCache,
+	)
+
+	// Tx will be confirmed in block 9 and requires 2 confs.
+	tx := wire.MsgTx{Version: 1}
+	tx.AddTxOut(&wire.TxOut{PkScript: testRawScript})
+	txHash := tx.TxHash()
+	ntfn, err := n.RegisterConf(&txHash, testRawScript, txNumConfs, 1)
+	require.NoError(t, err, "unable to register ntfn")
+
+	err = n.UpdateConfDetails(ntfn.HistoricalDispatch.ConfRequest, nil)
+	require.NoError(t, err, "unable to deliver conf details")
+
+	// Mine 1 block to satisfy the requirement for a partially confirmed tx.
+	block := btcutil.NewBlock(&wire.MsgBlock{
+		Transactions: []*wire.MsgTx{&tx},
+	})
+	err = n.ConnectTip(block, 8)
+	require.NoError(t, err, "failed to connect block")
+	err = n.NotifyHeight(8)
+	require.NoError(t, err, "unable to dispatch notifications")
+
+	// Now that the transaction is partially confirmed, reorg out those
+	// blocks.
+	err = n.DisconnectTip(8)
+	require.NoError(t, err, "unable to disconnect block")
+
+	// After the intermediate confirmation is reorged out, the tx should not
+	// trigger a confirmation ntfn, but should trigger a reorg ntfn.
+	select {
+	case <-ntfn.Event.Confirmed:
+		t.Fatal("unexpected confirmation after reorg")
+	default:
+	}
+
+	select {
+	case <-ntfn.Event.NegativeConf:
+	default:
+		t.Fatal("expected to receive reorg notification")
+	}
+}
+
 // TestTxNotifierSpendReorg ensures that clients are notified of a reorg when
 // the spending transaction of an outpoint for which they registered a spend
 // notification for has been reorged out of the chain.

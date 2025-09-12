@@ -159,7 +159,7 @@ linters:
       - builtin$
       - examples$
 issues:
-  new-from-rev: 03eab4db64540aa5f789c617793e4459f4ba9e78
+  new-from-rev: 5082566ed7193215d0a7620e5faf3a37323bce92
 formatters:
   enable:
     - gci

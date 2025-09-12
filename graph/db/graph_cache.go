@@ -3,6 +3,7 @@ package graphdb
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -66,11 +67,24 @@ type GraphCache struct {
 	nodeChannels map[route.Vertex]map[uint64]*DirectedChannel
 	nodeFeatures map[route.Vertex]*lnwire.FeatureVector
 
-	mtx sync.RWMutex
+	// zombieIndex tracks channels that may be leaked during the removal
+	// process. Since the remover could not have the node ID, these channels
+	// are stored here and will be removed later in a separate loop.
+	zombieIndex map[uint64]struct{}
+
+	// zombieCleanerInterval is the interval at which the zombie cleaner
+	// runs to clean up channels that are still missing their nodes.
+	zombieCleanerInterval time.Duration
+
+	mtx  sync.RWMutex
+	quit chan struct{}
+	wg   sync.WaitGroup
 }
 
 // NewGraphCache creates a new graphCache.
 func NewGraphCache(preAllocNumNodes int) *GraphCache {
+	oneHour := time.Hour
+
 	return &GraphCache{
 		nodeChannels: make(
 			map[route.Vertex]map[uint64]*DirectedChannel,
@@ -83,6 +97,9 @@ func NewGraphCache(preAllocNumNodes int) *GraphCache {
 			map[route.Vertex]*lnwire.FeatureVector,
 			preAllocNumNodes,
 		),
+		zombieIndex:           make(map[uint64]struct{}),
+		zombieCleanerInterval: oneHour,
+		quit:                  make(chan struct{}),
 	}
 }
 
@@ -98,6 +115,81 @@ func (c *GraphCache) Stats() string {
 	return fmt.Sprintf("num_node_features=%d, num_nodes=%d, "+
 		"num_channels=%d", len(c.nodeFeatures), len(c.nodeChannels),
 		numChannels)
+}
+
+// Start launches the background goroutine that periodically cleans up zombie
+// channels.
+func (c *GraphCache) Start() {
+	c.wg.Add(1)
+	go c.zombieCleaner()
+}
+
+// Stop signals the background cleaner to shut down and waits for it to exit.
+func (c *GraphCache) Stop() {
+	close(c.quit)
+	c.wg.Wait()
+}
+
+// zombieCleaner periodically iterates over the zombie index and removes
+// channels that are still missing their nodes.
+//
+// NOTE: must be run as a goroutine.
+func (c *GraphCache) zombieCleaner() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(c.zombieCleanerInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			c.cleanupZombies()
+		case <-c.quit:
+			return
+		}
+	}
+}
+
+// cleanupZombies attempts to prune channels tracked in the zombie index. If the
+// nodes for a channel still cannot be resolved, the channel is deleted from the
+// cache.
+func (c *GraphCache) cleanupZombies() {
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	if len(c.zombieIndex) == 0 {
+		log.Debug("no zombie channels to clean up in GraphCache")
+		return
+	}
+
+	// Go through all nodes and their channels once to check if any are
+	// marked as zombies. This is faster than checking every node for each
+	// zombie channel, since there are usually many more nodes than zombie
+	// channels.
+	for node, chans := range c.nodeChannels {
+		for cid, ch := range chans {
+			// if the channel isn't a zombie, we can skip it.
+			if _, ok := c.zombieIndex[cid]; !ok {
+				continue
+			}
+
+			// delete peer's side channel if it exists.
+			c.removeChannelIfFound(ch.OtherNode, cid)
+
+			// delete the channel from our side.
+			delete(chans, cid)
+		}
+
+		// If all channels were deleted for this node, clean up the map
+		// entry entirely.
+		if len(chans) == 0 {
+			delete(c.nodeChannels, node)
+		}
+	}
+
+	// Now that we have removed all channels that were zombies, we can
+	// clear the zombie index.
+	c.zombieIndex = make(map[uint64]struct{})
 }
 
 // AddNodeFeatures adds a graph node and its features to the cache.
@@ -251,6 +343,15 @@ func (c *GraphCache) RemoveChannel(node1, node2 route.Vertex, chanID uint64) {
 	// Remove that one channel from both sides.
 	c.removeChannelIfFound(node1, chanID)
 	c.removeChannelIfFound(node2, chanID)
+
+	zeroVertex := route.Vertex{}
+	if node1 == zeroVertex || node2 == zeroVertex {
+		// If one of the nodes is the zero vertex, it means that we will
+		// leak the channel in the memory cache, since we don't have the
+		// node ID to remove, so we add it to the zombie index to post
+		// removal.
+		c.zombieIndex[chanID] = struct{}{}
+	}
 }
 
 // removeChannelIfFound removes a single channel from one side.
@@ -290,7 +391,15 @@ func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
 
 	i := 0
 	channelsCopy := make([]*DirectedChannel, len(channels))
-	for _, channel := range channels {
+	for cid, channel := range channels {
+		if _, ok := c.zombieIndex[cid]; ok {
+			// If this channel is a zombie, we don't want to return
+			// it, so we skip it. We can't delete it here since
+			// we're holding a mutex in read mode and changing to
+			// write mode will degrade parallel reads.
+			continue
+		}
+
 		// We need to copy the channel and policy to avoid it being
 		// updated in the cache if the path finding algorithm sets
 		// fields on it (currently only the ToNodeFeatures of the
@@ -305,7 +414,7 @@ func (c *GraphCache) getChannels(node route.Vertex) []*DirectedChannel {
 		i++
 	}
 
-	return channelsCopy
+	return channelsCopy[:i]
 }
 
 // ForEachChannel invokes the given callback for each channel of the given node.

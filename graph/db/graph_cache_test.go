@@ -1,8 +1,11 @@
 package graphdb
 
 import (
+	"encoding/binary"
 	"encoding/hex"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -21,8 +24,14 @@ var (
 			"f4484f",
 	)
 
+	pubKey3Bytes, _ = hex.DecodeString(
+		"02a1633e42df2134a2b0330159d66575316471583448590688c7a1418da7" +
+			"33d9e4",
+	)
+
 	pubKey1, _ = route.NewVertexFromBytes(pubKey1Bytes)
 	pubKey2, _ = route.NewVertexFromBytes(pubKey2Bytes)
+	pubKey3, _ = route.NewVertexFromBytes(pubKey3Bytes)
 )
 
 // TestGraphCacheAddNode tests that a channel going from node A to node B can be
@@ -121,6 +130,80 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest(pubKey2, pubKey1)
 }
 
+// TestGraphCacheCleanupZombies tests that the cleanupZombies function correctly
+// removes zombie channels from the cache.
+func TestGraphCacheCleanupZombies(t *testing.T) {
+	t.Parallel()
+
+	cache := NewGraphCache(10)
+
+	// Add a channel between two nodes. This will be the zombie.
+	info1 := &models.CachedEdgeInfo{
+		ChannelID:     1000,
+		NodeKey1Bytes: pubKey1,
+		NodeKey2Bytes: pubKey2,
+		Capacity:      500,
+	}
+	cache.AddChannel(info1, nil, nil)
+
+	// Add a second channel, which will NOT be a zombie.
+	info2 := &models.CachedEdgeInfo{
+		ChannelID:     1001,
+		NodeKey1Bytes: pubKey2,
+		NodeKey2Bytes: pubKey3,
+		Capacity:      500,
+	}
+
+	cache.AddChannel(info2, nil, nil)
+	zeroVertex := route.Vertex{}
+
+	// Try to remove the channel, which will mark it as a zombie.
+	cache.RemoveChannel(zeroVertex, zeroVertex, 1000)
+	require.Equal(t, 1, len(cache.zombieIndex))
+
+	// Now, run the cleanup function.
+	cache.cleanupZombies()
+
+	// Check that the zombie channel has been removed from the first node.
+	require.Empty(t, cache.nodeChannels[pubKey1])
+
+	// Check that the second node still has the non-zombie channel.
+	require.Len(t, cache.nodeChannels[pubKey2], 1)
+	_, ok := cache.nodeChannels[pubKey2][1001]
+	require.True(t, ok)
+
+	// And the third node should also have the non-zombie channel.
+	require.Len(t, cache.nodeChannels[pubKey3], 1)
+	_, ok = cache.nodeChannels[pubKey3][1001]
+	require.True(t, ok)
+
+	// And the zombie index should be cleared.
+	require.Empty(t, cache.zombieIndex)
+}
+
+// TestGraphCacheZombieCleanerLifeCycle tests that the zombie cleaner's Start
+// and Stop functions work correctly.
+func TestGraphCacheZombieCleanerLifeCycle(t *testing.T) {
+	t.Parallel()
+
+	cache := NewGraphCache(10)
+	cache.zombieCleanerInterval = 50 * time.Millisecond
+	zeroVertex := route.Vertex{}
+	cache.RemoveChannel(zeroVertex, zeroVertex, 123)
+	cache.Start()
+
+	// Wait for the cleaner to run and clean up the zombie index.
+	require.Eventually(t, func() bool {
+		cache.mtx.RLock()
+		defer cache.mtx.RUnlock()
+		return len(cache.zombieIndex) == 0
+	}, time.Second, 10*time.Millisecond)
+
+	// Stop the cleaner. This will block until the goroutine has exited.
+	// If it doesn't exit, the test will time out.
+	cache.Stop()
+}
+
 func assertCachedPolicyEqual(t *testing.T, original,
 	cached *models.CachedEdgePolicy) {
 
@@ -138,4 +221,85 @@ func assertCachedPolicyEqual(t *testing.T, original,
 	if original.ToNodePubKey != nil {
 		require.Equal(t, original.ToNodePubKey(), cached.ToNodePubKey())
 	}
+}
+
+// BenchmarkGraphCacheCleanupZombies benchmarks the cleanupZombies function
+// with a large number of nodes and channels. It creates a graph cache with
+// 50,000 nodes and 500,000 channels, marks 10% of the channels as zombies,
+// and then runs the cleanup function.
+func BenchmarkGraphCacheCleanupZombies(b *testing.B) {
+	const (
+		numNodes          = 50_000
+		numChannels       = 500_000
+		zombiePercentage  = 10
+		channelCapacity   = 1_000_000
+		pubkeyMultiplier  = 100
+		channelMultiplier = 1000
+	)
+
+	zeroVertex := route.Vertex{}
+
+	// Generate test nodes with deterministic pubkeys
+	nodes := make([]route.Vertex, numNodes)
+	for i := range numNodes {
+		var pubkeyBytes [33]byte
+		binary.LittleEndian.PutUint64(pubkeyBytes[:],
+			uint64(i*pubkeyMultiplier))
+
+		node, err := route.NewVertexFromBytes(pubkeyBytes[:])
+		if err != nil {
+			b.Fatalf("unable to create pubkey for node %d: %v", i,
+				err)
+		}
+
+		nodes[i] = node
+	}
+
+	for range b.N {
+		// Create and populate graph cache with random channels
+		cache := NewGraphCache(numNodes)
+		for i := range numChannels {
+			randomNode1 := nodes[rand.Intn(numNodes)]
+			randomNode2 := nodes[rand.Intn(numNodes)]
+			channelID := uint64(i * channelMultiplier)
+
+			channelInfo := &models.CachedEdgeInfo{
+				ChannelID:     channelID,
+				NodeKey1Bytes: randomNode1,
+				NodeKey2Bytes: randomNode2,
+				Capacity:      channelCapacity,
+			}
+
+			cache.AddChannel(channelInfo, nil, nil)
+		}
+
+		// Mark 10% of channels as zombies by removing them
+		// This creates both valid zombie entries and invalid ones
+		zombieChannelCount := numChannels / zombiePercentage
+		for j := range zombieChannelCount {
+			// Remove existing channel (creates valid zombie entry)
+			existingChannelID := uint64(j * channelMultiplier *
+				zombiePercentage)
+			cache.RemoveChannel(zeroVertex, zeroVertex,
+				existingChannelID)
+
+			// Remove non-existing channel (creates invalid zombie
+			// entry)
+			invalidChannelID := existingChannelID + 5
+			cache.RemoveChannel(zeroVertex, zeroVertex,
+				invalidChannelID)
+		}
+
+		// Benchmark the cleanup operation
+		b.StartTimer()
+		cache.cleanupZombies()
+		b.StopTimer()
+	}
+
+	// Report benchmark metrics
+	b.ReportAllocs()
+	b.ReportMetric(
+		float64(b.Elapsed().Milliseconds())/float64(b.N),
+		"ms/op",
+	)
 }

@@ -34,7 +34,6 @@ func TestStartStoreError(t *testing.T) {
 	tests := []struct {
 		name          string
 		ChannelEvents func() (subscribe.Subscription, error)
-		PeerEvents    func() (subscribe.Subscription, error)
 		GetChannels   func() ([]*channeldb.OpenChannel, error)
 	}{
 		{
@@ -42,14 +41,8 @@ func TestStartStoreError(t *testing.T) {
 			ChannelEvents: errSubscribeFunc,
 		},
 		{
-			name:          "Peer events fail",
-			ChannelEvents: okSubscribeFunc,
-			PeerEvents:    errSubscribeFunc,
-		},
-		{
 			name:          "Get open channels fails",
 			ChannelEvents: okSubscribeFunc,
-			PeerEvents:    okSubscribeFunc,
 			GetChannels: func() ([]*channeldb.OpenChannel, error) {
 				return nil, errors.New("intentional test err")
 			},
@@ -64,7 +57,6 @@ func TestStartStoreError(t *testing.T) {
 
 			store := NewChannelEventStore(&Config{
 				SubscribeChannelEvents: test.ChannelEvents,
-				SubscribePeerEvents:    test.PeerEvents,
 				GetOpenChannels:        test.GetChannels,
 				Clock:                  clock,
 			})

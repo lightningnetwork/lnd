@@ -69,9 +69,6 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return testCtx.channelSubscription, nil
 		},
-		SubscribePeerEvents: func() (subscribe.Subscription, error) {
-			return testCtx.peerSubscription, nil
-		},
 		GetOpenChannels: func() ([]*channeldb.OpenChannel, error) {
 			return nil, nil
 		},

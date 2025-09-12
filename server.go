@@ -1664,9 +1664,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return s.channelNotifier.SubscribeChannelEvents()
 		},
-		SubscribePeerEvents: func() (subscribe.Subscription, error) {
-			return s.peerNotifier.SubscribePeerEvents()
-		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
 		ReadFlapCount:   s.miscDB.ReadFlapCount,

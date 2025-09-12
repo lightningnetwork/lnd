@@ -21,7 +21,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
-	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -76,10 +75,6 @@ type Config struct {
 	// SubscribeChannelEvents provides a subscription client which provides
 	// a stream of channel events.
 	SubscribeChannelEvents func() (subscribe.Subscription, error)
-
-	// SubscribePeerEvents provides a subscription client which provides a
-	// stream of peer online/offline events.
-	SubscribePeerEvents func() (subscribe.Subscription, error)
 
 	// GetOpenChannels provides a list of existing open channels which is
 	// used to populate the ChannelEventStore with a set of channels on
@@ -159,19 +154,10 @@ func (c *ChannelEventStore) Start() error {
 		return err
 	}
 
-	// Create a subscription to peer events. If an error occurs, cancel the
-	// existing subscription to channel events and return.
-	peerClient, err := c.cfg.SubscribePeerEvents()
-	if err != nil {
-		channelClient.Cancel()
-		return err
-	}
-
 	// cancel should be called to cancel all subscriptions if an error
 	// occurs.
 	cancel := func() {
 		channelClient.Cancel()
-		peerClient.Cancel()
 	}
 
 	// Add the existing set of channels to the event store. This is required
@@ -203,7 +189,6 @@ func (c *ChannelEventStore) Start() error {
 	c.wg.Add(1)
 	go c.consume(&subscriptions{
 		channelUpdates: channelClient.Updates(),
-		peerUpdates:    peerClient.Updates(),
 		cancel:         cancel,
 	})
 
@@ -328,7 +313,6 @@ func (c *ChannelEventStore) peerEvent(peer route.Vertex, online bool) {
 // subscriptions abstracts away from subscription clients to allow for mocking.
 type subscriptions struct {
 	channelUpdates <-chan interface{}
-	peerUpdates    <-chan interface{}
 	cancel         func()
 }
 
@@ -391,22 +375,6 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 				c.closeChannel(
 					event.CloseSummary.ChanPoint, peerKey,
 				)
-			}
-
-		// Process peer online and offline events.
-		case e := <-subscriptions.peerUpdates:
-			switch event := e.(type) {
-			// We have reestablished a connection with our peer,
-			// and should record an online event for any channels
-			// with that peer.
-			case peernotifier.PeerOnlineEvent:
-				c.peerEvent(event.PubKey, true)
-
-			// We have lost a connection with our peer, and should
-			// record an offline event for any channels with that
-			// peer.
-			case peernotifier.PeerOfflineEvent:
-				c.peerEvent(event.PubKey, false)
 			}
 
 		// Serve all requests for channel lifetime.

@@ -1129,7 +1129,7 @@ func closeChannel(ctx *cli.Context) error {
 		ChannelPoint:    channelPoint,
 		Force:           ctx.Bool("force"),
 		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag)
+		SatPerVbyte:     ctx.Uint64(feeRateFlag),
 		DeliveryAddress: ctx.String("delivery_addr"),
 		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
 		// This makes sure that a coop close will also be executed if

@@ -456,6 +456,11 @@ type Config struct {
 	// used to modify the way the co-op close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
 
+	// AuxChannelNegotiator is an optional interface that allows aux
+	// channel implementations to inject and process feature bits during
+	// init and channel_reestablish messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
 	ShouldFwdExpEndorsement func() bool
@@ -1454,8 +1459,9 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
-		AuxTrafficShaper:  p.cfg.AuxTrafficShaper,
-		QuiescenceTimeout: p.cfg.QuiescenceTimeout,
+		AuxTrafficShaper:     p.cfg.AuxTrafficShaper,
+		AuxChannelNegotiator: p.cfg.AuxChannelNegotiator,
+		QuiescenceTimeout:    p.cfg.QuiescenceTimeout,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
@@ -4537,6 +4543,25 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 		return fmt.Errorf("data loss protection required")
 	}
 
+	negotiatorClosure := func(negotiator lnwallet.AuxChannelNegotiator) {
+		msg.AuxFeatures.WhenSome(
+			func(features lnwire.AuxFeatureBits) {
+				err = negotiator.ProcessInitFeatures(
+					p.cfg.PubKeyBytes, features,
+				)
+			},
+		)
+	}
+
+	// If we have an AuxChannelNegotiator and the peer sent aux features,
+	// process them.
+	if msg.AuxFeatures.IsSome() {
+		p.cfg.AuxChannelNegotiator.WhenSome(negotiatorClosure)
+	}
+	if err != nil {
+		return fmt.Errorf("got error from aux init features: %w", err)
+	}
+
 	return nil
 }
 
@@ -4595,6 +4620,23 @@ func (p *Brontide) sendInitMsg(legacyChan bool) error {
 	msg := lnwire.NewInitMessage(
 		legacyFeatures.RawFeatureVector,
 		features.RawFeatureVector,
+	)
+
+	// If we have an AuxChannelNegotiator, get custom feature bits to
+	// include in the init message.
+	p.cfg.AuxChannelNegotiator.WhenSome(
+		func(negotiator lnwallet.AuxChannelNegotiator) {
+			auxFeatures, err := negotiator.GetInitFeatures(
+				p.cfg.PubKeyBytes,
+			)
+			if err != nil {
+				p.log.Warnf("Failed to get aux init features: "+
+					"%v", err)
+				return
+			}
+
+			msg.AuxFeatures = fn.Some(auxFeatures)
+		},
 	)
 
 	return p.writeMessage(msg)

@@ -326,10 +326,6 @@ type ChannelInfo struct {
 	// Lifetime is the total amount of time we have monitored the channel
 	// for.
 	Lifetime time.Duration
-
-	// Uptime is the total amount of time that the channel peer has been
-	// observed as online during the monitored lifespan.
-	Uptime time.Duration
 }
 
 // GetChanInfo gets all the information we have on a channel in the event store.
@@ -372,13 +368,12 @@ func (c *ChannelEventStore) getChanInfo(req channelInfoRequest) (*ChannelInfo,
 		return nil, ErrPeerNotFound
 	}
 
-	lifetime, uptime, err := peerMonitor.channelUptime(req.channelPoint)
+	lifetime, err := peerMonitor.channelLifetime(req.channelPoint)
 	if err != nil {
 		return nil, err
 	}
 
 	return &ChannelInfo{
 		Lifetime: lifetime,
-		Uptime:   uptime,
 	}, nil
 }

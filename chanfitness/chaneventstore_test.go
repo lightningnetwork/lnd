@@ -185,7 +185,6 @@ func TestGetChanInfo(t *testing.T) {
 	info, err := ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
-	require.Equal(t, time.Hour, info.Uptime)
 
 	// Progress our time again. This time, our peer is currently tracked as
 	// being offline, so we expect our channel info to reflect that the peer
@@ -196,7 +195,6 @@ func TestGetChanInfo(t *testing.T) {
 	info, err = ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour*2, info.Lifetime)
-	require.Equal(t, time.Hour, info.Uptime)
 
 	ctx.stop()
 }

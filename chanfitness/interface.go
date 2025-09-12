@@ -19,8 +19,8 @@ type peerMonitor interface {
 	// with the peer.
 	channelCount() int
 
-	// channelUptime looks up a channel and returns the amount of time that
-	// the channel has been monitored for and its uptime over this period.
-	channelUptime(channelPoint wire.OutPoint) (time.Duration,
+	// channelLifetime looks up a channel and returns the amount of time
+	// that the channel has been monitored for.
+	channelLifetime(channelPoint wire.OutPoint) (
 		time.Duration, error)
 }

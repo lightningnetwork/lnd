@@ -3549,30 +3549,6 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			rpcPeer.Errors = append(rpcPeer.Errors, rpcErr)
 		}
 
-		// If the server has started, we can query the event store
-		// for our peer's flap count. If we do so when the server has
-		// not started, the request will block.
-		if r.server.Started() {
-			vertex, err := route.NewVertexFromBytes(nodePub[:])
-			if err != nil {
-				return nil, err
-			}
-
-			flap, ts, err := r.server.chanEventStore.FlapCount(
-				vertex,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// If our timestamp is non-nil, we have values for our
-			// peer's flap count, so we set them.
-			if ts != nil {
-				rpcPeer.FlapCount = int32(flap)
-				rpcPeer.LastFlapNs = ts.UnixNano()
-			}
-		}
-
 		resp.Peers = append(resp.Peers, rpcPeer)
 	}
 
@@ -5088,7 +5064,6 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 
 	// If we got our channel info, we further populate the channel.
 	case nil:
-		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
 
 	// If we get an unexpected error, we return it.

@@ -34,7 +34,6 @@ func TestStartStoreError(t *testing.T) {
 	tests := []struct {
 		name          string
 		ChannelEvents func() (subscribe.Subscription, error)
-		PeerEvents    func() (subscribe.Subscription, error)
 		GetChannels   func() ([]*channeldb.OpenChannel, error)
 	}{
 		{
@@ -42,14 +41,8 @@ func TestStartStoreError(t *testing.T) {
 			ChannelEvents: errSubscribeFunc,
 		},
 		{
-			name:          "Peer events fail",
-			ChannelEvents: okSubscribeFunc,
-			PeerEvents:    errSubscribeFunc,
-		},
-		{
 			name:          "Get open channels fails",
 			ChannelEvents: okSubscribeFunc,
-			PeerEvents:    okSubscribeFunc,
 			GetChannels: func() ([]*channeldb.OpenChannel, error) {
 				return nil, errors.New("intentional test err")
 			},
@@ -64,7 +57,6 @@ func TestStartStoreError(t *testing.T) {
 
 			store := NewChannelEventStore(&Config{
 				SubscribeChannelEvents: test.ChannelEvents,
-				SubscribePeerEvents:    test.PeerEvents,
 				GetOpenChannels:        test.GetChannels,
 				Clock:                  clock,
 			})
@@ -99,10 +91,9 @@ func TestMonitorChannelEvents(t *testing.T) {
 	peer1, err := route.NewVertexFromBytes(pubKey.SerializeCompressed())
 	require.NoError(t, err)
 
-	t.Run("peer comes online after channel open", func(t *testing.T) {
+	t.Run("channel open event", func(t *testing.T) {
 		gen := func(ctx *chanEventStoreTestCtx) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
-			ctx.peerEvent(peer1, true)
 		}
 
 		testEventStore(t, gen, peer1, 1)
@@ -112,16 +103,6 @@ func TestMonitorChannelEvents(t *testing.T) {
 		gen := func(ctx *chanEventStoreTestCtx) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
-			ctx.peerEvent(peer1, true)
-		}
-
-		testEventStore(t, gen, peer1, 1)
-	})
-
-	t.Run("peer online before channel created", func(t *testing.T) {
-		gen := func(ctx *chanEventStoreTestCtx) {
-			ctx.peerEvent(peer1, true)
-			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 		}
 
 		testEventStore(t, gen, peer1, 1)
@@ -129,10 +110,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 
 	t.Run("multiple channels for peer", func(t *testing.T) {
 		gen := func(ctx *chanEventStoreTestCtx) {
-			ctx.peerEvent(peer1, true)
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
-
-			ctx.peerEvent(peer1, false)
 			ctx.sendChannelOpenedUpdate(pubKey, chan2)
 		}
 
@@ -141,14 +119,9 @@ func TestMonitorChannelEvents(t *testing.T) {
 
 	t.Run("multiple channels for peer, one closed", func(t *testing.T) {
 		gen := func(ctx *chanEventStoreTestCtx) {
-			ctx.peerEvent(peer1, true)
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
-
-			ctx.peerEvent(peer1, false)
 			ctx.sendChannelOpenedUpdate(pubKey, chan2)
-
 			ctx.closeChannel(chan1, pubKey)
-			ctx.peerEvent(peer1, true)
 		}
 
 		testEventStore(t, gen, peer1, 1)
@@ -176,51 +149,6 @@ func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
 	require.Equal(t, expectedChannels, monitor.channelCount())
 }
 
-// TestStoreFlapCount tests flushing of flap counts to disk on timer ticks and
-// on store shutdown.
-func TestStoreFlapCount(t *testing.T) {
-	testCtx := newChanEventStoreTestCtx(t)
-	testCtx.start()
-
-	pubkey, _, _ := testCtx.createChannel()
-	testCtx.peerEvent(pubkey, false)
-
-	// Now, we tick our flap count ticker. We expect our main goroutine to
-	// flush our tick count to disk.
-	testCtx.tickFlapCount()
-
-	// Since we just tracked a offline event, we expect a single flap for
-	// our peer.
-	expectedUpdate := peerFlapCountMap{
-		pubkey: {
-			Count:    1,
-			LastFlap: testCtx.clock.Now(),
-		},
-	}
-
-	testCtx.assertFlapCountUpdated()
-	testCtx.assertFlapCountUpdates(expectedUpdate)
-
-	// Create three events for out peer, online/offline/online.
-	testCtx.peerEvent(pubkey, true)
-	testCtx.peerEvent(pubkey, false)
-	testCtx.peerEvent(pubkey, true)
-
-	// Trigger another write.
-	testCtx.tickFlapCount()
-
-	// Since we have processed 3 more events for our peer, we update our
-	// expected online map to have a flap count of 4 for this peer.
-	expectedUpdate[pubkey] = &channeldb.FlapCount{
-		Count:    4,
-		LastFlap: testCtx.clock.Now(),
-	}
-	testCtx.assertFlapCountUpdated()
-	testCtx.assertFlapCountUpdates(expectedUpdate)
-
-	testCtx.stop()
-}
-
 // TestGetChanInfo tests the GetChanInfo function for the cases where a channel
 // is known and unknown to the store.
 func TestGetChanInfo(t *testing.T) {
@@ -233,14 +161,10 @@ func TestGetChanInfo(t *testing.T) {
 	// Create mock vars for a channel but do not add them to our store yet.
 	peer, pk, channel := ctx.newChannel()
 
-	// Send an online event for our peer, although we do not yet have an
-	// open channel.
-	ctx.peerEvent(peer, true)
-
 	// Try to get info for a channel that has not been opened yet, we
 	// expect to get an error.
 	_, err := ctx.store.GetChanInfo(channel, peer)
-	require.Equal(t, ErrChannelNotFound, err)
+	require.Equal(t, ErrPeerNotFound, err)
 
 	// Now we send our store a notification that a channel has been opened.
 	ctx.sendChannelOpenedUpdate(pk, channel)
@@ -261,18 +185,6 @@ func TestGetChanInfo(t *testing.T) {
 	info, err := ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
-	require.Equal(t, time.Hour, info.Uptime)
-
-	// Now we send a peer offline event for our channel.
-	ctx.peerEvent(peer, false)
-
-	// Since we have not bumped our mocked time, our uptime calculations
-	// should be the same, even though we've just processed an offline
-	// event.
-	info, err = ctx.store.GetChanInfo(channel, peer)
-	require.NoError(t, err)
-	require.Equal(t, time.Hour, info.Lifetime)
-	require.Equal(t, time.Hour, info.Uptime)
 
 	// Progress our time again. This time, our peer is currently tracked as
 	// being offline, so we expect our channel info to reflect that the peer
@@ -283,58 +195,6 @@ func TestGetChanInfo(t *testing.T) {
 	info, err = ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour*2, info.Lifetime)
-	require.Equal(t, time.Hour, info.Uptime)
-
-	ctx.stop()
-}
-
-// TestFlapCount tests querying the store for peer flap counts, covering the
-// case where the peer is tracked in memory, and the case where we need to
-// lookup the peer on disk.
-func TestFlapCount(t *testing.T) {
-	clock := clock.NewTestClock(testNow)
-
-	var (
-		peer          = route.Vertex{9, 9, 9}
-		peerFlapCount = 3
-		lastFlap      = clock.Now()
-	)
-
-	// Create a test context with one peer's flap count already recorded,
-	// which mocks it already having its flap count stored on disk.
-	ctx := newChanEventStoreTestCtx(t)
-	ctx.flapUpdates[peer] = &channeldb.FlapCount{
-		Count:    uint32(peerFlapCount),
-		LastFlap: lastFlap,
-	}
-
-	ctx.start()
-
-	// Create test variables for a peer and channel, but do not add it to
-	// our store yet.
-	peer1 := route.Vertex{1, 2, 3}
-
-	// First, query for a peer that we have no record of in memory or on
-	// disk and confirm that we indicate that the peer was not found.
-	_, ts, err := ctx.store.FlapCount(peer1)
-	require.NoError(t, err)
-	require.Nil(t, ts)
-
-	// Send an online event for our peer.
-	ctx.peerEvent(peer1, true)
-
-	// Assert that we now find a record of the peer with flap count = 1.
-	count, ts, err := ctx.store.FlapCount(peer1)
-	require.NoError(t, err)
-	require.Equal(t, lastFlap, *ts)
-	require.Equal(t, 1, count)
-
-	// Make a request for our peer that not tracked in memory, but does
-	// have its flap count stored on disk.
-	count, ts, err = ctx.store.FlapCount(peer)
-	require.NoError(t, err)
-	require.Equal(t, lastFlap, *ts)
-	require.Equal(t, peerFlapCount, count)
 
 	ctx.stop()
 }

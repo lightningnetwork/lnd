@@ -10,10 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/clock"
-	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
-	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,10 +55,7 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 	testCtx := &chanEventStoreTestCtx{
 		t:                   t,
 		channelSubscription: newMockSubscription(t),
-		peerSubscription:    newMockSubscription(t),
 		clock:               clock.NewTestClock(testNow),
-		flapUpdates:         make(peerFlapCountMap),
-		flapCountUpdates:    make(chan peerFlapCountMap),
 		stopped:             make(chan struct{}),
 	}
 
@@ -72,28 +67,6 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 		GetOpenChannels: func() ([]*channeldb.OpenChannel, error) {
 			return nil, nil
 		},
-		WriteFlapCount: func(updates map[route.Vertex]*channeldb.FlapCount) error {
-			// Send our whole update map into the test context's
-			// updates channel. The test will need to assert flap
-			// count updated or this send will timeout.
-			select {
-			case testCtx.flapCountUpdates <- updates:
-
-			case <-time.After(timeout):
-				t.Fatalf("WriteFlapCount timeout")
-			}
-
-			return nil
-		},
-		ReadFlapCount: func(peer route.Vertex) (*channeldb.FlapCount, error) {
-			count, ok := testCtx.flapUpdates[peer]
-			if !ok {
-				return nil, channeldb.ErrNoPeerBucket
-			}
-
-			return count, nil
-		},
-		FlapCountTicker: ticker.NewForce(FlapCountFlushRate),
 	}
 
 	testCtx.store = NewChannelEventStore(cfg)
@@ -185,31 +158,6 @@ func (c *chanEventStoreTestCtx) closeChannel(channel wire.OutPoint,
 	}
 
 	c.channelSubscription.sendUpdate(update)
-}
-
-// tickFlapCount forces a tick for our flap count ticker with the current time.
-func (c *chanEventStoreTestCtx) tickFlapCount() {
-	testTicker := c.store.cfg.FlapCountTicker.(*ticker.Force)
-
-	select {
-	case testTicker.Force <- c.store.cfg.Clock.Now():
-
-	case <-time.After(timeout):
-		c.t.Fatalf("could not tick flap count ticker")
-	}
-}
-
-// peerEvent sends a peer online or offline event to the store for the peer
-// provided.
-func (c *chanEventStoreTestCtx) peerEvent(peer route.Vertex, online bool) {
-	var update interface{}
-	if online {
-		update = peernotifier.PeerOnlineEvent{PubKey: peer}
-	} else {
-		update = peernotifier.PeerOfflineEvent{PubKey: peer}
-	}
-
-	c.peerSubscription.sendUpdate(update)
 }
 
 // sendChannelOpenedUpdate notifies the test event store that a channel has

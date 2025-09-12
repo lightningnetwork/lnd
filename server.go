@@ -1666,9 +1666,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		},
 		GetOpenChannels: s.chanStateDB.FetchAllOpenChannels,
 		Clock:           clock.NewDefaultClock(),
-		ReadFlapCount:   s.miscDB.ReadFlapCount,
-		WriteFlapCount:  s.miscDB.WriteFlapCounts,
-		FlapCountTicker: ticker.New(chanfitness.FlapCountFlushRate),
 	})
 
 	if cfg.WtClient.Active {

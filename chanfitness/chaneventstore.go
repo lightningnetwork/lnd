@@ -23,13 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
-	"github.com/lightningnetwork/lnd/ticker"
-)
-
-const (
-	// FlapCountFlushRate determines how often we write peer total flap
-	// count to disk.
-	FlapCountFlushRate = time.Hour
 )
 
 var (
@@ -60,9 +53,6 @@ type ChannelEventStore struct {
 	// chanInfoRequests serves requests for information about our channel.
 	chanInfoRequests chan channelInfoRequest
 
-	// peerRequests serves requests for information about a peer.
-	peerRequests chan peerRequest
-
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -84,16 +74,6 @@ type Config struct {
 	// Clock is the time source that the subsystem uses, provided here
 	// for ease of testing.
 	Clock clock.Clock
-
-	// WriteFlapCount records the flap count for a set of peers on disk.
-	WriteFlapCount func(map[route.Vertex]*channeldb.FlapCount) error
-
-	// ReadFlapCount gets the flap count for a peer on disk.
-	ReadFlapCount func(route.Vertex) (*channeldb.FlapCount, error)
-
-	// FlapCountTicker is a ticker which controls how often we flush our
-	// peer's flap count to disk.
-	FlapCountTicker ticker.Ticker
 }
 
 // peerFlapCountMap is the map used to map peers to flap counts, declared here
@@ -130,7 +110,6 @@ func NewChannelEventStore(config *Config) *ChannelEventStore {
 		cfg:              config,
 		peers:            make(map[route.Vertex]peerMonitor),
 		chanInfoRequests: make(chan channelInfoRequest),
-		peerRequests:     make(chan peerRequest),
 		quit:             make(chan struct{}),
 	}
 
@@ -209,19 +188,9 @@ func (c *ChannelEventStore) Stop() error {
 	close(c.quit)
 	c.wg.Wait()
 
-	// Stop the ticker after the goroutine reading from it has exited, to
-	// avoid a race.
-	var err error
-	if c.cfg.FlapCountTicker == nil {
-		err = fmt.Errorf("ChannelEventStore FlapCountTicker not " +
-			"initialized")
-	} else {
-		c.cfg.FlapCountTicker.Stop()
-	}
-
 	log.Debugf("ChannelEventStore shutdown complete")
 
-	return err
+	return nil
 }
 
 // addChannel checks whether we are already tracking a channel's peer, creates a
@@ -251,25 +220,11 @@ func (c *ChannelEventStore) getPeerMonitor(peer route.Vertex) (peerMonitor,
 		return peerMonitor, nil
 	}
 
+	// TODO(yy): remove flapCount and lastFlap from newPeerLog.
 	var (
 		flapCount int
 		lastFlap  *time.Time
 	)
-
-	historicalFlap, err := c.cfg.ReadFlapCount(peer)
-	switch err {
-	// If we do not have any records for this peer we set a 0 flap count
-	// and timestamp.
-	case channeldb.ErrNoPeerBucket:
-
-	case nil:
-		flapCount = int(historicalFlap.Count)
-		lastFlap = &historicalFlap.LastFlap
-
-	// Return if we get an unexpected error.
-	default:
-		return nil, err
-	}
 
 	peerMonitor = newPeerLog(c.cfg.Clock, flapCount, lastFlap)
 	c.peers[peer] = peerMonitor
@@ -298,18 +253,6 @@ func (c *ChannelEventStore) closeChannel(channelPoint wire.OutPoint,
 	}
 }
 
-// peerEvent creates a peer monitor for a peer if we do not currently have
-// one, and adds an online event to it.
-func (c *ChannelEventStore) peerEvent(peer route.Vertex, online bool) {
-	peerMonitor, err := c.getPeerMonitor(peer)
-	if err != nil {
-		log.Error("could not create monitor: %v", err)
-		return
-	}
-
-	peerMonitor.onlineEvent(online)
-}
-
 // subscriptions abstracts away from subscription clients to allow for mocking.
 type subscriptions struct {
 	channelUpdates <-chan interface{}
@@ -320,20 +263,12 @@ type subscriptions struct {
 // the event store with channel and peer events, and serves requests for channel
 // uptime and lifespan.
 func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
-	// Start our flap count ticker.
-	c.cfg.FlapCountTicker.Resume()
-
 	// On exit, we will cancel our subscriptions and write our most recent
 	// flap counts to disk. This ensures that we have consistent data in
 	// the case of a graceful shutdown. If we do not shutdown gracefully,
 	// our worst case is data from our last flap count tick (1H).
 	defer func() {
 		subscriptions.cancel()
-
-		if err := c.recordFlapCount(); err != nil {
-			log.Errorf("error recording flap on shutdown: %v", err)
-		}
-
 		c.wg.Done()
 	}()
 
@@ -383,21 +318,6 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 
 			resp.info, resp.err = c.getChanInfo(req)
 			req.responseChan <- resp
-
-		// Serve all requests for information about our peer.
-		case req := <-c.peerRequests:
-			var resp peerResponse
-
-			resp.flapCount, resp.ts, resp.err = c.flapCount(
-				req.peer,
-			)
-			req.responseChan <- resp
-
-		case <-c.cfg.FlapCountTicker.Ticks():
-			if err := c.recordFlapCount(); err != nil {
-				log.Errorf("could not record flap "+
-					"count: %v", err)
-			}
 
 		// Exit if the store receives the signal to shutdown.
 		case <-c.quit:
@@ -467,90 +387,4 @@ func (c *ChannelEventStore) getChanInfo(req channelInfoRequest) (*ChannelInfo,
 		Lifetime: lifetime,
 		Uptime:   uptime,
 	}, nil
-}
-
-// FlapCount returns the flap count we have for a peer and the timestamp of its
-// last flap. If we do not have any flaps recorded for the peer, the last flap
-// timestamp will be nil.
-func (c *ChannelEventStore) FlapCount(peer route.Vertex) (int, *time.Time,
-	error) {
-
-	request := peerRequest{
-		peer:         peer,
-		responseChan: make(chan peerResponse),
-	}
-
-	// Send a request for the peer's information to the main event loop,
-	// or return early with an error if the store has already received a
-	// shutdown signal.
-	select {
-	case c.peerRequests <- request:
-	case <-c.quit:
-		return 0, nil, errShuttingDown
-	}
-
-	// Return the response we receive on the response channel or exit early
-	// if the store is instructed to exit.
-	select {
-	case resp := <-request.responseChan:
-		return resp.flapCount, resp.ts, resp.err
-
-	case <-c.quit:
-		return 0, nil, errShuttingDown
-	}
-}
-
-// flapCount gets our peer flap count and last flap timestamp from our in memory
-// record of a peer, falling back to on disk if we are not currently tracking
-// the peer. If we have no flap count recorded for the peer, a nil last flap
-// time will be returned.
-func (c *ChannelEventStore) flapCount(peer route.Vertex) (int, *time.Time,
-	error) {
-
-	// First check whether we are tracking this peer in memory, because this
-	// record will have the most accurate flap count. We do not fail if we
-	// can't find the peer in memory, because we may have previously
-	// recorded its flap count on disk.
-	peerMonitor, ok := c.peers[peer]
-	if ok {
-		count, ts := peerMonitor.getFlapCount()
-		return count, ts, nil
-	}
-
-	// Try to get our flap count from the database. If this value is not
-	// recorded, we return a nil last flap time to indicate that we have no
-	// record of the peer's flap count.
-	flapCount, err := c.cfg.ReadFlapCount(peer)
-	switch err {
-	case channeldb.ErrNoPeerBucket:
-		return 0, nil, nil
-
-	case nil:
-		return int(flapCount.Count), &flapCount.LastFlap, nil
-
-	default:
-		return 0, nil, err
-	}
-}
-
-// recordFlapCount will record our flap count for each peer that we are
-// currently tracking, skipping peers that have a 0 flap count.
-func (c *ChannelEventStore) recordFlapCount() error {
-	updates := make(peerFlapCountMap)
-
-	for peer, monitor := range c.peers {
-		flapCount, lastFlap := monitor.getFlapCount()
-		if lastFlap == nil {
-			continue
-		}
-
-		updates[peer] = &channeldb.FlapCount{
-			Count:    uint32(flapCount),
-			LastFlap: *lastFlap,
-		}
-	}
-
-	log.Debugf("recording flap count for: %v peers", len(updates))
-
-	return c.cfg.WriteFlapCount(updates)
 }

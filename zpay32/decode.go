@@ -15,8 +15,16 @@ import (
 	"github.com/btcsuite/btcd/btcutil/bech32"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+const (
+	fallbackVersionWitness    = txscript.BaseSegwitWitnessVersion
+	fallbackVersionTaproot    = txscript.TaprootWitnessVersion
+	fallbackVersionPubkeyHash = 17
+	fallbackVersionScriptHash = 18
 )
 
 var (
@@ -529,7 +537,7 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 
 	version := data[0]
 	switch version {
-	case 0:
+	case fallbackVersionWitness:
 		witness, err := bech32.ConvertBits(data[1:], 5, 8, false)
 		if err != nil {
 			return nil, err
@@ -548,7 +556,16 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 		if err != nil {
 			return nil, err
 		}
-	case 17:
+	case fallbackVersionTaproot:
+		witness, err := bech32.ConvertBits(data[1:], 5, 8, false)
+		if err != nil {
+			return nil, err
+		}
+		addr, err = btcutil.NewAddressTaproot(witness, net)
+		if err != nil {
+			return nil, err
+		}
+	case fallbackVersionPubkeyHash:
 		pubKeyHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
 		if err != nil {
 			return nil, err
@@ -558,7 +575,7 @@ func parseFallbackAddr(data []byte, net *chaincfg.Params) (btcutil.Address, erro
 		if err != nil {
 			return nil, err
 		}
-	case 18:
+	case fallbackVersionScriptHash:
 		scriptHash, err := bech32.ConvertBits(data[1:], 5, 8, false)
 		if err != nil {
 			return nil, err

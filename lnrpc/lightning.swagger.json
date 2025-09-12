@@ -4006,7 +4006,7 @@
         "uptime": {
           "type": "string",
           "format": "int64",
-          "description": "The number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel\n[EXPERIMENTAL]."
+          "description": "Deprecated. This field is no longer used and will always be zero.\nThe number of seconds that the remote peer has been observed as being online\nby the channel scoring system over the lifetime of the channel\n[EXPERIMENTAL]."
         },
         "close_address": {
           "type": "string",
@@ -6926,12 +6926,12 @@
         "flap_count": {
           "type": "integer",
           "format": "int32",
-          "description": "The number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
+          "description": "Deprecated. This field is no longer used and will always be zero.\nThe number of times we have recorded this peer going offline or coming\nonline, recorded across restarts. Note that this value is decreased over\ntime if the peer has not recently flapped, so that we can forgive peers\nwith historically high flap counts."
         },
         "last_flap_ns": {
           "type": "string",
           "format": "int64",
-          "description": "The timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
+          "description": "Deprecated. This field is no longer used and will always be zero.\nThe timestamp of the last flap we observed for this peer. If this value is\nzero, we have not observed any flaps for this peer."
         },
         "last_ping_payload": {
           "type": "string",

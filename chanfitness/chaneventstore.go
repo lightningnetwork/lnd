@@ -220,13 +220,7 @@ func (c *ChannelEventStore) getPeerMonitor(peer route.Vertex) (peerMonitor,
 		return peerMonitor, nil
 	}
 
-	// TODO(yy): remove flapCount and lastFlap from newPeerLog.
-	var (
-		flapCount int
-		lastFlap  *time.Time
-	)
-
-	peerMonitor = newPeerLog(c.cfg.Clock, flapCount, lastFlap)
+	peerMonitor = newPeerLog(c.cfg.Clock)
 	c.peers[peer] = peerMonitor
 
 	return peerMonitor, nil

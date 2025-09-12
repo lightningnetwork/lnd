@@ -26,7 +26,6 @@ type chanEventStoreTestCtx struct {
 	store *ChannelEventStore
 
 	channelSubscription *mockSubscription
-	peerSubscription    *mockSubscription
 
 	// testVarIdx is an index which will be used to deterministically add
 	// channels and public keys to our test context. We use a single value
@@ -36,12 +35,6 @@ type chanEventStoreTestCtx struct {
 
 	// clock is the clock that our test store will use.
 	clock *clock.TestClock
-
-	// flapUpdates stores our most recent set of updates flap counts.
-	flapUpdates peerFlapCountMap
-
-	// flapCountUpdates is a channel which receives new flap counts.
-	flapCountUpdates chan peerFlapCountMap
 
 	// stopped is closed when our test context is fully shutdown. It is
 	// used to prevent calling of functions which can only be called after
@@ -92,19 +85,11 @@ func (c *chanEventStoreTestCtx) stop() {
 		close(c.stopped)
 	}()
 
-	// We write our flap count to disk on shutdown, assert that the most
-	// recent record that the server has is written on shutdown. Calling
-	// this assert unblocks the stop function above. We don't check values
-	// here, so that our tests don't all require providing an expected swap
-	// count, but at least assert that the write occurred.
-	c.assertFlapCountUpdated()
-
 	<-c.stopped
 
 	// Make sure that the cancel function was called for both of our
 	// subscription mocks.
 	c.channelSubscription.assertCancelled()
-	c.peerSubscription.assertCancelled()
 }
 
 // newChannel creates a new, unique test channel. Note that this function
@@ -131,17 +116,6 @@ func (c *chanEventStoreTestCtx) newChannel() (route.Vertex, *btcec.PublicKey,
 	// Increment the index we use so that the next channel and pubkey we
 	// create will be unique.
 	c.testVarIdx++
-
-	return vertex, pubKey, chanPoint
-}
-
-// createChannel creates a new channel, notifies the event store that it has
-// been created and returns the peer vertex, pubkey and channel point.
-func (c *chanEventStoreTestCtx) createChannel() (route.Vertex, *btcec.PublicKey,
-	wire.OutPoint) {
-
-	vertex, pubKey, chanPoint := c.newChannel()
-	c.sendChannelOpenedUpdate(pubKey, chanPoint)
 
 	return vertex, pubKey, chanPoint
 }
@@ -173,24 +147,6 @@ func (c *chanEventStoreTestCtx) sendChannelOpenedUpdate(pubkey *btcec.PublicKey,
 	}
 
 	c.channelSubscription.sendUpdate(update)
-}
-
-// assertFlapCountUpdated asserts that our store has made an attempt to write
-// our current set of flap counts to disk and sets this value in our test ctx.
-// Note that it does not check the values of the update.
-func (c *chanEventStoreTestCtx) assertFlapCountUpdated() {
-	select {
-	case c.flapUpdates = <-c.flapCountUpdates:
-
-	case <-time.After(timeout):
-		c.t.Fatalf("assertFlapCountUpdated timeout")
-	}
-}
-
-// assertFlapCountUpdates asserts that out current record of flap counts is
-// as expected.
-func (c *chanEventStoreTestCtx) assertFlapCountUpdates(expected peerFlapCountMap) {
-	require.Equal(c.t, expected, c.flapUpdates)
 }
 
 // mockSubscription is a mock subscription client that blocks on sends into the

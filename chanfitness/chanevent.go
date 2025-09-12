@@ -68,14 +68,6 @@ type peerLog struct {
 	// them out.
 	stagedEvent *event
 
-	// flapCount is the number of times this peer has been observed as
-	// going offline.
-	flapCount int
-
-	// lastFlap is the timestamp of the last flap we recorded for the peer.
-	// This value will be nil if we have never recorded a flap for the peer.
-	lastFlap *time.Time
-
 	// clock allows creation of deterministic unit tests.
 	clock clock.Clock
 
@@ -84,17 +76,11 @@ type peerLog struct {
 	channels map[wire.OutPoint]*channelInfo
 }
 
-// newPeerLog creates a log for a peer, taking its historical flap count and
-// last flap time as parameters. These values may be zero/nil if we have no
-// record of historical flap count for the peer.
-func newPeerLog(clock clock.Clock, flapCount int,
-	lastFlap *time.Time) *peerLog {
-
+// newPeerLog creates a new peerLog instance, using the provided clock.
+func newPeerLog(clock clock.Clock) *peerLog {
 	return &peerLog{
-		clock:     clock,
-		flapCount: flapCount,
-		lastFlap:  lastFlap,
-		channels:  make(map[wire.OutPoint]*channelInfo),
+		clock:    clock,
+		channels: make(map[wire.OutPoint]*channelInfo),
 	}
 }
 
@@ -112,47 +98,16 @@ func newChannelInfo(openedAt time.Time) *channelInfo {
 	}
 }
 
-// onlineEvent records a peer online or offline event in the log and increments
-// the peer's flap count.
-func (p *peerLog) onlineEvent(online bool) {
-	eventTime := p.clock.Now()
-
-	// If we have a non-nil last flap time, potentially apply a cooldown
-	// factor to the peer's flap count before we rate limit it. This allows
-	// us to decrease the penalty for historical flaps over time, provided
-	// the peer has not flapped for a while.
-	if p.lastFlap != nil {
-		p.flapCount = cooldownFlapCount(
-			p.clock.Now(), p.flapCount, *p.lastFlap,
-		)
-	}
-
-	// Record flap count information and online state regardless of whether
-	// we have any channels open with this peer.
-	p.flapCount++
-	p.lastFlap = &eventTime
-	p.online = online
-
-	// If we have no channels currently open with the peer, we do not want
-	// to commit resources to tracking their online state beyond a simple
-	// online boolean, so we exit early.
-	if p.channelCount() == 0 {
-		return
-	}
-
-	p.addEvent(online, eventTime)
-}
-
 // addEvent records an online or offline event in our event log. and increments
 // the peer's flap count.
-func (p *peerLog) addEvent(online bool, time time.Time) {
+func (p *peerLog) addEvent(online bool, ts time.Time) {
 	eventType := peerOnlineEvent
 	if !online {
 		eventType = peerOfflineEvent
 	}
 
 	event := &event{
-		timestamp: time,
+		timestamp: ts,
 		eventType: eventType,
 	}
 
@@ -164,7 +119,7 @@ func (p *peerLog) addEvent(online bool, time time.Time) {
 
 	// We get the amount of time we require between events according to
 	// peer flap count.
-	aggregation := getRateLimit(p.flapCount)
+	aggregation := 30 * time.Minute
 	nextRecordTime := p.stagedEvent.timestamp.Add(aggregation)
 	flushEvent := nextRecordTime.Before(event.timestamp)
 
@@ -248,12 +203,6 @@ func (p *peerLog) channelUptime(channelPoint wire.OutPoint) (time.Duration,
 	}
 
 	return now.Sub(channel.openedAt), uptime, nil
-}
-
-// getFlapCount returns the peer's flap count and the timestamp that we last
-// recorded a flap.
-func (p *peerLog) getFlapCount() (int, *time.Time) {
-	return p.flapCount, p.lastFlap
 }
 
 // listEvents returns all of the events that our event log has tracked,

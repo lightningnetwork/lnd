@@ -568,6 +568,10 @@ type Config struct {
 	// AuxResolver is an optional interface that can be used to modify the
 	// way contracts are resolved.
 	AuxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// ShutdownScript is an optional upfront-shutdown script to which our
+	// funds should be paid on a cooperative close.
+	ShutdownScript lnwire.DeliveryAddress
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1753,6 +1757,13 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		log.Errorf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(peer, cid, err)
 		return
+	}
+
+	// If the fundee didn't provide an upfront-shutdown address via
+	// the channel acceptor, fall back to the configured shutdown
+	// script (if any).
+	if len(acceptorResp.UpfrontShutdown) == 0 {
+		acceptorResp.UpfrontShutdown = f.cfg.ShutdownScript
 	}
 
 	// Check whether the peer supports upfront shutdown, and get a new
@@ -4834,6 +4845,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 				"already present", chanID[:])
 			return
 		}
+	}
+
+	// If the funder did not provide an upfront-shutdown address, fall back
+	// to the configured shutdown script (if any).
+	if len(msg.ShutdownScript) == 0 {
+		msg.ShutdownScript = f.cfg.ShutdownScript
 	}
 
 	// Check whether the peer supports upfront shutdown, and get an address

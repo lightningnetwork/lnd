@@ -5064,7 +5064,6 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 
 	// If we got our channel info, we further populate the channel.
 	case nil:
-		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
 
 	// If we get an unexpected error, we return it.

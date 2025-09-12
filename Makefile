@@ -178,7 +178,10 @@ docker-release:
 
 docker-tools:
 	@$(call print, "Building tools docker image.")
-	docker build -q -t lnd-tools $(TOOLS_DIR)
+	# We need to use the main context becausee we are now using the 
+	# `go tool` feature to manage project tool dependencies which rely to 
+	# the main `go.mod` file.
+	docker build -q -t lnd-tools -f tools/Dockerfile .
 
 scratch: build
 

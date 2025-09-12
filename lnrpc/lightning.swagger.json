@@ -1452,7 +1452,7 @@
           },
           {
             "name": "dest_custom_records[string]",
-            "description": "This is a request variable of the map type. The query format is \"map_name[key]=value\", e.g. If the map name is Age, the key type is string, and the value type is integer, the query parameter is expressed as Age[\"bob\"]=18",
+            "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. If the destination\ndoes not support the specified records, an error will be returned.\nRecord types are required to be in the custom range \u003e= 65536. When using\nREST, the values must be encoded as base64.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -1577,114 +1577,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "amt_msat": {
-                  "type": "string",
-                  "format": "int64",
-                  "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
-                },
-                "final_cltv_delta": {
-                  "type": "integer",
-                  "format": "int32",
-                  "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.\n\nNote: must not be set if making a payment to a blinded path (delta is\nset by the aggregate parameters provided by blinded_payment_paths)"
-                },
-                "fee_limit": {
-                  "$ref": "#/definitions/lnrpcFeeLimit",
-                  "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment. If not specified, lnd will use a default value of 100%\nfees for small amounts (\u003c=1k sat) or 5% fees for larger amounts."
-                },
-                "ignored_nodes": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "format": "byte"
-                  },
-                  "description": "A list of nodes to ignore during path finding. When using REST, these fields\nmust be encoded as base64."
-                },
-                "ignored_edges": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "$ref": "#/definitions/lnrpcEdgeLocator"
-                  },
-                  "description": "Deprecated. A list of edges to ignore during path finding."
-                },
-                "source_pub_key": {
-                  "type": "string",
-                  "description": "The source node where the request route should originated from. If empty,\nself is assumed."
-                },
-                "use_mission_control": {
-                  "type": "boolean",
-                  "description": "If set to true, edge probabilities from mission control will be used to get\nthe optimal route."
-                },
-                "ignored_pairs": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "$ref": "#/definitions/lnrpcNodePair"
-                  },
-                  "description": "A list of directed node pairs that will be ignored during path finding."
-                },
-                "cltv_limit": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "An optional maximum total time lock for the route. If the source is empty or\nourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If\nzero, then the value of `--max-cltv-expiry` is used as the limit."
-                },
-                "dest_custom_records[string]": {
-                  "type": "object",
-                  "additionalProperties": {
-                    "type": "string",
-                    "format": "byte"
-                  },
-                  "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. If the destination\ndoes not support the specified records, an error will be returned.\nRecord types are required to be in the custom range \u003e= 65536. When using\nREST, the values must be encoded as base64."
-                },
-                "outgoing_chan_id": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used."
-                },
-                "last_hop_pubkey": {
-                  "type": "string",
-                  "format": "byte",
-                  "description": "The pubkey of the last hop of the route. If empty, any hop may be used."
-                },
-                "route_hints": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "$ref": "#/definitions/lnrpcRouteHint"
-                  },
-                  "description": "Optional route hints to reach the destination through private channels."
-                },
-                "blinded_payment_paths": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "$ref": "#/definitions/lnrpcBlindedPaymentPath"
-                  },
-                  "description": "An optional blinded path(s) to reach the destination. Note that the\nintroduction node must be provided as the first hop in the route."
-                },
-                "dest_features": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/definitions/lnrpcFeatureBit"
-                  },
-                  "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.\n\nNote: must not be set if making a payment to a blinded route (features\nare provided in blinded_payment_paths)."
-                },
-                "time_pref": {
-                  "type": "number",
-                  "format": "double",
-                  "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
-                },
-                "outgoing_chan_ids": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "format": "uint64"
-                  },
-                  "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used."
-                }
-              }
+              "$ref": "#/definitions/LightningQueryRoutesBody"
             }
           }
         ],
@@ -2802,7 +2695,7 @@
         "parameters": [
           {
             "name": "AddrToAmount[string]",
-            "description": "This is a request variable of the map type. The query format is \"map_name[key]=value\", e.g. If the map name is Age, the key type is string, and the value type is integer, the query parameter is expressed as Age[\"bob\"]=18",
+            "description": "The map from addresses to amounts for the transaction.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -3128,6 +3021,116 @@
         "ACCEPTED"
       ],
       "default": "OPEN"
+    },
+    "LightningQueryRoutesBody": {
+      "type": "object",
+      "properties": {
+        "amt_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount to send expressed in millisatoshis.\n\nThe fields amt and amt_msat are mutually exclusive."
+        },
+        "final_cltv_delta": {
+          "type": "integer",
+          "format": "int32",
+          "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.\n\nNote: must not be set if making a payment to a blinded path (delta is\nset by the aggregate parameters provided by blinded_payment_paths)"
+        },
+        "fee_limit": {
+          "$ref": "#/definitions/lnrpcFeeLimit",
+          "description": "The maximum number of satoshis that will be paid as a fee of the payment.\nThis value can be represented either as a percentage of the amount being\nsent, or as a fixed amount of the maximum fee the user is willing the pay to\nsend the payment. If not specified, lnd will use a default value of 100%\nfees for small amounts (\u003c=1k sat) or 5% fees for larger amounts."
+        },
+        "ignored_nodes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of nodes to ignore during path finding. When using REST, these fields\nmust be encoded as base64."
+        },
+        "ignored_edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcEdgeLocator"
+          },
+          "description": "Deprecated. A list of edges to ignore during path finding."
+        },
+        "source_pub_key": {
+          "type": "string",
+          "description": "The source node where the request route should originated from. If empty,\nself is assumed."
+        },
+        "use_mission_control": {
+          "type": "boolean",
+          "description": "If set to true, edge probabilities from mission control will be used to get\nthe optimal route."
+        },
+        "ignored_pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcNodePair"
+          },
+          "description": "A list of directed node pairs that will be ignored during path finding."
+        },
+        "cltv_limit": {
+          "type": "integer",
+          "format": "int64",
+          "description": "An optional maximum total time lock for the route. If the source is empty or\nourselves, this should not exceed lnd's `--max-cltv-expiry` setting. If\nzero, then the value of `--max-cltv-expiry` is used as the limit."
+        },
+        "dest_custom_records[string]": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "An optional field that can be used to pass an arbitrary set of TLV records\nto a peer which understands the new records. This can be used to pass\napplication specific data during the payment attempt. If the destination\ndoes not support the specified records, an error will be returned.\nRecord types are required to be in the custom range \u003e= 65536. When using\nREST, the values must be encoded as base64."
+        },
+        "outgoing_chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Deprecated, use outgoing_chan_ids. The channel id of the channel that must\nbe taken to the first hop. If zero, any channel may be used."
+        },
+        "last_hop_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pubkey of the last hop of the route. If empty, any hop may be used."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Optional route hints to reach the destination through private channels."
+        },
+        "blinded_payment_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcBlindedPaymentPath"
+          },
+          "description": "An optional blinded path(s) to reach the destination. Note that the\nintroduction node must be provided as the first hop in the route."
+        },
+        "dest_features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeatureBit"
+          },
+          "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.\n\nNote: must not be set if making a payment to a blinded route (features\nare provided in blinded_payment_paths)."
+        },
+        "time_pref": {
+          "type": "number",
+          "format": "double",
+          "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+        },
+        "outgoing_chan_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The channel ids of the channels allowed for the first hop. If empty, any\nchannel may be used."
+        }
+      }
     },
     "PaymentPaymentStatus": {
       "type": "string",

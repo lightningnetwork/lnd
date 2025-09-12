@@ -1,11 +1,6 @@
+version: "2"
 run:
-  # If you change this please also update GO_VERSION in Makefile (then run
-  # `make lint` to see where else it needs to be updated as well).
-  go: "1.24.6"
-
-  # Abort after 10 minutes.
-  timeout: 10m
-
+  go: 1.24.6
   build-tags:
     - autopilotrpc
     - chainrpc
@@ -20,279 +15,172 @@ run:
     - kvdb_postgres
     - kvdb_sqlite
     - integration
-
-linters-settings:
-  custom:
-    ll:
-      type: "module"
-      description: "Custom lll linter with 'S' log line exclusion."
-      settings:
-        # Max line length, lines longer will be reported.
-        line-length: 80
-        # Tab width in spaces.
-        tab-width: 8
-        # The regex that we will use to detect the start of an `S` log line.
-        log-regex: "^\\s*.*(L|l)og\\.(Info|Debug|Trace|Warn|Error|Critical)S\\("
-
-  errorlint:
-    # Check for incorrect fmt.Errorf error wrapping.
-    errorf: true
-
-  gofmt:
-    # simplify code: gofmt with `-s` option, true by default
-    simplify: true
-
-  tagliatelle:
-    case:
-      rules:
-        json: snake
-
-  whitespace:
-    multi-func: true
-    multi-if: true
-
-  gosec:
-    excludes:
-      - G402 # Look for bad TLS connection settings.
-      - G306 # Poor file permissions used when writing to a new file.
-      - G601 # Implicit memory aliasing in for loop.
-      - G115 # Integer overflow in conversion.
-
-  staticcheck:
-    checks: ["-SA1019"]
-
-  funlen:
-    # Checks the number of lines in a function.
-    # If lower than 0, disable the check.
-    lines: 200
-    # Checks the number of statements in a function.
-    statements: 80
-
-  dupl:
-    # Tokens count to trigger issue.
-    threshold: 200
-
-  nestif:
-    # Minimal complexity of if statements to report.
-    min-complexity: 10
-
-  nlreturn:
-    # Size of the block (including return statement that is still "OK")
-    # so no return split required.
-    block-size: 3
-
-  gomnd:
-    # List of numbers to exclude from analysis.
-    # The numbers should be written as string.
-    # Values always ignored: "1", "1.0", "0" and "0.0"
-    # Default: []
-    ignored-numbers:
-      - '0666'
-      - '0755'
-
-    # List of function patterns to exclude from analysis.
-    # Values always ignored: `time.Date`
-    # Default: []
-    ignored-functions:
-      - 'math.*'
-      - 'strconv.ParseInt'
-      - 'errors.Wrap'
-  
-  gomoddirectives:
-    replace-local: true
-    replace-allow-list:
-      # See go.mod for the explanation why these are needed.
-      - github.com/ulikunitz/xz
-      - github.com/gogo/protobuf
-      - google.golang.org/protobuf
-      - github.com/lightningnetwork/lnd/sqldb
-
-
 linters:
-  enable-all: true
+  default: all
   disable:
-    # We instead use our own custom line length linter called `ll` since
-    # then we can ignore log lines.
-    - lll
-
-    # Global variables are used in many places throughout the code base.
-    - gochecknoglobals
-
-    # We want to allow short variable names.
-    - varnamelen
-
-    # We want to allow TODOs.
-    - godox
-
-    # Instances of table driven tests that don't pre-allocate shouldn't trigger
-    # the linter.
-    - prealloc
-
-    # Init functions are used by loggers throughout the codebase.
-    - gochecknoinits
-
-    # Deprecated linters. See https://golangci-lint.run/usage/linters/.
     - bodyclose
     - contextcheck
-    - nilerr
-    - noctx
-    - rowserrcheck
-    - sqlclosecheck
-    - tparallel
-    - unparam
-    - wastedassign
-
-    # Disable gofumpt as it has weird behavior regarding formatting multiple
-    # lines for a function which is in conflict with our contribution
-    # guidelines. See https://github.com/mvdan/gofumpt/issues/235.
-    - gofumpt
-
-    # Disable whitespace linter as it has conflict rules against our
-    # contribution guidelines.
-    - wsl
-
-    # Allow using default empty values.
-    - exhaustruct
-
-    # Allow exiting case select faster by putting everything in default.
-    - exhaustive
-
-    # Allow tests to be put in the same package.
-    - testpackage
-
-    # Don't run the cognitive related linters.
-    - gocognit
-    - gocyclo
-    - maintidx
-    - cyclop
-
-    # Allow customized interfaces to be returned from functions.
-    - ireturn
-
-    # Disable too many blank identifiers check. We won't be able to run this
-    # unless a large refactor has been applied to old code.
-    - dogsled
-
-    # We don't wrap errors.
-    - wrapcheck
-
-    # Allow dynamic errors.
-    - err113
-
-    # We use ErrXXX instead.
-    - errname
-
-    # Disable nil check to allow returning multiple nil values.
-    - nilnil
-    
-    # We often split tests into separate test functions. If we are forced to
-    # call t.Helper() within those functions, we lose the information where
-    # exactly a test failed in the generated failure stack trace.
-    - thelper
-    
-    # The linter is too aggressive and doesn't add much value since reviewers
-    # will also catch magic numbers that make sense to extract.
-    - mnd
-
-    # Some of the tests cannot be parallelized. On the other hand, we don't
-    # gain much performance with this check so we disable it for now until
-    # unit tests become our CI bottleneck.
-    - paralleltest
-
-    # New linters that we haven't had time to address yet.
-    - testifylint
-    - perfsprint
-    - inamedparam
     - copyloopvar
-    - tagalign
+    - cyclop
+    - depguard
+    - dogsled
+    - err113
+    - errname
+    - exhaustive
+    - exhaustruct
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - gocyclo
+    - godox
+    - gosmopolitan
+    - inamedparam
+    - intrange
+    - ireturn
+    - lll
+    - maintidx
+    - nilerr
+    - nilnil
+    - noctx
+    - paralleltest
+    - perfsprint
+    - prealloc
     - protogetter
     - revive
-    - depguard
-    - gosmopolitan
-    - intrange
-    - goconst
-
-    # Deprecated linters that have been replaced by newer ones.
-    - tenv
-
+    - rowserrcheck
+    - sqlclosecheck
+    - tagalign
+    - testifylint
+    - testpackage
+    - thelper
+    - tparallel
+    - unparam
+    - varnamelen
+    - wastedassign
+    - wrapcheck
+    - wsl
+  settings:
+    dupl:
+      threshold: 200
+    errorlint:
+      errorf: true
+    funlen:
+      lines: 200
+      statements: 80
+    gomoddirectives:
+      replace-allow-list:
+        - github.com/ulikunitz/xz
+        - github.com/gogo/protobuf
+        - google.golang.org/protobuf
+        - github.com/lightningnetwork/lnd/sqldb
+      replace-local: true
+    gosec:
+      excludes:
+        - G402
+        - G306
+        - G601
+        - G115
+    nestif:
+      min-complexity: 10
+    nlreturn:
+      block-size: 3
+    staticcheck:
+      checks:
+        - -SA1019
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+    whitespace:
+      multi-if: true
+      multi-func: true
+    custom:
+      ll:
+        type: module
+        description: Custom lll linter with 'S' log line exclusion.
+        settings:
+          line-length: 80
+          log-regex: ^\s*.*(L|l)og\.(Info|Debug|Trace|Warn|Error|Critical)S\(
+          tab-width: 8
+    mnd:
+      ignored-numbers:
+        - '0666'
+        - '0755'
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - dupl
+          - funlen
+          - gosec
+          - revive
+        path: _test\.go
+      - linters:
+          - forcetypeassert
+          - revive
+        path: mock*
+      - linters:
+          - funlen
+          - gosec
+        path: test*
+      - linters:
+          - dupl
+          - forbidigo
+          - godot
+        path: channeldb/migration*
+      - linters:
+          - dupl
+          - forbidigo
+          - godot
+        path: channeldb/migtest
+      - linters:
+          - forbidigo
+        path: cmd/commands/*
+      - linters:
+          - forbidigo
+        path: config\.go
+      - linters:
+          - forbidigo
+        path: lnd\.go
+      - linters:
+          - forcetypeassert
+        path: lnmock/*
+      - linters:
+          - forcetypeassert
+        path: mock*
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # Only show newly introduced problems.
-  new-from-rev: 03eab4db64540aa5f789c617793e4459f4ba9e78
-
-  # Skip autogenerated files for mobile and gRPC as well as copied code for
-  # internal use.
-  skip-files:
+  new-from-rev: 5082566ed7193215d0a7620e5faf3a37323bce92
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+skip-files:
     - "mobile\\/.*generated\\.go"
     - "\\.pb\\.go$"
     - "\\.pb\\.gw\\.go$"
     - "internal\\/musig2v040"
-
-  skip-dirs:
+skip-dirs:
     - channeldb/migration_01_to_11
     - channeldb/migration/lnwire21
 
-  exclude-rules:
-    # Exclude gosec from running for tests so that tests with weak randomness
-    # (math/rand) will pass the linter.
-    - path: _test\.go
-      linters:
-        - gosec
-        - funlen
-        - revive
-        # Allow duplications in tests so it's easier to follow a single unit
-        # test.
-        - dupl
-
-    - path: mock*
-      linters:
-        - revive
-        # forcetypeassert is skipped for the mock because the test would fail
-        # if the returned value doesn't match the type, so there's no need to
-        # check the convert.
-        - forcetypeassert
-
-    - path: test*
-      linters:
-        - gosec
-        - funlen
-
-    # Allow duplicated code and fmt.Printf() in DB migrations.
-    - path: channeldb/migration*
-      linters:
-        - dupl
-        - forbidigo
-        - godot
-
-    # Allow duplicated code and fmt.Printf() in DB migration tests.
-    - path: channeldb/migtest
-      linters:
-        - dupl
-        - forbidigo
-        - godot
-
-    # Allow fmt.Printf() in commands.
-    - path: cmd/commands/*
-      linters:
-        - forbidigo
-
-    # Allow fmt.Printf() in config parsing.
-    - path: config\.go
-      linters:
-        - forbidigo
-    - path: lnd\.go
-      linters:
-        - forbidigo
-
-    - path: lnmock/*
-      linters:
-        # forcetypeassert is skipped for the mock because the test would fail
-        # if the returned value doesn't match the type, so there's no need to
-        # check the convert.
-        - forcetypeassert
-
-    - path: mock*
-      linters:
-        # forcetypeassert is skipped for the mock because the test would fail
-        # if the returned value doesn't match the type, so there's no need to
-        # check the convert.
-        - forcetypeassert
+timeout: 10m

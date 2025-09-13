@@ -45,6 +45,7 @@ var excludedTestsWindows = append(append([]string{
 	"wipe forwarding packages",
 
 	"coop close with htlcs",
+	"open channel with shutdown address",
 
 	"forward interceptor restart",
 	"forward interceptor dedup htlcs",

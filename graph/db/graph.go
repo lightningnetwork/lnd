@@ -24,10 +24,6 @@ import (
 var ErrChanGraphShuttingDown = fmt.Errorf("ChannelGraph shutting down")
 
 // ChannelGraph is a layer above the graph's CRUD layer.
-//
-// NOTE: currently, this is purely a pass-through layer directly to the backing
-// KVStore. Upcoming commits will move the graph cache out of the KVStore and
-// into this layer so that the KVStore is only responsible for CRUD operations.
 type ChannelGraph struct {
 	started atomic.Bool
 	stopped atomic.Bool

@@ -3561,8 +3561,12 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			flap, ts, err := r.server.chanEventStore.FlapCount(
 				vertex,
 			)
+
+			// Log the error if we cannot get the flap count instead
+			// of failing this RPC call.
 			if err != nil {
-				return nil, err
+				rpcsLog.Debugf("Failed to get flap count for "+
+					"peer %v", vertex)
 			}
 
 			// If our timestamp is non-nil, we have values for our

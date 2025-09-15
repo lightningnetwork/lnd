@@ -232,5 +232,5 @@ tool (
 	// Once golangci-lint v2.4.1 update it here.
 	// Also don't forget to update the .custom-gcl.yml file.
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
-	github.com/rinchsan/gosimports
+	github.com/rinchsan/gosimports/cmd/gosimports
 )

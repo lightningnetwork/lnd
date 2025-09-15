@@ -1,16 +1,19 @@
 PKG := github.com/lightningnetwork/lnd
 MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
+TOOLS_MOD := $(TOOLS_DIR)/go.mod
 
 GOCC ?= go
 PREFIX ?= /usr/local
+
+GOTOOL := GOWORK=off $(GOCC) tool -modfile=$(TOOLS_MOD)
+
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
-GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := $(GO_BIN)/gomobile
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
@@ -87,10 +90,6 @@ all: scratch check install
 $(BTCD_BIN):
 	@$(call print, "Installing btcd.")
 	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(BTCD_PKG)
-
-$(GOIMPORTS_BIN):
-	@$(call print, "Installing goimports.")
-	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -315,9 +314,9 @@ fuzz:
 # =========
 
 #? fmt: Format source code and fix imports
-fmt: $(GOIMPORTS_BIN)
+fmt:
 	@$(call print, "Fixing imports.")
-	gosimports -w $(GOFILES_NOVENDOR)
+	$(GOTOOL) $(GOIMPORTS_PKG) -w $(GOFILES_NOVENDOR) 
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 

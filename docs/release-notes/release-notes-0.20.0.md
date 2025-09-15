@@ -55,6 +55,9 @@ when the appropriate TLV flag is set. This allows for HTLCs carrying metadata to
 reflect their state on the channel commitment without having to send or receive
 a certain amount of msats.
 
+- Added support for [P2TR Fallback Addresses](
+  https://github.com/lightningnetwork/lnd/pull/9975) in BOLT-11 invoices.
+
 ## Functional Enhancements
 * [Add](https://github.com/lightningnetwork/lnd/pull/9677)
   `ConfirmationsUntilActive` and `ConfirmationHeight` field to the

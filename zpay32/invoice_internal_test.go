@@ -593,19 +593,34 @@ func TestParseFallbackAddr(t *testing.T) {
 	t.Parallel()
 
 	testAddrTestnetData, _ := bech32.ConvertBits(testAddrTestnet.ScriptAddress(), 8, 5, true)
-	testAddrTestnetDataWithVersion := append([]byte{17}, testAddrTestnetData...)
+	testAddrTestnetDataWithVersion := append(
+		[]byte{fallbackVersionPubkeyHash}, testAddrTestnetData...,
+	)
 
 	testRustyAddrData, _ := bech32.ConvertBits(testRustyAddr.ScriptAddress(), 8, 5, true)
-	testRustyAddrDataWithVersion := append([]byte{17}, testRustyAddrData...)
+	testRustyAddrDataWithVersion := append(
+		[]byte{fallbackVersionPubkeyHash}, testRustyAddrData...,
+	)
 
 	testAddrMainnetP2SHData, _ := bech32.ConvertBits(testAddrMainnetP2SH.ScriptAddress(), 8, 5, true)
-	testAddrMainnetP2SHDataWithVersion := append([]byte{18}, testAddrMainnetP2SHData...)
+	testAddrMainnetP2SHDataWithVersion := append(
+		[]byte{fallbackVersionScriptHash}, testAddrMainnetP2SHData...,
+	)
 
 	testAddrMainnetP2WPKHData, _ := bech32.ConvertBits(testAddrMainnetP2WPKH.ScriptAddress(), 8, 5, true)
-	testAddrMainnetP2WPKHDataWithVersion := append([]byte{0}, testAddrMainnetP2WPKHData...)
+	testAddrMainnetP2WPKHDataWithVersion := append(
+		[]byte{fallbackVersionWitness}, testAddrMainnetP2WPKHData...,
+	)
 
 	testAddrMainnetP2WSHData, _ := bech32.ConvertBits(testAddrMainnetP2WSH.ScriptAddress(), 8, 5, true)
-	testAddrMainnetP2WSHDataWithVersion := append([]byte{0}, testAddrMainnetP2WSHData...)
+	testAddrMainnetP2WSHDataWithVersion := append(
+		[]byte{fallbackVersionWitness}, testAddrMainnetP2WSHData...,
+	)
+
+	testAddrMainnetP2TRData, _ := bech32.ConvertBits(
+		testAddrMainnetP2TR.ScriptAddress(), 8, 5, true)
+	testAddrMainnetP2TRDataWithVersion := append(
+		[]byte{fallbackVersionTaproot}, testAddrMainnetP2TRData...)
 
 	tests := []struct {
 		data   []byte
@@ -650,6 +665,17 @@ func TestParseFallbackAddr(t *testing.T) {
 			net:    &chaincfg.MainNetParams,
 			valid:  true,
 			result: testAddrMainnetP2WSH,
+		},
+		{
+			data:   testAddrMainnetP2TRDataWithVersion,
+			net:    &chaincfg.MainNetParams,
+			valid:  true,
+			result: testAddrMainnetP2TR,
+		},
+		{
+			data:  testAddrMainnetP2TRDataWithVersion[:10],
+			net:   &chaincfg.MainNetParams,
+			valid: false, // data too short for P2TR address
 		},
 	}
 

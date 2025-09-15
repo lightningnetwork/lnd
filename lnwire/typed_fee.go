@@ -20,7 +20,7 @@ type Fee struct {
 // type from a given TLV stream.
 func (l *Fee) Record() tlv.Record {
 	return tlv.MakeStaticRecord(
-		FeeRecordType, l, 8, feeEncoder, feeDecoder, //nolint:gomnd
+		FeeRecordType, l, 8, feeEncoder, feeDecoder,
 	)
 }
 

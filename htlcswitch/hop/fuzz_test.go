@@ -39,7 +39,7 @@ func FuzzHopData(f *testing.F) {
 
 func FuzzHopPayload(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > sphinx.MaxPayloadSize {
+		if len(data) > sphinx.MaxRoutingPayloadSize {
 			return
 		}
 
@@ -129,7 +129,7 @@ func FuzzPayloadIntermediateNoBlinding(f *testing.F) {
 
 func fuzzPayload(f *testing.F, finalPayload, updateAddBlinded bool) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > sphinx.MaxPayloadSize {
+		if len(data) > sphinx.MaxRoutingPayloadSize {
 			return
 		}
 

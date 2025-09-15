@@ -363,6 +363,13 @@ func (a *ChannelUpdate1) ForwardingPolicy() *ForwardingPolicy {
 	}
 }
 
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *ChannelUpdate1) GossipVersion() GossipVersion {
+	return GossipVersion1
+}
+
 // CmpAge can be used to determine if the update is older or newer than the
 // passed update. It returns 1 if this update is newer, -1 if it is older, and
 // 0 if they are the same age.

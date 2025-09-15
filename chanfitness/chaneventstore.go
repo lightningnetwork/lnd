@@ -313,12 +313,15 @@ func (c *ChannelEventStore) closeChannel(channelPoint wire.OutPoint,
 	}
 }
 
-// peerEvent creates a peer monitor for a peer if we do not currently have
-// one, and adds an online event to it.
+// peerEvent adds an online event to a peer's monitor. If the peer is not
+// yet known to the event store, the event is ignored. A peer is only known to
+// the event store if we have an open channel with them.
 func (c *ChannelEventStore) peerEvent(peer route.Vertex, online bool) {
-	peerMonitor, err := c.getPeerMonitor(peer)
-	if err != nil {
-		log.Error("could not create monitor: %v", err)
+	peerMonitor, ok := c.peers[peer]
+	if !ok {
+		log.Tracef("Ignore peer event (online=%v) from non-channel "+
+			"peer: %v", online, peer)
+
 		return
 	}
 

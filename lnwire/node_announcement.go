@@ -243,3 +243,10 @@ func (a *NodeAnnouncement1) NodeFeatures() *FeatureVector {
 func (a *NodeAnnouncement1) TimestampDesc() string {
 	return fmt.Sprintf("timestamp=%d", a.Timestamp)
 }
+
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *NodeAnnouncement1) GossipVersion() GossipVersion {
+	return GossipVersion1
+}

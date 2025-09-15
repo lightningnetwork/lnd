@@ -45,6 +45,7 @@ type AnnounceSignatures interface {
 	ChanID() ChannelID
 
 	Message
+	GossipMessage
 }
 
 // ChannelAnnouncement is an interface that must be satisfied by any message
@@ -66,6 +67,7 @@ type ChannelAnnouncement interface {
 	Node2KeyBytes() [33]byte
 
 	Message
+	GossipMessage
 }
 
 // CompareResult represents the result after comparing two things.
@@ -122,6 +124,7 @@ type ChannelUpdate interface {
 	SetSCID(scid ShortChannelID)
 
 	Message
+	GossipMessage
 }
 
 // NodeAnnouncement is an interface that must be satisfied by any message used
@@ -138,6 +141,7 @@ type NodeAnnouncement interface {
 	TimestampDesc() string
 
 	Message
+	GossipMessage
 }
 
 // ForwardingPolicy defines the set of forwarding constraints advertised in a

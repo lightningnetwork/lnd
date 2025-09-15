@@ -1,6 +1,39 @@
 package lnwire
 
-import "github.com/btcsuite/btcd/chaincfg/chainhash"
+import (
+	"fmt"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+)
+
+// GossipVersion is a version number that describes the version of the
+// gossip protocol that a gossip message was gossiped on.
+type GossipVersion uint8
+
+const (
+	// GossipVersion1 is the initial version of the gossip protocol as
+	// defined in BOLT 7. This version of the protocol can only gossip P2WSH
+	// channels and makes use of ECDSA signatures.
+	GossipVersion1 GossipVersion = 1
+
+	// GossipVersion2 is the newest version of the gossip protocol. This
+	// version adds support for P2TR channels and makes use of Schnorr
+	// signatures. The BOLT number is TBD.
+	GossipVersion2 GossipVersion = 2
+)
+
+// String returns a string representation of the protocol version.
+func (v GossipVersion) String() string {
+	return fmt.Sprintf("V%d", v)
+}
+
+// GossipMessage is an interface that must be satisfied by all messages that are
+// part of the gossip protocol.
+type GossipMessage interface {
+	// GossipVersion returns the version of the gossip protocol that a
+	// message is part of.
+	GossipVersion() GossipVersion
+}
 
 // AnnounceSignatures is an interface that represents a message used to
 // exchange signatures of a ChannelAnnouncment message during the funding flow.

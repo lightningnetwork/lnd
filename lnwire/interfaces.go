@@ -91,6 +91,22 @@ type ChannelUpdate interface {
 	Message
 }
 
+// NodeAnnouncement is an interface that must be satisfied by any message used
+// to announce the existence of a node.
+type NodeAnnouncement interface {
+	// NodePub returns the identity public key of the node.
+	NodePub() [33]byte
+
+	// NodeFeatures returns the set of features supported by the node.
+	NodeFeatures() *FeatureVector
+
+	// TimestampDesc returns a human-readable description of the
+	// timestamp of the announcement.
+	TimestampDesc() string
+
+	Message
+}
+
 // ForwardingPolicy defines the set of forwarding constraints advertised in a
 // ChannelUpdate message.
 type ForwardingPolicy struct {

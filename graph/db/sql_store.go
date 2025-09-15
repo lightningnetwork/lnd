@@ -32,20 +32,6 @@ import (
 	"github.com/lightningnetwork/lnd/tor"
 )
 
-// ProtocolVersion is an enum that defines the gossip protocol version of a
-// message.
-type ProtocolVersion uint8
-
-const (
-	// ProtocolV1 is the gossip protocol version defined in BOLT #7.
-	ProtocolV1 ProtocolVersion = 1
-)
-
-// String returns a string representation of the protocol version.
-func (v ProtocolVersion) String() string {
-	return fmt.Sprintf("V%d", v)
-}
-
 // SQLQueries is a subset of the sqlc.Querier interface that can be used to
 // execute queries against the SQL graph tables.
 //
@@ -191,7 +177,7 @@ type SQLStore struct {
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
 
-	srcNodes  map[ProtocolVersion]*srcNodeInfo
+	srcNodes  map[lnwire.GossipVersion]*srcNodeInfo
 	srcNodeMu sync.Mutex
 }
 
@@ -229,7 +215,7 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 		db:          db,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
-		srcNodes:    make(map[ProtocolVersion]*srcNodeInfo),
+		srcNodes:    make(map[lnwire.GossipVersion]*srcNodeInfo),
 	}
 
 	s.chanScheduler = batch.NewTimeScheduler(
@@ -301,7 +287,7 @@ func (s *SQLStore) HasNode(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				PubKey:  pubKey[:],
 			},
 		)
@@ -344,7 +330,7 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 		// does.
 		dbID, err := db.GetNodeIDByPubKey(
 			ctx, sqlc.GetNodeIDByPubKeyParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				PubKey:  nodePub.SerializeCompressed(),
 			},
 		)
@@ -380,7 +366,7 @@ func (s *SQLStore) DeleteNode(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteNodeByPubKey(
 			ctx, sqlc.DeleteNodeByPubKeyParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				PubKey:  pubKey[:],
 			},
 		)
@@ -459,7 +445,7 @@ func (s *SQLStore) LookupAlias(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				PubKey:  pub.SerializeCompressed(),
 			},
 		)
@@ -495,7 +481,9 @@ func (s *SQLStore) SourceNode(ctx context.Context) (*models.Node,
 
 	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		_, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
+		_, nodePub, err := s.getSourceNode(
+			ctx, db, lnwire.GossipVersion1,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
 				err)
@@ -529,7 +517,9 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 
 		// Make sure that if a source node for this version is already
 		// set, then the ID is the same as the one we are about to set.
-		dbSourceNodeID, _, err := s.getSourceNode(ctx, db, ProtocolV1)
+		dbSourceNodeID, _, err := s.getSourceNode(
+			ctx, db, lnwire.GossipVersion1,
+		)
 		if err != nil && !errors.Is(err, ErrSourceNodeNotSet) {
 			return fmt.Errorf("unable to fetch source node: %w",
 				err)
@@ -682,7 +672,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			_, err := tx.GetChannelBySCID(
 				ctx, sqlc.GetChannelBySCIDParams{
 					Scid:    chanIDB,
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 				},
 			)
 			if err == nil {
@@ -720,7 +710,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 func (s *SQLStore) HighestChanID(ctx context.Context) (uint64, error) {
 	var highestChanID uint64
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		chanID, err := db.HighestSCID(ctx, int16(ProtocolV1))
+		chanID, err := db.HighestSCID(ctx, int16(lnwire.GossipVersion1))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		} else if err != nil {
@@ -843,7 +833,9 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 		otherNode *models.Node) error, reset func()) error {
 
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		nodeID, nodePub, err := s.getSourceNode(ctx, db, ProtocolV1)
+		nodeID, nodePub, err := s.getSourceNode(
+			ctx, db, lnwire.GossipVersion1,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to fetch source node: %w",
 				err)
@@ -901,7 +893,7 @@ func (s *SQLStore) ForEachNode(ctx context.Context,
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		return forEachNodePaginated(
 			ctx, s.cfg.QueryCfg, db,
-			ProtocolV1, func(_ context.Context, _ int64,
+			lnwire.GossipVersion1, func(_ context.Context, _ int64,
 				node *models.Node) error {
 
 				return cb(node)
@@ -970,7 +962,7 @@ func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	return s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				PubKey:  nodePub[:],
 			},
 		)
@@ -1111,7 +1103,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 				func(db SQLQueries) error {
 					//nolint:ll
 					params := sqlc.GetChannelsByPolicyLastUpdateRangeParams{
-						Version: int16(ProtocolV1),
+						Version: int16(lnwire.GossipVersion1),
 						StartTime: sqldb.SQLInt64(
 							startTime.Unix(),
 						),
@@ -1259,7 +1251,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 
 			return db.ListNodeIDsAndPubKeys(
 				ctx, sqlc.ListNodeIDsAndPubKeysParams{
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 					ID:      lastID,
 					Limit:   limit,
 				},
@@ -1297,7 +1289,7 @@ func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 			// page.
 			allChannels, err := db.ListChannelsForNodeIDs(
 				ctx, sqlc.ListChannelsForNodeIDsParams{
-					Version:  int16(ProtocolV1),
+					Version:  int16(lnwire.GossipVersion1),
 					Node1Ids: nodeIDs,
 					Node2Ids: nodeIDs,
 				},
@@ -1512,7 +1504,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 
 			return db.ListChannelsWithPoliciesForCachePaginated(
 				ctx, sqlc.ListChannelsWithPoliciesForCachePaginatedParams{
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 					ID:      lastID,
 					Limit:   limit,
 				},
@@ -1610,7 +1602,7 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 			//nolint:ll
 			node1Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(ProtocolV1),
+					Version:   int16(lnwire.GossipVersion1),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID1,
 				},
@@ -1627,7 +1619,7 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 			//nolint:ll
 			node2Policy, err := db.GetChannelPolicyByChannelAndNode(
 				ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-					Version:   int16(ProtocolV1),
+					Version:   int16(lnwire.GossipVersion1),
 					ChannelID: dbChan.ID,
 					NodeID:    dbChan.NodeID2,
 				},
@@ -1688,7 +1680,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		return db.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{
-				Version:  int16(ProtocolV1),
+				Version:  int16(lnwire.GossipVersion1),
 				Scid:     chanIDB,
 				NodeKey1: pubKey1[:],
 				NodeKey2: pubKey2[:],
@@ -1722,7 +1714,7 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 		res, err := db.DeleteZombieChannel(
 			ctx, sqlc.DeleteZombieChannelParams{
 				Scid:    chanIDB,
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 			},
 		)
 		if err != nil {
@@ -1774,7 +1766,7 @@ func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 		zombie, err := db.GetZombieChannel(
 			ctx, sqlc.GetZombieChannelParams{
 				Scid:    chanIDB,
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1809,7 +1801,9 @@ func (s *SQLStore) NumZombies() (uint64, error) {
 		numZombies uint64
 	)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		count, err := db.CountZombieChannels(ctx, int16(ProtocolV1))
+		count, err := db.CountZombieChannels(
+			ctx, int16(lnwire.GossipVersion1),
+		)
 		if err != nil {
 			return fmt.Errorf("unable to count zombie channels: %w",
 				err)
@@ -1955,7 +1949,7 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		row, err := db.GetChannelBySCIDWithPolicies(
 			ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
 				Scid:    chanIDB,
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1964,7 +1958,7 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 			zombie, err := db.GetZombieChannel(
 				ctx, sqlc.GetZombieChannelParams{
 					Scid:    chanIDB,
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 				},
 			)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -2051,7 +2045,7 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		row, err := db.GetChannelByOutpointWithPolicies(
 			ctx, sqlc.GetChannelByOutpointWithPoliciesParams{
 				Outpoint: op.String(),
-				Version:  int16(ProtocolV1),
+				Version:  int16(lnwire.GossipVersion1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2152,7 +2146,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 		channel, err := db.GetChannelBySCID(
 			ctx, sqlc.GetChannelBySCIDParams{
 				Scid:    chanIDB,
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2160,7 +2154,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 			isZombie, err = db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
 					Scid:    chanIDB,
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 				},
 			)
 			if err != nil {
@@ -2177,7 +2171,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 
 		policy1, err := db.GetChannelPolicyByChannelAndNode(
 			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-				Version:   int16(ProtocolV1),
+				Version:   int16(lnwire.GossipVersion1),
 				ChannelID: channel.ID,
 				NodeID:    channel.NodeID1,
 			},
@@ -2191,7 +2185,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 
 		policy2, err := db.GetChannelPolicyByChannelAndNode(
 			ctx, sqlc.GetChannelPolicyByChannelAndNodeParams{
-				Version:   int16(ProtocolV1),
+				Version:   int16(lnwire.GossipVersion1),
 				ChannelID: channel.ID,
 				NodeID:    channel.NodeID2,
 			},
@@ -2233,7 +2227,7 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 		chanID, err := db.GetSCIDByOutpoint(
 			ctx, sqlc.GetSCIDByOutpointParams{
 				Outpoint: chanPoint.String(),
-				Version:  int16(ProtocolV1),
+				Version:  int16(lnwire.GossipVersion1),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2358,7 +2352,7 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 
 		return db.GetChannelsBySCIDWithPolicies(
 			ctx, sqlc.GetChannelsBySCIDWithPoliciesParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				Scids:   scids,
 			},
 		)
@@ -2428,7 +2422,7 @@ func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 			isZombie, err := db.IsZombieChannel(
 				ctx, sqlc.IsZombieChannelParams{
 					Scid:    channelIDToBytes(channelID),
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 				},
 			)
 			if err != nil {
@@ -2475,7 +2469,7 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 
 		return db.GetChannelsBySCIDs(
 			ctx, sqlc.GetChannelsBySCIDsParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				Scids:   scids,
 			},
 		)
@@ -2721,7 +2715,7 @@ func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 
 			return db.ListChannelsPaginated(
 				ctx, sqlc.ListChannelsPaginatedParams{
-					Version: int16(ProtocolV1),
+					Version: int16(lnwire.GossipVersion1),
 					ID:      lastID,
 					Limit:   limit,
 				},
@@ -3061,7 +3055,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 
 	dbID, err := db.GetNodeIDByPubKey(
 		ctx, sqlc.GetNodeIDByPubKeyParams{
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 			PubKey:  nodePub[:],
 		},
 	)
@@ -3073,7 +3067,7 @@ func forEachNodeDirectedChannel(ctx context.Context, db SQLQueries,
 
 	rows, err := db.ListChannelsByNodeID(
 		ctx, sqlc.ListChannelsByNodeIDParams{
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 			NodeID1: dbID,
 		},
 	)
@@ -3189,7 +3183,7 @@ func forEachNodeCacheable(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		return db.ListNodeIDsAndPubKeys(
 			ctx, sqlc.ListNodeIDsAndPubKeysParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				ID:      lastID,
 				Limit:   limit,
 			},
@@ -3228,7 +3222,7 @@ func forEachNodeChannel(ctx context.Context, db SQLQueries,
 	// Get all the V1 channels for this node.
 	rows, err := db.ListChannelsByNodeID(
 		ctx, sqlc.ListChannelsByNodeIDParams{
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 			NodeID1: id,
 		},
 	)
@@ -3330,7 +3324,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	dbChan, err := tx.GetChannelAndNodesBySCID(
 		ctx, sqlc.GetChannelAndNodesBySCIDParams{
 			Scid:    chanIDB,
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -3360,7 +3354,7 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 	})
 
 	id, err := tx.UpsertEdgePolicy(ctx, sqlc.UpsertEdgePolicyParams{
-		Version:     int16(ProtocolV1),
+		Version:     int16(lnwire.GossipVersion1),
 		ChannelID:   dbChan.ID,
 		NodeID:      nodeID,
 		Timelock:    int32(edge.TimeLockDelta),
@@ -3411,7 +3405,7 @@ func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 			PubKey:  pubKey[:],
 		},
 	)
@@ -3464,7 +3458,7 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	batchData *batchNodeData) (*models.Node, error) {
 
-	if dbNode.Version != int16(ProtocolV1) {
+	if dbNode.Version != int16(lnwire.GossipVersion1) {
 		return nil, fmt.Errorf("unsupported node version: %d",
 			dbNode.Version)
 	}
@@ -3591,7 +3585,7 @@ func upsertNode(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
 
 	params := sqlc.UpsertNodeParams{
-		Version: int16(ProtocolV1),
+		Version: int16(lnwire.GossipVersion1),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
@@ -3710,7 +3704,7 @@ func fetchNodeFeatures(ctx context.Context, queries SQLQueries,
 	rows, err := queries.GetNodeFeaturesByPubKey(
 		ctx, sqlc.GetNodeFeaturesByPubKeyParams{
 			PubKey:  nodePub[:],
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 		},
 	)
 	if err != nil {
@@ -3945,7 +3939,7 @@ type srcNodeInfo struct {
 // sourceNode returns the DB node ID and pub key of the source node for the
 // specified protocol version.
 func (s *SQLStore) getSourceNode(ctx context.Context, db SQLQueries,
-	version ProtocolVersion) (int64, route.Vertex, error) {
+	version lnwire.GossipVersion) (int64, route.Vertex, error) {
 
 	s.srcNodeMu.Lock()
 	defer s.srcNodeMu.Unlock()
@@ -4032,7 +4026,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	createParams := sqlc.CreateChannelParams{
-		Version:     int16(ProtocolV1),
+		Version:     int16(lnwire.GossipVersion1),
 		Scid:        channelIDToBytes(edge.ChannelID),
 		NodeID1:     node1DBID,
 		NodeID2:     node2DBID,
@@ -4106,7 +4100,7 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
 			PubKey:  pubKey[:],
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 		},
 	)
 	// The node exists. Return the ID.
@@ -4119,7 +4113,7 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	// Otherwise, the node does not exist, so we create a shell entry for
 	// it.
 	id, err := db.UpsertNode(ctx, sqlc.UpsertNodeParams{
-		Version: int16(ProtocolV1),
+		Version: int16(lnwire.GossipVersion1),
 		PubKey:  pubKey[:],
 	})
 	if err != nil {
@@ -4187,7 +4181,7 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 	dbChan sqlc.GraphChannel, node1, node2 route.Vertex,
 	batchData *batchChannelData) (*models.ChannelEdgeInfo, error) {
 
-	if dbChan.Version != int16(ProtocolV1) {
+	if dbChan.Version != int16(lnwire.GossipVersion1) {
 		return nil, fmt.Errorf("unsupported channel version: %d",
 			dbChan.Version)
 	}
@@ -5268,7 +5262,7 @@ func batchLoadChannelPolicyExtrasHelper(ctx context.Context,
 // graph. It uses the provided SQLQueries interface to fetch nodes in batches
 // and applies the provided processNode function to each node.
 func forEachNodePaginated(ctx context.Context, cfg *sqldb.QueryConfig,
-	db SQLQueries, protocol ProtocolVersion,
+	db SQLQueries, protocol lnwire.GossipVersion,
 	processNode func(context.Context, int64,
 		*models.Node) error) error {
 
@@ -5334,7 +5328,7 @@ func forEachChannelWithPolicies(ctx context.Context, db SQLQueries,
 
 		return db.ListChannelsWithPoliciesPaginated(
 			ctx, sqlc.ListChannelsWithPoliciesPaginatedParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				ID:      lastID,
 				Limit:   limit,
 			},
@@ -5707,7 +5701,7 @@ func handleZombieMarking(ctx context.Context, db SQLQueries,
 
 	return db.UpsertZombieChannel(
 		ctx, sqlc.UpsertZombieChannelParams{
-			Version:  int16(ProtocolV1),
+			Version:  int16(lnwire.GossipVersion1),
 			Scid:     channelIDToBytes(scid),
 			NodeKey1: nodeKey1[:],
 			NodeKey2: nodeKey2[:],

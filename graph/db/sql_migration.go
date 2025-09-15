@@ -423,7 +423,7 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	id, err := sqlDB.GetNodeIDByPubKey(
 		ctx, sqlc.GetNodeIDByPubKeyParams{
 			PubKey:  pub[:],
-			Version: int16(ProtocolV1),
+			Version: int16(lnwire.GossipVersion1),
 		},
 	)
 	if err != nil {
@@ -441,7 +441,9 @@ func migrateSourceNode(ctx context.Context, kvdb kvdb.Backend,
 	// from the SQL database and checking that the expected DB ID and
 	// pub key are returned. We don't need to do a whole node comparison
 	// here, as this was already done in the previous migration step.
-	srcNodes, err := sqlDB.GetSourceNodesByVersion(ctx, int16(ProtocolV1))
+	srcNodes, err := sqlDB.GetSourceNodesByVersion(
+		ctx, int16(lnwire.GossipVersion1),
+	)
 	if err != nil {
 		return fmt.Errorf("could not get source nodes from SQL "+
 			"store: %w", err)
@@ -1251,7 +1253,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 		// Batch fetch all zombie channels from the database.
 		rows, err := sqlDB.GetZombieChannelsSCIDs(
 			ctx, sqlc.GetZombieChannelsSCIDsParams{
-				Version: int16(ProtocolV1),
+				Version: int16(lnwire.GossipVersion1),
 				Scids:   scids,
 			},
 		)
@@ -1327,7 +1329,7 @@ func migrateZombieIndex(ctx context.Context, cfg *sqldb.QueryConfig,
 
 		err = sqlDB.UpsertZombieChannel(
 			ctx, sqlc.UpsertZombieChannelParams{
-				Version:  int16(ProtocolV1),
+				Version:  int16(lnwire.GossipVersion1),
 				Scid:     chanIDB,
 				NodeKey1: pubKey1[:],
 				NodeKey2: pubKey2[:],
@@ -1443,7 +1445,7 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
 
 	params := sqlc.InsertNodeMigParams{
-		Version: int16(ProtocolV1),
+		Version: int16(lnwire.GossipVersion1),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
@@ -1564,7 +1566,7 @@ func insertChannelMig(ctx context.Context, db SQLQueries,
 	}
 
 	createParams := sqlc.InsertChannelMigParams{
-		Version:     int16(ProtocolV1),
+		Version:     int16(lnwire.GossipVersion1),
 		Scid:        channelIDToBytes(edge.ChannelID),
 		NodeID1:     node1DBID,
 		NodeID2:     node2DBID,
@@ -1655,7 +1657,7 @@ func insertChanEdgePolicyMig(ctx context.Context, tx SQLQueries,
 	})
 
 	id, err := tx.InsertEdgePolicyMig(ctx, sqlc.InsertEdgePolicyMigParams{
-		Version:     int16(ProtocolV1),
+		Version:     int16(lnwire.GossipVersion1),
 		ChannelID:   dbChan.channelID,
 		NodeID:      nodeID,
 		Timelock:    int32(edge.TimeLockDelta),

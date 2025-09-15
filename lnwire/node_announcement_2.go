@@ -221,6 +221,13 @@ func (n *NodeAnnouncement2) TimestampDesc() string {
 	return fmt.Sprintf("block_height=%d", n.BlockHeight.Val)
 }
 
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (n *NodeAnnouncement2) GossipVersion() GossipVersion {
+	return GossipVersion2
+}
+
 // A compile-time check to ensure NodeAnnouncement2 implements the Message
 // interface.
 var _ Message = (*NodeAnnouncement2)(nil)

@@ -121,3 +121,10 @@ func (a *AnnounceSignatures1) SCID() ShortChannelID {
 func (a *AnnounceSignatures1) ChanID() ChannelID {
 	return a.ChannelID
 }
+
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *AnnounceSignatures1) GossipVersion() GossipVersion {
+	return GossipVersion1
+}

@@ -4717,6 +4717,7 @@ func TestChanAnnBanningNonChanPeer(t *testing.T) {
 
 	// Remove the scid from the reject cache.
 	key := newRejectCacheKey(
+		ca.GossipVersion(),
 		ca.ShortChannelID.ToUint64(),
 		sourceToPub(nodePeer2.IdentityKey()),
 	)

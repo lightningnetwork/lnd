@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -20,9 +21,14 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tlv"
 )
+
+// spentNotificationTimeout defines the time to wait for a spending event from
+// `RegisterSpendNtfn` when an immediate response is expected.
+const spentNotificationTimeout = 1 * time.Second
 
 var (
 	// ErrInvalidBumpResult is returned when the bump result is invalid.
@@ -343,6 +349,10 @@ type TxPublisherConfig struct {
 
 	// Notifier is used to monitor the confirmation status of the tx.
 	Notifier chainntnfs.ChainNotifier
+
+	// ChainIO represents an abstraction over a source that can query the
+	// blockchain.
+	ChainIO lnwallet.BlockChainIO
 
 	// AuxSweeper is an optional interface that can be used to modify the
 	// way sweep transaction are generated.
@@ -1415,6 +1425,38 @@ func (t *TxPublisher) getSpentInputs(
 				"%v", op, heightHint)
 		}
 
+		// Check whether the input has been spent or not.
+		utxo, err := t.cfg.ChainIO.GetUtxo(
+			&op, inp.SignDesc().Output.PkScript, heightHint, t.quit,
+		)
+		if err != nil {
+			// GetUtxo will return `ErrOutputSpent` when the input
+			// has already been spent. In that case, the returned
+			// `utxo` must be nil, which will move us to subscribe
+			// its spending event below.
+			if !errors.Is(err, btcwallet.ErrOutputSpent) {
+				log.Errorf("Failed to get utxo for input=%v: "+
+					"%v", op, err)
+
+				// If this is an unexpected error, move to check
+				// the next input.
+				continue
+			}
+
+			log.Tracef("GetUtxo for input=%v, err: %v", op, err)
+		}
+
+		// If a non-nil utxo is returned it means this input is still
+		// unspent. Thus we can continue to the next input as there's no
+		// need to register spend notification for it.
+		if utxo != nil {
+			log.Tracef("Input=%v not spent yet", op)
+			continue
+		}
+
+		log.Debugf("Input=%v already spent, fetching its spending "+
+			"tx...", op)
+
 		// If the input has already been spent after the height hint, a
 		// spend event is sent back immediately.
 		spendEvent, err := t.cfg.Notifier.RegisterSpendNtfn(
@@ -1424,13 +1466,13 @@ func (t *TxPublisher) getSpentInputs(
 			log.Criticalf("Failed to register spend ntfn for "+
 				"input=%v: %v", op, err)
 
-			return nil
+			return spentInputs
 		}
 
 		// Remove the subscription when exit.
 		defer spendEvent.Cancel()
 
-		// Do a non-blocking read to see if the output has been spent.
+		// Do a blocking read to receive the spent event.
 		select {
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {
@@ -1446,9 +1488,19 @@ func (t *TxPublisher) getSpentInputs(
 
 			spentInputs[op] = spendingTx
 
-		// Move to the next input.
-		default:
-			log.Tracef("Input %v not spent yet", op)
+		// The above spent event should be returned immediately, yet we
+		// still perform a timeout check here in case it blocks forever.
+		//
+		// TODO(yy): The proper way to fix this is to redesign the area
+		// so we use the async flow for checking whether a given input
+		// is spent or not. A better approach is to implement a new
+		// synchronous method to check for spending, which should be
+		// attempted when implementing SQL into btcwallet.
+		case <-time.After(spentNotificationTimeout):
+			log.Warnf("Input is reported as spent by GetUtxo, "+
+				"but spending notification is not returned "+
+				"immediately: input=%v, heightHint=%v", op,
+				heightHint)
 		}
 	}
 

@@ -199,9 +199,35 @@ func (n *NodeAnnouncement2) MsgType() MessageType {
 	return MsgNodeAnnouncement2
 }
 
+// NodePub returns the identity public key of the node.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) NodePub() [33]byte {
+	return n.NodeID.Val
+}
+
+// NodeFeatures returns the set of features supported by the node.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) NodeFeatures() *FeatureVector {
+	return NewFeatureVector(&n.Features.Val, Features)
+}
+
+// TimestampDesc returns a human-readable description of the timestamp of the
+// announcement.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (n *NodeAnnouncement2) TimestampDesc() string {
+	return fmt.Sprintf("block_height=%d", n.BlockHeight.Val)
+}
+
 // A compile-time check to ensure NodeAnnouncement2 implements the Message
 // interface.
 var _ Message = (*NodeAnnouncement2)(nil)
+
+// A compile time check to ensure NodeAnnouncement2 implements the
+// lnwire.NodeAnnouncement interface.
+var _ NodeAnnouncement = (*NodeAnnouncement2)(nil)
 
 // A compile-time check to ensure NodeAnnouncement2 implements the
 // PureTLVMessage interface.

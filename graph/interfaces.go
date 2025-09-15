@@ -69,7 +69,7 @@ type ChannelGraphSource interface {
 	// star-graph.
 	ForAllOutgoingChannels(ctx context.Context,
 		cb func(c *models.ChannelEdgeInfo,
-		e *models.ChannelEdgePolicy) error, reset func()) error
+			e *models.ChannelEdgePolicy) error, reset func()) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.

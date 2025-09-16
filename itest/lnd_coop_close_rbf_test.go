@@ -21,19 +21,20 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	chanPoint *lnrpc.ChannelPoint, isTaproot bool) {
 
 	// To start, we'll have Alice try to close the channel, with a fee rate
-	// of 5 sat/byte.
-	aliceFeeRate := chainfee.SatPerVByte(5)
+	// of 1250 sat/kw .
+	aliceFeeRate := chainfee.SatPerKWeight(1250)
 	aliceCloseStream, aliceCloseUpdate := st.CloseChannelAssertPending(
 		alice, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(aliceFeeRate),
 		lntest.WithLocalTxNotify(),
 	)
 
-	// Confirm that this new update was at 5 sat/vb.
+	// Confirm that this new update was at 1250 sat/kw.
 	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, int64(aliceFeeRate), alicePendingUpdate.FeePerVbyte,
+		st, int64(aliceFeeRate),
+		int64(alicePendingUpdate.FeePerKw),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
 
@@ -45,45 +46,41 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 		lntest.WithLocalTxNotify(),
 	)
 
-	// Confirm that this new update was at 10 sat/vb.
+	// Confirm that this new update was at 2500 sat/kw.
 	bobPendingUpdate := bobCloseUpdate.GetClosePending()
 	require.NotNil(st, bobCloseUpdate)
-	require.Equal(st, bobPendingUpdate.FeePerVbyte, int64(bobFeeRate))
+	require.Equal(
+		st, int64(bobPendingUpdate.FeePerKw),
+		int64(bobFeeRate),
+	)
 	require.True(st, bobPendingUpdate.LocalCloseTx)
 
 	var err error
 
 	// Alice should've also received a similar update that Bob has
-	// increased the closing fee rate to 10 sat/vb with his settled funds.
+	// increased the closing fee rate to 2500 sat/kw with his settled
+	// funds.
 	aliceCloseUpdate, err = st.ReceiveCloseChannelUpdate(aliceCloseStream)
 	require.NoError(st, err)
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 
-	// For taproot channels, due to different witness sizes,
-	// the fee per vbyte might be slightly different due to
+	// The fee per kweight might be slightly different due to
 	// rounding when converting between absolute fee and fee
-	// per vbyte.
-	if isTaproot {
-		// Allow for a small difference in fee
-		// calculation for taproot.
-		require.InDelta(
-			st, int64(bobFeeRate),
-			alicePendingUpdate.FeePerVbyte, 1,
-		)
-	} else {
-		require.Equal(
-			st, alicePendingUpdate.FeePerVbyte,
-			int64(bobFeeRate),
-		)
-	}
+	// per kweight.
+	require.InDelta(
+		st, alicePendingUpdate.FeePerKw,
+		int64(bobFeeRate),
+		15,
+	)
+
 	require.False(st, alicePendingUpdate.LocalCloseTx)
 
 	// We'll now attempt to make a fee update that increases Alice's fee
-	// rate by 6 sat/vb, which should be rejected as it is too small of an
-	// increase for the RBF rules. The RPC API however will return the new
-	// fee. We'll skip the mempool check here as it won't make it in.
-	aliceRejectedFeeRate := aliceFeeRate + 1
+	// rate by 1500 sat/kw, which should be rejected as it is too small of
+	// an increase for the RBF rules. The RPC API however will return the
+	// new fee. We'll skip the mempool check here as it won't make it in.
+	aliceRejectedFeeRate := aliceFeeRate + 250
 	_, aliceCloseUpdate = st.CloseChannelAssertPending(
 		alice, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(aliceRejectedFeeRate),
@@ -92,7 +89,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, alicePendingUpdate.FeePerVbyte,
+		st, int64(alicePendingUpdate.FeePerKw),
 		int64(aliceRejectedFeeRate),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
@@ -116,7 +113,7 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	st.DisconnectNodes(alice, bob)
 	st.ConnectNodes(alice, bob)
 
-	// Next, we'll have Alice double that fee rate again to 20 sat/vb.
+	// Next, we'll have Alice double that fee rate again to 5000 sat/kw.
 	aliceFeeRate = bobFeeRate * 2
 	aliceCloseStream, aliceCloseUpdate = st.CloseChannelAssertPending(
 		alice, chanPoint, false,
@@ -127,7 +124,8 @@ func runRbfCoopCloseTest(st *lntest.HarnessTest,
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(st, aliceCloseUpdate)
 	require.Equal(
-		st, alicePendingUpdate.FeePerVbyte, int64(aliceFeeRate),
+		st, int64(alicePendingUpdate.FeePerKw),
+		int64(aliceFeeRate),
 	)
 	require.True(st, alicePendingUpdate.LocalCloseTx)
 
@@ -182,8 +180,8 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 				lnrpc.CommitmentType_SIMPLE_TAPROOT
 
 			params := lntest.OpenChannelParams{
-				Amt:            btcutil.Amount(100000),
-				PushAmt:        btcutil.Amount(100000 / 2),
+				Amt:            btcutil.Amount(100_000),
+				PushAmt:        btcutil.Amount(100_000 / 2),
 				CommitmentType: chanType.commitType,
 				Private:        isTaproot,
 			}
@@ -259,8 +257,8 @@ func testCoopCloseRBFWithReorg(ht *lntest.HarnessTest) {
 	alice, bob := nodes[0], nodes[1]
 	chanPoint := chanPoints[0]
 
-	// Initiate cooperative close with initial fee rate of 5 sat/vb.
-	initialFeeRate := chainfee.SatPerVByte(5)
+	// Initiate cooperative close with initial fee rate of 1250 sat/kw.
+	initialFeeRate := chainfee.SatPerKWeight(1250)
 	_, aliceCloseUpdate := ht.CloseChannelAssertPending(
 		alice, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(initialFeeRate),
@@ -271,7 +269,7 @@ func testCoopCloseRBFWithReorg(ht *lntest.HarnessTest) {
 	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)
 	require.Equal(
-		ht, int64(initialFeeRate), alicePendingUpdate.FeePerVbyte,
+		ht, int64(initialFeeRate), int64(alicePendingUpdate.FeePerKw),
 	)
 
 	// Capture the initial close transaction from the mempool.
@@ -280,7 +278,7 @@ func testCoopCloseRBFWithReorg(ht *lntest.HarnessTest) {
 	initialCloseTx := ht.AssertTxInMempool(*initialCloseTxid)
 
 	// Create first RBF replacement before any mining.
-	firstRbfFeeRate := chainfee.SatPerVByte(10)
+	firstRbfFeeRate := chainfee.SatPerKWeight(2500)
 	_, firstRbfUpdate := ht.CloseChannelAssertPending(
 		bob, chanPoint, false,
 		lntest.WithCoopCloseFeeRate(firstRbfFeeRate),

@@ -23,7 +23,6 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -2941,7 +2940,7 @@ type mockGraphBuilder struct {
 	updateEdge   func(update *models.ChannelEdgePolicy) error
 }
 
-func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
+func newMockGraphBuilder(graph *graphdb.ChannelGraph) *mockGraphBuilder {
 	return &mockGraphBuilder{
 		updateEdge: func(update *models.ChannelEdgePolicy) error {
 			return graph.UpdateEdgePolicy(

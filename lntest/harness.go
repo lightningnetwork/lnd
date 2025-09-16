@@ -1228,7 +1228,7 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 
 // closeChannelOpts holds the options for closing a channel.
 type closeChannelOpts struct {
-	feeRate fn.Option[chainfee.SatPerVByte]
+	feeRate fn.Option[chainfee.SatPerKWeight]
 
 	// localTxOnly is a boolean indicating if we should only attempt to
 	// consume close pending notifications for the local transaction.
@@ -1249,7 +1249,7 @@ type CloseChanOpt func(*closeChannelOpts)
 
 // WithCoopCloseFeeRate is a functional option to set the fee rate for a coop
 // close attempt.
-func WithCoopCloseFeeRate(rate chainfee.SatPerVByte) CloseChanOpt {
+func WithCoopCloseFeeRate(rate chainfee.SatPerKWeight) CloseChanOpt {
 	return func(o *closeChannelOpts) {
 		o.feeRate = fn.Some(rate)
 	}
@@ -1307,8 +1307,8 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		NoWait:       true,
 	}
 
-	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerVByte) {
-		closeReq.SatPerVbyte = uint64(feeRate)
+	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerKWeight) {
+		closeReq.SatPerKw = uint64(feeRate)
 	})
 
 	var (
@@ -1348,9 +1348,9 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 			continue
 		}
 
-		notifyRate := pendingClose.ClosePending.FeePerVbyte
+		notifyRate := pendingClose.ClosePending.FeePerKw
 		if closeOpts.localTxOnly &&
-			notifyRate != int64(closeReq.SatPerVbyte) {
+			notifyRate != closeReq.SatPerKw {
 
 			continue
 		}

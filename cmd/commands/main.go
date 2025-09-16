@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd"
@@ -22,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
+	"github.com/shopspring/decimal"
 	"github.com/urfave/cli"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
@@ -326,6 +328,35 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	}
 
 	return tlsCertPath, macPath, nil
+}
+
+// parseFeeRate converts fee from sat/vB to sat/kw using fixed-point
+// math to avoid rounding errors from floating-point arithmetic.
+func parseFeeRate(ctx *cli.Context, flagName string) (uint64, error) {
+	satPerVb := ctx.String(flagName)
+	if !ctx.IsSet(flagName) {
+		return 0, nil
+	}
+
+	satPerVbyte, err := decimal.NewFromString(satPerVb)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --%s: %w", flagName, err)
+	}
+
+	// kwPerVbyte is the factor used to go from sats/vbyte to
+	// sats/kw.
+	kwPerVbyte := decimal.NewFromInt(
+		1000 / blockchain.WitnessScaleFactor,
+	)
+
+	satPerKw := satPerVbyte.Mul(kwPerVbyte).IntPart()
+	if satPerKw <= 0 {
+		return 0, fmt.Errorf(
+			"invalid --%s: %v", flagName, satPerVb,
+		)
+	}
+
+	return uint64(satPerKw), nil
 }
 
 // checkNotBothSet accepts two flag names, a and b, and checks that only flag a

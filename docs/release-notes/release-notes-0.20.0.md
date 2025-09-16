@@ -42,6 +42,10 @@
   send unnecessary `channel_announcement` and `node_announcement` messages when
   replying to a `gossip_timestamp_filter` query.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10189) a case in the
+  sweeper where some outputs would not be resolved due to an error string
+  mismatch.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 

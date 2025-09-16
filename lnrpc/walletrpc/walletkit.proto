@@ -1118,6 +1118,20 @@ message PendingSweep {
     */
     uint32 sat_per_byte = 4 [deprecated = true];
 
+    /*
+    The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
+    The fee rate is only determined once a sweeping transaction for the output
+    is created, so it's possible for this to be 0 before this.
+    */
+    uint64 sat_per_vbyte = 10 [deprecated = true];
+
+    /*
+    The fee rate we'll use to sweep the output, expressed in sat/kweight. The
+    fee rate is only determined once a sweeping transaction for the output is
+    created, so it's possible for this to be 0 before this.
+    */
+    uint64 sat_per_kw = 17;
+
     // The number of broadcast attempts we've made to sweep the output.
     uint32 broadcast_attempts = 5;
 
@@ -1146,16 +1160,14 @@ message PendingSweep {
     // The requested fee rate, expressed in sat/vbyte, for this output.
     uint32 requested_sat_per_byte = 9 [deprecated = true];
 
-    /*
-    The current fee rate we'll use to sweep the output, expressed in sat/vbyte.
-    The fee rate is only determined once a sweeping transaction for the output
-    is created, so it's possible for this to be 0 before this.
-    */
-    uint64 sat_per_vbyte = 10;
-
     // The requested starting fee rate, expressed in sat/vbyte, for this
     // output. When not requested, this field will be 0.
-    uint64 requested_sat_per_vbyte = 11;
+    uint64 requested_sat_per_vbyte = 11 [deprecated = true];
+
+    /*
+    The requested fee rate, expressed in sat/kweight, for this output.
+    */
+    uint64 requested_sat_per_kw = 16;
 
     /*
     Whether this input will be swept immediately.
@@ -1241,6 +1253,10 @@ message BumpFeeRequest {
     // fee function that the sweeper will use to bump the fee rate. When the
     // deadline is reached, ALL the budget will be spent as fees.
     uint32 deadline_delta = 8;
+
+    // The fee rate, expressed in sat/kweight, that should be used to spend the
+    // input with.
+    uint64 sat_per_kw = 9;
 }
 
 message BumpFeeResponse {

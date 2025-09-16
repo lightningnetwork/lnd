@@ -2281,6 +2281,7 @@ message PendingUpdate {
     uint32 output_index = 2;
     int64 fee_per_vbyte = 3;
     bool local_close_tx = 4;
+    uint64 fee_per_kw = 5;
 }
 
 message InstantUpdate {

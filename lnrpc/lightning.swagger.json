@@ -7175,6 +7175,10 @@
         },
         "local_close_tx": {
           "type": "boolean"
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },

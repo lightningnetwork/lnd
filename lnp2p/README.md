@@ -156,6 +156,73 @@ channelFilter := func(msg lnwire.Message) bool {
 
 ### Wiring It Together
 
+The package provides multiple ways to create a PeerActor:
+
+#### Option 1: Using NewActorWithConn (Recommended)
+
+The simplest approach is to use `NewActorWithConn`, which creates both the SimplePeer connection and registers the actor with the system automatically:
+
+```go
+// Parse target node address.
+target, err := lnp2p.ParseNodeAddress("03abc...def@node.example.com:9735")
+if err != nil {
+    return err
+}
+
+// Configure and create actor with connection in one step.
+cfg := lnp2p.ActorWithConnConfig{
+    SimplePeerCfg: lnp2p.SimplePeerConfig{
+        KeyGenerator: &lnp2p.EphemeralKeyGenerator{},
+        Target:       *target,
+        Features:     lnp2p.DefaultFeatures(),
+        Timeouts:     lnp2p.DefaultTimeouts(),
+    },
+    ActorSystem: system,
+    ServiceKey:  channelKey,
+    ActorName:   "channel-peer",
+    MessageSinks: []*lnp2p.MessageSink{
+        {
+            ServiceKey: channelKey,
+            Filter:     channelFilter,
+        },
+    },
+}
+
+peerActor, actorRef, err := lnp2p.NewActorWithConn(cfg)
+if err != nil {
+    return err
+}
+
+// Start the connection.
+startResult := peerActor.Start(ctx)
+if resp, err := startResult.Unpack(); err != nil || !resp.Success {
+    return err
+}
+```
+
+#### Option 2: Using CreatePeerService
+
+If you already have a P2PConnection, use `CreatePeerService` to register it with the actor system:
+
+```go
+// Assuming you have an existing connection.
+cfg := lnp2p.PeerActorConfig{
+    Connection:   existingConnection,
+    Receptionist: system.Receptionist(),
+    MessageSinks: messageSinks,
+    AutoConnect:  true,
+}
+
+actorRef, err := lnp2p.CreatePeerService(system, "peer-1", cfg)
+if err != nil {
+    return err
+}
+```
+
+#### Option 3: Manual Creation
+
+For maximum control, you can still create everything manually:
+
 ```go
 // Create SimplePeer for underlying connection.
 simplePeer, err := createSimplePeer()
@@ -189,6 +256,50 @@ if resp, err := startResult.Unpack(); err != nil || !resp.Success {
 ```
 
 With this setup, the PeerActor automatically connects and distributes incoming messages to all registered handlers based on their filters. Multiple subsystems can process messages concurrently without manual synchronization.
+
+### Dynamic Service Management
+
+Once a PeerActor is running, you can dynamically add or remove message handlers using the convenience methods:
+
+```go
+// Add a new service handler at runtime.
+gossipKey := actor.NewServiceKey[lnp2p.PeerMessage, lnp2p.PeerResponse](
+    "gossip-handler",
+)
+
+// Register the handler with the actor system.
+actor.RegisterWithSystem(system, "gossip-handler", gossipKey, gossipBehavior)
+
+// Add the service to the running peer.
+success := peerActor.AddServiceKey(gossipKey)
+if !success {
+    log.Printf("Failed to add gossip handler")
+}
+
+// Or add with a filter.
+gossipSink := &lnp2p.MessageSink{
+    ServiceKey: gossipKey,
+    Filter: func(msg lnwire.Message) bool {
+        _, ok := msg.(*lnwire.GossipTimestampRange)
+        return ok
+    },
+}
+success = peerActor.AddMessageSink(gossipSink)
+
+// Query active services.
+activeKeys := peerActor.GetServiceKeys()
+activeSinks := peerActor.GetMessageSinks()
+
+// Get peer status.
+status := peerActor.GetStatus()
+log.Printf("Peer connected: %v, message count: %d",
+    status.IsConnected, status.MessageCount)
+
+// Remove a service when no longer needed.
+success = peerActor.RemoveServiceKey(gossipKey)
+```
+
+These methods use the actor system's message passing internally, ensuring thread-safe operation without manual synchronization.
 
 ## Testing
 

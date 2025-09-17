@@ -64,6 +64,8 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
+require github.com/lightningnetwork/lnd/actor v0.0.1-alpha // indirect
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect

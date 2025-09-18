@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -69,9 +70,25 @@ var (
 	ephemeralGen = func() (*btcec.PrivateKey, error) {
 		return btcec.NewPrivateKey()
 	}
-)
 
-// TODO(roasbeef): free buffer pool?
+	// headerBufferPool is a pool for encrypted header buffers.
+	headerBufferPool = &sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, encHeaderSize)
+			return &b
+		},
+	}
+
+	// bodyBufferPool is a pool for encrypted message body buffers.
+	bodyBufferPool = &sync.Pool{
+		New: func() interface{} {
+			// Allocate max size to avoid reallocation.
+			// maxMessageSize already includes the MAC.
+			b := make([]byte, 0, maxMessageSize)
+			return &b
+		},
+	}
+)
 
 // ecdh performs an ECDH operation between pub and priv. The returned value is
 // the sha256 of the compressed shared point.
@@ -397,6 +414,14 @@ type Machine struct {
 	// out for a pending message. This allows us to tolerate timeout errors
 	// that cause partial writes.
 	nextBodySend []byte
+
+	// pooledHeaderBuf is the pooled buffer used for the header, which we
+	// need to track so we can return it to the pool when done.
+	pooledHeaderBuf *[]byte
+
+	// pooledBodyBuf is the pooled buffer used for the body, which we need
+	// to track so we can return it to the pool when done.
+	pooledBodyBuf *[]byte
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -756,11 +781,33 @@ func (b *Machine) WriteMessage(p []byte) error {
 
 	binary.BigEndian.PutUint16(b.pktLenBuffer[:], fullLength)
 
-	// First, generate the encrypted+MAC'd length prefix for the packet.
-	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, b.pktLenBuffer[:])
+	headerBufInterface := headerBufferPool.Get()
+	headerBuf, ok := headerBufInterface.(*[]byte)
+	if !ok {
+		b.releaseBuffers()
+		return fmt.Errorf("headerBufferPool returned unexpected "+
+			"type: %T", headerBufInterface)
+	}
+	b.pooledHeaderBuf = headerBuf
 
-	// Finally, generate the encrypted packet itself.
-	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)
+	bodyBufInterface := bodyBufferPool.Get()
+	bodyBuf, ok := bodyBufInterface.(*[]byte)
+	if !ok {
+		b.releaseBuffers()
+		return fmt.Errorf("bodyBufferPool returned unexpected "+
+			"type: %T", bodyBufInterface)
+	}
+	b.pooledBodyBuf = bodyBuf
+
+	// First, generate the encrypted+MAC'd length prefix for the packet. We
+	// pass our pooled buffer as the cipherText (dst) parameter.
+	b.nextHeaderSend = b.sendCipher.Encrypt(
+		nil, *b.pooledHeaderBuf, b.pktLenBuffer[:],
+	)
+
+	// Finally, generate the encrypted packet itself. We pass our pooled
+	// buffer as the cipherText (dst) parameter.
+	b.nextBodySend = b.sendCipher.Encrypt(nil, *b.pooledBodyBuf, p)
 
 	return nil
 }
@@ -837,7 +884,32 @@ func (b *Machine) Flush(w io.Writer) (int, error) {
 		}
 	}
 
+	// If both header and body have been fully flushed, release the pooled
+	// buffers back to their pools.
+	if len(b.nextHeaderSend) == 0 && len(b.nextBodySend) == 0 {
+		b.releaseBuffers()
+	}
+
 	return nn, nil
+}
+
+// releaseBuffers returns the pooled buffers back to their respective pools
+// and clears the references.
+func (b *Machine) releaseBuffers() {
+	if b.pooledHeaderBuf != nil {
+		*b.pooledHeaderBuf = (*b.pooledHeaderBuf)[:0]
+		headerBufferPool.Put(b.pooledHeaderBuf)
+		b.pooledHeaderBuf = nil
+	}
+
+	if b.pooledBodyBuf != nil {
+		*b.pooledBodyBuf = (*b.pooledBodyBuf)[:0]
+		bodyBufferPool.Put(b.pooledBodyBuf)
+		b.pooledBodyBuf = nil
+	}
+
+	b.nextHeaderSend = nil
+	b.nextBodySend = nil
 }
 
 // ReadMessage attempts to read the next message from the passed io.Reader. In

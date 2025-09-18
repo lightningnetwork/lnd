@@ -245,7 +245,7 @@ func (c *ChannelEventStore) Stop() error {
 func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 	peer route.Vertex) {
 
-	peerMonitor, err := c.getPeerMonitor(peer)
+	peerMonitor, err := c.getOrCreatePeerMonitor(peer)
 	if err != nil {
 		log.Error("could not create monitor: %v", err)
 		return
@@ -256,10 +256,12 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 	}
 }
 
-// getPeerMonitor tries to get an existing peer monitor from our in memory list,
-// and falls back to creating a new monitor if it is not currently known.
-func (c *ChannelEventStore) getPeerMonitor(peer route.Vertex) (peerMonitor,
-	error) {
+// getOrCreatePeerMonitor tries to get an existing peer monitor from our in
+// memory list. If the peer is not yet known to us, it will create a new
+// monitor and add it to the list. When a new monitor is created, we also send
+// an initial online event for the peer.
+func (c *ChannelEventStore) getOrCreatePeerMonitor(
+	peer route.Vertex) (peerMonitor, error) {
 
 	peerMonitor, ok := c.peers[peer]
 	if ok {
@@ -289,6 +291,9 @@ func (c *ChannelEventStore) getPeerMonitor(peer route.Vertex) (peerMonitor,
 	peerMonitor = newPeerLog(c.cfg.Clock, flapCount, lastFlap)
 	c.peers[peer] = peerMonitor
 
+	// Send an online event given it's the first time we see this peer.
+	peerMonitor.onlineEvent(true)
+
 	return peerMonitor, nil
 }
 
@@ -313,12 +318,15 @@ func (c *ChannelEventStore) closeChannel(channelPoint wire.OutPoint,
 	}
 }
 
-// peerEvent creates a peer monitor for a peer if we do not currently have
-// one, and adds an online event to it.
+// peerEvent adds an online event to a peer's monitor. If the peer is not
+// yet known to the event store, the event is ignored. A peer is only known to
+// the event store if we have an open channel with them.
 func (c *ChannelEventStore) peerEvent(peer route.Vertex, online bool) {
-	peerMonitor, err := c.getPeerMonitor(peer)
-	if err != nil {
-		log.Error("could not create monitor: %v", err)
+	peerMonitor, ok := c.peers[peer]
+	if !ok {
+		log.Tracef("Ignore peer event (online=%v) from non-channel "+
+			"peer: %v", online, peer)
+
 		return
 	}
 
@@ -371,9 +379,12 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 						"from: %v", compressed)
 				}
 
-				c.addChannel(
-					event.Channel.FundingOutpoint, peerKey,
-				)
+				op := event.Channel.FundingOutpoint
+
+				log.Tracef("Received OpenChannelEvent(%v) "+
+					"from %v", op, peerKey)
+
+				c.addChannel(op, peerKey)
 
 			// A channel has been closed, we must remove the channel
 			// from the store and record a channel closed event.
@@ -487,7 +498,7 @@ func (c *ChannelEventStore) getChanInfo(req channelInfoRequest) (*ChannelInfo,
 
 	peerMonitor, ok := c.peers[req.peer]
 	if !ok {
-		return nil, ErrPeerNotFound
+		return nil, fmt.Errorf("%w: %v", ErrPeerNotFound, req.peer)
 	}
 
 	lifetime, uptime, err := peerMonitor.channelUptime(req.channelPoint)

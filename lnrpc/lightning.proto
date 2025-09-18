@@ -1919,6 +1919,7 @@ message Peer {
     repeated TimestampedError errors = 12;
 
     /*
+    This field is populated when the peer has at least one channel with us.
     The number of times we have recorded this peer going offline or coming
     online, recorded across restarts. Note that this value is decreased over
     time if the peer has not recently flapped, so that we can forgive peers
@@ -1927,6 +1928,7 @@ message Peer {
     int32 flap_count = 13;
 
     /*
+    This field is populated when the peer has at least one channel with us.
     The timestamp of the last flap we observed for this peer. If this value is
     zero, we have not observed any flaps for this peer.
     */

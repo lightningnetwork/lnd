@@ -2242,7 +2242,7 @@ func (h *HarnessTest) ReceiveChannelEvent(
 
 	select {
 	case <-time.After(DefaultTimeout):
-		require.Fail(h, "timeout", "timeout intercepting htlc")
+		require.Fail(h, "timeout", "timeout receiving channel events")
 
 	case err := <-errChan:
 		require.Failf(h, "err from stream",

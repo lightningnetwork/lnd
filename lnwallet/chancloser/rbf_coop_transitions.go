@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -509,7 +510,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
 		localTxOut, remoteTxOut := closeTerms.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
-			idealFeeRate.FeePerKWeight(),
+			idealFeeRate,
 		)
 
 		chancloserLog.Infof("ChannelPoint(%v): using ideal_fee=%v, "+
@@ -752,7 +753,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 		localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
-			msg.TargetFeeRate.FeePerKWeight(),
+			msg.TargetFeeRate,
 		)
 
 		// If we can't actually pay for fees here, then we'll just do a
@@ -1129,9 +1130,18 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 		// paid based off the absolute fee and the size of the closing
 		// transaction.
 		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
-		feeRate := chainfee.SatPerVByte(
-			int64(msg.SigMsg.FeeSatoshis) / vSize,
-		)
+		// Compute sat/kw from total fee and vsize using integer math.
+		den := vSize * int64(blockchain.WitnessScaleFactor)
+		if den == 0 {
+			return nil, fmt.Errorf("invalid vsize or witness " +
+				"scale factor")
+		}
+
+		// Round to the next integer.
+		num := int64(msg.SigMsg.FeeSatoshis) * 1000
+		rate := (num + den - 1) / den
+
+		feeRate := chainfee.SatPerKWeight(rate)
 
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.

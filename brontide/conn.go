@@ -287,3 +287,10 @@ func (c *Conn) RemotePub() *btcec.PublicKey {
 func (c *Conn) LocalPub() *btcec.PublicKey {
 	return c.noise.localStatic.PubKey()
 }
+
+// ClearPendingSend drops references to the next header and body buffers and
+// returns any pooled buffers back to their respective pools so that the memory
+// can be reused.
+func (c *Conn) ClearPendingSend() {
+	c.noise.releaseBuffers()
+}

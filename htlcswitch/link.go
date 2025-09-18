@@ -298,6 +298,11 @@ type ChannelLinkConfig struct {
 	// used to manage the bandwidth of the link.
 	AuxTrafficShaper fn.Option[AuxTrafficShaper]
 
+	// AuxChannelNegotiator is an optional interface that allows aux
+	// channel implementations to inject and process feature bits during
+	// init and channel_reestablish messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
 	// QuiescenceTimeout is the max duration that the channel can be
 	// quiesced. Any dependent protocols (dynamic commitments, splicing,
 	// etc.) must finish their operations under this timeout value,
@@ -906,6 +911,29 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
+
+	// If we have an AuxChannelNegotiator, get custom feature bits to
+	// include in the channel reestablish message.
+	l.cfg.AuxChannelNegotiator.WhenSome(
+		func(negotiator lnwallet.AuxChannelNegotiator) {
+			fundingPoint := l.channel.ChannelPoint()
+			auxBlob := l.FundingCustomBlob()
+
+			auxFeatures, err := negotiator.GetReestablishFeatures(
+				lnwire.NewChanIDFromOutPoint(fundingPoint),
+				auxBlob.UnwrapOr(nil),
+			)
+			if err != nil {
+				l.log.Warnf("Failed to get aux reestablish "+
+					"features: %v", err)
+
+				return
+			}
+
+			localChanSyncMsg.AuxFeatures = fn.Some(auxFeatures)
+		},
+	)
+
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("unable to send chan sync message for "+
 			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
@@ -986,6 +1014,34 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 		// In any case, we'll then process their ChanSync message.
 		l.log.Info("received re-establishment message from remote side")
+
+		// This function will be called if an aux channel negotiator is
+		// present.
+		negotiatorClosure := func(n lnwallet.AuxChannelNegotiator) {
+			fundingPoint := l.channel.ChannelPoint()
+			auxBlob := l.FundingCustomBlob()
+			cid := lnwire.NewChanIDFromOutPoint(fundingPoint)
+
+			remoteChanSyncMsg.AuxFeatures.WhenSome(
+				func(features lnwire.AuxFeatureBits) {
+					err = n.ProcessReestablishFeatures(
+						cid, features,
+						auxBlob.UnwrapOr(nil),
+					)
+				},
+			)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to process aux reestablish "+
+				"features: %v", err)
+		}
+
+		// If we have an AuxChannelNegotiator and the remote sent aux
+		// features, process them. This is a blocking call that must
+		// complete before we continue with channel reestablishment.
+		if remoteChanSyncMsg.AuxFeatures.IsSome() {
+			l.cfg.AuxChannelNegotiator.WhenSome(negotiatorClosure)
+		}
 
 		var (
 			openedCircuits []CircuitKey

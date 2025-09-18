@@ -89,6 +89,12 @@ type ChannelReestablish struct {
 	// a dynamic commitment negotiation
 	DynHeight fn.Option[DynHeight]
 
+	// AuxFeatures is an optional field that stores auxiliary feature bits
+	// for custom channel negotiation. This is used by aux channel
+	// implementations to negotiate custom channel behavior during
+	// channel reestablishment.
+	AuxFeatures fn.Option[AuxFeatureBits]
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -140,12 +146,16 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	recordProducers := make([]tlv.RecordProducer, 0, 3)
 	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
 		recordProducers = append(recordProducers, &localNonce)
 	})
 	a.DynHeight.WhenSome(func(h DynHeight) {
 		recordProducers = append(recordProducers, &h)
+	})
+	a.AuxFeatures.WhenSome(func(features AuxFeatureBits) {
+		record := tlv.MakePrimitiveRecord(AuxFeatureBitsTLV, &features)
+		recordProducers = append(recordProducers, &record)
 	})
 
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
@@ -207,11 +217,15 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	}
 
 	var (
-		dynHeight  DynHeight
-		localNonce = a.LocalNonce.Zero()
+		dynHeight         DynHeight
+		localNonce        = a.LocalNonce.Zero()
+		auxFeatures       AuxFeatureBits
+		auxFeaturesRecord = tlv.MakePrimitiveRecord(
+			AuxFeatureBitsTLV, &auxFeatures,
+		)
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce, &dynHeight,
+		&localNonce, &dynHeight, &auxFeaturesRecord,
 	)
 	if err != nil {
 		return err
@@ -222,6 +236,9 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 	}
 	if val, ok := typeMap[CRDynHeight]; ok && val == nil {
 		a.DynHeight = fn.Some(dynHeight)
+	}
+	if val, ok := typeMap[AuxFeatureBitsTLV]; ok && val == nil {
+		a.AuxFeatures = fn.Some(auxFeatures)
 	}
 
 	if len(tlvRecords) != 0 {

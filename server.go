@@ -1628,6 +1628,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxFundingController: implCfg.AuxFundingController,
 		AuxSigner:            implCfg.AuxSigner,
 		AuxResolver:          implCfg.AuxContractResolver,
+		AuxChannelNegotiator: implCfg.AuxChannelNegotiator,
 	})
 	if err != nil {
 		return nil, err
@@ -4431,6 +4432,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		AuxChanCloser:          s.implCfg.AuxChanCloser,
 		AuxResolver:            s.implCfg.AuxContractResolver,
 		AuxTrafficShaper:       s.implCfg.TrafficShaper,
+		AuxChannelNegotiator:   s.implCfg.AuxChannelNegotiator,
 		ShouldFwdExpEndorsement: func() bool {
 			if s.cfg.ProtocolOptions.NoExperimentalEndorsement() {
 				return false

@@ -287,3 +287,10 @@ func (c *Conn) RemotePub() *btcec.PublicKey {
 func (c *Conn) LocalPub() *btcec.PublicKey {
 	return c.noise.localStatic.PubKey()
 }
+
+// ClearPendingSend drops references to the next header and body buffers so
+// that the memory can be garbage collected.
+func (c *Conn) ClearPendingSend() {
+	c.noise.nextHeaderSend = nil
+	c.noise.nextBodySend = nil
+}

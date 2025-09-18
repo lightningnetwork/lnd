@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -2703,6 +2704,13 @@ out:
 				outMsg.msg = nil
 
 				goto retry
+			}
+
+			// Message has either been successfully sent or an
+			// unrecoverable error occurred.  Either way, we can
+			// free the memory used to store the message.
+			if bConn, ok := p.cfg.Conn.(*brontide.Conn); ok {
+				bConn.ClearPendingSend()
 			}
 
 			// The write succeeded, reset the idle timer to prevent

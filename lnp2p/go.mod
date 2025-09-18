@@ -1,4 +1,4 @@
-module github.com/lightningnetwork/lnd-nu-peer-api/lnp2p
+module github.com/lightningnetwork/lnd/lnp2p
 
 go 1.23.12
 

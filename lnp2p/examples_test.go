@@ -8,9 +8,9 @@ import (
 
 	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnp2p"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
-	"github.com/lightningnetwork/lnd-nu-peer-api/lnp2p"
 )
 
 // Example_simplePeerBasic demonstrates basic SimplePeer usage.
@@ -90,7 +90,7 @@ func Example_simplePeerWithIterator() {
 func Example_simplePeerWithMsgMux() {
 	// Create message router.
 	router := msgmux.NewMultiMsgRouter()
-	
+
 	// Register endpoints for different message types.
 	pingEndpoint := &pingHandler{}
 	router.RegisterEndpoint(pingEndpoint)
@@ -151,7 +151,7 @@ func Example_peerActor() {
 	// Create message handler actor.
 	messageHandler := &messageHandlerActor{}
 	handlerBehavior := actor.NewFunctionBehavior(messageHandler.Receive)
-	
+
 	// Register handler with system.
 	actor.RegisterWithSystem(system, "msg-handler", messageKey, handlerBehavior)
 
@@ -211,7 +211,7 @@ func (a *messageHandlerActor) Receive(ctx context.Context, msg lnp2p.PeerMessage
 	switch m := msg.(type) {
 	case *lnp2p.MessageReceived:
 		fmt.Printf("Received %T from %x\n", m.Message, m.From.SerializeCompressed())
-		
+
 		// Send acknowledgment, potentially with a response.
 		return fn.Ok[lnp2p.PeerResponse](&lnp2p.MessageReceivedAck{
 			Processed: true,
@@ -267,7 +267,6 @@ func Example_connectionEvents() {
 	time.Sleep(5 * time.Second)
 }
 
-
 // Example_parallelActors demonstrates parallel message processing with actors.
 func Example_parallelActors() {
 	// Create actor system.
@@ -315,7 +314,7 @@ func Example_parallelActors() {
 
 func registerSpecializedActors(system *actor.ActorSystem,
 	gossipKey, channelKey, routingKey actor.ServiceKey[lnp2p.PeerMessage, lnp2p.PeerResponse]) {
-	
+
 	// Gossip handler.
 	gossipBehavior := actor.NewFunctionBehavior(func(ctx context.Context, msg lnp2p.PeerMessage) fn.Result[lnp2p.PeerResponse] {
 		if m, ok := msg.(*lnp2p.MessageReceived); ok {
@@ -412,7 +411,7 @@ func Example_dynamicServiceKeys() {
 	addResult := addFuture.Await(ctx)
 	if resp, err := addResult.Unpack(); err == nil {
 		if addResp, ok := resp.(*lnp2p.AddServiceKeyResponse); ok {
-			fmt.Printf("Added key, success: %v, total keys: %d\n", 
+			fmt.Printf("Added key, success: %v, total keys: %d\n",
 				addResp.Success, addResp.CurrentKeyCount)
 		}
 	}
@@ -456,3 +455,4 @@ func Example_dynamicServiceKeys() {
 	// Messages will now only go to the metrics handler.
 	fmt.Println("Dynamic service key management complete")
 }
+

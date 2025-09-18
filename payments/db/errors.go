@@ -131,3 +131,11 @@ var (
 	ErrNoSequenceNrIndex = errors.New("payment sequence number index " +
 		"does not exist")
 )
+
+// SQL backend specific errors.
+var (
+	// ErrMaxPaymentsReached is returned when the maximum number of payments
+	// is reached when paginating payments so we stop the pagination.
+	ErrMaxPaymentsReached = errors.New("maximum number of payments " +
+		"reached")
+)

@@ -531,8 +531,13 @@ func testListPayments(ht *lntest.HarnessTest) {
 			{
 				// Use an end date same as the creation date
 				// should return us the item.
+				//
+				// NOTE: We cannot reliably test for the exact
+				// end date as the payment creation time is
+				// rounded down to the start of the second and
+				// the db allows nanoseconds precision.
 				name:     "exact end date",
-				endDate:  createTimeSeconds,
+				endDate:  createTimeSeconds + 1,
 				expected: true,
 			},
 			{

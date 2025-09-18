@@ -249,7 +249,7 @@ func (c *ChannelGraphBootstrapper) SampleNodeAddrs(_ context.Context,
 
 			return errFound
 		}, func() {
-			a = nil
+			clear(a)
 		})
 		if err != nil && !errors.Is(err, errFound) {
 			return nil, err

@@ -644,8 +644,8 @@ func (a *Agent) openChans(ctx context.Context, availableFunds btcutil.Amount,
 		nodes[nID] = struct{}{}
 		return nil
 	}, func() {
-		nodes = nil
-		addresses = nil
+		clear(nodes)
+		clear(addresses)
 	}); err != nil {
 		return fmt.Errorf("unable to get graph nodes: %w", err)
 	}

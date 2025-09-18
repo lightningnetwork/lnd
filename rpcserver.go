@@ -7284,7 +7284,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 		totalNetworkCapacity = 0
 		minChannelSize = math.MaxInt64
 		maxChannelSize = 0
-		allChans = nil
+		clear(allChans)
 		clear(seenChans)
 	})
 	if err != nil {

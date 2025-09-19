@@ -809,6 +809,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MaxFeeExposure:         thresholdMSats,
 		SignAliasUpdate:        s.signAliasUpdate,
 		IsAlias:                aliasmgr.IsAlias,
+		RemoteRouter:           build.SwitchRPC,
 	}, uint32(currentHeight))
 	if err != nil {
 		return nil, err

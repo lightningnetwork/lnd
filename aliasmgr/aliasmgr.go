@@ -242,11 +242,12 @@ func (m *Manager) populateMaps() error {
 // AddLocalAlias adds a database mapping from the passed alias to the passed
 // base SCID. The gossip boolean marks whether or not to create a mapping
 // that the gossiper will use. It is set to false for the upgrade path where
-// the feature-bit is toggled on and there are existing channels. The linkUpdate
-// flag is used to signal whether this function should also trigger an update
-// on the htlcswitch scid alias maps.
+// the feature-bit is toggled on and there are existing channels. The base
+// lookup flag indicates whether we want store a mapping from the alias to its
+// base scid. The linkUpdate flag is used to signal whether this function should
+// also trigger an update on the htlcswitch scid alias maps.
 func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
-	gossip, linkUpdate bool) error {
+	gossip, baseLookup, linkUpdate bool) error {
 
 	// We need to lock the manager for the whole duration of this method,
 	// except for the very last part where we call the link updater. In
@@ -302,8 +303,9 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 	// Update the aliasToBase and baseToSet maps.
 	m.baseToSet[baseScid] = append(m.baseToSet[baseScid], alias)
 
-	// Only store the gossiper map if gossip is true.
-	if gossip {
+	// Only store the gossiper map if gossip is true, or if the caller
+	// explicitly asked to store this reverse mapping.
+	if gossip || baseLookup {
 		m.aliasToBase[alias] = baseScid
 	}
 
@@ -342,7 +344,9 @@ func (m *Manager) GetAliases(
 }
 
 // FindBaseSCID finds the base SCID for a given alias. This is used in the
-// gossiper to find the correct SCID to lookup in the graph database.
+// gossiper to find the correct SCID to lookup in the graph database. It can
+// also be used to look up the base for manual aliases that were added over the
+// RPC.
 func (m *Manager) FindBaseSCID(
 	alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
 
@@ -446,7 +450,7 @@ func (m *Manager) DeleteLocalAlias(alias,
 	}
 
 	// Finally, we'll delete the aliasToBase mapping from the Manager's
-	// cache (but this is only set if we gossip the alias).
+	// cache.
 	delete(m.aliasToBase, alias)
 
 	// We definitely need to unlock the Manager before calling the link

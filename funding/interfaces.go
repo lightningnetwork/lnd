@@ -37,7 +37,7 @@ type aliasHandler interface {
 
 	// AddLocalAlias persists an alias to an underlying alias store.
 	AddLocalAlias(lnwire.ShortChannelID, lnwire.ShortChannelID, bool,
-		bool) error
+		bool, bool) error
 
 	// GetAliases returns the set of aliases given the main SCID of a
 	// channel. This SCID will be an alias for zero-conf channels and will

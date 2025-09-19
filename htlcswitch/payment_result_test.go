@@ -103,7 +103,8 @@ func TestNetworkResultStore(t *testing.T) {
 
 	db := channeldb.OpenForTesting(t, t.TempDir())
 
-	store := newNetworkResultStore(db)
+	store, err := newNetworkResultStore(db, false)
+	require.NoError(t, err, "unable create result store")
 
 	var results []*networkResult
 	for i := 0; i < numResults; i++ {

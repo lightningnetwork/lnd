@@ -11,6 +11,7 @@ GOTOOL := GOWORK=off $(GOCC) tool -modfile=$(TOOLS_MOD)
 
 BTCD_PKG := github.com/btcsuite/btcd
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
+GOLINT_PKG := github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
@@ -339,12 +340,19 @@ check-go-version-dockerfile:
 check-go-version: check-go-version-dockerfile check-go-version-yaml
 
 #? lint-source: Run static code analysis
-lint-source: docker-tools
+lint-source: docker-tools	
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) custom-gcl run -v $(LINT_WORKERS)
 
+#? lint-config-check: Verify that the lint config is up to date
+#  We use the official linter here not our custom one because for checking the
+#  config file it does not matter.
+lint-config-check:
+	@$(call print, "Checking lint config is up to date.")
+	$(GOTOOL) $(GOLINT_PKG) config verify -v
+
 #? lint: Run static code analysis
-lint: check-go-version lint-source
+lint: check-go-version lint-config-check lint-source 
 
 #? protolint: Lint proto files using protolint
 protolint:

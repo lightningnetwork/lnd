@@ -1,0 +1,119 @@
+name: Bug report
+description: Create a bug report. Please use the discussions section for general or troubleshooting questions.
+title: '[bug]: '
+labels: ["bug", "needs triage"]
+
+body:
+ - type: markdown
+   attributes:
+     value: |
+       Thanks for taking the time to fill out this bug report! Please provide
+        as much detail as possible.
+
+ - type: checkboxes
+   id: pre-check
+   attributes:
+     label: Pre-Submission Checklist
+     description: "Please verify the following before submitting the bug report."
+     options:
+       - label: "I have searched the existing issues and believe this is a new bug."
+         required: true
+       - label: "I am not asking a question about how to use lnd, but reporting
+          a bug (otherwise open a discussion)."
+         required: true
+
+ - type: input
+   id: environment-lnd-version
+   attributes:
+     label: LND Version
+     description: "The version of lnd, which can be found using `lncli version`
+      or `lnd --version`."
+     placeholder: "e.g., v0.19.3-beta-1-gfbe71ced3"
+   validations:
+     required: true
+
+ - type: textarea
+   id: environment-lnd-config
+   attributes:
+     label: LND Configuration
+     description: "Please provide details about your lnd setup. Include/upload
+      `lnd.conf` contents (**with sensitive data removed**)."
+     placeholder: |
+       lnd.conf:
+       ...
+   validations:
+     required: true
+
+ - type: input
+   id: environment-backend-version
+   attributes:
+     label: Backend Version
+     description: "The version of bitcoind/btcd, which can be found using
+      `bitcoind/btcd --version`."
+     placeholder: "e.g., Bitcoin Core v29.0.0"
+   validations:
+     required: true
+
+ - type: textarea
+   id: environment-backend-config
+   attributes:
+     label: Backend Configuration
+     description: "Please provide details about your backend. Include/upload
+      `bitcoin.conf`/`btcd.conf` contents (**with sensitive data removed**)."
+     placeholder: |
+       bitcoin/btcd.conf:
+       ...
+   validations:
+     required: true
+
+ - type: input
+   id: environment-os
+   attributes:
+     label: OS/Distribution
+     description: "Your operating system/distribution (e.g., from `uname -a`)
+      and any node packaging used."
+     placeholder: "e.g., Ubuntu 22.04 or SomeNodeProject"
+   validations:
+     required: true
+
+ - type: textarea
+   id: bug-description
+   attributes:
+     label: Bug Details & Steps to Reproduce
+     description: "Describe the action you attempted and what didn't work as
+      expected. Provide clear steps to reproduce the issue."
+     placeholder: |
+       1. I tried to...
+       2. Then I...
+       3. The error occurred.
+   validations:
+     required: true
+
+ - type: textarea
+   id: expected-behaviour
+   attributes:
+     label: Expected Behavior
+     description: "Explain what you expected to happen."
+   validations:
+     required: true
+
+ - type: textarea
+   id: debuginfo
+   attributes:
+     label: Debug Information
+     description: "Please include/upload relevant logs or stack traces with
+      [appropriate subsystem log levels](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#debug-logging).
+      Also relevant are [goroutine](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#goroutine-profile)
+      for hanging commands or [memory](https://github.com/lightningnetwork/lnd/blob/master/docs/debugging_lnd.md#heap-profile)
+      profiles."
+
+ - type: textarea
+   id: environment-misc
+   attributes:
+     label: Environment
+     description: "If available, give additional information about the
+      environment LND runs in. Describe your network setup, including any
+      proxies or container configurations. Also, list any other applications
+      that interact with LND."
+     placeholder: "e.g., behind VPN, in a Docker container, using a rebalance
+      script and lightning-terminal"

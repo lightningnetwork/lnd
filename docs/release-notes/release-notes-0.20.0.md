@@ -62,6 +62,12 @@ a certain amount of msats.
 - Added support for [P2TR Fallback Addresses](
   https://github.com/lightningnetwork/lnd/pull/9975) in BOLT-11 invoices.
 
+- A new experimental RPC endpoint
+  [XFindBaseLocalChanAlias](https://github.com/lightningnetwork/lnd/pull/10133)
+  was added for looking up the base scid for an scid alias. Aliases that were
+  manually created via the `XAddLocalChanAliases` endpoint will get lost on
+  restart.
+
 ## Functional Enhancements
 * [Add](https://github.com/lightningnetwork/lnd/pull/9677)
   `ConfirmationsUntilActive` and `ConfirmationHeight` field to the

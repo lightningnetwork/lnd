@@ -1,4 +1,11 @@
-version: v1.64.5
+# We are using a custom linter which is build closning the version below and
+# adding the custom linters. This means that this is a defining version for
+# the linter as a whole, the version pinned in the go.mod file is just the
+# version we use to build the custom linter which is different. 
+# 
+# NOTE: We cannot use untagged versions here. Always update the linter in the
+# go.mod file and here as well.
+version: v2.4.0
 plugins:
   - module: 'github.com/lightningnetwork/lnd/tools/linters'
     path: ./linters

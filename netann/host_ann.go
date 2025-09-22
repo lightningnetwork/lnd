@@ -22,8 +22,8 @@ type HostAnnouncerConfig struct {
 	LookupHost func(string) (net.Addr, error)
 
 	// AdvertisedIPs is the set of IPs that we've already announced with
-	// our current NodeAnnouncement. This set will be constructed to avoid
-	// unnecessary node NodeAnnouncement updates.
+	// our current NodeAnnouncement1. This set will be constructed to avoid
+	// unnecessary node NodeAnnouncement1 updates.
 	AdvertisedIPs map[string]struct{}
 
 	// AnnounceNewIPs announces a new set of IP addresses for the backing
@@ -36,7 +36,7 @@ type HostAnnouncerConfig struct {
 // HostAnnouncer is a sub-system that allows a user to specify a set of hosts
 // for lnd that will be continually resolved to notice any IP address changes.
 // If the target IP address for a host changes, then we'll generate a new
-// NodeAnnouncement that includes these new IPs.
+// NodeAnnouncement1 that includes these new IPs.
 type HostAnnouncer struct {
 	cfg HostAnnouncerConfig
 
@@ -171,7 +171,7 @@ func (h *HostAnnouncer) hostWatcher() {
 // announcement on disk. It returns the updated node announcement given a set
 // of updates to be applied to the current node announcement.
 type NodeAnnUpdater func(modifier ...NodeAnnModifier,
-) (lnwire.NodeAnnouncement, error)
+) (lnwire.NodeAnnouncement1, error)
 
 // IPAnnouncer is a factory function that generates a new function that uses
 // the passed annUpdater function to to announce new IP changes for a given
@@ -181,7 +181,7 @@ func IPAnnouncer(annUpdater NodeAnnUpdater) func([]net.Addr,
 
 	return func(newAddrs []net.Addr, oldAddrs map[string]struct{}) error {
 		_, err := annUpdater(func(
-			currentNodeAnn *lnwire.NodeAnnouncement) {
+			currentNodeAnn *lnwire.NodeAnnouncement1) {
 			// To ensure we don't duplicate any addresses, we'll
 			// filter out the same of addresses we should no longer
 			// advertise.

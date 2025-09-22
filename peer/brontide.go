@@ -329,7 +329,7 @@ type Config struct {
 	// GenNodeAnnouncement is used to send our node announcement to the remote
 	// on startup.
 	GenNodeAnnouncement func(...netann.NodeAnnModifier) (
-		lnwire.NodeAnnouncement, error)
+		lnwire.NodeAnnouncement1, error)
 
 	// PrunePersistentPeerConnection is used to remove all internal state
 	// related to this peer in the server.
@@ -2092,7 +2092,7 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
-			// If the NodeAnnouncement has an invalid alias, then
+			// If the NodeAnnouncement1 has an invalid alias, then
 			// we'll log that error above and continue so we can
 			// continue to read messages from the peer. We do not
 			// store this error because it is of little debugging
@@ -2213,7 +2213,7 @@ out:
 
 		case *lnwire.ChannelUpdate1,
 			*lnwire.ChannelAnnouncement1,
-			*lnwire.NodeAnnouncement,
+			*lnwire.NodeAnnouncement1,
 			*lnwire.AnnounceSignatures1,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
@@ -2494,7 +2494,7 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
 			msg.ChannelFlags, time.Unix(int64(msg.Timestamp), 0))
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		return fmt.Sprintf("node=%x, update_time=%v",
 			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 

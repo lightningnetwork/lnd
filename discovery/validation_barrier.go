@@ -188,7 +188,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) (JobID,
 		populateDependencies(msg.ShortChannelID.String(), childJobID)
 
 		return childJobID, nil
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		childJobID := JobID(v.idCtr.Add(1))
 		populateDependencies(
 			route.Vertex(msg.NodeID).String(), childJobID,
@@ -242,7 +242,7 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 	v.Lock()
 
 	switch msg := job.(type) {
-	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
+	// Any ChannelUpdate or NodeAnnouncement1 jobs will need to wait on the
 	// completion of any active ChannelAnnouncement jobs related to them.
 	case *lnwire.ChannelUpdate1:
 		annID = msg.ShortChannelID.String()
@@ -258,7 +258,7 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 		jobDesc = fmt.Sprintf("job=lnwire.ChannelUpdate, scid=%v",
 			msg.ShortChannelID.ToUint64())
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		annID = route.Vertex(msg.NodeID).String()
 
 		parentJobIDs, ok = v.jobDependencies[childJobID]
@@ -269,7 +269,7 @@ func (v *ValidationBarrier) WaitForParents(childJobID JobID,
 			return nil
 		}
 
-		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%s",
+		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement1, pub=%s",
 			route.Vertex(msg.NodeID))
 
 	// Other types of jobs can be executed immediately, so we'll just
@@ -446,7 +446,7 @@ func (v *ValidationBarrier) SignalDependents(job interface{}, id JobID) error {
 
 		return nil
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		// Remove child job info.
 		return removeJob(route.Vertex(msg.NodeID).String(), id, true)
 

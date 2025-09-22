@@ -16,37 +16,39 @@ import (
 )
 
 // NodeAnnModifier is a closure that makes in-place modifications to an
-// lnwire.NodeAnnouncement.
-type NodeAnnModifier func(*lnwire.NodeAnnouncement)
+// lnwire.NodeAnnouncement1.
+type NodeAnnModifier func(*lnwire.NodeAnnouncement1)
 
 // NodeAnnSetAlias is a functional option that sets the alias of the
 // given node announcement.
-func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement) {
-	return func(nodeAnn *lnwire.NodeAnnouncement) {
+func NodeAnnSetAlias(alias lnwire.NodeAlias) func(*lnwire.NodeAnnouncement1) {
+	return func(nodeAnn *lnwire.NodeAnnouncement1) {
 		nodeAnn.Alias = alias
 	}
 }
 
 // NodeAnnSetAddrs is a functional option that allows updating the addresses of
 // the given node announcement.
-func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement) {
-	return func(nodeAnn *lnwire.NodeAnnouncement) {
+func NodeAnnSetAddrs(addrs []net.Addr) func(*lnwire.NodeAnnouncement1) {
+	return func(nodeAnn *lnwire.NodeAnnouncement1) {
 		nodeAnn.Addresses = addrs
 	}
 }
 
 // NodeAnnSetColor is a functional option that sets the color of the
 // given node announcement.
-func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement) {
-	return func(nodeAnn *lnwire.NodeAnnouncement) {
+func NodeAnnSetColor(newColor color.RGBA) func(*lnwire.NodeAnnouncement1) {
+	return func(nodeAnn *lnwire.NodeAnnouncement1) {
 		nodeAnn.RGBColor = newColor
 	}
 }
 
 // NodeAnnSetFeatures is a functional option that allows updating the features of
 // the given node announcement.
-func NodeAnnSetFeatures(features *lnwire.RawFeatureVector) func(*lnwire.NodeAnnouncement) {
-	return func(nodeAnn *lnwire.NodeAnnouncement) {
+func NodeAnnSetFeatures(
+	features *lnwire.RawFeatureVector) func(*lnwire.NodeAnnouncement1) {
+
+	return func(nodeAnn *lnwire.NodeAnnouncement1) {
 		nodeAnn.Features = features
 	}
 }
@@ -54,7 +56,7 @@ func NodeAnnSetFeatures(features *lnwire.RawFeatureVector) func(*lnwire.NodeAnno
 // NodeAnnSetTimestamp is a functional option that sets the timestamp of the
 // announcement to the current time, or increments it if the timestamp is
 // already in the future.
-func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement) {
+func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement1) {
 	newTimestamp := uint32(time.Now().Unix())
 	if newTimestamp <= nodeAnn.Timestamp {
 		// Increment the prior value to  ensure the timestamp
@@ -65,11 +67,11 @@ func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement) {
 	nodeAnn.Timestamp = newTimestamp
 }
 
-// SignNodeAnnouncement signs the lnwire.NodeAnnouncement provided, which
+// SignNodeAnnouncement signs the lnwire.NodeAnnouncement1 provided, which
 // should be the most recent, valid update, otherwise the timestamp may not
 // monotonically increase from the prior.
 func SignNodeAnnouncement(signer lnwallet.MessageSigner,
-	keyLoc keychain.KeyLocator, nodeAnn *lnwire.NodeAnnouncement) error {
+	keyLoc keychain.KeyLocator, nodeAnn *lnwire.NodeAnnouncement1) error {
 
 	// Create the DER-encoded ECDSA signature over the message digest.
 	sig, err := SignAnnouncement(signer, keyLoc, nodeAnn)
@@ -83,7 +85,7 @@ func SignNodeAnnouncement(signer lnwallet.MessageSigner,
 }
 
 // ValidateNodeAnn validates the fields and signature of a node announcement.
-func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
+func ValidateNodeAnn(a *lnwire.NodeAnnouncement1) error {
 	err := ValidateNodeAnnFields(a)
 	if err != nil {
 		return fmt.Errorf("invalid node announcement fields: %w", err)
@@ -93,7 +95,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 }
 
 // ValidateNodeAnnFields validates the fields of a node announcement.
-func ValidateNodeAnnFields(a *lnwire.NodeAnnouncement) error {
+func ValidateNodeAnnFields(a *lnwire.NodeAnnouncement1) error {
 	// Check that it only has at most one DNS address.
 	hasDNSAddr := false
 	for _, addr := range a.Addresses {
@@ -120,7 +122,7 @@ func ValidateNodeAnnFields(a *lnwire.NodeAnnouncement) error {
 // ValidateNodeAnnSignature validates the node announcement by ensuring that the
 // attached signature is needed a signature of the node announcement under the
 // specified node public key.
-func ValidateNodeAnnSignature(a *lnwire.NodeAnnouncement) error {
+func ValidateNodeAnnSignature(a *lnwire.NodeAnnouncement1) error {
 	// Reconstruct the data of announcement which should be covered by the
 	// signature so we can verify the signature shortly below
 	data, err := a.DataToSign()
@@ -146,7 +148,7 @@ func ValidateNodeAnnSignature(a *lnwire.NodeAnnouncement) error {
 			return err
 		}
 
-		return fmt.Errorf("signature on NodeAnnouncement(%x) is "+
+		return fmt.Errorf("signature on NodeAnnouncement1(%x) is "+
 			"invalid: %x", nodeKey.SerializeCompressed(),
 			msgBuf.Bytes())
 	}

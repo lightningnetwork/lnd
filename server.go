@@ -400,7 +400,7 @@ type server struct {
 	// currentNodeAnn is the node announcement that has been broadcast to
 	// the network upon startup, if the attributes of the node (us) has
 	// changed since last start.
-	currentNodeAnn *lnwire.NodeAnnouncement
+	currentNodeAnn *lnwire.NodeAnnouncement1
 
 	// chansToRestore is the set of channels that upon starting, the server
 	// should attempt to restore/recover.
@@ -1069,7 +1069,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		NotifyWhenOnline:      s.NotifyWhenOnline,
 		NotifyWhenOffline:     s.NotifyWhenOffline,
 		FetchSelfAnnouncement: s.getNodeAnnouncement,
-		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
+		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
 			return s.genNodeAnnouncement(nil)
@@ -1466,7 +1466,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		ChannelDB:    s.chanStateDB,
 		FeeEstimator: cc.FeeEstimator,
 		SignMessage:  cc.MsgSigner.SignMessage,
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
 			return s.genNodeAnnouncement(nil)
@@ -1796,7 +1796,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			AdvertisedIPs: advertisedIPs,
 			AnnounceNewIPs: netann.IPAnnouncer(
 				func(modifier ...netann.NodeAnnModifier) (
-					lnwire.NodeAnnouncement, error) {
+					lnwire.NodeAnnouncement1, error) {
 
 					return s.genNodeAnnouncement(
 						nil, modifier...,
@@ -3306,7 +3306,7 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	newNodeAnn, err := s.genNodeAnnouncement(
-		nil, func(currentAnn *lnwire.NodeAnnouncement) {
+		nil, func(currentAnn *lnwire.NodeAnnouncement1) {
 			currentAnn.Addresses = append(currentAnn.Addresses, addr)
 		},
 	)
@@ -3357,7 +3357,7 @@ func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 }
 
 // getNodeAnnouncement fetches the current, fully signed node announcement.
-func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
+func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement1 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -3368,7 +3368,7 @@ func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
 // announcement. The time stamp of the announcement will be updated in order
 // to ensure it propagates through the network.
 func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
-	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error) {
+	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement1, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -3386,7 +3386,7 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 		}
 		err := s.featureMgr.UpdateFeatureSets(proposedFeatures)
 		if err != nil {
-			return lnwire.NodeAnnouncement{}, err
+			return lnwire.NodeAnnouncement1{}, err
 		}
 
 		// If we could successfully update our feature manager, add
@@ -3411,7 +3411,7 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 		s.nodeSigner, s.identityKeyLoc, &newNodeAnn,
 	)
 	if err != nil {
-		return lnwire.NodeAnnouncement{}, err
+		return lnwire.NodeAnnouncement1{}, err
 	}
 
 	// If signing succeeds, update the current announcement.
@@ -3501,7 +3501,7 @@ func (s *server) establishPersistentConnections(ctx context.Context) error {
 
 	// After checking our previous connections for addresses to connect to,
 	// iterate through the nodes in our channel graph to find addresses
-	// that have been added via NodeAnnouncement messages.
+	// that have been added via NodeAnnouncement1 messages.
 	// TODO(roasbeef): instead iterate over link nodes and query graph for
 	// each of the nodes.
 	graphAddrs := make(map[string]*nodeAddresses)
@@ -4394,7 +4394,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
-			lnwire.NodeAnnouncement, error) {
+			lnwire.NodeAnnouncement1, error) {
 
 			return s.genNodeAnnouncement(nil)
 		},

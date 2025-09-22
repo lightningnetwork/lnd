@@ -1867,3 +1867,24 @@ func (c *Error) RandTestMessage(t *rapid.T) Message {
 
 	return msg
 }
+
+// genValidHostname generates a random valid hostname according to BOLT #7
+// rules.
+func genValidHostname(t *rapid.T) string {
+	// Valid characters: a-z, A-Z, 0-9, -, .
+	validChars := "abcdefghijklmnopqrstuvwxyzABCDE" +
+		"FGHIJKLMNOPQRSTUVWXYZ0123456789-."
+
+	// Generate hostname length between 1 and 255 characters.
+	length := rapid.IntRange(1, 255).Draw(t, "hostname_length")
+
+	hostname := make([]byte, length)
+	for i := 0; i < length; i++ {
+		charIndex := rapid.IntRange(0, len(validChars)-1).Draw(
+			t, fmt.Sprintf("char_%d", i),
+		)
+		hostname[i] = validChars[charIndex]
+	}
+
+	return string(hostname)
+}

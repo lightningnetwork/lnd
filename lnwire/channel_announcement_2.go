@@ -81,17 +81,17 @@ func (c *ChannelAnnouncement2) Encode(w *bytes.Buffer, _ uint32) error {
 // NOTE: this is part of the PureTLVMessage interface.
 func (c *ChannelAnnouncement2) AllRecords() []tlv.Record {
 	recordProducers := append(
-		c.allNonSignatureRecordProducers(), &c.Signature,
+		c.nonSignatureRecordProducers(), &c.Signature,
 	)
 
 	return ProduceRecordsSorted(recordProducers...)
 }
 
-// allNonSignatureRecordProducers returns all the TLV record producers for the
+// nonSignatureRecordProducers returns all the TLV record producers for the
 // message except the signature record producer.
 //
 //nolint:ll
-func (c *ChannelAnnouncement2) allNonSignatureRecordProducers() []tlv.RecordProducer {
+func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProducer {
 	// The chain-hash record is only included if it is _not_ equal to the
 	// bitcoin mainnet genisis block hash.
 	var recordProducers []tlv.RecordProducer
@@ -239,7 +239,7 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 // excludes the signature field.
 func (c *ChannelAnnouncement2) EncodeAllNonSigFields(w io.Writer) error {
 	return EncodeRecordsTo(
-		w, ProduceRecordsSorted(c.allNonSignatureRecordProducers()...),
+		w, ProduceRecordsSorted(c.nonSignatureRecordProducers()...),
 	)
 }
 

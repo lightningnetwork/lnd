@@ -569,6 +569,18 @@ func (c *ChannelUpdate2) RandTestMessage(t *rapid.T) Message {
 		ExtraSignedFields: make(map[uint64][]byte),
 	}
 
+	if rapid.Bool().Draw(t, "includeInboundFee") {
+		base := rapid.IntRange(-1000, 1000).Draw(t, "inFeeBase")
+		rate := rapid.IntRange(-1000, 1000).Draw(t, "inFeeProp")
+		fee := Fee{
+			BaseFee: int32(base),
+			FeeRate: int32(rate),
+		}
+		msg.InboundFee = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType55555](fee),
+		)
+	}
+
 	msg.Signature.Val = RandSignature(t)
 	msg.Signature.Val.ForceSchnorr()
 

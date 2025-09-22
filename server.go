@@ -5595,6 +5595,12 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 			alias = srcNode.Alias
 		}
 
+		// If the `externalip` is not specified in the config, it means
+		// `addrs` will be empty, we'll use the source node's addresses.
+		if len(s.cfg.ExternalIPs) == 0 {
+			addrs = srcNode.Addresses
+		}
+
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):
 		// If an alias is not specified in the config, we'll use the
 		// default, which is the first 10 bytes of the serialized

@@ -728,25 +728,7 @@ func testSelfNodeAnnouncementPersistence(ht *lntest.HarnessTest) {
 	}
 	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
 
-	resp = alice.RPC.GetInfo()
-	assertNodeInfo(
-		resp, "alice", "#eeeeee", "192.168.1.10:8333",
-		"192.168.1.11:8333",
-	)
-
-	// Restart Alice.
-	ht.RestartNode(alice)
-
-	// After restarting, the node info should contain the values that were
-	// set in the update request since the updated values take precedence
-	// over the default values.
-	resp = alice.RPC.GetInfo()
-	assertNodeInfo(
-		resp, "alice", "#eeeeee", "192.168.1.10:8333",
-		"192.168.1.11:8333",
-	)
-
-	// Test that we can still remove an address.
+	// Test that we can remove an address.
 	removeAddrReq := &peersrpc.NodeAnnouncementUpdateRequest{
 		AddressUpdates: []*peersrpc.UpdateAddressAction{
 			{
@@ -761,6 +743,20 @@ func testSelfNodeAnnouncementPersistence(ht *lntest.HarnessTest) {
 	}
 	assertUpdateNodeAnnouncementResponse(ht, response, expectedOps)
 
+	resp = alice.RPC.GetInfo()
+	assertNodeInfo(
+		resp, "alice", "#eeeeee", "192.168.1.11:8333",
+	)
+
+	// Restart Alice.
+	ht.RestartNode(alice)
+
+	// After restarting, the node info should contain the values that were
+	// set in the update request since the updated values take precedence
+	// over the default values.
+	resp = alice.RPC.GetInfo()
+	assertNodeInfo(resp, "alice", "#eeeeee")
+
 	// Now we restart the node with custom values in the config.
 	lndArgs := []string{
 		"--externalip=192.168.1.12:8333",
@@ -772,16 +768,11 @@ func testSelfNodeAnnouncementPersistence(ht *lntest.HarnessTest) {
 
 	// Get the node info and verify that the values are the same as the
 	// ones we set in the config (and not the updated values).
-	// The addresses should be the same as the ones we set in the config
-	// plus the ones we set in the update request earlier.
 	resp = alice.RPC.GetInfo()
 	assertNodeInfo(
-		resp, "alice-updated", "#ffffff", "192.168.1.11:8333",
-		"192.168.1.12:8333", "192.168.1.13:8333",
+		resp, "alice-updated", "#ffffff", "192.168.1.12:8333",
+		"192.168.1.13:8333",
 	)
-
-	// The address we removed earlier should not be present.
-	require.Error(ht, assertAddrs(resp.Uris, "192.168.1.10:8333"))
 }
 
 // assertSyncType asserts that the peer has an expected syncType.

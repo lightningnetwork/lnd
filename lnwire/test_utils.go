@@ -198,23 +198,37 @@ func RandNetAddrs(t *rapid.T) []net.Addr {
 }
 
 // RandCustomRecords generates random custom TLV records.
-func RandCustomRecords(t *rapid.T,
-	ignoreRecords fn.Set[uint64],
-	custom bool) (CustomRecords, fn.Set[uint64]) {
+func RandCustomRecords(t *rapid.T, ignoreRecords fn.Set[uint64]) (CustomRecords,
+	fn.Set[uint64]) {
 
-	numRecords := rapid.IntRange(0, 5).Draw(t, "numCustomRecords")
+	customRecords, set := RandTLVRecords(
+		t, ignoreRecords, MinCustomRecordsTlvType,
+	)
+
+	// Validate the custom records as a sanity check.
+	require.NoError(t, customRecords.Validate())
+
+	return customRecords, set
+}
+
+// RandSignedRangeRecords generates a random set of signed records in the
+// second "signed" tlv range for pure TLV messages.
+func RandSignedRangeRecords(t *rapid.T) (CustomRecords, fn.Set[uint64]) {
+	return RandTLVRecords(t, nil, pureTLVSignedSecondRangeStart)
+}
+
+// RandTLVRecords generates custom TLV records.
+func RandTLVRecords(t *rapid.T, ignoreRecords fn.Set[uint64],
+	rangeStart int) (CustomRecords, fn.Set[uint64]) {
+
+	numRecords := rapid.IntRange(0, 5).Draw(t, "numRecords")
 	customRecords := make(CustomRecords)
 
 	if numRecords == 0 {
 		return nil, nil
 	}
 
-	rangeStart := 0
-	rangeStop := int(CustomTypeStart)
-	if custom {
-		rangeStart = 70_000
-		rangeStop = 100_000
-	}
+	rangeStop := rangeStart + 30_000
 
 	ignoreSet := fn.NewSet[uint64]()
 	for i := 0; i < numRecords; i++ {
@@ -258,7 +272,7 @@ func RandExtraOpaqueData(t *rapid.T,
 	ignoreRecords fn.Set[uint64]) ExtraOpaqueData {
 
 	// Make some random records.
-	cRecords, _ := RandCustomRecords(t, ignoreRecords, false)
+	cRecords, _ := RandTLVRecords(t, ignoreRecords, 0)
 	if cRecords == nil {
 		return ExtraOpaqueData{}
 	}

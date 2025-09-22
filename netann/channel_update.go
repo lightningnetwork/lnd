@@ -242,7 +242,7 @@ func verifyChannelUpdate2Signature(c *lnwire.ChannelUpdate2,
 		return fmt.Errorf("unable to reconstruct message data: %w", err)
 	}
 
-	nodeSig, err := c.Signature.ToSignature()
+	nodeSig, err := c.Signature.Val.ToSignature()
 	if err != nil {
 		return err
 	}
@@ -330,7 +330,7 @@ func ChanUpdate2DigestTag() []byte {
 // chanUpdate2DigestToSign computes the digest of the ChannelUpdate2 message to
 // be signed.
 func chanUpdate2DigestToSign(c *lnwire.ChannelUpdate2) ([]byte, error) {
-	data, err := c.DataToSign()
+	data, err := lnwire.SerialiseFieldsToSign(c)
 	if err != nil {
 		return nil, err
 	}

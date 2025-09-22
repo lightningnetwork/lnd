@@ -291,6 +291,10 @@ func (c *ChannelAnnouncement2) RandTestMessage(t *rapid.T) Message {
 		)
 	}
 
+	msg.Outpoint = tlv.NewRecordT[tlv.TlvType18, OutPoint](
+		OutPoint(RandOutPoint(t)),
+	)
+
 	return msg
 }
 

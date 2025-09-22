@@ -56,6 +56,9 @@ type ChannelAnnouncement2 struct {
 	// the funding output is a pure 2-of-2 MuSig aggregate public key.
 	MerkleRootHash tlv.OptionalRecordT[tlv.TlvType16, [32]byte]
 
+	// Outpoint is the outpoint of the funding transaction.
+	Outpoint tlv.RecordT[tlv.TlvType18, OutPoint]
+
 	// Signature is a Schnorr signature over serialised signed-range TLV
 	// stream of the message.
 	Signature tlv.RecordT[tlv.TlvType160, Sig]
@@ -121,6 +124,7 @@ func (c *ChannelAnnouncement2) nonSignatureRecordProducers() []tlv.RecordProduce
 		},
 	)
 
+	recordProducers = append(recordProducers, &c.Outpoint)
 	recordProducers = append(recordProducers, RecordsAsProducers(
 		tlv.MapToRecords(c.ExtraSignedFields),
 	)...)
@@ -149,6 +153,7 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 		&btcKey1,
 		&btcKey2,
 		&merkleRootHash,
+		&c.Outpoint,
 		&c.Signature,
 	)...)
 	if err != nil {
@@ -202,6 +207,7 @@ func (c *ChannelAnnouncement2) DecodeNonSigTLVRecords(r io.Reader) error {
 		&btcKey1,
 		&btcKey2,
 		&merkleRootHash,
+		&c.Outpoint,
 	)...)
 	if err != nil {
 		return err

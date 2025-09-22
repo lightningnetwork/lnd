@@ -398,7 +398,7 @@ type Config struct {
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node with a fresh
 	// timestamp.
-	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
+	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement1, error)
 
 	// SendAnnouncement is used by the FundingManager to send announcement
 	// messages to the Gossiper to possibly broadcast to the greater
@@ -3757,8 +3757,8 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID) error {
 
 	// If this channel is not meant to be announced to the greater network,
-	// we'll only send our NodeAnnouncement to our counterparty to ensure we
-	// don't leak any of our information.
+	// we'll only send our NodeAnnouncement1 to our counterparty to ensure
+	// we don't leak any of our information.
 	announceChan := completeChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	if !announceChan {
 		log.Debugf("Will not announce private channel %v.",
@@ -3779,7 +3779,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			completeChan.FundingOutpoint,
 		)
 		pubKey := peer.PubKey()
-		log.Debugf("Sending our NodeAnnouncement for "+
+		log.Debugf("Sending our NodeAnnouncement1 for "+
 			"ChannelID(%v) to %x", chanID, pubKey)
 
 		// TODO(halseth): make reliable. If the peer is not online this
@@ -4724,7 +4724,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 				graph.ErrIgnored) {
 
 				log.Debugf("Graph rejected "+
-					"NodeAnnouncement: %v", err)
+					"NodeAnnouncement1: %v", err)
 			} else {
 				log.Errorf("Unable to send node "+
 					"announcement: %v", err)

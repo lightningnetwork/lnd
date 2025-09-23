@@ -516,18 +516,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	if cfg.Tor.Active {
-		if cfg.Tor.NoProxyTargets != defaultNetNoProxyTargets {
-			srvrLog.InfoS(ctx, fmt.Printf("Proxying all network traffic "+
-				"via Tor, EXCEPT [%s]! "+
-				"NOTE: Ensure the backend node is "+
-				"proxying over Tor as well"),
-				"stream_isolation", cfg.Tor.StreamIsolation)
-		} else {
-			srvrLog.InfoS(ctx, "Proxying all network traffic "+
-				"via Tor! NOTE: Ensure the backend node is "+
-				"proxying over Tor as well",
-				"stream_isolation", cfg.Tor.StreamIsolation)
-		}
+		srvrLog.InfoS(ctx, "Proxying all network traffic "+
+			"via Tor! NOTE: Ensure the backend node is "+
+			"proxying over Tor as well",
+			"tor_no_proxy_targets", strings.Join(cfg.Tor.NoProxyTargets, ","),
+			"no_proxy_targets", strings.Join(cfg.NoProxyTargets, ","),
+			"stream_isolation", cfg.Tor.StreamIsolation)
 	}
 
 	// If tor is active and either v2 or v3 onion services have been

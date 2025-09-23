@@ -23,7 +23,10 @@ const (
 // interface.
 type DialFunc func(net, addr string, timeout time.Duration) (net.Conn, error)
 
+// Dialer is an interface housing the underlying implementation to open network
+// sockets to peers.
 type Dialer interface {
+	// Dial connects to the address on the named network.
 	Dial(network, address string) (net.Conn, error)
 }
 

@@ -256,6 +256,10 @@ type ChannelLinkConfig struct {
 	// ChannelNotifier when a channel link become inactive.
 	NotifyInactiveLinkEvent func(wire.OutPoint)
 
+	// NotifyChannelUpdate allows the link to tell the ChannelNotifier when
+	// a channel's state has been updated.
+	NotifyChannelUpdate func(*channeldb.OpenChannel)
+
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
 	HtlcNotifier htlcNotifier

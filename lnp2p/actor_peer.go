@@ -45,11 +45,11 @@ type ActorWithConnConfig struct {
 
 // NewActorWithConn creates a new PeerActor with an underlying SimplePeer connection,
 // registers it with the actor system, and sets everything up automatically.
-func NewActorWithConn(cfg ActorWithConnConfig) (*PeerActor, actor.ActorRef[PeerMessage, PeerResponse], error) {
+func NewActorWithConn(cfg ActorWithConnConfig) (*PeerActor, error) {
 	// Create the SimplePeer connection.
 	simplePeer, err := NewSimplePeer(cfg.SimplePeerCfg)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create SimplePeer: %w", err)
+		return nil, fmt.Errorf("failed to create SimplePeer: %w", err)
 	}
 
 	// Create the PeerActorConfig with the SimplePeer as the connection.
@@ -58,28 +58,20 @@ func NewActorWithConn(cfg ActorWithConnConfig) (*PeerActor, actor.ActorRef[PeerM
 		Receptionist: cfg.ActorSystem.Receptionist(),
 		MessageSinks: cfg.MessageSinks,
 		AutoConnect:  cfg.AutoConnect,
+		ActorSystem:  cfg.ActorSystem,
+		ActorID:      cfg.ActorName,
+		ServiceKey:   fn.Some(cfg.ServiceKey),
 	}
 
-	// Create the PeerActor.
+	// Create the PeerActor which will register itself with the system.
 	peerActor, err := NewPeerActor(peerActorCfg)
 	if err != nil {
 		// Clean up the SimplePeer if PeerActor creation fails.
 		simplePeer.Close()
-		return nil, nil, fmt.Errorf("failed to create PeerActor: %w", err)
+		return nil, fmt.Errorf("failed to create PeerActor: %w", err)
 	}
 
-	// Register the actor with the system.
-	actorRef := actor.RegisterWithSystem(
-		cfg.ActorSystem,
-		cfg.ActorName,
-		cfg.ServiceKey,
-		peerActor,
-	)
-
-	// Set the actorRef on the PeerActor so convenience methods work.
-	peerActor.setActorRef(actorRef)
-
-	return peerActor, actorRef, nil
+	return peerActor, nil
 }
 
 // PeerActor implements an actor-based peer that distributes messages via
@@ -115,7 +107,15 @@ type PeerActor struct {
 	stopOnce sync.Once
 
 	// actorRef is the actor's own reference, set after registration.
-	actorRef actor.ActorRef[PeerMessage, PeerResponse]
+	actorRef fn.Option[actor.ActorRef[PeerMessage, PeerResponse]]
+
+	// actorSystem is the actor system this actor is registered with.
+	// Used for automatic unregistration on Stop.
+	actorSystem *actor.ActorSystem
+
+	// serviceKey is the service key this actor is registered under.
+	// Used for automatic unregistration on Stop.
+	serviceKey fn.Option[PeerServiceKey]
 
 	isRunning     atomic.Bool
 	lastError     error
@@ -162,6 +162,20 @@ type PeerActorConfig struct {
 
 	// AutoConnect determines if the actor should connect on start.
 	AutoConnect bool
+
+	// ActorSystem is the optional actor system for registration.
+	// If provided along with ActorID, the actor will be registered
+	// with the system and will automatically unregister on Stop.
+	ActorSystem *actor.ActorSystem
+
+	// ActorID is the optional ID for registering with the actor system.
+	// Required if ActorSystem is provided.
+	ActorID string
+
+	// ServiceKey is the optional service key for registration.
+	// If not provided but ActorSystem/ActorID are set, a key will be
+	// created from the ActorID.
+	ServiceKey fn.Option[PeerServiceKey]
 }
 
 // ConnectionResult represents the result of a connection attempt.
@@ -180,31 +194,21 @@ type ConnectionResult struct {
 }
 
 // NewPeerActor creates a new PeerActor instance.
+// If ActorSystem and ActorID are provided, the actor will be registered
+// with the system automatically.
 func NewPeerActor(cfg PeerActorConfig) (*PeerActor, error) {
 	// Validate configuration.
 	if err := ValidatePeerActorConfig(cfg); err != nil {
 		return nil, err
 	}
 
-	// Create the peer-specific logger with appropriate prefix.
-	var peerPrefix string
-	if cfg.Connection != nil {
-		// Try to get remote pubkey from connection if available.
-		if remotePub := cfg.Connection.RemotePubKey(); remotePub != nil {
-			if remoteAddr := cfg.Connection.RemoteAddr(); remoteAddr != nil {
-				peerPrefix = fmt.Sprintf("PeerActor(%x@%s):",
-					remotePub.SerializeCompressed(),
-					remoteAddr)
-			} else {
-				peerPrefix = fmt.Sprintf("PeerActor(%x):",
-					remotePub.SerializeCompressed())
-			}
-		} else {
-			peerPrefix = "PeerActor(<unknown>):"
-		}
-	} else {
-		peerPrefix = "PeerActor(<unconnected>):"
+	// If ActorSystem is provided but ActorID is not, that's an error.
+	if cfg.ActorSystem != nil && cfg.ActorID == "" {
+		return nil, fmt.Errorf("ActorID required when ActorSystem is provided")
 	}
+
+	// Create the peer-specific logger with appropriate prefix.
+	peerPrefix := getPeerPrefix(cfg.Connection)
 	peerLog := log.WithPrefix(peerPrefix)
 
 	p := &PeerActor{
@@ -219,6 +223,41 @@ func NewPeerActor(cfg PeerActorConfig) (*PeerActor, error) {
 
 	for _, sink := range cfg.MessageSinks {
 		p.addMessageSinkInternal(sink)
+	}
+
+	// Store the actor system for automatic cleanup.
+	p.actorSystem = cfg.ActorSystem
+
+	// If ActorSystem is provided, register the actor.
+	if cfg.ActorSystem != nil {
+		p.peerLog.Debugf("Registering actor with system using ID: %s", cfg.ActorID)
+
+		// Use provided ServiceKey or create one from ActorID.
+		serviceKey := cfg.ServiceKey.UnwrapOr(
+			actor.NewServiceKey[PeerMessage, PeerResponse](cfg.ActorID),
+		)
+		p.peerLog.Tracef("Using service key for registration: %v", serviceKey)
+
+		// Store the service key for automatic cleanup.
+		p.serviceKey = fn.Some(serviceKey)
+
+		// Set receptionist if not provided.
+		if cfg.Receptionist == nil {
+			p.peerLog.Tracef("Using system's default receptionist")
+			p.cfg.Receptionist = cfg.ActorSystem.Receptionist()
+		}
+
+		// Register with the actor system.
+		p.peerLog.Tracef("Registering actor with system")
+		actorRef := actor.RegisterWithSystem(
+			cfg.ActorSystem, cfg.ActorID, serviceKey, p,
+		)
+
+		// Set the actor's own reference.
+		p.setActorRef(actorRef)
+		p.peerLog.Infof("Actor successfully registered with ID: %s", cfg.ActorID)
+	} else {
+		p.peerLog.Tracef("No ActorSystem provided, actor will not be registered")
 	}
 
 	return p, nil
@@ -680,20 +719,62 @@ func (p *PeerActor) Start(ctx context.Context) fn.Result[ConnectionResult] {
 	return fn.Ok(ConnectionResult{Success: true})
 }
 
-// Stop stops the peer actor and waits for all goroutines to finish.
+// Stop stops the peer actor and waits for all goroutines to finish. It
+// automatically unregisters the actor from the system and receptionist if the
+// actor was registered with an ActorSystem.
 func (p *PeerActor) Stop() error {
 	var connErr error
 	p.stopOnce.Do(func() {
 		p.peerLog.Infof("Stopping peer actor")
 
+		p.unregisterFromSystem()
+
+		p.peerLog.Tracef("Closing quit channel to signal goroutines")
 		close(p.quit)
+
+		p.peerLog.Tracef("Closing underlying P2P connection")
+
 		connErr = p.conn.Close()
+		if connErr != nil {
+			p.peerLog.Debugf("Error closing connection: %v",
+				connErr)
+		}
+
+		p.peerLog.Tracef("Waiting for all goroutines to finish")
 		p.wg.Wait()
 
-		p.peerLog.Debugf("Peer actor stopped")
+		p.peerLog.Debugf("Peer actor stopped successfully")
 	})
 
 	return connErr
+}
+
+// unregisterFromSystem unregisters the actor from the system and receptionist.
+func (p *PeerActor) unregisterFromSystem() {
+	// Early return if no system is configured.
+	if p.actorSystem == nil {
+		p.peerLog.Tracef("No actor system, skipping unregistration")
+		return
+	}
+
+	// Both service key and actor ref must be present to unregister.
+	if p.serviceKey.IsNone() || p.actorRef.IsNone() {
+		p.peerLog.Tracef("Missing service key or actor ref, " +
+			"skipping unregistration")
+		return
+	}
+
+	// Get the values - we know they exist from the check above.
+	sk := p.serviceKey.UnsafeFromSome()
+	ref := p.actorRef.UnsafeFromSome()
+
+	p.peerLog.Debugf("Unregistering from actor system and receptionist")
+	if unregistered := sk.Unregister(p.actorSystem, ref); unregistered {
+		p.peerLog.Tracef("Successfully unregistered actor %s", ref.ID())
+	} else {
+		p.peerLog.Tracef("Actor %s was not found in "+
+			"system/receptionist", ref.ID())
+	}
 }
 
 // ConnectionFuture returns a future that completes when the connection is
@@ -705,18 +786,45 @@ func (p *PeerActor) ConnectionFuture() actor.Future[ConnectionResult] {
 // setActorRef sets the actor's own reference for use in convenience methods.
 // This should be called after registering the actor with the system.
 func (p *PeerActor) setActorRef(ref actor.ActorRef[PeerMessage, PeerResponse]) {
-	p.actorRef = ref
+	p.actorRef = fn.Some(ref)
+}
+
+// ActorRef returns the actor's reference if it was registered with a system.
+func (p *PeerActor) ActorRef() fn.Option[actor.ActorRef[PeerMessage, PeerResponse]] {
+	return p.actorRef
+}
+
+// getPeerPrefix generates a logger prefix based on the connection state.
+func getPeerPrefix(conn P2PConnection) string {
+	if conn == nil {
+		return "PeerActor(<unconnected>):"
+	}
+
+	remotePub := conn.RemotePubKey()
+	if remotePub == nil {
+		return "PeerActor(<unknown>):"
+	}
+
+	remoteAddr := conn.RemoteAddr()
+	if remoteAddr == nil {
+		return fmt.Sprintf("PeerActor(%x):",
+			remotePub.SerializeCompressed())
+	}
+
+	return fmt.Sprintf("PeerActor(%x@%s):",
+		remotePub.SerializeCompressed(), remoteAddr)
 }
 
 // AddServiceKey is a convenience method that adds a service key by sending an
 // AddServiceKeyRequest through the actor system.
-func (p *PeerActor) AddServiceKey(key PeerServiceKey) bool {
-	if p.actorRef == nil {
-		return false
+func (p *PeerActor) AddServiceKey(key PeerServiceKey) fn.Result[bool] {
+	if p.actorRef.IsNone() {
+		return fn.Err[bool](fmt.Errorf("actor ref not set"))
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &AddServiceKeyRequest{
+	future := ref.Ask(ctx, &AddServiceKeyRequest{
 		MessageSink: &MessageSink{
 			ServiceKey: key,
 			Filter:     nil,
@@ -726,66 +834,69 @@ func (p *PeerActor) AddServiceKey(key PeerServiceKey) bool {
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
 	if err != nil {
-		return false
+		return fn.Err[bool](err)
 	}
 
 	addResp := resp.(*AddServiceKeyResponse)
-	return addResp.Success
+	return fn.Ok(addResp.Success)
 }
 
 // AddMessageSink is a convenience method that adds a message sink by sending an
 // AddServiceKeyRequest through the actor system.
-func (p *PeerActor) AddMessageSink(sink *MessageSink) bool {
-	if p.actorRef == nil {
-		return false
+func (p *PeerActor) AddMessageSink(sink *MessageSink) fn.Result[bool] {
+	if p.actorRef.IsNone() {
+		return fn.Err[bool](fmt.Errorf("actor ref not set"))
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &AddServiceKeyRequest{
+	future := ref.Ask(ctx, &AddServiceKeyRequest{
 		MessageSink: sink,
 	})
 
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
 	if err != nil {
-		return false
+		return fn.Err[bool](err)
 	}
 
 	addResp := resp.(*AddServiceKeyResponse)
-	return addResp.Success
+	return fn.Ok(addResp.Success)
 }
 
 // RemoveServiceKey is a convenience method that removes a service key by
 // sending a RemoveServiceKeyRequest through the actor system.
-func (p *PeerActor) RemoveServiceKey(key PeerServiceKey) bool {
-	if p.actorRef == nil {
-		return false
+func (p *PeerActor) RemoveServiceKey(key PeerServiceKey) fn.Result[bool] {
+	if p.actorRef.IsNone() {
+		return fn.Err[bool](fmt.Errorf("actor ref not set"))
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &RemoveServiceKeyRequest{
+	future := ref.Ask(ctx, &RemoveServiceKeyRequest{
 		ServiceKey: key,
 	})
 
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
 	if err != nil {
-		return false
+		return fn.Err[bool](err)
 	}
 
 	removeResp := resp.(*RemoveServiceKeyResponse)
-	return removeResp.Success
+	return fn.Ok(removeResp.Success)
 }
 
 // GetServiceKeys is a convenience method that retrieves service keys by sending
 // a GetServiceKeysRequest through the actor system.
 func (p *PeerActor) GetServiceKeys() []PeerServiceKey {
-	if p.actorRef == nil {
+	if p.actorRef.IsNone() {
 		return nil
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &GetServiceKeysRequest{})
+	future := ref.Ask(ctx, &GetServiceKeysRequest{})
 
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
@@ -799,68 +910,44 @@ func (p *PeerActor) GetServiceKeys() []PeerServiceKey {
 
 // GetMessageSinks is a convenience method that retrieves message sinks by
 // sending a GetMessageSinksRequest through the actor system.
-func (p *PeerActor) GetMessageSinks() []*MessageSink {
-	if p.actorRef == nil {
-		return nil
+func (p *PeerActor) GetMessageSinks() fn.Result[[]*MessageSink] {
+	if p.actorRef.IsNone() {
+		return fn.Err[[]*MessageSink](fmt.Errorf("actor ref not set"))
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &GetMessageSinksRequest{})
+	future := ref.Ask(ctx, &GetMessageSinksRequest{})
 
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
 	if err != nil {
-		return nil
+		return fn.Err[[]*MessageSink](err)
 	}
 
 	sinksResp := resp.(*GetMessageSinksResponse)
-	return sinksResp.MessageSinks
+	return fn.Ok(sinksResp.MessageSinks)
 }
 
 // GetStatus is a convenience method that retrieves the peer status by
 // sending a GetStatusRequest through the actor system.
-func (p *PeerActor) GetStatus() *StatusResponse {
-	if p.actorRef == nil {
-		return nil
+func (p *PeerActor) GetStatus() fn.Result[*StatusResponse] {
+	if p.actorRef.IsNone() {
+		return fn.Err[*StatusResponse](fmt.Errorf("actor ref not set"))
 	}
 
+	ref := p.actorRef.UnwrapOr(nil)
 	ctx := context.Background()
-	future := p.actorRef.Ask(ctx, &GetStatusRequest{})
+	future := ref.Ask(ctx, &GetStatusRequest{})
 
 	result := future.Await(ctx)
 	resp, err := result.Unpack()
 	if err != nil {
-		return nil
+		return fn.Err[*StatusResponse](err)
 	}
 
 	statusResp := resp.(*StatusResponse)
-	return statusResp
-}
-
-// CreatePeerService creates a service key and registers the actor with a
-// system.
-func CreatePeerService(system *actor.ActorSystem,
-	id string, cfg PeerActorConfig,
-) (actor.ActorRef[PeerMessage, PeerResponse], error) {
-
-	if cfg.Receptionist == nil {
-		cfg.Receptionist = system.Receptionist()
-	}
-
-	// Create the service key for the actor, based on the ID passed in.
-	serviceKey := actor.NewServiceKey[PeerMessage, PeerResponse](id)
-	peerActor, err := NewPeerActor(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create peer actor: %w", err)
-	}
-
-	// PeerActor directly implements ActorBehavior, no adapter needed.
-	actorRef := actor.RegisterWithSystem(system, id, serviceKey, peerActor)
-
-	// Set the actor's own reference for convenience methods.
-	peerActor.setActorRef(actorRef)
-
-	return actorRef, nil
+	return fn.Ok(statusResp)
 }
 
 // Ensure PeerActor implements the ActorBehavior interface directly.

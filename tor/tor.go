@@ -108,10 +108,6 @@ func randomAuth() (*proxy.Auth, error) {
 // streamIsolation determines if we should force stream isolation for this new
 // connection. If enabled, new connections will use a fresh circuit, rather than
 // possibly re-using an existing circuit.
-//
-// skipProxyForClearNetTargets argument allows the dialer to directly connect
-// to the provided address if it does not represent an union service, skipping
-// the SOCKS proxy.
 func dialProxy(address string, proxyNet *ProxyNet,
 	timeout time.Duration) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(address)

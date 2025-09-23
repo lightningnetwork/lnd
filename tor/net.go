@@ -131,10 +131,6 @@ type ProxyNet struct {
 	// will now use a distinct circuit.
 	StreamIsolation bool
 
-	// SkipProxyForClearNetTargets forces the proxy network to use direct
-	// connections for all non-onion service targets. If enabled, the node IP
-	// address will be revealed while communicating with such targets.
-
 	// NoProxyTargets is a string of comma-separated values
 	// specifying hosts that should bypass the proxy. Each value is either an
 	// IP address, a CIDR range, a zone (*.example.com) or a host name

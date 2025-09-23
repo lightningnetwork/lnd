@@ -1817,6 +1817,13 @@ func (l *channelLink) handleUpstreamMsg(ctx context.Context,
 	case *lnwire.CommitSig:
 		err = l.processRemoteCommitSig(ctx, msg)
 
+		// At this point our local commitment state has been irrevocably
+		// committed to and our balances are updated. We notify our
+		// subscribers that the channel state has been updated.
+		if err == nil {
+			l.cfg.NotifyChannelUpdate(l.channel.ChannelState())
+		}
+
 	case *lnwire.RevokeAndAck:
 		err = l.processRemoteRevokeAndAck(ctx, msg)
 

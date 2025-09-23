@@ -346,7 +346,9 @@ func testServiceKeyManagement(t *testing.T) {
 	harness.requireServiceKeyCount(peerActor, 0)
 
 	// Try to remove non-existent - should fail.
-	removed := peerActor.RemoveServiceKey(key1)
+	result := peerActor.RemoveServiceKey(key1)
+	removed, err := result.Unpack()
+	require.NoError(t, err)
 	require.False(t, removed)
 }
 

@@ -5488,6 +5488,24 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 					},
 				}
 
+			case channelnotifier.ChannelUpdateEvent:
+				channel, err := createRPCOpenChannel(
+					updateStream.Context(),
+					r, event.Channel, true, false,
+				)
+				if err != nil {
+					return err
+				}
+
+				update = &lnrpc.ChannelEventUpdate{
+					Type: lnrpc.ChannelEventUpdate_CHANNEL_UPDATE,
+					Channel: &lnrpc.ChannelEventUpdate_UpdatedChannel{
+						UpdatedChannel: &lnrpc.ChannelCommitUpdate{
+							Channel: channel,
+						},
+					},
+				}
+
 			case channelnotifier.InactiveChannelEvent:
 				update = &lnrpc.ChannelEventUpdate{
 					Type: lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL,

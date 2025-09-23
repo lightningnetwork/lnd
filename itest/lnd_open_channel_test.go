@@ -3,6 +3,7 @@ package itest
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1341,4 +1342,102 @@ func testOpenChannelWithShutdownAddr(ht *lntest.HarnessTest) {
 	bobUTXOConfirmed := ht.AssertNumUTXOsConfirmed(bob, 1)[0]
 	require.Equal(ht, bobShutdownAddr.Address, bobUTXOConfirmed.Address)
 	require.Equal(ht, paymentAmount, bobUTXOConfirmed.AmountSat)
+}
+
+// testChannelUpdateNotifications checks that clients subscribed to channel
+// events receive real-time updates when the channel state changes.
+func testChannelUpdateNotifications(ht *lntest.HarnessTest) {
+	// We'll start by creating two nodes, Alice and Bob, and a channel
+	// between them.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	ht.EnsureConnected(alice, bob)
+
+	// We'll subscribe to channel events for both nodes.
+	aliceSub := alice.RPC.SubscribeChannelEvents()
+	bobSub := bob.RPC.SubscribeChannelEvents()
+
+	// We'll then open a channel between Alice and Bob.
+	chanPoint := ht.OpenChannel(
+		alice, bob, lntest.OpenChannelParams{
+			Amt:     1000000,
+			PushAmt: 500000,
+		},
+	)
+
+	// We'll wait for the channel to be active. We expect to receive one
+	// pending, one open, and one active notification.
+	ht.AssertChannelActive(alice, chanPoint)
+	ht.AssertChannelActive(bob, chanPoint)
+
+	ht.AssertChannelEventType(
+		aliceSub, lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL,
+	)
+	ht.AssertChannelEventType(
+		aliceSub, lnrpc.ChannelEventUpdate_OPEN_CHANNEL,
+	)
+	ht.AssertChannelEventType(
+		aliceSub, lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL,
+	)
+
+	ht.AssertChannelEventType(
+		bobSub, lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL,
+	)
+	ht.AssertChannelEventType(
+		bobSub, lnrpc.ChannelEventUpdate_OPEN_CHANNEL,
+	)
+	ht.AssertChannelEventType(
+		bobSub, lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL,
+	)
+
+	// We'll now make a payment from Alice to Bob to trigger a channel
+	// update.
+	payReqs, _, _ := ht.CreatePayReqs(bob, btcutil.Amount(1000), 1)
+	ht.CompletePaymentRequests(alice, payReqs)
+
+	// assertUpdates is a helper function to assert the number of commitment
+	// updates received by a node.
+	assertUpdates := func(sub rpc.ChannelEventsClient, numUpdates int) {
+		event := ht.AssertChannelEventType(
+			sub, lnrpc.ChannelEventUpdate_CHANNEL_UPDATE,
+		)
+		require.IsType(
+			ht, &lnrpc.ChannelEventUpdate_UpdatedChannel{},
+			event.Channel,
+		)
+		channel := event.GetUpdatedChannel().Channel
+		require.EqualValues(ht, numUpdates, channel.NumUpdates)
+	}
+
+	// expectNoMoreUpdates is a helper function to assert that no more
+	// channel updates are received by a node.
+	expectNoMoreUpdates := func(sub rpc.ChannelEventsClient) {
+		updates := make(chan struct{})
+		go func() {
+			_, err := sub.Recv()
+			// Only signal if we successfully received an update.
+			// If Recv fails (e.g., context canceled during test
+			// cleanup), that's fine - it means no update arrived.
+			if err == nil {
+				close(updates)
+			}
+		}()
+
+		select {
+		case <-updates:
+			ht.Fatalf("expected no more updates")
+		case <-time.After(defaultTimeout):
+		}
+	}
+
+	// We expect to see two updates from each node's point of view. One for
+	// the addition of the HTLC, and a second for the settlement.
+	assertUpdates(aliceSub, 1)
+	assertUpdates(aliceSub, 2)
+	expectNoMoreUpdates(aliceSub)
+
+	assertUpdates(bobSub, 1)
+	assertUpdates(bobSub, 2)
+	expectNoMoreUpdates(bobSub)
 }

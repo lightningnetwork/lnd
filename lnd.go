@@ -511,14 +511,15 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
 		srvrLog.Warn("Danger! Skipping Tor while Stream Isolation is on." +
-			"This has high risk of leaking your IP. Make sure this is " +
-			"what you want.")
+			"This has high risk of leaking your IP. " +
+			"Make sure this is what you want.")
 	}
 
 	if cfg.Tor.Active {
 		if cfg.Tor.NoProxyTargets != defaultNetNoProxyTargets {
 			srvrLog.InfoS(ctx, fmt.Printf("Proxying all network traffic "+
-				"via Tor, EXCEPT [%s]! NOTE: Ensure the backend node is "+
+				"via Tor, EXCEPT [%s]! "+
+				"NOTE: Ensure the backend node is "+
 				"proxying over Tor as well"),
 				"stream_isolation", cfg.Tor.StreamIsolation)
 		} else {

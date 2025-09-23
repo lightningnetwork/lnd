@@ -212,13 +212,14 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// to connect to the grpc server.
 	if ctx.GlobalIsSet("socksproxy") {
 		socksProxy := ctx.GlobalString("socksproxy")
+		torNet := &tor.ClearNet{
+			SOCKS: socksProxy,
+		}
+
 		torDialer := func(_ context.Context, addr string) (net.Conn,
 			error) {
 
-			return tor.Dial(
-				addr, socksProxy, false, false,
-				tor.DefaultConnTimeout,
-			)
+			return torNet.Dial("tcp", addr, tor.DefaultConnTimeout)
 		}
 		opts = append(opts, grpc.WithContextDialer(torDialer))
 	} else {

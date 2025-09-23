@@ -170,12 +170,18 @@ func Example_peerActor() {
 		MessageSinks: []*lnp2p.MessageSink{{ServiceKey: messageKey}},
 		Receptionist: system.Receptionist(),
 		AutoConnect:  true,
+		ActorSystem:  system,
+		ActorID:      "test-peer",
 	}
 
 	// Create and register peer actor.
-	peerRef, err := lnp2p.CreatePeerService(system, "test-peer", peerCfg)
+	peerActor, err := lnp2p.NewPeerActor(peerCfg)
 	if err != nil {
 		log.Fatal(err)
+	}
+	peerRef := peerActor.ActorRef().UnwrapOr(nil)
+	if peerRef == nil {
+		log.Fatal("actor ref not set despite ActorSystem being provided")
 	}
 
 	ctx := context.Background()
@@ -300,10 +306,12 @@ func Example_parallelActors() {
 		},
 		Receptionist: system.Receptionist(),
 		AutoConnect:  true,
+		ActorSystem:  system,
+		ActorID:      "multi-peer",
 	}
 
 	// Create peer service.
-	_, err := lnp2p.CreatePeerService(system, "multi-peer", peerCfg)
+	_, err := lnp2p.NewPeerActor(peerCfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -373,12 +381,18 @@ func Example_dynamicServiceKeys() {
 		MessageSinks: []*lnp2p.MessageSink{},
 		Receptionist: system.Receptionist(),
 		AutoConnect:  false,
+		ActorSystem:  system,
+		ActorID:      "dynamic-peer",
 	}
 
 	// Create peer service.
-	peerRef, err := lnp2p.CreatePeerService(system, "dynamic-peer", peerCfg)
+	peerActor, err := lnp2p.NewPeerActor(peerCfg)
 	if err != nil {
 		log.Fatal(err)
+	}
+	peerRef := peerActor.ActorRef().UnwrapOr(nil)
+	if peerRef == nil {
+		log.Fatal("actor ref not set despite ActorSystem being provided")
 	}
 
 	ctx := context.Background()

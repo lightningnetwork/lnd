@@ -510,9 +510,10 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	if cfg.Tor.StreamIsolation && cfg.Tor.SkipProxyForClearNetTargets {
-		srvrLog.Warn("Danger! Skipping Tor while Stream Isolation is on." +
-			"This has high risk of leaking your IP. " +
-			"Make sure this is what you want.")
+		srvrLog.Warn(
+			"Danger! Skipping Tor while Stream Isolation is on." +
+				"This has high risk of leaking your IP. " +
+				"Make sure this is what you want.")
 	}
 
 	if cfg.Tor.Active {

@@ -78,6 +78,7 @@ func (r *ClearNet) CreateDialer(timeout time.Duration) (Dialer, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	perHostDialer := proxy.NewPerHost(dialer, clearDialer)
 	perHostDialer.AddFromString(r.NoProxyTargets)
 	return perHostDialer, nil
@@ -91,6 +92,7 @@ func (r *ClearNet) Dial(
 	if err != nil {
 		return nil, err
 	}
+
 	return dialer.Dial(network, address)
 }
 
@@ -137,6 +139,7 @@ type ProxyNet struct {
 	// (localhost). A best effort is made to parse the string and errors are
 	// ignored.
 	NoProxyTargets string
+
 	// Configuration to use for clearnet connections
 	ClearNet Net
 }

@@ -31,7 +31,7 @@ type Dialer interface {
 // allows us to abstract the implementations of these functions over different
 // networks, e.g. clearnet, Tor net, etc.
 type Net interface {
-	createDialer(timeout time.Duration) (Dialer, error)
+	CreateDialer(timeout time.Duration) (Dialer, error)
 	// Dial connects to the address on the named network.
 	Dial(network, address string, timeout time.Duration) (net.Conn, error)
 
@@ -65,7 +65,7 @@ type ClearNet struct {
 	NoProxyTargets string
 }
 
-func (r *ClearNet) createDialer(timeout time.Duration) (Dialer, error) {
+func (r *ClearNet) CreateDialer(timeout time.Duration) (Dialer, error) {
 	clearDialer := &net.Dialer{Timeout: timeout}
 	if r.SOCKS == "" {
 		return clearDialer, nil
@@ -84,7 +84,7 @@ func (r *ClearNet) createDialer(timeout time.Duration) (Dialer, error) {
 func (r *ClearNet) Dial(
 	network, address string, timeout time.Duration) (net.Conn, error) {
 
-	dialer, err := r.createDialer(timeout)
+	dialer, err := r.CreateDialer(timeout)
 	if err != nil {
 		return nil, err
 	}

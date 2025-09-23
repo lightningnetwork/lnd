@@ -62,9 +62,9 @@ func (c *proxyConn) RemoteAddr() net.Addr {
 	return c.remoteAddr
 }
 
-func (pn *ProxyNet) createDialer(timeout time.Duration) (Dialer, error) {
+func (pn *ProxyNet) CreateDialer(timeout time.Duration) (Dialer, error) {
 	cn := &ClearNet{}
-	clearDialer, err := cn.createDialer(timeout)
+	clearDialer, err := cn.CreateDialer(timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -121,9 +121,9 @@ func dialProxy(address string, proxyNet *ProxyNet,
 
 	var dialer Dialer
 	if IsOnionHost(host) {
-		dialer, err = proxyNet.createDialer(timeout)
+		dialer, err = proxyNet.CreateDialer(timeout)
 	} else {
-		dialer, err = proxyNet.ClearNet.createDialer(timeout)
+		dialer, err = proxyNet.ClearNet.CreateDialer(timeout)
 	}
 	if err != nil {
 		return nil, err

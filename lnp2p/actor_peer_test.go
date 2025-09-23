@@ -45,10 +45,12 @@ func TestCreatePeerServiceWithNilReceptionist(t *testing.T) {
 
 	cfg := PeerActorConfig{
 		Connection:   mockConn,
-		Receptionist: nil,
+		Receptionist: system.Receptionist(),
+		ActorSystem:  system,
+		ActorID:      "test-peer",
 	}
 
-	_, err := CreatePeerService(system, "test-peer", cfg)
+	_, err := NewPeerActor(cfg)
 	require.NoError(t, err)
 }
 
@@ -117,20 +119,25 @@ func TestNewActorWithConn(t *testing.T) {
 	}
 
 	// Create actor with connection.
-	peerActor, actorRef, err := NewActorWithConn(cfg)
+	peerActor, err := NewActorWithConn(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, peerActor)
+	actorRef := peerActor.ActorRef().UnwrapOr(nil)
 	require.NotNil(t, actorRef)
 
 	// Verify the actor is properly set up using convenience methods.
 	// Note: We could use raw requests via actorRef.Ask(), but the convenience
 	// methods are simpler and still go through the actor system.
-	statusResp := peerActor.GetStatus()
+	statusResult := peerActor.GetStatus()
+	statusResp, err := statusResult.Unpack()
+	require.NoError(t, err)
 	require.NotNil(t, statusResp)
 	require.False(t, statusResp.IsConnected)
 
 	// Verify service keys are set using convenience method.
-	sinks := peerActor.GetMessageSinks()
+	sinksResult := peerActor.GetMessageSinks()
+	sinks, err := sinksResult.Unpack()
+	require.NoError(t, err)
 	require.Len(t, sinks, 1)
 
 	// Clean up.
@@ -262,9 +269,15 @@ func TestPeerActorDirectMethods(t *testing.T) {
 		MessageSinks: []*MessageSink{},
 	}
 
-	// Use CreatePeerService to properly set up the actor with its reference.
-	actorRef, err := CreatePeerService(system, "test-peer", cfg)
+	// Add ActorSystem and ActorID to register the actor.
+	cfg.ActorSystem = system
+	cfg.ActorID = "test-peer"
+
+	// Use NewPeerActor to create and register the actor.
+	peerActor, err := NewPeerActor(cfg)
 	require.NoError(t, err)
+	actorRef := peerActor.ActorRef().UnwrapOr(nil)
+	require.NotNil(t, actorRef)
 
 	// For testing convenience methods, we need to get the underlying PeerActor.
 	// Since we can't access it directly, we'll test through the actorRef.
@@ -486,7 +499,9 @@ func TestPeerActorGetMessageSinks(t *testing.T) {
 	peerActor, _ := createTestPeerActorWithRef(t, system, cfg)
 
 	// Get message sinks using convenience method (goes through actor system).
-	sinks := peerActor.GetMessageSinks()
+	sinksResult := peerActor.GetMessageSinks()
+	sinks, err := sinksResult.Unpack()
+	require.NoError(t, err)
 	require.Len(t, sinks, 2)
 
 	// Verify the sinks match what we configured.
@@ -497,14 +512,18 @@ func TestPeerActorGetMessageSinks(t *testing.T) {
 
 	// Add another sink dynamically.
 	key3 := actor.NewServiceKey[PeerMessage, PeerResponse]("dynamic-key")
-	added := peerActor.AddMessageSink(&MessageSink{
+	addResult := peerActor.AddMessageSink(&MessageSink{
 		ServiceKey: key3,
 		Filter:     testFilter,
 	})
+	added, err := addResult.Unpack()
+	require.NoError(t, err)
 	require.True(t, added)
 
 	// Get sinks again.
-	sinks = peerActor.GetMessageSinks()
+	sinksResult = peerActor.GetMessageSinks()
+	sinks, err = sinksResult.Unpack()
+	require.NoError(t, err)
 	require.Len(t, sinks, 3)
 }
 

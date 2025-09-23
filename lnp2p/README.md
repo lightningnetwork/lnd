@@ -188,9 +188,15 @@ cfg := lnp2p.ActorWithConnConfig{
     },
 }
 
-peerActor, actorRef, err := lnp2p.NewActorWithConn(cfg)
+peerActor, err := lnp2p.NewActorWithConn(cfg)
 if err != nil {
     return err
+}
+
+// Get the actor reference (will be Some since we provided ActorSystem).
+actorRef := peerActor.ActorRef().UnwrapOr(nil)
+if actorRef == nil {
+    return fmt.Errorf("expected actor ref to be set")
 }
 
 // Start the connection.
@@ -200,9 +206,9 @@ if resp, err := startResult.Unpack(); err != nil || !resp.Success {
 }
 ```
 
-#### Option 2: Using CreatePeerService
+#### Option 2: Using NewPeerActor with Registration
 
-If you already have a P2PConnection, use `CreatePeerService` to register it with the actor system:
+If you already have a P2PConnection, use `NewPeerActor` with ActorSystem registration:
 
 ```go
 // Assuming you have an existing connection.
@@ -211,15 +217,22 @@ cfg := lnp2p.PeerActorConfig{
     Receptionist: system.Receptionist(),
     MessageSinks: messageSinks,
     AutoConnect:  true,
+    ActorSystem:  system,
+    ActorID:      "peer-1",
 }
 
-actorRef, err := lnp2p.CreatePeerService(system, "peer-1", cfg)
+peerActor, err := lnp2p.NewPeerActor(cfg)
 if err != nil {
     return err
 }
+// Get the actor reference (will be Some since we provided ActorSystem).
+actorRef := peerActor.ActorRef().UnwrapOr(nil)
+if actorRef == nil {
+    return fmt.Errorf("expected actor ref to be set")
+}
 ```
 
-#### Option 3: Manual Creation
+#### Option 3: Manual Creation Without Registration
 
 For maximum control, you can still create everything manually:
 
@@ -243,16 +256,20 @@ cfg := lnp2p.PeerActorConfig{
     AutoConnect: true,
 }
 
-// Create and start the PeerActor.
+// Create the PeerActor without actor system registration.
 peerActor, err := lnp2p.NewPeerActor(cfg)
 if err != nil {
     return err
 }
 
+// Start the connection manually.
 startResult := peerActor.Start(ctx)
 if resp, err := startResult.Unpack(); err != nil || !resp.Success {
     return err
 }
+
+// Note: Without ActorSystem/ActorID in config, the actor won't be
+// registered with the system and peerActor.ActorRef() will return None.
 ```
 
 With this setup, the PeerActor automatically connects and distributes incoming messages to all registered handlers based on their filters. Multiple subsystems can process messages concurrently without manual synchronization.

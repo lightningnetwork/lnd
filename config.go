@@ -361,8 +361,8 @@ type Config struct {
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
-	SOCKS             string        `long:"socks" description:"The host:port that SOCKS5 proxy to use for any outbound connections not going over Tor"`
-	NoProxyTargets    string        `long:"no-proxy-targets" description:"Comma-separated values specifying hosts that should bypass the clearnet proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a host name (localhost). A best effort is made to parse the string and errors are ignored. (default: localhost,127.0.0.0/8,::1/128)"`
+	SOCKS             string        `long:"socks" description:"The SOCKS5 proxy to use for any outbound connections not going over Tor with format [user:pass]@host:port"`
+	NoProxyTargets    []string      `long:"no-proxy-targets" description:"Specify a target that should bypass the configured proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a hostname (localhost). A best effort is made to parse the string and errors are ignored. Can be specified multiple times. (default: localhost,127.0.0.0/8,::1/128)"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -665,7 +665,7 @@ func DefaultConfig() Config {
 			SOCKS:          defaultTorSOCKS,
 			DNS:            defaultTorDNS,
 			Control:        defaultTorControl,
-			NoProxyTargets: defaultTorNoProxyTargets,
+			NoProxyTargets: strings.Split(defaultTorNoProxyTargets, ","),
 		},
 		net: &tor.ClearNet{
 			SOCKS:          defaultNetSOCKS,
@@ -1230,14 +1230,14 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	clearNet := &tor.ClearNet{
 		SOCKS:          cfg.SOCKS,
 		SOCKSAuth:      socksAuth,
-		NoProxyTargets: cfg.NoProxyTargets,
+		NoProxyTargets: strings.Join(cfg.NoProxyTargets, ","),
 	}
 	if cfg.Tor.Active {
 		torNet := &tor.ProxyNet{
 			SOCKS:           cfg.Tor.SOCKS,
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
-			NoProxyTargets:  cfg.Tor.NoProxyTargets,
+			NoProxyTargets:  strings.Join(cfg.Tor.NoProxyTargets, ","),
 			ClearNet:        clearNet,
 		}
 		if !cfg.Tor.SkipProxyForClearNetTargets {
@@ -1245,7 +1245,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 				SOCKS:           cfg.Tor.SOCKS,
 				DNS:             cfg.Tor.DNS,
 				StreamIsolation: cfg.Tor.StreamIsolation,
-				NoProxyTargets:  cfg.Tor.NoProxyTargets,
+				NoProxyTargets:  strings.Join(cfg.Tor.NoProxyTargets, ","),
 				ClearNet:        clearNet,
 			}
 		}

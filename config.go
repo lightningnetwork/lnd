@@ -1237,16 +1237,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			SOCKS:           cfg.Tor.SOCKS,
 			DNS:             cfg.Tor.DNS,
 			StreamIsolation: cfg.Tor.StreamIsolation,
-			NoProxyTargets:  strings.Join(cfg.Tor.NoProxyTargets, ","),
-			ClearNet:        clearNet,
+			NoProxyTargets: strings.Join(
+				cfg.Tor.NoProxyTargets, ","),
+			ClearNet: clearNet,
 		}
 		if !cfg.Tor.SkipProxyForClearNetTargets {
 			torNet.ClearNet = &tor.ProxyNet{
 				SOCKS:           cfg.Tor.SOCKS,
 				DNS:             cfg.Tor.DNS,
 				StreamIsolation: cfg.Tor.StreamIsolation,
-				NoProxyTargets:  strings.Join(cfg.Tor.NoProxyTargets, ","),
-				ClearNet:        clearNet,
+				NoProxyTargets: strings.Join(
+					cfg.Tor.NoProxyTargets, ","),
+				ClearNet: clearNet,
 			}
 		}
 		cfg.net = torNet

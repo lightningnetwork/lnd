@@ -254,6 +254,11 @@ reader of a payment request.
   allows users to forward node announcement with valid DNS address types. The
   validity aligns with Bolt 07 DNS constraints.
 
+* Re-send the [AnnouncementSignature max 
+  once](https://github.com/lightningnetwork/lnd/pull/9957) per (re)connection 
+  when we already have the full proof and our peer sends us their signature 
+  announcement.
+
 ## Testing
 
 * Previously, automatic peer bootstrapping was disabled for simnet, signet and

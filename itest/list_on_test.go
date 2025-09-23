@@ -207,6 +207,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testInvoiceSubscriptions,
 	},
 	{
+		Name:     "channel update subscription",
+		TestFunc: testChannelUpdateNotifications,
+	},
+	{
 		Name:     "streaming channel backup update",
 		TestFunc: testChannelBackupUpdates,
 	},

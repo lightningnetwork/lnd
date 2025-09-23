@@ -382,13 +382,17 @@ func (h *testHarness) stopPeerActor(actor *PeerActor) {
 
 // addServiceKey adds a service key and verifies success.
 func (h *testHarness) addServiceKey(actor *PeerActor, key PeerServiceKey) {
-	added := actor.AddServiceKey(key)
+	result := actor.AddServiceKey(key)
+	added, err := result.Unpack()
+	require.NoError(h.t, err)
 	require.True(h.t, added)
 }
 
 // removeServiceKey removes a service key and verifies success.
 func (h *testHarness) removeServiceKey(actor *PeerActor, key PeerServiceKey) {
-	removed := actor.RemoveServiceKey(key)
+	result := actor.RemoveServiceKey(key)
+	removed, err := result.Unpack()
+	require.NoError(h.t, err)
 	require.True(h.t, removed)
 }
 

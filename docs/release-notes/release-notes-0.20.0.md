@@ -186,6 +186,10 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   for the case where the DB is kvdb backed and no invoices have yet been added
   to the database.
 
+* The `FlapCount` and `LastFlapNs` have been
+  [changed](https://github.com/lightningnetwork/lnd/pull/10211) to track
+  exclusively for peers that have channels with us.
+
 ## lncli Updates
 * Previously, users could only specify one `outgoing_chan_id` when calling the 
   `lncli queryroutes` or the QueryRoutes RPC. With this change, multiple 

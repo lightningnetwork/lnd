@@ -3561,8 +3561,12 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 			flap, ts, err := r.server.chanEventStore.FlapCount(
 				vertex,
 			)
+
+			// Log the error if we cannot get the flap count instead
+			// of failing this RPC call.
 			if err != nil {
-				return nil, err
+				rpcsLog.Debugf("Failed to get flap count for "+
+					"peer %v", vertex)
 			}
 
 			// If our timestamp is non-nil, we have values for our
@@ -5080,14 +5084,19 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 	// being notified of it.
 	outpoint := dbChannel.FundingOutpoint
 	info, err := r.server.chanEventStore.GetChanInfo(outpoint, peer)
-	switch err {
+	switch {
+	// If the store does not know about the peer, we just log it.
+	case errors.Is(err, chanfitness.ErrPeerNotFound):
+		rpcsLog.Warnf("peer: %v not found by channel event store",
+			peer)
+
 	// If the store does not know about the channel, we just log it.
-	case chanfitness.ErrChannelNotFound:
-		rpcsLog.Infof("channel: %v not found by channel event store",
+	case errors.Is(err, chanfitness.ErrChannelNotFound):
+		rpcsLog.Warnf("channel: %v not found by channel event store",
 			outpoint)
 
 	// If we got our channel info, we further populate the channel.
-	case nil:
+	case err == nil:
 		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
 

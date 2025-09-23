@@ -5816,11 +5816,13 @@ type Peer struct {
 	// stored for peers that we have channels open with, to prevent peers from
 	// spamming us with errors at no cost.
 	Errors []*TimestampedError `protobuf:"bytes,12,rep,name=errors,proto3" json:"errors,omitempty"`
+	// This field is populated when the peer has at least one channel with us.
 	// The number of times we have recorded this peer going offline or coming
 	// online, recorded across restarts. Note that this value is decreased over
 	// time if the peer has not recently flapped, so that we can forgive peers
 	// with historically high flap counts.
 	FlapCount int32 `protobuf:"varint,13,opt,name=flap_count,json=flapCount,proto3" json:"flap_count,omitempty"`
+	// This field is populated when the peer has at least one channel with us.
 	// The timestamp of the last flap we observed for this peer. If this value is
 	// zero, we have not observed any flaps for this peer.
 	LastFlapNs int64 `protobuf:"varint,14,opt,name=last_flap_ns,json=lastFlapNs,proto3" json:"last_flap_ns,omitempty"`

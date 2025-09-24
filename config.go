@@ -339,7 +339,7 @@ type Config struct {
 	RawRPCListeners   []string `long:"rpclisten" description:"Add an interface/port/socket to listen for RPC connections"`
 	RawRESTListeners  []string `long:"restlisten" description:"Add an interface/port/socket to listen for REST connections"`
 	RawListeners      []string `long:"listen" description:"Add an interface/port to listen for peer connections"`
-	RawExternalIPs    []string `long:"externalip" description:"Add an ip:port to the list of local addresses we claim to listen on to peers. If a port is not specified, the default (9735) will be used regardless of other parameters"`
+	RawExternalIPs    []string `long:"externalip" description:"Add an ip:port (local addresses we listen on) to advertise to the network (default port 9735 is used if port is not specified). Note: Removing this option does not clear previously advertised addresses; remove them with 'lncli peers updatenodeannouncement --address_remove=host:port'."`
 	ExternalHosts     []string `long:"externalhosts" description:"Add a hostname:port that should be periodically resolved to announce IPs for. If a port is not specified, the default (9735) will be used."`
 	RPCListeners      []net.Addr
 	RESTListeners     []net.Addr

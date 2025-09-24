@@ -2,7 +2,6 @@ package graphdb
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -20,6 +19,22 @@ import (
 	"pgregory.net/rapid"
 )
 
+// channelRecord captures the metadata we need to issue follow-up operations on
+// an inserted channel.
+type channelRecord struct {
+	id        uint64
+	shortID   lnwire.ShortChannelID
+	outPoint  wire.OutPoint
+	blockHash chainhash.Hash
+}
+
+// channelFixture bundles a freshly generated ChannelEdgeInfo with its
+// associated record before it is inserted into the graph.
+type channelFixture struct {
+	edge   *models.ChannelEdgeInfo
+	record channelRecord
+}
+
 // operation holds a lazily generated ChannelGraph call so the Rapid property
 // can choose which action to execute at the last possible moment.
 type operation struct {
@@ -34,80 +49,119 @@ type operationCall struct {
 	call func()
 }
 
-// channelIDManager issues unique channel IDs and remembers them so later
-// operations can pick from realistic targets instead of always inventing new
-// ones.
+// channelIDManager issues unique channel IDs, keeps their metadata, and offers
+// random access to existing channels so operations interact with realistic
+// targets.
 type channelIDManager struct {
-	mu   sync.Mutex
-	ids  []uint64
-	next uint64
-	rng  *rand.Rand
+	mu      sync.Mutex
+	ids     []uint64
+	records map[uint64]channelRecord
+	next    uint64
+	rng     *rand.Rand
 }
 
 // newChannelIDManager seeds the ID allocator so the property run remains fully
 // deterministic.
 func newChannelIDManager(seed int64) *channelIDManager {
 	return &channelIDManager{
-		next: 1,
-		rng:  rand.New(rand.NewSource(seed)),
+		records: make(map[uint64]channelRecord),
+		next:    1,
+		rng:     rand.New(rand.NewSource(seed)),
 	}
 }
 
-// NextID hands out the next unused channel ID so AddChannelEdge calls can
-// create edges without clashing.
-func (m *channelIDManager) NextID() uint64 {
+// NewFixture creates a unique channel fixture that callers can attempt to
+// insert via AddChannelEdge.
+func (m *channelIDManager) NewFixture(rt *rapid.T) channelFixture {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	id := m.next
 	m.next++
-	return id
+	m.mu.Unlock()
+
+	shortID := lnwire.NewShortChanIDFromInt(id)
+
+	var txHash chainhash.Hash
+	copy(
+		txHash[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(
+			rt, fmt.Sprintf("tx_hash_%d", id),
+		),
+	)
+
+	var blockHash chainhash.Hash
+	copy(
+		blockHash[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(
+			rt, fmt.Sprintf("block_hash_%d", id),
+		),
+	)
+
+	outPoint := wire.OutPoint{
+		Hash:  txHash,
+		Index: rapid.Uint32().Draw(rt, fmt.Sprintf("tx_index_%d", id)),
+	}
+
+	record := channelRecord{
+		id:        id,
+		shortID:   shortID,
+		outPoint:  outPoint,
+		blockHash: blockHash,
+	}
+
+	edge := newEdgeInfo(rt, record)
+
+	return channelFixture{
+		edge:   edge,
+		record: record,
+	}
 }
 
-// Register records a channel ID, allowing later delete or zombie operations to
-// reuse it.
-func (m *channelIDManager) Register(id uint64) {
+// Register persists the record of a successfully inserted channel so future
+// operations can reuse it.
+func (m *channelIDManager) Register(record channelRecord) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.ids = append(m.ids, id)
+
+	if _, ok := m.records[record.id]; ok {
+		return
+	}
+
+	m.records[record.id] = record
+	m.ids = append(m.ids, record.id)
 }
 
-// RandomExisting returns a previously registered ID when one exists.
-func (m *channelIDManager) RandomExisting() (uint64, bool) {
+// RandomRecord returns a previously registered channel when one exists.
+func (m *channelIDManager) RandomRecord() (channelRecord, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if len(m.ids) == 0 {
-		return 0, false
+		return channelRecord{}, false
 	}
-	idx := m.rng.Intn(len(m.ids))
-	return m.ids[idx], true
+	id := m.ids[m.rng.Intn(len(m.ids))]
+
+	return m.records[id], true
 }
 
-// newRandomEdgeInfo fabricates a minimal ChannelEdgeInfo that exercises the
-// public AddChannelEdge path without reaching into unexported helpers.
-func newRandomEdgeInfo(rt *rapid.T, chanID uint64) *models.ChannelEdgeInfo {
-	node1 := randomCompressedKey(rt, "node1")
-	node2 := randomCompressedKey(rt, "node2")
-	btc1 := randomCompressedKey(rt, "btc1")
-	btc2 := randomCompressedKey(rt, "btc2")
-
-	var txHash chainhash.Hash
-	copy(txHash[:], rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(rt, "tx_hash"))
+// newEdgeInfo fabricates a minimal ChannelEdgeInfo that exercises the public
+// AddChannelEdge path without reaching into unexported helpers.
+func newEdgeInfo(rt *rapid.T, record channelRecord) *models.ChannelEdgeInfo {
+	node1 := randomCompressedKey(rt, fmt.Sprintf("node1_%d", record.id))
+	node2 := randomCompressedKey(rt, fmt.Sprintf("node2_%d", record.id))
+	btc1 := randomCompressedKey(rt, fmt.Sprintf("btc1_%d", record.id))
+	btc2 := randomCompressedKey(rt, fmt.Sprintf("btc2_%d", record.id))
 
 	return &models.ChannelEdgeInfo{
-		ChannelID:        chanID,
+		ChannelID:        record.id,
 		ChainHash:        *chaincfg.MainNetParams.GenesisHash,
 		NodeKey1Bytes:    node1,
 		NodeKey2Bytes:    node2,
 		BitcoinKey1Bytes: btc1,
 		BitcoinKey2Bytes: btc2,
 		Features:         lnwire.EmptyFeatureVector(),
-		ChannelPoint: wire.OutPoint{
-			Hash:  txHash,
-			Index: rapid.Uint32().Draw(rt, "tx_index"),
-		},
+		ChannelPoint:     record.outPoint,
 		Capacity: btcutil.Amount(
-			rapid.Int64Range(1, 1_000_000).Draw(rt, "capacity"),
+			rapid.Int64Range(1, 1_000_000).Draw(
+				rt, fmt.Sprintf("capacity_%d", record.id),
+			),
 		),
 	}
 }
@@ -137,13 +191,15 @@ func newAddChannelOp(graph *ChannelGraph, mgr *channelIDManager, ctx context.Con
 	return operation{
 		name: "AddChannel",
 		generate: func(rt *rapid.T) operationCall {
-			chanID := mgr.NextID()
-			edge := newRandomEdgeInfo(rt, chanID)
+			fixture := mgr.NewFixture(rt)
 			return operationCall{
 				name: "AddChannel",
 				call: func() {
-					if err := graph.AddChannelEdge(ctx, edge); err == nil {
-						mgr.Register(chanID)
+					err := graph.AddChannelEdge(
+						ctx, fixture.edge,
+					)
+					if err == nil {
+						mgr.Register(fixture.record)
 					}
 				},
 			}
@@ -153,27 +209,71 @@ func newAddChannelOp(graph *ChannelGraph, mgr *channelIDManager, ctx context.Con
 
 // newPruneGraphOp exercises pruning with randomized block metadata to imitate
 // how the real graph reacts to confirmed closures.
-func newPruneGraphOp(graph *ChannelGraph) operation {
+func newPruneGraphOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 	return operation{
 		name: "PruneGraph",
 		generate: func(rt *rapid.T) operationCall {
-			n := rapid.IntRange(0, 3).Draw(rt, "spent_outputs")
-			spentOutputs := make([]*wire.OutPoint, n)
-			for i := 0; i < n; i++ {
-				hashBytes := rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(rt, fmt.Sprintf("spent_hash_%d", i))
-				var hash chainhash.Hash
-				copy(hash[:], hashBytes)
-				spentOutputs[i] = &wire.OutPoint{
-					Hash:  hash,
-					Index: rapid.Uint32().Draw(rt, fmt.Sprintf("spent_idx_%d", i)),
+			record, haveRecord := mgr.RandomRecord()
+			useExisting := haveRecord && rapid.Bool().Draw(
+				rt, "prune_use_existing",
+			)
+
+			var (
+				spentOutputs []*wire.OutPoint
+				blockHash    chainhash.Hash
+				blockHeight  uint32
+			)
+
+			if useExisting {
+				local := record
+				spentOutputs = []*wire.OutPoint{
+					{
+						Hash:  local.outPoint.Hash,
+						Index: local.outPoint.Index,
+					},
 				}
+				blockHash = local.blockHash
+				blockHeight = local.shortID.BlockHeight
+			} else {
+				n := rapid.IntRange(0, 3).Draw(
+					rt, "spent_outputs",
+				)
+
+				spentOutputs = make([]*wire.OutPoint, n)
+				for i := 0; i < n; i++ {
+					hashBytes := rapid.SliceOfN(
+						rapid.Byte(), 32, 32,
+					).Draw(
+						rt,
+						fmt.Sprintf("spent_hash_%d", i),
+					)
+
+					var hash chainhash.Hash
+					copy(hash[:], hashBytes)
+
+					spentOutputs[i] = &wire.OutPoint{
+						Hash: hash,
+						Index: rapid.Uint32().Draw(
+							rt, fmt.Sprintf(
+								"spent_idx_%d",
+								i,
+							),
+						),
+					}
+				}
+
+				copy(
+					blockHash[:],
+					rapid.SliceOfN(
+						rapid.Byte(), 32, 32,
+					).Draw(rt, "rand_block_hash"),
+				)
+
+				blockHeight = rapid.Uint32().Draw(
+					rt, "rand_block_height",
+				)
 			}
 
-			blockHashBytes := rapid.SliceOfN(rapid.Byte(), 32, 32).Draw(rt, "block_hash")
-			var blockHash chainhash.Hash
-			copy(blockHash[:], blockHashBytes)
-
-			blockHeight := rapid.Uint32().Draw(rt, "block_height")
 			return operationCall{
 				name: "PruneGraph",
 				call: func() {
@@ -189,11 +289,24 @@ func newPruneGraphOp(graph *ChannelGraph) operation {
 
 // newDisconnectBlockOp rewinds the graph to a random height to mimic chain
 // reorg handling.
-func newDisconnectBlockOp(graph *ChannelGraph) operation {
+func newDisconnectBlockOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 	return operation{
 		name: "DisconnectBlock",
 		generate: func(rt *rapid.T) operationCall {
-			height := rapid.Uint32().Draw(rt, "disconnect_height")
+			record, haveRecord := mgr.RandomRecord()
+			useExisting := haveRecord && rapid.Bool().Draw(
+				rt, "disconnect_use_existing",
+			)
+
+			var height uint32
+			if useExisting {
+				height = record.shortID.BlockHeight
+			} else {
+				height = rapid.Uint32().Draw(
+					rt, "disconnect_height",
+				)
+			}
+
 			return operationCall{
 				name: "DisconnectBlock",
 				call: func() {
@@ -218,8 +331,12 @@ func newDeleteChannelEdgesOp(graph *ChannelGraph,
 
 			chanIDs := make([]uint64, numIDs)
 			for i := 0; i < numIDs; i++ {
-				if id, ok := mgr.RandomExisting(); ok {
-					chanIDs[i] = id
+				if rec, ok := mgr.RandomRecord(); ok &&
+					rapid.Bool().Draw(rt, fmt.Sprintf(
+						"delete_use_existing_%d", i),
+					) {
+
+					chanIDs[i] = rec.id
 					continue
 				}
 
@@ -276,7 +393,7 @@ func newChanUpdatesInHorizonOp(graph *ChannelGraph) operation {
 
 // newFilterKnownChanIDsOp sends lookups with randomized gossip state so the
 // reject cache is exercised under contention.
-func newFilterKnownChanIDsOp(graph *ChannelGraph) operation {
+func newFilterKnownChanIDsOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 	return operation{
 		name: "FilterKnownChanIDs",
 		generate: func(rt *rapid.T) operationCall {
@@ -286,11 +403,31 @@ func newFilterKnownChanIDsOp(graph *ChannelGraph) operation {
 
 			infos := make([]ChannelUpdateInfo, numInfos)
 			for i := 0; i < numInfos; i++ {
-				scid := lnwire.ShortChannelID{
-					BlockHeight: rapid.Uint32Range(0, 1<<23).Draw(rt, fmt.Sprintf("block_%d", i)),
-					TxIndex:     rapid.Uint32Range(0, 1<<23).Draw(rt, fmt.Sprintf("txindex_%d", i)),
-					TxPosition:  rapid.Uint16().Draw(rt, fmt.Sprintf("txpos_%d", i)),
-				}
+				scid := func() lnwire.ShortChannelID {
+					if rec, ok := mgr.RandomRecord(); ok && rapid.Bool().Draw(rt, fmt.Sprintf("filter_use_existing_%d", i)) {
+						return rec.shortID
+					}
+
+					return lnwire.ShortChannelID{
+						BlockHeight: rapid.Uint32Range(
+							0, 1<<23).Draw(
+							rt, fmt.Sprintf(
+								"block_%d", i,
+							),
+						),
+						TxIndex: rapid.Uint32Range(
+							0, 1<<23).Draw(
+							rt, fmt.Sprintf(
+								"txindex_%d", i,
+							),
+						),
+						TxPosition: rapid.Uint16().Draw(
+							rt, fmt.Sprintf(
+								"txpos_%d", i,
+							),
+						),
+					}
+				}()
 
 				node1Ts := time.Unix(
 					int64(rapid.Int64Range(-1000, 1000).Draw(
@@ -334,9 +471,12 @@ func newMarkEdgeZombieOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 	return operation{
 		name: "MarkEdgeZombie",
 		generate: func(rt *rapid.T) operationCall {
+			record, haveRecord := mgr.RandomRecord()
 			chanID := rapid.Uint64().Draw(rt, "zombie_chan")
-			if id, ok := mgr.RandomExisting(); ok && rapid.Bool().Draw(rt, "use_existing_zombie") {
-				chanID = id
+			if haveRecord && rapid.Bool().Draw(
+				rt, "use_existing_zombie",
+			) {
+				chanID = record.id
 			}
 
 			var pub1, pub2 [33]byte
@@ -369,9 +509,13 @@ func newMarkEdgeLiveOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 	return operation{
 		name: "MarkEdgeLive",
 		generate: func(rt *rapid.T) operationCall {
+			record, haveRecord := mgr.RandomRecord()
 			chanID := rapid.Uint64().Draw(rt, "live_chan")
-			if id, ok := mgr.RandomExisting(); ok && rapid.Bool().Draw(rt, "use_existing_live") {
-				chanID = id
+
+			if haveRecord && rapid.Bool().Draw(
+				rt, "use_existing_live",
+			) {
+				chanID = record.id
 			}
 
 			return operationCall{
@@ -388,8 +532,8 @@ func newMarkEdgeLiveOp(graph *ChannelGraph, mgr *channelIDManager) operation {
 // contention by repeatedly hitting the ChannelGraph through its public API from
 // multiple goroutines.
 func TestStoreCacheConcurrentAccess(t *testing.T) {
-	if err := flag.Set("rapid.checks", "10"); err != nil {
-		t.Fatalf("unable to configure rapid checks: %v", err)
+	if testing.Short() {
+		t.Skip("skipping cache concurrency property in short mode")
 	}
 
 	rapid.Check(t, func(rt *rapid.T) {
@@ -411,21 +555,22 @@ func TestStoreCacheConcurrentAccess(t *testing.T) {
 			rt, "initial_channels",
 		)
 		for i := 0; i < initialChannels; i++ {
-			chanID := mgr.NextID()
-			edge := newRandomEdgeInfo(rt, chanID)
-			require.NoError(t, store.AddChannelEdge(ctx, edge))
-			mgr.Register(chanID)
+			fixture := mgr.NewFixture(rt)
+			require.NoError(t, store.AddChannelEdge(
+				ctx, fixture.edge),
+			)
+			mgr.Register(fixture.record)
 		}
 
 		// opGenerators keeps the menu of ChannelGraph actions the
 		// property can mix while the goroutines race.
 		opGenerators := []operation{
 			newAddChannelOp(graph, mgr, ctx),
-			newPruneGraphOp(graph),
-			newDisconnectBlockOp(graph),
+			newPruneGraphOp(graph, mgr),
+			newDisconnectBlockOp(graph, mgr),
 			newDeleteChannelEdgesOp(graph, mgr),
 			newChanUpdatesInHorizonOp(graph),
-			newFilterKnownChanIDsOp(graph),
+			newFilterKnownChanIDsOp(graph, mgr),
 			newMarkEdgeZombieOp(graph, mgr),
 			newMarkEdgeLiveOp(graph, mgr),
 		}

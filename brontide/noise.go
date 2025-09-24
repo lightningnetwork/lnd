@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -34,6 +35,10 @@ const (
 	// encHeaderSize is the number of bytes required to hold an encrypted
 	// header and it's MAC.
 	encHeaderSize = lengthHeaderSize + macSize
+
+	// maxMessageSize is the maximum size of an encrypted message including
+	// the MAC. This is the max payload (65535) plus the MAC size (16).
+	maxMessageSize = math.MaxUint16 + macSize
 
 	// keyRotationInterval is the number of messages sent on a single
 	// cipher stream before the keys are rotated forwards.
@@ -65,9 +70,25 @@ var (
 	ephemeralGen = func() (*btcec.PrivateKey, error) {
 		return btcec.NewPrivateKey()
 	}
-)
 
-// TODO(roasbeef): free buffer pool?
+	// headerBufferPool is a pool for encrypted header buffers.
+	headerBufferPool = &sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 0, encHeaderSize)
+			return &b
+		},
+	}
+
+	// bodyBufferPool is a pool for encrypted message body buffers.
+	bodyBufferPool = &sync.Pool{
+		New: func() interface{} {
+			// Allocate max size to avoid reallocation.
+			// maxMessageSize already includes the MAC.
+			b := make([]byte, 0, maxMessageSize)
+			return &b
+		},
+	}
+)
 
 // ecdh performs an ECDH operation between pub and priv. The returned value is
 // the sha256 of the compressed shared point.
@@ -86,6 +107,9 @@ type cipherState struct {
 	//
 	// TODO(roasbeef): this should actually be 96 bit
 	nonce uint64
+
+	// nonceBuffer is a reusable buffer for the nonce to avoid allocations.
+	nonceBuffer [12]byte
 
 	// secretKey is the shared symmetric key which will be used to
 	// instantiate the cipher.
@@ -113,10 +137,12 @@ func (c *cipherState) Encrypt(associatedData, cipherText, plainText []byte) []by
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Seal(cipherText, nonce[:], plainText, associatedData)
+	return c.cipher.Seal(
+		cipherText, c.nonceBuffer[:], plainText, associatedData,
+	)
 }
 
 // Decrypt attempts to decrypt the passed ciphertext observing the specified
@@ -131,10 +157,12 @@ func (c *cipherState) Decrypt(associatedData, plainText, cipherText []byte) ([]b
 		}
 	}()
 
-	var nonce [12]byte
-	binary.LittleEndian.PutUint64(nonce[4:], c.nonce)
+	// Write the nonce counter to the buffer (bytes 4-11).
+	binary.LittleEndian.PutUint64(c.nonceBuffer[4:], c.nonce)
 
-	return c.cipher.Open(plainText, nonce[:], cipherText, associatedData)
+	return c.cipher.Open(
+		plainText, c.nonceBuffer[:], cipherText, associatedData,
+	)
 }
 
 // InitializeKey initializes the secret key and AEAD cipher scheme based off of
@@ -374,6 +402,9 @@ type Machine struct {
 	// (of the next ciphertext), followed by a 16 byte MAC.
 	nextCipherHeader [encHeaderSize]byte
 
+	// pktLenBuffer is a reusable buffer for encoding the packet length.
+	pktLenBuffer [lengthHeaderSize]byte
+
 	// nextHeaderSend holds a reference to the remaining header bytes to
 	// write out for a pending message. This allows us to tolerate timeout
 	// errors that cause partial writes.
@@ -383,6 +414,14 @@ type Machine struct {
 	// out for a pending message. This allows us to tolerate timeout errors
 	// that cause partial writes.
 	nextBodySend []byte
+
+	// pooledHeaderBuf is the pooled buffer used for the header, which we
+	// need to track so we can return it to the pool when done.
+	pooledHeaderBuf *[]byte
+
+	// pooledBodyBuf is the pooled buffer used for the body, which we need
+	// to track so we can return it to the pool when done.
+	pooledBodyBuf *[]byte
 }
 
 // NewBrontideMachine creates a new instance of the brontide state-machine. If
@@ -740,14 +779,35 @@ func (b *Machine) WriteMessage(p []byte) error {
 	// NOT include the MAC.
 	fullLength := uint16(len(p))
 
-	var pktLen [2]byte
-	binary.BigEndian.PutUint16(pktLen[:], fullLength)
+	binary.BigEndian.PutUint16(b.pktLenBuffer[:], fullLength)
 
-	// First, generate the encrypted+MAC'd length prefix for the packet.
-	b.nextHeaderSend = b.sendCipher.Encrypt(nil, nil, pktLen[:])
+	headerBufInterface := headerBufferPool.Get()
+	headerBuf, ok := headerBufInterface.(*[]byte)
+	if !ok {
+		b.releaseBuffers()
+		return fmt.Errorf("headerBufferPool returned unexpected "+
+			"type: %T", headerBufInterface)
+	}
+	b.pooledHeaderBuf = headerBuf
 
-	// Finally, generate the encrypted packet itself.
-	b.nextBodySend = b.sendCipher.Encrypt(nil, nil, p)
+	bodyBufInterface := bodyBufferPool.Get()
+	bodyBuf, ok := bodyBufInterface.(*[]byte)
+	if !ok {
+		b.releaseBuffers()
+		return fmt.Errorf("bodyBufferPool returned unexpected "+
+			"type: %T", bodyBufInterface)
+	}
+	b.pooledBodyBuf = bodyBuf
+
+	// First, generate the encrypted+MAC'd length prefix for the packet. We
+	// pass our pooled buffer as the cipherText (dst) parameter.
+	b.nextHeaderSend = b.sendCipher.Encrypt(
+		nil, *b.pooledHeaderBuf, b.pktLenBuffer[:],
+	)
+
+	// Finally, generate the encrypted packet itself. We pass our pooled
+	// buffer as the cipherText (dst) parameter.
+	b.nextBodySend = b.sendCipher.Encrypt(nil, *b.pooledBodyBuf, p)
 
 	return nil
 }
@@ -824,7 +884,32 @@ func (b *Machine) Flush(w io.Writer) (int, error) {
 		}
 	}
 
+	// If both header and body have been fully flushed, release the pooled
+	// buffers back to their pools.
+	if len(b.nextHeaderSend) == 0 && len(b.nextBodySend) == 0 {
+		b.releaseBuffers()
+	}
+
 	return nn, nil
+}
+
+// releaseBuffers returns the pooled buffers back to their respective pools
+// and clears the references.
+func (b *Machine) releaseBuffers() {
+	if b.pooledHeaderBuf != nil {
+		*b.pooledHeaderBuf = (*b.pooledHeaderBuf)[:0]
+		headerBufferPool.Put(b.pooledHeaderBuf)
+		b.pooledHeaderBuf = nil
+	}
+
+	if b.pooledBodyBuf != nil {
+		*b.pooledBodyBuf = (*b.pooledBodyBuf)[:0]
+		bodyBufferPool.Put(b.pooledBodyBuf)
+		b.pooledBodyBuf = nil
+	}
+
+	b.nextHeaderSend = nil
+	b.nextBodySend = nil
 }
 
 // ReadMessage attempts to read the next message from the passed io.Reader. In

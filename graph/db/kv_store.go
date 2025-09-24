@@ -1292,19 +1292,19 @@ func (c *KVStore) HasChannelEdge(
 	}
 	c.cacheMu.RUnlock()
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
+	c.cacheMu.Lock()
 	if entry, ok := c.rejectCache.get(chanID); ok {
+		c.cacheMu.Unlock()
 		upd1Time = time.Unix(entry.upd1Time, 0)
 		upd2Time = time.Unix(entry.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
 
 		return upd1Time, upd2Time, exists, isZombie, nil
 	}
+	c.cacheMu.Unlock()
 
 	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -1365,11 +1365,13 @@ func (c *KVStore) HasChannelEdge(
 		return time.Time{}, time.Time{}, exists, isZombie, err
 	}
 
+	c.cacheMu.Lock()
 	c.rejectCache.insert(chanID, rejectCacheEntry{
 		upd1Time: upd1Time.Unix(),
 		upd2Time: upd2Time.Unix(),
 		flags:    packRejectFlags(exists, isZombie),
 	})
+	c.cacheMu.Unlock()
 
 	return upd1Time, upd2Time, exists, isZombie, nil
 }
@@ -2908,6 +2910,9 @@ func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
 
 func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	isUpdate1 bool) {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
 
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just

@@ -45,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/onion_message"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
@@ -455,6 +456,13 @@ type Config struct {
 	// AuxChanCloser is an optional instance of an abstraction that can be
 	// used to modify the way the co-op close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
+
+	// OnionMessageServer is an instance of a message server that dispatches
+	// onion messages to subscribers.
+	OnionMessageServer *subscribe.Server
+
+	// OnionMsgSender is a function that sends an onion message to any peer.
+	OnionMsgSender func([33]byte, *btcec.PublicKey, []byte) error
 
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
@@ -889,6 +897,23 @@ func (p *Brontide) Start() error {
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
 		return fmt.Errorf("unable to load channels: %w", err)
+	}
+
+	onionMessageEndpoint := onion_message.NewOnionEndpoint(
+		onion_message.WithMessageServer(p.cfg.OnionMessageServer),
+		onion_message.WithOnionProcessor(p.cfg.Sphinx),
+		onion_message.WithMessageSender(p.cfg.OnionMsgSender),
+	)
+
+	// We register the onion message endpoint with the message router.
+	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+		_ = r.UnregisterEndpoint(onionMessageEndpoint.Name())
+
+		return r.RegisterEndpoint(onionMessageEndpoint)
+	})
+	if err != nil {
+		return fmt.Errorf("unable to register endpoint for onion "+
+			"messaging: %w", err)
 	}
 
 	p.startTime = time.Now()

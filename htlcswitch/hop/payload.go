@@ -117,6 +117,14 @@ type Payload struct {
 	// totalAmtMsat holds the info provided in total_amount_msat when
 	// parsed from a TLV onion payload.
 	totalAmtMsat lnwire.MilliSatoshi
+
+	// replyPath is the blinded route a reply to an onion message should
+	// take to receive the sender of the original onion message.
+	replyPath *lnwire.ReplyPath
+
+	// isFinal indicates whether this payload is for the final hop in a
+	// route.
+	isFinal bool
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -215,16 +223,46 @@ func ParseTLVPayload(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 	}, parsedTypes, nil
 }
 
+// ParseTLVPayloadOnionMessage builds a new Hop from the passed io.Reader and returns
+// a map of all the types that were found in the onion message payload. This function
+// does not perform validation of TLV types included in the payload.
+func ParseTLVPayloadOnionMessage(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
+	onionMsgPayload := lnwire.NewOnionMessagePayload()
+	onionMsgPayload, parsedTypes, err := onionMsgPayload.Decode(r)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	customRecords := make(record.CustomSet)
+	for _, v := range onionMsgPayload.FinalHopPayloads {
+		customRecords[uint64(v.TLVType)] = v.Value
+	}
+
+	return &Payload{
+		replyPath:     onionMsgPayload.ReplyPath,
+		encryptedData: onionMsgPayload.EncryptedData,
+		customRecords: customRecords,
+	}, parsedTypes, nil
+}
+
 // ValidateTLVPayload validates the TLV fields that were included in a TLV
 // payload.
 func ValidateTLVPayload(parsedTypes map[tlv.Type][]byte,
-	finalHop bool, updateAddBlinding bool) error {
+	finalHop, updateAddBlinding, isOnionMessage bool) error {
 
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
-	err := ValidateParsedPayloadTypes(
-		parsedTypes, finalHop, updateAddBlinding,
-	)
+	var err error
+	if isOnionMessage {
+		err = ValidateParsedPayloadTypesOnionMessage(
+			parsedTypes, finalHop,
+		)
+	} else {
+		err = ValidateParsedPayloadTypes(
+			parsedTypes, finalHop, updateAddBlinding,
+		)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -380,6 +418,74 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	return nil
 }
 
+// ValidateParsedPayloadTypesOnionMessage checks the types parsed from a hop
+// payload to ensure that the proper fields are either included or omitted. The
+// finalHop boolean should be true if the payload was parsed for an exit hop.
+// The requirements for this method are described in BOLT 04.
+func ValidateParsedPayloadTypesOnionMessage(parsedTypes tlv.TypeMap,
+	isFinalHop bool) error {
+
+	_, hasEncryptedData := parsedTypes[record.EncryptedRecipientDataType]
+	_, hasInvoiceRequest := parsedTypes[record.InvoiceRequestType]
+	_, hasInvoice := parsedTypes[record.InvoiceType]
+	_, hasInvoiceError := parsedTypes[record.InvoiceErrorType]
+
+	switch {
+	// If encrypted data is not provided for a non-final hop.
+	case !hasEncryptedData && !isFinalHop:
+		return ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+	// If this is the final hop, we expect exactly one of the invoice
+	// related fields to be present.
+	// TODO (gijs): this doesn't follow from the bolt-4 spec but it does
+	// follow from the bolt-12 use cases.
+	case isFinalHop:
+		count := 0
+		if hasInvoiceRequest {
+			count++
+		}
+		if hasInvoice {
+			count++
+		}
+		if hasInvoiceError {
+			count++
+		}
+
+		// For the final hop, we allow either none of the
+		// invoice-related fields, or exactly one of them. More than one
+		// is not allowed.
+		if count > 1 {
+			// We'll just report on a single field type here, since
+			// it's a violation of a combination of fields.
+			return ErrInvalidPayload{
+				Type: record.InvoiceRequestType,
+				// The violation is that an invalid combination
+				// of fields was present.
+				Violation: IncludedViolation,
+				FinalHop:  isFinalHop,
+			}
+		}
+
+	// If this is not the final hop, we don't expect any invoice related
+	// fields.
+	// TODO (gijs): For non-final hops we only allow encrypted recipient
+	// data, iiuc. See: https://github.com/lightning/bolts/issues/1274
+	case !isFinalHop &&
+		(hasInvoiceRequest || hasInvoice || hasInvoiceError):
+
+		return ErrInvalidPayload{
+			Type:      record.InvoiceRequestType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+	}
+
+	return nil
+}
+
 // MultiPath returns the record corresponding the option_mpp parsed from the
 // onion payload.
 func (h *Payload) MultiPath() *record.MPP {
@@ -402,6 +508,17 @@ func (h *Payload) CustomRecords() record.CustomSet {
 // onion payload.
 func (h *Payload) EncryptedData() []byte {
 	return h.encryptedData
+}
+
+// ReplyPath returns the reply path a response to an onion message should
+// take to reach the sender of the original onion message.
+func (h *Payload) ReplyPath() *lnwire.ReplyPath {
+	return h.replyPath
+}
+
+// IsFinal returns true if this payload is for the final hop in a route.
+func (h *Payload) IsFinal() bool {
+	return h.isFinal
 }
 
 // BlindingPoint returns the route blinding point parsed from the onion payload.
@@ -497,6 +614,17 @@ func ValidateBlindedRouteData(blindedData *record.BlindedRouteData,
 		return err
 	}
 
+	if err := ValidateBlindedFeatures(blindedData); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ValidateBlindedFeatures validates the features TLV in a blinded route's
+// encrypted data.
+func ValidateBlindedFeatures(blindedData *record.BlindedRouteData) error {
+	var err error
 	// Fail if we don't understand any features (even or odd), because we
 	// expect the features to have been set from our announcement. If the
 	// feature vector TLV is not included, it's interpreted as an empty

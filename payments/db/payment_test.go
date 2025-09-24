@@ -107,6 +107,14 @@ type payment struct {
 	htlcs  int
 }
 
+// htlcStatus is a helper structure to easily assert the status of an HTLC
+// attempt.
+type htlcStatus struct {
+	*HTLCAttemptInfo
+	settle  *lntypes.Preimage
+	failure *HTLCFailReason
+}
+
 // createTestPayments registers payments depending on the provided statuses in
 // the payments slice. Each payment will receive one failed HTLC and another
 // HTLC depending on the final status of the payment provided.
@@ -116,14 +124,17 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 	attemptID := uint64(0)
 
 	for i := 0; i < len(payments); i++ {
-		info, attempt, preimg, err := genInfo(t)
+		info, preimg, err := createPaymentInfo(t)
+		require.NoError(t, err, "unable to generate payment info")
+
+		attemptID++
+		attempt, err := createHtlcAttempt(
+			t, info.PaymentIdentifier, attemptID,
+		)
 		require.NoError(t, err, "unable to generate htlc message")
 
 		// Set the payment id accordingly in the payments slice.
 		payments[i].id = info.PaymentIdentifier
-
-		attempt.AttemptID = attemptID
-		attemptID++
 
 		// Init the payment.
 		err = p.InitPayment(info.PaymentIdentifier, info)
@@ -148,8 +159,11 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 
 		// Depending on the test case, fail or succeed the next
 		// attempt.
-		attempt.AttemptID = attemptID
 		attemptID++
+		attempt, err = createHtlcAttempt(
+			t, info.PaymentIdentifier, attemptID,
+		)
+		require.NoError(t, err, "unable to generate htlc attempt")
 
 		_, err = p.RegisterAttempt(info.PaymentIdentifier, attempt)
 		require.NoError(t, err, "unable to send htlc message")
@@ -243,7 +257,7 @@ func assertPaymentInfo(t *testing.T, p DB, hash lntypes.Hash,
 
 	htlc := payment.HTLCs[a.AttemptID]
 	if err := assertRouteEqual(t, &htlc.Route, &a.Route); err != nil {
-		t.Fatal("routes do not match")
+		t.Fatal("routes do not match", err)
 	}
 
 	if htlc.AttemptID != a.AttemptID {
@@ -345,31 +359,43 @@ func genPreimage(t *testing.T) ([32]byte, error) {
 	return preimage, nil
 }
 
-// genInfo generates a payment creation info, an attempt info and a preimage.
-func genInfo(t *testing.T) (*PaymentCreationInfo, *HTLCAttemptInfo,
-	lntypes.Preimage, error) {
+func createPaymentInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage,
+	error) {
 
 	preimage, err := genPreimage(t)
-	if err != nil {
-		return nil, nil, preimage, fmt.Errorf("unable to "+
-			"generate preimage: %v", err)
-	}
+	require.NoError(t, err, "unable to generate preimage")
 
 	rhash := sha256.Sum256(preimage[:])
+
+	return &PaymentCreationInfo{
+		PaymentIdentifier:     rhash,
+		Value:                 testRoute.ReceiverAmt(),
+		CreationTime:          time.Unix(time.Now().Unix(), 0),
+		PaymentRequest:        []byte("hola"),
+		FirstHopCustomRecords: nil,
+	}, preimage, nil
+}
+
+// createHtlcAttempt creates a new HTLC attempt for the given payment hash.
+func createHtlcAttempt(t *testing.T,
+	paymentHash lntypes.Hash, attemptID uint64) (*HTLCAttemptInfo, error) {
+
+	// We need to create a new private key for each attempt because the
+	// session key has a unique contraint for the sql backend. The kv
+	// backend is more loose and allows the same session key to be used
+	// for multiple attempts.
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate session key")
+
 	var hash lntypes.Hash
-	copy(hash[:], rhash[:])
+	copy(hash[:], paymentHash[:])
 
 	attempt, err := NewHtlcAttempt(
-		0, priv, *testRoute.Copy(), time.Time{}, &hash,
+		attemptID, sessionKey, *testRoute.Copy(), time.Time{}, &hash,
 	)
 	require.NoError(t, err)
 
-	return &PaymentCreationInfo{
-		PaymentIdentifier: rhash,
-		Value:             testRoute.ReceiverAmt(),
-		CreationTime:      time.Unix(time.Now().Unix(), 0),
-		PaymentRequest:    []byte("hola"),
-	}, &attempt.HTLCAttemptInfo, preimage, nil
+	return &attempt.HTLCAttemptInfo, nil
 }
 
 // TestDeleteFailedAttempts checks that DeleteFailedAttempts properly removes
@@ -481,7 +507,12 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	paymentDB := NewTestDB(t)
 
-	info, attempt, _, err := genInfo(t)
+	info, _, err := createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
+
+	attempt, err := createHtlcAttempt(
+		t, info.PaymentIdentifier, 0,
+	)
 	require.NoError(t, err, "unable to generate htlc message")
 
 	// Init the payment.
@@ -504,6 +535,10 @@ func TestMPPRecordValidation(t *testing.T) {
 	// Now try to register a non-MPP attempt, which should fail.
 	b := *attempt
 	b.AttemptID = 1
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate session key")
+	b.setSessionKey(sessionKey)
+
 	b.Route.FinalHop().MPP = nil
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
 	require.ErrorIs(t, err, ErrMPPayment)
@@ -524,19 +559,27 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	// Create and init a new payment. This time we'll check that we cannot
 	// register an MPP attempt if we already registered a non-MPP one.
-	info, attempt, _, err = genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
+	info, _, err = createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
+	attempt, err = createHtlcAttempt(
+		t, info.PaymentIdentifier, 1,
+	)
+	require.NoError(t, err, "unable to create htlc attempt")
 
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
-	require.NoError(t, err, "unable to send htlc message")
+	require.NoError(t, err, "unable to init payment")
 
 	attempt.Route.FinalHop().MPP = nil
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
-	require.NoError(t, err, "unable to send htlc message")
+	require.NoError(t, err, "unable to register attempt")
 
 	// Attempt to register an MPP attempt, which should fail.
 	b = *attempt
-	b.AttemptID = 1
+	b.AttemptID = 2
+	sessionKey, err = btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate session key")
+	b.setSessionKey(sessionKey)
+
 	b.Route.FinalHop().MPP = record.NewMPP(
 		info.Value, [32]byte{1},
 	)
@@ -1197,8 +1240,8 @@ func TestSuccessesWithoutInFlight(t *testing.T) {
 
 	paymentDB := NewTestDB(t)
 
-	info, _, preimg, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
+	info, preimg, err := createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
 
 	// Attempt to complete the payment should fail.
 	_, err = paymentDB.SettleAttempt(
@@ -1217,8 +1260,8 @@ func TestFailsWithoutInFlight(t *testing.T) {
 
 	paymentDB := NewTestDB(t)
 
-	info, _, _, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
+	info, _, err := createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
 
 	// Calling Fail should return an error.
 	_, err = paymentDB.Fail(
@@ -1292,8 +1335,12 @@ func TestSwitchDoubleSend(t *testing.T) {
 
 	paymentDB := NewTestDB(t)
 
-	info, attempt, preimg, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
+	info, preimg, err := createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
+	attempt, err := createHtlcAttempt(
+		t, info.PaymentIdentifier, 0,
+	)
+	require.NoError(t, err, "unable to create htlc attempt")
 
 	// Sends base htlc message which initiate base status and move it to
 	// StatusInFlight and verifies that it was changed.
@@ -1365,8 +1412,12 @@ func TestSwitchFail(t *testing.T) {
 
 	paymentDB := NewTestDB(t)
 
-	info, attempt, preimg, err := genInfo(t)
-	require.NoError(t, err, "unable to generate htlc message")
+	info, preimg, err := createPaymentInfo(t)
+	require.NoError(t, err, "unable to generate payment info")
+	attempt, err := createHtlcAttempt(
+		t, info.PaymentIdentifier, 0,
+	)
+	require.NoError(t, err, "unable to create htlc attempt")
 
 	// Sends base htlc message which initiate StatusInFlight.
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
@@ -1444,7 +1495,16 @@ func TestSwitchFail(t *testing.T) {
 	assertPaymentInfo(t, paymentDB, info.PaymentIdentifier, info, nil, htlc)
 
 	// Record another attempt.
-	attempt.AttemptID = 1
+	attemptID := attempt.AttemptID + 1
+	attempt, err = createHtlcAttempt(
+		t, info.PaymentIdentifier, attemptID,
+	)
+	require.NoError(t, err, "unable to create htlc attempt")
+
+	sessionKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "unable to generate session key")
+	attempt.setSessionKey(sessionKey)
+
 	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
 	assertDBPaymentstatus(
@@ -1522,10 +1582,12 @@ func TestMultiShard(t *testing.T) {
 	runSubTest := func(t *testing.T, test testCase) {
 		paymentDB := NewTestDB(t)
 
-		info, attempt, preimg, err := genInfo(t)
-		if err != nil {
-			t.Fatalf("unable to generate htlc message: %v", err)
-		}
+		info, preimg, err := createPaymentInfo(t)
+		require.NoError(t, err, "unable to generate payment info")
+		attempt, err := createHtlcAttempt(
+			t, info.PaymentIdentifier, 0,
+		)
+		require.NoError(t, err, "unable to create htlc attempt")
 
 		// Init the payment, moving it to the StatusInFlight state.
 		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
@@ -1555,6 +1617,12 @@ func TestMultiShard(t *testing.T) {
 		for i := uint64(0); i < 3; i++ {
 			a := *attempt
 			a.AttemptID = i
+			sessionKey, err := btcec.NewPrivateKey()
+			require.NoError(
+				t, err, "unable to generate session key",
+			)
+			a.setSessionKey(sessionKey)
+
 			attempts = append(attempts, &a)
 
 			_, err = paymentDB.RegisterAttempt(
@@ -1582,6 +1650,10 @@ func TestMultiShard(t *testing.T) {
 		// will be too large.
 		b := *attempt
 		b.AttemptID = 3
+		sessionKey, err := btcec.NewPrivateKey()
+		require.NoError(t, err, "unable to generate session key")
+		b.setSessionKey(sessionKey)
+
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
 		require.ErrorIs(t, err, ErrValueExceedsAmt)
 
@@ -1680,7 +1752,11 @@ func TestMultiShard(t *testing.T) {
 		// Try to register yet another attempt. This should fail now
 		// that the payment has reached a terminal condition.
 		b = *attempt
-		b.AttemptID = 3
+		b.AttemptID = 4
+		sessionKey, err = btcec.NewPrivateKey()
+		require.NoError(t, err, "unable to generate session key")
+		b.setSessionKey(sessionKey)
+
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
 		if test.settleFirst {
 			require.ErrorIs(
@@ -1781,7 +1857,7 @@ func TestMultiShard(t *testing.T) {
 
 		// Finally assert we cannot register more attempts.
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, &b)
-		require.Equal(t, registerErr, err)
+		require.ErrorIs(t, err, registerErr)
 	}
 
 	for _, test := range tests {

@@ -76,6 +76,17 @@ a certain amount of msats.
    [allow](https://github.com/lightningnetwork/lnd/pull/10087)
   `conf_target=1`. Previously they required `conf_target >= 2`.
 
+* To support scenarios where an external entity, such as a remote router, 
+  manages the payment lifecycle via the Switch RPC server, the node must 
+  preserve the history of HTLC attempts across restarts. This [behavior](https://github.com/lightningnetwork/lnd/pull/10178) is now 
+  conditional on how the lnd binary is built. When compiled with the `switchrpc`
+  build tag, the local `routing.ChannelRouter`'s automatic cleanup of the
+  dispatcher's (Switch) attempt store on startup is disabled. This shifts the
+  responsibility of state cleanup to the external controller, which is expected
+  to use an RPC interface (e.g., switchrpc) to manage the lifecycle of attempts.
+  Tying this behavior to a build tag, rather than a runtime flag, makes the
+  binary's purpose explicit and prevents potential misconfigurations.
+
 ## RPC Additions
 * When querying [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813)
 logs, the response now include the incoming and outgoing htlc indices of the payment 

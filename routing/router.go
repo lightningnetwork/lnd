@@ -295,6 +295,11 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// DispatcherManagedExternally indicates that the dispatcher's (the
+	// switch's) payment store is being managed by an external entity, and
+	// should not be cleaned on startup.
+	DispatcherManagedExternally bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -1441,9 +1446,19 @@ func (r *ChannelRouter) resumePayments() error {
 		}
 	}
 
-	log.Debugf("Cleaning network result store.")
-	if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
-		return err
+	// When the payment life-cycle is managed by an external entity, we must
+	// not clean the attempt store on startup. The external controller
+	// relies on HTLC attempt information persisted by the dispatcher to
+	// resume its payment lifecycle and will need to coordinate all cleanup
+	// operations itself.
+	if !r.cfg.DispatcherManagedExternally {
+		log.Debugf("Cleaning network result store.")
+		if err := r.cfg.Payer.CleanStore(toKeep); err != nil {
+			return err
+		}
+	} else {
+		log.Infof("Dispatcher attempt store cleanup disabled. " +
+			"Attempt information must be cleaned remotely")
 	}
 
 	// launchPayment is a helper closure that handles resuming the payment.

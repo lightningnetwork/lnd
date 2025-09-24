@@ -741,6 +741,9 @@ func (s *SQLStore) UpdateEdgePolicy(ctx context.Context,
 func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	isUpdate1 bool) {
 
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
@@ -1928,19 +1931,19 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	}
 	s.cacheMu.RUnlock()
 
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
-
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
+	s.cacheMu.Lock()
 	if entry, ok := s.rejectCache.get(chanID); ok {
+		s.cacheMu.Unlock()
 		node1LastUpdate = time.Unix(entry.upd1Time, 0)
 		node2LastUpdate = time.Unix(entry.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
 
 		return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
 	}
+	s.cacheMu.Unlock()
 
 	chanIDB := channelIDToBytes(chanID)
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -2005,11 +2008,13 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 			fmt.Errorf("unable to fetch channel: %w", err)
 	}
 
+	s.cacheMu.Lock()
 	s.rejectCache.insert(chanID, rejectCacheEntry{
 		upd1Time: node1LastUpdate.Unix(),
 		upd2Time: node2LastUpdate.Unix(),
 		flags:    packRejectFlags(exists, isZombie),
 	})
+	s.cacheMu.Unlock()
 
 	return node1LastUpdate, node2LastUpdate, exists, isZombie, nil
 }

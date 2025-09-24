@@ -417,6 +417,12 @@ type LightningClient interface {
 	// needs to be compiled with  the `dev` build tag, and the message type to
 	// override should be specified in lnd's experimental protocol configuration.
 	SubscribeCustomMessages(ctx context.Context, in *SubscribeCustomMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeCustomMessagesClient, error)
+	// lncli: `sendonion`
+	// SendOnionMessage sends an onion message to a peer.
+	SendOnionMessage(ctx context.Context, in *SendOnionMessageRequest, opts ...grpc.CallOption) (*SendOnionMessageResponse, error)
+	// lncli: `subscribeonion`
+	// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+	SubscribeOnionMessages(ctx context.Context, in *SubscribeOnionMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeOnionMessagesClient, error)
 	// lncli: `listaliases`
 	// ListAliases returns the set of all aliases that have ever existed with
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
@@ -1338,6 +1344,47 @@ func (x *lightningSubscribeCustomMessagesClient) Recv() (*CustomMessage, error) 
 	return m, nil
 }
 
+func (c *lightningClient) SendOnionMessage(ctx context.Context, in *SendOnionMessageRequest, opts ...grpc.CallOption) (*SendOnionMessageResponse, error) {
+	out := new(SendOnionMessageResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/SendOnionMessage", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *lightningClient) SubscribeOnionMessages(ctx context.Context, in *SubscribeOnionMessagesRequest, opts ...grpc.CallOption) (Lightning_SubscribeOnionMessagesClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Lightning_ServiceDesc.Streams[13], "/lnrpc.Lightning/SubscribeOnionMessages", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &lightningSubscribeOnionMessagesClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Lightning_SubscribeOnionMessagesClient interface {
+	Recv() (*OnionMessageUpdate, error)
+	grpc.ClientStream
+}
+
+type lightningSubscribeOnionMessagesClient struct {
+	grpc.ClientStream
+}
+
+func (x *lightningSubscribeOnionMessagesClient) Recv() (*OnionMessageUpdate, error) {
+	m := new(OnionMessageUpdate)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *lightningClient) ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error) {
 	out := new(ListAliasesResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/ListAliases", in, out, opts...)
@@ -1759,6 +1806,12 @@ type LightningServer interface {
 	// needs to be compiled with  the `dev` build tag, and the message type to
 	// override should be specified in lnd's experimental protocol configuration.
 	SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error
+	// lncli: `sendonion`
+	// SendOnionMessage sends an onion message to a peer.
+	SendOnionMessage(context.Context, *SendOnionMessageRequest) (*SendOnionMessageResponse, error)
+	// lncli: `subscribeonion`
+	// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+	SubscribeOnionMessages(*SubscribeOnionMessagesRequest, Lightning_SubscribeOnionMessagesServer) error
 	// lncli: `listaliases`
 	// ListAliases returns the set of all aliases that have ever existed with
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
@@ -1975,6 +2028,12 @@ func (UnimplementedLightningServer) SendCustomMessage(context.Context, *SendCust
 }
 func (UnimplementedLightningServer) SubscribeCustomMessages(*SubscribeCustomMessagesRequest, Lightning_SubscribeCustomMessagesServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeCustomMessages not implemented")
+}
+func (UnimplementedLightningServer) SendOnionMessage(context.Context, *SendOnionMessageRequest) (*SendOnionMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SendOnionMessage not implemented")
+}
+func (UnimplementedLightningServer) SubscribeOnionMessages(*SubscribeOnionMessagesRequest, Lightning_SubscribeOnionMessagesServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeOnionMessages not implemented")
 }
 func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAliases not implemented")
@@ -3260,6 +3319,45 @@ func (x *lightningSubscribeCustomMessagesServer) Send(m *CustomMessage) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _Lightning_SendOnionMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SendOnionMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).SendOnionMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/SendOnionMessage",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).SendOnionMessage(ctx, req.(*SendOnionMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Lightning_SubscribeOnionMessages_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeOnionMessagesRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(LightningServer).SubscribeOnionMessages(m, &lightningSubscribeOnionMessagesServer{stream})
+}
+
+type Lightning_SubscribeOnionMessagesServer interface {
+	Send(*OnionMessageUpdate) error
+	grpc.ServerStream
+}
+
+type lightningSubscribeOnionMessagesServer struct {
+	grpc.ServerStream
+}
+
+func (x *lightningSubscribeOnionMessagesServer) Send(m *OnionMessageUpdate) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 func _Lightning_ListAliases_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListAliasesRequest)
 	if err := dec(in); err != nil {
@@ -3520,6 +3618,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Lightning_SendCustomMessage_Handler,
 		},
 		{
+			MethodName: "SendOnionMessage",
+			Handler:    _Lightning_SendOnionMessage_Handler,
+		},
+		{
 			MethodName: "ListAliases",
 			Handler:    _Lightning_ListAliases_Handler,
 		},
@@ -3596,6 +3698,11 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeCustomMessages",
 			Handler:       _Lightning_SubscribeCustomMessages_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeOnionMessages",
+			Handler:       _Lightning_SubscribeOnionMessages_Handler,
 			ServerStreams: true,
 		},
 	},

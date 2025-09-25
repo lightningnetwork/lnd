@@ -41,7 +41,7 @@ func feeEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 // feeDecoder is a custom TLV decoder for the fee record.
 func feeDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	v, ok := val.(*Fee)
-	if !ok {
+	if !ok || l != 8 {
 		return tlv.NewTypeForDecodingErr(val, "lnwire.Fee", l, 8)
 	}
 

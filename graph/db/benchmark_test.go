@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
@@ -788,9 +789,10 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 		{
 			name: "NodeUpdatesInHorizon",
 			fn: func(b testing.TB, store V1Store) {
-				_, err := store.NodeUpdatesInHorizon(
+				iter := store.NodeUpdatesInHorizon(
 					time.Unix(0, 0), time.Now(),
 				)
+				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
 			},
 		},
@@ -836,9 +838,10 @@ func BenchmarkGraphReadMethods(b *testing.B) {
 		{
 			name: "ChanUpdatesInHorizon",
 			fn: func(b testing.TB, store V1Store) {
-				_, err := store.ChanUpdatesInHorizon(
+				iter := store.ChanUpdatesInHorizon(
 					time.Unix(0, 0), time.Now(),
 				)
+				_, err := fn.CollectErr(iter)
 				require.NoError(b, err)
 			},
 		},

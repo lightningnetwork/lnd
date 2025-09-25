@@ -554,14 +554,14 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) (iter.Seq[models.Node], error) {
+	opts ...IteratorOption) iter.Seq2[models.Node, error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return func(yield func(models.Node) bool) {
+	return func(yield func(models.Node, error) bool) {
 		var (
 			ctx            = context.TODO()
 			lastUpdateTime sql.NullInt64
@@ -634,11 +634,14 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 			if err != nil {
 				log.Errorf("NodeUpdatesInHorizon batch "+
 					"error: %v", err)
+
+				yield(models.Node{}, err)
+
 				return
 			}
 
 			for _, node := range batch {
-				if !yield(node) {
+				if !yield(node, nil) {
 					return
 				}
 			}
@@ -648,7 +651,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 				break
 			}
 		}
-	}, nil
+	}
 }
 
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
@@ -1078,7 +1081,7 @@ func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 //
 // NOTE: This is part of the V1Store interface.
 func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) (iter.Seq[ChannelEdge], error) {
+	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
 
 	// Apply options.
 	cfg := defaultIteratorConfig()
@@ -1086,7 +1089,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 		opt(cfg)
 	}
 
-	return func(yield func(ChannelEdge) bool) {
+	return func(yield func(ChannelEdge, error) bool) {
 		var (
 			ctx            = context.TODO()
 			edgesSeen      = make(map[uint64]struct{})
@@ -1198,11 +1201,13 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 				log.Errorf("ChanUpdatesInHorizon "+
 					"batch error: %v", err)
 
+				yield(ChannelEdge{}, err)
+
 				return
 			}
 
 			for _, edge := range batch {
-				if !yield(edge) {
+				if !yield(edge, nil) {
 					return
 				}
 			}
@@ -1226,7 +1231,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 			log.Debugf("ChanUpdatesInHorizon returned no edges "+
 				"in horizon (%s, %s)", startTime, endTime)
 		}
-	}, nil
+	}
 }
 
 // ForEachNodeCached is similar to forEachNode, but it returns DirectedChannel

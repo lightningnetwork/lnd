@@ -2028,12 +2028,12 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
-	chanIter, err := graph.ChanUpdatesInHorizon(
+	chanIter := graph.ChanUpdatesInHorizon(
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
-	require.NoError(t, err, "unable to updates for updates")
 
-	chanUpdates := fn.Collect(chanIter)
+	chanUpdates, err := fn.CollectErr(chanIter)
+	require.NoError(t, err, "unable to updates for updates")
 
 	if len(chanUpdates) != 0 {
 		t.Fatalf("expected 0 chan updates, instead got %v",
@@ -2147,14 +2147,14 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 		},
 	}
 	for _, queryCase := range queryCases {
-		respIter, err := graph.ChanUpdatesInHorizon(
+		respIter := graph.ChanUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
+
+		resp, err := fn.CollectErr(respIter)
 		if err != nil {
 			t.Fatalf("unable to query for updates: %v", err)
 		}
-
-		resp := fn.Collect(respIter)
 
 		if len(resp) != len(queryCase.resp) {
 			t.Fatalf("expected %v chans, got %v chans",
@@ -2194,11 +2194,11 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 
 	// If we issue an arbitrary query before we insert any nodes into the
 	// database, then we shouldn't get any results back.
-	nodeUpdatesIter, err := graph.NodeUpdatesInHorizon(
+	nodeUpdatesIter := graph.NodeUpdatesInHorizon(
 		time.Unix(999, 0), time.Unix(9999, 0),
 	)
+	nodeUpdates, err := fn.CollectErr(nodeUpdatesIter)
 	require.NoError(t, err, "unable to query for node updates")
-	nodeUpdates := fn.Collect(nodeUpdatesIter)
 	require.Len(t, nodeUpdates, 0)
 
 	// We'll create 10 node announcements, each with an update timestamp 10
@@ -2269,17 +2269,163 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		},
 	}
 	for _, queryCase := range queryCases {
-		iter, err := graph.NodeUpdatesInHorizon(
+		iter := graph.NodeUpdatesInHorizon(
 			queryCase.start, queryCase.end,
 		)
-		require.NoError(t, err, "unable to query for node updates")
 
-		resp := fn.Collect(iter)
+		resp, err := fn.CollectErr(iter)
+		require.NoError(t, err, "unable to query for node updates")
 		require.Len(t, resp, len(queryCase.resp))
 
 		for i := 0; i < len(resp); i++ {
 			compareNodes(t, &queryCase.resp[i], &resp[i])
 		}
+	}
+}
+
+// testNodeUpdatesWithBatchSize is a helper function that tests node updates
+// with a specific batch size to ensure the iterator works correctly across
+// batch boundaries.
+func testNodeUpdatesWithBatchSize(t *testing.T, ctx context.Context,
+	batchSize int) {
+
+	// Create a fresh graph for each test.
+	testGraph := MakeTestGraph(t)
+
+	// Add 25 nodes with increasing timestamps.
+	startTime := time.Unix(1234567890, 0)
+	var nodeAnns []models.Node
+
+	for i := 0; i < 25; i++ {
+		nodeAnn := createTestVertex(t)
+		nodeAnn.LastUpdate = startTime.Add(
+			time.Duration(i) * time.Hour,
+		)
+		nodeAnns = append(nodeAnns, *nodeAnn)
+		require.NoError(
+			t, testGraph.AddNode(ctx, nodeAnn),
+		)
+	}
+
+	testCases := []struct {
+		name  string
+		start time.Time
+		end   time.Time
+		want  int
+	}{
+		{
+			name:  "all nodes",
+			start: startTime,
+			end:   startTime.Add(26 * time.Hour),
+			want:  25,
+		},
+		{
+			name:  "first batch only",
+			start: startTime,
+			end: startTime.Add(
+				time.Duration(
+					min(batchSize, 25)-1,
+				) * time.Hour,
+			),
+			want: min(batchSize, 25),
+		},
+		{
+			name:  "cross batch boundary",
+			start: startTime,
+			end: startTime.Add(
+				time.Duration(
+					min(batchSize, 24),
+				) * time.Hour,
+			),
+			want: min(batchSize+1, 25),
+		},
+		{
+			name: "exact boundary",
+			start: func() time.Time {
+				// Test querying exactly at a
+				// batch boundary.
+				if batchSize <= 25 {
+					return startTime.Add(
+						time.Duration(
+							batchSize-1,
+						) * time.Hour,
+					)
+				}
+
+				// For batch sizes > 25, test
+				// beyond our data range.
+				return startTime.Add(
+					time.Duration(25) * time.Hour,
+				)
+			}(),
+			end: func() time.Time {
+				if batchSize <= 25 {
+					return startTime.Add(
+						time.Duration(
+							batchSize-1,
+						) * time.Hour,
+					)
+				}
+
+				return startTime.Add(
+					time.Duration(25) * time.Hour,
+				)
+			}(),
+			want: func() int {
+				if batchSize <= 25 {
+					return 1
+				}
+
+				// No nodes exist at hour 25 or
+				// beyond.
+				return 0
+			}(),
+		},
+		{
+			name:  "empty range before",
+			start: startTime.Add(-time.Hour),
+			end:   startTime.Add(-time.Minute),
+			want:  0,
+		},
+		{
+			name:  "empty range after",
+			start: startTime.Add(30 * time.Hour),
+			end:   startTime.Add(40 * time.Hour),
+			want:  0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			iter := testGraph.NodeUpdatesInHorizon(
+				tc.start, tc.end,
+				WithNodeUpdateIterBatchSize(
+					batchSize,
+				),
+			)
+
+			nodes, err := fn.CollectErr(iter)
+			require.NoError(t, err)
+			require.Len(
+				t, nodes, tc.want,
+				"expected %d nodes, got %d",
+				tc.want, len(nodes),
+			)
+
+			// Verify nodes are in the correct time
+			// order.
+			for i := 1; i < len(nodes); i++ {
+				require.True(t,
+					nodes[i-1].LastUpdate.Before(
+						nodes[i].LastUpdate,
+					) || nodes[i-1].LastUpdate.Equal(
+						nodes[i].LastUpdate,
+					),
+					"nodes should be in "+
+						"chronological order",
+				)
+			}
+		})
 	}
 }
 
@@ -2295,144 +2441,9 @@ func TestNodeUpdatesInHorizonBoundaryConditions(t *testing.T) {
 	batchSizes := []int{1, 3, 5, 10, 25, 100}
 
 	for _, batchSize := range batchSizes {
-		t.Run(fmt.Sprintf("BatchSize%d", batchSize), func(t *testing.T) {
-			// Create a fresh graph for each test.
-			testGraph := MakeTestGraph(t)
-
-			// Add 25 nodes with increasing timestamps.
-			startTime := time.Unix(1234567890, 0)
-			var nodeAnns []models.Node
-
-			for i := 0; i < 25; i++ {
-				nodeAnn := createTestVertex(t)
-				nodeAnn.LastUpdate = startTime.Add(
-					time.Duration(i) * time.Hour,
-				)
-				nodeAnns = append(nodeAnns, *nodeAnn)
-				require.NoError(
-					t, testGraph.AddNode(ctx, nodeAnn),
-				)
-			}
-
-			testCases := []struct {
-				name  string
-				start time.Time
-				end   time.Time
-				want  int
-			}{
-				{
-					name:  "all nodes",
-					start: startTime,
-					end:   startTime.Add(26 * time.Hour),
-					want:  25,
-				},
-				{
-					name:  "first batch only",
-					start: startTime,
-					end: startTime.Add(
-						time.Duration(
-							min(batchSize, 25)-1,
-						) * time.Hour,
-					),
-					want:  min(batchSize, 25),
-				},
-				{
-					name:  "cross batch boundary",
-					start: startTime,
-					end: startTime.Add(
-						time.Duration(
-							min(batchSize, 24),
-						) * time.Hour,
-					),
-					want:  min(batchSize+1, 25),
-				},
-				{
-					name: "exact boundary",
-					start: func() time.Time {
-						// Test querying exactly at a
-						// batch boundary.
-						if batchSize <= 25 {
-							return startTime.Add(
-								time.Duration(
-									batchSize-1,
-								) * time.Hour,
-							)
-						}
-
-						// For batch sizes > 25, test
-						// beyond our data range.
-						return startTime.Add(
-							time.Duration(25) * time.Hour,
-						)
-					}(),
-					end: func() time.Time {
-						if batchSize <= 25 {
-							return startTime.Add(
-								time.Duration(
-									batchSize-1,
-								) * time.Hour,
-							)
-						}
-						return startTime.Add(
-							time.Duration(25) * time.Hour,
-						)
-					}(),
-					want: func() int {
-						if batchSize <= 25 {
-							return 1
-						}
-
-						// No nodes exist at hour 25 or
-						// beyond.
-						return 0
-					}(),
-				},
-				{
-					name:  "empty range before",
-					start: startTime.Add(-time.Hour),
-					end:   startTime.Add(-time.Minute),
-					want:  0,
-				},
-				{
-					name:  "empty range after",
-					start: startTime.Add(30 * time.Hour),
-					end:   startTime.Add(40 * time.Hour),
-					want:  0,
-				},
-			}
-
-			for _, tc := range testCases {
-				t.Run(tc.name, func(t *testing.T) {
-					iter, err := testGraph.NodeUpdatesInHorizon(
-						tc.start, tc.end,
-						WithNodeUpdateIterBatchSize(
-							batchSize,
-						),
-					)
-					require.NoError(t, err)
-
-					nodes := fn.Collect(iter)
-					require.Len(
-						t, nodes, tc.want,
-						"expected %d nodes, got %d",
-						tc.want, len(nodes),
-					)
-
-					// Verify nodes are in the correct time
-					// order.
-					for i := 1; i < len(nodes); i++ {
-						require.True(t,
-							nodes[i-1].LastUpdate.Before(
-								nodes[i].LastUpdate,
-							) || nodes[i-1].LastUpdate.Equal(
-								nodes[i].LastUpdate,
-							),
-							"nodes should be in "+
-								"chronological order",
-						)
-					}
-				})
-			}
+		testName := fmt.Sprintf("BatchSize%d", batchSize)
+		t.Run(testName, func(t *testing.T) {
+			testNodeUpdatesWithBatchSize(t, ctx, batchSize)
 		})
 	}
 }
@@ -2459,11 +2470,10 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 
 	for _, stopAt := range terminationPoints {
 		t.Run(fmt.Sprintf("StopAt%d", stopAt), func(t *testing.T) {
-			iter, err := graph.NodeUpdatesInHorizon(
+			iter := graph.NodeUpdatesInHorizon(
 				startTime, startTime.Add(200*time.Hour),
 				WithNodeUpdateIterBatchSize(10),
 			)
-			require.NoError(t, err)
 
 			// Collect only up to stopAt nodes, breaking afterwards.
 			var collected []models.Node
@@ -2494,7 +2504,8 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 	batchSizes := []int{1, 3, 5, 10}
 
 	for _, batchSize := range batchSizes {
-		t.Run(fmt.Sprintf("BatchSize%d", batchSize), func(t *testing.T) {
+		testName := fmt.Sprintf("BatchSize%d", batchSize)
+		t.Run(testName, func(t *testing.T) {
 			// Create a fresh graph for each test, then add two new
 			// nodes to the graph.
 			graph := MakeTestGraph(t)
@@ -2516,7 +2527,9 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 				channel, chanID := createEdge(
 					uint32(i*10), 0, 0, 0, node1, node2,
 				)
-				require.NoError(t, graph.AddChannelEdge(ctx, &channel))
+				require.NoError(
+					t, graph.AddChannelEdge(ctx, &channel),
+				)
 
 				edge1 := newEdgePolicy(
 					chanID.ToUint64(), updateTime.Unix(),
@@ -2534,18 +2547,20 @@ func TestChanUpdatesInHorizonBoundaryConditions(t *testing.T) {
 				edge2.ChannelFlags = 1
 				edge2.ToNode = node1.PubKeyBytes
 				edge2.SigBytes = testSig.Serialize()
-				require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
+				require.NoError(
+					t, graph.UpdateEdgePolicy(ctx, edge2),
+				)
 			}
 
 			// Now we'll run the main query, and verify that we get
 			// back the expected number of channels.
-			iter, err := graph.ChanUpdatesInHorizon(
+			iter := graph.ChanUpdatesInHorizon(
 				startTime, startTime.Add(26*time.Hour),
 				WithChanUpdateIterBatchSize(batchSize),
 			)
-			require.NoError(t, err)
 
-			channels := fn.Collect(iter)
+			channels, err := fn.CollectErr(iter)
+			require.NoError(t, err)
 			require.Len(
 				t, channels, numChans,
 				"expected %d channels, got %d", numChans,
@@ -3011,9 +3026,10 @@ func TestStressTestChannelGraphAPI(t *testing.T) {
 		{
 			name: "ChanUpdateInHorizon",
 			fn: func() error {
-				_, err := graph.ChanUpdatesInHorizon(
+				iter := graph.ChanUpdatesInHorizon(
 					time.Now().Add(-time.Hour), time.Now(),
 				)
+				_, err := fn.CollectErr(iter)
 
 				return err
 			},
@@ -3787,12 +3803,12 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	// update time of our test node.
 	startTime := time.Unix(9, 0)
 	endTime := node1.LastUpdate.Add(time.Minute)
-	nodesInHorizonIter, err := graph.NodeUpdatesInHorizon(startTime, endTime)
-	require.NoError(t, err, "unable to fetch nodes in horizon")
+	nodesInHorizonIter := graph.NodeUpdatesInHorizon(startTime, endTime)
 
 	// We should only have a single node, and that node should exactly
 	// match the node we just inserted.
-	nodesInHorizon := fn.Collect(nodesInHorizonIter)
+	nodesInHorizon, err := fn.CollectErr(nodesInHorizonIter)
+	require.NoError(t, err, "unable to fetch nodes in horizon")
 	if len(nodesInHorizon) != 1 {
 		t.Fatalf("should have 1 nodes instead have: %v",
 			len(nodesInHorizon))
@@ -3806,11 +3822,11 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 
 	// Now that the node has been deleted, we'll again query the nodes in
 	// the horizon. This time we should have no nodes at all.
-	nodesInHorizonIter, err = graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizonIter = graph.NodeUpdatesInHorizon(startTime, endTime)
+	nodesInHorizon, err = fn.CollectErr(nodesInHorizonIter)
 	require.NoError(t, err, "unable to fetch nodes in horizon")
-	nodesInHorizon = fn.Collect(nodesInHorizonIter)
 
-	if len(fn.Collect(nodesInHorizonIter)) != 0 {
+	if len(nodesInHorizon) != 0 {
 		t.Fatalf("should have zero nodes instead have: %v",
 			len(nodesInHorizon))
 	}

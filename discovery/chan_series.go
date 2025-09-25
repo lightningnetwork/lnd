@@ -114,15 +114,15 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 	return func(yield func(lnwire.Message, error) bool) {
 		// First, we'll query for all the set of channels that have an
 		// update that falls within the specified horizon.
-		chansInHorizon, err := c.graph.ChanUpdatesInHorizon(
+		chansInHorizon := c.graph.ChanUpdatesInHorizon(
 			startTime, endTime,
 		)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
 
-		for channel := range chansInHorizon {
+		for channel, err := range chansInHorizon {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 			// If the channel hasn't been fully advertised yet, or
 			// is a private channel, then we'll skip it as we can't
 			// construct a full authentication proof if one is
@@ -181,10 +181,14 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		// Next, we'll send out all the node announcements that have an
 		// update within the horizon as well. We send these second to
 		// ensure that they follow any active channels they have.
-		nodeAnnsInHorizon, err := c.graph.NodeUpdatesInHorizon(
+		nodeAnnsInHorizon := c.graph.NodeUpdatesInHorizon(
 			startTime, endTime, graphdb.WithIterPublicNodesOnly(),
 		)
-		for nodeAnn := range nodeAnnsInHorizon {
+		for nodeAnn, err := range nodeAnnsInHorizon {
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 			nodeUpdate, err := nodeAnn.NodeAnnouncement(true)
 			if err != nil {
 				if !yield(nil, err) {

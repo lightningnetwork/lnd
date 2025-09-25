@@ -154,8 +154,8 @@ type DB interface {
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
 	ChanUpdatesInHorizon(startTime, endTime time.Time,
-		opts ...graphdb.IteratorOption) (
-		iter.Seq[graphdb.ChannelEdge], error)
+		opts ...graphdb.IteratorOption,
+	) iter.Seq2[graphdb.ChannelEdge, error]
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the
 	// database and marks them as zombies. This ensures that we're unable to

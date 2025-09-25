@@ -111,7 +111,7 @@ type V1Store interface { //nolint:interfacebloat
 	// by two nodes to quickly determine if they have the same set of up to
 	// date node announcements.
 	NodeUpdatesInHorizon(startTime, endTime time.Time,
-		opts ...IteratorOption) (iter.Seq[models.Node], error)
+		opts ...IteratorOption) iter.Seq2[models.Node, error]
 
 	// FetchNode attempts to look up a target node by its identity
 	// public key. If the node isn't found in the database, then
@@ -221,7 +221,7 @@ type V1Store interface { //nolint:interfacebloat
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
 	ChanUpdatesInHorizon(startTime, endTime time.Time,
-		opts ...IteratorOption) (iter.Seq[ChannelEdge], error)
+		opts ...IteratorOption) iter.Seq2[ChannelEdge, error]
 
 	// FilterKnownChanIDs takes a set of channel IDs and return the subset
 	// of chan ID's that we don't know and are not known zombies of the

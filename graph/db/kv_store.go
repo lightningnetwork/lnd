@@ -2287,14 +2287,14 @@ func (c *KVStore) fetchNextChanUpdateBatch(
 // ChanUpdatesInHorizon returns all the known channel edges which have at least
 // one edge that has an update timestamp within the specified horizon.
 func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
-	opts ...IteratorOption) (iter.Seq[ChannelEdge], error) {
+	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return func(yield func(ChannelEdge) bool) {
+	return func(yield func(ChannelEdge, error) bool) {
 		iterState := newChanUpdatesIterator(
 			cfg.chanUpdateIterBatchSize, startTime, endTime,
 		)
@@ -2306,14 +2306,15 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 			batch, hasMore, err := c.fetchNextChanUpdateBatch(
 				iterState,
 			)
-			// TODO(roasbeef): yield error here?
 			if err != nil {
 				// These errors just mean the graph is empty,
 				// which is OK.
 				if !isEmptyGraphError(err) {
-
 					log.Errorf("ChanUpdatesInHorizon "+
 						"batch error: %v", err)
+
+					yield(ChannelEdge{}, err)
+
 					return
 				}
 				// Continue with empty batch
@@ -2322,7 +2323,7 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 			// We'll now yield each edge that we just read. If yield
 			// returns false, then that means that we'll exit early.
 			for _, edge := range batch {
-				if !yield(edge) {
+				if !yield(edge, nil) {
 					return
 				}
 			}
@@ -2347,17 +2348,17 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 			log.Tracef("ChanUpdatesInHorizon returned no edges "+
 				"in horizon (%s, %s)", startTime, endTime)
 		}
-	}, nil
+	}
 }
 
 // nodeUpdatesIterator maintains state for iterating through node updates.
 //
 // Iterator Lifecycle:
-// 1. Initialize state with start/end time, batch size, and filtering options
-// 2. Fetch batch using pagination cursor (lastSeenKey)
-// 3. Filter nodes if publicNodesOnly is set
-// 4. Update lastSeenKey to the last processed node's index key
-// 5. Repeat until we exceed endTime or no more nodes exist
+// 1. Initialize state with start/end time, batch size, and filtering options.
+// 2. Fetch batch using pagination cursor (lastSeenKey).
+// 3. Filter nodes if publicNodesOnly is set.
+// 4. Update lastSeenKey to the last processed node's index key.
+// 5. Repeat until we exceed endTime or no more nodes exist.
 type nodeUpdatesIterator struct {
 	// batchSize is the amount of node updates to read at a single time.
 	batchSize int
@@ -2537,14 +2538,14 @@ func (c *KVStore) fetchNextNodeBatch(
 // update timestamp within the passed range.
 func (c *KVStore) NodeUpdatesInHorizon(startTime,
 	endTime time.Time,
-	opts ...IteratorOption) (iter.Seq[models.Node], error) {
+	opts ...IteratorOption) iter.Seq2[models.Node, error] {
 
 	cfg := defaultIteratorConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	return func(yield func(models.Node) bool) {
+	return func(yield func(models.Node, error) bool) {
 		// Initialize iterator state.
 		state := newNodeUpdatesIterator(
 			cfg.nodeUpdateIterBatchSize,
@@ -2558,11 +2559,13 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 				log.Errorf("unable to read node updates in "+
 					"horizon: %v", err)
 
+				yield(models.Node{}, err)
+
 				return
 			}
 
 			for _, node := range nodeAnns {
-				if !yield(node) {
+				if !yield(node, nil) {
 					return
 				}
 			}
@@ -2573,7 +2576,7 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 				break
 			}
 		}
-	}, nil
+	}
 }
 
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan

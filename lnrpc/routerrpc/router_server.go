@@ -1713,8 +1713,13 @@ func (s *Server) XAddLocalChanAliases(_ context.Context,
 					rpcAlias)
 			}
 
+			// We set the baseLookup flag as we want the alias
+			// manager to keep a mapping from the alias back to its
+			// base scid, in order to be able to provide it via the
+			// FindBaseLocalChanAlias RPC.
 			err = s.cfg.AliasMgr.AddLocalAlias(
 				aliasScid, baseScid, false, true,
+				aliasmgr.WithBaseLookup(),
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error adding scid "+
@@ -1756,6 +1761,22 @@ func (s *Server) XDeleteLocalChanAliases(_ context.Context,
 
 	return &DeleteAliasesResponse{
 		AliasMaps: lnrpc.MarshalAliasMap(s.cfg.AliasMgr.ListAliases()),
+	}, nil
+}
+
+// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+// for a local chan alias that was registered.
+func (s *Server) XFindBaseLocalChanAlias(_ context.Context,
+	in *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
+
+	aliasScid := lnwire.NewShortChanIDFromInt(in.Alias)
+	base, err := s.cfg.AliasMgr.FindBaseSCID(aliasScid)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FindBaseAliasResponse{
+		Base: base.ToUint64(),
 	}, nil
 }
 

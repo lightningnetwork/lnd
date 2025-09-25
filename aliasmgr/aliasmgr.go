@@ -239,14 +239,43 @@ func (m *Manager) populateMaps() error {
 	return nil
 }
 
+// addAliasCfg is a struct that hosts various options related to adding a local
+// alias to the alias manager.
+type addAliasCfg struct {
+	// baseLookup signals that the alias should also store a reverse look-up
+	// to the base scid.
+	baseLookup bool
+}
+
+// AddLocalAliasOption is a functional option that modifies the configuration
+// for adding a local alias.
+type AddLocalAliasOption func(cfg *addAliasCfg)
+
+// WithBaseLookup is a functional option that controls whether a reverse lookup
+// will be stored from the alias to the base scid.
+func WithBaseLookup() AddLocalAliasOption {
+	return func(cfg *addAliasCfg) {
+		cfg.baseLookup = true
+	}
+}
+
 // AddLocalAlias adds a database mapping from the passed alias to the passed
 // base SCID. The gossip boolean marks whether or not to create a mapping
 // that the gossiper will use. It is set to false for the upgrade path where
 // the feature-bit is toggled on and there are existing channels. The linkUpdate
-// flag is used to signal whether this function should also trigger an update
-// on the htlcswitch scid alias maps.
+// flag is used to signal whether this function should also trigger an update on
+// the htlcswitch scid alias maps.
+//
+// NOTE: The following aliases will not be persisted (will be lost on restart):
+//   - Aliases that were created without gossip flag.
+//   - Aliases that correspond to confirmed channels.
 func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
-	gossip, linkUpdate bool) error {
+	gossip, linkUpdate bool, opts ...AddLocalAliasOption) error {
+
+	cfg := addAliasCfg{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 
 	// We need to lock the manager for the whole duration of this method,
 	// except for the very last part where we call the link updater. In
@@ -302,8 +331,9 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 	// Update the aliasToBase and baseToSet maps.
 	m.baseToSet[baseScid] = append(m.baseToSet[baseScid], alias)
 
-	// Only store the gossiper map if gossip is true.
-	if gossip {
+	// Only store the gossiper map if gossip is true, or if the caller
+	// explicitly asked to store this reverse mapping.
+	if gossip || cfg.baseLookup {
 		m.aliasToBase[alias] = baseScid
 	}
 
@@ -342,7 +372,9 @@ func (m *Manager) GetAliases(
 }
 
 // FindBaseSCID finds the base SCID for a given alias. This is used in the
-// gossiper to find the correct SCID to lookup in the graph database.
+// gossiper to find the correct SCID to lookup in the graph database. It can
+// also be used to look up the base for manual aliases that were added over the
+// RPC.
 func (m *Manager) FindBaseSCID(
 	alias lnwire.ShortChannelID) (lnwire.ShortChannelID, error) {
 
@@ -446,7 +478,7 @@ func (m *Manager) DeleteLocalAlias(alias,
 	}
 
 	// Finally, we'll delete the aliasToBase mapping from the Manager's
-	// cache (but this is only set if we gossip the alias).
+	// cache.
 	delete(m.aliasToBase, alias)
 
 	// We definitely need to unlock the Manager before calling the link

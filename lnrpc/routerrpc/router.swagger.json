@@ -580,6 +580,39 @@
         ]
       }
     },
+    "/v2/router/x/findbasealias": {
+      "post": {
+        "summary": "XFindBaseLocalChanAlias is an experimental API that looks up the base scid\nfor a local chan alias that was registered during the current runtime.",
+        "operationId": "Router_XFindBaseLocalChanAlias",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/routerrpcFindBaseAliasResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/routerrpcFindBaseAliasRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Router"
+        ]
+      }
+    },
     "/v2/router/x/importhistory": {
       "post": {
         "summary": "lncli: `importmc`\nXImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
@@ -1408,6 +1441,26 @@
         },
         "offchain": {
           "type": "boolean"
+        }
+      }
+    },
+    "routerrpcFindBaseAliasRequest": {
+      "type": "object",
+      "properties": {
+        "alias": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The alias we want to look up the base scid for."
+        }
+      }
+    },
+    "routerrpcFindBaseAliasResponse": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The base scid that resulted from the base scid look up."
         }
       }
     },

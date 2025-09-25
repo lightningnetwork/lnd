@@ -1,6 +1,7 @@
 package funding
 
 import (
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -36,8 +37,8 @@ type aliasHandler interface {
 	GetPeerAlias(lnwire.ChannelID) (lnwire.ShortChannelID, error)
 
 	// AddLocalAlias persists an alias to an underlying alias store.
-	AddLocalAlias(lnwire.ShortChannelID, lnwire.ShortChannelID, bool,
-		bool) error
+	AddLocalAlias(lnwire.ShortChannelID, lnwire.ShortChannelID, bool, bool,
+		...aliasmgr.AddLocalAliasOption) error
 
 	// GetAliases returns the set of aliases given the main SCID of a
 	// channel. This SCID will be an alias for zero-conf channels and will

@@ -195,6 +195,13 @@ service Router {
     */
     rpc XDeleteLocalChanAliases (DeleteAliasesRequest)
         returns (DeleteAliasesResponse);
+
+    /*
+    XFindBaseLocalChanAlias is an experimental API that looks up the base scid
+    for a local chan alias that was registered during the current runtime.
+    */
+    rpc XFindBaseLocalChanAlias (FindBaseAliasRequest)
+        returns (FindBaseAliasResponse);
 }
 
 message SendPaymentRequest {
@@ -1116,4 +1123,14 @@ message DeleteAliasesRequest {
 
 message DeleteAliasesResponse {
     repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message FindBaseAliasRequest {
+    // The alias we want to look up the base scid for.
+    uint64 alias = 1;
+}
+
+message FindBaseAliasResponse {
+    // The base scid that resulted from the base scid look up.
+    uint64 base = 1;
 }

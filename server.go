@@ -5561,15 +5561,6 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		return fmt.Errorf("unable to normalize addresses: %w", err)
 	}
 
-	// To avoid having duplicate addresses, we'll only add addresses from
-	// the source node that are not already in our address list yet. We
-	// create this map for quick lookup.
-	addressMap := make(map[string]struct{}, len(addrs))
-	// Populate the map with the existing addresses.
-	for _, existingAddr := range addrs {
-		addressMap[existingAddr.String()] = struct{}{}
-	}
-
 	// Parse the color from config. We will update this later if the config
 	// color is not changed from default (#3399FF) and we have a value in
 	// the source node.
@@ -5606,13 +5597,10 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 			alias = srcNode.Alias
 		}
 
-		// Append unique addresses from the source node to the address
-		// list.
-		for _, addr := range srcNode.Addresses {
-			if _, found := addressMap[addr.String()]; !found {
-				addrs = append(addrs, addr)
-				addressMap[addr.String()] = struct{}{}
-			}
+		// If the `externalip` is not specified in the config, it means
+		// `addrs` will be empty, we'll use the source node's addresses.
+		if len(s.cfg.ExternalIPs) == 0 {
+			addrs = srcNode.Addresses
 		}
 
 	case errors.Is(err, graphdb.ErrSourceNodeNotSet):

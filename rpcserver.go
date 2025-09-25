@@ -9251,7 +9251,7 @@ func (r *rpcServer) RegisterRPCMiddleware(
 }
 
 // SendCustomMessage sends a custom peer message.
-func (r *rpcServer) SendCustomMessage(_ context.Context,
+func (r *rpcServer) SendCustomMessage(ctx context.Context,
 	req *lnrpc.SendCustomMessageRequest) (*lnrpc.SendCustomMessageResponse,
 	error) {
 
@@ -9261,7 +9261,7 @@ func (r *rpcServer) SendCustomMessage(_ context.Context,
 	}
 
 	err = r.server.SendCustomMessage(
-		peer, lnwire.MessageType(req.Type), req.Data,
+		ctx, peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
 	case errors.Is(err, ErrPeerNotConnected):

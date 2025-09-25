@@ -50,3 +50,16 @@ func LogPubKey(key string, pubKey *btcec.PublicKey) slog.Attr {
 
 	return btclog.Hex6(key, pubKey.SerializeCompressed())
 }
+
+// LogBytesPreview returns a slog attribute that shows a hex preview
+// of the given byte slice. The result is truncated for readability.
+// The preview length is fixed to avoid leaking full binary payloads
+// in logs while still allowing identification of the data.
+func LogBytesPreview(key string, data []byte) slog.Attr {
+	// Handle nil slice gracefully.
+	if data == nil {
+		return btclog.Fmt(key, "<nil>")
+	}
+
+	return btclog.Hex6(key, data)
+}

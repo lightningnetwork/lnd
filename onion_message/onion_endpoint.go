@@ -2,7 +2,10 @@ package onion_message
 
 import (
 	"context"
+	"encoding/hex"
+	"log/slog"
 
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -65,9 +68,11 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	}
 
 	peer := msg.PeerPub.SerializeCompressed()
-	log.Debugf("OnionEndpoint received OnionMessage from peer %s: "+
-		"BlindingPoint=%v, OnionPacket[:10]=%x...", peer,
-		onionMsg.PathKey, onionMsg.OnionBlob)
+	log.DebugS(ctx, "OnionEndpoint received OnionMessage",
+		slog.String("peer", hex.EncodeToString(peer)),
+		lnutils.LogPubKey("path_key", onionMsg.PathKey),
+		lnutils.LogBytesPreview("onion_blob", onionMsg.OnionBlob),
+		slog.Int("blob length", len(onionMsg.OnionBlob)))
 
 	var peerArr [33]byte
 	copy(peerArr[:], peer)
@@ -83,7 +88,7 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 		OnionBlob:     onionMsg.OnionBlob,
 	})
 	if err != nil {
-		log.Errorf("Failed to send onion message update: %v", err)
+		log.ErrorS(ctx, "Failed to send onion message update", err)
 		return false
 	}
 

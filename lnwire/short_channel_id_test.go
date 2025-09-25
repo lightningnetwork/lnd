@@ -76,9 +76,14 @@ func TestScidTypeDecodeInvalidLength(t *testing.T) {
 	require.NoError(t, extraData.PackRecords(&aliasScid))
 
 	// Corrupt the TLV length field to simulate malformed input.
-	extraData[1] = 0xAA
+	extraData[1] = 8 + 1
 
 	var out ShortChannelID
 	_, err := extraData.ExtractRecords(&out)
+	require.Error(t, err)
+
+	extraData[1] = 8 - 1
+
+	_, err = extraData.ExtractRecords(&out)
 	require.Error(t, err)
 }

@@ -92,7 +92,7 @@ func DShortChannelID(r io.Reader, val interface{}, buf *[8]byte,
 
 	if v, ok := val.(*ShortChannelID); ok {
 		var scid uint64
-		err := tlv.DUint64(r, &scid, buf, 8)
+		err := tlv.DUint64(r, &scid, buf, l)
 		if err != nil {
 			return err
 		}

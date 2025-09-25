@@ -1292,19 +1292,19 @@ func (c *KVStore) HasChannelEdge(
 	}
 	c.cacheMu.RUnlock()
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
+	c.cacheMu.Lock()
 	if entry, ok := c.rejectCache.get(chanID); ok {
+		c.cacheMu.Unlock()
 		upd1Time = time.Unix(entry.upd1Time, 0)
 		upd2Time = time.Unix(entry.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
 
 		return upd1Time, upd2Time, exists, isZombie, nil
 	}
+	c.cacheMu.Unlock()
 
 	if err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -1365,11 +1365,13 @@ func (c *KVStore) HasChannelEdge(
 		return time.Time{}, time.Time{}, exists, isZombie, err
 	}
 
+	c.cacheMu.Lock()
 	c.rejectCache.insert(chanID, rejectCacheEntry{
 		upd1Time: upd1Time.Unix(),
 		upd2Time: upd2Time.Unix(),
 		flags:    packRejectFlags(exists, isZombie),
 	})
+	c.cacheMu.Unlock()
 
 	return upd1Time, upd2Time, exists, isZombie, nil
 }
@@ -1424,9 +1426,6 @@ const (
 func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
 	[]*models.ChannelEdgeInfo, []route.Vertex, error) {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
 
 	var (
 		chansClosed []*models.ChannelEdgeInfo
@@ -1537,9 +1536,13 @@ func (c *KVStore) PruneGraph(spentOutputs []*wire.OutPoint,
 		return nil, nil, err
 	}
 
-	for _, channel := range chansClosed {
-		c.rejectCache.remove(channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+	if len(chansClosed) > 0 {
+		c.cacheMu.Lock()
+		for _, channel := range chansClosed {
+			c.rejectCache.remove(channel.ChannelID)
+			c.chanCache.remove(channel.ChannelID)
+		}
+		c.cacheMu.Unlock()
 	}
 
 	return chansClosed, prunedNodes, nil
@@ -1708,9 +1711,6 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 	var chanIDEnd [8]byte
 	byteOrder.PutUint64(chanIDEnd[:], endShortChanID.ToUint64())
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	// Keep track of the channels that are removed from the graph.
 	var removedChans []*models.ChannelEdgeInfo
 
@@ -1804,9 +1804,13 @@ func (c *KVStore) DisconnectBlockAtHeight(height uint32) (
 		return nil, err
 	}
 
-	for _, channel := range removedChans {
-		c.rejectCache.remove(channel.ChannelID)
-		c.chanCache.remove(channel.ChannelID)
+	if len(removedChans) > 0 {
+		c.cacheMu.Lock()
+		for _, channel := range removedChans {
+			c.rejectCache.remove(channel.ChannelID)
+			c.chanCache.remove(channel.ChannelID)
+		}
+		c.cacheMu.Unlock()
 	}
 
 	return removedChans, nil
@@ -1870,9 +1874,6 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	// channels
 	// TODO(roasbeef): don't delete both edges?
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	var infos []*models.ChannelEdgeInfo
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
@@ -1918,9 +1919,13 @@ func (c *KVStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		return nil, err
 	}
 
-	for _, chanID := range chanIDs {
-		c.rejectCache.remove(chanID)
-		c.chanCache.remove(chanID)
+	if len(chanIDs) > 0 {
+		c.cacheMu.Lock()
+		for _, chanID := range chanIDs {
+			c.rejectCache.remove(chanID)
+			c.chanCache.remove(chanID)
+		}
+		c.cacheMu.Unlock()
 	}
 
 	return infos, nil
@@ -2051,9 +2056,6 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 	var edgesToCache map[uint64]ChannelEdge
 	var edgesInHorizon []ChannelEdge
 
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	var hits int
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -2105,10 +2107,13 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 				continue
 			}
 
-			if channel, ok := c.chanCache.get(chanIDInt); ok {
+			c.cacheMu.RLock()
+			cachedChannel, ok := c.chanCache.get(chanIDInt)
+			c.cacheMu.RUnlock()
+			if ok {
 				hits++
 				edgesSeen[chanIDInt] = struct{}{}
-				edgesInHorizon = append(edgesInHorizon, channel)
+				edgesInHorizon = append(edgesInHorizon, cachedChannel)
 
 				continue
 			}
@@ -2178,8 +2183,12 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 	}
 
 	// Insert any edges loaded from disk into the cache.
-	for chanid, channel := range edgesToCache {
-		c.chanCache.insert(chanid, channel)
+	if len(edgesToCache) > 0 {
+		c.cacheMu.Lock()
+		for chanid, channel := range edgesToCache {
+			c.chanCache.insert(chanid, channel)
+		}
+		c.cacheMu.Unlock()
 	}
 
 	if len(edgesInHorizon) > 0 {
@@ -2272,9 +2281,6 @@ func (c *KVStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 		newChanIDs   []uint64
 		knownZombies []ChannelUpdateInfo
 	)
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -2696,13 +2702,9 @@ func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
 	return nil
 }
 
-// delChannelEdgeUnsafe deletes the edge with the given chanID from the graph
-// cache. It then goes on to delete any policy info and edge info for this
-// channel from the DB and finally, if isZombie is true, it will add an entry
-// for this channel in the zombie index.
-//
-// NOTE: this method MUST only be called if the cacheMu has already been
-// acquired.
+// delChannelEdgeUnsafe removes the edge with the given chanID from the backing
+// buckets and, if requested, marks it as a zombie. Callers are responsible for
+// performing any cache updates in a thread-safe manner.
 func (c *KVStore) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
 	zombieIndex kvdb.RwBucket, chanID []byte, isZombie,
 	strictZombie bool) (*models.ChannelEdgeInfo, error) {
@@ -2908,6 +2910,9 @@ func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
 
 func (c *KVStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 	isUpdate1 bool) {
+
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
 
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just
@@ -3750,10 +3755,6 @@ func (c *KVStore) ChannelView() ([]EdgePoint, error) {
 // marked as zombies outside the normal pruning cycle.
 func (c *KVStore) MarkEdgeZombie(chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
-
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	err := kvdb.Batch(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {
@@ -3771,8 +3772,10 @@ func (c *KVStore) MarkEdgeZombie(chanID uint64,
 		return err
 	}
 
+	c.cacheMu.Lock()
 	c.rejectCache.remove(chanID)
 	c.chanCache.remove(chanID)
+	c.cacheMu.Unlock()
 
 	return nil
 }
@@ -3795,18 +3798,12 @@ func markEdgeZombie(zombieIndex kvdb.RwBucket, chanID uint64, pubKey1,
 
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 func (c *KVStore) MarkEdgeLive(chanID uint64) error {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
 	return c.markEdgeLiveUnsafe(nil, chanID)
 }
 
 // markEdgeLiveUnsafe clears an edge from the zombie index. This method can be
 // called with an existing kvdb.RwTx or the argument can be set to nil in which
 // case a new transaction will be created.
-//
-// NOTE: this method MUST only be called if the cacheMu has already been
-// acquired.
 func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 	dbFn := func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
@@ -3840,8 +3837,10 @@ func (c *KVStore) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 		return err
 	}
 
+	c.cacheMu.Lock()
 	c.rejectCache.remove(chanID)
 	c.chanCache.remove(chanID)
+	c.cacheMu.Unlock()
 
 	return nil
 }

@@ -226,6 +226,15 @@ func newRoute(sourceVertex route.Vertex,
 			return edge.ToNodeFeatures.HasFeature(feature)
 		}
 
+		// We pack payloads always in TLV format, therefore it will fail
+		// anyways at the forwarding/receiving node in case it doesn't
+		// support it.
+		tlvPayloadSupport := supports(lnwire.TLVOnionPayloadOptional)
+		if !tlvPayloadSupport {
+			return nil, fmt.Errorf("cannot use a route with hops " +
+				"that don't support TLV payloads")
+		}
+
 		if i == len(pathEdges)-1 {
 			// If this is the last hop, then the hop payload will
 			// contain the exact amount. In BOLT #4: Onion Routing
@@ -253,7 +262,7 @@ func newRoute(sourceVertex route.Vertex,
 			// doesn't support both TLV and payment addrs, fail.
 			payAddr := supports(lnwire.PaymentAddrOptional)
 			if !payAddr && finalHop.paymentAddr.IsSome() {
-				return nil, errors.New("cannot attach " +
+				return nil, fmt.Errorf("cannot attach " +
 					"payment addr")
 			}
 

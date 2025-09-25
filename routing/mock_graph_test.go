@@ -199,7 +199,7 @@ func (m *mockGraph) ForEachNodeDirectedChannel(nodePub route.Vertex,
 					ToNodePubKey: func() route.Vertex {
 						return nodePub
 					},
-					ToNodeFeatures: lnwire.EmptyFeatureVector(),
+					ToNodeFeatures: testFeatures,
 					FeeBaseMSat:    peerNode.baseFee,
 				},
 			},
@@ -224,7 +224,7 @@ func (m *mockGraph) sourceNode() route.Vertex {
 func (m *mockGraph) FetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
-	return lnwire.EmptyFeatureVector(), nil
+	return testFeatures, nil
 }
 
 // GraphSession will provide the call-back with access to a

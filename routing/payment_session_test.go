@@ -223,9 +223,7 @@ func TestRequestRoute(t *testing.T) {
 					ToNodePubKey: func() route.Vertex {
 						return route.Vertex{}
 					},
-					ToNodeFeatures: lnwire.NewFeatureVector(
-						nil, nil,
-					),
+					ToNodeFeatures: testFeatures,
 				},
 			},
 		}

@@ -5263,21 +5263,24 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 
 // SendCustomMessage sends a custom message to the peer with the specified
 // pubkey.
-func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
-	data []byte) error {
+func (s *server) SendCustomMessage(ctx context.Context, peerPub [33]byte,
+	msgType lnwire.MessageType, data []byte) error {
 
 	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
 		return err
 	}
 
-	// We'll wait until the peer is active.
+	// We'll wait until the peer is active, but also listen for
+	// cancellation.
 	select {
 	case <-peer.ActiveSignal():
 	case <-peer.QuitSignal():
 		return fmt.Errorf("peer %x disconnected", peerPub)
 	case <-s.quit:
 		return ErrServerShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	msg, err := lnwire.NewCustom(msgType, data)

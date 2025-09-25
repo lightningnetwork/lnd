@@ -16,7 +16,7 @@ type OnionMessageUpdate struct {
 
 	// BlindingPoint is the route blinding ephemeral pubkey to be used for
 	// the onion message.
-	BlindingPoint []byte
+	BlindingPoint [33]byte
 
 	// OnionBlob is the raw serialized mix header used to relay messages in
 	// a privacy-preserving manner. This blob should be handled in the same
@@ -67,13 +67,19 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	peer := msg.PeerPub.SerializeCompressed()
 	log.Debugf("OnionEndpoint received OnionMessage from peer %s: "+
 		"BlindingPoint=%v, OnionPacket[:10]=%x...", peer,
-		onionMsg.BlindingPoint, onionMsg.OnionBlob)
+		onionMsg.PathKey, onionMsg.OnionBlob)
 
 	var peerArr [33]byte
 	copy(peerArr[:], peer)
+
+	// Convert blinding point []byte to [33]byte.
+	blinding := onionMsg.PathKey.SerializeCompressed()
+	var blindingArr [33]byte
+	copy(blindingArr[:], blinding)
+
 	err := o.onionMessageServer.SendUpdate(&OnionMessageUpdate{
 		Peer:          peerArr,
-		BlindingPoint: onionMsg.BlindingPoint.SerializeCompressed(),
+		BlindingPoint: blindingArr,
 		OnionBlob:     onionMsg.OnionBlob,
 	})
 	if err != nil {

@@ -9363,7 +9363,7 @@ func (r *rpcServer) SubscribeOnionMessages(
 
 			err := server.Send(&lnrpc.OnionMessage{
 				Peer:          oMsg.Peer[:],
-				BlindingPoint: oMsg.BlindingPoint,
+				BlindingPoint: oMsg.BlindingPoint[:],
 				Onion:         oMsg.OnionBlob,
 			})
 			if err != nil {

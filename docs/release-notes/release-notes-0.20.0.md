@@ -25,6 +25,8 @@
   https://github.com/lightningnetwork/lnd/pull/9815). This ensures the original
   announcement remains unchanged until the new one is fully signed and
   validated.
+- [Fixed creation of invoices with zero amount and blinded paths](
+  https://github.com/lightningnetwork/lnd/pull/10029).
 
 - Fixed [shutdown deadlock](https://github.com/lightningnetwork/lnd/pull/10042)
   when we fail starting up LND before we startup the chanbackup sub-server.
@@ -300,6 +302,7 @@ reader of a payment request.
 * Erick Cestari
 * Funyug
 * Mohamed Awnallah
+* Maurice Poirrier
 * Pins
 * Torkel Rogstad
 * Yong Yu

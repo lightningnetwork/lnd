@@ -5319,7 +5319,7 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 // SendOnionMessage sends a custom message to the peer with the specified
 // pubkey.
 // TODO(gijs): change this message to include path finding.
-func (s *server) SendOnionMessage(peerPub [33]byte,
+func (s *server) SendOnionMessage(ctx context.Context, peerPub [33]byte,
 	blindingPoint *btcec.PublicKey, onion []byte) error {
 
 	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
@@ -5327,13 +5327,16 @@ func (s *server) SendOnionMessage(peerPub [33]byte,
 		return err
 	}
 
-	// We'll wait until the peer is active.
+	// We'll wait until the peer is active, but also listen for
+	// cancellation.
 	select {
 	case <-peer.ActiveSignal():
 	case <-peer.QuitSignal():
 		return fmt.Errorf("peer %x disconnected", peerPub)
 	case <-s.quit:
 		return ErrServerShuttingDown
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 
 	msg := lnwire.NewOnionMessage(blindingPoint, onion)

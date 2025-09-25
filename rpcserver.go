@@ -9302,7 +9302,7 @@ func (r *rpcServer) SubscribeCustomMessages(
 }
 
 // SendOnionMessage sends a custom peer message.
-func (r *rpcServer) SendOnionMessage(_ context.Context,
+func (r *rpcServer) SendOnionMessage(ctx context.Context,
 	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
 	error) {
 
@@ -9320,9 +9320,7 @@ func (r *rpcServer) SendOnionMessage(_ context.Context,
 		return nil, err
 	}
 
-	err = r.server.SendOnionMessage(
-		peer, blindingPoint, req.Onion,
-	)
+	err = r.server.SendOnionMessage(ctx, peer, blindingPoint, req.Onion)
 	switch {
 	case errors.Is(err, ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())

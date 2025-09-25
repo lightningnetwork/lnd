@@ -457,6 +457,11 @@ type Config struct {
 	// used to modify the way the co-op close transaction is constructed.
 	AuxChanCloser fn.Option[chancloser.AuxChanCloser]
 
+	// AuxChannelNegotiator is an optional interface that allows aux channel
+	// implementations to inject and process custom records over channel
+	// related wire messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
 	ShouldFwdExpEndorsement func() bool
@@ -1455,8 +1460,9 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
-		AuxTrafficShaper:  p.cfg.AuxTrafficShaper,
-		QuiescenceTimeout: p.cfg.QuiescenceTimeout,
+		AuxTrafficShaper:     p.cfg.AuxTrafficShaper,
+		AuxChannelNegotiator: p.cfg.AuxChannelNegotiator,
+		QuiescenceTimeout:    p.cfg.QuiescenceTimeout,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
@@ -4545,6 +4551,19 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 		return fmt.Errorf("data loss protection required")
 	}
 
+	// If we have an AuxChannelNegotiator and the peer sent aux features,
+	// process them.
+	p.cfg.AuxChannelNegotiator.WhenSome(
+		func(acn lnwallet.AuxChannelNegotiator) {
+			err = acn.ProcessInitRecords(
+				p.cfg.PubKeyBytes, msg.CustomRecords.Copy(),
+			)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not process init records: %w", err)
+	}
+
 	return nil
 }
 
@@ -4604,6 +4623,30 @@ func (p *Brontide) sendInitMsg(legacyChan bool) error {
 		legacyFeatures.RawFeatureVector,
 		features.RawFeatureVector,
 	)
+
+	var err error
+
+	// If we have an AuxChannelNegotiator, get custom feature bits to
+	// include in the init message.
+	p.cfg.AuxChannelNegotiator.WhenSome(
+		func(negotiator lnwallet.AuxChannelNegotiator) {
+			var auxRecords lnwire.CustomRecords
+			auxRecords, err = negotiator.GetInitRecords(
+				p.cfg.PubKeyBytes,
+			)
+			if err != nil {
+				p.log.Warnf("Failed to get aux init features: "+
+					"%v", err)
+				return
+			}
+
+			mergedRecs := msg.CustomRecords.MergedCopy(auxRecords)
+			msg.CustomRecords = mergedRecs
+		},
+	)
+	if err != nil {
+		return err
+	}
 
 	return p.writeMessage(msg)
 }

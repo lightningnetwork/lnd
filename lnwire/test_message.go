@@ -1188,6 +1188,10 @@ func (msg *Init) RandTestMessage(t *rapid.T) Message {
 		local.Set(bit)
 	}
 
+	ignoreRecords := fn.NewSet[uint64]()
+
+	msg.ExtraData = RandExtraOpaqueData(t, ignoreRecords)
+
 	return NewInitMessage(global, local)
 }
 

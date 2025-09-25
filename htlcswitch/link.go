@@ -298,6 +298,11 @@ type ChannelLinkConfig struct {
 	// used to manage the bandwidth of the link.
 	AuxTrafficShaper fn.Option[AuxTrafficShaper]
 
+	// AuxChannelNegotiator is an optional interface that allows aux channel
+	// implementations to inject and process custom records over channel
+	// related wire messages.
+	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
 	// QuiescenceTimeout is the max duration that the channel can be
 	// quiesced. Any dependent protocols (dynamic commitments, splicing,
 	// etc.) must finish their operations under this timeout value,
@@ -986,6 +991,22 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 		// In any case, we'll then process their ChanSync message.
 		l.log.Info("received re-establishment message from remote side")
+
+		// If we have an AuxChannelNegotiator we notify any external
+		// component for this message. This serves as a notification
+		// that the reestablish message was received.
+		l.cfg.AuxChannelNegotiator.WhenSome(
+			func(acn lnwallet.AuxChannelNegotiator) {
+				fundingPoint := l.channel.ChannelPoint()
+				cid := lnwire.NewChanIDFromOutPoint(
+					fundingPoint,
+				)
+
+				acn.ProcessReestablish(
+					cid, l.cfg.Peer.PubKey(),
+				)
+			},
+		)
 
 		var (
 			openedCircuits []CircuitKey

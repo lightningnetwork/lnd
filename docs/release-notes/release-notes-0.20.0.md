@@ -76,6 +76,11 @@ a certain amount of msats.
    [allow](https://github.com/lightningnetwork/lnd/pull/10087)
   `conf_target=1`. Previously they required `conf_target >= 2`.
 
+* A new AuxComponent was added named AuxChannelNegotiator. This component aids
+  with custom data communication for aux channels, by injecting and handling
+  data in channel related wire messages. See
+  [PR](https://github.com/lightningnetwork/lnd/pull/10182) for more info.
+
 ## RPC Additions
 * When querying [`ForwardingEvents`](https://github.com/lightningnetwork/lnd/pull/9813)
 logs, the response now include the incoming and outgoing htlc indices of the payment 

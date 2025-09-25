@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -429,4 +430,58 @@ func TestBlindedHopFee(t *testing.T) {
 	require.Equal(t, lnwire.MilliSatoshi(300), route.HopFee(2))
 	require.Equal(t, lnwire.MilliSatoshi(0), route.HopFee(3))
 	require.Equal(t, lnwire.MilliSatoshi(0), route.HopFee(4))
+}
+
+// makeVertex creates a test Vertex with sequential byte values for testing
+// TLV encoding/decoding.
+func makeVertex() Vertex {
+	var v Vertex
+	for i := range v {
+		v[i] = byte(i)
+	}
+
+	return v
+}
+
+// TestVertexTLVEncodeDecode tests that we're able to properly encode and decode
+// Vertex within TLV streams.
+func TestVertexTLVEncodeDecode(t *testing.T) {
+	t.Parallel()
+
+	vertex := makeVertex()
+
+	var extraData lnwire.ExtraOpaqueData
+	require.NoError(t, extraData.PackRecords(&vertex))
+
+	var vertex2 Vertex
+	tlvs, err := extraData.ExtractRecords(&vertex2)
+	require.NoError(t, err)
+
+	require.Contains(t, tlvs, tlv.Type(0))
+	require.Equal(t, vertex, vertex2)
+}
+
+// TestVertexTypeDecodeInvalidLength ensures that decoding a Vertex TLV
+// with an invalid length (anything other than 33) fails with an error.
+func TestVertexTypeDecodeInvalidLength(t *testing.T) {
+	t.Parallel()
+
+	vertex := makeVertex()
+
+	var extraData lnwire.ExtraOpaqueData
+	require.NoError(t, extraData.PackRecords(&vertex))
+
+	// Corrupt the TLV length field to simulate malformed input.
+	// Byte 1 contains the varint size encoding. Since 33 bytes fits into
+	// a single varint byte, we can directly modify extraData[1].
+	extraData[1] = VertexSize + 1
+
+	var out Vertex
+	_, err := extraData.ExtractRecords(&out)
+	require.Error(t, err)
+
+	extraData[1] = VertexSize - 1
+
+	_, err = extraData.ExtractRecords(&out)
+	require.Error(t, err)
 }

@@ -51,7 +51,7 @@ func nonceTypeEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 func nonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
-	if v, ok := val.(*Musig2Nonce); ok {
+	if v, ok := val.(*Musig2Nonce); ok && l == musig2.PubNonceSize {
 		_, err := io.ReadFull(r, v[:])
 		return err
 	}

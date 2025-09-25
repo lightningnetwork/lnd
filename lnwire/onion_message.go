@@ -10,9 +10,9 @@ import (
 // OnionMessage is a message that carries an onion-encrypted payload.
 // This is used for BOLT12 messages.
 type OnionMessage struct {
-	// BlindingPoint is the route blinding ephemeral pubkey to be used for
+	// PathKey is the route blinding ephemeral pubkey to be used for
 	// the onion message.
-	BlindingPoint *btcec.PublicKey
+	PathKey *btcec.PublicKey
 
 	// OnionBlob is the raw serialized mix header used to relay messages in
 	// a privacy-preserving manner. This blob should be handled in the same
@@ -26,8 +26,8 @@ func NewOnionMessage(blindingPoint *btcec.PublicKey,
 	onion []byte) *OnionMessage {
 
 	return &OnionMessage{
-		BlindingPoint: blindingPoint,
-		OnionBlob:     onion,
+		PathKey:   blindingPoint,
+		OnionBlob: onion,
 	}
 }
 
@@ -36,7 +36,7 @@ var _ Message = (*OnionMessage)(nil)
 
 // Decode reads the bytes stream and converts it to the object.
 func (o *OnionMessage) Decode(r io.Reader, _ uint32) error {
-	if err := ReadElement(r, &o.BlindingPoint); err != nil {
+	if err := ReadElement(r, &o.PathKey); err != nil {
 		return err
 	}
 
@@ -56,7 +56,7 @@ func (o *OnionMessage) Decode(r io.Reader, _ uint32) error {
 // Encode converts object to the bytes stream and write it into the
 // write buffer.
 func (o *OnionMessage) Encode(w *bytes.Buffer, _ uint32) error {
-	if err := WritePublicKey(w, o.BlindingPoint); err != nil {
+	if err := WritePublicKey(w, o.PathKey); err != nil {
 		return err
 	}
 

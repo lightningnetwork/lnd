@@ -12,6 +12,10 @@ type LegacyProtocol struct {
 	// LegacyOnionFormat if set to true, then we won't signal
 	// TLVOnionPayloadOptional. As a result, nodes that include us in the
 	// route won't use the new modern onion framing.
+	//
+	// NOTE: LND will still be able to decode tlv onion payloads if they
+	// reach us because the decoder supports both formats althoug we
+	// explicitly gossip that we don't support it via this config.
 	LegacyOnionFormat bool `long:"onion" description:"force node to not advertise the new modern TLV onion format"`
 
 	// CommitmentTweak guards if we should use the old legacy commitment

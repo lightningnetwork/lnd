@@ -116,6 +116,32 @@ func (r *mockGraphSource) AddNode(_ context.Context, node *models.Node,
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	for i := range r.nodes {
+		existing := &r.nodes[i]
+		if existing.PubKeyBytes == node.PubKeyBytes {
+			return nil
+		}
+	}
+
+	hasChannel := false
+	for _, info := range r.infos {
+		if info.NodeKey1Bytes == node.PubKeyBytes ||
+			info.NodeKey2Bytes == node.PubKeyBytes {
+
+			hasChannel = true
+			break
+		}
+	}
+
+	if !hasChannel {
+		return graph.NewErrf(
+			graph.ErrIgnored,
+			"Ignoring node announcement for node not found in "+
+				"channel graph (%x)",
+			node.PubKeyBytes[:],
+		)
+	}
+
 	r.nodes = append(r.nodes, *node)
 	return nil
 }
@@ -2637,10 +2663,21 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	// We don't have processed the channel announcement yet, so the node
+	// announcement should be cached and replayed as soon as the channel
+	// announcement is processed.
+	errRemoteNodeAnn := tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
 	)
-	require.NoError(t, err, "unable to process node ann")
+	select {
+	case err := <-errRemoteNodeAnn:
+		require.NoError(t, err, "node announcement returned error "+
+			"before channel was known")
+		t.Fatal("node announcement was processed before channel " +
+			"was known")
+	case <-time.After(2 * trickleDelay):
+	}
+
 	select {
 	case <-tCtx.broadcastedMessage:
 		t.Fatal("node announcement was broadcast")
@@ -2720,6 +2757,16 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 		t.Fatalf("remote update was not processed")
 	}
 
+	// The remote node announcement should now also be replayed, as we now
+	// have the necessary edge entry in the graph.
+	select {
+	case err := <-errRemoteNodeAnn:
+		require.NoError(t, err, "cached node announcement should "+
+			"succeed once channel exists")
+	case <-time.After(time.Second):
+		t.Fatal("cached node announcement wasn't replayed")
+	}
+
 	// Check that the ChannelEdgePolicy was added to the graph.
 	chanInfo, e1, e2, err = tCtx.router.GetChannelByID(
 		batch.chanUpdAnn1.ShortChannelID,
@@ -2733,6 +2780,25 @@ func TestReceiveRemoteChannelUpdateFirst(t *testing.T) {
 	}
 	if e2 == nil {
 		t.Fatalf("e2 was nil")
+	}
+
+	// We also make sure the node announcement was added to the graph.
+	remoteNode, err := tCtx.router.FetchNode(
+		ctx,
+		batch.nodeAnn2.NodeID,
+	)
+	require.NoError(t, err, "unable to get remote node from router")
+	if remoteNode == nil {
+		t.Fatalf("remoteNode was nil")
+	}
+
+	localNode, err := tCtx.router.FetchNode(
+		ctx,
+		batch.nodeAnn1.NodeID,
+	)
+	require.NoError(t, err, "unable to get local node from router")
+	if localNode == nil {
+		t.Fatalf("localNode was nil")
 	}
 
 	// Pretending that we receive local channel announcement from funding
@@ -2910,6 +2976,20 @@ func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 		remoteKeyPriv1.PubKey(), nil, nil, atomic.Bool{},
 	}
 	timestamp := testTimestamp
+
+	// We first need to create a channel announcement so that the node
+	// announcement can be processed.
+	remoteChanAnn, err := tCtx.createRemoteChannelAnnouncement(0)
+	require.NoError(t, err, "unable to create chan ann")
+
+	select {
+	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+		ctx, remoteChanAnn, remotePeer,
+	):
+		require.NoError(t, err, "unable to process remote chan ann")
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote chan ann")
+	}
 
 	// We'll create a node announcement that includes a set of opaque data
 	// which we don't know of, but will store anyway in order to ensure
@@ -3096,15 +3176,21 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	require.NoError(t, err, "unable to parse pubkey")
 	remotePeer := &mockPeer{remoteKey, nil, nil, atomic.Bool{}}
 
-	// Process the remote node announcement.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
+	// Process the remote node announcement. Since we don't yet know any of
+	// the node's channels, the announcement should be cached and not
+	// resolved immediately.
+	errChan := tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
+	)
+
+	select {
+	case err = <-errChan:
+		require.NoError(t, err, "unable to process announcement")
+		t.Fatal("node announcement was processed before a channel " +
+			"was known")
+
+	case <-time.After(100 * time.Millisecond):
 	}
-	require.NoError(t, err, "unable to process announcement")
 
 	// Since no channels or node announcements were already in the graph,
 	// the node announcement should be ignored, and not forwarded.
@@ -3134,18 +3220,9 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 	require.NoError(t, err, "unable to process announcement")
 
-	// Now process the node announcement again.
-	select {
-	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
-		ctx, batch.nodeAnn2, remotePeer,
-	):
-	case <-time.After(2 * time.Second):
-		t.Fatal("did not process remote announcement")
-	}
-	require.NoError(t, err, "unable to process announcement")
-
-	// This time the node announcement should be forwarded. The same should
-	// the channel announcement and update be.
+	// At this point the cached node announcement should also be replayed,
+	// causing all three announcements (channel ann, channel update, node
+	// ann) to be broadcast.
 	for i := 0; i < 3; i++ {
 		select {
 		case <-tCtx.broadcastedMessage:
@@ -3154,8 +3231,17 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 		}
 	}
 
-	// Processing the same node announcement again should be ignored, as it
-	// is stale.
+	select {
+	case err = <-errChan:
+		require.NoError(t, err, "cached node announcement should "+
+			"succeed")
+
+	case <-time.After(2 * time.Second):
+		t.Fatal("cached node announcement wasn't replayed")
+	}
+
+	// Now process the node announcement again which should be treated as
+	// stale.
 	select {
 	case err = <-tCtx.gossiper.ProcessRemoteAnnouncement(
 		ctx, batch.nodeAnn2, remotePeer,
@@ -3165,6 +3251,8 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 	}
 	require.NoError(t, err, "unable to process announcement")
 
+	// Processing the same node announcement again should be ignored, as it
+	// is stale.
 	select {
 	case <-tCtx.broadcastedMessage:
 		t.Fatal("node announcement was broadcast")

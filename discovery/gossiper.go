@@ -56,6 +56,10 @@ const (
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
 
+	// maxPrematureNodeAnnouncements tracks the max amount of premature node
+	// announcements that we'll hold onto.
+	maxPrematureNodeAnnouncements = 100
+
 	// maxFutureMessages tracks the max amount of future messages that
 	// we'll hold onto.
 	maxFutureMessages = 1000
@@ -502,6 +506,11 @@ type AuthenticatedGossiper struct {
 	// ChannelAnnouncement for the channel is received.
 	prematureChannelUpdates *lru.Cache[uint64, *cachedNetworkMsg]
 
+	// prematureNodeAnnouncements stores NodeAnnouncements for which we
+	// don't yet know any associated channel. They'll be replayed once
+	// one of the node's channels is added to the graph.
+	prematureNodeAnnouncements *lru.Cache[route.Vertex, *cachedNetworkMsg]
+
 	// banman tracks our peer's ban status.
 	banman *banman
 
@@ -584,6 +593,9 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
 		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: ll
 			maxPrematureUpdates,
+		),
+		prematureNodeAnnouncements: lru.NewCache[route.Vertex, *cachedNetworkMsg]( //nolint: ll
+			maxPrematureNodeAnnouncements,
 		),
 		channelMtx: multimutex.NewMutex[uint64](),
 		recentRejects: lru.NewCache[rejectCacheKey, *cachedReject](
@@ -2132,6 +2144,78 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	return true
 }
 
+// cachePrematureNodeAnnouncement stores the passed node announcement for later
+// processing. We do this when we haven't yet seen any channels for the node and
+// therefore can't verify whether the announcement should be accepted.
+func (d *AuthenticatedGossiper) cachePrematureNodeAnnouncement(
+	nodeID route.Vertex, nMsg *networkMsg) {
+
+	pMsg := &processedNetworkMsg{msg: nMsg}
+
+	earlyMsgs, err := d.prematureNodeAnnouncements.Get(nodeID)
+	switch {
+	case errors.Is(err, cache.ErrElementNotFound):
+		_, _ = d.prematureNodeAnnouncements.Put(
+			nodeID, &cachedNetworkMsg{
+				msgs: []*processedNetworkMsg{pMsg},
+			},
+		)
+
+	default:
+		msgs := earlyMsgs.msgs
+		msgs = append(msgs, pMsg)
+		_, _ = d.prematureNodeAnnouncements.Put(
+			nodeID, &cachedNetworkMsg{
+				msgs: msgs,
+			},
+		)
+	}
+
+	log.Debugf("Caching NodeAnnouncement for node=%x until a channel "+
+		"is known", nodeID)
+}
+
+// replayPrematureNodeAnnouncements re-queues any cached node announcements for
+// the provided vertices so they can be processed now that a channel exists.
+func (d *AuthenticatedGossiper) replayPrematureNodeAnnouncements(
+	vertices ...route.Vertex) {
+
+	for _, vertex := range vertices {
+		earlyMsgs, err := d.prematureNodeAnnouncements.Get(vertex)
+		if errors.Is(err, cache.ErrElementNotFound) {
+			continue
+		}
+		if err != nil {
+			log.Warnf("Unable to load cached node announcement "+
+				"for %x: %v", vertex, err)
+			continue
+		}
+
+		for _, cached := range earlyMsgs.msgs {
+			if cached.processed {
+				continue
+			}
+
+			cached.processed = true
+
+			nMsg := cached.msg
+			d.wg.Add(1)
+			go func(vertex route.Vertex, replay *networkMsg) {
+				defer d.wg.Done()
+
+				log.Debugf("Replaying cached NodeAnnouncement "+
+					"for node=%x", vertex)
+
+				select {
+				case d.networkMsgs <- replay:
+				case <-d.quit:
+					replay.err <- ErrGossiperShuttingDown
+				}
+			}(vertex, nMsg)
+		}
+	}
+}
+
 // processNetworkAnnouncement processes a new network relate authenticated
 // channel or node announcement or announcements proofs. If the announcement
 // didn't affect the internal state due to either being out of date, invalid,
@@ -2490,6 +2574,25 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 	// We'll quickly ask the router if it already has a newer update for
 	// this node so we can skip validating signatures if not required.
 	if d.cfg.Graph.IsStaleNode(ctx, nodeAnn.NodeID, timestamp) {
+		if nMsg.isRemote {
+			_, err := d.cfg.Graph.FetchNode(ctx, nodeAnn.NodeID)
+			switch {
+			case errors.Is(err, graphdb.ErrGraphNodeNotFound):
+				vertex := route.Vertex(nodeAnn.NodeID)
+				d.cachePrematureNodeAnnouncement(vertex, nMsg)
+
+				return nil, false
+
+			case err != nil:
+				log.Errorf("Unable to fetch node %x: %v",
+					nodeAnn.NodeID, err)
+
+				nMsg.err <- err
+
+				return nil, false
+			}
+		}
+
 		log.Debugf("Skipped processing stale node: %x", nodeAnn.NodeID)
 		nMsg.err <- nil
 		return nil, true
@@ -2499,12 +2602,21 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(ctx context.Context,
 		log.Debugf("Adding node: %x got error: %v", nodeAnn.NodeID,
 			err)
 
-		if !graph.IsError(
-			err,
-			graph.ErrOutdated,
-			graph.ErrIgnored,
-		) {
+		switch {
+		// If the node is ignored because we don't have any of its
+		// channels, we'll cache it for later processing.
+		case graph.IsError(err, graph.ErrIgnored):
+			if nMsg.isRemote {
+				vertex := route.Vertex(nodeAnn.NodeID)
+				d.cachePrematureNodeAnnouncement(vertex, nMsg)
 
+				return nil, false
+			}
+
+		case graph.IsError(err, graph.ErrOutdated):
+			// No need to log, we'll just return the error below.
+
+		default:
 			log.Error(err)
 		}
 
@@ -2913,6 +3025,11 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		chanMsgs := earlyChanUpdates
 		channelUpdates = append(channelUpdates, chanMsgs.msgs...)
 	}
+
+	d.replayPrematureNodeAnnouncements(
+		route.Vertex(edge.NodeKey1Bytes),
+		route.Vertex(edge.NodeKey2Bytes),
+	)
 
 	// Launch a new goroutine to handle each ChannelUpdate, this is to
 	// ensure we don't block here, as we can handle only one announcement

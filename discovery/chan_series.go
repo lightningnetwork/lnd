@@ -203,7 +203,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 	for _, nodeAnn := range nodeAnnsInHorizon {
 		// If this node has not been seen in the above channels, we can
-		// skip sending its NodeAnnouncement.
+		// skip sending its NodeAnnouncement1.
 		if _, seen := nodesFromChan[nodeAnn.PubKeyBytes]; !seen {
 			log.Debugf("Skipping forwarding as node %x not found "+
 				"in channel announcement", nodeAnn.PubKeyBytes)

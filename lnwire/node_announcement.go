@@ -62,11 +62,11 @@ func (n NodeAlias) String() string {
 	return string(bytes.Trim(n[:], "\x00"))
 }
 
-// NodeAnnouncement message is used to announce the presence of a Lightning
+// NodeAnnouncement1 message is used to announce the presence of a Lightning
 // node and also to signal that the node is accepting incoming connections.
-// Each NodeAnnouncement authenticating the advertised information within the
+// Each NodeAnnouncement1 authenticating the advertised information within the
 // announcement via a signature using the advertised node pubkey.
-type NodeAnnouncement struct {
+type NodeAnnouncement1 struct {
 	// Signature is used to prove the ownership of node id.
 	Signature Sig
 
@@ -100,19 +100,19 @@ type NodeAnnouncement struct {
 	ExtraOpaqueData ExtraOpaqueData
 }
 
-// A compile time check to ensure NodeAnnouncement implements the
+// A compile time check to ensure NodeAnnouncement1 implements the
 // lnwire.Message interface.
-var _ Message = (*NodeAnnouncement)(nil)
+var _ Message = (*NodeAnnouncement1)(nil)
 
-// A compile time check to ensure NodeAnnouncement implements the
+// A compile time check to ensure NodeAnnouncement1 implements the
 // lnwire.SizeableMessage interface.
-var _ SizeableMessage = (*NodeAnnouncement)(nil)
+var _ SizeableMessage = (*NodeAnnouncement1)(nil)
 
-// Decode deserializes a serialized NodeAnnouncement stored in the passed
+// Decode deserializes a serialized NodeAnnouncement1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) Decode(r io.Reader, _ uint32) error {
+func (a *NodeAnnouncement1) Decode(r io.Reader, _ uint32) error {
 	err := ReadElements(r,
 		&a.Signature,
 		&a.Features,
@@ -130,11 +130,11 @@ func (a *NodeAnnouncement) Decode(r io.Reader, _ uint32) error {
 	return a.ExtraOpaqueData.ValidateTLV()
 }
 
-// Encode serializes the target NodeAnnouncement into the passed io.Writer
+// Encode serializes the target NodeAnnouncement1 into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *NodeAnnouncement1) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteSig(w, a.Signature); err != nil {
 		return err
 	}
@@ -170,13 +170,12 @@ func (a *NodeAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *NodeAnnouncement) MsgType() MessageType {
+func (a *NodeAnnouncement1) MsgType() MessageType {
 	return MsgNodeAnnouncement
 }
 
 // DataToSign returns the part of the message that should be signed.
-func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
-
+func (a *NodeAnnouncement1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	buffer := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(buffer)
@@ -215,6 +214,6 @@ func (a *NodeAnnouncement) DataToSign() ([]byte, error) {
 // SerializedSize returns the serialized size of the message in bytes.
 //
 // This is part of the lnwire.SizeableMessage interface.
-func (a *NodeAnnouncement) SerializedSize() (uint32, error) {
+func (a *NodeAnnouncement1) SerializedSize() (uint32, error) {
 	return MessageSerializedSize(a)
 }

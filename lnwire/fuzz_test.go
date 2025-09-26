@@ -220,10 +220,10 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		// can be represented by different underlying bytes. Instead, we
 		// compare the normalized string representation of each address.
 		assertEq := func(t *testing.T, x, y any) {
-			require.IsType(t, &NodeAnnouncement{}, x)
-			first, _ := x.(*NodeAnnouncement)
-			require.IsType(t, &NodeAnnouncement{}, y)
-			second, _ := y.(*NodeAnnouncement)
+			require.IsType(t, &NodeAnnouncement1{}, x)
+			first, _ := x.(*NodeAnnouncement1)
+			require.IsType(t, &NodeAnnouncement1{}, y)
+			second, _ := y.(*NodeAnnouncement1)
 
 			require.Equal(
 				t, len(first.Addresses), len(second.Addresses),

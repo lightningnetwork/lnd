@@ -70,6 +70,11 @@ type ChannelUpdate2 struct {
 	// millionth of a satoshi.
 	FeeProportionalMillionths tlv.RecordT[tlv.TlvType18, uint32]
 
+	// InboundFee is an optional TLV record that contains the fee
+	// information for incoming HTLCs.
+	// TODO(elle): assign normal tlv type?
+	InboundFee tlv.OptionalRecordT[tlv.TlvType55555, Fee]
+
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
 	Signature tlv.RecordT[tlv.TlvType160, Sig]
@@ -102,12 +107,13 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	var (
 		chainHash  = tlv.ZeroRecordT[tlv.TlvType0, [32]byte]()
 		secondPeer = tlv.ZeroRecordT[tlv.TlvType8, TrueBoolean]()
+		inboundFee = tlv.ZeroRecordT[tlv.TlvType55555, Fee]()
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&chainHash, &c.ShortChannelID, &c.BlockHeight, &c.DisabledFlags,
 		&secondPeer, &c.CLTVExpiryDelta, &c.HTLCMinimumMsat,
 		&c.HTLCMaximumMsat, &c.FeeBaseMsat,
-		&c.FeeProportionalMillionths,
+		&c.FeeProportionalMillionths, &inboundFee,
 		&c.Signature,
 	)
 	if err != nil {
@@ -147,6 +153,11 @@ func (c *ChannelUpdate2) Decode(r io.Reader, _ uint32) error {
 	// value.
 	if _, ok := typeMap[c.FeeProportionalMillionths.TlvType()]; !ok {
 		c.FeeProportionalMillionths.Val = defaultFeeProportionalMillionths //nolint:ll
+	}
+
+	// If the inbound fee was encoded, set it.
+	if _, ok := typeMap[c.InboundFee.TlvType()]; ok {
+		c.InboundFee = tlv.SomeRecordT(inboundFee)
 	}
 
 	c.ExtraSignedFields = ExtraSignedFieldsFromTypeMap(typeMap)
@@ -206,6 +217,10 @@ func (c *ChannelUpdate2) AllRecords() []tlv.Record {
 			recordProducers, &c.FeeProportionalMillionths,
 		)
 	}
+
+	c.InboundFee.WhenSome(func(r tlv.RecordT[tlv.TlvType55555, Fee]) {
+		recordProducers = append(recordProducers, &r)
+	})
 
 	recordProducers = append(recordProducers, RecordsAsProducers(
 		tlv.MapToRecords(c.ExtraSignedFields),

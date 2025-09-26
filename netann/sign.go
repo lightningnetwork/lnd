@@ -24,7 +24,7 @@ func SignAnnouncement(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
 		data, err = m.DataToSign()
 	case *lnwire.ChannelUpdate1:
 		data, err = m.DataToSign()
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		data, err = m.DataToSign()
 	default:
 		return nil, fmt.Errorf("can't sign %T message", m)

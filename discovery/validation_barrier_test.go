@@ -186,7 +186,7 @@ func TestValidationBarrierQuit(t *testing.T) {
 }
 
 // TestValidationBarrierParentJobsClear tests that creating two parent jobs for
-// ChannelUpdate / NodeAnnouncement will pause child jobs until the set of
+// ChannelUpdate / NodeAnnouncement1 will pause child jobs until the set of
 // parent jobs has cleared.
 func TestValidationBarrierParentJobsClear(t *testing.T) {
 	t.Parallel()
@@ -230,14 +230,14 @@ func TestValidationBarrierParentJobsClear(t *testing.T) {
 	parentID3, err := barrier.InitJobDependencies(ann3)
 	require.NoError(t, err)
 
-	// Create the ChannelUpdate & NodeAnnouncement messages.
+	// Create the ChannelUpdate & NodeAnnouncement1 messages.
 	upd1 := &lnwire.ChannelUpdate1{
 		ShortChannelID: sharedScid,
 	}
 	childID1, err := barrier.InitJobDependencies(upd1)
 	require.NoError(t, err)
 
-	node1 := &lnwire.NodeAnnouncement{
+	node1 := &lnwire.NodeAnnouncement1{
 		NodeID: sharedNodeID,
 	}
 	childID2, err := barrier.InitJobDependencies(node1)

@@ -151,6 +151,9 @@ func testChannelUnsettledBalance(ht *lntest.HarnessTest) {
 				PaymentHash:    ht.Random32Bytes(),
 				FinalCltvDelta: finalCltvDelta,
 				FeeLimitMsat:   noFeeLimitMsat,
+				DestFeatures: []lnrpc.FeatureBit{
+					lnrpc.FeatureBit_TLV_ONION_OPT,
+				},
 			}
 			ht.SendPaymentAssertInflight(alice, req)
 		}()

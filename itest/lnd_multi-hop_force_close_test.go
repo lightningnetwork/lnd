@@ -372,6 +372,9 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
+		DestFeatures: []lnrpc.FeatureBit{
+			lnrpc.FeatureBit_TLV_ONION_OPT,
+		},
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
@@ -382,6 +385,9 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
+		DestFeatures: []lnrpc.FeatureBit{
+			lnrpc.FeatureBit_TLV_ONION_OPT,
+		},
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 
@@ -1055,6 +1061,10 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		FeeLimitMsat:   noFeeLimitMsat,
 		RouteHints:     routeHints,
+		// We make sure the last hop supports TLV payloads.
+		DestFeatures: []lnrpc.FeatureBit{
+			lnrpc.FeatureBit_TLV_ONION_OPT,
+		},
 	}
 	ht.SendPaymentAssertInflight(alice, req)
 

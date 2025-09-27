@@ -143,6 +143,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
   a whole. This new config prevents a single misbehaving peer from using up all
   the bandwidth.
 
+* [Add sat_per_kw option for more fine granular control of transaction 
+  fees](https://github.com/lightningnetwork/lnd/pull/10067). This option is added for the sendcoins, sendmany, openchannel, batchopenchannel,
+  closechannel, closeallchannels and wallet bumpfee commands. Also add
+  max_fee_per_kw for closechannel command.
+
 ## lncli Additions
 
 * [`lncli sendpayment` and `lncli queryroutes` now support the
@@ -153,6 +158,11 @@ circuit. The indices are only available for forwarding events saved after v0.20.
 * The `lncli fwdinghistory` command now supports two new flags:
   [`--incoming_chan_ids` and `--outgoing_chan_ids`](https://github.com/lightningnetwork/lnd/pull/9356).
   These filters allows to query forwarding events for specific channels.
+
+* The [--sat_per_vbyte](https://github.com/lightningnetwork/lnd/pull/10067) 
+  option now supports fractional values (e.g. 1.05).
+  This option is added for the sendcoins, sendmany, openchannel,
+  batchopenchannel, closechannel, closeallchannels and wallet bumpfee commands. The max_fee_rate argument for closechannel also supports fractional values.
 
 # Improvements
 ## Functional Updates
@@ -251,6 +261,10 @@ reader of a payment request.
 * We are deprecating `OutgoingChanId` in favour of `OutgoingChanIds` in the
   `QueryRoutes` RPC. This [transition](https://github.com/lightningnetwork/lnd/pull/10057) allows us to specify more than one outgoing channel
   the pathfinder should use when finding a route.
+
+### ⚠️ **Warning:** The deprecated fee rate option --sat_per_byte will be removed in release version **0.21**
+
+  The following RPCs will be impacted: sendcoins, sendmany, openchannel, closechannel, closeallchannels and wallet bumpfee.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates

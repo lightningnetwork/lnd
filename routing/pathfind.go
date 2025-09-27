@@ -231,6 +231,14 @@ func newRoute(sourceVertex route.Vertex,
 		// support it.
 		tlvPayloadSupport := supports(lnwire.TLVOnionPayloadOptional)
 		if !tlvPayloadSupport {
+			// If the node pubkey is not nil, we can use it to
+			// return a more specific error message.
+			if edge.ToNodePubKey != nil {
+				return nil, fmt.Errorf("cannot use a route "+
+					"because hop=%v doesn't support TLV "+
+					"payloads", edge.ToNodePubKey())
+			}
+
 			return nil, fmt.Errorf("cannot use a route with hops " +
 				"that don't support TLV payloads")
 		}
@@ -263,7 +271,8 @@ func newRoute(sourceVertex route.Vertex,
 			payAddr := supports(lnwire.PaymentAddrOptional)
 			if !payAddr && finalHop.paymentAddr.IsSome() {
 				return nil, fmt.Errorf("cannot attach " +
-					"payment addr")
+					"payment addr because destination " +
+					"node doesn't support it")
 			}
 
 			// Otherwise attach the mpp record if it exists.

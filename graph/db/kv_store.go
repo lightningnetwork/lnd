@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"math"
 	"net"
 	"sort"
@@ -2039,107 +2040,202 @@ type ChannelEdge struct {
 	Node2 *models.Node
 }
 
-// ChanUpdatesInHorizon returns all the known channel edges which have at least
-// one edge that has an update timestamp within the specified horizon.
-func (c *KVStore) ChanUpdatesInHorizon(startTime,
-	endTime time.Time) ([]ChannelEdge, error) {
-
-	// To ensure we don't return duplicate ChannelEdges, we'll use an
-	// additional map to keep track of the edges already seen to prevent
-	// re-adding it.
-	var edgesSeen map[uint64]struct{}
-	var edgesToCache map[uint64]ChannelEdge
-	var edgesInHorizon []ChannelEdge
+// updateChanCacheBatch updates the channel cache with multiple edges at once.
+// This method acquires the cache lock only once for the entire batch.
+func (c *KVStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
+	if len(edgesToCache) == 0 {
+		return
+	}
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	var hits int
+	for cid, edge := range edgesToCache {
+		c.chanCache.insert(cid, edge)
+	}
+}
+
+// isEmptyGraphError returns true if the error indicates the graph database
+// is empty (no edges or nodes exist). These errors are expected when the
+// graph is first created or has no data.
+func isEmptyGraphError(err error) bool {
+	return errors.Is(err, ErrGraphNoEdgesFound) ||
+		errors.Is(err, ErrGraphNodesNotFound)
+}
+
+// chanUpdatesIterator holds the state for chunked channel update iteration.
+type chanUpdatesIterator struct {
+	// batchSize is the amount of channel updates to read at a single time.
+	batchSize int
+
+	// startTime is the start time of the iteration request.
+	startTime time.Time
+
+	// endTime is the end time of the iteration request.
+	endTime time.Time
+
+	// edgesSeen is used to dedup edges.
+	edgesSeen map[uint64]struct{}
+
+	// edgesToCache houses all the edges that we read from the disk which
+	// aren't yet cached. This is used to update the cache after a batch
+	// chunk.
+	edgesToCache map[uint64]ChannelEdge
+
+	// lastSeenKey is the last index key seen. This is used to resume
+	// iteration.
+	lastSeenKey []byte
+
+	// hits is the number of cache hits.
+	hits int
+
+	// total is the total number of edges requested.
+	total int
+}
+
+// newChanUpdatesIterator makes a new chan updates iterator.
+func newChanUpdatesIterator(batchSize int,
+	startTime, endTime time.Time) *chanUpdatesIterator {
+
+	return &chanUpdatesIterator{
+		batchSize:    batchSize,
+		startTime:    startTime,
+		endTime:      endTime,
+		edgesSeen:    make(map[uint64]struct{}),
+		edgesToCache: make(map[uint64]ChannelEdge),
+		lastSeenKey:  nil,
+	}
+}
+
+// fetchNextChanUpdateBatch retrieves the next batch of channel edges within the
+// horizon. Returns the batch, whether there are more edges, and any error.
+func (c *KVStore) fetchNextChanUpdateBatch(
+	state *chanUpdatesIterator) ([]ChannelEdge, bool, error) {
+
+	var (
+		batch   []ChannelEdge
+		hasMore bool
+	)
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
 		}
+
 		edgeIndex := edges.NestedReadBucket(edgeIndexBucket)
 		if edgeIndex == nil {
 			return ErrGraphNoEdgesFound
 		}
+
 		edgeUpdateIndex := edges.NestedReadBucket(edgeUpdateIndexBucket)
 		if edgeUpdateIndex == nil {
 			return ErrGraphNoEdgesFound
 		}
-
 		nodes := tx.ReadBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodesNotFound
 		}
 
-		// We'll now obtain a cursor to perform a range query within
-		// the index to find all channels within the horizon.
+		// With all the relevant buckets read, we'll now create a fresh
+		// read cursor.
 		updateCursor := edgeUpdateIndex.ReadCursor()
 
+		// We'll now use the start and end time to create the keys that
+		// we'll use to seek.
 		var startTimeBytes, endTimeBytes [8 + 8]byte
 		byteOrder.PutUint64(
-			startTimeBytes[:8], uint64(startTime.Unix()),
+			startTimeBytes[:8], uint64(state.startTime.Unix()),
 		)
 		byteOrder.PutUint64(
-			endTimeBytes[:8], uint64(endTime.Unix()),
+			endTimeBytes[:8], uint64(state.endTime.Unix()),
 		)
 
-		// With our start and end times constructed, we'll step through
-		// the index collecting the info and policy of each update of
-		// each channel that has a last update within the time range.
-		//
-		//nolint:ll
-		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
-			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
-			// We have a new eligible entry, so we'll slice of the
-			// chan ID so we can query it in the DB.
+		var indexKey []byte
+
+		// If we left off earlier, then we'll use that key as the
+		// starting point.
+		switch {
+		case state.lastSeenKey != nil:
+			// Seek to the last seen key, moving to the key right
+			// after it.
+			indexKey, _ = updateCursor.Seek(state.lastSeenKey)
+
+			if bytes.Equal(indexKey, state.lastSeenKey) {
+				indexKey, _ = updateCursor.Next()
+			}
+
+		// Otherwise, we'll move to the very start of the time range.
+		default:
+			indexKey, _ = updateCursor.Seek(startTimeBytes[:])
+		}
+
+		// TODO(roasbeef): iterate the channel graph cache instead w/ a
+		// treap ordering?
+
+		// Now we'll read items up to the batch size, exiting early if
+		// we exceed the ending time.
+		for len(batch) < state.batchSize && indexKey != nil {
+			// If we're at the end, then we'll break out now.
+			if bytes.Compare(indexKey, endTimeBytes[:]) > 0 {
+				break
+			}
+
 			chanID := indexKey[8:]
-
-			// If we've already retrieved the info and policies for
-			// this edge, then we can skip it as we don't need to do
-			// so again.
 			chanIDInt := byteOrder.Uint64(chanID)
-			if _, ok := edgesSeen[chanIDInt]; ok {
+
+			if state.lastSeenKey == nil {
+				state.lastSeenKey = make([]byte, len(indexKey))
+			}
+			copy(state.lastSeenKey, indexKey)
+
+			// If we've seen this channel ID already, then we'll
+			// skip it.
+			if _, ok := state.edgesSeen[chanIDInt]; ok {
+				indexKey, _ = updateCursor.Next()
 				continue
 			}
 
+			// Before we read the edge info, we'll see if this
+			// element is already in the cache or not.
+			c.cacheMu.RLock()
 			if channel, ok := c.chanCache.get(chanIDInt); ok {
-				hits++
-				edgesSeen[chanIDInt] = struct{}{}
-				edgesInHorizon = append(edgesInHorizon, channel)
+				state.edgesSeen[chanIDInt] = struct{}{}
+
+				batch = append(batch, channel)
+
+				state.hits++
+				state.total++
+
+				indexKey, _ = updateCursor.Next()
+
+				c.cacheMu.RUnlock()
 
 				continue
 			}
+			c.cacheMu.RUnlock()
 
-			// First, we'll fetch the static edge information.
+			// The edge wasn't in the cache, so we'll fetch it along
+			// w/ the edge policies and nodes.
 			edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 			if err != nil {
-				chanID := byteOrder.Uint64(chanID)
-				return fmt.Errorf("unable to fetch info for "+
-					"edge with chan_id=%v: %v", chanID, err)
+				return fmt.Errorf("unable to fetch info "+
+					"for edge with chan_id=%v: %v",
+					chanIDInt, err)
 			}
-
-			// With the static information obtained, we'll now
-			// fetch the dynamic policy info.
 			edge1, edge2, err := fetchChanEdgePolicies(
 				edgeIndex, edges, chanID,
 			)
 			if err != nil {
-				chanID := byteOrder.Uint64(chanID)
-				return fmt.Errorf("unable to fetch policies "+
-					"for edge with chan_id=%v: %v", chanID,
-					err)
+				return fmt.Errorf("unable to fetch "+
+					"policies for edge with chan_id=%v: %v",
+					chanIDInt, err)
 			}
-
 			node1, err := fetchLightningNode(
 				nodes, edgeInfo.NodeKey1Bytes[:],
 			)
 			if err != nil {
 				return err
 			}
-
 			node2, err := fetchLightningNode(
 				nodes, edgeInfo.NodeKey2Bytes[:],
 			)
@@ -2147,9 +2243,8 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 				return err
 			}
 
-			// Finally, we'll collate this edge with the rest of
-			// edges to be returned.
-			edgesSeen[chanIDInt] = struct{}{}
+			// Now we have all the information we need to build the
+			// channel edge.
 			channel := ChannelEdge{
 				Info:    &edgeInfo,
 				Policy1: edge1,
@@ -2157,94 +2252,274 @@ func (c *KVStore) ChanUpdatesInHorizon(startTime,
 				Node1:   &node1,
 				Node2:   &node2,
 			}
-			edgesInHorizon = append(edgesInHorizon, channel)
-			edgesToCache[chanIDInt] = channel
+
+			state.edgesSeen[chanIDInt] = struct{}{}
+			state.edgesToCache[chanIDInt] = channel
+
+			batch = append(batch, channel)
+
+			state.total++
+
+			// Advance the iterator to the next entry.
+			indexKey, _ = updateCursor.Next()
+		}
+
+		// If we haven't yet crossed the endTimeBytes, then we still
+		// have more entries to deliver.
+		if indexKey != nil &&
+			bytes.Compare(indexKey, endTimeBytes[:]) <= 0 {
+
+			hasMore = true
 		}
 
 		return nil
 	}, func() {
-		edgesSeen = make(map[uint64]struct{})
-		edgesToCache = make(map[uint64]ChannelEdge)
-		edgesInHorizon = nil
+		batch = nil
+		hasMore = false
 	})
-	switch {
-	case errors.Is(err, ErrGraphNoEdgesFound):
-		fallthrough
-	case errors.Is(err, ErrGraphNodesNotFound):
-		break
-
-	case err != nil:
-		return nil, err
+	if err != nil {
+		return nil, false, err
 	}
 
-	// Insert any edges loaded from disk into the cache.
-	for chanid, channel := range edgesToCache {
-		c.chanCache.insert(chanid, channel)
-	}
-
-	if len(edgesInHorizon) > 0 {
-		log.Debugf("ChanUpdatesInHorizon hit percentage: %.2f (%d/%d)",
-			float64(hits)*100/float64(len(edgesInHorizon)), hits,
-			len(edgesInHorizon))
-	} else {
-		log.Debugf("ChanUpdatesInHorizon returned no edges in "+
-			"horizon (%s, %s)", startTime, endTime)
-	}
-
-	return edgesInHorizon, nil
+	return batch, hasMore, nil
 }
 
-// NodeUpdatesInHorizon returns all the known lightning node which have an
-// update timestamp within the passed range. This method can be used by two
-// nodes to quickly determine if they have the same set of up to date node
-// announcements.
-func (c *KVStore) NodeUpdatesInHorizon(startTime,
-	endTime time.Time) ([]models.Node, error) {
+// ChanUpdatesInHorizon returns all the known channel edges which have at least
+// one edge that has an update timestamp within the specified horizon.
+func (c *KVStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
+	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
 
-	var nodesInHorizon []models.Node
+	cfg := defaultIteratorConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return func(yield func(ChannelEdge, error) bool) {
+		iterState := newChanUpdatesIterator(
+			cfg.chanUpdateIterBatchSize, startTime, endTime,
+		)
+
+		for {
+			// At the top of the loop, we'll read the next batch
+			// chunk from disk. We'll also determine if we have any
+			// more entries after this or not.
+			batch, hasMore, err := c.fetchNextChanUpdateBatch(
+				iterState,
+			)
+			if err != nil {
+				// These errors just mean the graph is empty,
+				// which is OK.
+				if !isEmptyGraphError(err) {
+					log.Errorf("ChanUpdatesInHorizon "+
+						"batch error: %v", err)
+
+					yield(ChannelEdge{}, err)
+
+					return
+				}
+				// Continue with empty batch
+			}
+
+			// We'll now yield each edge that we just read. If yield
+			// returns false, then that means that we'll exit early.
+			for _, edge := range batch {
+				if !yield(edge, nil) {
+					return
+				}
+			}
+
+			// Update cache after successful batch yield.
+			c.updateChanCacheBatch(iterState.edgesToCache)
+			iterState.edgesToCache = make(map[uint64]ChannelEdge)
+
+			// If we we're done, then we can just break out here
+			// now.
+			if !hasMore || len(batch) == 0 {
+				break
+			}
+		}
+
+		if iterState.total > 0 {
+			log.Tracef("ChanUpdatesInHorizon hit percentage: "+
+				"%.2f (%d/%d)", float64(iterState.hits)*100/
+				float64(iterState.total), iterState.hits,
+				iterState.total)
+		} else {
+			log.Tracef("ChanUpdatesInHorizon returned no edges "+
+				"in horizon (%s, %s)", startTime, endTime)
+		}
+	}
+}
+
+// nodeUpdatesIterator maintains state for iterating through node updates.
+//
+// Iterator Lifecycle:
+// 1. Initialize state with start/end time, batch size, and filtering options.
+// 2. Fetch batch using pagination cursor (lastSeenKey).
+// 3. Filter nodes if publicNodesOnly is set.
+// 4. Update lastSeenKey to the last processed node's index key.
+// 5. Repeat until we exceed endTime or no more nodes exist.
+type nodeUpdatesIterator struct {
+	// batchSize is the amount of node updates to read at a single time.
+	batchSize int
+
+	// startTime is the start time of the iteration request.
+	startTime time.Time
+
+	// endTime is the end time of the iteration request.
+	endTime time.Time
+
+	// lastSeenKey is the last index key seen. This is used to resume
+	// iteration.
+	lastSeenKey []byte
+
+	// publicNodesOnly filters to only return public nodes if true.
+	publicNodesOnly bool
+
+	// total tracks total nodes processed.
+	total int
+}
+
+// newNodeUpdatesIterator makes a new node updates iterator.
+func newNodeUpdatesIterator(batchSize int, startTime, endTime time.Time,
+	publicNodesOnly bool) *nodeUpdatesIterator {
+
+	return &nodeUpdatesIterator{
+		batchSize:       batchSize,
+		startTime:       startTime,
+		endTime:         endTime,
+		lastSeenKey:     nil,
+		publicNodesOnly: publicNodesOnly,
+	}
+}
+
+// fetchNextNodeBatch fetches the next batch of node announcements using the
+// iterator state.
+func (c *KVStore) fetchNextNodeBatch(
+	state *nodeUpdatesIterator) ([]models.Node, bool, error) {
+
+	var (
+		nodeBatch []models.Node
+		hasMore   bool
+	)
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)
 		if nodes == nil {
 			return ErrGraphNodesNotFound
 		}
-
+		ourPubKey := nodes.Get(sourceKey)
+		if ourPubKey == nil && state.publicNodesOnly {
+			// If we're filtering for public nodes only but don't
+			// have a source node set, we can't determine if nodes
+			// are public. A node is considered public if it has at
+			// least one channel with our node (the source node).
+			return ErrSourceNodeNotSet
+		}
 		nodeUpdateIndex := nodes.NestedReadBucket(nodeUpdateIndexBucket)
 		if nodeUpdateIndex == nil {
 			return ErrGraphNodesNotFound
 		}
 
-		// We'll now obtain a cursor to perform a range query within
-		// the index to find all node announcements within the horizon.
+		// We'll now obtain a cursor to perform a range query within the
+		// index to find all node announcements within the horizon. The
+		// nodeUpdateIndex key format is: [8 bytes timestamp][33 bytes
+		// node pubkey] This allows efficient range queries by time
+		// while maintaining a stable sort order for nodes with the same
+		// timestamp.
 		updateCursor := nodeUpdateIndex.ReadCursor()
 
 		var startTimeBytes, endTimeBytes [8 + 33]byte
 		byteOrder.PutUint64(
-			startTimeBytes[:8], uint64(startTime.Unix()),
+			startTimeBytes[:8], uint64(state.startTime.Unix()),
 		)
 		byteOrder.PutUint64(
-			endTimeBytes[:8], uint64(endTime.Unix()),
+			endTimeBytes[:8], uint64(state.endTime.Unix()),
 		)
 
-		// With our start and end times constructed, we'll step through
-		// the index collecting info for each node within the time
-		// range.
-		//
-		//nolint:ll
-		for indexKey, _ := updateCursor.Seek(startTimeBytes[:]); indexKey != nil &&
-			bytes.Compare(indexKey, endTimeBytes[:]) <= 0; indexKey, _ = updateCursor.Next() {
+		// If we have a last seen key (existing iteration), then that'll
+		// be our starting point. Otherwise, we'll seek to the start
+		// time.
+		var indexKey []byte
+		if state.lastSeenKey != nil {
+			indexKey, _ = updateCursor.Seek(state.lastSeenKey)
+
+			if bytes.Equal(indexKey, state.lastSeenKey) {
+				indexKey, _ = updateCursor.Next()
+			}
+		} else {
+			indexKey, _ = updateCursor.Seek(startTimeBytes[:])
+		}
+
+		// Now we'll read items up to the batch size, exiting early if
+		// we exceed the ending time.
+		var lastProcessedKey []byte
+		for len(nodeBatch) < state.batchSize && indexKey != nil {
+			// Extract the timestamp from the index key (first 8
+			// bytes). Only compare timestamps, not the full key
+			// with pubkey.
+			keyTimestamp := byteOrder.Uint64(indexKey[:8])
+			endTimestamp := uint64(state.endTime.Unix())
+			if keyTimestamp > endTimestamp {
+				break
+			}
+
 			nodePub := indexKey[8:]
 			node, err := fetchLightningNode(nodes, nodePub)
 			if err != nil {
 				return err
 			}
 
-			nodesInHorizon = append(nodesInHorizon, node)
+			if state.publicNodesOnly {
+				nodeIsPublic, err := c.isPublic(
+					tx, node.PubKeyBytes, ourPubKey,
+				)
+				if err != nil {
+					return err
+				}
+				if !nodeIsPublic {
+					indexKey, _ = updateCursor.Next()
+					continue
+				}
+			}
+
+			nodeBatch = append(nodeBatch, node)
+			state.total++
+
+			// Remember the last key we actually processed. We'll
+			// use this to update the last seen key below.
+			if lastProcessedKey == nil {
+				lastProcessedKey = make([]byte, len(indexKey))
+			}
+			copy(lastProcessedKey, indexKey)
+
+			// Advance the iterator to the next entry.
+			indexKey, _ = updateCursor.Next()
+		}
+
+		// If we haven't yet crossed the endTime, then we still
+		// have more entries to deliver.
+		if indexKey != nil {
+			keyTimestamp := byteOrder.Uint64(indexKey[:8])
+			endTimestamp := uint64(state.endTime.Unix())
+			if keyTimestamp <= endTimestamp {
+				hasMore = true
+			}
+		}
+
+		// Update the cursor to the last key we actually processed.
+		if lastProcessedKey != nil {
+			if state.lastSeenKey == nil {
+				state.lastSeenKey = make(
+					[]byte, len(lastProcessedKey),
+				)
+			}
+			copy(state.lastSeenKey, lastProcessedKey)
 		}
 
 		return nil
 	}, func() {
-		nodesInHorizon = nil
+		nodeBatch = nil
 	})
 	switch {
 	case errors.Is(err, ErrGraphNoEdgesFound):
@@ -2253,10 +2528,55 @@ func (c *KVStore) NodeUpdatesInHorizon(startTime,
 		break
 
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	}
 
-	return nodesInHorizon, nil
+	return nodeBatch, hasMore, nil
+}
+
+// NodeUpdatesInHorizon returns all the known lightning node which have an
+// update timestamp within the passed range.
+func (c *KVStore) NodeUpdatesInHorizon(startTime,
+	endTime time.Time,
+	opts ...IteratorOption) iter.Seq2[models.Node, error] {
+
+	cfg := defaultIteratorConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	return func(yield func(models.Node, error) bool) {
+		// Initialize iterator state.
+		state := newNodeUpdatesIterator(
+			cfg.nodeUpdateIterBatchSize,
+			startTime, endTime,
+			cfg.iterPublicNodes,
+		)
+
+		for {
+			nodeAnns, hasMore, err := c.fetchNextNodeBatch(state)
+			if err != nil {
+				log.Errorf("unable to read node updates in "+
+					"horizon: %v", err)
+
+				yield(models.Node{}, err)
+
+				return
+			}
+
+			for _, node := range nodeAnns {
+				if !yield(node, nil) {
+					return
+				}
+			}
+
+			// If we we're done, then we can just break out here
+			// now.
+			if !hasMore || len(nodeAnns) == 0 {
+				break
+			}
+		}
+	}
 }
 
 // FilterKnownChanIDs takes a set of channel IDs and return the subset of chan

@@ -593,13 +593,14 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdges, err := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
-	if err != nil {
-		return fmt.Errorf("unable to fetch expired channel updates "+
-			"chans: %v", err)
-	}
+	oldEdgesIter := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
 
-	for _, u := range oldEdges {
+	for u, err := range oldEdgesIter {
+		if err != nil {
+			return fmt.Errorf("unable to fetch expired "+
+				"channel updates chans: %v", err)
+		}
+
 		err = filterPruneChans(u.Info, u.Policy1, u.Policy2)
 		if err != nil {
 			return fmt.Errorf("error filtering channels to "+
@@ -619,7 +620,7 @@ func (b *Builder) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	err = b.cfg.Graph.DeleteChannelEdges(
+	err := b.cfg.Graph.DeleteChannelEdges(
 		b.cfg.StrictZombiePruning, true, toPrune...,
 	)
 	if err != nil {

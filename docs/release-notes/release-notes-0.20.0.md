@@ -219,6 +219,12 @@ reader of a payment request.
 - [Introduced](https://github.com/lightningnetwork/lnd/pull/10136) a wallet
   interface to decouple the relationship between `lnd` and `btcwallet`.
 
+- [Refactored](https://github.com/lightningnetwork/lnd/pull/10128) channel graph
+  update iterators to use Go's `iter.Seq2` pattern. The `UpdatesInHorizon`,
+  `NodeUpdatesInHorizon`, and `ChanUpdatesInHorizon` methods now return lazy
+  iterators instead of materializing all updates in memory at once, improving
+  memory efficiency for large graph operations.
+
 ## Breaking Changes
 ## Performance Improvements
 
@@ -300,6 +306,7 @@ reader of a payment request.
 * Erick Cestari
 * Funyug
 * Mohamed Awnallah
+* Olaoluwa Osuntokun
 * Pins
 * Torkel Rogstad
 * Yong Yu

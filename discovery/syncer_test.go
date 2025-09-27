@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"reflect"
 	"sort"
@@ -86,13 +87,22 @@ func (m *mockChannelGraphTimeSeries) HighestChanID(_ context.Context,
 }
 
 func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
+	startTime, endTime time.Time) iter.Seq2[lnwire.Message, error] {
 
-	m.horizonReq <- horizonQuery{
-		chain, startTime, endTime,
+	return func(yield func(lnwire.Message, error) bool) {
+		m.horizonReq <- horizonQuery{
+			chain, startTime, endTime,
+		}
+
+		// We'll get the response from the channel, then yield it
+		// immediately.
+		msgs := <-m.horizonResp
+		for _, msg := range msgs {
+			if !yield(msg, nil) {
+				return
+			}
+		}
 	}
-
-	return <-m.horizonResp, nil
 }
 
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,

@@ -90,6 +90,11 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 
 	edges := make(map[route.Vertex][]AdditionalEdge)
 
+	// All hops in the route need to support TLV payloads because the path
+	// finder will otherwise not be able to construct the route.
+	features := lnwire.EmptyFeatureVector()
+	features.Set(lnwire.TLVOnionPayloadOptional)
+
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
 	// node.
@@ -122,7 +127,7 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 				ToNodePubKey: func() route.Vertex {
 					return endNode.PubKeyBytes
 				},
-				ToNodeFeatures: lnwire.EmptyFeatureVector(),
+				ToNodeFeatures: features.Clone(),
 				ChannelID:      hopHint.ChannelID,
 				FeeBaseMSat: lnwire.MilliSatoshi(
 					hopHint.FeeBaseMSat,

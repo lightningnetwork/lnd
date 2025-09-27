@@ -391,10 +391,17 @@ func (b *BlindedPayment) toRouteHints() (RouteHints, error) {
 	// will be able to locate this point in the graph.
 	fromNode := route.NewVertex(b.BlindedPath.IntroductionPoint)
 
+	// Blinded paths require the TLV onion payload optional feature. If
+	// features are provided, we use them. We always set the TLV onion
+	// payload optional feature because blinded paths require it and we
+	// currently don't use the feature set of the blinded path currently so
+	// we always set it to allow the path finder to succeed because LND
+	// only creates paths with tlv payload encoding..
 	features := lnwire.EmptyFeatureVector()
 	if b.Features != nil {
 		features = b.Features.Clone()
 	}
+	features.Set(lnwire.TLVOnionPayloadOptional)
 
 	// Use the total aggregate relay parameters for the entire blinded
 	// route as the policy for the hint from our introduction node. This

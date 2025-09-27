@@ -348,7 +348,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
-			Features:     lnwire.EmptyFeatureVector(),
+			Features:     testFeatures,
 			Capacity:     btcutil.Amount(edge.Capacity),
 		}
 
@@ -528,6 +528,12 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 	ctx := t.Context()
 
+	// We enforce TLV payloads for all nodes when blinding paths.
+	testFeatures := lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.TLVOnionPayloadRequired),
+		lnwire.Features,
+	)
+
 	// We'll use this fake address for the IP address of all the nodes in
 	// our tests. This value isn't needed for path finding so it doesn't
 	// need to be unique.
@@ -562,7 +568,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		privKey, pubKey := btcec.PrivKeyFromBytes(keyBytes)
 
 		if features == nil {
-			features = lnwire.EmptyFeatureVector()
+			features = testFeatures
 		}
 
 		dbNode := &models.Node{
@@ -1490,7 +1496,7 @@ func TestNewRoute(t *testing.T) {
 			ToNodePubKey: func() route.Vertex {
 				return route.Vertex{}
 			},
-			ToNodeFeatures:            lnwire.NewFeatureVector(nil, nil),
+			ToNodeFeatures:            testFeatures,
 			FeeProportionalMillionths: feeRate,
 			FeeBaseMSat:               baseFee,
 			TimeLockDelta:             timeLockDelta,

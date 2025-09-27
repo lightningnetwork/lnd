@@ -22,6 +22,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
@@ -46,7 +47,11 @@ var (
 		Port: 9000}
 	testAddrs = []net.Addr{testAddr}
 
-	testFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
+	// We enforce TLV payloads for all nodes when blinding paths.
+	testFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.TLVOnionPayloadRequired),
+		lnwire.Features,
+	)
 
 	testTime = time.Date(2018, time.January, 9, 14, 00, 00, 0, time.UTC)
 
@@ -1511,10 +1516,10 @@ func TestSendToRouteMaxHops(t *testing.T) {
 func TestBuildRoute(t *testing.T) {
 	// Setup a three node network.
 	chanCapSat := btcutil.Amount(100000)
-	paymentAddrFeatures := lnwire.NewFeatureVector(
-		lnwire.NewRawFeatureVector(lnwire.PaymentAddrOptional),
-		lnwire.Features,
+	paymentAddrFeatures := feature.SetBit(
+		lnwire.EmptyFeatureVector(), lnwire.PaymentAddrOptional,
 	)
+
 	testChannels := []*testChannel{
 		// Create two local channels from a. The bandwidth is estimated
 		// in this test as the channel capacity. For building routes, we
@@ -2735,13 +2740,26 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create channel edge")
 
+	// Before we add the edge, we need to add the nodes to the graph.
+	// Although inserting just an edge will also add a node shell in case
+	// the nodes don't exist yet, we want to make sure that the nodes also
+	// have the proper features set because we now require TLV payloads.
+	require.NoError(t, ctx.graph.AddNode(ctxb, &models.Node{
+		PubKeyBytes: pub1,
+		Features:    testFeatures,
+	}))
+	require.NoError(t, ctx.graph.AddNode(ctxb, &models.Node{
+		PubKeyBytes: pub2,
+		Features:    testFeatures,
+	}))
+
 	edge := &models.ChannelEdgeInfo{
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
 		BitcoinKey1Bytes: pub1,
 		BitcoinKey2Bytes: pub2,
-		Features:         lnwire.EmptyFeatureVector(),
+		Features:         testFeatures,
 		AuthProof:        nil,
 	}
 	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
@@ -2817,7 +2835,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	edge = &models.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
-		Features:  lnwire.EmptyFeatureVector(),
+		Features:  testFeatures,
 		AuthProof: nil,
 	}
 	copy(edge.NodeKey1Bytes[:], node1Bytes)

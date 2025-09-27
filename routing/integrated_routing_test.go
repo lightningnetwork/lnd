@@ -270,8 +270,6 @@ func TestBadFirstHopHint(t *testing.T) {
 // TestMppSend tests that a payment can be completed using multiple shards.
 func TestMppSend(t *testing.T) {
 	for _, testCase := range mppTestCases {
-		testCase := testCase
-
 		t.Run(testCase.name, func(t *testing.T) {
 			testMppSend(t, &testCase)
 		})

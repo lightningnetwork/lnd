@@ -387,30 +387,22 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	alice := ht.NewNodeWithCoins("Alice", nil)
-	bob := ht.NewNode("Bob", nil)
-	ht.EnsureConnected(alice, bob)
-
-	ht.OpenChannel(alice, bob, lntest.OpenChannelParams{Amt: chanAmt})
-
-	// Create a new nodes (Carol and Charlie), load her with some funds,
-	// then establish a connection between Carol and Charlie with a channel
-	// that has identical capacity to the one created above.Then we will
-	// get route via queryroutes call which will be fake route for Alice ->
-	// Bob graph.
+	// Create two separate networks:
+	// 1. Alice -> Bob (the real network)
+	// 2. Carol -> Charlie (separate network to generate fake route)
 	//
 	// The network topology should now look like:
 	// Alice -> Bob; Carol -> Charlie.
-	carol := ht.NewNode("Carol", nil)
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	cfgs := [][]string{nil, nil}
+	params := lntest.OpenChannelParams{Amt: chanAmt}
 
-	charlie := ht.NewNode("Charlie", nil)
-	ht.FundCoins(btcutil.SatoshiPerBitcoin, charlie)
+	// Create Alice -> Bob network
+	_, aliceBobNodes := ht.CreateSimpleNetwork(cfgs, params)
+	alice, bob := aliceBobNodes[0], aliceBobNodes[1]
 
-	ht.ConnectNodes(carol, charlie)
-	ht.OpenChannel(carol, charlie, lntest.OpenChannelParams{Amt: chanAmt})
+	// Create Carol -> Charlie network
+	_, carolCharlieNodes := ht.CreateSimpleNetwork(cfgs, params)
+	carol, charlie := carolCharlieNodes[0], carolCharlieNodes[1]
 
 	// Query routes from Carol to Charlie which will be an invalid route
 	// for Alice -> Bob.
@@ -829,10 +821,16 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 
 	// Connect the existing Bob node with Carol via a public channel.
 	ht.ConnectNodes(bob, carol)
-	ht.OpenChannel(bob, carol, lntest.OpenChannelParams{
-		Amt:     chanAmt,
-		PushAmt: chanAmt / 2,
-	})
+	chanPointBobCarol := ht.OpenChannel(
+		bob, carol, lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			PushAmt: chanAmt / 2,
+		},
+	)
+
+	// Bob is going to pay and invoice and needs the node announcment from
+	// Carol.
+	ht.AssertChannelInGraph(bob, chanPointBobCarol)
 
 	// Create the hop hint that Dave will use to craft his invoice. The
 	// goal here is to define only the ephemeral alias as a hop hint.
@@ -863,7 +861,7 @@ func testScidAliasRoutingHints(ht *lntest.HarnessTest) {
 	payReq := dave.RPC.AddInvoice(invoice).PaymentRequest
 
 	// Now Alice will try to pay to that payment request.
-	timeout := time.Second * 15
+	timeout := defaultTimeout
 	stream := bob.RPC.SendPayment(&routerrpc.SendPaymentRequest{
 		PaymentRequest: payReq,
 		TimeoutSeconds: int32(timeout.Seconds()),

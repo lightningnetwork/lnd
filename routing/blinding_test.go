@@ -103,8 +103,11 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		)
 		_, blindedPoint = btcec.PrivKeyFromBytes([]byte{5})
 
+		// We always need to set the TLV onion payload optional feature
+		// because blinded paths require it.
 		rawFeatures = lnwire.NewRawFeatureVector(
 			lnwire.AMPOptional,
+			lnwire.TLVOnionPayloadOptional,
 		)
 
 		features = lnwire.NewFeatureVector(

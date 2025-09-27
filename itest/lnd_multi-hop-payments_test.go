@@ -21,8 +21,7 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	alice := ht.NewNodeWithCoins("Alice", nil)
 	bob := ht.NewNode("Bob", nil)
 
-	daveArgs := []string{"--protocol.legacy.onion"}
-	dave := ht.NewNode("Dave", daveArgs)
+	dave := ht.NewNode("Dave", nil)
 	carol := ht.NewNode("Carol", nil)
 
 	// Subscribe events early so we don't miss it out.

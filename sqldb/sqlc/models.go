@@ -202,3 +202,93 @@ type MigrationTracker struct {
 	Version       int32
 	MigrationTime time.Time
 }
+
+type Payment struct {
+	ID                int64
+	IntentID          sql.NullInt64
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+}
+
+type PaymentAttemptFirstHopCustomRecord struct {
+	ID               int64
+	HtlcAttemptIndex int64
+	Key              int64
+	Value            []byte
+}
+
+type PaymentFirstHopCustomRecord struct {
+	ID        int64
+	PaymentID int64
+	Key       int64
+	Value     []byte
+}
+
+type PaymentHopCustomRecord struct {
+	ID    int64
+	HopID int64
+	Key   int64
+	Value []byte
+}
+
+type PaymentHtlcAttempt struct {
+	ID                 int64
+	AttemptIndex       int64
+	PaymentID          int64
+	SessionKey         []byte
+	AttemptTime        time.Time
+	PaymentHash        []byte
+	FirstHopAmountMsat int64
+	RouteTotalTimeLock int32
+	RouteTotalAmount   int64
+	RouteSourceKey     []byte
+}
+
+type PaymentHtlcAttemptResolution struct {
+	AttemptIndex       int64
+	ResolutionTime     time.Time
+	ResolutionType     int32
+	SettlePreimage     []byte
+	FailureSourceIndex sql.NullInt32
+	HtlcFailReason     sql.NullInt32
+	FailureMsg         []byte
+}
+
+type PaymentIntent struct {
+	ID            int64
+	IntentType    int16
+	IntentPayload []byte
+}
+
+type PaymentRouteHop struct {
+	ID               int64
+	HtlcAttemptIndex int64
+	HopIndex         int32
+	PubKey           []byte
+	Scid             string
+	OutgoingTimeLock int32
+	AmtToForward     int64
+	MetaData         []byte
+}
+
+type PaymentRouteHopAmp struct {
+	HopID      int64
+	RootShare  []byte
+	SetID      []byte
+	ChildIndex int32
+}
+
+type PaymentRouteHopBlinded struct {
+	HopID               int64
+	EncryptedData       []byte
+	BlindingPoint       []byte
+	BlindedPathTotalAmt sql.NullInt64
+}
+
+type PaymentRouteHopMpp struct {
+	HopID       int64
+	PaymentAddr []byte
+	TotalMsat   int64
+}

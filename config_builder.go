@@ -1228,6 +1228,26 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 			return nil, nil, err
 		}
+
+		// Create the payments DB.
+		//
+		// NOTE:  In the regular build, this will construct a kvdb
+		// backed payments backend. With the test_native_sql tag, it
+		// will build a SQL payments backend.
+		sqlPaymentsDB, err := d.getPaymentsStore(
+			baseDB, dbs.ChanStateDB.Backend,
+			paymentsdb.WithKeepFailedPaymentAttempts(
+				cfg.KeepFailedPaymentAttempts,
+			),
+		)
+		if err != nil {
+			err = fmt.Errorf("unable to get payments store: %w",
+				err)
+
+			return nil, nil, err
+		}
+
+		dbs.PaymentsDB = sqlPaymentsDB
 	} else {
 		// Check if the invoice bucket tombstone is set. If it is, we
 		// need to return and ask the user switch back to using the
@@ -1256,6 +1276,24 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Create the payments DB.
+		kvPaymentsDB, err := paymentsdb.NewKVStore(
+			dbs.ChanStateDB,
+			paymentsdb.WithKeepFailedPaymentAttempts(
+				cfg.KeepFailedPaymentAttempts,
+			),
+		)
+		if err != nil {
+			cleanUp()
+
+			err = fmt.Errorf("unable to open payments DB: %w", err)
+			d.logger.Error(err)
+
+			return nil, nil, err
+		}
+
+		dbs.PaymentsDB = kvPaymentsDB
 	}
 
 	dbs.GraphDB, err = graphdb.NewChannelGraph(graphStore, chanGraphOpts...)
@@ -1267,29 +1305,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 		return nil, nil, err
 	}
-
-	// Mount the payments DB which is only KV for now.
-	//
-	// TODO(ziggie): Add support for SQL payments DB.
-	// Mount the payments DB for the KV store.
-	paymentsDBOptions := []paymentsdb.OptionModifier{
-		paymentsdb.WithKeepFailedPaymentAttempts(
-			cfg.KeepFailedPaymentAttempts,
-		),
-	}
-	kvPaymentsDB, err := paymentsdb.NewKVStore(
-		dbs.ChanStateDB,
-		paymentsDBOptions...,
-	)
-	if err != nil {
-		cleanUp()
-
-		err = fmt.Errorf("unable to open payments DB: %w", err)
-		d.logger.Error(err)
-
-		return nil, nil, err
-	}
-	dbs.PaymentsDB = kvPaymentsDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

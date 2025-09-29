@@ -252,6 +252,10 @@ reader of a payment request.
   `QueryRoutes` RPC. This [transition](https://github.com/lightningnetwork/lnd/pull/10057) allows us to specify more than one outgoing channel
   the pathfinder should use when finding a route.
 
+* Support for Tor v2 onion services is deprecated and will be removed in
+  v0.21.0. The `--tor.v2` configuration option is now
+  [hidden](https://github.com/lightningnetwork/lnd/pull/10254).
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 

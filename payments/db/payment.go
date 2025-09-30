@@ -755,11 +755,19 @@ func verifyAttempt(payment *MPPayment, attempt *HTLCAttemptInfo) error {
 
 	for _, h := range payment.InFlightHTLCs() {
 		hMpp := h.Route.FinalHop().MPP
+		hBlinded := len(h.Route.FinalHop().EncryptedData) != 0
 
 		// If this is a blinded payment, then no existing HTLCs
 		// should have MPP records.
 		if isBlinded && hMpp != nil {
 			return ErrMPPRecordInBlindedPayment
+		}
+
+		// If the payment is blinded (previous attempts used blinded
+		// paths) and the attempt is not, or vice versa, return an
+		// error.
+		if isBlinded != hBlinded {
+			return ErrMixedBlindedAndNonBlindedPayments
 		}
 
 		// If this is a blinded payment, then we just need to

@@ -524,9 +524,10 @@ type Route struct {
 	]
 
 	// FirstHopWireCustomRecords is a set of custom records that should be
-	// included in the wire message sent to the first hop. This is only set
-	// on custom channels and is used to include additional information
-	// about the actual value of the payment.
+	// included in the wire message sent to the first hop. This is for
+	// example used in custom channels. Besides custom channels we use it
+	// also for the endorsement bit. This data will be sent to the first
+	// hop in the UpdateAddHTLC message.
 	//
 	// NOTE: Since these records already represent TLV records, and we
 	// enforce them to be in the custom range (e.g. >= 65536), we don't use

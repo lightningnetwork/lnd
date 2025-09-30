@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -622,9 +623,25 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 		// Allow the aux data parser to parse the custom records into
 		// a human-readable JSON (if available).
 		if r.ParseCustomChannelData != nil {
+			// Store the original custom data to check if parsing
+			// changed it.
+			originalCustomData := make([]byte, len(customData))
+			copy(originalCustomData, customData)
+
 			err := r.ParseCustomChannelData(resp)
 			if err != nil {
 				return nil, err
+			}
+
+			// We make sure we only set this field if the parser
+			// changed the data otherwise we might mistakenly
+			// show other tlv custom wire data as custom channel
+			// data.
+			if bytes.Equal(
+				originalCustomData, resp.CustomChannelData,
+			) {
+
+				resp.CustomChannelData = nil
 			}
 		}
 	}

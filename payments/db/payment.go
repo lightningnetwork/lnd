@@ -90,7 +90,8 @@ type PaymentCreationInfo struct {
 
 	// FirstHopCustomRecords are the TLV records that are to be sent to the
 	// first hop of this payment. These records will be transmitted via the
-	// wire message only and therefore do not affect the onion payload size.
+	// wire message (UpdateAddHTLC) only and therefore do not affect the
+	// onion payload size.
 	FirstHopCustomRecords lnwire.CustomRecords
 }
 

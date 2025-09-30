@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"fmt"
 	"reflect"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -477,17 +475,9 @@ func testForwardInterceptorRestart(ht *lntest.HarnessTest) {
 					rt.FirstHopAmountMsat)
 			}
 
-			cr := lnwire.CustomRecords(p.FirstHopCustomRecords)
-			recordData, err := cr.Serialize()
-			if err != nil {
-				return err
-			}
-
-			if !bytes.Equal(rt.CustomChannelData, recordData) {
-				return fmt.Errorf("expected custom records to "+
-					"be equal, got %x expected %x",
-					rt.CustomChannelData, recordData)
-			}
+			// Make sure the custom channel data is nil because
+			// this is not a custom channel payment.
+			require.Nil(ht, rt.CustomChannelData)
 
 			return nil
 		},

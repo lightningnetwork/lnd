@@ -4442,27 +4442,35 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	// If this is a locally requested shutdown, update the caller with a
 	// new event detailing the current pending state of this request.
 	if closeReq != nil {
+		// TODO(roasbeef): don't actually need this?
 		closeReq.Updates <- &PendingUpdate{
-			Txid: closingTxid[:],
+			Txid:           closingTxid[:],
+			IsLocalCloseTx: fn.Some(true),
 		}
 	}
 
 	localOut := chanCloser.LocalCloseOutput()
 	remoteOut := chanCloser.RemoteCloseOutput()
 	auxOut := chanCloser.AuxOutputs()
-    // Determine the number of confirmations to wait before
-    // signaling a successful cooperative close, scaled by
-    // channel capacity (see CloseConfsForCapacity).
-    numConfs := lnwallet.CloseConfsForCapacity(chanCloser.Channel().Capacity)
 
-    go WaitForChanToClose(
-        chanCloser.NegotiationHeight(), notifier, errChan,
-        &chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, numConfs, func() {
-            // Respond to the local subsystem which requested the
-            // channel closure.
-            if closeReq != nil {
-                closeReq.Updates <- &ChannelCloseUpdate{
-                    ClosingTxid:       closingTxid[:],
+	// Determine the number of confirmations to wait before signaling a
+	// successful cooperative close, scaled by channel capacity (see
+	// CloseConfsForCapacity). Check if we have a config override for
+	// testing purposes.
+	numConfs := p.cfg.ChannelCloseConfs.UnwrapOrFunc(func() uint32 {
+		// No override, use normal capacity-based scaling.
+		return lnwallet.CloseConfsForCapacity(chanCloser.Channel().Capacity)
+	})
+
+	// Register for full confirmation to send the final update.
+	go WaitForChanToClose(
+		chanCloser.NegotiationHeight(), notifier, errChan,
+		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, numConfs, func() {
+			// Respond to the local subsystem which requested the
+			// channel closure.
+			if closeReq != nil {
+				closeReq.Updates <- &ChannelCloseUpdate{
+					ClosingTxid:       closingTxid[:],
 					Success:           true,
 					LocalCloseOutput:  localOut,
 					RemoteCloseOutput: remoteOut,
@@ -4479,15 +4487,15 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 // finally the callback will be executed. If any error is encountered within
 // the function, then it will be sent over the errChan.
 func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
-    errChan chan error, chanPoint *wire.OutPoint,
-    closingTxID *chainhash.Hash, closeScript []byte, numConfs uint32, cb func()) {
+	errChan chan error, chanPoint *wire.OutPoint,
+	closingTxID *chainhash.Hash, closeScript []byte, numConfs uint32, cb func()) {
 
 	peerLog.Infof("Waiting for confirmation of close of ChannelPoint(%v) "+
 		"with txid: %v", chanPoint, closingTxID)
 
-    confNtfn, err := notifier.RegisterConfirmationsNtfn(
-        closingTxID, closeScript, numConfs, bestHeight,
-    )
+	confNtfn, err := notifier.RegisterConfirmationsNtfn(
+		closingTxID, closeScript, numConfs, bestHeight,
+	)
 	if err != nil {
 		if errChan != nil {
 			errChan <- err

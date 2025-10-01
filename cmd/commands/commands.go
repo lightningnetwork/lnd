@@ -502,7 +502,7 @@ var sendCoinsCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -658,6 +658,12 @@ func sendCoins(ctx *cli.Context) error {
 		}
 	}
 
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
+	if err != nil {
+		return err
+	}
+
 	// Ask for confirmation if we're on an actual terminal and the output is
 	// not being redirected to another command. This prevents existing shell
 	// scripts from breaking.
@@ -675,13 +681,13 @@ func sendCoins(ctx *cli.Context) error {
 		Addr:                  addr,
 		Amount:                amt,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
 		SendAll:               ctx.Bool("sweepall"),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
 		Outpoints:             outpoints,
+		SatPerKw:              satPerKw,
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {
@@ -841,7 +847,7 @@ var sendManyCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -893,15 +899,21 @@ func sendMany(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
+	if err != nil {
+		return err
+	}
+
 	minConfs := int32(ctx.Uint64("min_confs"))
 	txid, err := client.SendMany(ctxc, &lnrpc.SendManyRequest{
 		AddrToAmount:          amountToAddr,
 		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
 		Label:                 ctx.String(txLabelFlag.Name),
 		MinConfs:              minConfs,
 		SpendUnconfirmed:      minConfs == 0,
 		CoinSelectionStrategy: coinSelectionStrategy,
+		SatPerKw:              satPerKw,
 	})
 	if err != nil {
 		return err
@@ -1092,7 +1104,7 @@ var closeChannelCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -1106,7 +1118,7 @@ var closeChannelCommand = cli.Command{
 				"be used if an upfront shutdown address is not " +
 				"already set",
 		},
-		cli.Uint64Flag{
+		cli.Float64Flag{
 			Name: "max_fee_rate",
 			Usage: "(optional) maximum fee rate in sat/vbyte " +
 				"accepted during the negotiation (default is " +
@@ -1131,7 +1143,7 @@ func closeChannel(ctx *cli.Context) error {
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
+	_, err := checkNotBothSet(
 		ctx, "sat_per_vbyte", "sat_per_byte",
 	)
 	if err != nil {
@@ -1143,14 +1155,26 @@ func closeChannel(ctx *cli.Context) error {
 		return err
 	}
 
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
+	if err != nil {
+		return err
+	}
+
+	// Parse fee rate from --max_fee_rate and convert to sat/kw.
+	maxFeePerKw, err := parseFeeRate(ctx, "max_fee_rate")
+	if err != nil {
+		return err
+	}
+
 	// TODO(roasbeef): implement time deadline within server
 	req := &lnrpc.CloseChannelRequest{
 		ChannelPoint:    channelPoint,
 		Force:           ctx.Bool("force"),
 		TargetConf:      int32(ctx.Int64("conf_target")),
-		SatPerVbyte:     ctx.Uint64(feeRateFlag),
+		SatPerKw:        satPerKw,
 		DeliveryAddress: ctx.String("delivery_addr"),
-		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
+		MaxFeePerKw:     maxFeePerKw,
 		// This makes sure that a coop close will also be executed if
 		// active HTLCs are present on the channel.
 		NoWait: true,
@@ -1296,7 +1320,7 @@ var closeAllChannelsCommand = cli.Command{
 			Usage:  "Deprecated, use sat_per_vbyte instead.",
 			Hidden: true,
 		},
-		cli.Int64Flag{
+		cli.Float64Flag{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
@@ -1318,9 +1342,15 @@ func closeAllChannels(ctx *cli.Context) error {
 
 	// Check that only the field sat_per_vbyte or the deprecated field
 	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
+	_, err := checkNotBothSet(
 		ctx, "sat_per_vbyte", "sat_per_byte",
 	)
+	if err != nil {
+		return err
+	}
+
+	// Parse fee rate from --sat_per_vbyte and convert to sat/kw.
+	satPerKw, err := parseFeeRate(ctx, "sat_per_vbyte")
 	if err != nil {
 		return err
 	}
@@ -1456,9 +1486,9 @@ func closeAllChannels(ctx *cli.Context) error {
 					},
 					OutputIndex: uint32(index),
 				},
-				Force:       !channel.GetActive(),
-				TargetConf:  int32(ctx.Int64("conf_target")),
-				SatPerVbyte: ctx.Uint64(feeRateFlag),
+				Force:      !channel.GetActive(),
+				TargetConf: int32(ctx.Int64("conf_target")),
+				SatPerKw:   satPerKw,
 			}
 
 			txidChan := make(chan string, 1)

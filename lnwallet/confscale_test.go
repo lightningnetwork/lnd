@@ -304,7 +304,8 @@ func TestFundingConfsForAmounts(t *testing.T) {
 }
 
 // TestCloseConfsForCapacity verifies that CloseConfsForCapacity correctly
-// wraps ScaleNumConfs with zero push amount.
+// wraps ScaleNumConfs with zero push amount and enforces a minimum of 3
+// confirmations for reorg safety.
 func TestCloseConfsForCapacity(t *testing.T) {
 	t.Parallel()
 
@@ -314,14 +315,24 @@ func TestCloseConfsForCapacity(t *testing.T) {
 		).Draw(t, "capacity")
 
 		// CloseConfsForCapacity should be equivalent to ScaleNumConfs
-		// with 0 push.
+		// with 0 push, but with a minimum of 3 confirmations enforced
+		// for reorg safety.
 		closeConfs := CloseConfsForCapacity(btcutil.Amount(capacity))
 		scaleConfs := ScaleNumConfs(btcutil.Amount(capacity), 0)
 
+		// The result should be at least the scaled value, but with a
+		// minimum of 3 confirmations.
+		const minCoopCloseConfs = 3
+		expectedConfs := uint32(scaleConfs)
+		if expectedConfs < minCoopCloseConfs {
+			expectedConfs = minCoopCloseConfs
+		}
+
 		require.Equal(
-			t, uint32(scaleConfs), closeConfs,
+			t, expectedConfs, closeConfs,
 			"CloseConfsForCapacity should match "+
-				"ScaleNumConfs with 0 push amount",
+				"ScaleNumConfs with 0 push amount, "+
+				"but with minimum of 3 confs",
 		)
 	})
 }

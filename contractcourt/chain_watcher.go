@@ -88,6 +88,38 @@ type BreachCloseInfo struct {
 	CloseSummary channeldb.ChannelCloseSummary
 }
 
+// spendConfirmationState represents the state of spend confirmation tracking
+// in the closeObserver state machine. We wait for N confirmations before
+// processing any spend to protect against shallow reorgs.
+type spendConfirmationState uint8
+
+const (
+	// spendStateNone indicates no spend has been detected yet.
+	spendStateNone spendConfirmationState = iota
+
+	// spendStatePending indicates a spend has been detected and we're
+	// waiting for the required number of confirmations.
+	spendStatePending
+
+	// spendStateConfirmed indicates the spend has reached the required
+	// confirmations and has been processed.
+	spendStateConfirmed
+)
+
+// String returns a human-readable representation of the state.
+func (s spendConfirmationState) String() string {
+	switch s {
+	case spendStateNone:
+		return "None"
+	case spendStatePending:
+		return "Pending"
+	case spendStateConfirmed:
+		return "Confirmed"
+	default:
+		return "Unknown"
+	}
+}
+
 // CommitSet is a collection of the set of known valid commitments at a given
 // instant. If ConfCommitKey is set, then the commitment identified by the
 // HtlcSetKey has hit the chain. This struct will be used to examine all live
@@ -652,51 +684,226 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 }
 
 // closeObserver is a dedicated goroutine that will watch for any closes of the
-// channel that it's watching on chain. In the event of an on-chain event, the
-// close observer will assembled the proper materials required to claim the
-// funds of the channel on-chain (if required), then dispatch these as
-// notifications to all subscribers.
+// channel that it's watching on chain. It implements a state machine to handle
+// spend detection and confirmation with reorg protection. The states are:
+//
+//   - None (confNtfn == nil): No spend detected yet, waiting for spend
+//     notification
+//
+//   - Pending (confNtfn != nil): Spend detected, waiting for N confirmations
+//
+//   - Confirmed: Spend confirmed with N blocks, close has been processed
 func (c *chainWatcher) closeObserver() {
 	defer c.wg.Done()
-	defer c.fundingSpendNtfn.Cancel()
+
+	registerForSpend := func() (*chainntnfs.SpendEvent, error) {
+		fundingPkScript, err := deriveFundingPkScript(c.cfg.chanState)
+		if err != nil {
+			return nil, err
+		}
+
+		heightHint := c.cfg.chanState.DeriveHeightHint()
+
+		return c.cfg.notifier.RegisterSpendNtfn(
+			&c.cfg.chanState.FundingOutpoint,
+			fundingPkScript,
+			heightHint,
+		)
+	}
+
+	spendNtfn := c.fundingSpendNtfn
+	defer spendNtfn.Cancel()
+
+	// We use these variables to implement a state machine to track the
+	// state of the spend confirmation process:
+	//   * When confNtfn is nil, we're in state "None" waiting for a spend.
+	//   * When confNtfn is set, we're in state "Pending" waiting for
+	//     confirmations.
+	//
+	// After confirmations, we transition to state "Confirmed" and clean up.
+	var (
+		pendingSpend *chainntnfs.SpendDetail
+		confNtfn     *chainntnfs.ConfirmationEvent
+	)
 
 	log.Infof("Close observer for ChannelPoint(%v) active",
 		c.cfg.chanState.FundingOutpoint)
 
+	// handleSpendDetection processes a newly detected spend by registering
+	// for confirmations. Returns the new confNtfn or error.
+	handleSpendDetection := func(
+		spend *chainntnfs.SpendDetail,
+	) (*chainntnfs.ConfirmationEvent, error) {
+
+		// If we already have a pending spend, check if it's the same
+		// transaction. This can happen if both the spend notification
+		// and blockbeat detect the same spend.
+		if pendingSpend != nil {
+			if *pendingSpend.SpenderTxHash == *spend.SpenderTxHash {
+				log.Debugf("ChannelPoint(%v): ignoring "+
+					"duplicate spend detection for tx %v",
+					c.cfg.chanState.FundingOutpoint,
+					spend.SpenderTxHash)
+				return confNtfn, nil
+			}
+
+			// Different spend detected. Cancel existing confNtfn
+			// and replace with new one.
+			log.Warnf("ChannelPoint(%v): detected different "+
+				"spend tx %v, replacing pending tx %v",
+				c.cfg.chanState.FundingOutpoint,
+				spend.SpenderTxHash,
+				pendingSpend.SpenderTxHash)
+
+			if confNtfn != nil {
+				confNtfn.Cancel()
+			}
+		}
+
+		numConfs := c.requiredConfsForSpend()
+		txid := spend.SpenderTxHash
+
+		newConfNtfn, err := c.cfg.notifier.RegisterConfirmationsNtfn(
+			txid, spend.SpendingTx.TxOut[0].PkScript,
+			numConfs, uint32(spend.SpendingHeight),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("register confirmations: %w",
+				err)
+		}
+
+		log.Infof("ChannelPoint(%v): waiting for %d confirmations "+
+			"of spend tx %v", c.cfg.chanState.FundingOutpoint,
+			numConfs, txid)
+
+		return newConfNtfn, nil
+	}
+
 	for {
+		// We only listen to confirmation channels when we have a
+		// pending spend. By setting these to nil when not needed, Go's
+		// select ignores those cases, effectively implementing our
+		// state machine.
+		var (
+			confChan         <-chan *chainntnfs.TxConfirmation
+			negativeConfChan <-chan int32
+		)
+		if confNtfn != nil {
+			confChan = confNtfn.Confirmed
+			negativeConfChan = confNtfn.NegativeConf
+		}
+
 		select {
-		// A new block is received, we will check whether this block
-		// contains a spending tx that we are interested in.
 		case beat := <-c.BlockbeatChan:
 			log.Debugf("ChainWatcher(%v) received blockbeat %v",
 				c.cfg.chanState.FundingOutpoint, beat.Height())
 
-			// Process the block.
-			c.handleBlockbeat(beat)
+			spend := c.handleBlockbeat(beat)
+			if spend == nil {
+				continue
+			}
 
-		// If the funding outpoint is spent, we now go ahead and handle
-		// it. Note that we cannot rely solely on the `block` event
-		// above to trigger a close event, as deep down, the receiving
-		// of block notifications and the receiving of spending
-		// notifications are done in two different goroutines, so the
-		// expected order: [receive block -> receive spend] is not
-		// guaranteed .
-		case spend, ok := <-c.fundingSpendNtfn.Spend:
-			// If the channel was closed, then this means that the
-			// notifier exited, so we will as well.
+			// STATE TRANSITION: None -> Pending (from blockbeat).
+			log.Infof("ChannelPoint(%v): detected spend from "+
+				"blockbeat, transitioning to %v",
+				c.cfg.chanState.FundingOutpoint,
+				spendStatePending)
+
+			newConfNtfn, err := handleSpendDetection(spend)
+			if err != nil {
+				log.Errorf("Unable to handle spend "+
+					"detection: %v", err)
+				return
+			}
+			pendingSpend = spend
+			confNtfn = newConfNtfn
+
+		// STATE TRANSITION: None -> Pending.
+		// We've detected a spend, but don't process it yet. Instead,
+		// register for confirmations to protect against shallow reorgs.
+		case spend, ok := <-spendNtfn.Spend:
 			if !ok {
 				return
 			}
 
-			err := c.handleCommitSpend(spend)
+			log.Infof("ChannelPoint(%v): detected spend from "+
+				"notification, transitioning to %v",
+				c.cfg.chanState.FundingOutpoint,
+				spendStatePending)
+
+			newConfNtfn, err := handleSpendDetection(spend)
 			if err != nil {
-				log.Errorf("Failed to handle commit spend: %v",
-					err)
+				log.Errorf("Unable to handle spend "+
+					"detection: %v", err)
+				return
 			}
+			pendingSpend = spend
+			confNtfn = newConfNtfn
+
+		// STATE TRANSITION: Pending -> Confirmed
+		// The spend has reached required confirmations. It's now safe
+		// to process since we've protected against shallow reorgs.
+		case conf, ok := <-confChan:
+			if !ok {
+				log.Errorf("Confirmation channel closed " +
+					"unexpectedly")
+				return
+			}
+
+			log.Infof("ChannelPoint(%v): spend confirmed at "+
+				"height %d, transitioning to %v",
+				c.cfg.chanState.FundingOutpoint,
+				conf.BlockHeight, spendStateConfirmed)
+
+			err := c.handleCommitSpend(pendingSpend)
+			if err != nil {
+				log.Errorf("Failed to handle confirmed "+
+					"spend: %v", err)
+			}
+
+			confNtfn.Cancel()
+			confNtfn = nil
+			pendingSpend = nil
+
+		// STATE TRANSITION: Pending -> None
+		// A reorg removed the spend tx. We reset to initial state and
+		// wait for ANY new spend (could be the same tx re-mined, or a
+		// different tx like an RBF replacement).
+		case reorgDepth, ok := <-negativeConfChan:
+			if !ok {
+				log.Errorf("Negative conf channel closed " +
+					"unexpectedly")
+				return
+			}
+
+			log.Infof("ChannelPoint(%v): spend reorged out at "+
+				"depth %d, transitioning back to %v",
+				c.cfg.chanState.FundingOutpoint, reorgDepth,
+				spendStateNone)
+
+			confNtfn.Cancel()
+			confNtfn = nil
+			pendingSpend = nil
+
+			spendNtfn.Cancel()
+			var err error
+			spendNtfn, err = registerForSpend()
+			if err != nil {
+				log.Errorf("Unable to re-register for "+
+					"spend: %v", err)
+				return
+			}
+
+			log.Infof("ChannelPoint(%v): re-registered for spend "+
+				"detection", c.cfg.chanState.FundingOutpoint)
 
 		// The chainWatcher has been signalled to exit, so we'll do so
 		// now.
 		case <-c.quit:
+			if confNtfn != nil {
+				confNtfn.Cancel()
+			}
+
 			return
 		}
 	}
@@ -992,6 +1199,18 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 	return btcutil.Amount(fn.Sum(vals))
 }
 
+// requiredConfsForSpend determines the number of confirmations required before
+// processing a spend of the funding output. Uses config override if set
+// (typically for testing), otherwise scales with channel capacity to balance
+// security vs user experience for channels of different sizes.
+func (c *chainWatcher) requiredConfsForSpend() uint32 {
+	return c.cfg.chanCloseConfs.UnwrapOrFunc(func() uint32 {
+		return lnwallet.CloseConfsForCapacity(
+			c.cfg.chanState.Capacity,
+		)
+	})
+}
+
 // dispatchCooperativeClose processed a detect cooperative channel closure.
 // We'll use the spending transaction to locate our output within the
 // transaction, then clean up the database state. We'll also dispatch a
@@ -1009,8 +1228,8 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	localAmt := c.toSelfAmount(broadcastTx)
 
 	// Once this is known, we'll mark the state as fully closed in the
-	// database. We can do this as a cooperatively closed channel has all
-	// its outputs resolved after only one confirmation.
+	// database. For cooperative closes, we wait for a confirmation depth
+	// determined by channel capacity before dispatching this event.
 	closeSummary := &channeldb.ChannelCloseSummary{
 		ChanPoint:               c.cfg.chanState.FundingOutpoint,
 		ChainHash:               c.cfg.chanState.ChainHash,
@@ -1420,9 +1639,10 @@ func (c *chainWatcher) handleCommitSpend(
 	case wire.MaxTxInSequenceNum:
 		fallthrough
 	case mempool.MaxRBFSequence:
-		// TODO(roasbeef): rare but possible, need itest case for
-		err := c.dispatchCooperativeClose(commitSpend)
-		if err != nil {
+		// This is a cooperative close. Dispatch it directly - the
+		// confirmation waiting and reorg handling is done in the
+		// closeObserver state machine before we reach this point.
+		if err := c.dispatchCooperativeClose(commitSpend); err != nil {
 			return fmt.Errorf("handle coop close: %w", err)
 		}
 
@@ -1527,9 +1747,10 @@ func (c *chainWatcher) chanPointConfirmed() bool {
 }
 
 // handleBlockbeat takes a blockbeat and queries for a spending tx for the
-// funding output. If the spending tx is found, it will be handled based on the
-// closure type.
-func (c *chainWatcher) handleBlockbeat(beat chainio.Blockbeat) {
+// funding output. If found, it returns the spend details so closeObserver can
+// process it. Returns nil if no spend was detected.
+func (c *chainWatcher) handleBlockbeat(
+	beat chainio.Blockbeat) *chainntnfs.SpendDetail {
 	// Notify the chain watcher has processed the block.
 	defer c.NotifyBlockProcessed(beat, nil)
 
@@ -1541,24 +1762,23 @@ func (c *chainWatcher) handleBlockbeat(beat chainio.Blockbeat) {
 		// If the funding output hasn't confirmed in this block, we
 		// will check it again in the next block.
 		if !c.chanPointConfirmed() {
-			return
+			return nil
 		}
 	}
 
 	// Perform a non-blocking read to check whether the funding output was
-	// spent.
+	// spent. The actual spend handling is done in closeObserver's state
+	// machine to avoid blocking the block processing pipeline.
 	spend := c.checkFundingSpend()
 	if spend == nil {
 		log.Tracef("No spend found for ChannelPoint(%v) in block %v",
 			c.cfg.chanState.FundingOutpoint, beat.Height())
 
-		return
+		return nil
 	}
 
-	// The funding output was spent, we now handle it by sending a close
-	// event to the channel arbitrator.
-	err := c.handleCommitSpend(spend)
-	if err != nil {
-		log.Errorf("Failed to handle commit spend: %v", err)
-	}
+	log.Debugf("Detected spend of ChannelPoint(%v) in block %v",
+		c.cfg.chanState.FundingOutpoint, beat.Height())
+
+	return spend
 }

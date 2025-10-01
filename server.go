@@ -1369,6 +1369,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				return c
 			},
 		)(implCfg.AuxChanCloser),
+		ChannelCloseConfs: s.cfg.Dev.ChannelCloseConfs(),
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.
@@ -4413,6 +4414,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,
 		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
 		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
+		ChannelCloseConfs:       s.cfg.Dev.ChannelCloseConfs(),
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,

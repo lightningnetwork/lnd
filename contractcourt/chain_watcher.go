@@ -241,6 +241,12 @@ type chainWatcherConfig struct {
 
 	// auxCloser is used to finalize cooperative closes.
 	auxCloser fn.Option[AuxChanCloser]
+
+	// chanCloseConfs is an optional override for the number of
+	// confirmations required for channel closes. When set, this overrides
+	// the normal capacity-based scaling. This is only available in
+	// dev/integration builds for testing purposes.
+	chanCloseConfs fn.Option[uint32]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty

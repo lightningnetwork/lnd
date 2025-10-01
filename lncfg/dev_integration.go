@@ -5,6 +5,7 @@ package lncfg
 import (
 	"time"
 
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
@@ -27,6 +28,7 @@ type DevConfig struct {
 	UnsafeDisconnect            bool          `long:"unsafedisconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels."`
 	MaxWaitNumBlocksFundingConf uint32        `long:"maxwaitnumblocksfundingconf" description:"Maximum blocks to wait for funding confirmation before discarding non-initiated channels."`
 	UnsafeConnect               bool          `long:"unsafeconnect" description:"Allow the rpcserver to connect to a peer even if there's already a connection."`
+	ForceChannelCloseConfs      uint32        `long:"force-channel-close-confs" description:"Force a specific number of confirmations for channel closes (dev/test only)"`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -70,4 +72,13 @@ func (d *DevConfig) GetMaxWaitNumBlocksFundingConf() uint32 {
 // GetUnsafeConnect returns the config value `UnsafeConnect`.
 func (d *DevConfig) GetUnsafeConnect() bool {
 	return d.UnsafeConnect
+}
+
+// ChannelCloseConfs returns the forced confirmation count if set, or None if
+// the default behavior should be used.
+func (d *DevConfig) ChannelCloseConfs() fn.Option[uint32] {
+	if d.ForceChannelCloseConfs == 0 {
+		return fn.None[uint32]()
+	}
+	return fn.Some(d.ForceChannelCloseConfs)
 }

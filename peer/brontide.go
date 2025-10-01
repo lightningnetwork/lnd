@@ -372,6 +372,12 @@ type Config struct {
 	// closure initiated by the remote peer.
 	CoopCloseTargetConfs uint32
 
+	// ChannelCloseConfs is an optional override for the number of
+	// confirmations required for channel closes. When set, this overrides
+	// the normal capacity-based scaling. This is only available in
+	// dev/integration builds for testing purposes.
+	ChannelCloseConfs fn.Option[uint32]
+
 	// ServerPubKey is the serialized, compressed public key of our lnd node.
 	// It is used to determine which policy (channel edge) to pass to the
 	// ChannelLink.

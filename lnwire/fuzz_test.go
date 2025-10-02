@@ -220,10 +220,10 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		// can be represented by different underlying bytes. Instead, we
 		// compare the normalized string representation of each address.
 		assertEq := func(t *testing.T, x, y any) {
-			require.IsType(t, &NodeAnnouncement{}, x)
-			first, _ := x.(*NodeAnnouncement)
-			require.IsType(t, &NodeAnnouncement{}, y)
-			second, _ := y.(*NodeAnnouncement)
+			require.IsType(t, &NodeAnnouncement1{}, x)
+			first, _ := x.(*NodeAnnouncement1)
+			require.IsType(t, &NodeAnnouncement1{}, y)
+			second, _ := y.(*NodeAnnouncement1)
 
 			require.Equal(
 				t, len(first.Addresses), len(second.Addresses),
@@ -241,6 +241,30 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		}
 
 		wireMsgHarnessCustom(t, data, MsgNodeAnnouncement, assertEq)
+	})
+}
+
+func FuzzNodeAnnouncement2(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// We can't use require.Equal for Features, since we consider
+		// the empty map and nil to be equivalent.
+		assertEq := func(t *testing.T, x, y any) {
+			require.IsType(t, &NodeAnnouncement2{}, x)
+			first, _ := x.(*NodeAnnouncement2)
+			require.IsType(t, &NodeAnnouncement2{}, y)
+			second, _ := y.(*NodeAnnouncement2)
+
+			require.True(
+				t,
+				first.Features.Val.Equals(&second.Features.Val),
+			)
+			first.Features.Val = *NewRawFeatureVector()
+			second.Features.Val = *NewRawFeatureVector()
+
+			require.Equal(t, first, second)
+		}
+
+		wireMsgHarnessCustom(t, data, MsgNodeAnnouncement2, assertEq)
 	})
 }
 

@@ -249,10 +249,14 @@ func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	// through the gossiper to the target peer.
 	msgs := []msgWithSenders{
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 	}
 
@@ -308,15 +312,21 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	msgs := []msgWithSenders{
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(25001),
+			},
 		},
 		{
 			// Node ann below horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(5)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(5),
+			},
 		},
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(999999)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(999999),
+			},
 		},
 		{
 			// Ann tuple below horizon.
@@ -737,7 +747,7 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 			Timestamp:      unixStamp(999999),
 		},
-		&lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+		&lnwire.NodeAnnouncement1{Timestamp: unixStamp(25001)},
 	}
 
 	// We'll then craft a reply to the upcoming query for all the matching

@@ -152,6 +152,19 @@ func RandNodeAlias(t *rapid.T) NodeAlias {
 	return alias
 }
 
+// RandNodeAlias2 generates a random node alias that is compatible with
+// NodeAlias2 validation (non-empty, max 32 bytes, valid UTF-8).
+func RandNodeAlias2(t *rapid.T) NodeAlias2 {
+	// Ensure length is at least 1 to satisfy NodeAlias2 validation
+	aliasLength := rapid.IntRange(1, 32).Draw(t, "aliasLength")
+
+	aliasBytes := rapid.SliceOfN(
+		rapid.SampledFrom([]rune(charset)), aliasLength, aliasLength,
+	).Draw(t, "alias")
+
+	return []byte(string(aliasBytes))
+}
+
 // RandNetAddrs generates random network addresses.
 func RandNetAddrs(t *rapid.T) []net.Addr {
 	numAddresses := rapid.IntRange(0, 5).Draw(t, "numAddresses")

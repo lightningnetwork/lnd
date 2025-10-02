@@ -96,7 +96,7 @@ func (l *Node) AddPubKey(key *btcec.PublicKey) {
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
+func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement1,
 	error) {
 
 	if !l.HaveNodeAnnouncement {
@@ -108,7 +108,7 @@ func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 		return nil, err
 	}
 
-	nodeAnn := &lnwire.NodeAnnouncement{
+	nodeAnn := &lnwire.NodeAnnouncement1{
 		Features:        l.Features.RawFeatureVector,
 		NodeID:          l.PubKeyBytes,
 		RGBColor:        l.Color,
@@ -133,8 +133,8 @@ func (l *Node) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 }
 
 // NodeFromWireAnnouncement creates a Node instance from an
-// lnwire.NodeAnnouncement message.
-func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement) *Node {
+// lnwire.NodeAnnouncement1 message.
+func NodeFromWireAnnouncement(msg *lnwire.NodeAnnouncement1) *Node {
 	timestamp := time.Unix(int64(msg.Timestamp), 0)
 	features := lnwire.NewFeatureVector(msg.Features, lnwire.Features)
 

@@ -670,11 +670,11 @@ func newMsgChannelAnnouncement(t testing.TB,
 }
 
 func newMsgNodeAnnouncement(t testing.TB,
-	r *rand.Rand) *lnwire.NodeAnnouncement {
+	r *rand.Rand) *lnwire.NodeAnnouncement1 {
 
 	t.Helper()
 
-	msg := &lnwire.NodeAnnouncement{
+	msg := &lnwire.NodeAnnouncement1{
 		Features:  rawFeatureVector(),
 		Timestamp: uint32(r.Int31()),
 		Alias:     randAlias(r),

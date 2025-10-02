@@ -4754,10 +4754,10 @@ func TestLightningNodePersistence(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use the raw serialized node announcement message create an
-	// lnwire.NodeAnnouncement instance.
+	// lnwire.NodeAnnouncement1 instance.
 	msg, err := lnwire.ReadMessage(bytes.NewBuffer(nodeAnnBytes), 0)
 	require.NoError(t, err)
-	na, ok := msg.(*lnwire.NodeAnnouncement)
+	na, ok := msg.(*lnwire.NodeAnnouncement1)
 	require.True(t, ok)
 
 	// Convert the wire message to our internal node representation.

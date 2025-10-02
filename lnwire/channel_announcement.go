@@ -232,6 +232,13 @@ func (a *ChannelAnnouncement1) SCID() ShortChannelID {
 	return a.ShortChannelID
 }
 
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *ChannelAnnouncement1) GossipVersion() GossipVersion {
+	return GossipVersion1
+}
+
 // A compile-time check to ensure that ChannelAnnouncement1 implements the
 // ChannelAnnouncement interface.
 var _ ChannelAnnouncement = (*ChannelAnnouncement1)(nil)

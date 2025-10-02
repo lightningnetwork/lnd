@@ -85,6 +85,13 @@ type ChannelUpdate2 struct {
 	ExtraSignedFields
 }
 
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (c *ChannelUpdate2) GossipVersion() GossipVersion {
+	return GossipVersion2
+}
+
 // Encode serializes the target ChannelUpdate2 into the passed io.Writer
 // observing the protocol version specified.
 //

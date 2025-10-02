@@ -105,6 +105,10 @@ type NodeAnnouncement1 struct {
 var _ Message = (*NodeAnnouncement1)(nil)
 
 // A compile time check to ensure NodeAnnouncement1 implements the
+// lnwire.NodeAnnouncement interface.
+var _ NodeAnnouncement = (*NodeAnnouncement1)(nil)
+
+// A compile time check to ensure NodeAnnouncement1 implements the
 // lnwire.SizeableMessage interface.
 var _ SizeableMessage = (*NodeAnnouncement1)(nil)
 
@@ -216,4 +220,33 @@ func (a *NodeAnnouncement1) DataToSign() ([]byte, error) {
 // This is part of the lnwire.SizeableMessage interface.
 func (a *NodeAnnouncement1) SerializedSize() (uint32, error) {
 	return MessageSerializedSize(a)
+}
+
+// NodePub returns the identity public key of the node.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) NodePub() [33]byte {
+	return a.NodeID
+}
+
+// NodeFeatures returns the set of features supported by the node.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) NodeFeatures() *FeatureVector {
+	return NewFeatureVector(a.Features, Features)
+}
+
+// TimestampDesc returns a human-readable description of the timestamp of the
+// announcement.
+//
+// NOTE: part of the NodeAnnouncement interface.
+func (a *NodeAnnouncement1) TimestampDesc() string {
+	return fmt.Sprintf("timestamp=%d", a.Timestamp)
+}
+
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *NodeAnnouncement1) GossipVersion() GossipVersion {
+	return GossipVersion1
 }

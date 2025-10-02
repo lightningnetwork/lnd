@@ -102,6 +102,13 @@ func (a *AnnounceSignatures2) MsgType() MessageType {
 	return MsgAnnounceSignatures2
 }
 
+// GossipVersion returns the gossip version that this message is part of.
+//
+// NOTE: this is part of the GossipMessage interface.
+func (a *AnnounceSignatures2) GossipVersion() GossipVersion {
+	return GossipVersion2
+}
+
 // SerializedSize returns the serialized size of the message in bytes.
 //
 // This is part of the lnwire.SizeableMessage interface.

@@ -1,4 +1,0 @@
-version: v1.57.0
-plugins:
-  - module: 'github.com/lightningnetwork/lnd/tools/linters'
-    path: ./tools/linters

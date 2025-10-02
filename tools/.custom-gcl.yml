@@ -1,4 +1,15 @@
-version: v1.64.5
+# We are using a custom linter which is built cloning the version of 
+# golangci-lint from source below(thats what `golangci-lint custom` does 
+# internally) and adding the custom linters defined in this file. This means 
+# that this is the defining version for the linter as a whole when it comes to
+# linter rules for example.
+# The version pinned in the tools `go.mod` file is just the version we use to 
+# build the custom linter which is different and does not affect the linter 
+# rules itself. Hence both versions should always be updated together.
+# 
+# NOTE: We cannot use untagged versions here. Always update the linter in the
+# tools `go.mod` file and here as well.
+version: v2.4.0
 plugins:
   - module: 'github.com/lightningnetwork/lnd/tools/linters'
     path: ./linters

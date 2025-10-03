@@ -9,10 +9,10 @@ import "github.com/btcsuite/btcd/btcutil"
 // before signaling a cooperative close, scaled by channel capacity.
 // We enforce a minimum of 3 confirmations to provide better reorg protection,
 // even for small channels.
-func CloseConfsForCapacity(cap btcutil.Amount) uint32 { //nolint:revive
+func CloseConfsForCapacity(capacity btcutil.Amount) uint32 { //nolint:revive
 	// For cooperative closes, we don't have a push amount to consider,
 	// so we pass 0 for the pushAmt parameter.
-	scaledConfs := uint32(ScaleNumConfs(cap, 0))
+	scaledConfs := uint32(ScaleNumConfs(capacity, 0))
 	
 	// Enforce a minimum of 3 confirmations for reorg safety.
 	// This protects against shallow reorgs which are more common.

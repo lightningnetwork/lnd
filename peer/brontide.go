@@ -4448,22 +4448,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 		return lnwallet.CloseConfsForCapacity(chanCloser.Channel().Capacity)
 	})
 
-	// First, register for 1 confirmation to send an intermediate update.
-	// This gives immediate feedback that the transaction is confirmed.
-	go WaitForChanToClose(
-		chanCloser.NegotiationHeight(), notifier, errChan,
-		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, 1, func() {
-			// Send an intermediate update after 1 confirmation.
-			if closeReq != nil {
-				closeReq.Updates <- &PendingUpdate{
-					Txid:           closingTxid[:],
-					IsLocalCloseTx: fn.Some(true),
-				}
-			}
-		},
-	)
-
-	// Then register for full confirmation to send the final update.
+	// Register for full confirmation to send the final update.
 	go WaitForChanToClose(
 		chanCloser.NegotiationHeight(), notifier, errChan,
 		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, numConfs, func() {

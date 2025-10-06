@@ -944,6 +944,13 @@ func TestEdgePolicyCRUD(t *testing.T) {
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
 
+		// Even though we assert at the DB level that any newer edge
+		// update has a newer timestamp, we need to still gracefully
+		// handle the case where the same exact policy is re-added since
+		// it could be possible that our batch executor has two of the
+		// same policy updates in the same batch.
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
+
 		// Use the ForEachChannel method to fetch the policies and
 		// assert that the deserialized policies match the original
 		// ones.

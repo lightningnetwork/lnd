@@ -780,7 +780,15 @@ func (s *SQLStore) UpdateEdgePolicy(ctx context.Context,
 			from, to, isUpdate1, err = updateChanEdgePolicy(
 				ctx, tx, edge,
 			)
-			if err != nil {
+			// It is possible that two of the same policy
+			// announcements are both being processed in the same
+			// batch. This may case the UpsertEdgePolicy conflict to
+			// be hit since we require at the db layer that the
+			// new last_update is greater than the existing
+			// last_update. We need to gracefully handle this here.
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			} else if err != nil {
 				log.Errorf("UpdateEdgePolicy faild: %v", err)
 			}
 

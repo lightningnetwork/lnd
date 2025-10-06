@@ -1,16 +1,20 @@
 PKG := github.com/lightningnetwork/lnd
 MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
+TOOLS_MOD := $(TOOLS_DIR)/go.mod
 
 GOCC ?= go
 PREFIX ?= /usr/local
 
+GOTOOL := GOWORK=off $(GOCC) tool -modfile=$(TOOLS_MOD)
+
+
 BTCD_PKG := github.com/btcsuite/btcd
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
+GOLINT_PKG := github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
-GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := $(GO_BIN)/gomobile
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
@@ -87,10 +91,6 @@ all: scratch check install
 $(BTCD_BIN):
 	@$(call print, "Installing btcd.")
 	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(BTCD_PKG)
-
-$(GOIMPORTS_BIN):
-	@$(call print, "Installing goimports.")
-	cd $(TOOLS_DIR); $(GOCC) install -trimpath $(GOIMPORTS_PKG)
 
 # ============
 # INSTALLATION
@@ -315,9 +315,9 @@ fuzz:
 # =========
 
 #? fmt: Format source code and fix imports
-fmt: $(GOIMPORTS_BIN)
+fmt:
 	@$(call print, "Fixing imports.")
-	gosimports -w $(GOFILES_NOVENDOR)
+	$(GOTOOL) $(GOIMPORTS_PKG) -w $(GOFILES_NOVENDOR) 
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
@@ -340,12 +340,19 @@ check-go-version-dockerfile:
 check-go-version: check-go-version-dockerfile check-go-version-yaml
 
 #? lint-source: Run static code analysis
-lint-source: docker-tools
+lint-source: docker-tools	
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) custom-gcl run -v $(LINT_WORKERS)
 
+#? lint-config-check: Verify that the lint config is up to date
+#  We use the official linter here not our custom one because for checking the
+#  config file it does not matter.
+lint-config-check:
+	@$(call print, "Checking lint config is up to date.")
+	$(GOTOOL) $(GOLINT_PKG) config verify -v
+
 #? lint: Run static code analysis
-lint: check-go-version lint-source
+lint: check-go-version lint-config-check lint-source 
 
 #? protolint: Lint proto files using protolint
 protolint:

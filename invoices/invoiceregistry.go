@@ -1581,7 +1581,7 @@ func (i *InvoiceRegistry) notifyClients(hash lntypes.Hash,
 // invoiceSubscriptionKit defines that are common to both all invoice
 // subscribers and single invoice subscribers.
 type invoiceSubscriptionKit struct {
-	id uint32 // nolint:structcheck
+	id uint32
 
 	// quit is a chan mouted to InvoiceRegistry that signals a shutdown.
 	quit chan struct{}

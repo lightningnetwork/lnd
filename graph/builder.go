@@ -1313,7 +1313,7 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 	// then we know that this is actually a stale announcement.
 	err := b.assertNodeAnnFreshness(ctx, node, timestamp)
 	if err != nil {
-		log.Debugf("Checking stale node %x got %v", node, err)
+		log.Debugf("Checking stale node %s got %v", node, err)
 		return true
 	}
 

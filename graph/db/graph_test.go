@@ -125,6 +125,14 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	require.NoError(t, graph.AddNode(ctx, node))
 	assertNodeInCache(t, graph, node, testFeatures)
 
+	// Our AddNode implementation uses the batcher meaning that it is
+	// possible that two updates for the same node announcement may be
+	// processed in the same batch. So to avoid the conflict error (since we
+	// require at the DB level that the new timestamp is strictly
+	// greater than the previous one), we need to gracefully handle the
+	// case where the exact same node announcement is added twice.
+	require.NoError(t, graph.AddNode(ctx, node))
+
 	// Next, fetch the node from the database to ensure everything was
 	// serialized properly.
 	dbNode, err := graph.FetchNode(ctx, testPub)
@@ -935,6 +943,13 @@ func TestEdgePolicyCRUD(t *testing.T) {
 
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge2))
+
+		// Even though we assert at the DB level that any newer edge
+		// update has a newer timestamp, we need to still gracefully
+		// handle the case where the same exact policy is re-added since
+		// it could be possible that our batch executor has two of the
+		// same policy updates in the same batch.
+		require.NoError(t, graph.UpdateEdgePolicy(ctx, edge1))
 
 		// Use the ForEachChannel method to fetch the policies and
 		// assert that the deserialized policies match the original

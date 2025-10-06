@@ -86,7 +86,7 @@ type DB struct {
 
 	Sqlite *sqldb.SqliteConfig `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
-	UseNativeSQL bool `long:"use-native-sql" description:"If set to true, native SQL will be used instead of KV emulation for tables that support it. Subsystems which support native SQL tables: Invoices."`
+	UseNativeSQL bool `long:"use-native-sql" description:"If set to true, native SQL will be used instead of KV emulation for tables that support it. Subsystems which support native SQL tables: Invoices, Graph."`
 
 	SkipNativeSQLMigration bool `long:"skip-native-sql-migration" description:"If set to true, the KV to native SQL migration will be skipped. Note that this option is intended for users who experience non-resolvable migration errors. Enabling after there is a non-resolvable migration error that resulted in an incomplete migration will cause that partial migration to be abandoned and ignored and an empty database will be used instead. Since invoices are currently the only native SQL database used, our channels will still work but the invoice history will be forgotten. This option has no effect if native SQL is not in use (db.use-native-sql=false)."`
 

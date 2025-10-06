@@ -255,6 +255,17 @@ func (s *SQLStore) AddNode(ctx context.Context,
 		Opts: batch.NewSchedulerOptions(opts...),
 		Do: func(queries SQLQueries) error {
 			_, err := upsertNode(ctx, queries, node)
+
+			// It is possible that two of the same node
+			// announcements are both being processed in the same
+			// batch. This may case the UpsertNode conflict to
+			// be hit since we require at the db layer that the
+			// new last_update is greater than the existing
+			// last_update. We need to gracefully handle this here.
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+
 			return err
 		},
 	}

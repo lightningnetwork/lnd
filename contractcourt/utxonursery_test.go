@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
@@ -1259,6 +1260,200 @@ func TestKidOutputDecode(t *testing.T) {
 			kid.deadlineHeight = decodedKid.deadlineHeight
 
 			require.Equal(t, kid, decodedKid)
+		})
+	}
+}
+
+// TestPatchZeroHeightHint tests the patchZeroHeightHint function to ensure
+// it correctly handles both normal cases and the edge case where classHeight
+// is zero due to a historical bug.
+func TestPatchZeroHeightHint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		classHeight    uint32
+		closeHeight    uint32
+		confDepth      uint32
+		shortChanID    lnwire.ShortChannelID
+		fetchError     error
+		expectedHeight uint32
+		expectError    bool
+		errorContains  string
+	}{
+		{
+			name:           "normal case - non-zero class height",
+			classHeight:    100,
+			closeHeight:    200,
+			confDepth:      6,
+			shortChanID:    lnwire.ShortChannelID{BlockHeight: 50},
+			expectedHeight: 100,
+			expectError:    false,
+		},
+		{
+			name: "zero class height - fetch closed " +
+				"channel error",
+			classHeight:   0,
+			closeHeight:   100,
+			confDepth:     6,
+			shortChanID:   lnwire.ShortChannelID{BlockHeight: 50},
+			fetchError:    fmt.Errorf("channel not found"),
+			expectError:   true,
+			errorContains: "cannot fetch close summary",
+		},
+		{
+			name: "zero class height - both close " +
+				"height and short chan ID = 0",
+			classHeight:    0,
+			closeHeight:    0,
+			confDepth:      6,
+			shortChanID:    lnwire.ShortChannelID{BlockHeight: 0},
+			expectedHeight: 0,
+			expectError:    true,
+			errorContains: "cannot use fallback height hint: " +
+				"close height is 0 and short channel " +
+				"ID block height is 0",
+		},
+		{
+			name: "zero class height - fallback height hint " +
+				"= conf depth",
+			classHeight:    0,
+			closeHeight:    6,
+			confDepth:      6,
+			shortChanID:    lnwire.ShortChannelID{BlockHeight: 50},
+			expectedHeight: 0,
+			expectError:    true,
+			errorContains: "fallback height hint 6 <= " +
+				"confirmation depth 6",
+		},
+		{
+			name: "zero class height - fallback height hint " +
+				"< conf depth",
+			classHeight:    0,
+			closeHeight:    3,
+			confDepth:      6,
+			shortChanID:    lnwire.ShortChannelID{BlockHeight: 50},
+			expectedHeight: 0,
+			expectError:    true,
+			errorContains: "fallback height hint 3 <= " +
+				"confirmation depth 6",
+		},
+		{
+			name: "zero class height - close " +
+				"height = 0, fallback height hint = conf depth",
+			classHeight: 0,
+			closeHeight: 0,
+			confDepth:   6,
+			shortChanID: lnwire.ShortChannelID{BlockHeight: 6},
+			expectError: true,
+			errorContains: "fallback height hint 6 <= " +
+				"confirmation depth 6",
+		},
+		{
+			name: "zero class height - close " +
+				"height = 0, fallback height hint < conf depth",
+			classHeight:    0,
+			closeHeight:    0,
+			confDepth:      6,
+			shortChanID:    lnwire.ShortChannelID{BlockHeight: 3},
+			expectedHeight: 0,
+			expectError:    true,
+			errorContains: "fallback height hint 3 <= " +
+				"confirmation depth 6",
+		},
+		{
+			name: "zero class height, fallback height is " +
+				"valid",
+			classHeight: 0,
+			closeHeight: 100,
+			confDepth:   6,
+			shortChanID: lnwire.ShortChannelID{BlockHeight: 50},
+			// heightHint - confDepth = 100 - 6 = 94.
+			expectedHeight: 94,
+			expectError:    false,
+		},
+		{
+			name: "zero class height - close " +
+				"height = 0, fallback height is valid",
+			classHeight: 0,
+			closeHeight: 0,
+			confDepth:   6,
+			shortChanID: lnwire.ShortChannelID{BlockHeight: 50},
+			// heightHint - confDepth = 50 - 6 = 44.
+			expectedHeight: 44,
+			expectError:    false,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a mock baby output.
+			chanPoint := &wire.OutPoint{
+				Hash: [chainhash.HashSize]byte{
+					0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2,
+					0xc6, 0xda, 0x48, 0x59, 0xe6, 0x96,
+					0x31, 0x13, 0xa1, 0x17, 0x2d, 0xe7,
+					0x93, 0xe4, 0xb7, 0x25, 0xb8, 0x4d,
+					0x1f, 0xb, 0x4c, 0xf9, 0x9e, 0xc5,
+					0x8c, 0xe9,
+				},
+				Index: 9,
+			}
+
+			baby := &babyOutput{
+				expiry: tc.classHeight,
+				kidOutput: kidOutput{
+					breachedOutput: breachedOutput{
+						outpoint: *chanPoint,
+					},
+					originChanPoint: *chanPoint,
+				},
+			}
+
+			cfg := &NurseryConfig{
+				ConfDepth: tc.confDepth,
+				FetchClosedChannel: func(
+					chanID *wire.OutPoint) (
+					*channeldb.ChannelCloseSummary,
+					error) {
+
+					if tc.fetchError != nil {
+						return nil, tc.fetchError
+					}
+
+					return &channeldb.ChannelCloseSummary{
+						CloseHeight: tc.closeHeight,
+						ShortChanID: tc.shortChanID,
+					}, nil
+				},
+			}
+
+			nursery := &UtxoNursery{
+				cfg: cfg,
+			}
+
+			resultHeight, err := nursery.patchZeroHeightHint(
+				baby, tc.classHeight,
+			)
+
+			if tc.expectError {
+				require.Error(t, err)
+				if tc.errorContains != "" {
+					require.Contains(
+						t, err.Error(),
+						tc.errorContains,
+					)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedHeight, resultHeight)
 		})
 	}
 }

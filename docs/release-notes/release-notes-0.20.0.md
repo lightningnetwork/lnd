@@ -46,6 +46,10 @@
   sweeper where some outputs would not be resolved due to an error string
   mismatch.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10273) a case in the
+  utxonursery (the legacy sweeper) where htlcs with a locktime of 0 would not
+  be swept.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 

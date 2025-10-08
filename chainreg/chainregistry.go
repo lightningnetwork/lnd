@@ -276,6 +276,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		// the neutrino light client.
 		cc.ChainNotifier = neutrinonotify.New(
 			cfg.NeutrinoCS, hintCache, hintCache, cfg.BlockCache,
+			cfg.WalletUnlockParams.Birthday,
 		)
 		cc.ChainView, err = chainview.NewCfFilteredChainView(
 			cfg.NeutrinoCS, cfg.BlockCache,

@@ -1967,10 +1967,15 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 			spvNode = unittest.NewNeutrinoBackend(
 				t, unittest.NetParams, p2pAddr,
 			)
+
+			// Intentionally, use a time in the past to ensure we
+			// scan all blocks generated the test.
+			walletBirthday := time.Unix(0, 0)
+
 			newNotifier = func() (chainntnfs.TestChainNotifier, error) {
 				return neutrinonotify.New(
 					spvNode, hintCache, hintCache,
-					blockCache,
+					blockCache, walletBirthday,
 				), nil
 			}
 		}

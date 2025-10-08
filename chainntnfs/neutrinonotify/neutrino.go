@@ -79,6 +79,11 @@ type NeutrinoNotifier struct {
 	// blockCache is an LRU block cache.
 	blockCache *blockcache.BlockCache
 
+	// walletBirthday is the birthday of the wallet. This is used to
+	// optimize rescans by only scanning blocks after the wallet was
+	// created.
+	walletBirthday time.Time
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -93,7 +98,8 @@ var _ chainntnfs.ChainNotifier = (*NeutrinoNotifier)(nil)
 // being passed into this function.
 func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 	confirmHintCache chainntnfs.ConfirmHintCache,
-	blockCache *blockcache.BlockCache) *NeutrinoNotifier {
+	blockCache *blockcache.BlockCache,
+	walletBirthday time.Time) *NeutrinoNotifier {
 
 	return &NeutrinoNotifier{
 		notificationCancels:  make(chan interface{}),
@@ -114,6 +120,8 @@ func New(node *neutrino.ChainService, spendHintCache chainntnfs.SpendHintCache,
 		confirmHintCache: confirmHintCache,
 
 		blockCache: blockCache,
+
+		walletBirthday: walletBirthday,
 
 		quit: make(chan struct{}),
 	}
@@ -208,6 +216,7 @@ func (n *NeutrinoNotifier) startNotifier() error {
 	var zeroInput neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
+		neutrino.StartTime(n.walletBirthday),
 		neutrino.QuitChan(n.quit),
 		neutrino.NotificationHandlers(
 			rpcclient.NotificationHandlers{

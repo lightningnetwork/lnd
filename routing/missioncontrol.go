@@ -240,6 +240,12 @@ type TimedPairResult struct {
 	// success amount. Because of this, SuccessAmt may not match
 	// SuccessTime.
 	SuccessAmt lnwire.MilliSatoshi
+
+	// HalfPenalty indicates whether the recorded failure should be
+	// weighted with half the usual weight in probability calculations.
+	// It is set when a failure is recorded as part of a granted
+	// "second chance" for a policy-update failure.
+	HalfPenalty bool
 }
 
 // MissionControlSnapshot contains a snapshot of the current state of mission
@@ -672,13 +678,29 @@ func (m *MissionControl) applyPaymentResult(
 	// Interpret result.
 	i := interpretResult(&result.route.Val, result.failure.ValOpt())
 
-	if i.policyFailure != nil {
-		if m.state.requestSecondChance(
-			time.Unix(0, int64(result.timeReply.Val)),
-			i.policyFailure.From, i.policyFailure.To,
-		) {
-			return nil
-		}
+	ts := time.Unix(0, int64(result.timeReply.Val))
+
+	// If the failure carries a policy update for a specific hop and we
+	// haven't recently granted a second chance for that pair, record a
+	// half-weight penalty against the offending pair only and return.
+	// Unlike a full failure, we don't penalize sibling channels of the
+	// reporting node and don't fail the pair in reverse, since the
+	// updated policy applies only to the direction we just tried.
+	if i.policyFailure != nil && m.state.requestSecondChance(
+		ts, i.policyFailure.From, i.policyFailure.To,
+	) {
+
+		m.log.Debugf("Reporting half-penalty failure to Mission "+
+			"Control: pair=%v", *i.policyFailure)
+
+		halfResult := failPairResult(0)
+		halfResult.halfPenalty = true
+		m.state.setLastPairResult(
+			i.policyFailure.From, i.policyFailure.To, ts,
+			&halfResult, false,
+		)
+
+		return i.finalFailureReason
 	}
 
 	// If there is a node-level failure, record a failure for every tried
@@ -702,10 +724,7 @@ func (m *MissionControl) applyPaymentResult(
 		m.log.Debugf("Reporting node failure to Mission Control: "+
 			"node=%v", *i.nodeFailure)
 
-		m.state.setAllFail(
-			*i.nodeFailure,
-			time.Unix(0, int64(result.timeReply.Val)),
-		)
+		m.state.setAllFail(*i.nodeFailure, ts)
 	}
 
 	for pair, pairResult := range i.pairResults {
@@ -722,9 +741,7 @@ func (m *MissionControl) applyPaymentResult(
 		}
 
 		m.state.setLastPairResult(
-			pair.From, pair.To,
-			time.Unix(0, int64(result.timeReply.Val)), &pairResult,
-			false,
+			pair.From, pair.To, ts, &pairResult, false,
 		)
 	}
 

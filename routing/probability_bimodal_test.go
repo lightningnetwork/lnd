@@ -428,7 +428,7 @@ func TestCannotSend(t *testing.T) {
 
 	// Test immediate retry.
 	require.EqualValues(t, failAmount, cannotSend(
-		failAmount, capacity, failTime, failTime, decayTime,
+		failAmount, capacity, failTime, failTime, decayTime, false,
 	))
 
 	// After the decay time we want to be between the fail amount and
@@ -436,12 +436,12 @@ func TestCannotSend(t *testing.T) {
 	summand := lnwire.MilliSatoshi(float64(capacity-failAmount) / math.E)
 	expected := capacity - summand
 	require.Equal(t, expected, cannotSend(
-		failAmount, capacity, now, failTime, decayTime,
+		failAmount, capacity, now, failTime, decayTime, false,
 	))
 
 	// After a long time, we want the amount to approach the capacity.
 	require.Equal(t, capacity, cannotSend(
-		failAmount, capacity, infinity, failTime, decayTime,
+		failAmount, capacity, infinity, failTime, decayTime, false,
 	))
 }
 

@@ -44,6 +44,11 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+* Re-send the [AnnouncementSignature max 
+  once](https://github.com/lightningnetwork/lnd/pull/9957) per (re)connection 
+  when we already have the full proof and our peer sends us their signature 
+  announcement.
+
 ## Testing
 
 ## Database

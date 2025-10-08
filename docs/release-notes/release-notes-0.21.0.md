@@ -24,6 +24,12 @@
 # New Features
 ## Functional Enhancements
 
+- The second chance mechanism of the pathfinder was adjusted to apply a
+significant penalty to the route instead of immediately retrying it. This means
+that if a failure carries a fee policy update we'll still take it into account
+but will retry that route with a lower priority. See more in the
+[PR](https://github.com/lightningnetwork/lnd/pull/10278).
+
 ## RPC Additions
 
 ## lncli Additions

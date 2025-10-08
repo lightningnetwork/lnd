@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/gcs/builder"
@@ -32,6 +33,11 @@ type CfFilteredChainView struct {
 	// chainView is the active rescan which only watches our specified
 	// sub-set of the UTXO set.
 	chainView *neutrino.Rescan
+
+	// walletBirthday is the birthday of the wallet. This is used to
+	// optimize rescans by only scanning blocks after the wallet was
+	// created.
+	walletBirthday time.Time
 
 	// rescanErrChan is the channel that any errors encountered during the
 	// rescan will be sent over.
@@ -63,15 +69,17 @@ var _ FilteredChainView = (*CfFilteredChainView)(nil)
 // NOTE: The node should already be running and syncing before being passed into
 // this function.
 func NewCfFilteredChainView(node *neutrino.ChainService,
-	blockCache *blockcache.BlockCache) (*CfFilteredChainView, error) {
+	blockCache *blockcache.BlockCache,
+	walletBirthday time.Time) (*CfFilteredChainView, error) {
 
 	return &CfFilteredChainView{
-		blockQueue:    newBlockEventQueue(),
-		quit:          make(chan struct{}),
-		rescanErrChan: make(chan error),
-		chainFilter:   make(map[wire.OutPoint][]byte),
-		p2pNode:       node,
-		blockCache:    blockCache,
+		blockQueue:     newBlockEventQueue(),
+		quit:           make(chan struct{}),
+		rescanErrChan:  make(chan error),
+		chainFilter:    make(map[wire.OutPoint][]byte),
+		p2pNode:        node,
+		blockCache:     blockCache,
+		walletBirthday: walletBirthday,
 	}, nil
 }
 
@@ -103,6 +111,7 @@ func (c *CfFilteredChainView) Start() error {
 	var zeroPoint neutrino.InputWithScript
 	rescanOptions := []neutrino.RescanOption{
 		neutrino.StartBlock(startingPoint),
+		neutrino.StartTime(c.walletBirthday),
 		neutrino.QuitChan(c.quit),
 		neutrino.NotificationHandlers(
 			rpcclient.NotificationHandlers{

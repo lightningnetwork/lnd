@@ -808,8 +808,12 @@ var interfaceImpls = []struct {
 
 			blockCache := blockcache.NewBlockCache(10000)
 
+			// Intentionally, use a time in the past to ensure we
+			// scan all blocks generated the test.
+			walletBirthday := time.Unix(0, 0)
+
 			chainView, err := NewCfFilteredChainView(
-				spvNode, blockCache,
+				spvNode, blockCache, walletBirthday,
 			)
 			if err != nil {
 				return nil, err

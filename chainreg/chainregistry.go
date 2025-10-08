@@ -279,6 +279,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 		cc.ChainView, err = chainview.NewCfFilteredChainView(
 			cfg.NeutrinoCS, cfg.BlockCache,
+			cfg.WalletUnlockParams.Birthday,
 		)
 		if err != nil {
 			return nil, nil, err

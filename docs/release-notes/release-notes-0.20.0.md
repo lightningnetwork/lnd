@@ -184,6 +184,12 @@ circuit. The indices are only available for forwarding events saved after v0.20.
      [2](https://github.com/lightningnetwork/lnd/pull/10050),
      [3](https://github.com/lightningnetwork/lnd/pull/10038)]
 
+* [Added support](https://github.com/lightningnetwork/lnd/pull/9432) for the
+  `upfront-shutdown-address` configuration in `lnd.conf`, allowing users to
+  specify an address for cooperative channel closures where funds will be sent.
+  This applies to both funders and fundees, with the ability to override the
+  value during channel opening or acceptance.
+
 ## RPC Updates
 * Previously the `RoutingPolicy` would return the inbound fee record in its
   `CustomRecords` field, which is duplicated info as it's already presented in

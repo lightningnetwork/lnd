@@ -228,7 +228,8 @@ func TestMissionControl(t *testing.T) {
 }
 
 // TestMissionControlChannelUpdate tests that the first channel update is not
-// penalizing the channel yet.
+// fully penalizing the channel. Instead we should see a half penalty being
+// applied to the probability.
 func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx := createMcTestContext(t)
 
@@ -237,7 +238,9 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 	ctx.reportFailure(
 		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
-	ctx.expectP(100, testAprioriHopProbability)
+
+	// Apply the second chance half-penalty.
+	ctx.expectP(100, testAprioriHopProbability*0.5)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.

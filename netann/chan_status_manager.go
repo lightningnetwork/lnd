@@ -568,6 +568,24 @@ func (m *ChanStatusManager) disableInactiveChannels() {
 			continue
 		}
 
+		// Re-verify the channel is still inactive before disabling.
+		// This prevents the race condition where a channel becomes
+		// active again after being marked as pending disabled but
+		// before the disable timeout expires. Otherwise there is a
+		// race condition where the channel is disabled even though it
+		// is active.
+		chanID := lnwire.NewChanIDFromOutPoint(outpoint)
+		if m.cfg.IsChannelActive(chanID) {
+			// Channel became active again, cancel the pending
+			// disable.
+			log.Debugf("Channel(%v) became active, canceling "+
+				"scheduled disable", outpoint)
+
+			m.chanStates.markEnabled(outpoint)
+
+			continue
+		}
+
 		log.Infof("Announcing channel(%v) disabled "+
 			"[detected]", outpoint)
 

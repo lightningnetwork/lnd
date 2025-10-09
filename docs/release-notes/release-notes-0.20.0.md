@@ -46,6 +46,13 @@
   sweeper where some outputs would not be resolved due to an error string
   mismatch.
 
+- [Fixed](https://github.com/lightningnetwork/lnd/pull/10277) a case in the
+  status manager where we would have disabled a channel although it was already
+  active in the switch. When a channel reconnects it starts a timer which might
+  only trigger after the disable timer has already been triggered, so we had a
+  race condition where we would unnecessarily mark a channel as disabled
+  although it was active in the first place.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 

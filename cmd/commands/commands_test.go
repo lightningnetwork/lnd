@@ -493,8 +493,8 @@ func TestParseChanIDs(t *testing.T) {
 	}
 }
 
-// TestFlagParsing tests parsing of various commands.
-func TestFlagParsing(t *testing.T) {
+// TestSatPerVByteFlagParsing tests parsing of various commands.
+func TestSatPerVByteFlagParsing(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {

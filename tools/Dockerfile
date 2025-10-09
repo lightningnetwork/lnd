@@ -1,19 +1,20 @@
-FROM golang:1.24.6
+FROM golang:1.24.6-alpine
 
-RUN apt-get update && apt-get install -y git
-ENV GOCACHE=/tmp/build/.cache
-ENV GOMODCACHE=/tmp/build/.modcache
+ENV GOFLAGS="-buildvcs=false"
 
-COPY . /tmp/tools
+RUN apk update && apk add --no-cache git
 
-RUN cd /tmp \
-  && mkdir -p /tmp/build/.cache \
-  && mkdir -p /tmp/build/.modcache \
-  && cd /tmp/tools \
-  && CGO_ENABLED=0 go install -trimpath github.com/golangci/golangci-lint/cmd/golangci-lint \
+WORKDIR /tmp/tools
+
+COPY . ./
+
+RUN CGO_ENABLED=0 go install -trimpath github.com/golangci/golangci-lint/cmd/golangci-lint \
   && CGO_ENABLED=0 golangci-lint custom \
   && mv ./custom-gcl /usr/local/bin/custom-gcl \
-  && chmod -R 777 /tmp/build/ \
-  && git config --global --add safe.directory /build
+  && git config --global --add safe.directory /build \
+  && rm -rf /go/pkg/mod \
+  && rm -rf /root/.cache/go-build \
+  && rm -rf /var/cache/apk/* \
+  && rm -rf /tmp/*
 
 WORKDIR /build

@@ -35,11 +35,11 @@ require (
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240815225420-8b40adf04ab9
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.9
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6
 	github.com/lightningnetwork/lnd/kvdb v1.4.16
 	github.com/lightningnetwork/lnd/queue v1.1.1
-	github.com/lightningnetwork/lnd/sqldb v1.0.10
+	github.com/lightningnetwork/lnd/sqldb v1.0.11
 	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.3.2
 	github.com/lightningnetwork/lnd/tor v1.1.6
@@ -201,13 +201,6 @@ require (
 	modernc.org/token v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
-
-// TODO(elle): remove once all the schemas and queries for the graph
-// store have been included in a tagged sqldb version.
-replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
-
-// Replace fn package to use local version with iterator Collect function.
-replace github.com/lightningnetwork/lnd/fn/v2 => ./fn
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11

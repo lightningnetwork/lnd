@@ -822,6 +822,28 @@ func (c *Custom) RandTestMessage(t *rapid.T) Message {
 	return msg
 }
 
+// A compile time check to ensure OnionMessage implements the lnwire.TestMessage
+// interface.
+var _ TestMessage = (*OnionMessage)(nil)
+
+// RandTestMessage populates the message with random data suitable for testing.
+// It uses the rapid testing framework to generate random values.
+//
+// This is part of the TestMessage interface.
+func (o *OnionMessage) RandTestMessage(t *rapid.T) Message {
+	// Generate random compressed public key for node ID
+	pathKey := RandPubKey(t)
+
+	dataLen := rapid.IntRange(0, 1000).Draw(t, "onionMessageDataLength")
+	data := rapid.SliceOfN(rapid.Byte(), dataLen, dataLen).Draw(
+		t, "onionMessageData",
+	)
+
+	msg := NewOnionMessage(pathKey, data)
+
+	return msg
+}
+
 // A compile time check to ensure DynAck implements the lnwire.TestMessage
 // interface.
 var _ TestMessage = (*DynAck)(nil)

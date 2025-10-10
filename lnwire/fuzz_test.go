@@ -498,6 +498,12 @@ func FuzzCustomMessage(f *testing.F) {
 	})
 }
 
+func FuzzOnionMessage(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		wireMsgHarness(t, data, MsgOnionMessage)
+	})
+}
+
 // FuzzParseRawSignature tests that our DER-encoded signature parsing does not
 // panic for arbitrary inputs and that serializing and reparsing the signatures
 // does not mutate them.

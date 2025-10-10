@@ -528,10 +528,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteChanReserve: func(chanAmt,
 			dustLimit btcutil.Amount) btcutil.Amount {
 
-			reserve := chanAmt / 100
-			if reserve < dustLimit {
-				reserve = dustLimit
-			}
+			reserve := max(chanAmt/100, dustLimit)
 
 			return reserve
 		},

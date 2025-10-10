@@ -1313,10 +1313,7 @@ func (c *chainWatcher) waitForCommitmentPoint() *btcec.PublicKey {
 		select {
 		// Wait before retrying, with an exponential backoff.
 		case <-time.After(backoff):
-			backoff = 2 * backoff
-			if backoff > maxCommitPointPollTimeout {
-				backoff = maxCommitPointPollTimeout
-			}
+			backoff = min(2*backoff, maxCommitPointPollTimeout)
 
 		case <-c.quit:
 			return nil

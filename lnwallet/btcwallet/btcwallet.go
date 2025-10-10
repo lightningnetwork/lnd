@@ -905,7 +905,7 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 	minConfs int32, label string,
-	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+	strategy base.CoinSelectionStrategy, changeAddr btcutil.Address) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -921,7 +921,15 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 		return nil, lnwallet.ErrInvalidMinconf
 	}
 
-	// Use selected UTXOs if specified, otherwise default selection.
+	// If a custom change address is specified, we need special handling.
+	if changeAddr != nil {
+		return b.sendOutputsWithCustomChange(
+			inputs, outputs, feeRate, minConfs, label,
+			strategy, changeAddr,
+		)
+	}
+
+	// No custom change address, use the default btcwallet behavior.
 	if len(inputs) != 0 {
 		return b.wallet.SendOutputsWithInput(
 			outputs, nil, defaultAccount, minConfs, feeSatPerKB,
@@ -935,6 +943,68 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 	)
 }
 
+// sendOutputsWithCustomChange creates a transaction with a custom change
+// address, signs it, and broadcasts it.
+func (b *BtcWallet) sendOutputsWithCustomChange(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string, strategy base.CoinSelectionStrategy,
+	changeAddr btcutil.Address) (*wire.MsgTx, error) {
+
+	// First, create the transaction WITHOUT the custom change address.
+	// This will add a default change output if needed.
+	authoredTx, err := b.CreateSimpleTx(
+		inputs, outputs, feeRate, minConfs, strategy, false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating transaction: %w", err)
+	}
+
+	// If there's a change output (ChangeIndex >= 0), we need to:
+	// 1. Replace it with our custom change address
+	// 2. Re-create and re-sign the transaction
+	if authoredTx.ChangeIndex >= 0 {
+		changeOutput := authoredTx.Tx.TxOut[authoredTx.ChangeIndex]
+		changeAmount := changeOutput.Value
+		
+		// Create the script for the custom change address.
+		changePkScript, err := txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return nil, fmt.Errorf("error creating change script: %w", err)
+		}
+
+		// Create new outputs list with the custom change address.
+		newOutputs := make([]*wire.TxOut, 0, len(outputs)+1)
+		
+		// Add all original outputs (not including change).
+		for i, out := range authoredTx.Tx.TxOut {
+			if i != int(authoredTx.ChangeIndex) {
+				newOutputs = append(newOutputs, out)
+			}
+		}
+		
+		// Add our custom change output.
+		newOutputs = append(newOutputs, &wire.TxOut{
+			Value:    changeAmount,
+			PkScript: changePkScript,
+		})
+
+		// Re-create the transaction with the custom change output.
+		authoredTx, err = b.CreateSimpleTx(
+			inputs, newOutputs, feeRate, minConfs, strategy, false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error re-creating transaction with custom change: %w", err)
+		}
+	}
+
+	// CreateSimpleTx returns a signed transaction, so we just need to publish it.
+	err = b.PublishTransaction(authoredTx.Tx, label)
+	if err != nil {
+		return nil, fmt.Errorf("error publishing transaction: %w", err)
+	}
+
+	return authoredTx.Tx, nil
+}
 // CreateSimpleTx creates a Bitcoin transaction paying to the specified
 // outputs. The transaction is not broadcasted to the network, but a new change
 // address might be created in the wallet database. In the case the wallet has

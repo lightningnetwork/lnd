@@ -516,6 +516,15 @@ var sendCoinsCommand = cli.Command{
 				"amount can be spent in the utxos through " +
 				"the amt flag",
 		},
+
+		cli.StringFlag{
+	Name: "change_address",
+	Usage: "(optional) the address to send change to. If not " +
+		"specified, change will be sent to an address " +
+		"derived from the wallet. This allows draining " +
+		"specific addresses by repeatedly sending with " +
+		"change returning to the same address",
+},
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -653,17 +662,18 @@ func sendCoins(ctx *cli.Context) error {
 	}
 
 	req := &lnrpc.SendCoinsRequest{
-		Addr:                  addr,
-		Amount:                amt,
-		TargetConf:            int32(ctx.Int64("conf_target")),
-		SatPerVbyte:           ctx.Uint64(feeRateFlag),
-		SendAll:               ctx.Bool("sweepall"),
-		Label:                 ctx.String(txLabelFlag.Name),
-		MinConfs:              minConfs,
-		SpendUnconfirmed:      minConfs == 0,
-		CoinSelectionStrategy: coinSelectionStrategy,
-		Outpoints:             outpoints,
-	}
+	Addr:                  addr,
+	Amount:                amt,
+	TargetConf:            int32(ctx.Int64("conf_target")),
+	SatPerVbyte:           ctx.Uint64(feeRateFlag),
+	SendAll:               ctx.Bool("sweepall"),
+	Label:                 ctx.String(txLabelFlag.Name),
+	MinConfs:              minConfs,
+	SpendUnconfirmed:      minConfs == 0,
+	CoinSelectionStrategy: coinSelectionStrategy,
+	Outpoints:             outpoints,
+	ChangeAddress:         ctx.String("change_address"),
+}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {
 		return err

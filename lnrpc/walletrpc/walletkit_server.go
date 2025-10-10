@@ -891,6 +891,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		op := lnrpc.MarshalOutPoint(&inp.OutPoint)
 		amountSat := uint32(inp.Amount)
 		satPerVbyte := uint64(inp.LastFeeRate.FeePerVByte())
+		satPerKWeight := uint64(inp.LastFeeRate)
 		broadcastAttempts := uint32(inp.BroadcastAttempts)
 
 		// Get the requested starting fee rate, if set.
@@ -900,16 +901,25 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 				return uint64(feeRate.FeePerVByte())
 			})
 
+		startingFeeRateKw := fn.MapOptionZ(
+			inp.Params.StartingFeeRate,
+			func(feeRate chainfee.SatPerKWeight) uint64 {
+				return uint64(feeRate)
+			},
+		)
+
 		ps := &PendingSweep{
 			Outpoint:             op,
 			WitnessType:          witnessType,
 			AmountSat:            amountSat,
 			SatPerVbyte:          satPerVbyte,
+			SatPerKw:             satPerKWeight,
 			BroadcastAttempts:    broadcastAttempts,
 			Immediate:            inp.Params.Immediate,
 			Budget:               uint64(inp.Params.Budget),
 			DeadlineHeight:       inp.DeadlineHeight,
 			RequestedSatPerVbyte: startingFeeRate,
+			RequestedSatPerKw:    startingFeeRateKw,
 			MaturityHeight:       inp.MaturityHeight,
 		}
 		rpcPendingSweeps = append(rpcPendingSweeps, ps)
@@ -961,22 +971,23 @@ func validateBumpFeeRequest(in *BumpFeeRequest, estimator chainfee.Estimator) (
 	// Get the specified fee rate if set.
 	satPerKwOpt := fn.None[chainfee.SatPerKWeight]()
 
-	// We only allow using either the deprecated field or the new field.
+	// We only allow using either the SatPerVbyte or SatPerKweight,
+	// but not both.
 	switch {
-	case in.SatPerByte != 0 && in.SatPerVbyte != 0:
-		return satPerKwOpt, false, fmt.Errorf("either SatPerByte or " +
-			"SatPerVbyte should be set, but not both")
-
-	case in.SatPerByte != 0:
-		satPerKw := chainfee.SatPerVByte(
-			in.SatPerByte,
-		).FeePerKWeight()
-		satPerKwOpt = fn.Some(satPerKw)
+	case in.SatPerKw != 0 && in.SatPerVbyte != 0:
+		return satPerKwOpt, false, fmt.Errorf("either SatPerVbyte or " +
+			"SatPerKweight should be set, but not both")
 
 	case in.SatPerVbyte != 0:
 		satPerKw := chainfee.SatPerVByte(
 			in.SatPerVbyte,
 		).FeePerKWeight()
+		satPerKwOpt = fn.Some(satPerKw)
+
+	case in.SatPerKw != 0:
+		satPerKw := chainfee.SatPerKWeight(
+			in.SatPerKw,
+		)
 		satPerKwOpt = fn.Some(satPerKw)
 	}
 

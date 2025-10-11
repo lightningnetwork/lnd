@@ -821,7 +821,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
 		nil, outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
-		minConfs, label, coinSelectionStrategy,
+		minConfs, label, coinSelectionStrategy, nil,
 	)
 	if err != nil {
 		return nil, err

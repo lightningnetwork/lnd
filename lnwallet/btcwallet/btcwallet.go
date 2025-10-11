@@ -944,14 +944,17 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 }
 
 // sendOutputsWithCustomChange creates a transaction with a custom change
-// address, signs it, and broadcasts it.
+// address. It performs a single coin selection and transaction creation,
+// then modifies the change output to use the custom address before signing.
 func (b *BtcWallet) sendOutputsWithCustomChange(inputs fn.Set[wire.OutPoint],
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
 	label string, strategy base.CoinSelectionStrategy,
 	changeAddr btcutil.Address) (*wire.MsgTx, error) {
 
-	// First, create the transaction WITHOUT the custom change address.
-	// This will add a default change output if needed.
+	// Convert fee rate to sat/kb as required by btcwallet.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	// Create initial transaction to determine if change is needed.
 	authoredTx, err := b.CreateSimpleTx(
 		inputs, outputs, feeRate, minConfs, strategy, false,
 	)
@@ -959,51 +962,59 @@ func (b *BtcWallet) sendOutputsWithCustomChange(inputs fn.Set[wire.OutPoint],
 		return nil, fmt.Errorf("error creating transaction: %w", err)
 	}
 
-	// If there's a change output (ChangeIndex >= 0), we need to:
-	// 1. Replace it with our custom change address
-	// 2. Re-create and re-sign the transaction
-	if authoredTx.ChangeIndex >= 0 {
-		changeOutput := authoredTx.Tx.TxOut[authoredTx.ChangeIndex]
-		changeAmount := changeOutput.Value
-		
-		// Create the script for the custom change address.
-		changePkScript, err := txscript.PayToAddrScript(changeAddr)
+	// If there's no change output, publish as-is.
+	if authoredTx.ChangeIndex < 0 {
+		err = b.PublishTransaction(authoredTx.Tx, label)
 		if err != nil {
-			return nil, fmt.Errorf("error creating change script: %w", err)
+			return nil, fmt.Errorf("error publishing transaction: %w", err)
 		}
+		return authoredTx.Tx, nil
+	}
 
-		// Create new outputs list with the custom change address.
-		newOutputs := make([]*wire.TxOut, 0, len(outputs)+1)
-		
-		// Add all original outputs (not including change).
-		for i, out := range authoredTx.Tx.TxOut {
-			if i != int(authoredTx.ChangeIndex) {
-				newOutputs = append(newOutputs, out)
-			}
-		}
-		
-		// Add our custom change output.
-		newOutputs = append(newOutputs, &wire.TxOut{
-			Value:    changeAmount,
-			PkScript: changePkScript,
-		})
+	// Change output exists - replace it with custom address.
+	changeOutput := authoredTx.Tx.TxOut[authoredTx.ChangeIndex]
+	changeAmount := btcutil.Amount(changeOutput.Value)
 
-		// Re-create the transaction with the custom change output.
-		authoredTx, err = b.CreateSimpleTx(
-			inputs, newOutputs, feeRate, minConfs, strategy, false,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error re-creating transaction with custom change: %w", err)
+	// Build new outputs list with custom change address.
+	var newOutputs []*wire.TxOut
+	for i, txOut := range authoredTx.Tx.TxOut {
+		if i != int(authoredTx.ChangeIndex) {
+			// Keep original outputs.
+			newOutputs = append(newOutputs, txOut)
 		}
 	}
 
-	// CreateSimpleTx returns a signed transaction, so we just need to publish it.
-	err = b.PublishTransaction(authoredTx.Tx, label)
+	// Create change output with custom address.
+	changePkScript, err := txscript.PayToAddrScript(changeAddr)
 	if err != nil {
-		return nil, fmt.Errorf("error publishing transaction: %w", err)
+		return nil, fmt.Errorf("error creating change script: %w", err)
 	}
 
-	return authoredTx.Tx, nil
+	newOutputs = append(newOutputs, &wire.TxOut{
+		Value:    int64(changeAmount),
+		PkScript: changePkScript,
+	})
+
+	// Use btcwallet's SendOutputs with the new outputs list.
+	// This will properly handle signing.
+	var tx *wire.MsgTx
+	if len(inputs) != 0 {
+		tx, err = b.wallet.SendOutputsWithInput(
+			newOutputs, nil, defaultAccount, minConfs, feeSatPerKB,
+			strategy, label, inputs.ToSlice(),
+		)
+	} else {
+		tx, err = b.wallet.SendOutputs(
+			newOutputs, nil, defaultAccount, minConfs, feeSatPerKB,
+			strategy, label,
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("error sending transaction with custom change: %w", err)
+	}
+
+	return tx, nil
 }
 // CreateSimpleTx creates a Bitcoin transaction paying to the specified
 // outputs. The transaction is not broadcasted to the network, but a new change

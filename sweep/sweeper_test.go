@@ -70,6 +70,76 @@ func createMockInput(t *testing.T, s *UtxoSweeper,
 	return inp
 }
 
+// setupMatureMockInput configures a mock input to be mature and ready for
+// sweeping. This centralizes the common pattern of setting up RequiredLockTime,
+// BlocksToMaturity, HeightHint, and OutPoint mocks.
+func setupMatureMockInput(inp *input.MockInput, currentHeight int32,
+	index uint32) {
+
+	inp.On("RequiredLockTime").Return(
+		uint32(currentHeight), false).Maybe()
+	inp.On("BlocksToMaturity").Return(uint32(0)).Maybe()
+	inp.On("HeightHint").Return(uint32(currentHeight)).Maybe()
+	inp.On("OutPoint").Return(wire.OutPoint{Index: index}).Maybe()
+}
+
+// newTestSweeperConfig returns a UtxoSweeperConfig with common test settings.
+// This avoids repeating the GenSweepScript setup across multiple tests.
+func newTestSweeperConfig(wallet Wallet, aggregator UtxoAggregator,
+	publisher Bumper) *UtxoSweeperConfig {
+
+	return &UtxoSweeperConfig{
+		Wallet:     wallet,
+		Aggregator: aggregator,
+		Publisher:  publisher,
+		GenSweepScript: func() fn.Result[lnwallet.AddrWithKey] {
+			return fn.Ok(lnwallet.AddrWithKey{
+				DeliveryAddress: testPubKey.SerializeCompressed(),
+			})
+		},
+		NoDeadlineConfTarget: uint32(DefaultDeadlineDelta),
+	}
+}
+
+// mockInputSet sets up a standard input set mock with common expectations.
+// This centralizes the repetitive pattern of mocking input set methods.
+func mockInputSet(set *MockInputSet, inputs []input.Input) {
+	set.On("Inputs").Return(inputs).Maybe()
+	set.On("NeedWalletInput").Return(false).Once()
+	set.On("DeadlineHeight").Return(int32(testHeight)).Once()
+	set.On("Budget").Return(btcutil.Amount(1)).Once()
+	set.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
+	set.On("Immediate").Return(true).Once()
+}
+
+// mockAggregatorCluster sets up a standard ClusterInputs mock expectation.
+func mockAggregatorCluster(aggregator *mockUtxoAggregator,
+	sets []InputSet) {
+
+	aggregator.On("ClusterInputs", mock.Anything).Return(sets).Once()
+}
+
+// mockPublisherBroadcast sets up a standard Broadcast mock expectation.
+func mockPublisherBroadcast(publisher *MockBumper) {
+	publisher.On("Broadcast", mock.Anything).Return(
+		make(<-chan *BumpResult)).Once()
+}
+
+// setupMockInputSetForSweep configures a MockInputSet with the standard mocks
+// needed for sweep operations, allowing customization of the immediate flag.
+func setupMockInputSetForSweep(set *MockInputSet, inputs []input.Input,
+	immediate bool) {
+
+	set.On("Inputs").Return(inputs).Maybe()
+	set.On("NeedWalletInput").Return(false).Once()
+	set.On("DeadlineHeight").Return(int32(testHeight)).Once()
+	set.On("Budget").Return(btcutil.Amount(1)).Once()
+	set.On("StartingFeeRate").Return(
+		fn.None[chainfee.SatPerKWeight]()).Once()
+	set.On("Immediate").Return(immediate).Once()
+}
+
 // TestMarkInputsPendingPublish checks that given a list of inputs with
 // different states, only the non-terminal state will be marked as `Published`.
 func TestMarkInputsPendingPublish(t *testing.T) {
@@ -79,7 +149,6 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{})
-
 	// Create a mock input set.
 	set := &MockInputSet{}
 	defer set.AssertExpectations(t)
@@ -1445,4 +1514,148 @@ func TestHandleBumpEventTxUnknownSpendWithRetry(t *testing.T) {
 
 	// Assert the state of the input is updated.
 	require.Equal(t, PublishFailed, s.inputs[op2].state)
+}
+
+// TestTriggerSweep checks that the `TriggerSweep` method correctly triggers an
+// immediate sweep of all pending inputs and returns the count of inputs
+// attempted.
+func TestTriggerSweep(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
+
+	s := New(newTestSweeperConfig(wallet, aggregator, publisher))
+
+	inp1 := &input.MockInput{}
+	defer inp1.AssertExpectations(t)
+	inp2 := &input.MockInput{}
+	defer inp2.AssertExpectations(t)
+	inp3 := &input.MockInput{}
+	defer inp3.AssertExpectations(t)
+
+	setupMatureMockInput(inp1, s.currentHeight, 1)
+	setupMatureMockInput(inp2, s.currentHeight, 2)
+	setupMatureMockInput(inp3, s.currentHeight, 3)
+
+	input1 := &SweeperInput{state: Init, Input: inp1}
+	input2 := &SweeperInput{state: PublishFailed, Input: inp2}
+	input3 := &SweeperInput{state: PendingPublish, Input: inp3}
+
+	s.inputs = map[wire.OutPoint]*SweeperInput{
+		{Index: 1}: input1,
+		{Index: 2}: input2,
+		{Index: 3}: input3,
+	}
+
+	s.wg.Add(1)
+	go s.collector()
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	setupMockInputSetForSweep(set, []input.Input{inp1, inp2}, true)
+	mockAggregatorCluster(aggregator, []InputSet{set})
+	mockPublisherBroadcast(publisher)
+
+	numInputs := s.TriggerSweep()
+
+	// Only Init and PublishFailed states are sweepable.
+	require.Equal(2, numInputs)
+
+	close(s.quit)
+	s.wg.Wait()
+}
+
+// TestTriggerSweepNoInputs checks that `TriggerSweep` returns 0 when there are
+// no pending inputs to sweep.
+func TestTriggerSweepNoInputs(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	s := New(&UtxoSweeperConfig{Aggregator: aggregator})
+	mockAggregatorCluster(aggregator, []InputSet{})
+
+	s.wg.Add(1)
+	go s.collector()
+
+	numInputs := s.TriggerSweep()
+
+	require.Equal(0, numInputs)
+
+	close(s.quit)
+	s.wg.Wait()
+}
+
+// TestTriggerSweepSweeperShutdown checks that `TriggerSweep` returns 0 when
+// the sweeper is shutting down.
+func TestTriggerSweepSweeperShutdown(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	s := New(&UtxoSweeperConfig{})
+	close(s.quit)
+
+	numInputs := s.TriggerSweep()
+
+	require.Equal(0, numInputs)
+}
+
+// TestTriggerSweepMarksImmediate checks that `TriggerSweep` marks all inputs
+// as immediate before sweeping.
+func TestTriggerSweepMarksImmediate(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
+
+	s := New(newTestSweeperConfig(nil, aggregator, publisher))
+
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+	setupMatureMockInput(inp, s.currentHeight, 1)
+
+	input1 := &SweeperInput{
+		state: Init,
+		Input: inp,
+		params: Params{
+			Immediate: false,
+		},
+	}
+
+	s.inputs = map[wire.OutPoint]*SweeperInput{
+		{Index: 1}: input1,
+	}
+
+	s.wg.Add(1)
+	go s.collector()
+
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
+	setupMockInputSetForSweep(set, []input.Input{inp}, true)
+	mockAggregatorCluster(aggregator, []InputSet{set})
+	mockPublisherBroadcast(publisher)
+
+	numInputs := s.TriggerSweep()
+
+	// Verify TriggerSweep marked the input as immediate.
+	require.True(input1.params.Immediate)
+	require.Equal(1, numInputs)
+
+	close(s.quit)
+	s.wg.Wait()
 }

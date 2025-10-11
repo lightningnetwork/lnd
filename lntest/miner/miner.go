@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -221,6 +222,64 @@ func (h *HarnessMiner) AssertNumTxsInMempool(n int) []chainhash.Hash {
 			n, len(mem), mem)
 	}, wait.MinerMempoolTimeout)
 	require.NoError(h, err, "assert tx in mempool timeout")
+
+	return mem
+}
+
+// SweeperTrigger is an interface that allows triggering a manual sweep.
+type SweeperTrigger interface {
+	TriggerSweeper(*devrpc.TriggerSweeperRequest) *devrpc.TriggerSweeperResponse
+}
+
+// AssertNumTxsInMempoolWithSweepTrigger waits for N transactions to appear in
+// the mempool. If they don't appear within a short timeout, it triggers a
+// manual sweep via the provided node's RPC and waits again. This handles the
+// async confirmation notification race where sweeps may be registered after
+// block processing completes.
+func (h *HarnessMiner) AssertNumTxsInMempoolWithSweepTrigger(n int,
+	node SweeperTrigger) []chainhash.Hash {
+
+	// First, try the fast path with a shorter timeout (5 seconds). Most
+	// tests should hit this path when confirmation notifications arrive
+	// quickly.
+	shortTimeout := 5 * time.Second
+	var mem []chainhash.Hash
+
+	err := wait.NoError(func() error {
+		mem = h.GetRawMempool()
+		if len(mem) == n {
+			return nil
+		}
+
+		return fmt.Errorf("want %v, got %v in mempool: %v",
+			n, len(mem), mem)
+	}, shortTimeout)
+
+	// If we found the transactions quickly, we're done.
+	if err == nil {
+		return mem
+	}
+
+	// Second, short timeout expired. This likely means confirmation
+	// notifications haven't arrived yet due to async processing. Trigger a
+	// manual sweep to force broadcast of any registered sweeps.
+	h.Logf("AssertNumTxsInMempoolWithSweepTrigger: timeout after %v, "+
+		"triggering sweep (want %d, got %d)", shortTimeout, n, len(mem))
+
+	node.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+
+	// Next, we'll wait again with the full timeout. The sweep should now be
+	// broadcast if confirmation notifications have arrived.
+	err = wait.NoError(func() error {
+		mem = h.GetRawMempool()
+		if len(mem) == n {
+			return nil
+		}
+
+		return fmt.Errorf("want %v, got %v in mempool: %v",
+			n, len(mem), mem)
+	}, wait.MinerMempoolTimeout)
+	require.NoError(h, err, "assert tx in mempool timeout after trigger")
 
 	return mem
 }

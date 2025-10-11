@@ -121,6 +121,37 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	return blocks
 }
 
+// MineBlocksAndAssertNumTxesWithSweep is like MineBlocksAndAssertNumTxes but
+// handles async confirmation notification races by triggering sweeps if needed.
+// Use this for tests that expect sweep transactions after force closes or other
+// events where confirmation notifications may arrive asynchronously.
+func (h *HarnessTest) MineBlocksAndAssertNumTxesWithSweep(num uint32,
+	numTxs int, hn *node.HarnessNode) []*wire.MsgBlock {
+
+	// Update the harness's current height.
+	defer h.updateCurrentHeight()
+
+	// Wait for transactions with sweep triggering support.
+	txids := h.AssertNumTxsInMempoolWithSweepTrigger(numTxs, hn)
+
+	// Mine blocks.
+	blocks := h.miner.MineBlocks(num)
+
+	// Assert that all the transactions were included in the first block.
+	for _, txid := range txids {
+		h.miner.AssertTxInBlock(blocks[0], txid)
+	}
+
+	// Make sure the mempool has been updated.
+	h.miner.AssertTxnsNotInMempool(txids)
+
+	// Finally, make sure all the active nodes are synced.
+	bestBlock := blocks[len(blocks)-1]
+	h.AssertActiveNodesSyncedTo(bestBlock.BlockHash())
+
+	return blocks
+}
+
 // ConnectMiner connects the miner with the chain backend in the network.
 func (h *HarnessTest) ConnectMiner() {
 	err := h.manager.chainBackend.ConnectMiner()
@@ -222,6 +253,16 @@ func (h *HarnessTest) AssertNumTxsInMempool(n int) []chainhash.Hash {
 	return h.miner.AssertNumTxsInMempool(n)
 }
 
+// AssertNumTxsInMempoolWithSweepTrigger waits for N transactions with sweep
+// triggering support to handle async confirmation notification races. If
+// transactions don't appear within a short timeout, it triggers a manual sweep
+// via the provided node's RPC and waits again.
+func (h *HarnessTest) AssertNumTxsInMempoolWithSweepTrigger(n int,
+	hn *node.HarnessNode) []chainhash.Hash {
+
+	return h.miner.AssertNumTxsInMempoolWithSweepTrigger(n, hn.RPC)
+}
+
 // AssertOutpointInMempool asserts a given outpoint can be found in the mempool.
 func (h *HarnessTest) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 	return h.miner.AssertOutpointInMempool(op)
@@ -238,6 +279,23 @@ func (h *HarnessTest) AssertTxInBlock(block *wire.MsgBlock,
 // in the miner's mempool and returns the full transactions to the caller.
 func (h *HarnessTest) GetNumTxsFromMempool(n int) []*wire.MsgTx {
 	return h.miner.GetNumTxsFromMempool(n)
+}
+
+// GetNumTxsFromMempoolWithSweep gets N transactions from mempool with sweep
+// triggering support to handle async confirmation notification races. Use this
+// for tests that expect sweep transactions after force closes.
+func (h *HarnessTest) GetNumTxsFromMempoolWithSweep(n int,
+	hn *node.HarnessNode) []*wire.MsgTx {
+
+	txids := h.AssertNumTxsInMempoolWithSweepTrigger(n, hn)
+
+	var txes []*wire.MsgTx
+	for _, txid := range txids {
+		tx := h.miner.GetRawTransaction(txid)
+		txes = append(txes, tx.MsgTx())
+	}
+
+	return txes
 }
 
 // GetBestBlock makes a RPC request to miner and asserts.

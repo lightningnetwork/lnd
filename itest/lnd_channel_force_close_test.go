@@ -184,7 +184,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	)
 
 	// We expect to see Alice's force close tx in the mempool.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, alice)
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. Once mined, we also
@@ -233,7 +233,7 @@ func runChannelForceClosureTest(ht *lntest.HarnessTest,
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked. This sweep tx should spend her to_local output as
 	// the anchor output is not economical to spend.
-	carolTx := ht.GetNumTxsFromMempool(1)[0]
+	carolTx := ht.GetNumTxsFromMempoolWithSweep(1, carol)[0]
 
 	// Carol's sweeping tx should have 1-input-1-output shape.
 	require.Len(ht, carolTx.TxIn, 1)
@@ -792,7 +792,7 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	ht.RestartNode(alice)
 
 	// We expect to see Alice's force close tx in the mempool.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, alice)
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. Once mined, we also
@@ -847,7 +847,7 @@ func runChannelForceClosureTestRestart(ht *lntest.HarnessTest,
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked. This sweep tx should spend her to_local output as
 	// the anchor output is not economical to spend.
-	carolTx := ht.GetNumTxsFromMempool(1)[0]
+	carolTx := ht.GetNumTxsFromMempoolWithSweep(1, carol)[0]
 
 	// Carol's sweeping tx should have 1-input-1-output shape.
 	require.Len(ht, carolTx.TxIn, 1)

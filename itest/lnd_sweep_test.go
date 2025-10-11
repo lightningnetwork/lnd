@@ -1389,7 +1389,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// requests will be sent to the sweeper. Finally, when the sweeper
 	// receives this blockbeat, it will create the sweeping tx and publish
 	// it.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, bob)
 
 	// Mine one more empty block should trigger Bob's sweeping. Since we
 	// use a CSV of 2, this means Alice's to_local output is now mature.

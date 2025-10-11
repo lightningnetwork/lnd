@@ -45,6 +45,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/devrpc.Dev/TriggerSweeper": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 )
 
@@ -382,4 +386,25 @@ func (s *Server) Quiesce(_ context.Context, in *QuiescenceRequest) (
 	case <-s.quit:
 		return nil, fmt.Errorf("server shutting down")
 	}
+}
+
+// TriggerSweeper triggers the sweeper to immediately attempt to create and
+// broadcast sweep transactions for all pending inputs. This is primarily used
+// for testing to deterministically control when sweeps are broadcast.
+//
+// NOTE: Part of the DevServer interface.
+func (s *Server) TriggerSweeper(_ context.Context,
+	_ *TriggerSweeperRequest) (*TriggerSweeperResponse, error) {
+
+	if s.cfg.Sweeper == nil {
+		return nil, fmt.Errorf("sweeper not available")
+	}
+
+	numSweeps := s.cfg.Sweeper.TriggerSweep()
+
+	log.Debugf("TriggerSweeper: triggered sweep of %d inputs", numSweeps)
+
+	return &TriggerSweeperResponse{
+		NumSweepsBroadcast: uint32(numSweeps),
+	}, nil
 }

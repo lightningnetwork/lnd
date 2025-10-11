@@ -50,10 +50,10 @@ runs:
           ~\AppData\Local\go-build
 
         # The key is used to create and later look up the cache. It's made of
-        # four parts:  
+        # four parts:
         # - The base part is made from the OS name, Go version and a
-        #   job-specified key prefix. Example: `linux-go-1.24.6-unit-test-`.
-        #   It ensures that a job running on Linux with Go 1.24 only looks for
+        #   job-specified key prefix. Example: `linux-go-1.25.2-unit-test-`.
+        #   It ensures that a job running on Linux with Go 1.25 only looks for
         #   caches from the same environment.
         # - The unique part is the `hashFiles('**/go.sum')`, which calculates a
         #   hash (a fingerprint) of the go.sum file. 

@@ -916,7 +916,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(bob, 2)
 
 	// Bob should have one sweeping tx in the mempool.
-	outgoingSweep := ht.GetNumTxsFromMempool(1)[0]
+	outgoingSweep := ht.GetNumTxsFromMempoolWithSweep(1, bob)[0]
 
 	// Check the shape of the sweeping tx - we expect it to be
 	// 2-input-2-output as a wallet utxo is used and a required output is
@@ -1057,7 +1057,7 @@ func testSweepHTLCs(ht *lntest.HarnessTest) {
 	// 1. the outgoing HTLC sweeping tx.
 	// 2. the incoming HTLC sweeping tx.
 	// 3. the anchor sweeping tx.
-	txns = ht.GetNumTxsFromMempool(3)
+	txns = ht.GetNumTxsFromMempoolWithSweep(3, bob)
 
 	abCloseTxid := closeTx.TxHash()
 
@@ -1389,7 +1389,7 @@ func testSweepCommitOutputAndAnchor(ht *lntest.HarnessTest) {
 	// requests will be sent to the sweeper. Finally, when the sweeper
 	// receives this blockbeat, it will create the sweeping tx and publish
 	// it.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, bob)
 
 	// Mine one more empty block should trigger Bob's sweeping. Since we
 	// use a CSV of 2, this means Alice's to_local output is now mature.

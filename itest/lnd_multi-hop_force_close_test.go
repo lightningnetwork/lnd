@@ -428,7 +428,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// We expect to see tow txns in the mempool,
 	// 1. Bob's force close tx.
 	// 2. Bob's anchor sweep tx.
-	ht.AssertNumTxsInMempool(2)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(2, bob)
 
 	// Mine a block to confirm the closing tx and the anchor sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -447,7 +447,7 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// Bob's sweeper should sweep his outgoing HTLC immediately since it's
 	// expired. His to_local output cannot be swept due to the CSV lock.
 	// Carol's anchor sweep should be failed due to output being dust.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, bob)
 
 	// Mine a block to confirm Bob's outgoing HTLC sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
@@ -788,7 +788,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// We expect to see tow txns in the mempool,
 	// 1. Carol's force close tx.
 	// 2. Carol's anchor sweep tx.
-	ht.AssertNumTxsInMempool(2)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(2, carol)
 
 	// Mine a block to confirm the closing tx and the anchor sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -1133,7 +1133,7 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		ht.MineBlocks(int(defaultCSV - 1))
 
 		// Mine a block to confirm Bob's to_local sweep.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 	}
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
@@ -1457,7 +1457,7 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		// won't be swept due it being uneconomical. For Carol, since
 		// her anchor is not used for CPFP, it'd be also uneconomical
 		// to sweep so it will fail.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 	}
 
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
@@ -1711,7 +1711,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// commit tx). Her anchor output won't be swept as it's uneconomical.
 	// For Bob, since his anchor is not used for CPFP, it'd be uneconomical
 	// to sweep so it will fail.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, alice)
 
 	// Mine a block to confirm Alice's sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 1)
@@ -1771,7 +1771,7 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// commitment anchor output, we'd expect to see two txns,
 	// - Carol's second level HTLC tx.
 	// - Bob's commitment output sweeping tx.
-	ht.AssertNumTxsInMempool(2)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(2, bob)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
@@ -2045,7 +2045,7 @@ func runLocalClaimIncomingHTLCLeased(ht *lntest.HarnessTest,
 	//
 	// Carol will broadcast her second-level HTLC sweeping txns. Bob canoot
 	// sweep his commitment anchor output yet due to it being CLTV locked.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, carol)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
@@ -2401,7 +2401,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
 	// - Bob's sweeping tx of his commit output.
-	ht.MineBlocksAndAssertNumTxes(1, 2)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, carol)
 
 	// When Bob notices Carol's second level tx in the block, he will
 	// extract the preimage and offer the HTLC to his sweeper. So he has,
@@ -2641,7 +2641,7 @@ func runLocalPreimageClaimLeased(ht *lntest.HarnessTest,
 
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, carol)
 
 	// When Bob notices Carol's second level tx in the block, he will
 	// extract the preimage and offer the HTLC to his sweeper. So he has,
@@ -3030,7 +3030,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 
 	// Bob's force close tx and anchor sweeping tx should now be found in
 	// the mempool.
-	ht.AssertNumTxsInMempool(2)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(2, bob)
 
 	// Mine a block to confirm Bob's force close tx and anchor sweeping tx.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -3062,7 +3062,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// 2. Bob's sweeping tx for all success HTLCs.
 	// 3. Carol's sweeping tx for her commit output.
 	// Mine a block to confirm them.
-	ht.MineBlocksAndAssertNumTxes(1, 3)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 3, carol)
 
 	// For this channel, we also check the number of HTLCs and the stage
 	// are correct.

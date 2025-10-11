@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -1677,7 +1678,9 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// We wait for the to_remote sweep tx.
+	// We wait for the to_remote sweep tx. Trigger sweep to handle async
+	// blockbeat notification races.
+	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
 	ht.AssertNumUTXOsUnconfirmed(carol, 1)
 
 	// We need the maximum funding amount to ensure we are opening the next
@@ -1799,7 +1802,9 @@ func testPsbtChanFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// We wait for the to_remote sweep tx of channelPoint2.
+	// We wait for the to_remote sweep tx of channelPoint2. Trigger sweep
+	// to handle async blockbeat notification races.
+	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
 	utxos := ht.AssertNumUTXOsUnconfirmed(carol, 1)
 
 	// We need the maximum funding amount to ensure we are opening the next

@@ -1272,11 +1272,10 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Wait for Carol's sweep transaction to appear in the mempool. Due to
-	// async confirmation notifications, there's a race between when the
-	// sweep is registered and when the sweeper processes the next block.
-	// The sweeper uses immediate=false, so it broadcasts on the next block
-	// after registration. Mine an empty block to trigger the broadcast.
+	// Mine an empty block to trigger the sweep. Due to async confirmation
+	// notifications, the sweep registration might happen after the force
+	// close block is processed by the sweeper. Mining another block gives
+	// time for registration and triggers the broadcast.
 	ht.MineEmptyBlocks(1)
 
 	// Now the sweep should be in the mempool.
@@ -1338,9 +1337,10 @@ func testChannelFundingWithUnstableUtxos(ht *lntest.HarnessTest) {
 	// Make sure Carol sees her to_remote output from the force close tx.
 	ht.AssertNumPendingSweeps(carol, 1)
 
-	// Mine an empty block to trigger the sweep broadcast (same fix as
-	// above).
+	// Mine an empty block to trigger the sweep (same as above).
 	ht.MineEmptyBlocks(1)
+
+	// Sweep should be in mempool.
 	ht.AssertNumTxsInMempool(1)
 
 	// Wait for the to_remote sweep tx to show up in carol's wallet.

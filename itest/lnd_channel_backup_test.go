@@ -1630,7 +1630,7 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		// Expect one tx - the commitment sweep from Dave. For anchor
 		// channels, we expect the two anchor sweeping txns to be
 		// failed due they are uneconomical.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, dave)
 		blocksMined++
 
 		// Now Dave should consider the channel fully closed.

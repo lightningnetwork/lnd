@@ -143,6 +143,8 @@
     refacotor the payment related LND code to make it more modular.
   * Implement the SQL backend for the [payments 
     database](https://github.com/lightningnetwork/lnd/pull/9147)
+  * Implement query methods (QueryPayments,FetchPayment) for the [payments db 
+    SQL Backend](https://github.com/lightningnetwork/lnd/pull/10287)
 
 ## Code Health
 

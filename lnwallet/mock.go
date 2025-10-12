@@ -153,9 +153,19 @@ func (w *mockWalletController) ImportTaprootScript(waddrmgr.KeyScope,
 	return nil, nil
 }
 
-// SendOutputs currently returns dummy values.
+// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
+// out to the specified outputs using a wallet-generated change address.
 func (w *mockWalletController) SendOutputs(fn.Set[wire.OutPoint], []*wire.TxOut,
 	chainfee.SatPerKWeight, int32, string,
+	base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+
+	return nil, nil
+}
+
+// SendOutputsWithChangeAddr is like SendOutputs but allows specifying a
+// custom change address.
+func (w *mockWalletController) SendOutputsWithChangeAddr(fn.Set[wire.OutPoint], 
+	[]*wire.TxOut, chainfee.SatPerKWeight, int32, string,
 	base.CoinSelectionStrategy, btcutil.Address) (*wire.MsgTx, error) {
 
 	return nil, nil

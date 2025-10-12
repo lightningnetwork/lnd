@@ -1141,32 +1141,21 @@ func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 		return nil, err
 	}
 
-	// We first do a dry run, to sanity check we won't spend our wallet
-	// balance below the reserved amount.
-	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
-		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
-	)
-	if err != nil {
-		return nil, err
+	var tx *wire.MsgTx
+	if changeAddr != nil {
+		// Custom change address specified.
+		tx, err = r.server.cc.Wallet.SendOutputsWithChangeAddr(
+			selectedUtxos, outputs, feeRate, minConfs, label,
+			strategy, changeAddr,
+		)
+	} else {
+		// Use default wallet behavior.
+		tx, err = r.server.cc.Wallet.SendOutputs(
+			selectedUtxos, outputs, feeRate, minConfs, label,
+			strategy,
+		)
 	}
 
-	// Check the authored transaction and use the explicitly set change index
-	// to make sure that the wallet reserved balance is not invalidated.
-	_, err = r.server.cc.Wallet.CheckReservedValueTx(
-		lnwallet.CheckReservedValueTxReq{
-			Tx:          authoredTx.Tx,
-			ChangeIndex: &authoredTx.ChangeIndex,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// If that checks out, we're fairly confident that creating sending to
-	// these outputs will keep the wallet balance above the reserve.
-	tx, err := r.server.cc.Wallet.SendOutputs(
-		selectedUtxos, outputs, feeRate, minConfs, label, strategy, changeAddr,
-	)
 	if err != nil {
 		return nil, err
 	}

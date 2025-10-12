@@ -48,8 +48,17 @@
 
 ## Database
 
+* Payment Store SQL implementation and migration project:
+  * Introduce an [abstract payment 
+    store](https://github.com/lightningnetwork/lnd/pull/10153) interface and
+    refacotor the payment related LND code to make it more modular.
+  * Implement the SQL backend for the [payments 
+    database](https://github.com/lightningnetwork/lnd/pull/9147)
+
 ## Code Health
 
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Ziggie

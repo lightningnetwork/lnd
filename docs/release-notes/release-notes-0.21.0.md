@@ -187,6 +187,13 @@
     [4](https://github.com/lightningnetwork/lnd/pull/10542),
     [5](https://github.com/lightningnetwork/lnd/pull/10572).
 
+* Payment Store SQL implementation and migration project:
+  * Introduce an [abstract payment 
+    store](https://github.com/lightningnetwork/lnd/pull/10153) interface and
+    refacotor the payment related LND code to make it more modular.
+  * Implement the SQL backend for the [payments 
+    database](https://github.com/lightningnetwork/lnd/pull/9147)
+
 ## Code Health
 
 ## Tooling and Documentation
@@ -197,8 +204,10 @@
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari
+* Gijs van Dam
 * hieblmi
 * Matt Morehouse
 * Mohamed Awnallah
 * Nishant Bansal
 * Pins
+* Ziggie

@@ -820,9 +820,9 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// requirement, we can request that the wallet attempts to create this
 	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		nil, outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
-		minConfs, label, coinSelectionStrategy, nil,
-	)
+	selectedUtxos, outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
+	minConfs, label, coinSelectionStrategy,
+)
 	if err != nil {
 		return nil, err
 	}

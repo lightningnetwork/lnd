@@ -909,6 +909,58 @@ var stateMachineTests = []stateMachineTest{
 			)
 		},
 	},
+	{
+		name:         "channel reconnects before disable",
+		startActive:  true,
+		startEnabled: true,
+		fn: func(h testHarness) {
+			// This test demonstrates the race condition fix
+			// where a channel becomes inactive, gets marked as
+			// pending disabled, then becomes active again before
+			// the disable timeout expires.
+			// The channel should NOT be disabled in this case.
+
+			// Step 1: Simulate disconnection - channel becomes
+			// inactive.
+			h.markInactive(h.graph.chans())
+
+			// Step 2: Wait for the channel to be marked as
+			// pending disabled. Sample interval of the manager
+			// is 50ms, so we wait for 50ms + 50ms (buffer).
+			time.Sleep(50*time.Millisecond + 50*time.Millisecond)
+
+			// Step 3: Simulate reconnection - channel becomes
+			// active again.
+			//
+			// NOTE: This does not reflect the actual behavior of
+			// LND because as soon as the channel becomes active it
+			// will start an enable timer and send an enable update.
+			// However we want to avoid testing these timings
+			// here. In general it is important that the channel
+			// does not get disabled in case it reconnects before
+			// the disable timeout expires.
+			h.markActive(h.graph.chans())
+
+			// Step 4: Wait for the disable timeout to expire.
+			// The disable timeout (1 second) expires, but our fix
+			// should prevent the disable because the channel is
+			// active again.
+			time.Sleep(time.Second + 200*time.Millisecond)
+
+			// Step 5: Verify that NO disable update was sent.
+			// The channel should remain enabled because it became
+			// active again before the disable timeout expired,
+			// and our fix re-checked its status before disabling.
+			h.assertNoUpdates(500 * time.Millisecond)
+
+			// Step 6: Verify that the channel is still enabled by
+			// checking that we can still request enable without
+			// sending an update. This means the channel is still
+			// enabled.
+			h.assertEnables(h.graph.chans(), nil, false)
+			h.assertNoUpdates(500 * time.Millisecond)
+		},
+	},
 }
 
 // TestChanStatusManagerStateMachine tests the possible state transitions that

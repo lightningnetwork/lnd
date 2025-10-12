@@ -136,4 +136,8 @@ var (
 	// NOTE: Only used for the kv backend.
 	ErrNoSequenceNrIndex = errors.New("payment sequence number index " +
 		"does not exist")
+
+	// errMaxPaymentsReached is used internally to signal that the maximum
+	// number of payments has been reached during a paginated query.
+	errMaxPaymentsReached = errors.New("max payments reached")
 )

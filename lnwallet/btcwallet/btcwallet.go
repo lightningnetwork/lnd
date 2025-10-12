@@ -895,17 +895,27 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 	)
 }
 
-// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
-// the specified outputs. In the case the wallet has insufficient funds, or the
-// outputs are non-standard, a non-nil error will be returned.
-//
-// NOTE: This method requires the global coin selection lock to be held.
-//
-// This is a part of the WalletController interface.
+// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
+// out to the specified outputs using a wallet-generated change address.
 func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 	minConfs int32, label string,
-	strategy base.CoinSelectionStrategy, changeAddr btcutil.Address) (*wire.MsgTx, error) {
+	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+
+	// Call the new method with nil change address for default behavior.
+	return b.SendOutputsWithChangeAddr(
+		inputs, outputs, feeRate, minConfs, label, strategy, nil,
+	)
+}
+
+// SendOutputsWithChangeAddr funds, signs, and broadcasts a Bitcoin
+// transaction paying out to the specified outputs. If changeAddr is
+// provided, it will be used for the change output. Otherwise, a
+// wallet-generated change address is used.
+func (b *BtcWallet) SendOutputsWithChangeAddr(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
+	minConfs int32, label string, strategy base.CoinSelectionStrategy,
+	changeAddr btcutil.Address) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -942,7 +952,6 @@ func (b *BtcWallet) SendOutputs(inputs fn.Set[wire.OutPoint],
 		strategy, label,
 	)
 }
-
 // sendOutputsWithCustomChange creates a transaction with a custom change
 // address. It performs a single coin selection and transaction creation,
 // then modifies the change output to use the custom address before signing.

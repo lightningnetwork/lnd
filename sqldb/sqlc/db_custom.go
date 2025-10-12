@@ -167,3 +167,79 @@ func (r GetChannelsBySCIDRangeRow) Node1Pub() []byte {
 func (r GetChannelsBySCIDRangeRow) Node2Pub() []byte {
 	return r.Node2PubKey
 }
+
+// PaymentAndIntent is an interface that provides access to a payment and its
+// associated payment intent.
+type PaymentAndIntent interface {
+	// GetPayment returns the Payment associated with this interface.
+	GetPayment() Payment
+
+	// GetPaymentIntent returns the PaymentIntent associated with this payment.
+	GetPaymentIntent() PaymentIntent
+}
+
+// GetPayment returns the Payment associated with this interface.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FilterPaymentsRow) GetPayment() Payment {
+	return r.Payment
+}
+
+// GetPaymentIntent returns the PaymentIntent associated with this payment.
+// If the payment has no intent (IntentType is NULL), this returns a zero-value
+// PaymentIntent.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FilterPaymentsRow) GetPaymentIntent() PaymentIntent {
+	if !r.IntentType.Valid {
+		return PaymentIntent{}
+	}
+	return PaymentIntent{
+		IntentType:    r.IntentType.Int16,
+		IntentPayload: r.IntentPayload,
+	}
+}
+
+// GetPayment returns the Payment associated with this interface.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchPaymentRow) GetPayment() Payment {
+	return r.Payment
+}
+
+// GetPaymentIntent returns the PaymentIntent associated with this payment.
+// If the payment has no intent (IntentType is NULL), this returns a zero-value
+// PaymentIntent.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchPaymentRow) GetPaymentIntent() PaymentIntent {
+	if !r.IntentType.Valid {
+		return PaymentIntent{}
+	}
+	return PaymentIntent{
+		IntentType:    r.IntentType.Int16,
+		IntentPayload: r.IntentPayload,
+	}
+}
+
+// GetPayment returns the Payment associated with this interface.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchPaymentsByIDsRow) GetPayment() Payment {
+	return r.Payment
+}
+
+// GetPaymentIntent returns the PaymentIntent associated with this payment.
+// If the payment has no intent (IntentType is NULL), this returns a zero-value
+// PaymentIntent.
+//
+// NOTE: This method is part of the PaymentAndIntent interface.
+func (r FetchPaymentsByIDsRow) GetPaymentIntent() PaymentIntent {
+	if !r.IntentType.Valid {
+		return PaymentIntent{}
+	}
+	return PaymentIntent{
+		IntentType:    r.IntentType.Int16,
+		IntentPayload: r.IntentPayload,
+	}
+}

@@ -48,13 +48,15 @@ In case a replication architecture is planned, streaming replication should be a
 
 ## What is in the database?
 
-At present, the Postgres Database functions as a Key-Value Store, much as Bolt DB does. Some values are TLV-encoded while others are not. More schema will be introduced over time. At present the schema for each table/relation is simply: `key`, `value`, `parent_id`, `id`, `sequence`.
+The Postgres database is a hybrid of key-value store and native SQL tables. The architecture originated from migrating the Bolt DB key-value store into a rebuilt Postgres key-value store, but has since evolved to include native SQL components such as invoices and the graph. The database will continue to be gradually updated until all stores are implemented in native SQL.
 
-List of tables/relations:
+The key-value tables maintain the schema: `key`, `value`, `parent_id`, `id`, `sequence`. Some values are TLV-encoded while others are not.
+
+List of key-value tables/relations:
 
 ```
               List of relations
- Schema |       Name       | Type  |  Owner   
+ Schema |       Name       | Type  |  Owner
 --------+------------------+-------+----------
  public | channeldb_kv     | table | lndadmin
  public | decayedlogdb_kv  | table | lndadmin
@@ -64,4 +66,4 @@ List of tables/relations:
  public | walletdb_kv      | table | lndadmin
 ```
 
-Notably, Invoice DB is maintained separately alongside the LND node.
+Native SQL tables include invoices and graph data, representing the ongoing migration toward a fully native SQL implementation.

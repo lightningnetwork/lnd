@@ -974,33 +974,6 @@ func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
 		}
 		c.closingTx = closeTx
 
-		// If there's an aux chan closer, then we'll finalize with it
-		// before we write to disk.
-		err = fn.MapOptionZ(
-			c.cfg.AuxCloser, func(aux AuxChanCloser) error {
-				channel := c.cfg.Channel
-				//nolint:ll
-				req := types.AuxShutdownReq{
-					ChanPoint:   c.chanPoint,
-					ShortChanID: c.cfg.Channel.ShortChanID(),
-					InternalKey: c.localInternalKey,
-					Initiator:   channel.IsInitiator(),
-					CommitBlob:  channel.LocalCommitmentBlob(),
-					FundingBlob: channel.FundingBlob(),
-				}
-				desc := types.AuxCloseDesc{
-					AuxShutdownReq:    req,
-					LocalCloseOutput:  c.localCloseOutput,
-					RemoteCloseOutput: c.remoteCloseOutput,
-				}
-
-				return aux.FinalizeClose(desc, closeTx)
-			},
-		)
-		if err != nil {
-			return noClosing, err
-		}
-
 		// Before publishing the closing tx, we persist it to the
 		// database, such that it can be republished if something goes
 		// wrong.

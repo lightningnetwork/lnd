@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -36,6 +37,14 @@ const (
 	// polling the database for a channel's commitpoint.
 	maxCommitPointPollTimeout = 10 * time.Minute
 )
+
+// AuxChanCloser is used to allow an external caller to finalize a cooperative
+// channel close.
+type AuxChanCloser interface {
+	// FinalizeClose is called after the close transaction has been agreed
+	// upon and confirmed.
+	FinalizeClose(desc types.AuxCloseDesc, closeTx *wire.MsgTx) error
+}
 
 // LocalUnilateralCloseInfo encapsulates all the information we need to act on
 // a local force close that gets confirmed.
@@ -229,6 +238,9 @@ type chainWatcherConfig struct {
 
 	// auxResolver is used to supplement contract resolution.
 	auxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// auxCloser is used to finalize cooperative closes.
+	auxCloser fn.Option[AuxChanCloser]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty

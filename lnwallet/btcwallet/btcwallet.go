@@ -1136,7 +1136,7 @@ func mapRpcclientError(err error) error {
 	case errors.Is(err, chain.ErrMempoolMinFeeNotMet),
 		errors.Is(err, chain.ErrMinRelayFeeNotMet):
 
-		return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee, err.Error())
+		return fmt.Errorf("%w: %v. The cooperative close transaction was created but not accepted into the mempool due to low fees. You may need to use 'lncli wallet bumpfee' to increase the fee and get the transaction confirmed", lnwallet.ErrMempoolFee, err.Error())
 	}
 
 	return err

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"image/color"
 	"net"
 	"slices"
 	"time"
@@ -1449,10 +1450,12 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 		PubKey:  node.PubKeyBytes[:],
 	}
 
-	if node.HaveNodeAnnouncement {
+	if node.HaveAnnouncement() {
 		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
-		params.Color = sqldb.SQLStrValid(EncodeHexColor(node.Color))
-		params.Alias = sqldb.SQLStrValid(node.Alias)
+		params.Color = sqldb.SQLStrValid(
+			EncodeHexColor(node.Color.UnwrapOr(color.RGBA{})),
+		)
+		params.Alias = sqldb.SQLStrValid(node.Alias.UnwrapOr(""))
 		params.Signature = node.AuthSigBytes
 	}
 
@@ -1463,7 +1466,7 @@ func insertNodeSQLMig(ctx context.Context, db SQLQueries,
 	}
 
 	// We can exit here if we don't have the announcement yet.
-	if !node.HaveNodeAnnouncement {
+	if !node.HaveAnnouncement() {
 		return nodeID, nil
 	}
 

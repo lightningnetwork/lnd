@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"image/color"
 	"io"
 	"maps"
 	"math"
@@ -7187,11 +7188,13 @@ func marshalNode(node *models.Node) *lnrpc.LightningNode {
 	customRecords := marshalExtraOpaqueData(node.ExtraOpaqueData)
 
 	return &lnrpc.LightningNode{
-		LastUpdate:    uint32(node.LastUpdate.Unix()),
-		PubKey:        hex.EncodeToString(node.PubKeyBytes[:]),
-		Addresses:     nodeAddrs,
-		Alias:         node.Alias,
-		Color:         graphdb.EncodeHexColor(node.Color),
+		LastUpdate: uint32(node.LastUpdate.Unix()),
+		PubKey:     hex.EncodeToString(node.PubKeyBytes[:]),
+		Addresses:  nodeAddrs,
+		Alias:      node.Alias.UnwrapOr(""),
+		Color: graphdb.EncodeHexColor(
+			node.Color.UnwrapOr(color.RGBA{}),
+		),
 		Features:      features,
 		CustomRecords: customRecords,
 	}
@@ -8258,9 +8261,9 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		}
 
 		// Cache the peer alias.
-		chanToPeerAlias[chanID] = peer.Alias
+		chanToPeerAlias[chanID] = peer.Alias.UnwrapOr("")
 
-		return peer.Alias, nil
+		return peer.Alias.UnwrapOr(""), nil
 	}
 
 	// TODO(roasbeef): add settlement latency?

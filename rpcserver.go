@@ -70,6 +70,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/onionmessage"
 	paymentsdb "github.com/lightningnetwork/lnd/payments/db"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
@@ -570,6 +571,14 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Action: "write",
 		}},
 		"/lnrpc.Lightning/SubscribeCustomMessages": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/SendOnionMessage": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
+		"/lnrpc.Lightning/SubscribeOnionMessages": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -9242,7 +9251,7 @@ func (r *rpcServer) RegisterRPCMiddleware(
 }
 
 // SendCustomMessage sends a custom peer message.
-func (r *rpcServer) SendCustomMessage(_ context.Context,
+func (r *rpcServer) SendCustomMessage(ctx context.Context,
 	req *lnrpc.SendCustomMessageRequest) (*lnrpc.SendCustomMessageResponse,
 	error) {
 
@@ -9252,7 +9261,7 @@ func (r *rpcServer) SendCustomMessage(_ context.Context,
 	}
 
 	err = r.server.SendCustomMessage(
-		peer, lnwire.MessageType(req.Type), req.Data,
+		ctx, peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
 	case errors.Is(err, ErrPeerNotConnected):
@@ -9293,6 +9302,76 @@ func (r *rpcServer) SubscribeCustomMessages(
 				Peer: customMsg.Peer[:],
 				Data: customMsg.Msg.Data,
 				Type: uint32(customMsg.Msg.Type),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// SendOnionMessage sends a custom peer message.
+func (r *rpcServer) SendOnionMessage(ctx context.Context,
+	req *lnrpc.SendOnionMessageRequest) (*lnrpc.SendOnionMessageResponse,
+	error) {
+
+	// First we'll validate the string passed in within the request to
+	// ensure that it's a valid hex-string, and also a valid compressed
+	// public key.
+	pathKey, err := btcec.ParsePubKey(req.PathKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode path key bytes: %w",
+			err)
+	}
+
+	peer, err := route.NewVertexFromBytes(req.Peer)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.server.SendOnionMessage(ctx, peer, pathKey, req.Onion)
+	switch {
+	case errors.Is(err, ErrPeerNotConnected):
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return &lnrpc.SendOnionMessageResponse{
+		Status: "onion message sent successfully",
+	}, nil
+}
+
+// SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+func (r *rpcServer) SubscribeOnionMessages(
+	_ *lnrpc.SubscribeOnionMessagesRequest,
+	server lnrpc.Lightning_SubscribeOnionMessagesServer) error {
+
+	client, err := r.server.SubscribeOnionMessages()
+	if err != nil {
+		return err
+	}
+	defer client.Cancel()
+
+	for {
+		select {
+		case <-client.Quit():
+			return errors.New("shutdown")
+
+		case <-server.Context().Done():
+			return server.Context().Err()
+
+		case update := <-client.Updates():
+			oMsg, ok := update.(*onionmessage.OnionMessageUpdate)
+			if !ok {
+				return fmt.Errorf("onion message update "+
+					"failed type assertion: %T", update)
+			}
+
+			err := server.Send(&lnrpc.OnionMessage{
+				Peer:    oMsg.Peer[:],
+				PathKey: oMsg.PathKey[:],
+				Onion:   oMsg.OnionBlob,
 			})
 			if err != nil {
 				return err

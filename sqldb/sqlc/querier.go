@@ -134,6 +134,8 @@ type Querier interface {
 	// to have a newer last_update than the existing node).
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	// Insert a new payment and return its ID.
+	// When creating a payment we don't have a fail reason because we start the
+	// payment process.
 	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
 	InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error
 	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg InsertPaymentFirstHopCustomRecordParams) error

@@ -760,6 +760,8 @@ type InsertPaymentParams struct {
 }
 
 // Insert a new payment and return its ID.
+// When creating a payment we don't have a fail reason because we start the
+// payment process.
 func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertPayment, arg.AmountMsat, arg.CreatedAt, arg.PaymentIdentifier)
 	var id int64

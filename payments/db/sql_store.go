@@ -61,7 +61,7 @@ type SQLQueries interface {
 		Payment DB write operations.
 	*/
 	InsertPaymentIntent(ctx context.Context, arg sqlc.InsertPaymentIntentParams) (int64, error)
-	InsertPayment(ctx context.Context, arg sqlc.InsertPaymentParams) error
+	InsertPayment(ctx context.Context, arg sqlc.InsertPaymentParams) (int64, error)
 	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg sqlc.InsertPaymentFirstHopCustomRecordParams) error
 
 	InsertHtlcAttempt(ctx context.Context, arg sqlc.InsertHtlcAttemptParams) (int64, error)
@@ -912,6 +912,134 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 	if err != nil {
 		return fmt.Errorf("failed to delete failed attempts for "+
 			"payment %v: %w", paymentHash, err)
+	}
+
+	return nil
+}
+
+// InitPayment creates a new payment record in the database with the given
+// payment hash and creation info.
+//
+// Before creating the payment, this method checks if a payment with the same
+// hash already exists and validates whether initialization is allowed based on
+// the existing payment's status:
+//   - StatusInitiated: Returns ErrPaymentExists (payment already created,
+//     HTLCs may be in flight)
+//   - StatusInFlight: Returns ErrPaymentInFlight (payment currently being
+//     attempted)
+//   - StatusSucceeded: Returns ErrAlreadyPaid (payment already succeeded)
+//   - StatusFailed: Allows retry by deleting the old payment record and
+//     creating a new one
+//
+// If no existing payment is found, a new payment record is created with
+// StatusInitiated and stored with all associated metadata.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface, representing
+// the first step in the payment lifecycle control flow.
+func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
+	paymentCreationInfo *PaymentCreationInfo) error {
+
+	ctx := context.TODO()
+
+	// Create the payment in the database.
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		existingPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		switch {
+		// A payment with this hash already exists. We need to check its
+		// status to see if we can re-initialize.
+		case err == nil:
+			paymentStatus, err := computePaymentStatusFromDB(
+				ctx, db, existingPayment,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to compute payment "+
+					"status: %w", err)
+			}
+
+			// Check if the payment is initializable otherwise
+			// we'll return early.
+			if err := paymentStatus.initializable(); err != nil {
+				return fmt.Errorf("payment is not "+
+					"initializable: %w", err)
+			}
+
+			// If the initializable check above passes, then the
+			// existing payment has failed. So we delete it and
+			// all of its previous artifacts. We rely on
+			// cascading deletes to clean up the rest.
+			err = db.DeletePayment(ctx, existingPayment.Payment.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete "+
+					"payment: %w", err)
+			}
+
+		// An unexpected error occurred while fetching the payment.
+		case !errors.Is(err, sql.ErrNoRows):
+			// Some other error occurred
+			return fmt.Errorf("failed to check existing "+
+				"payment: %w", err)
+
+		// The payment does not yet exist, so we can proceed.
+		default:
+		}
+
+		// Insert the payment first to get its ID.
+		paymentID, err := db.InsertPayment(
+			ctx, sqlc.InsertPaymentParams{
+				AmountMsat: int64(
+					paymentCreationInfo.Value,
+				),
+				CreatedAt: paymentCreationInfo.
+					CreationTime.UTC(),
+				PaymentIdentifier: paymentHash[:],
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert payment: %w", err)
+		}
+
+		// If there's a payment request, insert the payment intent.
+		if len(paymentCreationInfo.PaymentRequest) > 0 {
+			_, err = db.InsertPaymentIntent(
+				ctx, sqlc.InsertPaymentIntentParams{
+					PaymentID: paymentID,
+					IntentType: int16(
+						PaymentIntentTypeBolt11,
+					),
+					IntentPayload: paymentCreationInfo.
+						PaymentRequest,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"payment intent: %w", err)
+			}
+		}
+
+		firstHopCustomRecords := paymentCreationInfo.
+			FirstHopCustomRecords
+
+		for key, value := range firstHopCustomRecords {
+			err = db.InsertPaymentFirstHopCustomRecord(
+				ctx,
+				sqlc.InsertPaymentFirstHopCustomRecordParams{
+					PaymentID: paymentID,
+					Key:       int64(key),
+					Value:     value,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"payment first hop custom "+
+					"record: %w", err)
+			}
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("failed to initialize payment: %w", err)
 	}
 
 	return nil

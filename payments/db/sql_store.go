@@ -1290,3 +1290,66 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 
 	return mpPayment, nil
 }
+
+// SettleAttempt marks the specified HTLC attempt as successfully settled,
+// recording the payment preimage and settlement time. The preimage serves as
+// cryptographic proof of payment and is atomically saved to the database.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface. It represents
+// step 3a in the payment lifecycle control flow (step 3b is FailAttempt),
+// called after RegisterAttempt when an HTLC successfully completes.
+func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
+	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
+
+	ctx := context.TODO()
+
+	var mpPayment *MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+
+		paymentStatus, err := computePaymentStatusFromDB(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to compute payment "+
+				"status: %w", err)
+		}
+
+		if err := paymentStatus.updatable(); err != nil {
+			return fmt.Errorf("payment is not updatable: %w", err)
+		}
+
+		err = db.SettleAttempt(ctx, sqlc.SettleAttemptParams{
+			AttemptIndex:   int64(attemptID),
+			ResolutionTime: time.Now(),
+			ResolutionType: int32(HTLCAttemptResolutionSettled),
+			SettlePreimage: settleInfo.Preimage[:],
+		})
+		if err != nil {
+			return fmt.Errorf("failed to settle attempt: %w", err)
+		}
+
+		// Fetch the complete payment after we settled the attempt.
+		mpPayment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		return nil
+	}, func() {
+		mpPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to settle attempt: %w", err)
+	}
+
+	return mpPayment, nil
+}

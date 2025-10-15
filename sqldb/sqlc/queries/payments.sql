@@ -186,6 +186,8 @@ RETURNING id;
 
 -- name: InsertPayment :one
 -- Insert a new payment and return its ID.
+-- When creating a payment we don't have a fail reason because we start the
+-- payment process.
 INSERT INTO payments (
     amount_msat, 
     created_at, 

@@ -5038,6 +5038,14 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate in satoshi/vbyte."
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcOutPoint"
+          },
+          "description": "A list of selected inputs for the transaction the estimate is for."
         }
       }
     },

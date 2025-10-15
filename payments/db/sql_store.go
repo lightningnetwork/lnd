@@ -2,11 +2,13 @@ package paymentsdb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -651,4 +653,45 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		LastIndexOffset:  allPayments[len(allPayments)-1].SequenceNum,
 		TotalCount:       uint64(totalCount),
 	}, nil
+}
+
+// FetchPayment retrieves a complete payment record from the database by its
+// payment hash. The returned MPPayment includes all payment metadata such as
+// creation info, payment status, current state, all HTLC attempts (both
+// successful and failed), and the failure reason if the payment has been
+// marked as failed.
+//
+// Returns ErrPaymentNotInitiated if no payment with the given hash exists.
+//
+// This is part of the DB interface.
+func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
+	ctx := context.TODO()
+
+	var mpPayment *MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPaymentNotInitiated
+		}
+
+		mpPayment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		return nil
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return nil, err
+	}
+
+	return mpPayment, nil
 }

@@ -297,29 +297,46 @@ func (q *Queries) FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices [
 	return items, nil
 }
 
-const fetchHtlcAttemptResolutionsForPayment = `-- name: FetchHtlcAttemptResolutionsForPayment :many
+const fetchHtlcAttemptResolutionsForPayments = `-- name: FetchHtlcAttemptResolutionsForPayments :many
 SELECT
+    ha.payment_id,
     hr.resolution_type
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
-WHERE ha.payment_id = $1
-ORDER BY ha.attempt_time ASC
+WHERE ha.payment_id IN (/*SLICE:payment_ids*/?)
 `
 
-// Lightweight query to fetch only HTLC resolution status.
-func (q *Queries) FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error) {
-	rows, err := q.db.QueryContext(ctx, fetchHtlcAttemptResolutionsForPayment, paymentID)
+type FetchHtlcAttemptResolutionsForPaymentsRow struct {
+	PaymentID      int64
+	ResolutionType sql.NullInt32
+}
+
+// Batch query to fetch only HTLC resolution status for multiple payments.
+// We don't need to order by payment_id and attempt_time because we will
+// group the resolutions by payment_id in the background.
+func (q *Queries) FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error) {
+	query := fetchHtlcAttemptResolutionsForPayments
+	var queryParams []interface{}
+	if len(paymentIds) > 0 {
+		for _, v := range paymentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", makeQueryParams(len(queryParams), len(paymentIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []sql.NullInt32
+	var items []FetchHtlcAttemptResolutionsForPaymentsRow
 	for rows.Next() {
-		var resolution_type sql.NullInt32
-		if err := rows.Scan(&resolution_type); err != nil {
+		var i FetchHtlcAttemptResolutionsForPaymentsRow
+		if err := rows.Scan(&i.PaymentID, &i.ResolutionType); err != nil {
 			return nil, err
 		}
-		items = append(items, resolution_type)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

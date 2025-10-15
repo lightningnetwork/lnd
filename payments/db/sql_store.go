@@ -52,7 +52,7 @@ type SQLQueries interface {
 	CountPayments(ctx context.Context) (int64, error)
 
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptsForPaymentsRow, error)
-	FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error)
+	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchAllInflightAttempts(ctx context.Context) ([]sqlc.PaymentHtlcAttempt, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.FetchHopsForAttemptsRow, error)
 
@@ -351,6 +351,108 @@ func loadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 			return nil
 		},
 	)
+}
+
+// paymentStatusData holds lightweight resolution data for computing
+// payment status efficiently during deletion operations.
+type paymentStatusData struct {
+	// resolutionTypes maps payment ID to a list of resolution types
+	// for that payment's HTLC attempts.
+	resolutionTypes map[int64][]sql.NullInt32
+}
+
+// batchLoadPaymentResolutions loads only HTLC resolution types for multiple
+// payments. This is a lightweight alternative to loadPaymentsBatchData that's
+// optimized for operations that only need to determine payment status.
+func batchLoadPaymentResolutions(ctx context.Context, db SQLQueries,
+	paymentIDs []int64) (*paymentStatusData, error) {
+
+	batchData := &paymentStatusData{
+		resolutionTypes: make(map[int64][]sql.NullInt32),
+	}
+
+	if len(paymentIDs) == 0 {
+		return batchData, nil
+	}
+
+	// Fetch resolution types for all payments in a single batch query.
+	resolutions, err := db.FetchHtlcAttemptResolutionsForPayments(
+		ctx, paymentIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch HTLC resolutions: %w",
+			err)
+	}
+
+	// Group resolutions by payment ID.
+	for _, res := range resolutions {
+		batchData.resolutionTypes[res.PaymentID] = append(
+			batchData.resolutionTypes[res.PaymentID],
+			res.ResolutionType,
+		)
+	}
+
+	return batchData, nil
+}
+
+// loadPaymentResolutions is a single-payment wrapper around
+// batchLoadPaymentResolutions for convenience and to prevent duplicate
+// queries.
+func loadPaymentResolutions(ctx context.Context, db SQLQueries,
+	paymentID int64) ([]sql.NullInt32, error) {
+
+	batchData, err := batchLoadPaymentResolutions(
+		ctx, db, []int64{paymentID},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return batchData.resolutionTypes[paymentID], nil
+}
+
+// computePaymentStatusFromResolutions determines the payment status from
+// resolution types and failure reason without building the complete MPPayment
+// structure. This is a lightweight version that builds minimal HTLCAttempt
+// structures and delegates to decidePaymentStatus for consistency.
+func computePaymentStatusFromResolutions(resolutionTypes []sql.NullInt32,
+	failReason sql.NullInt32) (PaymentStatus, error) {
+
+	// Build minimal HTLCAttempt slice with only resolution info.
+	htlcs := make([]HTLCAttempt, len(resolutionTypes))
+	for i, resType := range resolutionTypes {
+		if !resType.Valid {
+			// NULL resolution_type means in-flight (no Settle, no
+			// Failure).
+			continue
+		}
+
+		switch HTLCAttemptResolutionType(resType.Int32) {
+		case HTLCAttemptResolutionSettled:
+			// Mark as settled (preimage details not needed for
+			// status).
+			htlcs[i].Settle = &HTLCSettleInfo{}
+
+		case HTLCAttemptResolutionFailed:
+			// Mark as failed (failure details not needed for
+			// status).
+			htlcs[i].Failure = &HTLCFailInfo{}
+
+		default:
+			return 0, fmt.Errorf("unknown resolution type: %v",
+				resType.Int32)
+		}
+	}
+
+	// Convert fail reason to FailureReason pointer.
+	var failureReason *FailureReason
+	if failReason.Valid {
+		reason := FailureReason(failReason.Int32)
+		failureReason = &reason
+	}
+
+	// Use the existing status decision logic.
+	return decidePaymentStatus(htlcs, failureReason)
 }
 
 // loadPaymentsBatchData loads all related data for multiple payments in batch.
@@ -809,52 +911,25 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 // data from the database. This is a lightweight query optimized for SQL that
 // doesn't load route data, making it significantly more efficient than
 // FetchPayment when only the status is needed.
-func computePaymentStatusFromDB(ctx context.Context, db SQLQueries,
-	dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
+func computePaymentStatusFromDB(ctx context.Context,
+	db SQLQueries, dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
 
 	payment := dbPayment.GetPayment()
 
-	resolutionTypes, err := db.FetchHtlcAttemptResolutionsForPayment(
-		ctx, payment.ID,
-	)
+	// Use the batch-optimized wrapper to fetch resolution types.
+	resolutionTypes, err := loadPaymentResolutions(ctx, db, payment.ID)
 	if err != nil {
-		return 0, fmt.Errorf("failed to fetch htlc resolutions: %w",
+		return 0, fmt.Errorf("failed to load payment resolutions: %w",
 			err)
 	}
 
-	// Build minimal HTLCAttempt slice with only resolution info.
-	htlcs := make([]HTLCAttempt, len(resolutionTypes))
-	for i, resType := range resolutionTypes {
-		if !resType.Valid {
-			// NULL resolution_type means in-flight (no Settle, no
-			// Failure).
-			continue
-		}
-
-		switch HTLCAttemptResolutionType(resType.Int32) {
-		case HTLCAttemptResolutionSettled:
-			// Mark as settled (preimage details not needed for
-			// status).
-			htlcs[i].Settle = &HTLCSettleInfo{}
-
-		case HTLCAttemptResolutionFailed:
-			// Mark as failed (failure details not needed for
-			// status).
-			htlcs[i].Failure = &HTLCFailInfo{}
-		}
-	}
-
-	// Convert fail reason to FailureReason pointer.
-	var failureReason *FailureReason
-	if payment.FailReason.Valid {
-		reason := FailureReason(payment.FailReason.Int32)
-		failureReason = &reason
-	}
-
-	// Use the existing status decision logic.
-	status, err := decidePaymentStatus(htlcs, failureReason)
+	// Use the lightweight status computation.
+	status, err := computePaymentStatusFromResolutions(
+		resolutionTypes, payment.FailReason,
+	)
 	if err != nil {
-		return 0, fmt.Errorf("failed to decide payment status: %w", err)
+		return 0, fmt.Errorf("failed to compute payment status: %w",
+			err)
 	}
 
 	return status, nil
@@ -1518,4 +1593,149 @@ func (s *SQLStore) Fail(paymentHash lntypes.Hash,
 	}
 
 	return mpPayment, nil
+}
+
+// DeletePayments performs a batch deletion of payments or their failed HTLC
+// attempts from the database based on the specified flags. This is a bulk
+// operation that iterates through all payments and selectively deletes based
+// on the criteria.
+// The behavior is controlled by two flags:
+//
+// If failedAttemptsOnly is true, only failed HTLC attempts are deleted while
+// preserving the payment records and any successful or in-flight attempts.
+// The return value is always 0 when deleting attempts only.
+//
+// If failedAttemptsOnly is false, entire payment records are deleted including
+// all associated data (HTLCs, metadata, intents). The return value is the
+// number of payments deleted.
+//
+// The failedOnly flag further filters which payments are processed:
+//   - failedOnly=true, failedAttemptsOnly=true: Delete failed attempts for
+//     StatusFailed payments only
+//   - failedOnly=false, failedAttemptsOnly=true: Delete failed attempts for
+//     all removable payments
+//   - failedOnly=true, failedAttemptsOnly=false: Delete entire payment records
+//     for StatusFailed payments only
+//   - failedOnly=false, failedAttemptsOnly=false: Delete all removable payment
+//     records (StatusInitiated, StatusSucceeded, StatusFailed)
+//
+// Safety checks applied to all operations:
+//   - Payments with StatusInFlight are always skipped (cannot be safely deleted
+//     while HTLCs are on the network)
+//   - The payment status must pass the removable() check
+//
+// Returns the number of complete payments deleted (0 if only deleting failed
+// attempts). This is useful for cleanup operations, administrative maintenance,
+// or freeing up database storage.
+//
+// This method is part of the PaymentWriter interface, which is embedded in
+// the DB interface.
+//
+// TODO(ziggie): batch this call instead in the background so for dbs with
+// many payments it doesn't block the main thread.
+func (s *SQLStore) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
+	error) {
+
+	var numPayments int
+	ctx := context.TODO()
+
+	extractCursor := func(row sqlc.FilterPaymentsRow) int64 {
+		return row.Payment.ID
+	}
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		// collectFunc extracts the payment ID from each payment row.
+		collectFunc := func(row sqlc.FilterPaymentsRow) (int64, error) {
+			return row.Payment.ID, nil
+		}
+
+		// batchDataFunc loads only HTLC resolution types for a batch
+		// of payments, which is sufficient to determine payment status.
+		batchDataFunc := func(ctx context.Context, paymentIDs []int64) (
+			*paymentStatusData, error) {
+
+			return batchLoadPaymentResolutions(
+				ctx, db, paymentIDs,
+			)
+		}
+
+		// processPayment processes each payment with the lightweight
+		// batch-loaded resolution data.
+		processPayment := func(ctx context.Context,
+			dbPayment sqlc.FilterPaymentsRow,
+			batchData *paymentStatusData) error {
+
+			payment := dbPayment.Payment
+
+			// Compute the payment status from resolution types and
+			// failure reason without building the complete payment.
+			resolutionTypes := batchData.resolutionTypes[payment.ID]
+			status, err := computePaymentStatusFromResolutions(
+				resolutionTypes, payment.FailReason,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to compute payment "+
+					"status: %w", err)
+			}
+
+			// Payments which are not final yet cannot be deleted.
+			// we skip them.
+			if err := status.removable(); err != nil {
+				return nil
+			}
+
+			// If we are only deleting failed payments, we skip
+			// if the payment is not failed.
+			if failedOnly && status != StatusFailed {
+				return nil
+			}
+
+			// If we are only deleting failed HTLCs, we delete them
+			// and return early.
+			if failedHtlcsOnly {
+				return db.DeleteFailedAttempts(
+					ctx, payment.ID,
+				)
+			}
+
+			// Otherwise we delete the payment.
+			err = db.DeletePayment(ctx, payment.ID)
+			if err != nil {
+				return fmt.Errorf("failed to delete "+
+					"payment: %w", err)
+			}
+
+			numPayments++
+
+			return nil
+		}
+
+		queryFunc := func(ctx context.Context, lastID int64,
+			limit int32) ([]sqlc.FilterPaymentsRow, error) {
+
+			filterParams := sqlc.FilterPaymentsParams{
+				NumLimit: limit,
+				IndexOffsetGet: sqldb.SQLInt64(
+					lastID,
+				),
+			}
+
+			return db.FilterPayments(ctx, filterParams)
+		}
+
+		return sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+			extractCursor, collectFunc, batchDataFunc,
+			processPayment,
+		)
+	}, func() {
+		numPayments = 0
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete payments "+
+			"(failedOnly: %v, failedHtlcsOnly: %v): %w",
+			failedOnly, failedHtlcsOnly, err)
+	}
+
+	return numPayments, nil
 }

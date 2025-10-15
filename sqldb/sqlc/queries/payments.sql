@@ -75,14 +75,16 @@ LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_i
 WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
 ORDER BY ha.payment_id ASC, ha.attempt_time ASC;
 
--- name: FetchHtlcAttemptResolutionsForPayment :many
--- Lightweight query to fetch only HTLC resolution status.
+-- name: FetchHtlcAttemptResolutionsForPayments :many
+-- Batch query to fetch only HTLC resolution status for multiple payments.
+-- We don't need to order by payment_id and attempt_time because we will
+-- group the resolutions by payment_id in the background.
 SELECT
+    ha.payment_id,
     hr.resolution_type
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
-WHERE ha.payment_id = $1
-ORDER BY ha.attempt_time ASC;
+WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
 
 -- name: FetchAllInflightAttempts :many
 -- Fetch all inflight attempts across all payments

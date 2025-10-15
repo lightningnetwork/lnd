@@ -1266,14 +1266,30 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 		return nil, err
 	}
 
+	var selectOutpoints fn.Set[wire.OutPoint]
+	if len(in.Outpoints) != 0 {
+		wireOutpoints, err := toWireOutpoints(in.Outpoints)
+		if err != nil {
+			return nil, fmt.Errorf("can't create outpoints "+
+				"%w", err)
+		}
+
+		if fn.HasDuplicates(wireOutpoints) {
+			return nil, fmt.Errorf("selected outpoints contain " +
+				"duplicate values")
+		}
+
+		selectOutpoints = fn.NewSet(wireOutpoints...)
+	}
+
 	// We will ask the wallet to create a tx using this fee rate. We set
 	// dryRun=true to avoid inflating the change addresses in the db.
 	var tx *txauthor.AuthoredTx
 	wallet := r.server.cc.Wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		tx, err = wallet.CreateSimpleTx(
-			nil, outputs, feePerKw, minConfs, coinSelectionStrategy,
-			true,
+			selectOutpoints, outputs, feePerKw, minConfs,
+			coinSelectionStrategy, true,
 		)
 		return err
 	})
@@ -1288,12 +1304,23 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	}
 	totalFee := int64(tx.TotalInput) - totalOutput
 
+	// Return the outpoints the estimate is for if the client requested so.
+	outpoints := make([]string, 0, len(tx.Tx.TxIn))
+	if in.ShowOutpoints {
+		for _, txIn := range tx.Tx.TxIn {
+			outpoints = append(
+				outpoints, txIn.PreviousOutPoint.String(),
+			)
+		}
+	}
+
 	resp := &lnrpc.EstimateFeeResponse{
 		FeeSat:      totalFee,
 		SatPerVbyte: uint64(feePerKw.FeePerVByte()),
 
 		// Deprecated field.
 		FeerateSatPerByte: int64(feePerKw.FeePerVByte()),
+		Outpoints:         outpoints,
 	}
 
 	rpcsLog.Debugf("[estimatefee] fee estimate for conf target %d: %v",

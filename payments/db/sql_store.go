@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
@@ -1043,4 +1045,248 @@ func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
 	}
 
 	return nil
+}
+
+// insertRouteHops inserts all route hop data for a given set of hops.
+func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
+	hops []*route.Hop, attemptID uint64) error {
+
+	for i, hop := range hops {
+		// Insert the basic route hop data and get the generated ID.
+		hopID, err := db.InsertRouteHop(ctx, sqlc.InsertRouteHopParams{
+			HtlcAttemptIndex: int64(attemptID),
+			HopIndex:         int32(i),
+			PubKey:           hop.PubKeyBytes[:],
+			Scid: strconv.FormatUint(
+				hop.ChannelID, 10,
+			),
+			OutgoingTimeLock: int32(hop.OutgoingTimeLock),
+			AmtToForward:     int64(hop.AmtToForward),
+			MetaData:         hop.Metadata,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to insert route hop: %w", err)
+		}
+
+		// Insert the per-hop custom records.
+		if len(hop.CustomRecords) > 0 {
+			for key, value := range hop.CustomRecords {
+				err = db.InsertPaymentHopCustomRecord(
+					ctx,
+					sqlc.InsertPaymentHopCustomRecordParams{
+						HopID: hopID,
+						Key:   int64(key),
+						Value: value,
+					})
+				if err != nil {
+					return fmt.Errorf("failed to insert "+
+						"payment hop custom record: %w",
+						err)
+				}
+			}
+		}
+
+		// Insert MPP data if present.
+		if hop.MPP != nil {
+			paymentAddr := hop.MPP.PaymentAddr()
+			err = db.InsertRouteHopMpp(
+				ctx, sqlc.InsertRouteHopMppParams{
+					HopID:       hopID,
+					PaymentAddr: paymentAddr[:],
+					TotalMsat:   int64(hop.MPP.TotalMsat()),
+				})
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"route hop MPP: %w", err)
+			}
+		}
+
+		// Insert AMP data if present.
+		if hop.AMP != nil {
+			rootShare := hop.AMP.RootShare()
+			setID := hop.AMP.SetID()
+			err = db.InsertRouteHopAmp(
+				ctx, sqlc.InsertRouteHopAmpParams{
+					HopID:      hopID,
+					RootShare:  rootShare[:],
+					SetID:      setID[:],
+					ChildIndex: int32(hop.AMP.ChildIndex()),
+				})
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"route hop AMP: %w", err)
+			}
+		}
+
+		// Insert blinded route data if present. Every hop in the
+		// blinded path must have an encrypted data record. If the
+		// encrypted data is not present, we skip the insertion.
+		if hop.EncryptedData == nil {
+			continue
+		}
+
+		// The introduction point has a blinding point set.
+		var blindingPointBytes []byte
+		if hop.BlindingPoint != nil {
+			blindingPointBytes = hop.BlindingPoint.
+				SerializeCompressed()
+		}
+
+		// The total amount is only set for the final hop in a
+		// blinded path.
+		totalAmtMsat := sql.NullInt64{}
+		if i == len(hops)-1 {
+			totalAmtMsat = sql.NullInt64{
+				Int64: int64(hop.TotalAmtMsat),
+				Valid: true,
+			}
+		}
+
+		err = db.InsertRouteHopBlinded(ctx,
+			sqlc.InsertRouteHopBlindedParams{
+				HopID:               hopID,
+				EncryptedData:       hop.EncryptedData,
+				BlindingPoint:       blindingPointBytes,
+				BlindedPathTotalAmt: totalAmtMsat,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert "+
+				"route hop blinded: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RegisterAttempt atomically records a new HTLC attempt for the specified
+// payment. The attempt includes the attempt ID, session key, route information
+// (hops, timelocks, amounts), and optional data such as MPP/AMP parameters,
+// blinded route data, and custom records.
+//
+// Returns the updated MPPayment with the new attempt appended to the HTLCs
+// slice, and the payment state recalculated. Returns an error if the payment
+// doesn't exist or validation fails.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface. It represents
+// step 2 in the payment lifecycle control flow, called after InitPayment and
+// potentially multiple times for multi-path payments.
+func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
+	attempt *HTLCAttemptInfo) (*MPPayment, error) {
+
+	ctx := context.TODO()
+
+	var mpPayment *MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		// First Fetch the payment and check if it is registrable.
+		existingPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+
+		// We fetch the complete payment to determine if the payment is
+		// registrable.
+		//
+		// TODO(ziggie): We could improve the query here since only
+		// the last hop data is needed here not the complete payment
+		// data.
+		mpPayment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, existingPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		if err := mpPayment.Registrable(); err != nil {
+			return fmt.Errorf("htlc attempt not registrable: %w",
+				err)
+		}
+
+		// Verify the attempt is compatible with the existing payment.
+		if err := verifyAttempt(mpPayment, attempt); err != nil {
+			return fmt.Errorf("failed to verify attempt: %w", err)
+		}
+
+		// Register the plain HTLC attempt next.
+		sessionKey := attempt.SessionKey()
+		sessionKeyBytes := sessionKey.Serialize()
+
+		_, err = db.InsertHtlcAttempt(ctx, sqlc.InsertHtlcAttemptParams{
+			PaymentID:    existingPayment.Payment.ID,
+			AttemptIndex: int64(attempt.AttemptID),
+			SessionKey:   sessionKeyBytes,
+			AttemptTime:  attempt.AttemptTime,
+			PaymentHash:  paymentHash[:],
+			FirstHopAmountMsat: int64(
+				attempt.Route.FirstHopAmount.Val.Int(),
+			),
+			RouteTotalTimeLock: int32(attempt.Route.TotalTimeLock),
+			RouteTotalAmount:   int64(attempt.Route.TotalAmount),
+			RouteSourceKey:     attempt.Route.SourcePubKey[:],
+		})
+		if err != nil {
+			return fmt.Errorf("failed to insert HTLC "+
+				"attempt: %w", err)
+		}
+
+		// Insert the route level first hop custom records.
+		attemptFirstHopCustomRecords := attempt.Route.
+			FirstHopWireCustomRecords
+
+		for key, value := range attemptFirstHopCustomRecords {
+			//nolint:ll
+			err = db.InsertPaymentAttemptFirstHopCustomRecord(
+				ctx,
+				sqlc.InsertPaymentAttemptFirstHopCustomRecordParams{
+					HtlcAttemptIndex: int64(attempt.AttemptID),
+					Key:              int64(key),
+					Value:            value,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert "+
+					"payment attempt first hop custom "+
+					"record: %w", err)
+			}
+		}
+
+		// Insert the route hops.
+		err = s.insertRouteHops(
+			ctx, db, attempt.Route.Hops, attempt.AttemptID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert route hops: %w",
+				err)
+		}
+
+		// We fetch the HTLC attempts again to recalculate the payment
+		// state after the attempt is registered. This also makes sure
+		// we have the right data in case multiple attempts are
+		// registered concurrently.
+		//
+		// NOTE: While the caller is responsible for serializing calls
+		// to RegisterAttempt per payment hash (see PaymentControl
+		// interface), we still refetch here to guarantee we return
+		// consistent, up-to-date data that reflects all changes made
+		// within this transaction.
+		mpPayment, err = s.fetchPaymentWithCompleteData(
+			ctx, db, existingPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		return nil
+	}, func() {
+		mpPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to register attempt: %w", err)
+	}
+
+	return mpPayment, nil
 }

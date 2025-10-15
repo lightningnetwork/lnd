@@ -55,6 +55,16 @@ type SQLQueries interface {
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIDs []int64) ([]sqlc.PaymentFirstHopCustomRecord, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.PaymentAttemptFirstHopCustomRecord, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIDs []int64) ([]sqlc.PaymentHopCustomRecord, error)
+
+	/*
+		Payment DB write operations.
+	*/
+
+	DeletePayment(ctx context.Context, paymentID int64) error
+
+	// DeleteFailedAttempts removes all failed HTLCs from the db for a
+	// given payment.
+	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 }
 
 // BatchedSQLQueries is a version of the SQLQueries that's capable

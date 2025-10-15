@@ -23,6 +23,26 @@ func (q *Queries) CountPayments(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteFailedAttempts = `-- name: DeleteFailedAttempts :exec
+DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
+    SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
+)
+`
+
+func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
+	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
+	return err
+}
+
+const deletePayment = `-- name: DeletePayment :exec
+DELETE FROM payments WHERE id = $1
+`
+
+func (q *Queries) DeletePayment(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deletePayment, id)
+	return err
+}
+
 const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
 SELECT
     ha.id,

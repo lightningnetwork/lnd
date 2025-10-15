@@ -34,6 +34,7 @@ type Querier interface {
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FailAttempt(ctx context.Context, arg FailAttemptParams) error
+	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
 	// Fetch all inflight attempts across all payments

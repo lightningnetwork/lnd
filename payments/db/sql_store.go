@@ -37,7 +37,7 @@ const (
 // SQLQueries is a subset of the sqlc.Querier interface that can be used to
 // execute queries against the SQL payments tables.
 //
-//nolint:ll
+//nolint:ll,interfacebloat
 type SQLQueries interface {
 	/*
 		Payment DB read operations.
@@ -831,4 +831,74 @@ func computePaymentStatusFromDB(ctx context.Context, db SQLQueries,
 	}
 
 	return status, nil
+}
+
+// DeletePayment removes a payment or its failed HTLC attempts from the
+// database based on the failedAttemptsOnly flag.
+//
+// If failedAttemptsOnly is true, this method deletes only the failed HTLC
+// attempts for the payment while preserving the payment record itself and any
+// successful or in-flight attempts. This is useful for cleaning up historical
+// failed attempts after a payment reaches a terminal state.
+//
+// If failedAttemptsOnly is false, this method deletes the entire payment
+// record including all payment metadata, payment creation info, all HTLC
+// attempts (both failed and successful), and associated data such as payment
+// intents and custom records.
+//
+// Before deletion, this method validates the payment status to ensure it's
+// safe to delete:
+//   - StatusInitiated: Can be deleted (no HTLCs sent yet)
+//   - StatusInFlight: Cannot be deleted, returns ErrPaymentInFlight (active
+//     HTLCs on the network)
+//   - StatusSucceeded: Can be deleted (payment completed successfully)
+//   - StatusFailed: Can be deleted (payment has failed permanently)
+//
+// Returns an error if the payment has in-flight HTLCs or if the payment
+// doesn't exist.
+//
+// This method is part of the PaymentWriter interface, which is embedded in
+// the DB interface.
+func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
+	failedHtlcsOnly bool) error {
+
+	ctx := context.TODO()
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch "+
+				"payment: %w", err)
+		}
+
+		paymentStatus, err := computePaymentStatusFromDB(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to compute payment "+
+				"status: %w", err)
+		}
+
+		if err := paymentStatus.removable(); err != nil {
+			return fmt.Errorf("payment %v cannot be deleted: %w",
+				paymentHash, err)
+		}
+
+		// If we are only deleting failed HTLCs, we delete them.
+		if failedHtlcsOnly {
+			return db.DeleteFailedAttempts(
+				ctx, dbPayment.Payment.ID,
+			)
+		}
+
+		// In case we are not deleting failed HTLCs, we delete the
+		// payment which will cascade delete all related data.
+		return db.DeletePayment(ctx, dbPayment.Payment.ID)
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("failed to delete failed attempts for "+
+			"payment %v: %w", paymentHash, err)
+	}
+
+	return nil
 }

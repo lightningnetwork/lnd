@@ -97,10 +97,6 @@ type BatchedSQLQueries interface {
 
 // SQLStore represents a storage backend.
 type SQLStore struct {
-	// TODO(ziggie): Remove the KVStore once all the interface functions are
-	// implemented.
-	KVStore
-
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries
 

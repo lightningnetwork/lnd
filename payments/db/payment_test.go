@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -2211,6 +2212,480 @@ func TestMultiShard(t *testing.T) {
 
 		t.Run(subTest, func(t *testing.T) {
 			runSubTest(t, test)
+		})
+	}
+}
+
+// TestQueryPayments tests retrieval of payments with forwards and reversed
+// queries.
+func TestQueryPayments(t *testing.T) {
+	// Define table driven test for QueryPayments.
+	// Test payments have sequence indices [1, 3, 4, 5, 6].
+	// Note that payment with index 2 is deleted to create a gap in the
+	// sequence numbers.
+	tests := []struct {
+		name       string
+		query      Query
+		firstIndex uint64
+		lastIndex  uint64
+
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
+	}{
+		{
+			name: "IndexOffset at the end of the payments range",
+			query: Query{
+				IndexOffset:       6,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "query in forwards order, start at beginning",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in forwards order, start at end, overflow",
+			query: Query{
+				IndexOffset:       5,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     6,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{6},
+		},
+		{
+			name: "start at offset index outside of payments",
+			query: Query{
+				IndexOffset:       20,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
+		},
+		{
+			name: "overflow in forwards order",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "start at offset index outside of payments, " +
+				"reversed order",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in reverse order, start at end",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in reverse order, starting in middle",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "query in reverse order, starting in middle, " +
+				"with underflow",
+			query: Query{
+				IndexOffset:       4,
+				MaxPayments:       5,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "all payments in reverse, order maintained",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{1, 3, 4, 5, 6},
+		},
+		{
+			name: "exclude incomplete payments",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: false,
+			},
+			firstIndex:     6,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{6},
+		},
+		{
+			name: "query payments at index gap",
+			query: Query{
+				IndexOffset:       1,
+				MaxPayments:       7,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{3, 4, 5, 6},
+		},
+		{
+			name: "query payments reverse before index gap",
+			query: Query{
+				IndexOffset:       3,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments reverse on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       7,
+				Reversed:          true,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     1,
+			lastIndex:      1,
+			expectedSeqNrs: []uint64{1},
+		},
+		{
+			name: "query payments forward on index gap",
+			query: Query{
+				IndexOffset:       2,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+			},
+			firstIndex:     3,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{3, 4},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 5,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "query in forwards order, with start creation " +
+				"time at end, overflow",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateStart: 6,
+			},
+			firstIndex:     6,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{6},
+		},
+		{
+			name: "query with start and end creation time",
+			query: Query{
+				IndexOffset:       9,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
+			},
+			firstIndex:     3,
+			lastIndex:      5,
+			expectedSeqNrs: []uint64{3, 4, 5},
+		},
+		{
+			name: "query with only end creation time",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CreationDateEnd:   4,
+			},
+			firstIndex:     1,
+			lastIndex:      4,
+			expectedSeqNrs: []uint64{1, 3, 4},
+		},
+		{
+			name: "query reversed with creation date start",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       3,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CreationDateStart: 3,
+			},
+			firstIndex:     4,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{4, 5, 6},
+		},
+		{
+			name: "count total with forward pagination",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          false,
+				IncludeIncomplete: true,
+				CountTotal:        true,
+			},
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 3},
+		},
+		{
+			name: "count total with reverse pagination",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       2,
+				Reversed:          true,
+				IncludeIncomplete: true,
+				CountTotal:        true,
+			},
+			firstIndex:     5,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{5, 6},
+		},
+		{
+			name: "count total with filters",
+			query: Query{
+				IndexOffset:       0,
+				MaxPayments:       math.MaxUint64,
+				Reversed:          false,
+				IncludeIncomplete: false,
+				CountTotal:        true,
+			},
+			firstIndex:     6,
+			lastIndex:      6,
+			expectedSeqNrs: []uint64{6},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+
+			paymentDB := NewTestDB(t)
+
+			// Make a preliminary query to make sure it's ok to
+			// query when we have no payments.
+			resp, err := paymentDB.QueryPayments(ctx, tt.query)
+			require.NoError(t, err)
+			require.Len(t, resp.Payments, 0)
+
+			// Populate the database with a set of test payments.
+			// We create 6 payments, deleting the payment at index
+			// 2 so that we cover the case where sequence numbers
+			// are missing.
+			numberOfPayments := 6
+
+			// Store payment info for all payments so we can delete
+			// one after all are created.
+			var paymentInfos []*PaymentCreationInfo
+
+			// First, create all payments.
+			for i := range numberOfPayments {
+				// Generate a test payment.
+				info, _, err := genInfo(t)
+				require.NoError(t, err)
+
+				// Override creation time to allow for testing
+				// of CreationDateStart and CreationDateEnd.
+				info.CreationTime = time.Unix(int64(i+1), 0)
+
+				paymentInfos = append(paymentInfos, info)
+
+				// Create a new payment entry in the database.
+				err = paymentDB.InitPayment(
+					info.PaymentIdentifier, info,
+				)
+				require.NoError(t, err)
+			}
+
+			// Now delete the payment at index 1 (the second
+			// payment).
+			pmt, err := paymentDB.FetchPayment(
+				paymentInfos[1].PaymentIdentifier,
+			)
+			require.NoError(t, err)
+
+			// We delete the whole payment.
+			err = paymentDB.DeletePayment(
+				paymentInfos[1].PaymentIdentifier, false,
+			)
+			require.NoError(t, err)
+
+			// Verify the payment is deleted.
+			_, err = paymentDB.FetchPayment(
+				paymentInfos[1].PaymentIdentifier,
+			)
+			require.ErrorIs(
+				t, err, ErrPaymentNotInitiated,
+			)
+
+			// Verify the index is removed (KV store only).
+			assertNoIndex(
+				t, paymentDB, pmt.SequenceNum,
+			)
+
+			// For the last payment, settle it so we have at least
+			// one completed payment for the "exclude incomplete"
+			// test case.
+			lastPaymentInfo := paymentInfos[numberOfPayments-1]
+			attempt, err := NewHtlcAttempt(
+				1, priv, testRoute,
+				time.Unix(100, 0),
+				&lastPaymentInfo.PaymentIdentifier,
+			)
+			require.NoError(t, err)
+
+			_, err = paymentDB.RegisterAttempt(
+				lastPaymentInfo.PaymentIdentifier,
+				&attempt.HTLCAttemptInfo,
+			)
+			require.NoError(t, err)
+
+			var preimg lntypes.Preimage
+			copy(preimg[:], rev[:])
+
+			_, err = paymentDB.SettleAttempt(
+				lastPaymentInfo.PaymentIdentifier,
+				attempt.AttemptID,
+				&HTLCSettleInfo{
+					Preimage: preimg,
+				},
+			)
+			require.NoError(t, err)
+
+			// Fetch all payments in the database.
+			resp, err = paymentDB.QueryPayments(
+				ctx, Query{
+					IndexOffset:       0,
+					MaxPayments:       math.MaxUint64,
+					IncludeIncomplete: true,
+				},
+			)
+			require.NoError(t, err)
+
+			allPayments := resp.Payments
+
+			if len(allPayments) != 5 {
+				t.Fatalf("Number of payments received does "+
+					"not match expected one. Got %v, "+
+					"want %v.", len(allPayments), 5)
+			}
+
+			querySlice, err := paymentDB.QueryPayments(
+				ctx, tt.query,
+			)
+			require.NoError(t, err)
+
+			if tt.firstIndex != querySlice.FirstIndexOffset ||
+				tt.lastIndex != querySlice.LastIndexOffset {
+
+				t.Errorf("First or last index does not match "+
+					"expected index. Want (%d, %d), "+
+					"got (%d, %d).",
+					tt.firstIndex, tt.lastIndex,
+					querySlice.FirstIndexOffset,
+					querySlice.LastIndexOffset)
+			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Errorf("expected: %v payments, got: %v",
+					len(tt.expectedSeqNrs),
+					len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.SequenceNum {
+					t.Errorf("sequence numbers do not "+
+						"match, got %v, want %v",
+						q.SequenceNum, seqNr)
+				}
+			}
+
+			// Verify CountTotal is set correctly when requested.
+			if tt.query.CountTotal {
+				// We should have 5 total payments
+				// (6 created - 1 deleted).
+				expectedTotal := uint64(5)
+				require.Equal(
+					t, expectedTotal, querySlice.TotalCount,
+					"expected total count %v, got %v",
+					expectedTotal, querySlice.TotalCount)
+			} else {
+				require.Equal(
+					t, uint64(0), querySlice.TotalCount,
+					"expected total count 0 when "+
+						"CountTotal=false")
+			}
 		})
 	}
 }

@@ -352,3 +352,6 @@ VALUES (
     @htlc_fail_reason,
     @failure_msg
 );
+
+-- name: FailPayment :execresult
+UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;

@@ -59,7 +59,10 @@ var (
 		ChannelID:        12345,
 		OutgoingTimeLock: 111,
 		AmtToForward:     555,
-		LegacyPayload:    true,
+
+		// Only tlv payloads are now supported in LND therefore we set
+		// LegacyPayload to false.
+		LegacyPayload: false,
 	}
 
 	testRoute = route.Route{
@@ -2203,7 +2206,7 @@ func TestMultiShard(t *testing.T) {
 
 		// Finally assert we cannot register more attempts.
 		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, b)
-		require.Equal(t, registerErr, err)
+		require.ErrorIs(t, err, registerErr)
 	}
 
 	for _, test := range tests {

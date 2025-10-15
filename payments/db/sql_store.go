@@ -1,6 +1,7 @@
 package paymentsdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -76,6 +77,7 @@ type SQLQueries interface {
 	InsertPaymentHopCustomRecord(ctx context.Context, arg sqlc.InsertPaymentHopCustomRecordParams) error
 
 	SettleAttempt(ctx context.Context, arg sqlc.SettleAttemptParams) error
+	FailAttempt(ctx context.Context, arg sqlc.FailAttemptParams) error
 
 	FailPayment(ctx context.Context, arg sqlc.FailPaymentParams) (sql.Result, error)
 
@@ -1358,6 +1360,97 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to settle attempt: %w", err)
+	}
+
+	return mpPayment, nil
+}
+
+// FailAttempt marks the specified HTLC attempt as failed, recording the
+// failure reason, failure time, optional failure message, and the index of the
+// node in the route that generated the failure. This information is atomically
+// saved to the database for debugging and route optimization purposes.
+//
+// For single-path payments, failing the only attempt may lead to the payment
+// being retried or ultimately failed via the Fail method. For multi-shard
+// (MPP/AMP) payments, individual shard failures don't necessarily fail the
+// entire payment; additional attempts can be registered until sufficient shards
+// succeed or the payment is permanently failed.
+//
+// Returns the updated MPPayment with the attempt marked as failed and the
+// payment state recalculated. The payment status remains StatusInFlight if
+// other attempts are still in flight, or may transition based on the overall
+// payment state.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface. It represents
+// step 3b in the payment lifecycle control flow (step 3a is SettleAttempt),
+// called after RegisterAttempt when an HTLC fails.
+func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
+	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
+
+	ctx := context.TODO()
+
+	var mpPayment *MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+
+		paymentStatus, err := computePaymentStatusFromDB(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to compute payment "+
+				"status: %w", err)
+		}
+
+		// We check if the payment is updatable before failing the
+		// attempt.
+		if err := paymentStatus.updatable(); err != nil {
+			return fmt.Errorf("payment is not updatable: %w", err)
+		}
+
+		var failureMsg bytes.Buffer
+		if failInfo.Message != nil {
+			err := lnwire.EncodeFailureMessage(
+				&failureMsg, failInfo.Message, 0,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to encode "+
+					"failure message: %w", err)
+			}
+		}
+
+		err = db.FailAttempt(ctx, sqlc.FailAttemptParams{
+			AttemptIndex:   int64(attemptID),
+			ResolutionTime: time.Now(),
+			ResolutionType: int32(HTLCAttemptResolutionFailed),
+			FailureSourceIndex: sqldb.SQLInt32(
+				failInfo.FailureSourceIndex,
+			),
+			HtlcFailReason: sqldb.SQLInt32(failInfo.Reason),
+			FailureMsg:     failureMsg.Bytes(),
+		})
+		if err != nil {
+			return fmt.Errorf("failed to fail attempt: %w", err)
+		}
+
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		return nil
+	}, func() {
+		mpPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fail attempt: %w", err)
 	}
 
 	return mpPayment, nil

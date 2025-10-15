@@ -402,6 +402,14 @@ var estimateFeeCommand = cli.Command{
 				"transaction *should* confirm in",
 		},
 		coinSelectionStrategyFlag,
+		cli.StringSliceFlag{
+			Name: "utxo",
+			Usage: "a utxo specified as outpoint(tx:idx) which " +
+				"will be used as input for the transaction " +
+				"to be estimated. This flag can be " +
+				"repeatedly used to specify multiple utxos " +
+				"as inputs.",
+		},
 	},
 	Action: actionDecorator(estimateFees),
 }
@@ -423,10 +431,21 @@ func estimateFees(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	var inputs []*lnrpc.OutPoint
+	if ctx.IsSet("utxo") {
+		utxos := ctx.StringSlice("utxo")
+
+		inputs, err = lnd.UtxosToOutpoints(utxos)
+		if err != nil {
+			return fmt.Errorf("unable to decode utxos: %w", err)
+		}
+	}
+
 	resp, err := client.EstimateFee(ctxc, &lnrpc.EstimateFeeRequest{
 		AddrToAmount:          amountToAddr,
 		TargetConf:            int32(ctx.Int64("conf_target")),
 		CoinSelectionStrategy: coinSelectionStrategy,
+		Inputs:                inputs,
 	})
 	if err != nil {
 		return err

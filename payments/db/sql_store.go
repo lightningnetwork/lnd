@@ -47,13 +47,12 @@ type SQLQueries interface {
 	*/
 	FilterPayments(ctx context.Context, query sqlc.FilterPaymentsParams) ([]sqlc.FilterPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (sqlc.FetchPaymentRow, error)
-	FetchPaymentsByIDs(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchPaymentsByIDsRow, error)
 
 	CountPayments(ctx context.Context) (int64, error)
 
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptsForPaymentsRow, error)
 	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptResolutionsForPaymentsRow, error)
-	FetchAllInflightAttempts(ctx context.Context) ([]sqlc.PaymentHtlcAttempt, error)
+	FetchAllInflightAttempts(ctx context.Context, arg sqlc.FetchAllInflightAttemptsParams) ([]sqlc.FetchAllInflightAttemptsRow, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.FetchHopsForAttemptsRow, error)
 
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIDs []int64) ([]sqlc.PaymentFirstHopCustomRecord, error)
@@ -833,6 +832,153 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 	}
 
 	return mpPayment, nil
+}
+
+// FetchInFlightPayments retrieves all payments that have HTLC attempts
+// currently in flight (not yet settled or failed). These are payments with at
+// least one HTLC attempt that has been registered but has no resolution record.
+//
+// The SQLStore implementation provides a significant performance improvement
+// over the KVStore implementation by using targeted SQL queries instead of
+// scanning all payments.
+//
+// This method is part of the PaymentReader interface, which is embedded in the
+// DB interface. It's typically called during node startup to resume monitoring
+// of pending payments and ensure HTLCs are properly tracked.
+//
+// TODO(ziggie): Consider changing the interface to use a callback or iterator
+// pattern instead of returning all payments at once. This would allow
+// processing payments one at a time without holding them all in memory
+// simultaneously:
+//   - Callback: func FetchInFlightPayments(ctx, func(*MPPayment) error) error
+//   - Iterator: func FetchInFlightPayments(ctx) (PaymentIterator, error)
+//
+// While inflight payments are typically a small subset, this would improve
+// memory efficiency for nodes with unusually high numbers of concurrent
+// payments and would better leverage the existing pagination infrastructure.
+func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment,
+	error) {
+
+	ctx := context.TODO()
+
+	var mpPayments []*MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		// Track which payment IDs we've already processed across all
+		// pages to avoid loading the same payment multiple times when
+		// multiple inflight attempts belong to the same payment.
+		processedPayments := make(map[int64]*MPPayment)
+
+		extractCursor := func(
+			row sqlc.FetchAllInflightAttemptsRow) int64 {
+
+			return row.AttemptIndex
+		}
+
+		// collectFunc extracts the payment ID from each attempt row.
+		collectFunc := func(row sqlc.FetchAllInflightAttemptsRow) (
+			int64, error) {
+
+			return row.PaymentID, nil
+		}
+
+		// batchDataFunc loads payment data for a batch of payment IDs,
+		// but only for IDs we haven't processed yet.
+		batchDataFunc := func(ctx context.Context,
+			paymentIDs []int64) (*paymentsBatchData, error) {
+
+			// Filter out already-processed payment IDs.
+			uniqueIDs := make([]int64, 0, len(paymentIDs))
+			for _, id := range paymentIDs {
+				_, processed := processedPayments[id]
+				if !processed {
+					uniqueIDs = append(uniqueIDs, id)
+				}
+			}
+
+			// If uniqueIDs is empty, the batch load will return
+			// empty batch data.
+			return s.loadPaymentsBatchData(ctx, db, uniqueIDs)
+		}
+
+		// processAttempt processes each attempt. We only build and
+		// store the payment once per unique payment ID.
+		processAttempt := func(ctx context.Context,
+			row sqlc.FetchAllInflightAttemptsRow,
+			batchData *paymentsBatchData) error {
+
+			// Skip if we've already processed this payment.
+			_, processed := processedPayments[row.PaymentID]
+			if processed {
+				return nil
+			}
+
+			// Extract payment record directly from the row.
+			//nolint:ll
+			dbPayment := sqlc.FetchPaymentRow{
+				Payment: sqlc.Payment{
+					ID:                row.PaymentID,
+					AmountMsat:        row.AmountMsat,
+					CreatedAt:         row.CreatedAt,
+					PaymentIdentifier: row.PaymentIdentifier,
+					FailReason:        row.FailReason,
+				},
+				IntentType:    row.IntentType,
+				IntentPayload: row.IntentPayload,
+			}
+
+			// Build the payment from batch data.
+			mpPayment, err := s.buildPaymentFromBatchData(
+				dbPayment, batchData,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to build payment: %w",
+					err)
+			}
+
+			// Store in our processed map.
+			processedPayments[row.PaymentID] = mpPayment
+
+			return nil
+		}
+
+		queryFunc := func(ctx context.Context, lastAttemptIndex int64,
+			limit int32) ([]sqlc.FetchAllInflightAttemptsRow,
+			error) {
+
+			return db.FetchAllInflightAttempts(ctx,
+				sqlc.FetchAllInflightAttemptsParams{
+					AttemptIndex: lastAttemptIndex,
+					Limit:        limit,
+				},
+			)
+		}
+
+		err := sqldb.ExecuteCollectAndBatchWithSharedDataQuery(
+			ctx, s.cfg.QueryCfg, int64(-1), queryFunc,
+			extractCursor, collectFunc, batchDataFunc,
+			processAttempt,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Convert map to slice.
+		mpPayments = make([]*MPPayment, 0, len(processedPayments))
+		for _, payment := range processedPayments {
+			mpPayments = append(mpPayments, payment)
+		}
+
+		return nil
+	}, func() {
+		mpPayments = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch inflight "+
+			"payments: %w", err)
+	}
+
+	return mpPayments, nil
 }
 
 // DeleteFailedAttempts removes all failed HTLC attempts from the database for

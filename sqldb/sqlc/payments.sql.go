@@ -29,6 +29,8 @@ DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
 )
 `
 
+// Delete all failed HTLC attempts for the given payment. Resolution type 2
+// indicates a failed attempt.
 func (q *Queries) DeleteFailedAttempts(ctx context.Context, paymentID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteFailedAttempts, paymentID)
 	return err

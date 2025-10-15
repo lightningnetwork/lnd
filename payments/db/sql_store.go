@@ -712,3 +712,123 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 
 	return mpPayment, nil
 }
+
+// DeleteFailedAttempts removes all failed HTLC attempts from the database for
+// the specified payment, while preserving the payment record itself and any
+// successful or in-flight attempts.
+//
+// The method performs the following validations before deletion:
+//   - StatusInitiated: Can delete failed attempts
+//   - StatusInFlight: Cannot delete, returns ErrPaymentInFlight (active HTLCs
+//     still on the network)
+//   - StatusSucceeded: Can delete failed attempts (payment completed)
+//   - StatusFailed: Can delete failed attempts (payment permanently failed)
+//
+// If the keepFailedPaymentAttempts configuration flag is enabled, this method
+// returns immediately without deleting anything, allowing failed attempts to
+// be retained for debugging or auditing purposes.
+//
+// This method is idempotent - calling it multiple times on the same payment
+// has no adverse effects.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface. It represents
+// the final step (step 5) in the payment lifecycle control flow and should be
+// called after a payment reaches a terminal state (succeeded or permanently
+// failed) to clean up historical failed attempts.
+func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
+	ctx := context.TODO()
+
+	// In case we are configured to keep failed payment attempts, we exit
+	// early.
+	//
+	// TODO(ziggie): Refactor to not mix application logic with database
+	// logic. This decision should be made in the application layer.
+	if s.keepFailedPaymentAttempts {
+		return nil
+	}
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+
+		paymentStatus, err := computePaymentStatusFromDB(
+			ctx, db, dbPayment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to compute payment "+
+				"status: %w", err)
+		}
+
+		if err := paymentStatus.removable(); err != nil {
+			return fmt.Errorf("cannot delete failed "+
+				"attempts for payment %v: %w", paymentHash, err)
+		}
+
+		// Then we delete the failed attempts for this payment.
+		return db.DeleteFailedAttempts(ctx, dbPayment.Payment.ID)
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return fmt.Errorf("failed to delete failed attempts for "+
+			"payment %v: %w", paymentHash, err)
+	}
+
+	return nil
+}
+
+// computePaymentStatusFromDB computes the payment status by fetching minimal
+// data from the database. This is a lightweight query optimized for SQL that
+// doesn't load route data, making it significantly more efficient than
+// FetchPayment when only the status is needed.
+func computePaymentStatusFromDB(ctx context.Context, db SQLQueries,
+	dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
+
+	payment := dbPayment.GetPayment()
+
+	resolutionTypes, err := db.FetchHtlcAttemptResolutionsForPayment(
+		ctx, payment.ID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch htlc resolutions: %w",
+			err)
+	}
+
+	// Build minimal HTLCAttempt slice with only resolution info.
+	htlcs := make([]HTLCAttempt, len(resolutionTypes))
+	for i, resType := range resolutionTypes {
+		if !resType.Valid {
+			// NULL resolution_type means in-flight (no Settle, no
+			// Failure).
+			continue
+		}
+
+		switch HTLCAttemptResolutionType(resType.Int32) {
+		case HTLCAttemptResolutionSettled:
+			// Mark as settled (preimage details not needed for
+			// status).
+			htlcs[i].Settle = &HTLCSettleInfo{}
+
+		case HTLCAttemptResolutionFailed:
+			// Mark as failed (failure details not needed for
+			// status).
+			htlcs[i].Failure = &HTLCFailInfo{}
+		}
+	}
+
+	// Convert fail reason to FailureReason pointer.
+	var failureReason *FailureReason
+	if payment.FailReason.Valid {
+		reason := FailureReason(payment.FailReason.Int32)
+		failureReason = &reason
+	}
+
+	// Use the existing status decision logic.
+	status, err := decidePaymentStatus(htlcs, failureReason)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decide payment status: %w", err)
+	}
+
+	return status, nil
+}

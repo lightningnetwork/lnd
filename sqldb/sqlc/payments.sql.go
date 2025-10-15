@@ -45,6 +45,46 @@ func (q *Queries) DeletePayment(ctx context.Context, id int64) error {
 	return err
 }
 
+const failAttempt = `-- name: FailAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    failure_source_index,
+    htlc_fail_reason,
+    failure_msg
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6
+)
+`
+
+type FailAttemptParams struct {
+	AttemptIndex       int64
+	ResolutionTime     time.Time
+	ResolutionType     int32
+	FailureSourceIndex sql.NullInt32
+	HtlcFailReason     sql.NullInt32
+	FailureMsg         []byte
+}
+
+func (q *Queries) FailAttempt(ctx context.Context, arg FailAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, failAttempt,
+		arg.AttemptIndex,
+		arg.ResolutionTime,
+		arg.ResolutionType,
+		arg.FailureSourceIndex,
+		arg.HtlcFailReason,
+		arg.FailureMsg,
+	)
+	return err
+}
+
 const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
 SELECT
     ha.id,
@@ -643,4 +683,352 @@ func (q *Queries) FilterPayments(ctx context.Context, arg FilterPaymentsParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const insertHtlcAttempt = `-- name: InsertHtlcAttempt :one
+INSERT INTO payment_htlc_attempts (
+    payment_id,
+    attempt_index,
+    session_key,
+    attempt_time,
+    payment_hash,
+    first_hop_amount_msat,
+    route_total_time_lock,
+    route_total_amount,
+    route_source_key)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5, 
+    $6, 
+    $7, 
+    $8, 
+    $9)
+RETURNING id
+`
+
+type InsertHtlcAttemptParams struct {
+	PaymentID          int64
+	AttemptIndex       int64
+	SessionKey         []byte
+	AttemptTime        time.Time
+	PaymentHash        []byte
+	FirstHopAmountMsat int64
+	RouteTotalTimeLock int32
+	RouteTotalAmount   int64
+	RouteSourceKey     []byte
+}
+
+func (q *Queries) InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertHtlcAttempt,
+		arg.PaymentID,
+		arg.AttemptIndex,
+		arg.SessionKey,
+		arg.AttemptTime,
+		arg.PaymentHash,
+		arg.FirstHopAmountMsat,
+		arg.RouteTotalTimeLock,
+		arg.RouteTotalAmount,
+		arg.RouteSourceKey,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertPayment = `-- name: InsertPayment :one
+INSERT INTO payments (
+    amount_msat, 
+    created_at, 
+    payment_identifier,
+    fail_reason)
+VALUES (
+    $1,
+    $2,
+    $3,
+    NULL
+)
+RETURNING id
+`
+
+type InsertPaymentParams struct {
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+}
+
+// Insert a new payment and return its ID.
+func (q *Queries) InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPayment, arg.AmountMsat, arg.CreatedAt, arg.PaymentIdentifier)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertPaymentAttemptFirstHopCustomRecord = `-- name: InsertPaymentAttemptFirstHopCustomRecord :exec
+INSERT INTO payment_attempt_first_hop_custom_records (
+    htlc_attempt_index,
+    key,
+    value
+)
+VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertPaymentAttemptFirstHopCustomRecordParams struct {
+	HtlcAttemptIndex int64
+	Key              int64
+	Value            []byte
+}
+
+func (q *Queries) InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertPaymentAttemptFirstHopCustomRecord, arg.HtlcAttemptIndex, arg.Key, arg.Value)
+	return err
+}
+
+const insertPaymentFirstHopCustomRecord = `-- name: InsertPaymentFirstHopCustomRecord :exec
+INSERT INTO payment_first_hop_custom_records (
+    payment_id,
+    key,
+    value
+)
+VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertPaymentFirstHopCustomRecordParams struct {
+	PaymentID int64
+	Key       int64
+	Value     []byte
+}
+
+func (q *Queries) InsertPaymentFirstHopCustomRecord(ctx context.Context, arg InsertPaymentFirstHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertPaymentFirstHopCustomRecord, arg.PaymentID, arg.Key, arg.Value)
+	return err
+}
+
+const insertPaymentHopCustomRecord = `-- name: InsertPaymentHopCustomRecord :exec
+INSERT INTO payment_hop_custom_records (
+    hop_id,
+    key,
+    value
+)
+VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertPaymentHopCustomRecordParams struct {
+	HopID int64
+	Key   int64
+	Value []byte
+}
+
+func (q *Queries) InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error {
+	_, err := q.db.ExecContext(ctx, insertPaymentHopCustomRecord, arg.HopID, arg.Key, arg.Value)
+	return err
+}
+
+const insertPaymentIntent = `-- name: InsertPaymentIntent :one
+INSERT INTO payment_intents (
+    payment_id,
+    intent_type, 
+    intent_payload)
+VALUES (
+    $1,
+    $2, 
+    $3
+)
+RETURNING id
+`
+
+type InsertPaymentIntentParams struct {
+	PaymentID     int64
+	IntentType    int16
+	IntentPayload []byte
+}
+
+// Insert a payment intent for a given payment and return its ID.
+func (q *Queries) InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertPaymentIntent, arg.PaymentID, arg.IntentType, arg.IntentPayload)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertRouteHop = `-- name: InsertRouteHop :one
+INSERT INTO payment_route_hops (
+    htlc_attempt_index,
+    hop_index,
+    pub_key,
+    scid,
+    outgoing_time_lock,
+    amt_to_forward,
+    meta_data
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7
+)
+RETURNING id
+`
+
+type InsertRouteHopParams struct {
+	HtlcAttemptIndex int64
+	HopIndex         int32
+	PubKey           []byte
+	Scid             string
+	OutgoingTimeLock int32
+	AmtToForward     int64
+	MetaData         []byte
+}
+
+func (q *Queries) InsertRouteHop(ctx context.Context, arg InsertRouteHopParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertRouteHop,
+		arg.HtlcAttemptIndex,
+		arg.HopIndex,
+		arg.PubKey,
+		arg.Scid,
+		arg.OutgoingTimeLock,
+		arg.AmtToForward,
+		arg.MetaData,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertRouteHopAmp = `-- name: InsertRouteHopAmp :exec
+INSERT INTO payment_route_hop_amp (
+    hop_id,
+    root_share,
+    set_id,
+    child_index
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+`
+
+type InsertRouteHopAmpParams struct {
+	HopID      int64
+	RootShare  []byte
+	SetID      []byte
+	ChildIndex int32
+}
+
+func (q *Queries) InsertRouteHopAmp(ctx context.Context, arg InsertRouteHopAmpParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteHopAmp,
+		arg.HopID,
+		arg.RootShare,
+		arg.SetID,
+		arg.ChildIndex,
+	)
+	return err
+}
+
+const insertRouteHopBlinded = `-- name: InsertRouteHopBlinded :exec
+INSERT INTO payment_route_hop_blinded (
+    hop_id,
+    encrypted_data,
+    blinding_point,
+    blinded_path_total_amt
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+`
+
+type InsertRouteHopBlindedParams struct {
+	HopID               int64
+	EncryptedData       []byte
+	BlindingPoint       []byte
+	BlindedPathTotalAmt sql.NullInt64
+}
+
+func (q *Queries) InsertRouteHopBlinded(ctx context.Context, arg InsertRouteHopBlindedParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteHopBlinded,
+		arg.HopID,
+		arg.EncryptedData,
+		arg.BlindingPoint,
+		arg.BlindedPathTotalAmt,
+	)
+	return err
+}
+
+const insertRouteHopMpp = `-- name: InsertRouteHopMpp :exec
+INSERT INTO payment_route_hop_mpp (
+    hop_id,
+    payment_addr,
+    total_msat
+)
+VALUES (
+    $1,
+    $2,
+    $3
+)
+`
+
+type InsertRouteHopMppParams struct {
+	HopID       int64
+	PaymentAddr []byte
+	TotalMsat   int64
+}
+
+func (q *Queries) InsertRouteHopMpp(ctx context.Context, arg InsertRouteHopMppParams) error {
+	_, err := q.db.ExecContext(ctx, insertRouteHopMpp, arg.HopID, arg.PaymentAddr, arg.TotalMsat)
+	return err
+}
+
+const settleAttempt = `-- name: SettleAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    settle_preimage
+)
+VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+)
+`
+
+type SettleAttemptParams struct {
+	AttemptIndex   int64
+	ResolutionTime time.Time
+	ResolutionType int32
+	SettlePreimage []byte
+}
+
+func (q *Queries) SettleAttempt(ctx context.Context, arg SettleAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, settleAttempt,
+		arg.AttemptIndex,
+		arg.ResolutionTime,
+		arg.ResolutionType,
+		arg.SettlePreimage,
+	)
+	return err
 }

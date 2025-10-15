@@ -85,6 +85,19 @@ func (q *Queries) FailAttempt(ctx context.Context, arg FailAttemptParams) error 
 	return err
 }
 
+const failPayment = `-- name: FailPayment :execresult
+UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2
+`
+
+type FailPaymentParams struct {
+	FailReason        sql.NullInt32
+	PaymentIdentifier []byte
+}
+
+func (q *Queries) FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, failPayment, arg.FailReason, arg.PaymentIdentifier)
+}
+
 const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
 SELECT
     ha.id,

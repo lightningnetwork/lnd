@@ -77,6 +77,8 @@ type SQLQueries interface {
 
 	SettleAttempt(ctx context.Context, arg sqlc.SettleAttemptParams) error
 
+	FailPayment(ctx context.Context, arg sqlc.FailPaymentParams) (sql.Result, error)
+
 	DeletePayment(ctx context.Context, paymentID int64) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db for a
@@ -1356,6 +1358,70 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to settle attempt: %w", err)
+	}
+
+	return mpPayment, nil
+}
+
+// Fail records the ultimate reason why a payment failed. This method stores
+// the failure reason for record keeping but does not enforce that all HTLC
+// attempts are resolved - HTLCs may still be in flight when this is called.
+//
+// The payment's actual status transition to StatusFailed is determined by the
+// payment state calculation, which considers both the recorded failure reason
+// and the current state of all HTLC attempts. The status will transition to
+// StatusFailed once all HTLCs are resolved and/or a failure reason is recorded.
+//
+// NOTE: According to the interface contract, this should only be called when
+// all active attempts are already failed. However, the implementation allows
+// concurrent calls and does not validate this precondition, enabling the last
+// failing attempt to record the failure reason without synchronization.
+//
+// This method is part of the PaymentControl interface, which is embedded in
+// the PaymentWriter interface and ultimately the DB interface. It represents
+// step 4 in the payment lifecycle control flow.
+func (s *SQLStore) Fail(paymentHash lntypes.Hash,
+	reason FailureReason) (*MPPayment, error) {
+
+	ctx := context.TODO()
+
+	var mpPayment *MPPayment
+
+	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
+		result, err := db.FailPayment(ctx, sqlc.FailPaymentParams{
+			PaymentIdentifier: paymentHash[:],
+			FailReason:        sqldb.SQLInt32(reason),
+		})
+		if err != nil {
+			return err
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return ErrPaymentNotInitiated
+		}
+
+		payment, err := db.FetchPayment(ctx, paymentHash[:])
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment: %w", err)
+		}
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, payment,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to fetch payment with "+
+				"complete data: %w", err)
+		}
+
+		return nil
+	}, func() {
+		mpPayment = nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fail payment: %w", err)
 	}
 
 	return mpPayment, nil

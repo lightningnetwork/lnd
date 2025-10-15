@@ -32,8 +32,12 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 );
 
 -- Index for efficient querying by intent type
-CREATE INDEX IF NOT EXISTS idx_payment_intents_type 
+CREATE INDEX IF NOT EXISTS idx_payment_intents_type
 ON payment_intents(intent_type);
+
+-- Unique constraint for deduplication of payment intents
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_intents_unique
+ON payment_intents(intent_type, intent_payload);
 
 -- ─────────────────────────────────────────────
 -- Payments Table
@@ -187,7 +191,8 @@ CREATE TABLE IF NOT EXISTS payment_htlc_attempt_resolutions (
     -- HTLC failure reason code
     htlc_fail_reason INTEGER,
     
-    -- Failure message from the failing node
+    -- Failure message from the failing node, this message is binary encoded
+    -- using the lightning wire protocol, see also lnwire/onion_error.go
     failure_msg BLOB,
 
     -- Ensure data integrity: settled attempts must have preimage,

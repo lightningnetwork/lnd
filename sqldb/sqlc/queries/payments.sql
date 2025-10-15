@@ -165,6 +165,8 @@ ORDER BY l.hop_id ASC, l.key ASC;
 DELETE FROM payments WHERE id = $1;
 
 -- name: DeleteFailedAttempts :exec
+-- Delete all failed HTLC attempts for the given payment. Resolution type 2
+-- indicates a failed attempt.
 DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
     SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
 );

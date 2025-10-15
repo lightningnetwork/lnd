@@ -21,6 +21,8 @@ type Querier interface {
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 	DeleteChannels(ctx context.Context, ids []int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
+	// Delete all failed HTLC attempts for the given payment. Resolution type 2
+	// indicates a failed attempt.
 	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error

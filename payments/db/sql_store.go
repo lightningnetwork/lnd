@@ -60,6 +60,20 @@ type SQLQueries interface {
 	/*
 		Payment DB write operations.
 	*/
+	InsertPaymentIntent(ctx context.Context, arg sqlc.InsertPaymentIntentParams) (int64, error)
+	InsertPayment(ctx context.Context, arg sqlc.InsertPaymentParams) error
+	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg sqlc.InsertPaymentFirstHopCustomRecordParams) error
+
+	InsertHtlcAttempt(ctx context.Context, arg sqlc.InsertHtlcAttemptParams) (int64, error)
+	InsertRouteHop(ctx context.Context, arg sqlc.InsertRouteHopParams) (int64, error)
+	InsertRouteHopMpp(ctx context.Context, arg sqlc.InsertRouteHopMppParams) error
+	InsertRouteHopAmp(ctx context.Context, arg sqlc.InsertRouteHopAmpParams) error
+	InsertRouteHopBlinded(ctx context.Context, arg sqlc.InsertRouteHopBlindedParams) error
+
+	InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg sqlc.InsertPaymentAttemptFirstHopCustomRecordParams) error
+	InsertPaymentHopCustomRecord(ctx context.Context, arg sqlc.InsertPaymentHopCustomRecordParams) error
+
+	SettleAttempt(ctx context.Context, arg sqlc.SettleAttemptParams) error
 
 	DeletePayment(ctx context.Context, paymentID int64) error
 

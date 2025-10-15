@@ -170,3 +170,185 @@ DELETE FROM payments WHERE id = $1;
 DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
     SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
 );
+
+-- name: InsertPaymentIntent :one
+-- Insert a payment intent for a given payment and return its ID.
+INSERT INTO payment_intents (
+    payment_id,
+    intent_type, 
+    intent_payload)
+VALUES (
+    @payment_id,
+    @intent_type, 
+    @intent_payload
+)
+RETURNING id;
+
+-- name: InsertPayment :one
+-- Insert a new payment and return its ID.
+-- When creating a payment we don't have a fail reason because we start the
+-- payment process.
+INSERT INTO payments (
+    amount_msat, 
+    created_at, 
+    payment_identifier,
+    fail_reason)
+VALUES (
+    @amount_msat,
+    @created_at,
+    @payment_identifier,
+    NULL
+)
+RETURNING id;
+
+-- name: InsertPaymentFirstHopCustomRecord :exec
+INSERT INTO payment_first_hop_custom_records (
+    payment_id,
+    key,
+    value
+)
+VALUES (
+    @payment_id,
+    @key,
+    @value
+);
+
+-- name: InsertHtlcAttempt :one
+INSERT INTO payment_htlc_attempts (
+    payment_id,
+    attempt_index,
+    session_key,
+    attempt_time,
+    payment_hash,
+    first_hop_amount_msat,
+    route_total_time_lock,
+    route_total_amount,
+    route_source_key)
+VALUES (
+    @payment_id,
+    @attempt_index,
+    @session_key,
+    @attempt_time,
+    @payment_hash, 
+    @first_hop_amount_msat, 
+    @route_total_time_lock, 
+    @route_total_amount, 
+    @route_source_key)
+RETURNING id;
+
+-- name: InsertPaymentAttemptFirstHopCustomRecord :exec
+INSERT INTO payment_attempt_first_hop_custom_records (
+    htlc_attempt_index,
+    key,
+    value
+)
+VALUES (
+    @htlc_attempt_index,
+    @key,
+    @value
+);
+
+-- name: InsertRouteHop :one
+INSERT INTO payment_route_hops (
+    htlc_attempt_index,
+    hop_index,
+    pub_key,
+    scid,
+    outgoing_time_lock,
+    amt_to_forward,
+    meta_data
+)
+VALUES (
+    @htlc_attempt_index,
+    @hop_index,
+    @pub_key,
+    @scid,
+    @outgoing_time_lock,
+    @amt_to_forward,
+    @meta_data
+)
+RETURNING id;
+
+-- name: InsertRouteHopMpp :exec
+INSERT INTO payment_route_hop_mpp (
+    hop_id,
+    payment_addr,
+    total_msat
+)
+VALUES (
+    @hop_id,
+    @payment_addr,
+    @total_msat
+);
+
+-- name: InsertRouteHopAmp :exec
+INSERT INTO payment_route_hop_amp (
+    hop_id,
+    root_share,
+    set_id,
+    child_index
+)
+VALUES (
+    @hop_id,
+    @root_share,
+    @set_id,
+    @child_index
+);
+
+-- name: InsertRouteHopBlinded :exec
+INSERT INTO payment_route_hop_blinded (
+    hop_id,
+    encrypted_data,
+    blinding_point,
+    blinded_path_total_amt
+)
+VALUES (
+    @hop_id,
+    @encrypted_data,
+    @blinding_point,
+    @blinded_path_total_amt
+);
+
+-- name: InsertPaymentHopCustomRecord :exec
+INSERT INTO payment_hop_custom_records (
+    hop_id,
+    key,
+    value
+)
+VALUES (
+    @hop_id,
+    @key,
+    @value
+);
+
+-- name: SettleAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    settle_preimage
+)
+VALUES (
+    @attempt_index,
+    @resolution_time,
+    @resolution_type,
+    @settle_preimage
+);
+
+-- name: FailAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    failure_source_index,
+    htlc_fail_reason,
+    failure_msg
+)
+VALUES (
+    @attempt_index,
+    @resolution_time,
+    @resolution_type,
+    @failure_source_index,
+    @htlc_fail_reason,
+    @failure_msg
+);

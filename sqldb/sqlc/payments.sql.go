@@ -115,12 +115,20 @@ WHERE NOT EXISTS (
     SELECT 1 FROM payment_htlc_attempt_resolutions hr
     WHERE hr.attempt_index = ha.attempt_index
 )
+AND ha.attempt_index > $1
 ORDER BY ha.attempt_index ASC
+LIMIT $2
 `
 
-// Fetch all inflight attempts across all payments
-func (q *Queries) FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts)
+type FetchAllInflightAttemptsParams struct {
+	AttemptIndex int64
+	Limit        int32
+}
+
+// Fetch all inflight attempts with their payment data using pagination.
+// Returns attempt data joined with payment and intent data to avoid separate queries.
+func (q *Queries) FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts, arg.AttemptIndex, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -522,20 +530,32 @@ func (q *Queries) FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, pa
 
 const fetchPaymentsByIDs = `-- name: FetchPaymentsByIDs :many
 SELECT
-    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
-    i.intent_type AS "intent_type",
-    i.intent_payload AS "intent_payload"
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
 FROM payments p
-LEFT JOIN payment_intents i ON i.payment_id = p.id
+LEFT JOIN payment_intents pi ON pi.payment_id = p.id
 WHERE p.id IN (/*SLICE:payment_ids*/?)
+ORDER BY p.id ASC
 `
 
 type FetchPaymentsByIDsRow struct {
-	Payment       Payment
-	IntentType    sql.NullInt16
-	IntentPayload []byte
+	ID                int64
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+	IntentType        sql.NullInt16
+	IntentPayload     []byte
 }
 
+// Batch fetch payment and intent data for a set of payment IDs.
+// Used to avoid fetching redundant payment data when processing multiple
+// attempts for the same payment.
 func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error) {
 	query := fetchPaymentsByIDs
 	var queryParams []interface{}
@@ -556,11 +576,11 @@ func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([
 	for rows.Next() {
 		var i FetchPaymentsByIDsRow
 		if err := rows.Scan(
-			&i.Payment.ID,
-			&i.Payment.AmountMsat,
-			&i.Payment.CreatedAt,
-			&i.Payment.PaymentIdentifier,
-			&i.Payment.FailReason,
+			&i.ID,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentIdentifier,
+			&i.FailReason,
 			&i.IntentType,
 			&i.IntentPayload,
 		); err != nil {

@@ -176,7 +176,8 @@
     SQL Backend](https://github.com/lightningnetwork/lnd/pull/10291)
   * Implement third(final) Part of SQL backend [payment
   functions](https://github.com/lightningnetwork/lnd/pull/10368)
-
+  * Finalize SQL payments implementation [enabling unit and itests
+    for SQL backend](https://github.com/lightningnetwork/lnd/pull/10292)
 
 ## Code Health
 

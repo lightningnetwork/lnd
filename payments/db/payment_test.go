@@ -426,7 +426,6 @@ func genAttemptWithHash(t *testing.T, attemptID uint64,
 
 // genInfo generates a payment creation info and the corresponding preimage.
 func genInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage, error) {
-
 	preimage, _, err := genPreimageAndHash(t)
 	if err != nil {
 		return nil, preimage, err
@@ -2653,14 +2652,10 @@ func TestQueryPayments(t *testing.T) {
 						"got %v", expectedTotal,
 						querySlice.TotalCount)
 				}
-			} else {
-				// When CountTotal is false, TotalCount should
-				// be 0.
-				if querySlice.TotalCount != 0 {
-					t.Errorf("expected total count 0 when "+
-						"CountTotal=false, got %v",
-						querySlice.TotalCount)
-				}
+			} else if querySlice.TotalCount != 0 {
+				t.Errorf("expected total count 0 when "+
+					"CountTotal=false, got %v",
+					querySlice.TotalCount)
 			}
 		})
 	}

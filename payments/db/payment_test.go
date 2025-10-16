@@ -426,7 +426,6 @@ func genAttemptWithHash(t *testing.T, attemptID uint64,
 
 // genInfo generates a payment creation info and the corresponding preimage.
 func genInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage, error) {
-
 	preimage, _, err := genPreimageAndHash(t)
 	if err != nil {
 		return nil, preimage, err

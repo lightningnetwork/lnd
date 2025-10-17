@@ -383,11 +383,22 @@ func genPaymentCreationInfo(t *testing.T,
 
 	t.Helper()
 
+	// Add constant first hop custom records for testing for testing
+	// purposes.
+	firstHopCustomRecords := lnwire.CustomRecords{
+		lnwire.MinCustomRecordsTlvType + 1: []byte("test_record_1"),
+		lnwire.MinCustomRecordsTlvType + 2: []byte("test_record_2"),
+		lnwire.MinCustomRecordsTlvType + 3: []byte{
+			0x01, 0x02, 0x03, 0x04, 0x05,
+		},
+	}
+
 	return &PaymentCreationInfo{
-		PaymentIdentifier: paymentHash,
-		Value:             testRoute.ReceiverAmt(),
-		CreationTime:      time.Unix(time.Now().Unix(), 0),
-		PaymentRequest:    []byte("hola"),
+		PaymentIdentifier:     paymentHash,
+		Value:                 testRoute.ReceiverAmt(),
+		CreationTime:          time.Unix(time.Now().Unix(), 0),
+		PaymentRequest:        []byte("hola"),
+		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 }
 

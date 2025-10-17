@@ -27,8 +27,10 @@ func dbPaymentToCreationInfo(paymentIdentifier []byte, amountMsat int64,
 	copy(identifier[:], paymentIdentifier)
 
 	return &PaymentCreationInfo{
-		PaymentIdentifier:     identifier,
-		Value:                 lnwire.MilliSatoshi(amountMsat),
+		PaymentIdentifier: identifier,
+		Value:             lnwire.MilliSatoshi(amountMsat),
+		// The creation time is stored in the database as UTC but here
+		// we convert it to local time.
 		CreationTime:          createdAt.Local(),
 		PaymentRequest:        intentPayload,
 		FirstHopCustomRecords: firstHopCustomRecords,
@@ -205,7 +207,8 @@ func dbDataToRoute(hops []sqlc.FetchHopsForAttemptsRow,
 			)
 		}
 
-		// Add blinding point if present (only for introduction node).
+		// Add blinding point if present (only for introduction node
+		// in blinded route).
 		if len(hop.BlindingPoint) > 0 {
 			pubKey, err := btcec.ParsePubKey(hop.BlindingPoint)
 			if err != nil {

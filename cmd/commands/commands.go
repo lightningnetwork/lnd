@@ -1099,6 +1099,13 @@ var closeChannelCommand = cli.Command{
 	Action: actionDecorator(closeChannel),
 }
 
+// CloseInfo contains information about a channel close transaction.
+type CloseInfo struct {
+	ClosingTxid   string `json:"closing_txid"`
+	FeePerVbyte   int64  `json:"fee_per_vbyte"`
+	LocalCloseTx  bool   `json:"local_close_tx"`
+}
+
 func closeChannel(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
@@ -1138,50 +1145,49 @@ func closeChannel(ctx *cli.Context) error {
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will
-	// retrieve the closing transaction ID when attempting to close the
+	// retrieve the closing transaction details when attempting to close the
 	// channel. We do this to because `executeChannelClose` can block, so we
-	// would like to present the closing transaction ID to the user as soon
+	// would like to present the closing transaction details to the user as soon
 	// as it is broadcasted.
 	var wg sync.WaitGroup
-	txidChan := make(chan string, 1)
+	closeInfoChan := make(chan CloseInfo, 1)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		printJSON(struct {
-			ClosingTxid string `json:"closing_txid"`
-		}{
-			ClosingTxid: <-txidChan,
-		})
+		closeInfo := <-closeInfoChan
+		printJSON(closeInfo)
 	}()
 
-	err = executeChannelClose(ctxc, client, req, txidChan, ctx.Bool("block"))
+	err = executeChannelClose(ctxc, client, req, closeInfoChan, ctx.Bool("block"))
 	if err != nil {
 		return err
 	}
 
 	// In the case that the user did not provide the `block` flag, then we
 	// need to wait for the goroutine to be done to prevent it from being
-	// destroyed when exiting before printing the closing transaction ID.
+	// destroyed when exiting before printing the closing transaction details.
 	wg.Wait()
 
 	return nil
 }
 
 // executeChannelClose attempts to close the channel from a request. The closing
-// transaction ID is sent through `txidChan` as soon as it is broadcasted to the
+// transaction information is sent through `closeInfoChan` as soon as it is broadcasted to the
 // network. The block boolean is used to determine if we should block until the
 // closing transaction receives a confirmation of 1 block. The logging outputs
 // are sent to stderr to avoid conflicts with the JSON output of the command
 // and potential work flows which depend on a proper JSON output.
 func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
-	req *lnrpc.CloseChannelRequest, txidChan chan<- string, block bool) error {
+	req *lnrpc.CloseChannelRequest, closeInfoChan chan<- CloseInfo, block bool) error {
 
 	stream, err := client.CloseChannel(ctxc, req)
 	if err != nil {
 		return err
 	}
+
+	var sentCloseInfo bool
 
 	for {
 		resp, err := stream.Recv()
@@ -1211,10 +1217,32 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 				return err
 			}
 
-			fmt.Fprintf(os.Stderr, "Channel close transaction "+
-				"broadcasted: %v\n", txid)
+			feeRate := update.ClosePending.FeePerVbyte
+			isLocalClose := update.ClosePending.LocalCloseTx
 
-			txidChan <- txid.String()
+			var closeTypeMsg string
+			if isLocalClose {
+				closeTypeMsg = " (local close)"
+			} else {
+				closeTypeMsg = " (remote close)"
+			}
+
+			fmt.Fprintf(os.Stderr, "Channel close transaction "+
+				"broadcasted: %v%s\n", txid, closeTypeMsg)
+
+			if feeRate > 0 {
+				fmt.Fprintf(os.Stderr, "Fee rate: %d sat/vbyte\n", feeRate)
+			}
+
+			if !sentCloseInfo {
+				closeInfo := CloseInfo{
+					ClosingTxid:  txid.String(),
+					FeePerVbyte:  feeRate,
+					LocalCloseTx: isLocalClose,
+				}
+				closeInfoChan <- closeInfo
+				sentCloseInfo = true
+			}
 
 			if !block {
 				return nil
@@ -1393,13 +1421,15 @@ func closeAllChannels(ctx *cli.Context) error {
 	}
 
 	// result defines the result of closing a channel. The closing
-	// transaction ID is populated if a channel is successfully closed.
+	// transaction information is populated if a channel is successfully closed.
 	// Otherwise, the error that prevented closing the channel is populated.
 	type result struct {
-		RemotePubKey string `json:"remote_pub_key"`
-		ChannelPoint string `json:"channel_point"`
-		ClosingTxid  string `json:"closing_txid"`
-		FailErr      string `json:"error"`
+		RemotePubKey  string `json:"remote_pub_key"`
+		ChannelPoint  string `json:"channel_point"`
+		ClosingTxid   string `json:"closing_txid"`
+		FeePerVbyte   int64  `json:"fee_per_vbyte"`
+		LocalCloseTx  bool   `json:"local_close_tx"`
+		FailErr       string `json:"error"`
 	}
 
 	// Launch each channel closure in a goroutine in order to execute them
@@ -1442,15 +1472,18 @@ func closeAllChannels(ctx *cli.Context) error {
 				SatPerVbyte: ctx.Uint64(feeRateFlag),
 			}
 
-			txidChan := make(chan string, 1)
-			err = executeChannelClose(ctxc, client, req, txidChan, false)
+			closeInfoChan := make(chan CloseInfo, 1)
+			err = executeChannelClose(ctxc, client, req, closeInfoChan, false)
 			if err != nil {
 				res.FailErr = fmt.Sprintf("unable to close "+
 					"channel: %v", err)
 				return
 			}
 
-			res.ClosingTxid = <-txidChan
+			closeInfo := <-closeInfoChan
+			res.ClosingTxid = closeInfo.ClosingTxid
+			res.FeePerVbyte = closeInfo.FeePerVbyte
+			res.LocalCloseTx = closeInfo.LocalCloseTx
 		}(channel)
 	}
 

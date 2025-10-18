@@ -2273,11 +2273,7 @@ func (l *channelLink) isOverexposedWithHtlc(htlc *lnwire.UpdateAddHTLC,
 	)
 
 	// Grab the larger of the local and remote commitment fees w/o dust.
-	commitFee := l.getCommitFee(false)
-
-	if l.getCommitFee(true) > commitFee {
-		commitFee = l.getCommitFee(true)
-	}
+	commitFee := max(l.getCommitFee(true), l.getCommitFee(false))
 
 	commitFeeMSat := lnwire.NewMSatFromSatoshis(commitFee)
 

@@ -20,6 +20,9 @@
 - [Contributors (Alphabetical Order)](#contributors)
 
 # Bug Fixes
+-Fixed [`--sat_per_vbyte` flag](https://github.com/lightningnetwork/lnd/pull/9834)
+ accepting negative values in `lncli` commands by changing its type to 
+ `Uint64Flag` to reject negative fee rates.
 
 # New Features
 ## Functional Enhancements
@@ -53,3 +56,4 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* Suvrat1629

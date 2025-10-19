@@ -20,6 +20,12 @@
 
 # Bug Fixes
 
+- [Fixed premature wallet
+  rescanning](https://github.com/lightningnetwork/lnd/pull/10280) that occurred
+  when a wallet was created during header sync. This issue primarily affected
+  neutrino chain backends. The fix ensures headers are fully synced before
+  starting the chain notifier backend.
+
 - Fixed potential update inconsistencies in node announcements [by creating
   a shallow copy before modifications](
   https://github.com/lightningnetwork/lnd/pull/9815). This ensures the original

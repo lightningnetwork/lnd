@@ -61,6 +61,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1445,6 +1446,15 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			devCfg, reservationTimeout, zombieSweeperInterval)
 	}
 
+	// Attempt to parse the provided upfront-shutdown address (if any).
+	script, err := chancloser.ParseUpfrontShutdownAddress(
+		cfg.UpfrontShutdownAddr, cfg.ActiveNetParams.Params,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing upfront shutdown: %w",
+			err)
+	}
+
 	//nolint:ll
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		Dev:                devCfg,
@@ -1623,6 +1633,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxSigner:            implCfg.AuxSigner,
 		AuxResolver:          implCfg.AuxContractResolver,
 		AuxChannelNegotiator: implCfg.AuxChannelNegotiator,
+		ShutdownScript:       peer.ChooseAddr(script),
 	})
 	if err != nil {
 		return nil, err

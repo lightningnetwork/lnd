@@ -573,6 +573,10 @@ type Config struct {
 	// implementations to inject and process custom records over channel
 	// related wire messages.
 	AuxChannelNegotiator fn.Option[lnwallet.AuxChannelNegotiator]
+
+	// ShutdownScript is an optional upfront-shutdown script to which our
+	// funds should be paid on a cooperative close.
+	ShutdownScript fn.Option[lnwire.DeliveryAddress]
 }
 
 // Manager acts as an orchestrator/bridge between the wallet's
@@ -1760,12 +1764,24 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		return
 	}
 
+	// If the fundee didn't provide an upfront-shutdown address via
+	// the channel acceptor, fall back to the configured shutdown
+	// script (if any).
+	shutdownScript := acceptorResp.UpfrontShutdown
+	if len(shutdownScript) == 0 {
+		f.cfg.ShutdownScript.WhenSome(
+			func(script lnwire.DeliveryAddress) {
+				shutdownScript = script
+			},
+		)
+	}
+
 	// Check whether the peer supports upfront shutdown, and get a new
 	// wallet address if our node is configured to set shutdown addresses by
 	// default. We use the upfront shutdown script provided by our channel
 	// acceptor (if any) in lieu of user input.
 	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
+		f.cfg.EnableUpfrontShutdown, peer, shutdownScript,
 		f.selectShutdownScript,
 	)
 	if err != nil {
@@ -4849,12 +4865,23 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		}
 	}
 
+	// If the funder did not provide an upfront-shutdown address, fall back
+	// to the configured shutdown script (if any).
+	shutdownScript := msg.ShutdownScript
+	if len(shutdownScript) == 0 {
+		f.cfg.ShutdownScript.WhenSome(
+			func(script lnwire.DeliveryAddress) {
+				shutdownScript = script
+			},
+		)
+	}
+
 	// Check whether the peer supports upfront shutdown, and get an address
 	// which should be used (either a user specified address or a new
 	// address from the wallet if our node is configured to set shutdown
 	// address by default).
 	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, msg.Peer, msg.ShutdownScript,
+		f.cfg.EnableUpfrontShutdown, msg.Peer, shutdownScript,
 		f.selectShutdownScript,
 	)
 	if err != nil {

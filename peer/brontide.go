@@ -3589,9 +3589,9 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 	return nil
 }
 
-// chooseAddr returns the provided address if it is non-zero length, otherwise
+// ChooseAddr returns the provided address if it is non-zero length, otherwise
 // None.
-func chooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
+func ChooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
 	if len(addr) == 0 {
 		return fn.None[lnwire.DeliveryAddress]()
 	}
@@ -3930,10 +3930,10 @@ func (p *Brontide) initRbfChanCloser(
 		ChanType:       channel.ChanType(),
 		DefaultFeeRate: defaultFeePerKw.FeePerVByte(),
 		ThawHeight:     fn.Some(thawHeight),
-		RemoteUpfrontShutdown: chooseAddr(
+		RemoteUpfrontShutdown: ChooseAddr(
 			channel.RemoteUpfrontShutdownScript(),
 		),
-		LocalUpfrontShutdown: chooseAddr(
+		LocalUpfrontShutdown: ChooseAddr(
 			channel.LocalUpfrontShutdownScript(),
 		),
 		NewDeliveryScript: func() (lnwire.DeliveryAddress, error) {

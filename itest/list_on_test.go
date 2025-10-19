@@ -287,6 +287,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testOpenChannelAfterReorg,
 	},
 	{
+		Name:     "open channel with shutdown address",
+		TestFunc: testOpenChannelWithShutdownAddr,
+	},
+	{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},

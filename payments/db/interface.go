@@ -31,7 +31,8 @@ type PaymentReader interface {
 // database.
 type PaymentWriter interface {
 	// DeletePayment deletes a payment from the DB given its payment hash.
-	DeletePayment(paymentHash lntypes.Hash, failedAttemptsOnly bool) error
+	DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
+		failedAttemptsOnly bool) error
 
 	// DeletePayments deletes all payments from the DB given the specified
 	// flags.

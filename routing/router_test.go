@@ -1093,7 +1093,9 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	require.Equal(t, paymentsdb.FailureReasonNoRoute, err)
 
 	// Inspect the two attempts that were made before the payment failed.
-	p, err := ctx.router.cfg.Control.FetchPayment(*payment.paymentHash)
+	p, err := ctx.router.cfg.Control.FetchPayment(
+		t.Context(), *payment.paymentHash,
+	)
 	require.NoError(t, err)
 
 	htlcs := p.GetHTLCs()

@@ -409,6 +409,8 @@ func deletePayment(t *testing.T, db kvdb.Backend, paymentHash lntypes.Hash,
 func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	paymentDB := NewKVTestDB(t)
 
+	ctx := t.Context()
+
 	// Generate a test payment which does not have duplicates.
 	noDuplicates, _, err := genInfo(t)
 	require.NoError(t, err)
@@ -421,7 +423,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Fetch the payment so we can get its sequence nr.
 	noDuplicatesPayment, err := paymentDB.FetchPayment(
-		noDuplicates.PaymentIdentifier,
+		ctx, noDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)
 
@@ -437,7 +439,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Fetch the payment so we can get its sequence nr.
 	hasDuplicatesPayment, err := paymentDB.FetchPayment(
-		hasDuplicates.PaymentIdentifier,
+		ctx, hasDuplicates.PaymentIdentifier,
 	)
 	require.NoError(t, err)
 
@@ -749,7 +751,7 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 				// Immediately delete the payment with index 2.
 				if i == 1 {
 					pmt, err := paymentDB.FetchPayment(
-						info.PaymentIdentifier,
+						ctx, info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
 
@@ -766,7 +768,7 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 				// duplicate payments will always be succeeded.
 				if i == (nonDuplicatePayments - 1) {
 					pmt, err := paymentDB.FetchPayment(
-						info.PaymentIdentifier,
+						ctx, info.PaymentIdentifier,
 					)
 					require.NoError(t, err)
 

@@ -7720,7 +7720,7 @@ func (r *rpcServer) DeletePayment(ctx context.Context,
 	rpcsLog.Infof("[DeletePayment] payment_identifier=%v, "+
 		"failed_htlcs_only=%v", hash, req.FailedHtlcsOnly)
 
-	err = r.server.paymentsDB.DeletePayment(hash, req.FailedHtlcsOnly)
+	err = r.server.paymentsDB.DeletePayment(ctx, hash, req.FailedHtlcsOnly)
 	if err != nil {
 		return nil, err
 	}

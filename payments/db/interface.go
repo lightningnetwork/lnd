@@ -36,7 +36,8 @@ type PaymentWriter interface {
 
 	// DeletePayments deletes all payments from the DB given the specified
 	// flags.
-	DeletePayments(failedOnly, failedAttemptsOnly bool) (int, error)
+	DeletePayments(ctx context.Context, failedOnly,
+		failedAttemptsOnly bool) (int, error)
 
 	PaymentControl
 }

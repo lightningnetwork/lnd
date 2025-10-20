@@ -242,6 +242,71 @@ func NewUtxoNursery(cfg *NurseryConfig) *UtxoNursery {
 	}
 }
 
+// patchZeroHeightHint handles the edge case where a crib output has expiry=0
+// due to a historical bug. This should never happen in normal operation, but
+// we provide a fallback mechanism using the channel close height to determine
+// a valid height hint for the chain notifier.
+//
+// This function returns a height hint that ensures we don't miss confirmations
+// while avoiding the chain notifier's requirement that height hints must
+// be > 0.
+func (u *UtxoNursery) patchZeroHeightHint(baby *babyOutput,
+	classHeight uint32) (uint32, error) {
+
+	if classHeight != 0 {
+		// Normal case - return the original height.
+		return classHeight, nil
+	}
+
+	utxnLog.Warnf("Detected crib output %v with expiry=0, "+
+		"attempting to use fallback height hint from channel "+
+		"close summary", baby.OutPoint())
+
+	// Try to get the channel close height as a fallback.
+	chanPoint := baby.OriginChanPoint()
+	closeSummary, err := u.cfg.FetchClosedChannel(chanPoint)
+	if err != nil {
+		return 0, fmt.Errorf("cannot fetch close summary for "+
+			"channel %v to determine fallback height hint: %w",
+			chanPoint, err)
+	}
+
+	heightHint := closeSummary.CloseHeight
+
+	// If the close height is 0, we try to use the short channel ID block
+	// height as a fallback.
+	if heightHint == 0 {
+		if closeSummary.ShortChanID.BlockHeight == 0 {
+			return 0, fmt.Errorf("cannot use fallback height " +
+				"hint: close height is 0 and short " +
+				"channel ID block height is 0")
+		}
+
+		heightHint = closeSummary.ShortChanID.BlockHeight
+	}
+
+	// At this point the height hint should normally be greater than the
+	// conf depth since channels should have a minimum close height of the
+	// segwit activation height and the conf depth which is a config
+	// parameter should be in the single digit range.
+	if heightHint <= u.cfg.ConfDepth {
+		return 0, fmt.Errorf("cannot use fallback height hint: "+
+			"fallback height hint %v <= confirmation depth %v",
+			heightHint, u.cfg.ConfDepth)
+	}
+
+	// Use the close height minus the confirmation depth as a conservative
+	// height hint. This ensures we don't miss the confirmation even if it
+	// happened around the close height.
+	heightHint -= u.cfg.ConfDepth
+
+	utxnLog.Infof("Using fallback height hint %v for crib output "+
+		"%v (channel closed at height %v, conf depth %v)", heightHint,
+		baby.OutPoint(), closeSummary.CloseHeight, u.cfg.ConfDepth)
+
+	return heightHint, nil
+}
+
 // Start launches all goroutines the UtxoNursery needs to properly carry out
 // its duties.
 func (u *UtxoNursery) Start() error {
@@ -967,7 +1032,19 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 		return err
 	}
 
-	return u.registerTimeoutConf(baby, classHeight)
+	// Determine the height hint to use for the confirmation notification.
+	// In the normal case, we use classHeight (which is the expiry height).
+	// However, due to a historical bug, some outputs were stored with
+	// expiry=0. For these cases, we need to use a fallback height hint
+	// based on the channel close height to avoid errors from the chain
+	// notifier which requires height hints > 0.
+	heightHint, err := u.patchZeroHeightHint(baby, classHeight)
+	if err != nil {
+		return fmt.Errorf("cannot determine height hint for "+
+			"crib output with expiry=0: %w", err)
+	}
+
+	return u.registerTimeoutConf(baby, heightHint)
 }
 
 // registerTimeoutConf is responsible for subscribing to confirmation

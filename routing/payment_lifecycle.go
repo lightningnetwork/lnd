@@ -1114,7 +1114,9 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 	error) {
 
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	ctx := context.TODO()
+
+	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,8 +1141,10 @@ func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 	*paymentsdb.MPPaymentState, error) {
 
+	ctx := context.TODO()
+
 	// Read the db to get the latest state of the payment.
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {
 		return nil, nil, err
 	}

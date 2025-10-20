@@ -585,8 +585,8 @@ func (p *KVStore) Fail(paymentHash lntypes.Hash,
 }
 
 // FetchPayment returns information about a payment from the database.
-func (p *KVStore) FetchPayment(paymentHash lntypes.Hash) (
-	*MPPayment, error) {
+func (p *KVStore) FetchPayment(_ context.Context,
+	paymentHash lntypes.Hash) (*MPPayment, error) {
 
 	var payment *MPPayment
 	err := kvdb.View(p.db, func(tx kvdb.RTx) error {

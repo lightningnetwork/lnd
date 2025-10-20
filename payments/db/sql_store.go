@@ -922,8 +922,8 @@ func fetchPaymentByHash(ctx context.Context, db SQLQueries,
 // Returns ErrPaymentNotInitiated if no payment with the given hash exists.
 //
 // This is part of the DB interface.
-func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
-	ctx := context.TODO()
+func (s *SQLStore) FetchPayment(ctx context.Context,
+	paymentHash lntypes.Hash) (*MPPayment, error) {
 
 	var mpPayment *MPPayment
 

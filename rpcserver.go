@@ -7761,7 +7761,7 @@ func (r *rpcServer) DeleteAllPayments(ctx context.Context,
 		req.FailedHtlcsOnly)
 
 	numDeletedPayments, err := r.server.paymentsDB.DeletePayments(
-		req.FailedPaymentsOnly, req.FailedHtlcsOnly,
+		ctx, req.FailedPaymentsOnly, req.FailedHtlcsOnly,
 	)
 	if err != nil {
 		return nil, err

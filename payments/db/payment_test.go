@@ -2740,6 +2740,8 @@ func TestQueryPayments(t *testing.T) {
 func TestFetchInFlightPayments(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
+
 	paymentDB, _ := NewTestDB(t)
 
 	// Register payments with different statuses:
@@ -2765,7 +2767,7 @@ func TestFetchInFlightPayments(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Fetch in-flight payments.
-	inFlightPayments, err := paymentDB.FetchInFlightPayments()
+	inFlightPayments, err := paymentDB.FetchInFlightPayments(ctx)
 	require.NoError(t, err)
 
 	// We should only get the two in-flight payments.
@@ -2795,7 +2797,7 @@ func TestFetchInFlightPayments(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch in-flight payments again.
-	inFlightPayments, err = paymentDB.FetchInFlightPayments()
+	inFlightPayments, err = paymentDB.FetchInFlightPayments(ctx)
 	require.NoError(t, err)
 
 	// We should now only get one in-flight payment.
@@ -2811,6 +2813,8 @@ func TestFetchInFlightPayments(t *testing.T) {
 // payments, a payment with multiple in-flight attempts is only returned once.
 func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 	t.Parallel()
+
+	ctx := t.Context()
 
 	paymentDB, _ := NewTestDB(t)
 
@@ -2843,7 +2847,7 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Both attempts are in-flight. Fetch in-flight payments.
-	inFlightPayments, err := paymentDB.FetchInFlightPayments()
+	inFlightPayments, err := paymentDB.FetchInFlightPayments(ctx)
 	require.NoError(t, err)
 
 	// We should only get one payment even though it has 2 in-flight

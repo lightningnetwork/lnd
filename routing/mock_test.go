@@ -546,7 +546,7 @@ func (m *mockControlTowerOld) fetchPayment(phash lntypes.Hash) (
 	return mp, nil
 }
 
-func (m *mockControlTowerOld) FetchInFlightPayments() (
+func (m *mockControlTowerOld) FetchInFlightPayments(_ context.Context) (
 	[]*paymentsdb.MPPayment, error) {
 
 	if m.fetchInFlight != nil {
@@ -801,7 +801,7 @@ func (m *mockControlTower) FetchPayment(_ context.Context,
 	return payment, args.Error(1)
 }
 
-func (m *mockControlTower) FetchInFlightPayments() (
+func (m *mockControlTower) FetchInFlightPayments(_ context.Context) (
 	[]*paymentsdb.MPPayment, error) {
 
 	args := m.Called()

@@ -972,10 +972,8 @@ func (s *SQLStore) FetchPayment(ctx context.Context,
 // While inflight payments are typically a small subset, this would improve
 // memory efficiency for nodes with unusually high numbers of concurrent
 // payments and would better leverage the existing pagination infrastructure.
-func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment,
+func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 	error) {
-
-	ctx := context.TODO()
 
 	var mpPayments []*MPPayment
 

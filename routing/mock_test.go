@@ -297,8 +297,8 @@ func makeMockControlTower() *mockControlTowerOld {
 	}
 }
 
-func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
-	c *paymentsdb.PaymentCreationInfo) error {
+func (m *mockControlTowerOld) InitPayment(_ context.Context,
+	phash lntypes.Hash, c *paymentsdb.PaymentCreationInfo) error {
 
 	if m.init != nil {
 		m.init <- initArgs{c}
@@ -734,7 +734,7 @@ type mockControlTower struct {
 
 var _ ControlTower = (*mockControlTower)(nil)
 
-func (m *mockControlTower) InitPayment(phash lntypes.Hash,
+func (m *mockControlTower) InitPayment(_ context.Context, phash lntypes.Hash,
 	c *paymentsdb.PaymentCreationInfo) error {
 
 	args := m.Called(phash, c)

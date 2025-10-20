@@ -1265,10 +1265,8 @@ func (s *SQLStore) DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
 // This method is part of the PaymentControl interface, which is embedded in
 // the PaymentWriter interface and ultimately the DB interface, representing
 // the first step in the payment lifecycle control flow.
-func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
+func (s *SQLStore) InitPayment(ctx context.Context, paymentHash lntypes.Hash,
 	paymentCreationInfo *PaymentCreationInfo) error {
-
-	ctx := context.TODO()
 
 	// Create the payment in the database.
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {

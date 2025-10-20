@@ -186,7 +186,7 @@ func initKVStore(db kvdb.Backend) error {
 // making sure it does not already exist as an in-flight payment. When this
 // method returns successfully, the payment is guaranteed to be in the InFlight
 // state.
-func (p *KVStore) InitPayment(paymentHash lntypes.Hash,
+func (p *KVStore) InitPayment(_ context.Context, paymentHash lntypes.Hash,
 	info *PaymentCreationInfo) error {
 
 	// Obtain a new sequence number for this payment. This is used

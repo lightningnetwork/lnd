@@ -1619,6 +1619,8 @@ func TestFailsWithoutInFlight(t *testing.T) {
 func TestDeletePayments(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
+
 	paymentDB, _ := NewTestDB(t)
 
 	// Register three payments:
@@ -1639,7 +1641,7 @@ func TestDeletePayments(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for failed payments only.
-	numPayments, err := paymentDB.DeletePayments(true, true)
+	numPayments, err := paymentDB.DeletePayments(ctx, true, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, numPayments)
 
@@ -1648,7 +1650,7 @@ func TestDeletePayments(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Delete failed attempts for all payments.
-	numPayments, err = paymentDB.DeletePayments(false, true)
+	numPayments, err = paymentDB.DeletePayments(ctx, false, true)
 	require.NoError(t, err)
 	require.EqualValues(t, 0, numPayments)
 
@@ -1658,14 +1660,14 @@ func TestDeletePayments(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Now delete all failed payments.
-	numPayments, err = paymentDB.DeletePayments(true, false)
+	numPayments, err = paymentDB.DeletePayments(ctx, true, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 
 	assertDBPayments(t, paymentDB, payments[1:])
 
 	// Finally delete all completed payments.
-	numPayments, err = paymentDB.DeletePayments(false, false)
+	numPayments, err = paymentDB.DeletePayments(ctx, false, false)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, numPayments)
 

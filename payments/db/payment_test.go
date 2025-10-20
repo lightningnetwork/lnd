@@ -511,8 +511,8 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	// operation are performed in general therefore we do NOT expect an
 	// error in this case.
 	if keepFailedPaymentAttempts {
-		require.NoError(
-			t, paymentDB.DeleteFailedAttempts(payments[1].id),
+		require.NoError(t, paymentDB.DeleteFailedAttempts(
+			payments[1].id),
 		)
 	} else {
 		require.Error(t, paymentDB.DeleteFailedAttempts(payments[1].id))
@@ -656,6 +656,8 @@ func TestMPPRecordValidation(t *testing.T) {
 func TestDeleteSinglePayment(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
+
 	paymentDB, _ := NewTestDB(t)
 
 	// Register four payments:
@@ -687,7 +689,9 @@ func TestDeleteSinglePayment(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Delete HTLC attempts for first payment only.
-	require.NoError(t, paymentDB.DeletePayment(payments[0].id, true))
+	require.NoError(t, paymentDB.DeletePayment(
+		ctx, payments[0].id, true,
+	))
 
 	// The first payment is the only altered one as its failed HTLC should
 	// have been removed but is still present as payment.
@@ -695,19 +699,25 @@ func TestDeleteSinglePayment(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Delete the first payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[0].id, false))
+	require.NoError(t, paymentDB.DeletePayment(
+		ctx, payments[0].id, false,
+	))
 
 	// The first payment should have been deleted.
 	assertDBPayments(t, paymentDB, payments[1:])
 
 	// Now delete the second payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[1].id, false))
+	require.NoError(t, paymentDB.DeletePayment(
+		ctx, payments[1].id, false,
+	))
 
 	// The Second payment should have been deleted.
 	assertDBPayments(t, paymentDB, payments[2:])
 
 	// Delete failed HTLC attempts for the third payment.
-	require.NoError(t, paymentDB.DeletePayment(payments[2].id, true))
+	require.NoError(t, paymentDB.DeletePayment(
+		ctx, payments[2].id, true,
+	))
 
 	// Only the successful HTLC attempt should be left for the third
 	// payment.
@@ -715,21 +725,27 @@ func TestDeleteSinglePayment(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments[2:])
 
 	// Now delete the third payment completely.
-	require.NoError(t, paymentDB.DeletePayment(payments[2].id, false))
+	require.NoError(t, paymentDB.DeletePayment(
+		ctx, payments[2].id, false,
+	))
 
 	// Only the last payment should be left.
 	assertDBPayments(t, paymentDB, payments[3:])
 
 	// Deleting HTLC attempts from InFlight payments should not work and an
 	// error returned.
-	require.Error(t, paymentDB.DeletePayment(payments[3].id, true))
+	require.Error(t, paymentDB.DeletePayment(
+		ctx, payments[3].id, true,
+	))
 
 	// The payment is InFlight and therefore should not have been altered.
 	assertDBPayments(t, paymentDB, payments[3:])
 
 	// Finally deleting the InFlight payment should also not work and an
 	// error returned.
-	require.Error(t, paymentDB.DeletePayment(payments[3].id, false))
+	require.Error(t, paymentDB.DeletePayment(
+		ctx, payments[3].id, false,
+	))
 
 	// The payment is InFlight and therefore should not have been altered.
 	assertDBPayments(t, paymentDB, payments[3:])
@@ -2597,7 +2613,7 @@ func TestQueryPayments(t *testing.T) {
 
 			// We delete the whole payment.
 			err = paymentDB.DeletePayment(
-				paymentInfos[1].PaymentIdentifier, false,
+				ctx, paymentInfos[1].PaymentIdentifier, false,
 			)
 			require.NoError(t, err)
 

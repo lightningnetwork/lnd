@@ -1023,7 +1023,6 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 	if s.keepFailedPaymentAttempts {
 		return nil
 	}
-
 	ctx := context.TODO()
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
@@ -1108,10 +1107,8 @@ func (s *SQLStore) computePaymentStatusFromDB(ctx context.Context,
 //
 // This method is part of the PaymentWriter interface, which is embedded in
 // the DB interface.
-func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
+func (s *SQLStore) DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
-
-	ctx := context.TODO()
 
 	// In case we are configured to keep failed payment attempts, we exit
 	// early.

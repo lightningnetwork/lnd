@@ -1206,10 +1206,8 @@ func computePaymentStatusFromDB(ctx context.Context, cfg *sqldb.QueryConfig,
 //
 // This method is part of the PaymentWriter interface, which is embedded in
 // the DB interface.
-func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
+func (s *SQLStore) DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
-
-	ctx := context.TODO()
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)

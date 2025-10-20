@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -52,7 +53,8 @@ type ControlTower interface {
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (paymentsdb.DBMPPayment, error)
+	FetchPayment(ctx context.Context,
+		paymentHash lntypes.Hash) (paymentsdb.DBMPPayment, error)
 
 	// FailPayment transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only
@@ -164,6 +166,8 @@ func NewControlTower(db paymentsdb.DB) ControlTower {
 func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	info *paymentsdb.PaymentCreationInfo) error {
 
+	ctx := context.TODO()
+
 	err := p.db.InitPayment(paymentHash, info)
 	if err != nil {
 		return err
@@ -174,7 +178,7 @@ func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.FetchPayment(paymentHash)
+	payment, err := p.db.FetchPayment(ctx, paymentHash)
 	if err != nil {
 		return err
 	}
@@ -250,10 +254,11 @@ func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 }
 
 // FetchPayment fetches the payment corresponding to the given payment hash.
-func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
+func (p *controlTower) FetchPayment(ctx context.Context,
+	paymentHash lntypes.Hash) (
 	paymentsdb.DBMPPayment, error) {
 
-	return p.db.FetchPayment(paymentHash)
+	return p.db.FetchPayment(ctx, paymentHash)
 }
 
 // FailPayment transitions a payment into the Failed state, and records the
@@ -293,12 +298,14 @@ func (p *controlTower) FetchInFlightPayments() ([]*paymentsdb.MPPayment,
 func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	ControlTowerSubscriber, error) {
 
+	ctx := context.TODO()
+
 	// Take lock before querying the db to prevent missing or duplicating an
 	// update.
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.FetchPayment(paymentHash)
+	payment, err := p.db.FetchPayment(ctx, paymentHash)
 	if err != nil {
 		return nil, err
 	}

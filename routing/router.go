@@ -1064,13 +1064,15 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
+	ctx := context.TODO()
+
 	// Helper function to fail a payment. It makes sure the payment is only
 	// failed once so that the failure reason is not overwritten.
 	failPayment := func(paymentIdentifier lntypes.Hash,
 		reason paymentsdb.FailureReason) error {
 
 		payment, fetchErr := r.cfg.Control.FetchPayment(
-			paymentIdentifier,
+			ctx, paymentIdentifier,
 		)
 		if fetchErr != nil {
 			return fetchErr

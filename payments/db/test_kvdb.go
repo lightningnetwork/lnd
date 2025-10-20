@@ -57,9 +57,11 @@ func (h *kvTestHarness) AssertPaymentIndex(t *testing.T,
 
 	t.Helper()
 
+	ctx := t.Context()
+
 	// Lookup the payment so that we have its sequence number and check
 	// that it has correctly been indexed in the payment indexes bucket.
-	pmt, err := h.db.FetchPayment(expectedHash)
+	pmt, err := h.db.FetchPayment(ctx, expectedHash)
 	require.NoError(t, err)
 
 	hash, err := h.fetchPaymentIndexEntry(t, pmt.SequenceNum)

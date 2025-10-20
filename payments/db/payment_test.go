@@ -235,7 +235,9 @@ func assertPaymentInfo(t *testing.T, p DB, hash lntypes.Hash,
 
 	t.Helper()
 
-	payment, err := p.FetchPayment(hash)
+	ctx := t.Context()
+
+	payment, err := p.FetchPayment(ctx, hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +305,9 @@ func assertDBPaymentstatus(t *testing.T, p DB, hash lntypes.Hash,
 
 	t.Helper()
 
-	payment, err := p.FetchPayment(hash)
+	ctx := t.Context()
+
+	payment, err := p.FetchPayment(ctx, hash)
 	if errors.Is(err, ErrPaymentNotInitiated) {
 		return
 	}
@@ -1796,6 +1800,8 @@ func TestSwitchDoubleSend(t *testing.T) {
 func TestSwitchFail(t *testing.T) {
 	t.Parallel()
 
+	ctx := t.Context()
+
 	paymentDB, harness := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
@@ -1834,7 +1840,7 @@ func TestSwitchFail(t *testing.T) {
 
 	// Lookup the payment so we can get its old sequence number before it is
 	// overwritten.
-	payment, err := paymentDB.FetchPayment(info.PaymentIdentifier)
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
 	require.NoError(t, err)
 
 	// Sends the htlc again, which should succeed since the prior payment
@@ -2609,7 +2615,7 @@ func TestQueryPayments(t *testing.T) {
 			// Now delete the payment at index 1 (the second
 			// payment).
 			pmt, err := paymentDB.FetchPayment(
-				paymentInfos[1].PaymentIdentifier,
+				ctx, paymentInfos[1].PaymentIdentifier,
 			)
 			require.NoError(t, err)
 
@@ -2621,7 +2627,7 @@ func TestQueryPayments(t *testing.T) {
 
 			// Verify the payment is deleted.
 			_, err = paymentDB.FetchPayment(
-				paymentInfos[1].PaymentIdentifier,
+				ctx, paymentInfos[1].PaymentIdentifier,
 			)
 			require.ErrorIs(
 				t, err, ErrPaymentNotInitiated,

@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0
 
       - name: cleanup space
-        run: rm -rf /opt/hostedtoolcache && mkdir -p /opt/hostedtoolcache/go
+        uses: ./.github/actions/cleanup-space
 
       - name: setup go ${{ env.GO_VERSION }}
         uses: actions/setup-go@v5

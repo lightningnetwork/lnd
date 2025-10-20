@@ -1372,7 +1372,7 @@ func (p *KVStore) DeletePayment(_ context.Context, paymentHash lntypes.Hash,
 // failedHtlcsOnly is set, the payment itself won't be deleted, only failed HTLC
 // attempts. The method returns the number of deleted payments, which is always
 // 0 if failedHtlcsOnly is set.
-func (p *KVStore) DeletePayments(failedOnly,
+func (p *KVStore) DeletePayments(_ context.Context, failedOnly,
 	failedHtlcsOnly bool) (int, error) {
 
 	var numPayments int

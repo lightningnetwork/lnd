@@ -1874,13 +1874,13 @@ func (s *SQLStore) Fail(paymentHash lntypes.Hash,
 // This method is part of the PaymentWriter interface, which is embedded in
 // the DB interface.
 //
-// TODO(ziggie): batch this call instead in the background so for dbs with
-// many payments it doesn't block the main thread.
-func (s *SQLStore) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
-	error) {
+// TODO(ziggie): batch and use iterator instead, moreover we dont need to fetch
+// the complete payment data for each payment, we can just fetch the payment ID
+// and the resolution types to decide if the payment is removable.
+func (s *SQLStore) DeletePayments(ctx context.Context, failedOnly,
+	failedHtlcsOnly bool) (int, error) {
 
 	var numPayments int
-	ctx := context.TODO()
 
 	extractCursor := func(row sqlc.FilterPaymentsRow) int64 {
 		return row.Payment.ID

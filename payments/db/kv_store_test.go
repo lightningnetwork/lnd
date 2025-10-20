@@ -80,7 +80,7 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 		require.NoError(t, err)
 
 		// Sends base htlc message which initiate StatusInFlight.
-		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
+		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 		if err != nil {
 			t.Fatalf("unable to send htlc message: %v", err)
 		}
@@ -417,7 +417,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Create a new payment entry in the database.
 	err = paymentDB.InitPayment(
-		noDuplicates.PaymentIdentifier, noDuplicates,
+		ctx, noDuplicates.PaymentIdentifier, noDuplicates,
 	)
 	require.NoError(t, err)
 
@@ -433,7 +433,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 
 	// Create a new payment entry in the database.
 	err = paymentDB.InitPayment(
-		hasDuplicates.PaymentIdentifier, hasDuplicates,
+		ctx, hasDuplicates.PaymentIdentifier, hasDuplicates,
 	)
 	require.NoError(t, err)
 
@@ -744,7 +744,7 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 
 				// Create a new payment entry in the database.
 				err = paymentDB.InitPayment(
-					info.PaymentIdentifier, info,
+					ctx, info.PaymentIdentifier, info,
 				)
 				require.NoError(t, err)
 

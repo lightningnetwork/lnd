@@ -61,7 +61,7 @@ type PaymentControl interface {
 	// exists in the database before creating a new payment. However, it
 	// should allow the user making a subsequent payment if the payment is
 	// in a Failed state.
-	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
+	InitPayment(context.Context, lntypes.Hash, *PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	//

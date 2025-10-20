@@ -295,7 +295,7 @@ func (p *KVStore) DeleteFailedAttempts(hash lntypes.Hash) error {
 	// logic. This decision should be made in the application layer.
 	if !p.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
-		err := p.DeletePayment(hash, failedHtlcsOnly)
+		err := p.DeletePayment(context.TODO(), hash, failedHtlcsOnly)
 		if err != nil {
 			return err
 		}
@@ -1275,7 +1275,7 @@ func fetchPaymentWithSequenceNumber(tx kvdb.RTx, paymentHash lntypes.Hash,
 // DeletePayment deletes a payment from the DB given its payment hash. If
 // failedHtlcsOnly is set, only failed HTLC attempts of the payment will be
 // deleted.
-func (p *KVStore) DeletePayment(paymentHash lntypes.Hash,
+func (p *KVStore) DeletePayment(_ context.Context, paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
 
 	return kvdb.Update(p.db, func(tx kvdb.RwTx) error {

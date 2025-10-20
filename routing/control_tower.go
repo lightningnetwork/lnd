@@ -20,7 +20,8 @@ type ControlTower interface {
 	// also notifies subscribers of the payment creation.
 	//
 	// NOTE: Subscribers should be notified by the new state of the payment.
-	InitPayment(lntypes.Hash, *paymentsdb.PaymentCreationInfo) error
+	InitPayment(context.Context, lntypes.Hash,
+		*paymentsdb.PaymentCreationInfo) error
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are
@@ -164,12 +165,10 @@ func NewControlTower(db paymentsdb.DB) ControlTower {
 // making sure it does not already exist as an in-flight payment. Then this
 // method returns successfully, the payment is guaranteed to be in the
 // Initiated state.
-func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
-	info *paymentsdb.PaymentCreationInfo) error {
+func (p *controlTower) InitPayment(ctx context.Context,
+	paymentHash lntypes.Hash, info *paymentsdb.PaymentCreationInfo) error {
 
-	ctx := context.TODO()
-
-	err := p.db.InitPayment(paymentHash, info)
+	err := p.db.InitPayment(ctx, paymentHash, info)
 	if err != nil {
 		return err
 	}

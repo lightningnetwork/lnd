@@ -967,6 +967,8 @@ func spewPayment(payment *LightningPayment) lnutils.LogClosure {
 func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	PaymentSession, shards.ShardTracker, error) {
 
+	ctx := context.TODO()
+
 	// Assemble any custom data we want to send to the first hop only.
 	var firstHopData fn.Option[tlv.Blob]
 	if len(payment.FirstHopCustomRecords) > 0 {
@@ -1026,7 +1028,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 		)
 	}
 
-	err = r.cfg.Control.InitPayment(payment.Identifier(), info)
+	err = r.cfg.Control.InitPayment(ctx, payment.Identifier(), info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1131,7 +1133,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
-	err := r.cfg.Control.InitPayment(paymentIdentifier, info)
+	err := r.cfg.Control.InitPayment(ctx, paymentIdentifier, info)
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.

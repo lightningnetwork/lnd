@@ -25,7 +25,7 @@ type PaymentReader interface {
 		paymentHash lntypes.Hash) (*MPPayment, error)
 
 	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*MPPayment, error)
+	FetchInFlightPayments(ctx context.Context) ([]*MPPayment, error)
 }
 
 // PaymentWriter represents the interface to write operations to the payments

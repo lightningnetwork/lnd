@@ -741,7 +741,9 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *KVStore) FetchInFlightPayments() ([]*MPPayment, error) {
+func (p *KVStore) FetchInFlightPayments(_ context.Context) ([]*MPPayment,
+	error) {
+
 	var (
 		inFlights      []*MPPayment
 		start          = time.Now()

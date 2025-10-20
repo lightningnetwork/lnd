@@ -21,7 +21,8 @@ type PaymentReader interface {
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error)
+	FetchPayment(ctx context.Context,
+		paymentHash lntypes.Hash) (*MPPayment, error)
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments() ([]*MPPayment, error)

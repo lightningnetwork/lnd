@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -509,8 +510,8 @@ func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 	return nil
 }
 
-func (m *mockControlTowerOld) FetchPayment(phash lntypes.Hash) (
-	paymentsdb.DBMPPayment, error) {
+func (m *mockControlTowerOld) FetchPayment(_ context.Context,
+	phash lntypes.Hash) (paymentsdb.DBMPPayment, error) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -786,8 +787,8 @@ func (m *mockControlTower) FailPayment(phash lntypes.Hash,
 	return args.Error(0)
 }
 
-func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
-	paymentsdb.DBMPPayment, error) {
+func (m *mockControlTower) FetchPayment(_ context.Context,
+	phash lntypes.Hash) (paymentsdb.DBMPPayment, error) {
 
 	args := m.Called(phash)
 

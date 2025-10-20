@@ -1417,9 +1417,11 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 // resumePayments fetches inflight payments and resumes their payment
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
+	ctx := context.TODO()
+
 	// Get all payments that are inflight.
 	log.Debugf("Scanning for inflight payments")
-	payments, err := r.cfg.Control.FetchInFlightPayments()
+	payments, err := r.cfg.Control.FetchInFlightPayments(ctx)
 	if err != nil {
 		return err
 	}

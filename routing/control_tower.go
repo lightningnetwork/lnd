@@ -67,7 +67,8 @@ type ControlTower interface {
 	FailPayment(lntypes.Hash, paymentsdb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*paymentsdb.MPPayment, error)
+	FetchInFlightPayments(ctx context.Context) ([]*paymentsdb.MPPayment,
+		error)
 
 	// SubscribePayment subscribes to updates for the payment with the given
 	// hash. A first update with the current state of the payment is always
@@ -286,10 +287,10 @@ func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.
-func (p *controlTower) FetchInFlightPayments() ([]*paymentsdb.MPPayment,
-	error) {
+func (p *controlTower) FetchInFlightPayments(
+	ctx context.Context) ([]*paymentsdb.MPPayment, error) {
 
-	return p.db.FetchInFlightPayments()
+	return p.db.FetchInFlightPayments(ctx)
 }
 
 // SubscribePayment subscribes to updates for the payment with the given hash. A
@@ -342,6 +343,8 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 	subscriber := newControlTowerSubscriber()
 
+	ctx := context.TODO()
+
 	// Add the subscriber to the list before fetching in-flight payments, so
 	// no events are missed. If a payment attempt update occurs after
 	// appending and before fetching in-flight payments, an out-of-order
@@ -353,7 +356,7 @@ func (p *controlTower) SubscribeAllPayments() (ControlTowerSubscriber, error) {
 	p.subscribersMtx.Unlock()
 
 	log.Debugf("Scanning for inflight payments")
-	inflightPayments, err := p.db.FetchInFlightPayments()
+	inflightPayments, err := p.db.FetchInFlightPayments(ctx)
 	if err != nil {
 		return nil, err
 	}

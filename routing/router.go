@@ -1531,6 +1531,8 @@ func (r *ChannelRouter) resumePayments() error {
 func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 	payHash lntypes.Hash) {
 
+	ctx := context.TODO()
+
 	// We can only fail inflight HTLCs so we skip the settled/failed ones.
 	if a.Failure != nil || a.Settle != nil {
 		return
@@ -1614,7 +1616,7 @@ func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 		Reason:   paymentsdb.HTLCFailUnknown,
 		FailTime: r.cfg.Clock.Now(),
 	}
-	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)
+	_, err = r.cfg.Control.FailAttempt(ctx, payHash, a.AttemptID, failInfo)
 	if err != nil {
 		log.Errorf("Fail attempt=%v got error: %v", a.AttemptID, err)
 	}

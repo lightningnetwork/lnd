@@ -50,8 +50,8 @@ type ControlTower interface {
 	// FailAttempt marks the given payment attempt failed.
 	//
 	// NOTE: Subscribers should be notified by the new state of the payment.
-	FailAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCFailInfo) (
-		*paymentsdb.HTLCAttempt, error)
+	FailAttempt(context.Context, lntypes.Hash, uint64,
+		*paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error)
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
@@ -239,14 +239,14 @@ func (p *controlTower) SettleAttempt(ctx context.Context,
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, failInfo *paymentsdb.HTLCFailInfo) (
-	*paymentsdb.HTLCAttempt, error) {
+func (p *controlTower) FailAttempt(ctx context.Context,
+	paymentHash lntypes.Hash, attemptID uint64,
+	failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.FailAttempt(paymentHash, attemptID, failInfo)
+	payment, err := p.db.FailAttempt(ctx, paymentHash, attemptID, failInfo)
 	if err != nil {
 		return nil, err
 	}

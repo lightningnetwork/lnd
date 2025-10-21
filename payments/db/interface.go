@@ -99,7 +99,7 @@ type PaymentControl interface {
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
-	Fail(lntypes.Hash, FailureReason) (*MPPayment, error)
+	Fail(context.Context, lntypes.Hash, FailureReason) (*MPPayment, error)
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are

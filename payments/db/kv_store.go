@@ -443,7 +443,7 @@ func (p *KVStore) SettleAttempt(_ context.Context, hash lntypes.Hash,
 }
 
 // FailAttempt marks the given payment attempt failed.
-func (p *KVStore) FailAttempt(hash lntypes.Hash,
+func (p *KVStore) FailAttempt(_ context.Context, hash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer

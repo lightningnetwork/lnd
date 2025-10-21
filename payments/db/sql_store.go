@@ -1782,10 +1782,8 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 // This method is part of the PaymentControl interface, which is embedded in
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 4 in the payment lifecycle control flow.
-func (s *SQLStore) Fail(paymentHash lntypes.Hash,
+func (s *SQLStore) Fail(ctx context.Context, paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 

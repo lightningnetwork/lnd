@@ -112,7 +112,7 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 			// Fail the payment, which should moved it to Failed.
 			failReason := FailureReasonNoRoute
 			_, err = paymentDB.Fail(
-				info.PaymentIdentifier, failReason,
+				ctx, info.PaymentIdentifier, failReason,
 			)
 			if err != nil {
 				t.Fatalf("unable to fail payment hash: %v", err)

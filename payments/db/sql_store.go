@@ -1496,8 +1496,9 @@ func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 2 in the payment lifecycle control flow, called after InitPayment and
 // potentially multiple times for multi-path payments.
-func (s *SQLStore) RegisterAttempt(ctx context.Context, paymentHash lntypes.Hash,
-	attempt *HTLCAttemptInfo) (*MPPayment, error) {
+func (s *SQLStore) RegisterAttempt(ctx context.Context,
+	paymentHash lntypes.Hash, attempt *HTLCAttemptInfo) (*MPPayment,
+	error) {
 
 	var mpPayment *MPPayment
 
@@ -1621,10 +1622,8 @@ func (s *SQLStore) RegisterAttempt(ctx context.Context, paymentHash lntypes.Hash
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 3a in the payment lifecycle control flow (step 3b is FailAttempt),
 // called after RegisterAttempt when an HTLC successfully completes.
-func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
+func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 

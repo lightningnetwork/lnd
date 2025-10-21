@@ -448,7 +448,8 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 		Reason: paymentsdb.HTLCFailInternal,
 	}
 	_, err = pControl.FailAttempt(
-		info.PaymentIdentifier, attempt.AttemptID, &failInfo,
+		t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+		&failInfo,
 	)
 	require.NoError(t, err, "unable to fail htlc")
 
@@ -502,7 +503,8 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 			Reason: paymentsdb.HTLCFailInternal,
 		}
 		htlcAttempt, err := pControl.FailAttempt(
-			info.PaymentIdentifier, attempt.AttemptID, &failInfo,
+			t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+			&failInfo,
 		)
 		if err != nil {
 			t.Fatalf("unable to fail htlc: %v", err)

@@ -936,11 +936,11 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	// db.
 	if req.SkipTempErr {
 		attempt, err = s.cfg.Router.SendToRouteSkipTempErr(
-			hash, route, firstHopRecords,
+			ctx, hash, route, firstHopRecords,
 		)
 	} else {
 		attempt, err = s.cfg.Router.SendToRoute(
-			hash, route, firstHopRecords,
+			ctx, hash, route, firstHopRecords,
 		)
 	}
 	if attempt != nil {

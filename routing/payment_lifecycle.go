@@ -128,7 +128,7 @@ const (
 // results is sent back. then process its result here. When there's no need to
 // wait for results, the method will exit with `stepExit` such that the payment
 // lifecycle loop will terminate.
-func (p *paymentLifecycle) decideNextStep(
+func (p *paymentLifecycle) decideNextStep(ctx context.Context,
 	payment paymentsdb.DBMPPayment) (stateStep, error) {
 
 	// Check whether we could make new HTLC attempts.
@@ -168,7 +168,7 @@ func (p *paymentLifecycle) decideNextStep(
 		// stepSkip and move to the next lifecycle iteration, which will
 		// refresh the payment and wait for the next attempt result, if
 		// any.
-		_, err := p.handleAttemptResult(r.attempt, r.result)
+		_, err := p.handleAttemptResult(ctx, r.attempt, r.result)
 
 		// We would only get a DB-related error here, which will cause
 		// us to abort the payment flow.
@@ -192,6 +192,13 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 
 	// We need to make sure we can still do db operations after the context
 	// is cancelled.
+	//
+	// TODO(ziggie): This is a workaround to avoid a greater refactor of the
+	// payment lifecycle. We can currently not rely on the parent context
+	// because this method is also collecting the results of inflight HTLCs
+	// after the context is cancelled. So we need to make sure we only use
+	// the current context to stop creating new attempts but use this
+	// cleanupCtx to do all the db operations.
 	cleanupCtx := context.WithoutCancel(ctx)
 
 	// When the payment lifecycle loop exits, we make sure to signal any
@@ -264,7 +271,7 @@ lifecycle:
 		//
 
 		// Now decide the next step of the current lifecycle.
-		step, err := p.decideNextStep(payment)
+		step, err := p.decideNextStep(cleanupCtx, payment)
 		if err != nil {
 			return exitWithErr(err)
 		}
@@ -307,7 +314,9 @@ lifecycle:
 		log.Tracef("Found route: %s", lnutils.SpewLogClosure(rt.Hops))
 
 		// We found a route to try, create a new HTLC attempt to try.
-		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
+		attempt, err := p.registerAttempt(
+			cleanupCtx, rt, ps.RemainingAmt,
+		)
 		if err != nil {
 			return exitWithErr(err)
 		}
@@ -596,10 +605,8 @@ func (p *paymentLifecycle) collectResult(
 // registerAttempt is responsible for creating and saving an HTLC attempt in db
 // by using the route info provided. The `remainingAmt` is used to decide
 // whether this is the last attempt.
-func (p *paymentLifecycle) registerAttempt(rt *route.Route,
+func (p *paymentLifecycle) registerAttempt(ctx context.Context, rt *route.Route,
 	remainingAmt lnwire.MilliSatoshi) (*paymentsdb.HTLCAttempt, error) {
-
-	ctx := context.TODO()
 
 	// If this route will consume the last remaining amount to send
 	// to the receiver, this will be our last shard (for now).
@@ -1184,10 +1191,9 @@ func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 
 // handleAttemptResult processes the result of an HTLC attempt returned from
 // the htlcswitch.
-func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
+func (p *paymentLifecycle) handleAttemptResult(ctx context.Context,
+	attempt *paymentsdb.HTLCAttempt,
 	result *htlcswitch.PaymentResult) (*attemptResult, error) {
-
-	ctx := context.TODO()
 
 	// If the result has an error, we need to further process it by failing
 	// the attempt and maybe fail the payment.
@@ -1235,7 +1241,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
 // available from the Switch, then records the attempt outcome with the control
 // tower. An attemptResult is returned, indicating the final outcome of this
 // HTLC attempt.
-func (p *paymentLifecycle) collectAndHandleResult(
+func (p *paymentLifecycle) collectAndHandleResult(ctx context.Context,
 	attempt *paymentsdb.HTLCAttempt) (*attemptResult, error) {
 
 	result, err := p.collectResult(attempt)
@@ -1243,5 +1249,5 @@ func (p *paymentLifecycle) collectAndHandleResult(
 		return nil, err
 	}
 
-	return p.handleAttemptResult(attempt, result)
+	return p.handleAttemptResult(ctx, attempt, result)
 }

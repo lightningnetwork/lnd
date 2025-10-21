@@ -1745,6 +1745,8 @@ func (r *RouterBackend) MarshallPayment(payment *paymentsdb.MPPayment) (
 		// If any of the htlcs have settled, extract a valid
 		// preimage.
 		if htlc.Settle != nil {
+			// For AMP payments all hashes will be different so we
+			// will depict the last htlc preimage.
 			preimage = htlc.Settle.Preimage
 			fee += htlc.Route.TotalFees()
 		}

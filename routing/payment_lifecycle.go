@@ -190,6 +190,10 @@ func (p *paymentLifecycle) decideNextStep(
 func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	*route.Route, error) {
 
+	// We need to make sure we can still do db operations after the context
+	// is cancelled.
+	cleanupCtx := context.WithoutCancel(ctx)
+
 	// When the payment lifecycle loop exits, we make sure to signal any
 	// sub goroutine of the HTLC attempt to exit, then wait for them to
 	// return.
@@ -328,7 +332,9 @@ lifecycle:
 	// Optionally delete the failed attempts from the database. Depends on
 	// the database options deleting attempts is not allowed so this will
 	// just be a no-op.
-	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
+	err = p.router.cfg.Control.DeleteFailedAttempts(
+		cleanupCtx, p.identifier,
+	)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+
 			"%v: %v", p.identifier, err)

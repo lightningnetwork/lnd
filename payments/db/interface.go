@@ -104,7 +104,7 @@ type PaymentControl interface {
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are
 	// completed, and the payment has reached a final terminal state.
-	DeleteFailedAttempts(lntypes.Hash) error
+	DeleteFailedAttempts(context.Context, lntypes.Hash) error
 }
 
 // DBMPPayment is an interface that represents the payment state during a

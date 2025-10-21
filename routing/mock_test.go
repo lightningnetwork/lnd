@@ -328,7 +328,9 @@ func (m *mockControlTowerOld) InitPayment(_ context.Context,
 	return nil
 }
 
-func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
+func (m *mockControlTowerOld) DeleteFailedAttempts(_ context.Context,
+	phash lntypes.Hash) error {
+
 	p, ok := m.payments[phash]
 	if !ok {
 		return paymentsdb.ErrPaymentNotInitiated
@@ -742,7 +744,9 @@ func (m *mockControlTower) InitPayment(_ context.Context, phash lntypes.Hash,
 	return args.Error(0)
 }
 
-func (m *mockControlTower) DeleteFailedAttempts(phash lntypes.Hash) error {
+func (m *mockControlTower) DeleteFailedAttempts(_ context.Context,
+	phash lntypes.Hash) error {
+
 	args := m.Called(phash)
 	return args.Error(0)
 }

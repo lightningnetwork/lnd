@@ -66,7 +66,8 @@ type ControlTower interface {
 	// payment.
 	//
 	// NOTE: Subscribers should be notified by the new state of the payment.
-	FailPayment(lntypes.Hash, paymentsdb.FailureReason) error
+	FailPayment(context.Context, lntypes.Hash,
+		paymentsdb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments(ctx context.Context) ([]*paymentsdb.MPPayment,
@@ -272,13 +273,13 @@ func (p *controlTower) FetchPayment(ctx context.Context,
 //
 // NOTE: This method will overwrite the failure reason if the payment is already
 // failed.
-func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
-	reason paymentsdb.FailureReason) error {
+func (p *controlTower) FailPayment(ctx context.Context,
+	paymentHash lntypes.Hash, reason paymentsdb.FailureReason) error {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.Fail(paymentHash, reason)
+	payment, err := p.db.Fail(ctx, paymentHash, reason)
 	if err != nil {
 		return err
 	}

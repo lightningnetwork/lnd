@@ -191,8 +191,9 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 			require.NoError(t, err, "unable to fail htlc")
 
 			failReason := FailureReasonNoRoute
-			_, err = p.Fail(info.PaymentIdentifier,
-				failReason)
+			_, err = p.Fail(
+				ctx, info.PaymentIdentifier, failReason,
+			)
 			require.NoError(t, err, "unable to fail payment hash")
 
 		// Settle the attempt
@@ -1667,7 +1668,7 @@ func TestFailsWithoutInFlight(t *testing.T) {
 
 	// Calling Fail should return an error.
 	_, err = paymentDB.Fail(
-		info.PaymentIdentifier, FailureReasonNoRoute,
+		t.Context(), info.PaymentIdentifier, FailureReasonNoRoute,
 	)
 	require.ErrorIs(t, err, ErrPaymentNotInitiated)
 }
@@ -1843,7 +1844,7 @@ func TestSwitchFail(t *testing.T) {
 
 	// Fail the payment, which should moved it to Failed.
 	failReason := FailureReasonNoRoute
-	_, err = paymentDB.Fail(info.PaymentIdentifier, failReason)
+	_, err = paymentDB.Fail(ctx, info.PaymentIdentifier, failReason)
 	require.NoError(t, err, "unable to fail payment hash")
 
 	// Verify the status is indeed Failed.
@@ -2139,7 +2140,7 @@ func TestMultiShard(t *testing.T) {
 			// a terminal state.
 			failReason := FailureReasonNoRoute
 			_, err = paymentDB.Fail(
-				info.PaymentIdentifier, failReason,
+				ctx, info.PaymentIdentifier, failReason,
 			)
 			if err != nil {
 				t.Fatalf("unable to fail payment hash: %v", err)
@@ -2232,7 +2233,7 @@ func TestMultiShard(t *testing.T) {
 			// syncing.
 			failReason := FailureReasonPaymentDetails
 			_, err = paymentDB.Fail(
-				info.PaymentIdentifier, failReason,
+				ctx, info.PaymentIdentifier, failReason,
 			)
 			require.NoError(t, err, "unable to fail")
 		}

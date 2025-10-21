@@ -451,8 +451,9 @@ func (m *mockControlTowerOld) SettleAttempt(_ context.Context,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
-	failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error) {
+func (m *mockControlTowerOld) FailAttempt(_ context.Context, phash lntypes.Hash,
+	pid uint64, failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt,
+	error) {
 
 	if m.failAttempt != nil {
 		m.failAttempt <- failAttemptArgs{failInfo}
@@ -767,8 +768,9 @@ func (m *mockControlTower) SettleAttempt(_ context.Context, phash lntypes.Hash,
 	return attempt.(*paymentsdb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
-	failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error) {
+func (m *mockControlTower) FailAttempt(_ context.Context, phash lntypes.Hash,
+	pid uint64, failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt,
+	error) {
 
 	args := m.Called(phash, pid, failInfo)
 

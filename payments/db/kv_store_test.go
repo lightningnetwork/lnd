@@ -100,7 +100,7 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 			// Fail the payment attempt.
 			htlcFailure := HTLCFailUnreadable
 			_, err := paymentDB.FailAttempt(
-				info.PaymentIdentifier, attempt.AttemptID,
+				ctx, info.PaymentIdentifier, attempt.AttemptID,
 				&HTLCFailInfo{
 					Reason: htlcFailure,
 				},

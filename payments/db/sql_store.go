@@ -1695,10 +1695,8 @@ func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 3b in the payment lifecycle control flow (step 3a is SettleAttempt),
 // called after RegisterAttempt when an HTLC fails.
-func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
+func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 

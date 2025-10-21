@@ -90,7 +90,8 @@ type PaymentControl interface {
 		*HTLCSettleInfo) (*MPPayment, error)
 
 	// FailAttempt marks the given payment attempt failed.
-	FailAttempt(lntypes.Hash, uint64, *HTLCFailInfo) (*MPPayment, error)
+	FailAttempt(context.Context, lntypes.Hash, uint64,
+		*HTLCFailInfo) (*MPPayment, error)
 
 	// Fail transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only

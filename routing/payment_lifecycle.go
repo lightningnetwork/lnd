@@ -1166,6 +1166,8 @@ func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
 	result *htlcswitch.PaymentResult) (*attemptResult, error) {
 
+	ctx := context.TODO()
+
 	// If the result has an error, we need to further process it by failing
 	// the attempt and maybe fail the payment.
 	if result.Error != nil {
@@ -1187,7 +1189,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
 	// In case of success we atomically store settle result to the DB and
 	// move the shard to the settled state.
 	htlcAttempt, err := p.router.cfg.Control.SettleAttempt(
-		p.identifier, attempt.AttemptID,
+		ctx, p.identifier, attempt.AttemptID,
 		&paymentsdb.HTLCSettleInfo{
 			Preimage:   result.Preimage,
 			SettleTime: p.router.cfg.Clock.Now(),

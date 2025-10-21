@@ -133,7 +133,7 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 		case p.success:
 			// Verifies that status was changed to StatusSucceeded.
 			_, err := paymentDB.SettleAttempt(
-				info.PaymentIdentifier, attempt.AttemptID,
+				ctx, info.PaymentIdentifier, attempt.AttemptID,
 				&HTLCSettleInfo{
 					Preimage: preimg,
 				},

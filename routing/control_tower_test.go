@@ -108,7 +108,8 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		Preimage: preimg,
 	}
 	htlcAttempt, err := pControl.SettleAttempt(
-		info.PaymentIdentifier, attempt.AttemptID, &settleInfo,
+		t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+		&settleInfo,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +247,8 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 		Preimage: preimg1,
 	}
 	htlcAttempt1, err := pControl.SettleAttempt(
-		info1.PaymentIdentifier, attempt1.AttemptID, &settleInfo1,
+		t.Context(), info1.PaymentIdentifier, attempt1.AttemptID,
+		&settleInfo1,
 	)
 	require.NoError(t, err)
 	require.Equal(
@@ -259,7 +261,8 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 		Preimage: preimg2,
 	}
 	htlcAttempt2, err := pControl.SettleAttempt(
-		info2.PaymentIdentifier, attempt2.AttemptID, &settleInfo2,
+		t.Context(), info2.PaymentIdentifier, attempt2.AttemptID,
+		&settleInfo2,
 	)
 	require.NoError(t, err)
 	require.Equal(

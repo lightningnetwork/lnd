@@ -86,7 +86,8 @@ type PaymentControl interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
-	SettleAttempt(lntypes.Hash, uint64, *HTLCSettleInfo) (*MPPayment, error)
+	SettleAttempt(context.Context, lntypes.Hash, uint64,
+		*HTLCSettleInfo) (*MPPayment, error)
 
 	// FailAttempt marks the given payment attempt failed.
 	FailAttempt(lntypes.Hash, uint64, *HTLCFailInfo) (*MPPayment, error)

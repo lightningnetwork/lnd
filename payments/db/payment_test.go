@@ -198,7 +198,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 		// Settle the attempt
 		case StatusSucceeded:
 			_, err := p.SettleAttempt(
-				info.PaymentIdentifier, attempt.AttemptID,
+				ctx, info.PaymentIdentifier, attempt.AttemptID,
 				&HTLCSettleInfo{
 					Preimage: preimg,
 				},
@@ -1643,6 +1643,7 @@ func TestSuccessesWithoutInFlight(t *testing.T) {
 
 	// Attempt to complete the payment should fail.
 	_, err = paymentDB.SettleAttempt(
+		t.Context(),
 		info.PaymentIdentifier, 0,
 		&HTLCSettleInfo{
 			Preimage: preimg,
@@ -1790,7 +1791,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 
 	// After settling, the error should be ErrAlreadyPaid.
 	_, err = paymentDB.SettleAttempt(
-		info.PaymentIdentifier, attempt.AttemptID,
+		ctx, info.PaymentIdentifier, attempt.AttemptID,
 		&HTLCSettleInfo{
 			Preimage: preimg,
 		},
@@ -1926,7 +1927,7 @@ func TestSwitchFail(t *testing.T) {
 	// Settle the attempt and verify that status was changed to
 	// StatusSucceeded.
 	payment, err = paymentDB.SettleAttempt(
-		info.PaymentIdentifier, attempt.AttemptID,
+		ctx, info.PaymentIdentifier, attempt.AttemptID,
 		&HTLCSettleInfo{
 			Preimage: preimg,
 		},
@@ -2099,7 +2100,7 @@ func TestMultiShard(t *testing.T) {
 		var firstFailReason *FailureReason
 		if test.settleFirst {
 			_, err := paymentDB.SettleAttempt(
-				info.PaymentIdentifier, a.AttemptID,
+				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCSettleInfo{
 					Preimage: preimg,
 				},
@@ -2193,7 +2194,7 @@ func TestMultiShard(t *testing.T) {
 		if test.settleLast {
 			// Settle the last outstanding attempt.
 			_, err = paymentDB.SettleAttempt(
-				info.PaymentIdentifier, a.AttemptID,
+				ctx, info.PaymentIdentifier, a.AttemptID,
 				&HTLCSettleInfo{
 					Preimage: preimg,
 				},
@@ -2683,7 +2684,7 @@ func TestQueryPayments(t *testing.T) {
 			copy(preimg[:], rev[:])
 
 			_, err = paymentDB.SettleAttempt(
-				lastPaymentInfo.PaymentIdentifier,
+				ctx, lastPaymentInfo.PaymentIdentifier,
 				attempt.AttemptID,
 				&HTLCSettleInfo{
 					Preimage: preimg,
@@ -2813,7 +2814,7 @@ func TestFetchInFlightPayments(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = paymentDB.SettleAttempt(
-		payments[2].id, 5,
+		ctx, payments[2].id, 5,
 		&HTLCSettleInfo{
 			Preimage: preimg,
 		},

@@ -26,7 +26,7 @@ type ControlTower interface {
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are
 	// completed, and the payment has reached a final settled state.
-	DeleteFailedAttempts(lntypes.Hash) error
+	DeleteFailedAttempts(context.Context, lntypes.Hash) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	//
@@ -192,8 +192,10 @@ func (p *controlTower) InitPayment(ctx context.Context,
 
 // DeleteFailedAttempts deletes all failed htlcs if the payment was
 // successfully settled.
-func (p *controlTower) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
-	return p.db.DeleteFailedAttempts(paymentHash)
+func (p *controlTower) DeleteFailedAttempts(ctx context.Context,
+	paymentHash lntypes.Hash) error {
+
+	return p.db.DeleteFailedAttempts(ctx, paymentHash)
 }
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the

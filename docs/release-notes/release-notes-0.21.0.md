@@ -151,6 +151,9 @@
   functions](https://github.com/lightningnetwork/lnd/pull/10368)
   * Finalize SQL payments implementation [enabling unit and itests
     for SQL backend](https://github.com/lightningnetwork/lnd/pull/10292)
+  * [Thread context through payment 
+    db functions Part 1](https://github.com/lightningnetwork/lnd/pull/10307)
+
 
 ## Code Health
 

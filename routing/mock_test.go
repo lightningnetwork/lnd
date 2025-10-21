@@ -408,8 +408,8 @@ func (m *mockControlTowerOld) RegisterAttempt(_ context.Context,
 	return nil
 }
 
-func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
-	pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
+func (m *mockControlTowerOld) SettleAttempt(_ context.Context,
+	phash lntypes.Hash, pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
 	*paymentsdb.HTLCAttempt, error) {
 
 	if m.settleAttempt != nil {
@@ -753,7 +753,7 @@ func (m *mockControlTower) RegisterAttempt(_ context.Context,
 	return args.Error(0)
 }
 
-func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
+func (m *mockControlTower) SettleAttempt(_ context.Context, phash lntypes.Hash,
 	pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
 	*paymentsdb.HTLCAttempt, error) {
 

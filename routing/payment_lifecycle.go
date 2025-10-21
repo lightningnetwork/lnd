@@ -1003,6 +1003,8 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 func (p *paymentLifecycle) failAttempt(attemptID uint64,
 	sendError error) (*attemptResult, error) {
 
+	ctx := context.TODO()
+
 	log.Warnf("Attempt %v for payment %v failed: %v", attemptID,
 		p.identifier, sendError)
 
@@ -1019,7 +1021,7 @@ func (p *paymentLifecycle) failAttempt(attemptID uint64,
 	}
 
 	attempt, err := p.router.cfg.Control.FailAttempt(
-		p.identifier, attemptID, failInfo,
+		ctx, p.identifier, attemptID, failInfo,
 	)
 	if err != nil {
 		return nil, err

@@ -85,6 +85,8 @@
     for SQL backend](https://github.com/lightningnetwork/lnd/pull/10292)
   * [Thread context through payment 
     db functions Part 1](https://github.com/lightningnetwork/lnd/pull/10307)
+  * [Thread context through payment 
+    db functions Part 2](https://github.com/lightningnetwork/lnd/pull/10308)
 
 
 ## Code Health

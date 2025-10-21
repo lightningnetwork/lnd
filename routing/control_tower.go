@@ -44,8 +44,8 @@ type ControlTower interface {
 	// for record keeping.
 	//
 	// NOTE: Subscribers should be notified by the new state of the payment.
-	SettleAttempt(lntypes.Hash, uint64, *paymentsdb.HTLCSettleInfo) (
-		*paymentsdb.HTLCAttempt, error)
+	SettleAttempt(context.Context, lntypes.Hash, uint64,
+		*paymentsdb.HTLCSettleInfo) (*paymentsdb.HTLCAttempt, error)
 
 	// FailAttempt marks the given payment attempt failed.
 	//
@@ -217,14 +217,17 @@ func (p *controlTower) RegisterAttempt(ctx context.Context,
 // SettleAttempt marks the given attempt settled with the preimage. If
 // this is a multi shard payment, this might implicitly mean the the
 // full payment succeeded.
-func (p *controlTower) SettleAttempt(paymentHash lntypes.Hash,
-	attemptID uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
-	*paymentsdb.HTLCAttempt, error) {
+func (p *controlTower) SettleAttempt(ctx context.Context,
+	paymentHash lntypes.Hash, attemptID uint64,
+	settleInfo *paymentsdb.HTLCSettleInfo) (*paymentsdb.HTLCAttempt,
+	error) {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.SettleAttempt(paymentHash, attemptID, settleInfo)
+	payment, err := p.db.SettleAttempt(
+		ctx, paymentHash, attemptID, settleInfo,
+	)
 	if err != nil {
 		return nil, err
 	}

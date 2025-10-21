@@ -209,7 +209,7 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	payment, err := p.reloadInflightAttempts()
+	payment, err := p.reloadInflightAttempts(ctx)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
@@ -1138,10 +1138,8 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 // reloadInflightAttempts is called when the payment lifecycle is resumed after
 // a restart. It reloads all inflight attempts from the control tower and
 // collects the results of the attempts that have been sent before.
-func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
-	error) {
-
-	ctx := context.TODO()
+func (p *paymentLifecycle) reloadInflightAttempts(
+	ctx context.Context) (paymentsdb.DBMPPayment, error) {
 
 	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {

@@ -1850,7 +1850,7 @@ func TestReloadInflightAttemptsLegacy(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	payment, err := p.reloadInflightAttempts()
+	payment, err := p.reloadInflightAttempts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, m.payment, payment)
 

@@ -322,7 +322,7 @@ lifecycle:
 		}
 
 		// Once the attempt is created, send it to the htlcswitch.
-		result, err := p.sendAttempt(attempt)
+		result, err := p.sendAttempt(cleanupCtx, attempt)
 		if err != nil {
 			return exitWithErr(err)
 		}
@@ -681,7 +681,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 // sendAttempt attempts to send the current attempt to the switch to complete
 // the payment. If this attempt fails, then we'll continue on to the next
 // available route.
-func (p *paymentLifecycle) sendAttempt(
+func (p *paymentLifecycle) sendAttempt(ctx context.Context,
 	attempt *paymentsdb.HTLCAttempt) (*attemptResult, error) {
 
 	log.Debugf("Sending HTLC attempt(id=%v, total_amt=%v, first_hop_amt=%d"+
@@ -727,7 +727,7 @@ func (p *paymentLifecycle) sendAttempt(
 		log.Errorf("Failed sending attempt %d for payment %v to "+
 			"switch: %v", attempt.AttemptID, p.identifier, err)
 
-		return p.handleSwitchErr(attempt, err)
+		return p.handleSwitchErr(ctx, attempt, err)
 	}
 
 	log.Debugf("Attempt %v for payment %v successfully sent to switch, "+
@@ -818,11 +818,9 @@ func (p *paymentLifecycle) amendFirstHopData(rt *route.Route) error {
 
 // failAttemptAndPayment fails both the payment and its attempt via the
 // router's control tower, which marks the payment as failed in db.
-func (p *paymentLifecycle) failPaymentAndAttempt(
+func (p *paymentLifecycle) failPaymentAndAttempt(ctx context.Context,
 	attemptID uint64, reason *paymentsdb.FailureReason,
 	sendErr error) (*attemptResult, error) {
-
-	ctx := context.TODO()
 
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.identifier, *reason, sendErr)
@@ -852,7 +850,8 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
-func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
+func (p *paymentLifecycle) handleSwitchErr(ctx context.Context,
+	attempt *paymentsdb.HTLCAttempt,
 	sendErr error) (*attemptResult, error) {
 
 	internalErrorReason := paymentsdb.FailureReasonError
@@ -883,7 +882,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
 		}
 
 		// Otherwise fail both the payment and the attempt.
-		return p.failPaymentAndAttempt(attemptID, reason, sendErr)
+		return p.failPaymentAndAttempt(ctx, attemptID, reason, sendErr)
 	}
 
 	// If this attempt ID is unknown to the Switch, it means it was never
@@ -916,7 +915,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
 	ok := errors.As(sendErr, &rtErr)
 	if !ok {
 		return p.failPaymentAndAttempt(
-			attemptID, &internalErrorReason, sendErr,
+			ctx, attemptID, &internalErrorReason, sendErr,
 		)
 	}
 
@@ -942,7 +941,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *paymentsdb.HTLCAttempt,
 	)
 	if err != nil {
 		return p.failPaymentAndAttempt(
-			attemptID, &internalErrorReason, sendErr,
+			ctx, attemptID, &internalErrorReason, sendErr,
 		)
 	}
 
@@ -1198,7 +1197,7 @@ func (p *paymentLifecycle) handleAttemptResult(ctx context.Context,
 	// If the result has an error, we need to further process it by failing
 	// the attempt and maybe fail the payment.
 	if result.Error != nil {
-		return p.handleSwitchErr(attempt, result.Error)
+		return p.handleSwitchErr(ctx, attempt, result.Error)
 	}
 
 	// We got an attempt settled result back from the switch.

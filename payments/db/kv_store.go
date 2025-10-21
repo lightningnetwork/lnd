@@ -290,12 +290,14 @@ func (p *KVStore) InitPayment(_ context.Context, paymentHash lntypes.Hash,
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
 // by the KVStore db.
-func (p *KVStore) DeleteFailedAttempts(hash lntypes.Hash) error {
+func (p *KVStore) DeleteFailedAttempts(ctx context.Context,
+	hash lntypes.Hash) error {
+
 	// TODO(ziggie): Refactor to not mix application logic with database
 	// logic. This decision should be made in the application layer.
 	if !p.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true
-		err := p.DeletePayment(context.TODO(), hash, failedHtlcsOnly)
+		err := p.DeletePayment(ctx, hash, failedHtlcsOnly)
 		if err != nil {
 			return err
 		}

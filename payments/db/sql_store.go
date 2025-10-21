@@ -1106,8 +1106,8 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 // the final step (step 5) in the payment lifecycle control flow and should be
 // called after a payment reaches a terminal state (succeeded or permanently
 // failed) to clean up historical failed attempts.
-func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
-	ctx := context.TODO()
+func (s *SQLStore) DeleteFailedAttempts(ctx context.Context,
+	paymentHash lntypes.Hash) error {
 
 	// In case we are configured to keep failed payment attempts, we exit
 	// early.

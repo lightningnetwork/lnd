@@ -503,7 +503,9 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 
 	// Calling DeleteFailedAttempts on a failed payment should delete all
 	// HTLCs.
-	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[0].id))
+	require.NoError(t, paymentDB.DeleteFailedAttempts(
+		t.Context(), payments[0].id,
+	))
 
 	// Expect all HTLCs to be deleted if the config is set to delete them.
 	if !keepFailedPaymentAttempts {
@@ -518,11 +520,15 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	// operation are performed in general therefore we do NOT expect an
 	// error in this case.
 	if keepFailedPaymentAttempts {
-		require.NoError(t, paymentDB.DeleteFailedAttempts(
-			payments[1].id),
+		err := paymentDB.DeleteFailedAttempts(
+			t.Context(), payments[1].id,
 		)
+		require.NoError(t, err)
 	} else {
-		require.Error(t, paymentDB.DeleteFailedAttempts(payments[1].id))
+		err := paymentDB.DeleteFailedAttempts(
+			t.Context(), payments[1].id,
+		)
+		require.Error(t, err)
 	}
 
 	// Since DeleteFailedAttempts returned an error, we should expect the
@@ -530,7 +536,9 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 	assertDBPayments(t, paymentDB, payments)
 
 	// Cleaning up a successful payment should remove failed htlcs.
-	require.NoError(t, paymentDB.DeleteFailedAttempts(payments[2].id))
+	require.NoError(t, paymentDB.DeleteFailedAttempts(
+		t.Context(), payments[2].id,
+	))
 
 	// Expect all HTLCs except for the settled one to be deleted if the
 	// config is set to delete them.
@@ -547,13 +555,17 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 		// payments, if the control tower is configured to keep failed
 		// HTLCs.
 		require.NoError(
-			t, paymentDB.DeleteFailedAttempts(lntypes.ZeroHash),
+			t, paymentDB.DeleteFailedAttempts(
+				t.Context(), lntypes.ZeroHash,
+			),
 		)
 	} else {
 		// Attempting to cleanup a non-existent payment returns an
 		// error.
 		require.Error(
-			t, paymentDB.DeleteFailedAttempts(lntypes.ZeroHash),
+			t, paymentDB.DeleteFailedAttempts(
+				t.Context(), lntypes.ZeroHash,
+			),
 		)
 	}
 }

@@ -516,7 +516,8 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 
 	// Mark the payment as failed.
 	err = pControl.FailPayment(
-		info.PaymentIdentifier, paymentsdb.FailureReasonTimeout,
+		t.Context(), info.PaymentIdentifier,
+		paymentsdb.FailureReasonTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)

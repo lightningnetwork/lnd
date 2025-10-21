@@ -491,7 +491,7 @@ func (m *mockControlTowerOld) FailAttempt(_ context.Context, phash lntypes.Hash,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
+func (m *mockControlTowerOld) FailPayment(_ context.Context, phash lntypes.Hash,
 	reason paymentsdb.FailureReason) error {
 
 	m.Lock()
@@ -782,7 +782,7 @@ func (m *mockControlTower) FailAttempt(_ context.Context, phash lntypes.Hash,
 	return attempt.(*paymentsdb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) FailPayment(phash lntypes.Hash,
+func (m *mockControlTower) FailPayment(_ context.Context, phash lntypes.Hash,
 	reason paymentsdb.FailureReason) error {
 
 	args := m.Called(phash, reason)

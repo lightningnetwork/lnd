@@ -1088,7 +1088,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 			return nil
 		}
 
-		return r.cfg.Control.FailPayment(paymentIdentifier, reason)
+		return r.cfg.Control.FailPayment(
+			ctx, paymentIdentifier, reason,
+		)
 	}
 
 	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",

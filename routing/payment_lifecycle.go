@@ -328,7 +328,7 @@ lifecycle:
 	// Optionally delete the failed attempts from the database. Depends on
 	// the database options deleting attempts is not allowed so this will
 	// just be a no-op.
-	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
+	err = p.router.cfg.Control.DeleteFailedAttempts(ctx, p.identifier)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+
 			"%v: %v", p.identifier, err)

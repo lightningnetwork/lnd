@@ -290,8 +290,8 @@ func (p *KVStore) InitPayment(_ context.Context, paymentHash lntypes.Hash,
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
 // by the KVStore db.
-func (p *KVStore) DeleteFailedAttempts(hash lntypes.Hash) error {
-	ctx := context.TODO()
+func (p *KVStore) DeleteFailedAttempts(ctx context.Context,
+	hash lntypes.Hash) error {
 
 	if !p.keepFailedPaymentAttempts {
 		const failedHtlcsOnly = true

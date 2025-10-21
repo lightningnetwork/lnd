@@ -640,13 +640,14 @@ func (s *SQLStore) DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
 // DeleteFailedAttempts removes all failed HTLCs from the db. It should
 // be called for a given payment whenever all inflight htlcs are
 // completed, and the payment has reached a final terminal state.
-func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
+func (s *SQLStore) DeleteFailedAttempts(ctx context.Context,
+	paymentHash lntypes.Hash) error {
+
 	// In case we are configured to keep failed payment attempts, we exit
 	// early.
 	if s.keepFailedPaymentAttempts {
 		return nil
 	}
-	ctx := context.TODO()
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		// We first fetch the payment to get the payment ID.

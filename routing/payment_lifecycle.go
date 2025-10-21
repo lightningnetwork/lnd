@@ -250,7 +250,7 @@ lifecycle:
 		}
 
 		// We update the payment state on every iteration.
-		currentPayment, ps, err := p.reloadPayment()
+		currentPayment, ps, err := p.reloadPayment(cleanupCtx)
 		if err != nil {
 			return exitWithErr(err)
 		}
@@ -1163,10 +1163,9 @@ func (p *paymentLifecycle) reloadInflightAttempts(
 }
 
 // reloadPayment returns the latest payment found in the db (control tower).
-func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
+func (p *paymentLifecycle) reloadPayment(
+	ctx context.Context) (paymentsdb.DBMPPayment,
 	*paymentsdb.MPPaymentState, error) {
-
-	ctx := context.TODO()
 
 	// Read the db to get the latest state of the payment.
 	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)

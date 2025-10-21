@@ -368,7 +368,9 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 		// inflight HTLCs or not, its status will now either be
 		// `StatusInflight` or `StatusFailed`. In either case, no more
 		// HTLCs will be attempted.
-		err := p.router.cfg.Control.FailPayment(p.identifier, reason)
+		err := p.router.cfg.Control.FailPayment(
+			ctx, p.identifier, reason,
+		)
 		if err != nil {
 			return fmt.Errorf("FailPayment got %w", err)
 		}
@@ -388,6 +390,8 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 // attempt.
 func (p *paymentLifecycle) requestRoute(
 	ps *paymentsdb.MPPaymentState) (*route.Route, error) {
+
+	ctx := context.TODO()
 
 	remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
@@ -430,7 +434,9 @@ func (p *paymentLifecycle) requestRoute(
 	log.Warnf("Marking payment %v permanently failed with no route: %v",
 		p.identifier, failureCode)
 
-	err = p.router.cfg.Control.FailPayment(p.identifier, failureCode)
+	err = p.router.cfg.Control.FailPayment(
+		ctx, p.identifier, failureCode,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("FailPayment got: %w", err)
 	}
@@ -800,6 +806,8 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 	attemptID uint64, reason *paymentsdb.FailureReason,
 	sendErr error) (*attemptResult, error) {
 
+	ctx := context.TODO()
+
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.identifier, *reason, sendErr)
 
@@ -808,7 +816,9 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 	// NOTE: we must fail the payment first before failing the attempt.
 	// Otherwise, once the attempt is marked as failed, another goroutine
 	// might make another attempt while we are failing the payment.
-	err := p.router.cfg.Control.FailPayment(p.identifier, *reason)
+	err := p.router.cfg.Control.FailPayment(
+		ctx, p.identifier, *reason,
+	)
 	if err != nil {
 		log.Errorf("Unable to fail payment: %v", err)
 		return nil, err

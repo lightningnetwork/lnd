@@ -528,7 +528,7 @@ func (p *KVStore) updateHtlcKey(paymentHash lntypes.Hash,
 // payment failed. After invoking this method, InitPayment should return nil on
 // its next call for this payment hash, allowing the switch to make a
 // subsequent payment.
-func (p *KVStore) Fail(paymentHash lntypes.Hash,
+func (p *KVStore) Fail(_ context.Context, paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
 
 	var (

@@ -1102,10 +1102,8 @@ func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 // active attempts are already failed. After invoking this method, InitPayment
 // should return nil on its next call for this payment hash, allowing the user
 // to make a subsequent payments for the same payment hash.
-func (s *SQLStore) Fail(paymentHash lntypes.Hash,
+func (s *SQLStore) Fail(ctx context.Context, paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 

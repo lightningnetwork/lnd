@@ -713,7 +713,7 @@ func (p *paymentLifecycle) sendAttempt(ctx context.Context,
 			"payment=%v, err:%v", attempt.AttemptID,
 			p.identifier, err)
 
-		return p.failAttempt(attempt.AttemptID, err)
+		return p.failAttempt(ctx, attempt.AttemptID, err)
 	}
 
 	htlcAdd.OnionBlob = onionBlob
@@ -839,7 +839,7 @@ func (p *paymentLifecycle) failPaymentAndAttempt(ctx context.Context,
 	}
 
 	// Fail the attempt.
-	return p.failAttempt(attemptID, sendErr)
+	return p.failAttempt(ctx, attemptID, sendErr)
 }
 
 // handleSwitchErr inspects the given error from the Switch and determines
@@ -878,7 +878,7 @@ func (p *paymentLifecycle) handleSwitchErr(ctx context.Context,
 		// Fail the attempt only if there's no reason.
 		if reason == nil {
 			// Fail the attempt.
-			return p.failAttempt(attemptID, sendErr)
+			return p.failAttempt(ctx, attemptID, sendErr)
 		}
 
 		// Otherwise fail both the payment and the attempt.
@@ -893,7 +893,7 @@ func (p *paymentLifecycle) handleSwitchErr(ctx context.Context,
 		log.Warnf("Failing attempt=%v for payment=%v as it's not "+
 			"found in the Switch", attempt.AttemptID, p.identifier)
 
-		return p.failAttempt(attemptID, sendErr)
+		return p.failAttempt(ctx, attemptID, sendErr)
 	}
 
 	if errors.Is(sendErr, htlcswitch.ErrUnreadableFailureMessage) {
@@ -1025,10 +1025,8 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 }
 
 // failAttempt calls control tower to fail the current payment attempt.
-func (p *paymentLifecycle) failAttempt(attemptID uint64,
+func (p *paymentLifecycle) failAttempt(ctx context.Context, attemptID uint64,
 	sendError error) (*attemptResult, error) {
-
-	ctx := context.TODO()
 
 	log.Warnf("Attempt %v for payment %v failed: %v", attemptID,
 		p.identifier, sendError)

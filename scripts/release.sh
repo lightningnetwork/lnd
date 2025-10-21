@@ -193,6 +193,9 @@ required Go version ($goversion)."
     env CGO_ENABLED=0 GOOS=$os GOARCH=$arch GOARM=$arm go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/lncli
     popd
 
+    # Clear Go build cache to prevent disk space issues during multi-platform builds.
+    go clean -cache
+
     # Add the hashes for the individual binaries as well for easy verification
     # of a single installed binary.
     shasum -a 256 "${dir}/"* >> "manifest-$tag.txt" 

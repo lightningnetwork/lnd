@@ -430,7 +430,7 @@ func (p *KVStore) RegisterAttempt(_ context.Context, paymentHash lntypes.Hash,
 // After invoking this method, InitPayment should always return an error to
 // prevent us from making duplicate payments to the same payment hash. The
 // provided preimage is atomically saved to the DB for record keeping.
-func (p *KVStore) SettleAttempt(hash lntypes.Hash,
+func (p *KVStore) SettleAttempt(_ context.Context, hash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
 
 	var b bytes.Buffer

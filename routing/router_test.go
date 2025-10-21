@@ -522,7 +522,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// graph and ignored because it is missing a valid signature.
-	_, err = ctx.router.SendToRoute(payment, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payment, rt, nil)
 	require.Error(t, err, "expected route to fail with channel update")
 
 	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
@@ -542,7 +542,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	ctx.graphBuilder.setNextReject(false)
 
 	// Retry the payment using the same route as before.
-	_, err = ctx.router.SendToRoute(payment, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payment, rt, nil)
 	require.Error(t, err, "expected route to fail with channel update")
 
 	// This time a valid signature was supplied and the policy change should
@@ -1427,7 +1427,9 @@ func TestSendToRouteStructuredError(t *testing.T) {
 			// update should be received by router and ignored
 			// because it is missing a valid
 			// signature.
-			_, err = ctx.router.SendToRoute(payment, rt, nil)
+			_, err = ctx.router.SendToRoute(
+				t.Context(), payment, rt, nil,
+			)
 
 			fErr, ok := err.(*htlcswitch.ForwardingError)
 			require.True(
@@ -1506,7 +1508,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	// Send off the payment request to the router. We expect an error back
 	// indicating that the route is too long.
 	var payHash lntypes.Hash
-	_, err = ctx.router.SendToRoute(payHash, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payHash, rt, nil)
 	if err != route.ErrMaxRouteHopsExceeded {
 		t.Fatalf("expected ErrMaxRouteHopsExceeded, but got %v", err)
 	}
@@ -2221,7 +2223,9 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	).Return(nil)
 
 	// Expect a successful send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.NoError(t, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2276,7 +2280,9 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 	}}
 
 	// Expect an error to be returned.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.ErrorIs(t, ErrSkipTempErr, err)
 	require.Nil(t, attempt)
 
@@ -2356,7 +2362,9 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.Equal(t, tempErr, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2440,7 +2448,9 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(&failureReason, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.Equal(t, permErr, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2529,7 +2539,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRoute(payHash, rt, nil)
+	attempt, err := router.SendToRoute(t.Context(), payHash, rt, nil)
 	require.Equal(t, tempErr, err)
 	require.Equal(t, testAttempt, attempt)
 

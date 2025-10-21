@@ -1102,8 +1102,8 @@ var closeChannelCommand = cli.Command{
 // CloseInfo contains information about a channel close transaction.
 type CloseInfo struct {
 	ClosingTxid   string `json:"closing_txid"`
-	FeePerVbyte   int64  `json:"fee_per_vbyte"`
-	LocalCloseTx  bool   `json:"local_close_tx"`
+	FeePerVbyte   int64  `json:"fee_per_vbyte,omitempty"`
+	LocalCloseTx  bool   `json:"local_close_tx,omitempty"`
 }
 
 func closeChannel(ctx *cli.Context) error {
@@ -1187,6 +1187,8 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 		return err
 	}
 
+	// Track if we've already sent close info to prevent duplicate sends
+        // when ClosePending is received multiple times (RBF, rebroadcast, etc.)
 	var sentCloseInfo bool
 
 	for {
@@ -1220,20 +1222,9 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 			feeRate := update.ClosePending.FeePerVbyte
 			isLocalClose := update.ClosePending.LocalCloseTx
 
-			var closeTypeMsg string
-			if isLocalClose {
-				closeTypeMsg = " (local close)"
-			} else {
-				closeTypeMsg = " (remote close)"
-			}
-
-			fmt.Fprintf(os.Stderr, "Channel close transaction "+
-				"broadcasted: %v%s\n", txid, closeTypeMsg)
-
-			if feeRate > 0 {
-				fmt.Fprintf(os.Stderr, "Fee rate: %d sat/vbyte\n", feeRate)
-			}
-
+			// Only send close info on the first ClosePending event.
+			// Subsequent events (from RBF, rebroadcast, etc.) are
+			// ignored to prevent duplicate output.
 			if !sentCloseInfo {
 				closeInfo := CloseInfo{
 					ClosingTxid:  txid.String(),
@@ -1427,8 +1418,8 @@ func closeAllChannels(ctx *cli.Context) error {
 		RemotePubKey  string `json:"remote_pub_key"`
 		ChannelPoint  string `json:"channel_point"`
 		ClosingTxid   string `json:"closing_txid"`
-		FeePerVbyte   int64  `json:"fee_per_vbyte"`
-		LocalCloseTx  bool   `json:"local_close_tx"`
+		FeePerVbyte   int64  `json:"fee_per_vbyte,omitempty"`
+		LocalCloseTx  bool   `json:"local_close_tx,omitempty"`
 		FailErr       string `json:"error"`
 	}
 

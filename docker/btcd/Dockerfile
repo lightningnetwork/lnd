@@ -1,6 +1,6 @@
 # If you change this please also update GO_VERSION in Makefile (then run
 # `make lint` to see where else it needs to be updated as well).
-FROM golang:1.25.2-alpine as builder
+FROM golang:1.25.3-alpine as builder
 
 LABEL maintainer="Olaoluwa Osuntokun <laolu@lightning.engineering>"
 

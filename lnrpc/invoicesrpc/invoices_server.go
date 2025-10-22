@@ -379,6 +379,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		HodlInvoice:     true,
 		Preimage:        nil,
 		RouteHints:      routeHints,
+		Metadata:        invoice.Metadata,
 	}
 
 	_, dbInvoice, err := AddInvoice(ctx, addInvoiceCfg, addInvoiceData)

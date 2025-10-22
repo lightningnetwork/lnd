@@ -128,6 +128,12 @@ message AddHoldInvoiceRequest {
 
     // Whether this invoice should include routing hints for private channels.
     bool private = 9;
+
+    /*
+    Metadata is additional data that is sent along with the payment to the
+    payee. This field can be used to embed arbitrary data within an invoice.
+    */
+    bytes metadata = 11;
 }
 
 message AddHoldInvoiceResp {

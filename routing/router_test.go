@@ -781,6 +781,129 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	)
 }
 
+// TestSendPaymentErrorFeeInsufficientSecondChance tests that the half-penalty
+// behavior of the second chance logic is properly applied when receiving
+// errors that contain channel updates. We expose the path where the second
+// chance penalty along with the fee update are sufficient for a different route
+// to be picked.
+func TestSendPaymentErrorFeeInsufficientSecondChance(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
+
+	// Get the channel ID for the first hop of the route that will retrieve
+	// the second chance.
+	roasbeefSongoku := lnwire.NewShortChanIDFromInt(
+		ctx.getChannelIDFromAlias(t, "roasbeef", "songoku"),
+	)
+
+	var (
+		preImage    [32]byte
+		amt         = lnwire.NewMSatFromSatoshis(1000)
+		expiryDelta = uint16(32)
+	)
+
+	// Craft a LightningPayment struct that'll send a payment from roasbeef
+	// to elst. Initially a path via songoku will be picked as it's the one
+	// with significantly lower fees.
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["elst"], amt,
+	)
+
+	// Grab the chan ID that we'll apply the channel update on.
+	chanID := ctx.getChannelIDFromAlias(t, "songoku", "sophon")
+
+	// Grab the chan ID of the expensive channel. We'll use this channel's
+	// policy as a reference to what will be provided in the other channel's
+	// update.
+	expChanID := ctx.getChannelIDFromAlias(t, "roasbeef", "phamnuwen")
+	_, expPolicy, _, err := ctx.graph.FetchChannelEdgesByID(expChanID)
+	require.NoError(t, err)
+
+	// Prepare an error update for the channel where the fees are updated to
+	// be equal to the alternative (more expensive) route. We also subtract
+	// some minimal fee delta to make it look as if this route is still more
+	// favorable (by a small margin). Although, because of the second-chance
+	// penalty, we'll end up using the alternative route.
+	feeDelta := uint32(1000)
+	newFeeBase := uint32(expPolicy.FeeBaseMSat) - feeDelta
+	newFeePpm := uint32(expPolicy.FeeProportionalMillionths) - feeDelta
+
+	errChanUpdate := lnwire.ChannelUpdate1{
+		ShortChannelID: lnwire.NewShortChanIDFromInt(chanID),
+		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
+		BaseFee:        newFeeBase,
+		FeeRate:        newFeePpm,
+		TimeLockDelta:  expiryDelta,
+	}
+	signErrChanUpdate(t, ctx.privKeys["songoku"], &errChanUpdate)
+
+	// We'll now modify the SendHTLC method to return an error for the
+	// songoku->sophon channel.
+	errorReturned := false
+	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
+
+	dispatch, ok := ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld)
+	require.True(t, ok)
+
+	dispatch.setPaymentResult(
+		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
+			if firstHop != roasbeefSongoku || errorReturned {
+				return preImage, nil
+			}
+
+			errorReturned = true
+
+			return [32]byte{}, htlcswitch.NewForwardingError(
+				// Within our error, we'll add a
+				// channel update which is meant to
+				// reflect the new fee schedule for the
+				// node/channel.
+				&lnwire.FailFeeInsufficient{
+					Update: errChanUpdate,
+				}, 1,
+			)
+		},
+	)
+
+	// Send off the payment request to the router, what's expected to happen
+	// here is:
+	// * attempt 1: roasbeef -> songoku -> sophon -> elst, with an error
+	//	that contains a channel update for songoku->sophon.
+	// * attempt 2: roasbeef -> phamnuwen -> sophon -> elst, with success.
+	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
+
+	require.True(t, errorReturned,
+		"failed to simulate error in the first payment attempt",
+	)
+
+	// The route selected should have three hops. Make sure that,
+	//   path: roasbeef -> pham nuwen -> sophon -> elst
+	// is selected.
+	require.Equal(t, 3, len(route.Hops), "incorrect route length")
+
+	// The preimage should match up with the one created above.
+	require.Equal(t,
+		paymentPreImage[:], preImage[:], "incorrect preimage used",
+	)
+
+	// The route should have pham nuwen as the first hop.
+	require.Equal(t, route.Hops[0].PubKeyBytes, ctx.aliases["phamnuwen"],
+		"route should go through pham nuwen as first hop",
+	)
+
+	expectedFinalHop := ctx.getChannelIDFromAlias(t, "sophon", "elst")
+
+	// The route should pass via the expected final hop.
+	require.Equal(t,
+		expectedFinalHop, route.FinalHop().ChannelID,
+		"route did not pass through expected final hop",
+	)
+}
+
 // TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit tests that upon receiving a
 // ChannelUpdate in a fee related error from the private channel, we won't
 // choose the route in our second attempt if the updated fee exceeds our fee

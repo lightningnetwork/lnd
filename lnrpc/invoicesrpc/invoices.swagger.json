@@ -326,6 +326,11 @@
         "private": {
           "type": "boolean",
           "description": "Whether this invoice should include routing hints for private channels."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "Metadata is additional data that is sent along with the payment to the\npayee. This field can be used to embed arbitrary data within an invoice."
         }
       }
     },
@@ -738,6 +743,11 @@
         "blinded_path_config": {
           "$ref": "#/definitions/lnrpcBlindedPathConfig",
           "description": "Config values to use when creating blinded paths for this invoice. These\ncan be used to override the defaults config values provided in by the\nglobal config. This field is only used if is_blinded is true."
+        },
+        "metadata": {
+          "type": "string",
+          "format": "byte",
+          "description": "Metadata is additional data that is sent along with the payment to the\npayee. This field can be used to embed arbitrary data within an invoice.\nWhen using REST, this field must be encoded as base64."
         }
       }
     },

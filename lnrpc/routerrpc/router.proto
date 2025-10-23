@@ -202,6 +202,18 @@ service Router {
     */
     rpc XFindBaseLocalChanAlias (FindBaseAliasRequest)
         returns (FindBaseAliasResponse);
+
+    /* lncli: `deletefwdhistory`
+    DeleteForwardingHistory allows the caller to delete forwarding history
+    events older than a specified time. This is useful for implementing data
+    retention policies for privacy purposes. The call deletes events in batches
+    and returns statistics including the total number of events deleted and the
+    aggregate fees earned from those events. The deletion is performed in a
+    transaction-safe manner with configurable batch sizes to avoid holding
+    large database locks.
+    */
+    rpc DeleteForwardingHistory (DeleteForwardingHistoryRequest)
+        returns (DeleteForwardingHistoryResponse);
 }
 
 message SendPaymentRequest {
@@ -1133,4 +1145,40 @@ message FindBaseAliasRequest {
 message FindBaseAliasResponse {
     // The base scid that resulted from the base scid look up.
     uint64 base = 1;
+}
+
+message DeleteForwardingHistoryRequest {
+    // Specify the time before which to delete forwarding events using one of
+    // the following options:
+    oneof time_spec {
+        // Absolute Unix timestamp (seconds) - delete events before this time.
+        uint64 delete_before_time = 1;
+
+        // Relative duration string supporting both standard Go format and
+        // custom units for convenience.
+        // Standard Go: "-24h" for 1 day, "-1.5h" for 1.5 hours
+        // Custom units: "-1d", "-1w", "-1M", "-1y"
+        // Supported: ns, us/µs, ms, s, m, h, d (days), w (weeks),
+        // M (months=30.44d), y (years=365.25d).
+        // Use negative values to specify time in the past.
+        string duration = 2;
+    }
+
+    // Batch size for deletion (default 10000, max 50000).
+    // Controls how many events are deleted per database transaction to avoid
+    // holding large locks.
+    uint32 batch_size = 3;
+}
+
+message DeleteForwardingHistoryResponse {
+    // Number of forwarding events deleted.
+    uint64 events_deleted = 1;
+
+    // Total fees earned from deleted events (in millisatoshis).
+    // This is the sum of (amt_in - amt_out) for all deleted events, which
+    // can be used for accounting purposes.
+    int64 total_fee_msat = 2;
+
+    // Status message.
+    string status = 3;
 }

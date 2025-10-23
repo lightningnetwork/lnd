@@ -109,6 +109,10 @@ var (
 	ErrDuplicatePaymentHash = errors.New(
 		"invoice contains multiple payment hashes",
 	)
+
+	// ErrPaymentSecretNotFound is returned when a decoded invoice has
+	// neither a payment secret nor blinded paths.
+	ErrPaymentSecretNotFound = errors.New("payment secret not found")
 )
 
 // MessageSigner is passed to the Encode method to provide a signature

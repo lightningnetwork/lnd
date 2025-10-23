@@ -145,6 +145,10 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+LND now [fail BOLT-11 payments](https://github.com/lightning/bolts/pull/1243)
+if any mandatory field (`p`, `h`, `s`, `n`) does not have the correct length
+(52, 52, 52, 53) in the BOLT 11 invoice.
+
 ## Testing
 
 * [Added unit tests for TLV length validation across multiple packages](https://github.com/lightningnetwork/lnd/pull/10249).

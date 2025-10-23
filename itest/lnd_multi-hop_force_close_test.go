@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -820,13 +821,13 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		// We expect to see 1 txns in the mempool,
 		// - Carol's second level HTLC sweep tx.
 		// We now mine a block to confirm it.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, carol)
 	} else {
 		// We expect to see 2 txns in the mempool,
 		// - Bob's to_local sweep tx.
 		// - Carol's second level HTLC sweep tx.
 		// We now mine a block to confirm the sweeping txns.
-		ht.MineBlocksAndAssertNumTxes(1, 2)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, carol)
 	}
 
 	// Once the second-level transaction confirmed, Bob should have
@@ -850,12 +851,12 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	ht.AssertNumPendingSweeps(carol, 1)
 
 	// We should have a new transaction in the mempool.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, carol)
 
 	// Finally, if we mine an additional block to confirm Carol's second
 	// level success transaction. Carol should not show a pending channel
 	// in her report afterwards.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, carol)
 	ht.AssertNumPendingForceClose(carol, 0)
 
 	// The invoice should show as settled for Carol, indicating that it was
@@ -879,7 +880,7 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		ht.AssertNumPendingSweeps(bob, 2)
 
 		// Mine a block to confirm the commit output sweep.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 	}
 
 	// Assert Bob also sees the channel as closed.
@@ -2401,7 +2402,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
 	// - Bob's sweeping tx of his commit output.
-	ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, carol)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, bob)
 
 	// When Bob notices Carol's second level tx in the block, he will
 	// extract the preimage and offer the HTLC to his sweeper. So he has,
@@ -2421,7 +2422,7 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	ht.AssertTxSpendFrom(bobHtlcSweep, aliceForceClose)
 
 	// We'll now mine a block which should confirm Bob's HTLC sweep tx.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 
 	// Now that the sweeping tx has been confirmed, Bob should recognize
 	// that all contracts for the Bob-Carol channel have been fully
@@ -3061,8 +3062,14 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// 1. Bob's sweeping tx for all timeout HTLCs.
 	// 2. Bob's sweeping tx for all success HTLCs.
 	// 3. Carol's sweeping tx for her commit output.
+	// Wait for all sweeps to appear in mempool, triggering if needed.
+	ht.AssertNumTxsInMempoolWithSweepTrigger(3, bob)
+	// Also trigger Carol in case her sweep is delayed.
+	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	ht.Miner().AssertNumTxsInMempool(3)
+
 	// Mine a block to confirm them.
-	ht.MineBlocksAndAssertNumTxesWithSweep(1, 3, carol)
+	ht.MineBlocksAndAssertNumTxes(1, 3)
 
 	// For this channel, we also check the number of HTLCs and the stage
 	// are correct.
@@ -3079,7 +3086,7 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 
 		// Mine a block to confirm Bob's sweeping of his to_local
 		// output.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 	}
 
 	// Mine blocks till the CSV expires on Bob's HTLC output.

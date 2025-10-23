@@ -733,17 +733,6 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		quit:       make(chan struct{}),
 	}
 
-	// Start the low-level services once they are initialized.
-	//
-	// TODO(yy): break the server startup into four steps,
-	// 1. init the low-level services.
-	// 2. start the low-level services.
-	// 3. init the high-level services.
-	// 4. start the high-level services.
-	if err := s.startLowLevelServices(); err != nil {
-		return nil, err
-	}
-
 	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
@@ -2125,41 +2114,12 @@ func (c cleaner) run() {
 	}
 }
 
-// startLowLevelServices starts the low-level services of the server. These
-// services must be started successfully before running the main server. The
-// services are,
-// 1. the chain notifier.
-//
-// TODO(yy): identify and add more low-level services here.
-func (s *server) startLowLevelServices() error {
-	var startErr error
-
-	cleanup := cleaner{}
-
-	cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
-	if err := s.cc.ChainNotifier.Start(); err != nil {
-		startErr = err
-	}
-
-	if startErr != nil {
-		cleanup.run()
-	}
-
-	return startErr
-}
-
 // Start starts the main daemon server, all requested listeners, and any helper
 // goroutines.
 // NOTE: This function is safe for concurrent access.
 //
 //nolint:funlen
 func (s *server) Start(ctx context.Context) error {
-	// Get the current blockbeat.
-	beat, err := s.getStartingBeat()
-	if err != nil {
-		return err
-	}
-
 	var startErr error
 
 	// If one sub system fails to start, the following code ensures that the
@@ -2213,6 +2173,12 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
+		if err := s.cc.ChainNotifier.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
 		if err := s.cc.BestBlockTracker.Start(); err != nil {
 			startErr = err
@@ -2245,6 +2211,12 @@ func (s *server) Start(ctx context.Context) error {
 				startErr = err
 				return
 			}
+		}
+
+		beat, err := s.getStartingBeat()
+		if err != nil {
+			startErr = err
+			return
 		}
 
 		cleanup = cleanup.add(s.txPublisher.Stop)

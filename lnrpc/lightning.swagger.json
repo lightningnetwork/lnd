@@ -7497,6 +7497,10 @@
             "$ref": "#/definitions/lnrpcOutPoint"
           },
           "description": "A list of selected outpoints as inputs for the transaction."
+        },
+        "change_address": {
+          "type": "string",
+          "description": "An optional address to send the change to. If not specified, the change\nwill be sent to an address derived from the wallet. This allows draining\nspecific addresses by repeatedly sending with change returning to the\nsame address."
         }
       }
     },

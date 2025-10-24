@@ -784,20 +784,21 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 				return
 			}
 
-			peer.HandleLocalCloseChanReqs(request)
-		},
-		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
-		SwitchPackager:         channeldb.NewSwitchPackager(),
+		peer.HandleLocalCloseChanReqs(request)
+	},
+	FwdingLog:              s.createForwardingLog(cfg, dbs),
+	SwitchPackager:         channeldb.NewSwitchPackager(),
 		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,
 		HtlcNotifier:           s.htlcNotifier,
 		FwdEventTicker:         ticker.New(htlcswitch.DefaultFwdEventInterval),
 		LogEventTicker:         ticker.New(htlcswitch.DefaultLogInterval),
-		AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
-		AllowCircularRoute:     cfg.AllowCircularRoute,
-		RejectHTLC:             cfg.RejectHTLC,
-		Clock:                  clock.NewDefaultClock(),
+	AckEventTicker:         ticker.New(htlcswitch.DefaultAckInterval),
+	AllowCircularRoute:     cfg.AllowCircularRoute,
+	RejectHTLC:             cfg.RejectHTLC,
+	NoForwardingHistory:    cfg.NoForwardingHistory,
+	Clock:                  clock.NewDefaultClock(),
 		MailboxDeliveryTimeout: cfg.Htlcswitch.MailboxDeliveryTimeout,
 		MaxFeeExposure:         thresholdMSats,
 		SignAliasUpdate:        s.signAliasUpdate,
@@ -1900,6 +1901,21 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 	}
 
 	return s.cc.MsgSigner.SignMessage(s.identityKeyLoc, data, true)
+}
+
+// createForwardingLog creates the appropriate forwarding log implementation
+// based on the configuration. If --no-forwarding-history is enabled, it returns
+// a no-op implementation that discards all events for privacy. Otherwise, it
+// returns the standard database-backed forwarding log.
+func (s *server) createForwardingLog(cfg *Config,
+	dbs *DatabaseInstances) htlcswitch.ForwardingLog {
+
+	if cfg.NoForwardingHistory {
+		srvrLog.Infof("Forwarding history logging disabled for privacy")
+		return htlcswitch.NewNoOpForwardingLog()
+	}
+
+	return dbs.ChanStateDB.ForwardingLog()
 }
 
 // createLivenessMonitor creates a set of health checks using our configured

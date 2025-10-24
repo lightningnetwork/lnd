@@ -207,6 +207,12 @@ type Config struct {
 	// HTLCs that are not from the source hop.
 	RejectHTLC bool
 
+	// NoForwardingHistory when set to true will prevent the switch from
+	// logging forwarding events to both the database and text logs. This
+	// is a privacy feature to prevent forensic reconstruction of routing
+	// activity.
+	NoForwardingHistory bool
+
 	// Clock is a time source for the switch.
 	Clock clock.Clock
 
@@ -3074,8 +3080,8 @@ func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
 
 	// If this is an HTLC settle, and it wasn't from a locally initiated
 	// HTLC, then we'll log a forwarding event so we can flush it to disk
-	// later.
-	if circuit.Outgoing != nil {
+	// later. This is skipped if NoForwardingHistory is enabled for privacy.
+	if circuit.Outgoing != nil && !s.cfg.NoForwardingHistory {
 		log.Infof("Forwarded HTLC(%x) of %v (fee: %v) "+
 			"from IncomingChanID(%v) to OutgoingChanID(%v)",
 			circuit.PaymentHash[:], circuit.OutgoingAmount,

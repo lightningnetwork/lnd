@@ -2,6 +2,7 @@ package itest
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -826,8 +827,11 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 		// We expect to see 2 txns in the mempool,
 		// - Bob's to_local sweep tx.
 		// - Carol's second level HTLC sweep tx.
+		// Trigger both sweepers to ensure txs appear.
+		bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+		carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
 		// We now mine a block to confirm the sweeping txns.
-		ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, carol)
+		ht.MineBlocksAndAssertNumTxes(1, 2)
 	}
 
 	// Once the second-level transaction confirmed, Bob should have
@@ -1146,7 +1150,7 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		"htlc=%v", resp.BlocksTilMaturity,
 		resp.PendingHtlcs[0].BlocksTilMaturity)
 
-	ht.MineBlocks(int(resp.PendingHtlcs[0].BlocksTilMaturity))
+	ht.MineEmptyBlocks(int(resp.PendingHtlcs[0].BlocksTilMaturity))
 
 	// Bob's pending channel report should show that he has a single HTLC
 	// that's now in stage one.
@@ -1165,7 +1169,7 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 
 	// Bob's outgoing HTLC sweep should be broadcast now. Mine a block to
 	// confirm it.
-	ht.MineBlocksAndAssertNumTxes(1, 1)
+	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 
 	// With the second layer timeout tx confirmed, Bob should have canceled
 	// backwards the HTLC that Carol sent.
@@ -3062,12 +3066,24 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// 1. Bob's sweeping tx for all timeout HTLCs.
 	// 2. Bob's sweeping tx for all success HTLCs.
 	// 3. Carol's sweeping tx for her commit output.
-	// Wait for all sweeps to appear in mempool, triggering if needed.
-	ht.AssertNumTxsInMempoolWithSweepTrigger(3, bob)
-	// Also trigger Carol in case her sweep is delayed.
-	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	//
+	// Note: Carol's commit output may have a CSV lock that was satisfied
+	// by the empty block mined in flakePreimageSettlement. For zero-conf
+	// channels, there can be additional timing issues. Trigger sweepers
+	// multiple times if needed.
+	for i := 0; i < 5; i++ {
+		bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+		carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+		// Check if we have all 3 txs.
+		mempool := ht.GetRawMempool()
+		if len(mempool) == 3 {
+			break
+		}
+		// Wait a bit before retrying.
+		time.Sleep(1 * time.Second)
+	}
+	// Wait for all 3 txs to appear in mempool.
 	ht.Miner().AssertNumTxsInMempool(3)
-
 	// Mine a block to confirm them.
 	ht.MineBlocksAndAssertNumTxes(1, 3)
 

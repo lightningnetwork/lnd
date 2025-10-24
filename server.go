@@ -60,6 +60,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	chcl "github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -218,6 +219,53 @@ func (p peerAccessStatus) String() string {
 type peerSlotStatus struct {
 	// state determines which privileges the peer has with our server.
 	state peerAccessStatus
+}
+
+// auxCloserAdapter adapts a chancloser.AuxChanCloser to the
+// contractcourt.AuxChanCloser interface.
+type auxCloserAdapter struct {
+	chcl.AuxChanCloser
+}
+
+// FinalizeClose adapts the chancloser types to contractcourt types.
+func (a auxCloserAdapter) FinalizeClose(desc contractcourt.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	// Convert contractcourt types to chancloser types.
+	chanCloserDesc := chcl.AuxCloseDesc{
+		AuxShutdownReq: chcl.AuxShutdownReq{
+			ChanPoint:   desc.ChanPoint,
+			ShortChanID: desc.ShortChanID,
+			Initiator:   desc.Initiator,
+			InternalKey: desc.InternalKey,
+			CommitBlob:  desc.CommitBlob,
+			FundingBlob: desc.FundingBlob,
+		},
+		CloseFee:  desc.CloseFee,
+		CommitFee: desc.CommitFee,
+		LocalCloseOutput: fn.MapOption(
+			func(o contractcourt.CloseOutput) chcl.CloseOutput {
+				return chcl.CloseOutput{
+					Amt:             o.Amt,
+					DustLimit:       o.DustLimit,
+					PkScript:        o.PkScript,
+					ShutdownRecords: o.ShutdownRecords,
+				}
+			},
+		)(desc.LocalCloseOutput),
+		RemoteCloseOutput: fn.MapOption(
+			func(o contractcourt.CloseOutput) chcl.CloseOutput {
+				return chcl.CloseOutput{
+					Amt:             o.Amt,
+					DustLimit:       o.DustLimit,
+					PkScript:        o.PkScript,
+					ShutdownRecords: o.ShutdownRecords,
+				}
+			},
+		)(desc.RemoteCloseOutput),
+	}
+
+	return a.AuxChanCloser.FinalizeClose(chanCloserDesc, closeTx)
 }
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -1364,6 +1412,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		AuxLeafStore: implCfg.AuxLeafStore,
 		AuxSigner:    implCfg.AuxSigner,
 		AuxResolver:  implCfg.AuxContractResolver,
+		AuxCloser: fn.MapOption(
+			func(c chcl.AuxChanCloser) contractcourt.AuxChanCloser {
+				return auxCloserAdapter{AuxChanCloser: c}
+			},
+		)(implCfg.AuxChanCloser),
 	}, dbs.ChanStateDB)
 
 	// Select the configuration and funding parameters for Bitcoin.

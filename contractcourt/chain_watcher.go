@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -36,6 +37,77 @@ const (
 	// polling the database for a channel's commitpoint.
 	maxCommitPointPollTimeout = 10 * time.Minute
 )
+
+// CloseOutput represents an output that should be included in the close
+// transaction.
+type CloseOutput struct {
+	// Amt is the amount of the output.
+	Amt btcutil.Amount
+
+	// DustLimit is the dust limit for the local node.
+	DustLimit btcutil.Amount
+
+	// PkScript is the script that should be used to pay to the output.
+	PkScript []byte
+
+	// ShutdownRecords is the set of custom records that may result in
+	// extra close outputs being added.
+	ShutdownRecords lnwire.CustomRecords
+}
+
+// AuxShutdownReq is used to request a set of extra custom records to include
+// in the shutdown message.
+type AuxShutdownReq struct {
+	// ChanPoint is the channel point of the channel that is being shut
+	// down.
+	ChanPoint wire.OutPoint
+
+	// ShortChanID is the short channel ID of the channel that is being
+	// closed.
+	ShortChanID lnwire.ShortChannelID
+
+	// Initiator is true if the local node is the initiator of the channel.
+	Initiator bool
+
+	// InternalKey is the internal key for the shutdown addr. This will
+	// only be set for taproot shutdown addrs.
+	InternalKey fn.Option[btcec.PublicKey]
+
+	// CommitBlob is the blob that was included in the last commitment.
+	CommitBlob fn.Option[tlv.Blob]
+
+	// FundingBlob is the blob that was included in the funding state.
+	FundingBlob fn.Option[tlv.Blob]
+}
+
+// AuxCloseDesc is used to describe the channel close that is being performed.
+type AuxCloseDesc struct {
+	AuxShutdownReq
+
+	// CloseFee is the closing fee to be paid for this state.
+	CloseFee btcutil.Amount
+
+	// CommitFee is the fee that was paid for the last commitment.
+	CommitFee btcutil.Amount
+
+	// LocalCloseOutput is the output that the local node should be paid
+	// to. This is None if the local party will not have an output on the
+	// co-op close transaction.
+	LocalCloseOutput fn.Option[CloseOutput]
+
+	// RemoteCloseOutput is the output that the remote node should be paid
+	// to. This will be None if the remote party will not have an output on
+	// the co-op close transaction.
+	RemoteCloseOutput fn.Option[CloseOutput]
+}
+
+// AuxChanCloser is used to allow an external caller to finalize a cooperative
+// channel close.
+type AuxChanCloser interface {
+	// FinalizeClose is called after the close transaction has been agreed
+	// upon and confirmed.
+	FinalizeClose(desc AuxCloseDesc, closeTx *wire.MsgTx) error
+}
 
 // LocalUnilateralCloseInfo encapsulates all the information we need to act on
 // a local force close that gets confirmed.
@@ -229,6 +301,9 @@ type chainWatcherConfig struct {
 
 	// auxResolver is used to supplement contract resolution.
 	auxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// auxCloser is used to finalize cooperative closes.
+	auxCloser fn.Option[AuxChanCloser]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -986,6 +1061,76 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 	return btcutil.Amount(fn.Sum(vals))
 }
 
+// finalizeCoopClose calls the aux closer to finalize a cooperative close
+// transaction that has been confirmed on-chain.
+func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
+	closeTx *wire.MsgTx) error {
+
+	chanState := c.cfg.chanState
+
+	// Get the shutdown info to extract the local delivery script.
+	shutdown, err := chanState.ShutdownInfo()
+	if err != nil {
+		return fmt.Errorf("get shutdown info: %w", err)
+	}
+
+	// TODO(roasbeef): Extract the internal key if this is a taproot
+	// channel. For now, we leave it as None since we don't persist it
+	// separately from the delivery script.
+	var internalKey fn.Option[btcec.PublicKey]
+
+	// Build the AuxShutdownReq.
+	req := AuxShutdownReq{
+		ChanPoint:   chanState.FundingOutpoint,
+		ShortChanID: chanState.ShortChanID(),
+		InternalKey: internalKey,
+		Initiator:   chanState.IsInitiator,
+		CommitBlob:  chanState.LocalCommitment.CustomBlob,
+		FundingBlob: chanState.CustomBlob,
+	}
+
+	// Extract close outputs from the transaction. We need to identify
+	// which outputs belong to local vs remote parties.
+	var localCloseOutput, remoteCloseOutput fn.Option[CloseOutput]
+
+	// Get the delivery scripts for both parties.
+	var localDeliveryScript lnwire.DeliveryAddress
+	shutdown.WhenSome(func(s channeldb.ShutdownInfo) {
+		localDeliveryScript = s.DeliveryScript.Val
+	})
+
+	// Scan through the close transaction outputs to identify local and
+	// remote outputs.
+	for _, out := range closeTx.TxOut {
+		if len(localDeliveryScript) > 0 &&
+			slices.Equal(out.PkScript, localDeliveryScript) {
+
+			localCloseOutput = fn.Some(CloseOutput{
+				Amt:       btcutil.Amount(out.Value),
+				PkScript:  out.PkScript,
+				DustLimit: chanState.LocalChanCfg.DustLimit,
+			})
+		} else {
+			// This must be the remote output.
+			remoteCloseOutput = fn.Some(CloseOutput{
+				Amt:       btcutil.Amount(out.Value),
+				PkScript:  out.PkScript,
+				DustLimit: chanState.RemoteChanCfg.DustLimit,
+			})
+		}
+	}
+
+	// Build the AuxCloseDesc.
+	desc := AuxCloseDesc{
+		AuxShutdownReq:    req,
+		LocalCloseOutput:  localCloseOutput,
+		RemoteCloseOutput: remoteCloseOutput,
+	}
+
+	// Call FinalizeClose on the aux closer.
+	return aux.FinalizeClose(desc, closeTx)
+}
+
 // dispatchCooperativeClose processed a detect cooperative channel closure.
 // We'll use the spending transaction to locate our output within the
 // transaction, then clean up the database state. We'll also dispatch a
@@ -1034,6 +1179,17 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	// cooperative closure.
 	closeInfo := &CooperativeCloseInfo{
 		ChannelCloseSummary: closeSummary,
+	}
+
+	// If we have an aux closer, finalize the cooperative close now that
+	// it's confirmed.
+	err = fn.MapOptionZ(
+		c.cfg.auxCloser, func(aux AuxChanCloser) error {
+			return c.finalizeCoopClose(aux, broadcastTx)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("finalize coop close: %w", err)
 	}
 
 	// With the event processed, we'll now notify all subscribers of the

@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainio"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -34,16 +35,19 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
+	confRegistered := make(chan struct{}, 1)
 	aliceNotifier := &lnmock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail, 1),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		SpendChan:      make(chan *chainntnfs.SpendDetail, 1),
+		EpochChan:      make(chan *chainntnfs.BlockEpoch),
+		ConfChan:       make(chan *chainntnfs.TxConfirmation, 1),
+		ConfRegistered: confRegistered,
 	}
 	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 		chanState:           aliceChannel.State(),
 		notifier:            aliceNotifier,
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
+		chanCloseConfs:      fn.Some(uint32(1)),
 	})
 	require.NoError(t, err, "unable to create chain watcher")
 	err = aliceChainWatcher.Start()
@@ -89,6 +93,11 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 	case <-time.After(time.Second * 1):
 		t.Fatalf("unable to send blockbeat")
 	}
+
+	// Wait for the chain watcher to register for confirmations and send
+	// the confirmation. Since we set chanCloseConfs to 1, one confirmation
+	// is sufficient.
+	aliceNotifier.WaitForConfRegistrationAndSend(t)
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.
@@ -144,16 +153,19 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 
 	// With the channels created, we'll now create a chain watcher instance
 	// which will be watching for any closes of Alice's channel.
+	confRegistered := make(chan struct{}, 1)
 	aliceNotifier := &lnmock.ChainNotifier{
-		SpendChan: make(chan *chainntnfs.SpendDetail),
-		EpochChan: make(chan *chainntnfs.BlockEpoch),
-		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+		SpendChan:      make(chan *chainntnfs.SpendDetail),
+		EpochChan:      make(chan *chainntnfs.BlockEpoch),
+		ConfChan:       make(chan *chainntnfs.TxConfirmation),
+		ConfRegistered: confRegistered,
 	}
 	aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 		chanState:           aliceChannel.State(),
 		notifier:            aliceNotifier,
 		signer:              aliceChannel.Signer,
 		extractStateNumHint: lnwallet.GetStateNumHint,
+		chanCloseConfs:      fn.Some(uint32(1)),
 	})
 	require.NoError(t, err, "unable to create chain watcher")
 	if err := aliceChainWatcher.Start(); err != nil {
@@ -218,6 +230,11 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 	case <-time.After(time.Second * 1):
 		t.Fatalf("unable to send blockbeat")
 	}
+
+	// Wait for the chain watcher to register for confirmations and send
+	// the confirmation. Since we set chanCloseConfs to 1, one confirmation
+	// is sufficient.
+	aliceNotifier.WaitForConfRegistrationAndSend(t)
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.
@@ -331,10 +348,12 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		// With the channels created, we'll now create a chain watcher
 		// instance which will be watching for any closes of Alice's
 		// channel.
+		confRegistered := make(chan struct{}, 1)
 		aliceNotifier := &lnmock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan:      make(chan *chainntnfs.SpendDetail),
+			EpochChan:      make(chan *chainntnfs.BlockEpoch),
+			ConfChan:       make(chan *chainntnfs.TxConfirmation),
+			ConfRegistered: confRegistered,
 		}
 		aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 			chanState: aliceChanState,
@@ -406,6 +425,8 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 		case <-time.After(time.Second * 1):
 			t.Fatalf("unable to send blockbeat")
 		}
+
+		aliceNotifier.WaitForConfRegistrationAndSend(t)
 
 		// We should get a new uni close resolution that indicates we
 		// processed the DLP scenario.
@@ -532,10 +553,12 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		// With the channels created, we'll now create a chain watcher
 		// instance which will be watching for any closes of Alice's
 		// channel.
+		confRegistered := make(chan struct{}, 1)
 		aliceNotifier := &lnmock.ChainNotifier{
-			SpendChan: make(chan *chainntnfs.SpendDetail),
-			EpochChan: make(chan *chainntnfs.BlockEpoch),
-			ConfChan:  make(chan *chainntnfs.TxConfirmation),
+			SpendChan:      make(chan *chainntnfs.SpendDetail),
+			EpochChan:      make(chan *chainntnfs.BlockEpoch),
+			ConfChan:       make(chan *chainntnfs.TxConfirmation),
+			ConfRegistered: confRegistered,
 		}
 		aliceChainWatcher, err := newChainWatcher(chainWatcherConfig{
 			chanState:           aliceChanState,
@@ -603,6 +626,8 @@ func TestChainWatcherLocalForceCloseDetect(t *testing.T) {
 		case <-time.After(time.Second * 1):
 			t.Fatalf("unable to send blockbeat")
 		}
+
+		aliceNotifier.WaitForConfRegistrationAndSend(t)
 
 		// We should get a local force close event from Alice as she
 		// should be able to detect the close based on the commitment

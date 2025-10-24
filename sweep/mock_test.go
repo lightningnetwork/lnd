@@ -291,7 +291,7 @@ func (m *MockBumper) Broadcast(req *BumpRequest) <-chan *BumpResult {
 		return nil
 	}
 
-	return args.Get(0).(chan *BumpResult)
+	return args.Get(0).(<-chan *BumpResult)
 }
 
 // MockFeeFunction is a mock implementation of the FeeFunction interface.

@@ -816,6 +816,21 @@ func (h *HarnessRPC) Quiesce(
 	return res
 }
 
+// TriggerSweeper triggers an immediate sweep of all pending inputs. This is
+// useful for tests to deterministically control when sweeps are broadcast,
+// especially when handling async confirmation notification races.
+func (h *HarnessRPC) TriggerSweeper(
+	req *devrpc.TriggerSweeperRequest) *devrpc.TriggerSweeperResponse {
+
+	ctx, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	res, err := h.Dev.TriggerSweeper(ctx, req)
+	h.NoError(err, "TriggerSweeper returned an error")
+
+	return res
+}
+
 type PeerEventsClient lnrpc.Lightning_SubscribePeerEventsClient
 
 // SubscribePeerEvents makes a RPC call to the node's SubscribePeerEvents and

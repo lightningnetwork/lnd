@@ -316,6 +316,14 @@ var bumpFeeCommand = cli.Command{
 	required. When the deadline is reached, ALL the budget will be spent as
 	fee.`,
 		},
+		cli.BoolFlag{
+			Name: "include_raw_tx",
+			Usage: `
+	Whether to include the raw transaction hex in the response. This is
+	useful for cases where the transaction does not propagate and the caller
+	wants to manually broadcast it. Note that setting this to true will
+	cause the command to block until the sweep transaction is created.`,
+		},
 	},
 	Action: actionDecorator(bumpFee),
 }
@@ -359,6 +367,7 @@ func bumpFee(ctx *cli.Context) error {
 		Budget:        ctx.Uint64("budget"),
 		SatPerVbyte:   ctx.Uint64("sat_per_vbyte"),
 		DeadlineDelta: uint32(ctx.Uint64("deadline_delta")),
+		IncludeRawTx:  ctx.Bool("include_raw_tx"),
 	})
 	if err != nil {
 		return err

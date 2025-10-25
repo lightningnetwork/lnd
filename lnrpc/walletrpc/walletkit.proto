@@ -1241,11 +1241,25 @@ message BumpFeeRequest {
     // fee function that the sweeper will use to bump the fee rate. When the
     // deadline is reached, ALL the budget will be spent as fees.
     uint32 deadline_delta = 8;
+
+    /*
+    Optional. Whether to include the raw transaction hex in the response. This
+    is useful for cases where the transaction does not propagate and the caller
+    wants to manually broadcast it.
+    */
+    bool include_raw_tx = 9;
 }
 
 message BumpFeeResponse {
     // The status of the bump fee operation.
     string status = 1;
+
+    /*
+    The raw transaction hex of the sweeping transaction. This field is only
+    populated if include_raw_tx was set to true in the request and the sweep
+    transaction was successfully created.
+    */
+    string raw_tx = 2;
 }
 
 message BumpForceCloseFeeRequest {

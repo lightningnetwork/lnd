@@ -1792,7 +1792,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	// channels signed the message.
 	//
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
-	graph := r.server.graphDB
+	graph := r.server.v1Graph
 	active, err := graph.HasNode(ctx, pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %w", err)
@@ -7100,7 +7100,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 			"include_channels")
 	}
 
-	graph := r.server.graphDB
+	graph := r.server.v1Graph
 
 	// First, parse the hex-encoded public key into a full in-memory public
 	// key object we can work with for querying.
@@ -8255,7 +8255,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.graphDB.FetchNode(ctx, vertex)
+		peer, err := r.server.v1Graph.FetchNode(ctx, vertex)
 		if err != nil {
 			return "", err
 		}

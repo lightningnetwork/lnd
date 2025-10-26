@@ -664,9 +664,18 @@ func (c *ChannelGraph) FetchNode(ctx context.Context,
 	return c.db.FetchNode(ctx, nodePub)
 }
 
-// HasNode determines if the graph has a vertex identified by the target node.
-func (c *ChannelGraph) HasNode(ctx context.Context,
+// HasV1Node determines if the graph has a vertex identified by the target node
+// in the V1 graph.
+func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	nodePub [33]byte) (time.Time, bool, error) {
+
+	return c.db.HasV1Node(ctx, nodePub)
+}
+
+// HasNode determines if the graph has a vertex identified by the target node
+// in the V1 graph.
+func (c *ChannelGraph) HasNode(ctx context.Context, nodePub [33]byte) (bool,
+	error) {
 
 	return c.db.HasNode(ctx, nodePub)
 }

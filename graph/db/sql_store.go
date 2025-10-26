@@ -3471,6 +3471,19 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	return buildNodeWithBatchData(dbNode, data)
 }
 
+// isKnownGossipVersion checks whether the provided gossip version is known
+// and supported.
+func isKnownGossipVersion(v lnwire.GossipVersion) bool {
+	switch v {
+	case lnwire.GossipVersion1:
+		return true
+	case lnwire.GossipVersion2:
+		return true
+	default:
+		return false
+	}
+}
+
 // buildNodeWithBatchData builds a models.Node instance
 // from the provided sqlc.GraphNode and batchNodeData. If the node does have
 // features/addresses/extra fields, then the corresponding fields are expected
@@ -3478,15 +3491,18 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	batchData *batchNodeData) (*models.Node, error) {
 
-	if dbNode.Version != int16(lnwire.GossipVersion1) {
-		return nil, fmt.Errorf("unsupported node version: %d",
-			dbNode.Version)
+	v := lnwire.GossipVersion(dbNode.Version)
+
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unknown node version: %d", v)
 	}
 
-	var pub [33]byte
-	copy(pub[:], dbNode.PubKey)
+	pub, err := route.NewVertexFromBytes(dbNode.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse pubkey: %w", err)
+	}
 
-	node := models.NewV1ShellNode(pub)
+	node := models.NewShellNode(v, pub)
 
 	if len(dbNode.Signature) == 0 {
 		return node, nil
@@ -3500,8 +3516,10 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	if dbNode.LastUpdate.Valid {
 		node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
 	}
+	if dbNode.BlockHeight.Valid {
+		node.LastBlockHeight = uint32(dbNode.BlockHeight.Int64)
+	}
 
-	var err error
 	if dbNode.Color.Valid {
 		nodeColor, err := DecodeHexColor(dbNode.Color.String)
 		if err != nil {
@@ -3533,13 +3551,19 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 
 	// Use preloaded extra fields.
 	if extraFields, exists := batchData.extraFields[dbNode.ID]; exists {
-		recs, err := lnwire.CustomRecords(extraFields).Serialize()
-		if err != nil {
-			return nil, fmt.Errorf("unable to serialize extra "+
-				"signed fields: %w", err)
-		}
-		if len(recs) != 0 {
-			node.ExtraOpaqueData = recs
+		if v == lnwire.GossipVersion1 {
+			records := lnwire.CustomRecords(extraFields)
+			recs, err := records.Serialize()
+			if err != nil {
+				return nil, fmt.Errorf("unable to serialize "+
+					"extra signed fields: %w", err)
+			}
+
+			if len(recs) != 0 {
+				node.ExtraOpaqueData = recs
+			}
+		} else if len(extraFields) > 0 {
+			node.ExtraSignedFields = extraFields
 		}
 	}
 
@@ -3606,8 +3630,12 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 func upsertNode(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
 
+	if !isKnownGossipVersion(node.Version) {
+		return 0, fmt.Errorf("unknown gossip version: %d", node.Version)
+	}
+
 	params := sqlc.UpsertNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(node.Version),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
@@ -3619,6 +3647,9 @@ func upsertNode(ctx context.Context, db SQLQueries,
 			)
 
 		case lnwire.GossipVersion2:
+			params.BlockHeight = sqldb.SQLInt64(
+				int64(node.LastBlockHeight),
+			)
 
 		default:
 			return 0, fmt.Errorf("unknown gossip version: %d",
@@ -3660,10 +3691,13 @@ func upsertNode(ctx context.Context, db SQLQueries,
 
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
-	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
-	if err != nil {
-		return 0, fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
+	extra := node.ExtraSignedFields
+	if node.Version == lnwire.GossipVersion1 {
+		extra, err = marshalExtraOpaqueData(node.ExtraOpaqueData)
+		if err != nil {
+			return 0, fmt.Errorf("unable to marshal extra opaque "+
+				"data: %w", err)
+		}
 	}
 
 	// Update the node's extra signed fields.

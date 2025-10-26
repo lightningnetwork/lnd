@@ -874,7 +874,7 @@ func (b *Builder) assertNodeAnnFreshness(ctx context.Context, node route.Vertex,
 	// node announcements, we will ignore such nodes. If we do know about
 	// this node, check that this update brings info newer than what we
 	// already have.
-	lastUpdate, exists, err := b.cfg.Graph.HasNode(ctx, node)
+	lastUpdate, exists, err := b.cfg.Graph.HasV1Node(ctx, node)
 	if err != nil {
 		return fmt.Errorf("unable to query for the "+
 			"existence of node: %w", err)

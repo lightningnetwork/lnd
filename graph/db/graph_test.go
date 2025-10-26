@@ -138,7 +138,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	dbNode, err := graph.FetchNode(ctx, testPub)
 	require.NoError(t, err, "unable to locate node")
 
-	_, exists, err := graph.HasNode(ctx, dbNode.PubKeyBytes)
+	exists, err := graph.HasNode(ctx, dbNode.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
@@ -309,7 +309,7 @@ func TestPartialNode(t *testing.T) {
 	dbNode2, err := graph.FetchNode(ctx, pubKey2)
 	require.NoError(t, err)
 
-	_, exists, err := graph.HasNode(ctx, dbNode1.PubKeyBytes)
+	exists, err := graph.HasNode(ctx, dbNode1.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 
@@ -318,7 +318,7 @@ func TestPartialNode(t *testing.T) {
 	expectedNode1 := models.NewV1ShellNode(pubKey1)
 	compareNodes(t, expectedNode1, dbNode1)
 
-	_, exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
+	exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
 	require.NoError(t, err)
 	require.True(t, exists)
 

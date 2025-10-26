@@ -538,7 +538,7 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 		// Make sure that if a source node for this version is already
 		// set, then the ID is the same as the one we are about to set.
 		dbSourceNodeID, _, err := s.getSourceNode(
-			ctx, db, lnwire.GossipVersion1,
+			ctx, db, node.Version,
 		)
 		if err != nil && !errors.Is(err, ErrSourceNodeNotSet) {
 			return fmt.Errorf("unable to fetch source node: %w",
@@ -3489,6 +3489,19 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	return buildNodeWithBatchData(dbNode, data)
 }
 
+// isKnownGossipVersion checks whether the provided gossip version is known
+// and supported.
+func isKnownGossipVersion(v lnwire.GossipVersion) bool {
+	switch v {
+	case lnwire.GossipVersion1:
+		return true
+	case lnwire.GossipVersion2:
+		return true
+	default:
+		return false
+	}
+}
+
 // buildNodeWithBatchData builds a models.Node instance
 // from the provided sqlc.GraphNode and batchNodeData. If the node does have
 // features/addresses/extra fields, then the corresponding fields are expected
@@ -3496,15 +3509,18 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	batchData *batchNodeData) (*models.Node, error) {
 
-	if dbNode.Version != int16(lnwire.GossipVersion1) {
-		return nil, fmt.Errorf("unsupported node version: %d",
-			dbNode.Version)
+	v := lnwire.GossipVersion(dbNode.Version)
+
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unknown node version: %d", v)
 	}
 
-	var pub [33]byte
-	copy(pub[:], dbNode.PubKey)
+	pub, err := route.NewVertexFromBytes(dbNode.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse pubkey: %w", err)
+	}
 
-	node := models.NewV1ShellNode(pub)
+	node := models.NewShellNode(v, pub)
 
 	if len(dbNode.Signature) == 0 {
 		return node, nil
@@ -3518,8 +3534,10 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	if dbNode.LastUpdate.Valid {
 		node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
 	}
+	if dbNode.BlockHeight.Valid {
+		node.LastBlockHeight = uint32(dbNode.BlockHeight.Int64)
+	}
 
-	var err error
 	if dbNode.Color.Valid {
 		nodeColor, err := DecodeHexColor(dbNode.Color.String)
 		if err != nil {
@@ -3551,13 +3569,19 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 
 	// Use preloaded extra fields.
 	if extraFields, exists := batchData.extraFields[dbNode.ID]; exists {
-		recs, err := lnwire.CustomRecords(extraFields).Serialize()
-		if err != nil {
-			return nil, fmt.Errorf("unable to serialize extra "+
-				"signed fields: %w", err)
-		}
-		if len(recs) != 0 {
-			node.ExtraOpaqueData = recs
+		if v == lnwire.GossipVersion1 {
+			records := lnwire.CustomRecords(extraFields)
+			recs, err := records.Serialize()
+			if err != nil {
+				return nil, fmt.Errorf("unable to serialize "+
+					"extra signed fields: %w", err)
+			}
+
+			if len(recs) != 0 {
+				node.ExtraOpaqueData = recs
+			}
+		} else if len(extraFields) > 0 {
+			node.ExtraSignedFields = extraFields
 		}
 	}
 
@@ -3637,10 +3661,13 @@ func upsertNodeAncillaryData(ctx context.Context, db SQLQueries,
 
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
-	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
-	if err != nil {
-		return fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
+	extra := node.ExtraSignedFields
+	if node.Version == lnwire.GossipVersion1 {
+		extra, err = marshalExtraOpaqueData(node.ExtraOpaqueData)
+		if err != nil {
+			return fmt.Errorf("unable to marshal extra opaque "+
+				"data: %w", err)
+		}
 	}
 
 	// Update the node's extra signed fields.
@@ -3655,33 +3682,38 @@ func upsertNodeAncillaryData(ctx context.Context, db SQLQueries,
 // populateNodeParams populates the common node parameters from a models.Node.
 // This is a helper for building UpsertNodeParams and UpsertSourceNodeParams.
 func populateNodeParams(node *models.Node,
-	setParams func(lastUpdate sql.NullInt64, alias,
+	setParams func(lastUpdate, lastBlockHeight sql.NullInt64, alias,
 		colorStr sql.NullString, signature []byte)) error {
 
 	if !node.HaveAnnouncement() {
 		return nil
 	}
 
+	var (
+		alias, colorStr             sql.NullString
+		lastUpdate, lastBlockHeight sql.NullInt64
+	)
+	node.Color.WhenSome(func(rgba color.RGBA) {
+		colorStr = sqldb.SQLStrValid(EncodeHexColor(rgba))
+	})
+	node.Alias.WhenSome(func(s string) {
+		alias = sqldb.SQLStrValid(s)
+	})
+
 	switch node.Version {
 	case lnwire.GossipVersion1:
-		lastUpdate := sqldb.SQLInt64(node.LastUpdate.Unix())
-		var alias, colorStr sql.NullString
-
-		node.Color.WhenSome(func(rgba color.RGBA) {
-			colorStr = sqldb.SQLStrValid(EncodeHexColor(rgba))
-		})
-		node.Alias.WhenSome(func(s string) {
-			alias = sqldb.SQLStrValid(s)
-		})
-
-		setParams(lastUpdate, alias, colorStr, node.AuthSigBytes)
+		lastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
 
 	case lnwire.GossipVersion2:
-		// No-op for now.
+		lastBlockHeight = sqldb.SQLInt64(int64(node.LastBlockHeight))
 
 	default:
 		return fmt.Errorf("unknown gossip version: %d", node.Version)
 	}
+
+	setParams(
+		lastUpdate, lastBlockHeight, alias, colorStr, node.AuthSigBytes,
+	)
 
 	return nil
 }
@@ -3690,20 +3722,22 @@ func populateNodeParams(node *models.Node,
 // strict UpsertNode query (requires timestamp to be increasing).
 func buildNodeUpsertParams(node *models.Node) (sqlc.UpsertNodeParams, error) {
 	params := sqlc.UpsertNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(node.Version),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
 	err := populateNodeParams(
-		node, func(lastUpdate sql.NullInt64, alias,
+		node, func(lastUpdate, lastBlockHeight sql.NullInt64, alias,
 			colorStr sql.NullString,
 			signature []byte) {
 
 			params.LastUpdate = lastUpdate
+			params.BlockHeight = lastBlockHeight
 			params.Alias = alias
 			params.Color = colorStr
 			params.Signature = signature
-		})
+		},
+	)
 
 	return params, err
 }
@@ -3714,14 +3748,15 @@ func buildSourceNodeUpsertParams(node *models.Node) (
 	sqlc.UpsertSourceNodeParams, error) {
 
 	params := sqlc.UpsertSourceNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(node.Version),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
 	err := populateNodeParams(
-		node, func(lastUpdate sql.NullInt64, alias,
+		node, func(lastUpdate, lastBlock sql.NullInt64, alias,
 			colorStr sql.NullString, signature []byte) {
 
+			params.BlockHeight = lastBlock
 			params.LastUpdate = lastUpdate
 			params.Alias = alias
 			params.Color = colorStr
@@ -3771,6 +3806,10 @@ func upsertSourceNode(ctx context.Context, db SQLQueries,
 // types are also updated. The node's DB ID is returned.
 func upsertNode(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
+
+	if !isKnownGossipVersion(node.Version) {
+		return 0, fmt.Errorf("unknown gossip version: %d", node.Version)
+	}
 
 	params, err := buildNodeUpsertParams(node)
 	if err != nil {

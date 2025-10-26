@@ -130,6 +130,14 @@ var versionedTests = []versionedTest{
 		name: "node crud",
 		test: testNodeInsertionAndDeletion,
 	},
+	{
+		name: "source node",
+		test: testSourceNode,
+	},
+	{
+		name: "alias lookup",
+		test: testAliasLookup,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -414,16 +422,15 @@ func TestPartialNode(t *testing.T) {
 	require.ErrorIs(t, err, ErrGraphNodeNotFound)
 }
 
-// TestAliasLookup tests the alias lookup functionality of the graph store.
-func TestAliasLookup(t *testing.T) {
-	t.Parallel()
+// testAliasLookup tests the alias lookup functionality of the graph store.
+func testAliasLookup(t *testing.T, v lnwire.GossipVersion) {
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test the alias index within the database, so first
 	// create a new test node.
-	testNode := createTestVertex(t, lnwire.GossipVersion1)
+	testNode := createTestVertex(t, v)
 
 	// Add the node to the graph's database, this should also insert an
 	// entry into the alias index for this node.
@@ -438,23 +445,23 @@ func TestAliasLookup(t *testing.T) {
 	require.Equal(t, testNode.Alias.UnwrapOr(""), dbAlias)
 
 	// Ensure that looking up a non-existent alias results in an error.
-	node := createTestVertex(t, lnwire.GossipVersion1)
+	node := createTestVertex(t, v)
 	nodePub, err = node.PubKey()
 	require.NoError(t, err, "unable to generate pubkey")
 	_, err = graph.LookupAlias(ctx, nodePub)
 	require.ErrorIs(t, err, ErrNodeAliasNotFound)
 }
 
-// TestSourceNode tests the source node functionality of the graph store.
-func TestSourceNode(t *testing.T) {
+// testSourceNode tests the source node functionality of the graph store.
+func testSourceNode(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test the setting/getting of the source node, so we
 	// first create a fake node to use within the test.
-	testNode := createTestVertex(t, lnwire.GossipVersion1)
+	testNode := createTestVertex(t, v)
 
 	// Attempt to fetch the source node, this should return an error as the
 	// source node hasn't yet been set.

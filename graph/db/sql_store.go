@@ -524,7 +524,7 @@ func (s *SQLStore) SourceNode(ctx context.Context,
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		_, nodePub, err := s.getSourceNode(ctx, db, v)
 		if err != nil {
-			return fmt.Errorf("unable to fetch V1 source node: %w",
+			return fmt.Errorf("unable to fetch source node: %w",
 				err)
 		}
 

@@ -119,12 +119,19 @@ type Store interface { //nolint:interfacebloat
 	FetchNode(ctx context.Context, nodePub route.Vertex) (*models.Node,
 		error)
 
+	// HasV1Node determines if the graph has a vertex identified by
+	// the target node identity public key in the V1 graph. If the node
+	// exists in the database, a timestamp of when the data for the node
+	// was lasted updated is returned along with a true boolean. Otherwise,
+	// an empty time.Time is returned with a false boolean.
+	// This is specific to the V1 graph since only V1 node announcements
+	// use timestamps for their latest update timestamp.
+	HasV1Node(ctx context.Context, nodePub [33]byte) (time.Time, bool,
+		error)
+
 	// HasNode determines if the graph has a vertex identified by
-	// the target node identity public key. If the node exists in the
-	// database, a timestamp of when the data for the node was lasted
-	// updated is returned along with a true boolean. Otherwise, an empty
-	// time.Time is returned with a false boolean.
-	HasNode(ctx context.Context, nodePub [33]byte) (time.Time, bool, error)
+	// the target node identity public key.
+	HasNode(ctx context.Context, nodePub [33]byte) (bool, error)
 
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the

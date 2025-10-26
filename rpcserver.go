@@ -745,7 +745,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 			return info.NodeKey1Bytes, info.NodeKey2Bytes, nil
 		},
 		HasNode: func(nodePub route.Vertex) (bool, error) {
-			_, exists, err := graph.HasNode(ctx, nodePub)
+			exists, err := graph.HasNode(ctx, nodePub)
 
 			return exists, err
 		},
@@ -1821,7 +1821,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	//
 	// TODO(phlip9): Require valid nodes to have capital in active channels.
 	graph := r.server.graphDB
-	_, active, err := graph.HasNode(ctx, pub)
+	active, err := graph.HasNode(ctx, pub)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query graph: %w", err)
 	}

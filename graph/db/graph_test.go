@@ -153,7 +153,9 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Check that the node's features are fetched correctly. This check
 	// will check the database directly.
-	features, err = graph.db.FetchNodeFeatures(node.PubKeyBytes)
+	features, err = graph.db.FetchNodeFeatures(
+		lnwire.GossipVersion1, node.PubKeyBytes,
+	)
 	require.NoError(t, err)
 	require.Equal(t, testFeatures, features)
 

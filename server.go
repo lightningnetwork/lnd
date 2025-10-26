@@ -988,7 +988,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		MinProbability: routingConfig.MinRouteProbability,
 	}
 
-	sourceNode, err := dbs.GraphDB.SourceNode(ctx)
+	sourceNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
@@ -3440,7 +3440,7 @@ func (s *server) updateAndBroadcastSelfNode(ctx context.Context,
 	// Update the on-disk version of our announcement.
 	// Load and modify self node istead of creating anew instance so we
 	// don't risk overwriting any existing values.
-	selfNode, err := s.graphDB.SourceNode(ctx)
+	selfNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get current source node: %w", err)
 	}
@@ -5624,7 +5624,7 @@ func (s *server) setSelfNode(ctx context.Context, nodePub route.Vertex,
 		nodeLastUpdate = time.Now()
 	)
 
-	srcNode, err := s.graphDB.SourceNode(ctx)
+	srcNode, err := s.v1Graph.SourceNode(ctx)
 	switch {
 	case err == nil:
 		// If we have a source node persisted in the DB already, then we

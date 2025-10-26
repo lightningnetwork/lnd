@@ -164,6 +164,11 @@ var (
 	//
 	// maps: scid -> []byte{}
 	closedScidBucket = []byte("closed-scid")
+
+	// ErrVersionNotSupportedForKVDB is returned with KVStore queries are
+	// made using a gossip version other than V1.
+	ErrVersionNotSupportedForKVDB = errors.New("only gossip v1 is " +
+		"supported for kvdb graph store")
 )
 
 const (
@@ -376,7 +381,7 @@ func initKVStore(db kvdb.Backend) error {
 // unknown to the graph DB or not.
 //
 // NOTE: this is part of the channeldb.AddrSource interface.
-func (c *KVStore) AddrsForNode(ctx context.Context,
+func (c *KVStore) AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	pubKey, err := route.NewVertexFromBytes(nodePub.SerializeCompressed())
@@ -384,7 +389,7 @@ func (c *KVStore) AddrsForNode(ctx context.Context,
 		return false, nil, err
 	}
 
-	node, err := c.FetchNode(ctx, pubKey)
+	node, err := c.FetchNode(ctx, v, pubKey)
 	// We don't consider it an error if the graph is unaware of the node.
 	switch {
 	case err != nil && !errors.Is(err, ErrGraphNodeNotFound):
@@ -666,8 +671,12 @@ func (c *KVStore) ForEachNodeDirectedChannel(nodePub route.Vertex,
 // known for the node, an empty feature vector is returned.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (c *KVStore) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (c *KVStore) FetchNodeFeatures(v lnwire.GossipVersion,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
 
 	return c.fetchNodeFeatures(nil, nodePub)
 }
@@ -901,7 +910,13 @@ func (c *KVStore) ForEachNodeCacheable(_ context.Context,
 // as the center node within a star-graph. This method may be used to kick off
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
-func (c *KVStore) SourceNode(_ context.Context) (*models.Node, error) {
+func (c *KVStore) SourceNode(_ context.Context,
+	v lnwire.GossipVersion) (*models.Node, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
+
 	return sourceNode(c.db)
 }
 
@@ -954,6 +969,10 @@ func sourceNodeWithTx(nodes kvdb.RBucket) (*models.Node, error) {
 // algorithms.
 func (c *KVStore) SetSourceNode(_ context.Context,
 	node *models.Node) error {
+
+	if node.Version != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	nodePubBytes := node.PubKeyBytes[:]
 
@@ -1021,8 +1040,12 @@ func addLightningNode(tx kvdb.RwTx, node *models.Node) error {
 
 // LookupAlias attempts to return the alias as advertised by the target node.
 // TODO(roasbeef): currently assumes that aliases are unique...
-func (c *KVStore) LookupAlias(_ context.Context,
+func (c *KVStore) LookupAlias(_ context.Context, v lnwire.GossipVersion,
 	pub *btcec.PublicKey) (string, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return "", ErrVersionNotSupportedForKVDB
+	}
 
 	var alias string
 
@@ -1060,8 +1083,12 @@ func (c *KVStore) LookupAlias(_ context.Context,
 
 // DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
-func (c *KVStore) DeleteNode(_ context.Context,
+func (c *KVStore) DeleteNode(_ context.Context, v lnwire.GossipVersion,
 	nodePub route.Vertex) error {
+
+	if v != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	// TODO(roasbeef): ensure dangling edges are removed...
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
@@ -3370,8 +3397,12 @@ func (c *KVStore) fetchNodeTx(tx kvdb.RTx, nodePub route.Vertex) (*models.Node,
 // FetchNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
-func (c *KVStore) FetchNode(_ context.Context,
+func (c *KVStore) FetchNode(_ context.Context, v lnwire.GossipVersion,
 	nodePub route.Vertex) (*models.Node, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, ErrVersionNotSupportedForKVDB
+	}
 
 	return c.fetchLightningNode(nil, nodePub)
 }
@@ -3487,7 +3518,13 @@ func (c *KVStore) HasV1Node(_ context.Context,
 
 // HasNode determines if the graph has a vertex identified by the target node
 // identity public key.
-func (c *KVStore) HasNode(_ context.Context, nodePub [33]byte) (bool, error) {
+func (c *KVStore) HasNode(_ context.Context, v lnwire.GossipVersion,
+	nodePub [33]byte) (bool, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return false, ErrVersionNotSupportedForKVDB
+	}
+
 	var exists bool
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
@@ -4365,6 +4402,10 @@ func (c *nodeTraverserSession) FetchNodeFeatures(nodePub route.Vertex) (
 
 func putLightningNode(nodeBucket, aliasBucket, updateIndex kvdb.RwBucket,
 	node *models.Node) error {
+
+	if node.Version != lnwire.GossipVersion1 {
+		return ErrVersionNotSupportedForKVDB
+	}
 
 	var (
 		scratch [16]byte

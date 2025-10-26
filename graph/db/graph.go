@@ -226,7 +226,7 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 		return c.graphCache.GetFeatures(node), nil
 	}
 
-	return c.db.FetchNodeFeatures(node)
+	return c.db.FetchNodeFeatures(lnwire.GossipVersion1, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -298,7 +298,7 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 func (c *ChannelGraph) DeleteNode(ctx context.Context,
 	nodePub route.Vertex) error {
 
-	err := c.db.DeleteNode(ctx, nodePub)
+	err := c.db.DeleteNode(ctx, lnwire.GossipVersion1, nodePub)
 	if err != nil {
 		return err
 	}
@@ -607,7 +607,7 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 func (c *ChannelGraph) AddrsForNode(ctx context.Context,
 	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
-	return c.db.AddrsForNode(ctx, nodePub)
+	return c.db.AddrsForNode(ctx, lnwire.GossipVersion1, nodePub)
 }
 
 // ForEachSourceNodeChannel iterates through all channels of the source node.
@@ -646,7 +646,7 @@ func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
 func (c *ChannelGraph) LookupAlias(ctx context.Context,
 	pub *btcec.PublicKey) (string, error) {
 
-	return c.db.LookupAlias(ctx, pub)
+	return c.db.LookupAlias(ctx, lnwire.GossipVersion1, pub)
 }
 
 // NodeUpdatesInHorizon returns all known lightning nodes with updates in the
@@ -661,7 +661,7 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time,
 func (c *ChannelGraph) FetchNode(ctx context.Context,
 	nodePub route.Vertex) (*models.Node, error) {
 
-	return c.db.FetchNode(ctx, nodePub)
+	return c.db.FetchNode(ctx, lnwire.GossipVersion1, nodePub)
 }
 
 // HasV1Node determines if the graph has a vertex identified by the target node
@@ -677,7 +677,7 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 func (c *ChannelGraph) HasNode(ctx context.Context, nodePub [33]byte) (bool,
 	error) {
 
-	return c.db.HasNode(ctx, nodePub)
+	return c.db.HasNode(ctx, lnwire.GossipVersion1, nodePub)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.
@@ -796,7 +796,7 @@ func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 
 // SourceNode returns the source node of the graph.
 func (c *ChannelGraph) SourceNode(ctx context.Context) (*models.Node, error) {
-	return c.db.SourceNode(ctx)
+	return c.db.SourceNode(ctx, lnwire.GossipVersion1)
 }
 
 // SetSourceNode sets the source node within the graph database.

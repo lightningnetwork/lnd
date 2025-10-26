@@ -266,13 +266,15 @@ func (s *SQLStore) AddNode(ctx context.Context,
 // returned.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) FetchNode(ctx context.Context,
+func (s *SQLStore) FetchNode(ctx context.Context, v lnwire.GossipVersion,
 	pubKey route.Vertex) (*models.Node, error) {
 
 	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
-		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, pubKey)
+		_, node, err = getNodeByPubKey(
+			ctx, s.cfg.QueryCfg, db, v, pubKey,
+		)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -330,11 +332,10 @@ func (s *SQLStore) HasV1Node(ctx context.Context,
 // target node identity public key.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) HasNode(ctx context.Context, pubKey [33]byte) (bool, error) {
-	var (
-		v      = lnwire.GossipVersion1
-		exists bool
-	)
+func (s *SQLStore) HasNode(ctx context.Context, v lnwire.GossipVersion,
+	pubKey [33]byte) (bool, error) {
+
+	var exists bool
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		exists, err = db.NodeExists(ctx, sqlc.NodeExistsParams{
@@ -357,7 +358,7 @@ func (s *SQLStore) HasNode(ctx context.Context, pubKey [33]byte) (bool, error) {
 // given node is unknown to the graph DB or not.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) AddrsForNode(ctx context.Context,
+func (s *SQLStore) AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	var (
@@ -369,7 +370,7 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 		// does.
 		dbID, err := db.GetNodeIDByPubKey(
 			ctx, sqlc.GetNodeIDByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  nodePub.SerializeCompressed(),
 			},
 		)
@@ -399,13 +400,13 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 // from the database according to the node's public key.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) DeleteNode(ctx context.Context,
+func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteNodeByPubKey(
 			ctx, sqlc.DeleteNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  pubKey[:],
 			},
 		)
@@ -437,12 +438,12 @@ func (s *SQLStore) DeleteNode(ctx context.Context,
 // known for the node, an empty feature vector is returned.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (s *SQLStore) FetchNodeFeatures(v lnwire.GossipVersion,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
 	ctx := context.TODO()
 
-	return fetchNodeFeatures(ctx, s.db, nodePub)
+	return fetchNodeFeatures(ctx, s.db, v, nodePub)
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
@@ -477,14 +478,14 @@ func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
 // LookupAlias attempts to return the alias as advertised by the target node.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) LookupAlias(ctx context.Context,
+func (s *SQLStore) LookupAlias(ctx context.Context, v lnwire.GossipVersion,
 	pub *btcec.PublicKey) (string, error) {
 
 	var alias string
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  pub.SerializeCompressed(),
 			},
 		)
@@ -515,20 +516,20 @@ func (s *SQLStore) LookupAlias(ctx context.Context,
 // node based off the source node.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) SourceNode(ctx context.Context) (*models.Node,
-	error) {
+func (s *SQLStore) SourceNode(ctx context.Context,
+	v lnwire.GossipVersion) (*models.Node, error) {
 
 	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		_, nodePub, err := s.getSourceNode(
-			ctx, db, lnwire.GossipVersion1,
-		)
+		_, nodePub, err := s.getSourceNode(ctx, db, v)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
 				err)
 		}
 
-		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, nodePub)
+		_, node, err = getNodeByPubKey(
+			ctx, s.cfg.QueryCfg, db, v, nodePub,
+		)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -911,7 +912,8 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 				}
 
 				_, otherNode, err := getNodeByPubKey(
-					ctx, s.cfg.QueryCfg, db, otherNodePub,
+					ctx, s.cfg.QueryCfg, db,
+					lnwire.GossipVersion1, otherNodePub,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+
@@ -3086,7 +3088,7 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
 
 	ctx := context.TODO()
 
-	return fetchNodeFeatures(ctx, s.db, nodePub)
+	return fetchNodeFeatures(ctx, s.db, lnwire.GossipVersion1, nodePub)
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -3448,11 +3450,12 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 
 // getNodeByPubKey attempts to look up a target node by its public key.
 func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
-	pubKey route.Vertex) (int64, *models.Node, error) {
+	v lnwire.GossipVersion, pubKey route.Vertex) (int64, *models.Node,
+	error) {
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 			PubKey:  pubKey[:],
 		},
 	)
@@ -3799,12 +3802,13 @@ func upsertNodeFeatures(ctx context.Context, db SQLQueries, nodeID int64,
 
 // fetchNodeFeatures fetches the features for a node with the given public key.
 func fetchNodeFeatures(ctx context.Context, queries SQLQueries,
-	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
+	v lnwire.GossipVersion, nodePub route.Vertex) (*lnwire.FeatureVector,
+	error) {
 
 	rows, err := queries.GetNodeFeaturesByPubKey(
 		ctx, sqlc.GetNodeFeaturesByPubKeyParams{
 			PubKey:  nodePub[:],
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 		},
 	)
 	if err != nil {

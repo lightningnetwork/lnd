@@ -98,7 +98,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	// We'd like to test basic insertion/deletion for vertexes from the
 	// graph, so we'll create a test vertex to start with.
@@ -123,7 +123,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	// without any errors.
 	node := nodeWithAddrs(testAddrs)
 	require.NoError(t, graph.AddNode(ctx, node))
-	assertNodeInCache(t, graph, node, testFeatures)
+	assertNodeInCache(t, graph.ChannelGraph, node, testFeatures)
 
 	// Our AddNode implementation uses the batcher meaning that it is
 	// possible that two updates for the same node announcement may be
@@ -153,16 +153,14 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	// Check that the node's features are fetched correctly. This check
 	// will check the database directly.
-	features, err = graph.db.FetchNodeFeatures(
-		lnwire.GossipVersion1, node.PubKeyBytes,
-	)
+	features, err = graph.FetchNodeFeatures(node.PubKeyBytes)
 	require.NoError(t, err)
 	require.Equal(t, testFeatures, features)
 
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
 	require.NoError(t, graph.DeleteNode(ctx, testPub))
-	assertNodeNotInCache(t, graph, testPub)
+	assertNodeNotInCache(t, graph.ChannelGraph, testPub)
 
 	// Attempting to delete the node again should return an error since
 	// the node is no longer known.
@@ -287,7 +285,7 @@ func TestPartialNode(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	// To insert a partial node, we need to add a channel edge that has
 	// node keys for nodes we are not yet aware
@@ -301,8 +299,8 @@ func TestPartialNode(t *testing.T) {
 
 	// Both of the nodes should now be in both the graph (as partial/shell)
 	// nodes _and_ the cache should also have an awareness of both nodes.
-	assertNodeInCache(t, graph, &node1, nil)
-	assertNodeInCache(t, graph, &node2, nil)
+	assertNodeInCache(t, graph.ChannelGraph, &node1, nil)
+	assertNodeInCache(t, graph.ChannelGraph, &node2, nil)
 
 	// Next, fetch the node2 from the database to ensure everything was
 	// serialized properly.
@@ -332,7 +330,7 @@ func TestPartialNode(t *testing.T) {
 	// Next, delete the node from the graph, this should purge all data
 	// related to the node.
 	require.NoError(t, graph.DeleteNode(ctx, pubKey1))
-	assertNodeNotInCache(t, graph, testPub)
+	assertNodeNotInCache(t, graph.ChannelGraph, testPub)
 
 	// Finally, attempt to fetch the node again. This should fail as the
 	// node should have been deleted from the database.
@@ -3691,7 +3689,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	// We'll start off by inserting our source node, to ensure that it's
 	// the only node left after we prune the graph.
@@ -3742,7 +3740,7 @@ func TestPruneGraphNodes(t *testing.T) {
 	// source node (which can't be pruned), and node 1+2. Nodes 1 and two
 	// should still be left in the graph as there's half of an advertised
 	// edge between them.
-	assertNumNodes(t, graph, 3)
+	assertNumNodes(t, graph.ChannelGraph, 3)
 
 	// Finally, we'll ensure that node3, the only fully unconnected node as
 	// properly deleted from the graph and not another node in its place.
@@ -3757,7 +3755,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	// To start, we'll create two nodes, and only add one of them to the
 	// channel graph.
@@ -3796,7 +3794,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	// We'll first populate our graph with a single node that will be
 	// removed shortly.
@@ -4755,7 +4753,7 @@ func TestLightningNodePersistence(t *testing.T) {
 	ctx := t.Context()
 
 	// Create a new test graph instance.
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
 
 	nodeAnnBytes, err := hex.DecodeString(testNodeAnn)
 	require.NoError(t, err)

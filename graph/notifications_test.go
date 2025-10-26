@@ -1042,7 +1042,7 @@ func TestEncodeHexColor(t *testing.T) {
 type testCtx struct {
 	builder *Builder
 
-	graph *graphdb.ChannelGraph
+	graph *graphdb.VersionedGraph
 
 	aliases map[string]route.Vertex
 
@@ -1059,7 +1059,9 @@ type testCtx struct {
 func createTestCtxSingleNode(t *testing.T,
 	startingHeight uint32) *testCtx {
 
-	graph := graphdb.MakeTestGraph(t)
+	graph := graphdb.NewVersionedGraph(
+		graphdb.MakeTestGraph(t), lnwire.GossipVersion1,
+	)
 	sourceNode := createTestNode(t)
 
 	require.NoError(t,
@@ -1086,7 +1088,7 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 	// start it.
 	builder, err := NewBuilder(&Config{
 		SelfNode:            selfNode.PubKeyBytes,
-		Graph:               c.graph,
+		Graph:               c.graph.ChannelGraph,
 		Chain:               c.chain,
 		ChainView:           c.chainView,
 		Notifier:            c.builder.cfg.Notifier,
@@ -1108,7 +1110,7 @@ func (c *testCtx) RestartBuilder(t *testing.T) {
 }
 
 type testGraphInstance struct {
-	graph *graphdb.ChannelGraph
+	graph *graphdb.VersionedGraph
 
 	// aliasMap is a map from a node's alias to its public key. This type is
 	// provided in order to allow easily look up from the human memorable
@@ -1157,7 +1159,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 
 	graphBuilder, err := NewBuilder(&Config{
 		SelfNode:            selfnode.PubKeyBytes,
-		Graph:               graphInstance.graph,
+		Graph:               graphInstance.graph.ChannelGraph,
 		Chain:               chain,
 		ChainView:           chainView,
 		Notifier:            notifier,

@@ -9,6 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// isSQLDB indicates that this build does not use a SQL database.
+var isSQLDB = false
+
 // NewTestDB is a helper function that creates an BBolt database for testing.
 func NewTestDB(t testing.TB) Store {
 	backend, backendCleanup, err := kvdb.GetTestBackend(t.TempDir(), "cgr")

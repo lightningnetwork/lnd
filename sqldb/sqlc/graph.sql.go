@@ -3666,9 +3666,9 @@ const upsertNode = `-- name: UpsertNode :one
 */
 
 INSERT INTO graph_nodes (
-    version, pub_key, alias, last_update, color, signature
+    version, pub_key, alias, last_update, block_height, color, signature
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 )
 ON CONFLICT (pub_key, version)
     -- Update the following fields if a conflict occurs on pub_key
@@ -3676,20 +3676,24 @@ ON CONFLICT (pub_key, version)
     DO UPDATE SET
         alias = EXCLUDED.alias,
         last_update = EXCLUDED.last_update,
+        block_height = EXCLUDED.block_height,
         color = EXCLUDED.color,
         signature = EXCLUDED.signature
-WHERE graph_nodes.last_update IS NULL
-    OR EXCLUDED.last_update > graph_nodes.last_update
+WHERE (graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update > graph_nodes.last_update)
+AND (graph_nodes.block_height IS NULL
+    OR EXCLUDED.block_height >= graph_nodes.block_height)
 RETURNING id
 `
 
 type UpsertNodeParams struct {
-	Version    int16
-	PubKey     []byte
-	Alias      sql.NullString
-	LastUpdate sql.NullInt64
-	Color      sql.NullString
-	Signature  []byte
+	Version     int16
+	PubKey      []byte
+	Alias       sql.NullString
+	LastUpdate  sql.NullInt64
+	BlockHeight sql.NullInt64
+	Color       sql.NullString
+	Signature   []byte
 }
 
 func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, error) {
@@ -3698,6 +3702,7 @@ func (q *Queries) UpsertNode(ctx context.Context, arg UpsertNodeParams) (int64, 
 		arg.PubKey,
 		arg.Alias,
 		arg.LastUpdate,
+		arg.BlockHeight,
 		arg.Color,
 		arg.Signature,
 	)

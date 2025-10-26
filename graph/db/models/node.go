@@ -27,6 +27,11 @@ type Node struct {
 	// been updated.
 	LastUpdate time.Time
 
+	// LastBlockHeight is the block height that timestamps the last update
+	// we received for this node. This is only used if this is a V2 node
+	// announcement.
+	LastBlockHeight uint32
+
 	// Address is the TCP address this node is reachable over.
 	Addresses []net.Addr
 
@@ -49,8 +54,13 @@ type Node struct {
 	// parse. By holding onto this data, we ensure that we're able to
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
-	// compatible manner.
+	// compatible manner. This is only used for V1 node announcements.
 	ExtraOpaqueData []byte
+
+	// ExtraSignedFields is a map of extra fields that are covered by the
+	// node announcement's signature that we have not explicitly parsed.
+	// This is only used for version 2 node announcements and beyond.
+	ExtraSignedFields map[uint64][]byte
 }
 
 // NodeV1Fields houses the fields that are specific to a version 1 node
@@ -100,6 +110,53 @@ func NewV1Node(pub route.Vertex, n *NodeV1Fields) *Node {
 		Alias:           fn.Some(n.Alias),
 		LastUpdate:      n.LastUpdate,
 		ExtraOpaqueData: n.ExtraOpaqueData,
+	}
+}
+
+// NodeV2Fields houses the fields that are specific to a version 2 node
+// announcement.
+type NodeV2Fields struct {
+	// LastBlockHeight is the block height that timestamps the last update
+	// we received for this node.
+	LastBlockHeight uint32
+
+	// Address is the TCP address this node is reachable over.
+	Addresses []net.Addr
+
+	// Color is the selected color for the node.
+	Color fn.Option[color.RGBA]
+
+	// Alias is a nick-name for the node. The alias can be used to confirm
+	// a node's identity or to serve as a short ID for an address book.
+	Alias fn.Option[string]
+
+	// Signature is the schnorr signature under the advertised public key
+	// which serves to authenticate the attributes announced by this node.
+	Signature []byte
+
+	// Features is the list of protocol features supported by this node.
+	Features *lnwire.RawFeatureVector
+
+	// ExtraSignedFields is a map of extra fields that are covered by the
+	// node announcement's signature that we have not explicitly parsed.
+	ExtraSignedFields map[uint64][]byte
+}
+
+// NewV2Node creates a new version 2 node from the passed fields.
+func NewV2Node(pub route.Vertex, n *NodeV2Fields) *Node {
+	return &Node{
+		Version:      lnwire.GossipVersion2,
+		PubKeyBytes:  pub,
+		Addresses:    n.Addresses,
+		AuthSigBytes: n.Signature,
+		Features: lnwire.NewFeatureVector(
+			n.Features, lnwire.Features,
+		),
+		LastBlockHeight:   n.LastBlockHeight,
+		Color:             n.Color,
+		Alias:             n.Alias,
+		LastUpdate:        time.Unix(0, 0),
+		ExtraSignedFields: n.ExtraSignedFields,
 	}
 }
 

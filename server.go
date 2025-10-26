@@ -321,6 +321,7 @@ type server struct {
 	fundingMgr *funding.Manager
 
 	graphDB *graphdb.ChannelGraph
+	v1Graph *graphdb.VersionedGraph
 
 	chanStateDB *channeldb.ChannelStateDB
 
@@ -669,12 +670,17 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		HtlcInterceptor:             invoiceHtlcModifier,
 	}
 
-	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, dbs.GraphDB)
+	v1Graph := graphdb.NewVersionedGraph(
+		dbs.GraphDB, lnwire.GossipVersion1,
+	)
+
+	addrSource := channeldb.NewMultiAddrSource(dbs.ChanStateDB, v1Graph)
 
 	s := &server{
 		cfg:            cfg,
 		implCfg:        implCfg,
 		graphDB:        dbs.GraphDB,
+		v1Graph:        v1Graph,
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     addrSource,
 		miscDB:         dbs.ChanStateDB,
@@ -5207,7 +5213,7 @@ func (s *server) fetchNodeAdvertisedAddrs(ctx context.Context,
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchNode(ctx, vertex)
+	node, err := s.v1Graph.FetchNode(ctx, vertex)
 	if err != nil {
 		return nil, err
 	}

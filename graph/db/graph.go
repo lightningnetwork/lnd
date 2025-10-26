@@ -293,23 +293,6 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 	return nil
 }
 
-// DeleteNode starts a new database transaction to remove a vertex/node
-// from the database according to the node's public key.
-func (c *ChannelGraph) DeleteNode(ctx context.Context,
-	nodePub route.Vertex) error {
-
-	err := c.db.DeleteNode(ctx, lnwire.GossipVersion1, nodePub)
-	if err != nil {
-		return err
-	}
-
-	if c.graphCache != nil {
-		c.graphCache.RemoveNode(nodePub)
-	}
-
-	return nil
-}
-
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
 // undirected edge from the two target nodes are created. The information stored
 // denotes the static attributes of the channel, such as the channelID, the keys
@@ -603,13 +586,6 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	return nil
 }
 
-// AddrsForNode returns all known addresses for the target node public key.
-func (c *ChannelGraph) AddrsForNode(ctx context.Context,
-	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
-
-	return c.db.AddrsForNode(ctx, lnwire.GossipVersion1, nodePub)
-}
-
 // ForEachSourceNodeChannel iterates through all channels of the source node.
 func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
@@ -657,27 +633,12 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time,
 	return c.db.NodeUpdatesInHorizon(startTime, endTime, opts...)
 }
 
-// FetchNode attempts to look up a target node by its identity public key.
-func (c *ChannelGraph) FetchNode(ctx context.Context,
-	nodePub route.Vertex) (*models.Node, error) {
-
-	return c.db.FetchNode(ctx, lnwire.GossipVersion1, nodePub)
-}
-
 // HasV1Node determines if the graph has a vertex identified by the target node
 // in the V1 graph.
 func (c *ChannelGraph) HasV1Node(ctx context.Context,
 	nodePub [33]byte) (time.Time, bool, error) {
 
 	return c.db.HasV1Node(ctx, nodePub)
-}
-
-// HasNode determines if the graph has a vertex identified by the target node
-// in the V1 graph.
-func (c *ChannelGraph) HasNode(ctx context.Context, nodePub [33]byte) (bool,
-	error) {
-
-	return c.db.HasNode(ctx, lnwire.GossipVersion1, nodePub)
 }
 
 // IsPublicNode determines whether the node is seen as public in the graph.
@@ -809,6 +770,62 @@ func (c *ChannelGraph) SetSourceNode(ctx context.Context,
 // PruneTip returns the block height and hash of the latest pruning block.
 func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
 	return c.db.PruneTip()
+}
+
+// VersionedGraph is a wrapper around ChannelGraph that will call underlying
+// Store methods with a specific gossip version.
+type VersionedGraph struct {
+	*ChannelGraph
+	v lnwire.GossipVersion
+}
+
+// NewVersionedGraph creates a new VersionedGraph.
+func NewVersionedGraph(c *ChannelGraph,
+	v lnwire.GossipVersion) *VersionedGraph {
+
+	return &VersionedGraph{
+		ChannelGraph: c,
+		v:            v,
+	}
+}
+
+// FetchNode attempts to look up a target node by its identity public key.
+func (c *VersionedGraph) FetchNode(ctx context.Context,
+	nodePub route.Vertex) (*models.Node, error) {
+
+	return c.db.FetchNode(ctx, c.v, nodePub)
+}
+
+// AddrsForNode returns all known addresses for the target node public key.
+func (c *VersionedGraph) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+
+	return c.db.AddrsForNode(ctx, c.v, nodePub)
+}
+
+// DeleteNode starts a new database transaction to remove a vertex/node
+// from the database according to the node's public key.
+func (c *VersionedGraph) DeleteNode(ctx context.Context,
+	nodePub route.Vertex) error {
+
+	err := c.db.DeleteNode(ctx, c.v, nodePub)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		c.graphCache.RemoveNode(nodePub)
+	}
+
+	return nil
+}
+
+// HasNode determines if the graph has a vertex identified by the target node
+// in the V1 graph.
+func (c *VersionedGraph) HasNode(ctx context.Context, nodePub [33]byte) (bool,
+	error) {
+
+	return c.db.HasNode(ctx, c.v, nodePub)
 }
 
 // MakeTestGraph creates a new instance of the ChannelGraph for testing

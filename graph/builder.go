@@ -111,7 +111,8 @@ type Builder struct {
 
 	bestHeight atomic.Uint32
 
-	cfg *Config
+	cfg     *Config
+	v1Graph *graphdb.VersionedGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
 	// the main chain are sent over, and blocks updated after a call to
@@ -146,7 +147,11 @@ var _ ChannelGraphSource = (*Builder)(nil)
 // NewBuilder constructs a new Builder.
 func NewBuilder(cfg *Config) (*Builder, error) {
 	return &Builder{
-		cfg:            cfg,
+		cfg: cfg,
+		// For now, we'll just use V1 graph reader.
+		v1Graph: graphdb.NewVersionedGraph(
+			cfg.Graph, lnwire.GossipVersion1,
+		),
 		channelEdgeMtx: multimutex.NewMutex[uint64](),
 		statTicker:     ticker.New(defaultStatInterval),
 		stats:          new(builderStats),
@@ -1266,7 +1271,7 @@ func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 func (b *Builder) FetchNode(ctx context.Context,
 	node route.Vertex) (*models.Node, error) {
 
-	return b.cfg.Graph.FetchNode(ctx, node)
+	return b.v1Graph.FetchNode(ctx, node)
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by

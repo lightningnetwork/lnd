@@ -703,7 +703,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 	invoiceHtlcModifier *invoices.HtlcModificationInterceptor) error {
 
 	// Set up router rpc backend.
-	selfNode, err := s.graphDB.SourceNode(ctx)
+	selfNode, err := s.v1Graph.SourceNode(ctx)
 	if err != nil {
 		return err
 	}
@@ -4980,7 +4980,7 @@ func createRPCOpenChannel(ctx context.Context, r *rpcServer,
 
 	// Look up our channel peer's node alias if the caller requests it.
 	if peerAliasLookup {
-		peerAlias, err := r.server.graphDB.LookupAlias(ctx, nodePub)
+		peerAlias, err := r.server.v1Graph.LookupAlias(ctx, nodePub)
 		if err != nil {
 			peerAlias = fmt.Sprintf("unable to lookup "+
 				"peer alias: %v", err)
@@ -7894,7 +7894,7 @@ const feeBase float64 = 1000000
 func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
 
-	channelGraph := r.server.graphDB
+	channelGraph := r.server.v1Graph
 	selfNode, err := channelGraph.SourceNode(ctx)
 	if err != nil {
 		return nil, err

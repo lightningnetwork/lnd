@@ -1931,8 +1931,8 @@ func testFeeReplacement(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(bob, numPayments+1)
 
 	// Bob should have one sweeping tx in the mempool, which sweeps all his
-	// outgoing HTLCs.
-	outgoingSweep0 := ht.GetNumTxsFromMempool(1)[0]
+	// outgoing HTLCs. Trigger Bob's sweeper to ensure it appears.
+	outgoingSweep0 := ht.GetNumTxsFromMempoolWithSweep(1, bob)[0]
 
 	// We now mine one empty block so Bob will perform one fee bump, after
 	// which his sweeping tx should be updated with a new fee rate. We do

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
@@ -3092,21 +3093,23 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// Mine an empty block to satisfy Carol's CSV lock and trigger sweeps.
 	ht.MineEmptyBlocks(1)
 
-	// Trigger both sweepers to publish transactions.
-	bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
-	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
-
-	// Wait for sweeps to appear. Accept whatever count appears due to RBF.
-	mempool := ht.GetRawMempool()
-	numTxs := len(mempool)
-	if numTxs == 0 {
-		// If no txs yet, trigger again and wait.
+	// Trigger both sweepers to publish transactions. For leased channels,
+	// Bob's HTLC success resolvers need time to process preimages and offer
+	// HTLCs to the sweeper before the sweeper can create transactions.
+	// Retry triggering until transactions appear in mempool.
+	var numTxs int
+	err := wait.NoError(func() error {
 		bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
 		carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
-		_ = ht.Miner().GetNumTxsFromMempool(1)
-		mempool = ht.GetRawMempool()
+
+		mempool := ht.GetRawMempool()
 		numTxs = len(mempool)
-	}
+		if numTxs == 0 {
+			return fmt.Errorf("no transactions in mempool yet")
+		}
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(ht, err, "timeout waiting for sweep transactions")
 
 	// Mine a block to confirm whatever sweeps appeared.
 	ht.MineBlocksAndAssertNumTxes(1, numTxs)

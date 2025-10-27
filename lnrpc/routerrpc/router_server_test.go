@@ -838,6 +838,7 @@ func TestProbePaymentRequestUsesUniqueHashPerLSP(t *testing.T) {
 		zpay32.RouteHint([]zpay32.HopHint{bobHint}),
 		zpay32.RouteHint([]zpay32.HopHint{eveHint}),
 		zpay32.RouteHint([]zpay32.HopHint{daveHint}),
+		zpay32.PaymentAddr([32]byte{4, 5}),
 	)
 	require.NoError(t, err)
 

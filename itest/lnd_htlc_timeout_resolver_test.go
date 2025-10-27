@@ -175,7 +175,8 @@ func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(carol, 1)
 
 	// We should now have Carol's htlc success tx in the mempool.
-	ht.AssertNumTxsInMempool(1)
+	// Trigger Carol's sweeper to ensure it appears.
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, carol)
 
 	// Restart Bob. Once he finishes syncing the channel state, he should
 	// notice the force close from Carol.

@@ -1138,7 +1138,20 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 		ht.MineBlocks(int(defaultCSV - 1))
 
 		// Mine a block to confirm Bob's to_local sweep.
-		ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
+		// For zero-conf channels, Carol might also sweep at the same
+		// time, so we may see 2 transactions.
+		if params.ZeroConf {
+			bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+			// Wait for Bob's sweep and possibly Carol's.
+			mempool := ht.GetRawMempool()
+			expectedTxs := 1
+			if len(mempool) == 2 {
+				expectedTxs = 2
+			}
+			ht.MineBlocksAndAssertNumTxes(1, expectedTxs)
+		} else {
+			ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
+		}
 	}
 
 	// We'll now mine enough blocks for the HTLC to expire. After this, Bob
@@ -1170,6 +1183,10 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// Bob's outgoing HTLC sweep should be broadcast now. Mine a block to
 	// confirm it.
 	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
+
+	// Give Bob time to process the confirmation, especially on bitcoind
+	// which may have different timing characteristics.
+	time.Sleep(500 * time.Millisecond)
 
 	// With the second layer timeout tx confirmed, Bob should have canceled
 	// backwards the HTLC that Carol sent.
@@ -1776,7 +1793,10 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// commitment anchor output, we'd expect to see two txns,
 	// - Carol's second level HTLC tx.
 	// - Bob's commitment output sweeping tx.
-	ht.AssertNumTxsInMempoolWithSweepTrigger(2, bob)
+	// Trigger both sweepers to ensure both txs appear.
+	bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	ht.Miner().AssertNumTxsInMempool(2)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
@@ -2406,7 +2426,10 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// We mine one block to confirm,
 	// - Carol's sweeping tx of the incoming HTLC.
 	// - Bob's sweeping tx of his commit output.
-	ht.MineBlocksAndAssertNumTxesWithSweep(1, 2, bob)
+	// Trigger both sweepers to ensure both txs appear.
+	bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	carol.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
 	// When Bob notices Carol's second level tx in the block, he will
 	// extract the preimage and offer the HTLC to his sweeper. So he has,

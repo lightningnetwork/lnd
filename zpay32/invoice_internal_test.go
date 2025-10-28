@@ -801,6 +801,24 @@ func TestParseTaggedFields(t *testing.T) {
 		&distinctPaymentHashes, fieldTypeP, secondPaymentHash,
 	))
 
+	// validThenMalformed returns a valid field of the given type followed
+	// by a second field of the same type with an invalid length.
+	validThenMalformed := func(fieldType byte, valid []byte) []byte {
+		var b bytes.Buffer
+		require.NoError(t, writeTaggedField(&b, fieldType, valid))
+		require.NoError(t, writeTaggedField(&b, fieldType, []byte{0}))
+
+		return b.Bytes()
+	}
+
+	hashData, err := bech32.ConvertBits(testPaymentHash[:], 8, 5, true)
+	require.NoError(t, err)
+
+	pubKeyData, err := bech32.ConvertBits(
+		testPubKey.SerializeCompressed(), 8, 5, true,
+	)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name    string
 		data    []byte
@@ -830,6 +848,26 @@ func TestParseTaggedFields(t *testing.T) {
 		{
 			name:    "malformed then valid payment hash",
 			data:    malformedThenValid.Bytes(),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed payment hash",
+			data:    validThenMalformed(fieldTypeP, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed payment secret",
+			data:    validThenMalformed(fieldTypeS, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed description hash",
+			data:    validThenMalformed(fieldTypeH, hashData),
+			wantErr: ErrInvalidFieldLength,
+		},
+		{
+			name:    "valid then malformed destination",
+			data:    validThenMalformed(fieldTypeN, pubKeyData),
 			wantErr: ErrInvalidFieldLength,
 		},
 		{

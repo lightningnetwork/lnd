@@ -2842,6 +2842,13 @@
               "STRATEGY_RANDOM"
             ],
             "default": "STRATEGY_USE_GLOBAL_CONFIG"
+          },
+          {
+            "name": "show_outpoints",
+            "description": "Whether to include the selected outpoints in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -4973,6 +4980,13 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate in satoshi/vbyte."
+        },
+        "outpoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "A list of selected outpoints as inputs for the transaction."
         }
       }
     },

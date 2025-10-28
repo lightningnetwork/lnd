@@ -110,6 +110,17 @@
   specify a list of inputs to use as transaction inputs via the new
   `inputs` field in `EstimateFeeRequest`.
 
+* Added a new [switchrpc RPC sub-system](https://github.com/lightningnetwork/lnd/pull/9489)
+  with `SendOnion`, `BuildOnion`, and `TrackOnion` endpoints. This allows the
+  daemon to offload path-finding, onion construction and payment life-cycle
+  management to an external entity and instead accept onion payments for direct
+  delivery to the network. The new gRPC server should be used with caution. It
+  is currently only safe to allow a *single* entity (either the local router or
+  *one* external router) to dispatch attempts via the Switch at any given time.
+  Running multiple controllers concurrently will lead to undefined behavior and
+  potential loss of funds. The compilation of the server is hidden behind the
+  non-default `switchrpc` build tag.
+
 ## lncli Additions
 
 * The `estimatefee` command now supports the `--utxos` flag to specify explicit

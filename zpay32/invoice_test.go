@@ -237,8 +237,28 @@ func TestDecodeEncode(t *testing.T) {
 			valid:          false,
 		},
 		{
+			// no payment secret set
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jszjlrkes0mgx4ghum45ha5gkzlac8xmrr4skgweyp6xqxucu4wz4j8uvpg0jznsesezax6hdt0gtyn3tuqpfy2curryn83zygkydmpxcqdfu7k0",
+			valid:          false,
+		},
+		{
+			// payment secret with invalid length.
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsspszyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zeams9aqn0ar5rz2lu6g29vqlc5rxwg384dnh482wpjpslmx8dfy6l8l2u6d75xe8lj3te4rfg37u0dcatyzxews2skx8a6dkt4tt0qqv548nr",
+			valid:          false,
+		},
+		{
+			// pubkey set in 'n' field with invalid length.
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdq5xysxxatsyp3k7enxv4jsnpjz44wxwc2yzxsw3qej933wl5sn6qpwmj4m9az7gs7mc8exnwe45sp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygsa45ms8u8avxsgp0mjrxnf7u888ezl95wse779emq4wawy56en7hpyarvzq8rshgx80luw9m3cxe2mj5kv95pfljpzc3sjw76azyqdvgqpu7a59",
+			valid:          false,
+		},
+		{
 			// no payment hash set
 			encodedInvoice: "lnbc20m1pvjluezhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsjv38luh6p6s2xrv3mzvlmzaya43376h0twal5ax0k6p47498hp3hnaymzhsn424rxqjs0q7apn26yrhaxltq3vzwpqj9nc2r3kzwccsplnq470",
+			valid:          false,
+		},
+		{
+			// payment hash set with invalid length.
+			encodedInvoice: "lnbc20m1pvjluezppsqgpsgpgxquyqjqqpqgpsgpgxquyqjqqpqgpsgpgxquyqjqgzdq5xysxxatsyp3k7enxv4jsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66sp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs43fqhf8np9n9xs6zgepegrmqfkq6crexhvhqp5958mettsrm6mh9jsxkeuc8vx5n0fg53hyjf5shnxzz5p67xljjq9rwt54rwfj5pfgq9ythaz",
 			valid:          false,
 		},
 		{
@@ -249,6 +269,11 @@ func TestDecodeEncode(t *testing.T) {
 		{
 			// Neither Description nor DescriptionHash set.
 			encodedInvoice: "lnbc20m1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqwul6apumndhf3t4v50sdx0vc9jma3cjfq49reu9a6rsadhs933nsau8vwumegq0scs492xx5s6zp6rmr50gd2pdkv285kzsr7zt5xjsp69w7kw",
+			valid:          false,
+		},
+		{
+			// DescriptionHash set with invalid length.
+			encodedInvoice: "lnbc20m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhpskmm8utp5qqmw6ysf8h2yuqmgmudkagnv20d7fqgltr74mwxpsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs2ul3cn2n4j3gcl5yxv0mwp7zkslunmv405hlz0uesckxzu5nk60pv6pfq3zkuewfugx28u3vp9y36eutpa0kdwahu2perdlr4cdjclqpl7zwtf",
 			valid:          false,
 		},
 		{

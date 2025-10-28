@@ -3093,10 +3093,15 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// Mine an empty block to satisfy Carol's CSV lock and trigger sweeps.
 	ht.MineEmptyBlocks(1)
 
+	// Give the sweeper time to construct transactions from all pending
+	// inputs. This is especially important for tests with many HTLCs where
+	// the sweeper needs to aggregate inputs into batch transactions.
+	time.Sleep(500 * time.Millisecond)
+
 	// Trigger both sweepers to publish transactions. For leased channels,
 	// Bob's HTLC success resolvers need time to process preimages and offer
 	// HTLCs to the sweeper before the sweeper can create transactions.
-	// Retry triggering until transactions appear in mempool.
+	// Retry triggering until at least 2 transactions appear (Bob's sweeps).
 	var numTxs int
 	err := wait.NoError(func() error {
 		bob.RPC.TriggerSweeper(&devrpc.TriggerSweeperRequest{})
@@ -3104,8 +3109,12 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 
 		mempool := ht.GetRawMempool()
 		numTxs = len(mempool)
-		if numTxs == 0 {
-			return fmt.Errorf("no transactions in mempool yet")
+		// We expect at least 2 transactions: Bob's HTLC sweeps. Due to
+		// RBF behavior, we may see 2-3 total (Carol's sweep may or may
+		// not be present depending on timing).
+		if numTxs < 2 {
+			return fmt.Errorf("only %d transactions in mempool, "+
+				"waiting for at least 2", numTxs)
 		}
 		return nil
 	}, wait.DefaultTimeout)
@@ -3113,6 +3122,13 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 
 	// Mine a block to confirm whatever sweeps appeared.
 	ht.MineBlocksAndAssertNumTxes(1, numTxs)
+
+	// Give Bob time to process the confirmation and update HTLC stages.
+	// This is necessary due to async blockbeat handling, especially for
+	// zero-conf channels where timing can vary between backends. We use
+	// 2 seconds here because this test has many HTLCs (12 total) which
+	// all need to transition states asynchronously.
+	time.Sleep(2 * time.Second)
 
 	// For this channel, we also check the number of HTLCs and the stage
 	// are correct.

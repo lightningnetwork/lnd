@@ -31,6 +31,12 @@
 # Improvements
 ## Functional Updates
 
+* [Added support](https://github.com/lightningnetwork/lnd/pull/9432) for the
+  `upfront-shutdown-address` configuration in `lnd.conf`, allowing users to
+  specify an address for cooperative channel closures where funds will be sent.
+  This applies to both funders and fundees, with the ability to override the
+  value during channel opening or acceptance.
+
 ## RPC Updates
 
 ## lncli Updates
@@ -53,3 +59,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Nishant Bansal

@@ -157,6 +157,10 @@ type AddInvoiceData struct {
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
+
+	// Metadata is additional data that is sent along with the payment to
+	// the payee.
+	Metadata []byte
 }
 
 // BlindedPathConfig holds the configuration values required for blinded path
@@ -488,6 +492,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		invoiceFeatures = cfg.GenInvoiceFeatures()
 	}
 	options = append(options, zpay32.Features(invoiceFeatures))
+
+	// If metadata is provided, add it to the invoice options.
+	if len(invoice.Metadata) > 0 {
+		options = append(options, zpay32.Metadata(invoice.Metadata))
+	}
 
 	// Generate and set a random payment address for this payment. If the
 	// sender understands payment addresses, this can be used to avoid

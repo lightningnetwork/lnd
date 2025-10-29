@@ -380,6 +380,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSingleHopInvoice,
 	},
 	{
+		Name:     "invoice metadata",
+		TestFunc: testInvoiceMetadata,
+	},
+	{
 		Name:     "wipe forwarding packages",
 		TestFunc: testWipeForwardingPackages,
 	},

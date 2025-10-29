@@ -532,6 +532,21 @@ func (g *GossipSyncer) channelGraphSyncer(ctx context.Context) {
 	defer g.cg.WgDone()
 
 	for {
+		// Check cancellation before processing any state.
+		select {
+		case <-ctx.Done():
+			log.Debugf("GossipSyncer(%x): context canceled, "+
+				"exiting", g.cfg.peerPub[:])
+
+			return
+		case <-g.cg.Done():
+			log.Debugf("GossipSyncer(%x): shutting down",
+				g.cfg.peerPub[:])
+
+			return
+		default:
+		}
+
 		state := g.syncState()
 		syncType := g.SyncType()
 

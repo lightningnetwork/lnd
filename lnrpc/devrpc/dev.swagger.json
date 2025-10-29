@@ -106,6 +106,16 @@
         }
       }
     },
+    "devrpcTriggerSweeperResponse": {
+      "type": "object",
+      "properties": {
+        "num_sweeps_broadcast": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of sweep transactions that were broadcast."
+        }
+      }
+    },
     "lnrpcChannelAuthProof": {
       "type": "object",
       "properties": {

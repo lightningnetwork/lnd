@@ -353,6 +353,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(htlcSwitch),
 			)
 
+			subCfgValue.FieldByName("Sweeper").Set(
+				reflect.ValueOf(sweeper),
+			)
+
 		case *peersrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 

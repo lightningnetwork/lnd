@@ -9,6 +9,13 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
+// UtxoSweeper defines the interface for the UTXO sweeper needed by the dev
+// RPC server.
+type UtxoSweeper interface {
+	// TriggerSweep triggers an immediate sweep attempt.
+	TriggerSweep() int
+}
+
 // Config is the primary configuration struct for the DEV RPC server. It
 // contains all the items required for the rpc server to carry out its
 // duties. Any fields with struct tags are meant to be parsed as normal
@@ -18,4 +25,5 @@ type Config struct {
 	ActiveNetParams *chaincfg.Params
 	GraphDB         *graphdb.ChannelGraph
 	Switch          *htlcswitch.Switch
+	Sweeper         UtxoSweeper
 }

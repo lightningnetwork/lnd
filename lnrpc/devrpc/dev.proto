@@ -37,6 +37,14 @@ service Dev {
     once interop is confirmed.
     */
     rpc Quiesce (QuiescenceRequest) returns (QuiescenceResponse);
+
+    /* lncli: `triggersweeper`
+    TriggerSweeper triggers the sweeper to attempt to create and broadcast sweep
+    transactions for all pending inputs. This RPC is for testing purposes only,
+    allowing tests to deterministically control when sweeps are broadcast rather
+    than relying on the sweeper's automatic timing.
+    */
+    rpc TriggerSweeper (TriggerSweeperRequest) returns (TriggerSweeperResponse);
 }
 
 message ImportGraphResponse {
@@ -51,4 +59,12 @@ message QuiescenceResponse {
     // Indicates whether or not we hold the initiator role or not once the
     // negotiation completes
     bool initiator = 1;
+}
+
+message TriggerSweeperRequest {
+}
+
+message TriggerSweeperResponse {
+    // The number of sweep transactions that were broadcast.
+    uint32 num_sweeps_broadcast = 1;
 }

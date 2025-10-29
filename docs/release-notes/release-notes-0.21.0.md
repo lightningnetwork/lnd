@@ -37,6 +37,15 @@
 
 ## Breaking Changes
 
+* Added [duplicate safety to `switch.SendHTLC`](https://github.com/lightningnetwork/lnd/pull/10049). This method will no longer 
+  forward an onion with the same attempt ID twice without the result for a given
+  ID having been cleaned from the network result store. This ensures "at most
+  once" delivery and request processing of a given HTLC attempt, allowing a
+  remote router or rpc client to safely retry htlc dispatch requests without
+  creating duplicate attempts. This extends the more narrow duplicate safety
+  already provided by the Switch’s `CircuitMap`.
+
+
 ## Performance Improvements
 
 ## Deprecations

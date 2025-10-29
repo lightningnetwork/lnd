@@ -118,7 +118,7 @@ func TestNetworkResultStore(t *testing.T) {
 	// Subscribe to 2 of them.
 	var subs []<-chan *networkResult
 	for i := uint64(0); i < 2; i++ {
-		sub, err := store.subscribeResult(i)
+		sub, err := store.SubscribeResult(i)
 		if err != nil {
 			t.Fatalf("unable to subscribe: %v", err)
 		}
@@ -127,7 +127,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Store three of them.
 	for i := uint64(0); i < 3; i++ {
-		err := store.storeResult(i, results[i])
+		err := store.StoreResult(i, results[i])
 		if err != nil {
 			t.Fatalf("unable to store result: %v", err)
 		}
@@ -144,7 +144,7 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Let the third one subscribe now. THe result should be received
 	// immediately.
-	sub, err := store.subscribeResult(2)
+	sub, err := store.SubscribeResult(2)
 	require.NoError(t, err, "unable to subscribe")
 	select {
 	case <-sub:
@@ -154,22 +154,22 @@ func TestNetworkResultStore(t *testing.T) {
 
 	// Try fetching the result directly for the non-stored one. This should
 	// fail.
-	_, err = store.getResult(3)
+	_, err = store.GetResult(3)
 	if err != ErrPaymentIDNotFound {
 		t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 	}
 
 	// Add the result and try again.
-	err = store.storeResult(3, results[3])
+	err = store.StoreResult(3, results[3])
 	require.NoError(t, err, "unable to store result")
 
-	_, err = store.getResult(3)
+	_, err = store.GetResult(3)
 	require.NoError(t, err, "unable to get result")
 
 	// Since we don't delete results from the store (yet), make sure we
 	// will get subscriptions for all of them.
 	for i := uint64(0); i < numResults; i++ {
-		sub, err := store.subscribeResult(i)
+		sub, err := store.SubscribeResult(i)
 		if err != nil {
 			t.Fatalf("unable to subscribe: %v", err)
 		}
@@ -187,12 +187,12 @@ func TestNetworkResultStore(t *testing.T) {
 		1: {},
 	}
 	// Finally, delete the result.
-	err = store.cleanStore(toKeep)
+	err = store.CleanStore(toKeep)
 	require.NoError(t, err)
 
 	// Payment IDs 0 and 1 should be found, 2 and 3 should be deleted.
 	for i := uint64(0); i < numResults; i++ {
-		_, err = store.getResult(i)
+		_, err = store.GetResult(i)
 		if i <= 1 {
 			require.NoError(t, err, "unable to get result")
 		}
@@ -200,4 +200,46 @@ func TestNetworkResultStore(t *testing.T) {
 			t.Fatalf("expected ErrPaymentIDNotFound, got %v", err)
 		}
 	}
+
+	t.Run("InitAttempt duplicate prevention", func(t *testing.T) {
+		var id uint64 = 100
+
+		// First initialization should succeed.
+		err := store.InitAttempt(id)
+		require.NoError(t, err, "unexpected InitAttempt failure")
+
+		// Second initialization should fail (already initialized).
+		// Try initializing an attempt with the same ID before a full
+		// settle or fail result is back from the network (simulated by
+		// StoreResult).
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected duplicate InitAttempt to fail")
+
+		// Store a result to simulate a full settle or fail HTLC result
+		// coming back from the network.
+		netResult := &networkResult{
+			msg:          &lnwire.UpdateFulfillHTLC{},
+			unencrypted:  true,
+			isResolution: true,
+		}
+		err = store.StoreResult(id, netResult)
+		require.NoError(t, err, "unable to store result after init")
+
+		// Try InitAttempt again — still should fail even after a full
+		// result is back from the network.
+		err = store.InitAttempt(id)
+		require.ErrorIs(t, err, ErrPaymentIDAlreadyExists,
+			"expected InitAttempt to fail after result stored")
+
+		// Verify that ID can be re-used only after explicit deletion of
+		// attempts via CleanStore or a DeleteAttempts style method.
+		err = store.CleanStore(map[uint64]struct{}{})
+		require.NoError(t, err)
+
+		// Now InitAttempt should succeed again.
+		err = store.InitAttempt(id)
+		require.NoError(t, err, "InitAttempt should succeed after "+
+			"cleanup")
+	})
 }

@@ -1486,6 +1486,18 @@ func (o *OpenChannel) RandTestMessage(t *rapid.T) Message {
 	}
 }
 
+// A compile time check to ensure PendingNetworkResult implements the
+// lnwire.TestMessage interface.
+var _ TestMessage = (*PendingNetworkResult)(nil)
+
+// RandTestMessage populates the message with random data suitable for testing.
+// It uses the rapid testing framework to generate random values.
+//
+// This is part of the TestMessage interface.
+func (p *PendingNetworkResult) RandTestMessage(t *rapid.T) Message {
+	return p
+}
+
 // A compile time check to ensure Ping implements the lnwire.TestMessage
 // interface.
 var _ TestMessage = (*Ping)(nil)

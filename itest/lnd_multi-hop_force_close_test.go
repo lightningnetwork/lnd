@@ -1135,8 +1135,9 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	if params.CommitmentType != leasedType {
 		// The sweeping tx is broadcast on the block CSV-1 so mine one
 		// block less than defaultCSV in order to perform mempool
-		// assertions.
-		ht.MineBlocks(int(defaultCSV - 1))
+		// assertions. Use MineEmptyBlocks to allow transactions to
+		// remain in mempool (e.g., Carol's sweep for zero-conf).
+		ht.MineEmptyBlocks(int(defaultCSV - 1))
 
 		// Mine a block to confirm Bob's to_local sweep.
 		// For zero-conf channels, Carol might also sweep at the same
@@ -1185,17 +1186,14 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// confirm it.
 	ht.MineBlocksAndAssertNumTxesWithSweep(1, 1, bob)
 
-	// Give Bob time to process the confirmation and cancel the HTLC
-	// backwards. This timing can vary between backends.
-	time.Sleep(1 * time.Second)
-
-	// With the second layer timeout tx confirmed, Bob should have canceled
-	// backwards the HTLC that Carol sent.
-	ht.AssertNumActiveHtlcs(bob, 0)
-
-	// Additionally, Bob should now show that HTLC as being advanced to the
-	// second stage.
+	// First, wait for the HTLC to advance to stage 2, which confirms that
+	// the contract court has processed the second-level confirmation.
 	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 2)
+
+	// Now that the HTLC is at stage 2, Bob should have canceled backwards
+	// the HTLC that Carol sent. This check comes after stage verification
+	// to ensure contract court processing is complete.
+	ht.AssertNumActiveHtlcs(bob, 0)
 
 	// Get the expiry height of the CSV-locked HTLC.
 	resp = ht.AssertNumPendingForceClose(bob, 1)[0]
@@ -3123,15 +3121,8 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 	// Mine a block to confirm whatever sweeps appeared.
 	ht.MineBlocksAndAssertNumTxes(1, numTxs)
 
-	// Give Bob time to process the confirmation and update HTLC stages.
-	// This is necessary due to async blockbeat handling, especially for
-	// zero-conf channels where timing can vary between backends. We use
-	// 2 seconds here because this test has many HTLCs (12 total) which
-	// all need to transition states asynchronously.
-	time.Sleep(2 * time.Second)
-
-	// For this channel, we also check the number of HTLCs and the stage
-	// are correct.
+	// For this channel, we check the number of HTLCs and the stage are
+	// correct. AssertNumHTLCsAndStage polls internally using wait.NoError.
 	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, numInvoices*2, 2)
 
 	// For non-leased channels, we can now mine one block so Bob will sweep

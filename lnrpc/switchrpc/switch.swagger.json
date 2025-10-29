@@ -390,6 +390,9 @@
       },
       "description": "BuildOnionResponse contains the constructed onion packet."
     },
+    "switchrpcDisableRemoteRouterResponse": {
+      "type": "object"
+    },
     "switchrpcErrorCode": {
       "type": "string",
       "enum": [

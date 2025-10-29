@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -229,7 +230,109 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 
 	syncer := newGossipSyncer(cfg, syncerSema)
 
+	//nolint:forcetypeassert
 	return msgChan, syncer, cfg.channelSeries.(*mockChannelGraphTimeSeries)
+}
+
+// errorInjector provides thread-safe error injection for test syncers and
+// tracks the number of send attempts to detect endless loops.
+type errorInjector struct {
+	mu           sync.Mutex
+	err          error
+	attemptCount int
+}
+
+// setError sets the error that will be returned by sendMsg calls.
+func (ei *errorInjector) setError(err error) {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.err = err
+}
+
+// getError retrieves the current error in a thread-safe manner and increments
+// the attempt counter.
+func (ei *errorInjector) getError() error {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	ei.attemptCount++
+
+	return ei.err
+}
+
+// getAttemptCount returns the number of times sendMsg was called.
+func (ei *errorInjector) getAttemptCount() int {
+	ei.mu.Lock()
+	defer ei.mu.Unlock()
+	return ei.attemptCount
+}
+
+// newErrorInjectingSyncer creates a GossipSyncer with controllable error
+// injection for testing error handling. The returned errorInjector can be used
+// to inject errors into sendMsg calls.
+func newErrorInjectingSyncer(hID lnwire.ShortChannelID, chunkSize int32) (
+	*GossipSyncer, *errorInjector, chan []lnwire.Message) {
+
+	ei := &errorInjector{}
+	msgChan := make(chan []lnwire.Message, 20)
+
+	cfg := gossipSyncerCfg{
+		channelSeries:          newMockChannelGraphTimeSeries(hID),
+		encodingType:           defaultEncoding,
+		chunkSize:              chunkSize,
+		batchSize:              chunkSize,
+		noSyncChannels:         false,
+		noReplyQueries:         true,
+		noTimestampQueryOption: false,
+		sendMsg: func(_ context.Context, _ bool,
+			msgs ...lnwire.Message) error {
+
+			// Check if we should inject an error.
+			if err := ei.getError(); err != nil {
+				return err
+			}
+
+			msgChan <- msgs
+			return nil
+		},
+		bestHeight: func() uint32 {
+			return latestKnownHeight
+		},
+		markGraphSynced:          func() {},
+		maxQueryChanRangeReplies: maxQueryChanRangeReplies,
+		timestampQueueSize:       10,
+	}
+
+	syncerSema := make(chan struct{}, 1)
+	syncerSema <- struct{}{}
+
+	syncer := newGossipSyncer(cfg, syncerSema)
+
+	return syncer, ei, msgChan
+}
+
+// assertSyncerExitsCleanly verifies that a syncer stops cleanly within the
+// given timeout. This is used to ensure error handling doesn't cause endless
+// loops.
+func assertSyncerExitsCleanly(t *testing.T, syncer *GossipSyncer,
+	timeout time.Duration) {
+
+	t.Helper()
+
+	stopChan := make(chan struct{})
+	go func() {
+		syncer.Stop()
+		close(stopChan)
+	}()
+
+	select {
+	case <-stopChan:
+		// Success - syncer stopped cleanly.
+	case <-time.After(timeout):
+		t.Fatal(
+			"syncer did not stop within timeout - possible " +
+				"endless loop",
+		)
+	}
 }
 
 // TestGossipSyncerFilterGossipMsgsNoHorizon tests that if the remote peer
@@ -2410,4 +2513,108 @@ func TestGossipSyncerMaxChannelRangeReplies(t *testing.T) {
 			},
 		},
 	}, nil))
+}
+
+// TestGossipSyncerStateHandlerErrors tests that errors in state handlers cause
+// the channelGraphSyncer goroutine to exit cleanly without endless retry loops.
+// This is a table-driven test covering various error types and states.
+func TestGossipSyncerStateHandlerErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		state       syncerState
+		setupState  func(*GossipSyncer)
+		chunkSize   int32
+		injectedErr error
+	}{
+		{
+			name:        "context cancel during syncingChans",
+			state:       syncingChans,
+			chunkSize:   defaultChunkSize,
+			injectedErr: context.Canceled,
+			setupState:  func(s *GossipSyncer) {},
+		},
+		{
+			name:        "peer exit during syncingChans",
+			state:       syncingChans,
+			chunkSize:   defaultChunkSize,
+			injectedErr: lnpeer.ErrPeerExiting,
+			setupState:  func(s *GossipSyncer) {},
+		},
+		{
+			name:        "context cancel during queryNewChannels",
+			state:       queryNewChannels,
+			chunkSize:   2,
+			injectedErr: context.Canceled,
+			setupState: func(s *GossipSyncer) {
+				s.newChansToQuery = []lnwire.ShortChannelID{
+					lnwire.NewShortChanIDFromInt(1),
+					lnwire.NewShortChanIDFromInt(2),
+					lnwire.NewShortChanIDFromInt(3),
+				}
+			},
+		},
+		{
+			name:        "network error during queryNewChannels",
+			state:       queryNewChannels,
+			chunkSize:   2,
+			injectedErr: errors.New("connection closed"),
+			setupState: func(s *GossipSyncer) {
+				s.newChansToQuery = []lnwire.ShortChannelID{
+					lnwire.NewShortChanIDFromInt(1),
+					lnwire.NewShortChanIDFromInt(2),
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create syncer with error injection capability.
+			hID := lnwire.NewShortChanIDFromInt(10)
+			syncer, errInj, _ := newErrorInjectingSyncer(
+				hID, tt.chunkSize,
+			)
+
+			// Set up the initial state and any required state data.
+			syncer.setSyncState(tt.state)
+			tt.setupState(syncer)
+
+			// Inject the error that should cause the goroutine to
+			// exit.
+			errInj.setError(tt.injectedErr)
+
+			// Start the syncer which spawns the channelGraphSyncer
+			// goroutine.
+			syncer.Start()
+
+			// Wait long enough that an endless loop would
+			// accumulate many attempts. With the fix, we should
+			// only see 1-3 attempts. Without the fix, we'd see
+			// 50-100+ attempts.
+			time.Sleep(500 * time.Millisecond)
+
+			// Check how many send attempts were made. This verifies
+			// that the state handler doesn't loop endlessly.
+			attemptCount := errInj.getAttemptCount()
+			require.GreaterOrEqual(
+				t, attemptCount, 1,
+				"state handler was not called - test "+
+					"setup issue",
+			)
+			require.LessOrEqual(
+				t, attemptCount, 5,
+				"too many attempts (%d) - endless loop "+
+					"not fixed",
+				attemptCount,
+			)
+
+			// Verify the syncer exits cleanly without hanging.
+			assertSyncerExitsCleanly(t, syncer, 2*time.Second)
+		})
+	}
 }

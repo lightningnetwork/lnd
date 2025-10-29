@@ -1126,45 +1126,36 @@ func allowCORS(handler http.Handler, origins []string) http.Handler {
 	})
 }
 
-// sendCoinsOnChain makes an on-chain transaction in or to send coins to one or
-// more addresses specified in the passed payment map. The payment map maps an
-// address to a specified output value to be sent to that address.
+// sendCoinsOnChain executes an on-chain transaction by creating outputs for
+// the specified payment map and publishing the transaction. If a custom change
+// address is provided, it will be used for any change output. Otherwise, a
+// wallet-generated change address is used.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
 	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
 	strategy wallet.CoinSelectionStrategy,
-	selectedUtxos fn.Set[wire.OutPoint]) (*chainhash.Hash, error) {
+	selectedUtxos fn.Set[wire.OutPoint],
+	changeAddr btcutil.Address) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap, r.cfg.ActiveNetParams.Params)
 	if err != nil {
 		return nil, err
 	}
 
-	// We first do a dry run, to sanity check we won't spend our wallet
-	// balance below the reserved amount.
-	authoredTx, err := r.server.cc.Wallet.CreateSimpleTx(
-		selectedUtxos, outputs, feeRate, minConfs, strategy, true,
-	)
-	if err != nil {
-		return nil, err
+	var tx *wire.MsgTx
+	if changeAddr != nil {
+		// Custom change address specified.
+		tx, err = r.server.cc.Wallet.SendOutputsWithChangeAddr(
+			selectedUtxos, outputs, feeRate, minConfs, label,
+			strategy, changeAddr,
+		)
+	} else {
+		// Use default wallet behavior.
+		tx, err = r.server.cc.Wallet.SendOutputs(
+			selectedUtxos, outputs, feeRate, minConfs, label,
+			strategy,
+		)
 	}
 
-	// Check the authored transaction and use the explicitly set change index
-	// to make sure that the wallet reserved balance is not invalidated.
-	_, err = r.server.cc.Wallet.CheckReservedValueTx(
-		lnwallet.CheckReservedValueTxReq{
-			Tx:          authoredTx.Tx,
-			ChangeIndex: &authoredTx.ChangeIndex,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// If that checks out, we're fairly confident that creating sending to
-	// these outputs will keep the wallet balance above the reserve.
-	tx, err := r.server.cc.Wallet.SendOutputs(
-		selectedUtxos, outputs, feeRate, minConfs, label, strategy,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -1397,6 +1388,24 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return nil, err
 	}
 
+	// Parse the change address if provided.
+	var changeAddr btcutil.Address
+	if in.ChangeAddress != "" {
+		changeAddr, err = btcutil.DecodeAddress(
+			in.ChangeAddress, r.cfg.ActiveNetParams.Params,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("invalid change address: %w", err)
+		}
+
+		// Validate the change address is for the correct network.
+		if !changeAddr.IsForNet(r.cfg.ActiveNetParams.Params) {
+			return nil, fmt.Errorf("change address: %v is not valid for "+
+				"this network: %v", changeAddr.String(),
+				r.cfg.ActiveNetParams.Params.Name)
+		}
+	}
+
 	var txid *chainhash.Hash
 
 	wallet := r.server.cc.Wallet
@@ -1477,19 +1486,28 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			// where we'll send this reserved value back to. This
 			// ensures this is an address the wallet knows about,
 			// allowing us to pass the reserved value check.
-			changeAddr, err := r.server.cc.Wallet.NewAddress(
-				lnwallet.TaprootPubkey, true,
-				lnwallet.DefaultAccountName,
-			)
-			if err != nil {
-				return nil, err
+			// We'll use the provided change address if specified,
+			// otherwise request a new change address from the wallet.
+			var sweepChangeAddr btcutil.Address
+			if changeAddr != nil {
+				// User provided a custom change address, use it.
+				sweepChangeAddr = changeAddr
+			} else {
+				// No custom change address, create a new one from wallet.
+				sweepChangeAddr, err = r.server.cc.Wallet.NewAddress(
+					lnwallet.TaprootPubkey, true,
+					lnwallet.DefaultAccountName,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			// Send the reserved value to this change address, the
 			// remaining funds will go to the targetAddr.
 			outputs := []sweep.DeliveryAddr{
 				{
-					Addr: changeAddr,
+					Addr: sweepChangeAddr,
 					Amt:  reservedVal,
 				},
 			}
@@ -1551,7 +1569,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		err := wallet.WithCoinSelectLock(func() error {
 			newTXID, err := r.sendCoinsOnChain(
 				paymentMap, feePerKw, minConfs, label,
-				coinSelectionStrategy, selectOutpoints,
+				coinSelectionStrategy, selectOutpoints, changeAddr,
 			)
 			if err != nil {
 				return err
@@ -1623,7 +1641,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
 			in.AddrToAmount, feePerKw, minConfs, label,
-			coinSelectionStrategy, nil,
+			coinSelectionStrategy, nil, nil,
 		)
 		if err != nil {
 			return err

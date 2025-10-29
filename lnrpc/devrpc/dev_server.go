@@ -258,7 +258,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 			Color:    nodeColor,
 			// NOTE: this is a workaround to ensure that
 			// HaveAnnouncement() returns true so that the other
-			// fields are properly persisted. However,
+			// fields are properly persisted.
 			AuthSigBytes: []byte{0},
 		})
 

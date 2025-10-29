@@ -371,3 +371,28 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 		return nil
 	}, func() {})
 }
+
+// DisableRemoteRouter checks for in-flight payments and if none are found,
+// deletes the remote router marker from the database.
+func (store *networkResultStore) DisableRemoteRouter() error {
+	return store.backend.Update(func(tx kvdb.RwTx) error {
+		// First, check if there are any pending payments.
+		pendingBucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if pendingBucket != nil {
+			cursor := pendingBucket.ReadCursor()
+			k, _ := cursor.First()
+			if k != nil {
+				return fmt.Errorf("cannot disable remote router: " +
+					"in-flight payments exist")
+			}
+		}
+
+		// If there are no pending payments, we can delete the marker.
+		err := tx.DeleteTopLevelBucket(remoteRouterMarkerBucket)
+		if err != nil && !errors.Is(err, kvdb.ErrBucketNotFound) {
+			return err
+		}
+
+		return nil
+	}, func() {})
+}

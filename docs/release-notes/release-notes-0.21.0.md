@@ -150,6 +150,17 @@
   confirmations, scaled linearly with channel capacity up to the maximum
   non-wumbo channel size (~0.168 BTC), with wumbo channels always requiring
   6 confirmations.
+  
+* Introduced a new `AttemptStore` interface within `htlcswitch`, and expanded
+  its `kvdb` implementation, `networkResultStore`. A [new `InitAttempt` method](https://github.com/lightningnetwork/lnd/pull/10049),
+  which serves as a "durable write of intent" or "write-ahead log" to checkpoint
+  an attempt in a new `PENDING` state prior to dispatch, now provides the
+  foundational durable storage required for external tracking of the HTLC
+  attempt lifecycle. This is a preparatory step that enables a future
+  idempotent `switchrpc.SendOnion` RPC, which will offer "at most once"
+  processing of htlc dispatch requests for remote clients. Care was taken to
+  avoid modifications to the existing flows for dispatching local payments,
+  preserving the existing battle-tested logic.
 
 * [Added support for production (final) simple taproot
   channels](https://github.com/lightningnetwork/lnd/pull/9985) using the

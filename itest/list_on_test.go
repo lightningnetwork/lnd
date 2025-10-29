@@ -444,6 +444,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorRestart,
 	},
 	{
+		Name:     "delete forwarding history",
+		TestFunc: testDeleteForwardingHistory,
+	},
+	{
 		Name:     "invoice HTLC modifier basic",
 		TestFunc: testInvoiceHtlcModifierBasic,
 	},

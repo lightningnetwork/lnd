@@ -1523,6 +1523,20 @@ func (g *GossipSyncer) ApplyGossipFilter(ctx context.Context,
 		// Continue with the rest of the messages using the same pull
 		// iterator.
 		for {
+			select {
+			case <-ctx.Done():
+				log.Debugf("GossipSyncer(%x): context "+
+					"canceled, exiting", g.cfg.peerPub[:])
+
+				return
+			case <-g.cg.Done():
+				log.Debugf("GossipSyncer(%x): shutting down, "+
+					"exiting", g.cfg.peerPub[:])
+
+				return
+			default:
+			}
+
 			msg, err, ok := next()
 			if !ok {
 				return

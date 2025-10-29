@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -79,6 +80,10 @@ var (
 	// requirements of the mempool backend are not met.
 	ErrMempoolFee = errors.New("transaction rejected by the mempool " +
 		"because of low fees")
+
+	// ErrSubmitPackageUnsupported signals the backend cannot do package
+	// relay yet.
+	ErrSubmitPackageUnsupported = errors.New("submitpackage not supported")
 )
 
 // ErrNoOutputs is returned if we try to create a transaction with no outputs
@@ -218,6 +223,50 @@ type TransactionSubscription interface {
 	Cancel()
 }
 
+// PackageBroadcaster defines an interface for submitting a transaction package
+// consisting of potentially multiple parent transactions and exactly one child
+// transaction to the mempool atomically. This is typically used for
+// Child-Pays-For-Parent (CPFP) fee bumping scenarios.
+type PackageBroadcaster interface {
+	// SubmitPackage attempts to broadcast a package containing one or more
+	// parent transactions and exactly one child transaction to the mempool
+	// atomically using the backend node's package submission capabilities
+	// (e.g., Bitcoin Core's `submitpackage` RPC).
+	//
+	// The package must adhere to the backend's requirements, typically
+	// meaning the transactions are topologically sorted (parents first,
+	// child last) and form a valid "child-with-unconfirmed-parents" set.
+	//
+	// Parameters:
+	//	- parents: A slice containing one or more parent transactions.
+	//	  These are typically the transactions being fee-bumped.
+	//	- child: The single child transaction that spends outputs from
+	//	  one or more of the transactions in `parents`. This transaction
+	//	  should provide sufficient fees for the entire package to meet
+	//	  mempool requirements.
+	//	- maxFeeRate: An optional fee rate cap for the package,
+	//	  expressed in sat/kwu. If non-zero, the backend node may reject
+	//	  the package if its effective fee rate exceeds this value.
+	//	  A value of 0 typically indicates no specific limit should be
+	//	  enforced by the caller (allowing the backend node's default
+	//	  behavior).
+	//
+	// Returns:
+	//	- []*chainhash.Hash: A slice containing the transaction IDs
+	//	  (txids) of all transactions from the submitted package
+	//	  (parents and child) that were successfully accepted into the
+	//	  backend node's mempool or were already present.
+	//	- error: nil if the submission process was initiated
+	//	  successfully (even if some transactions were rejected or
+	//	  already present). Returns ErrSubmitPackageUnsupported if the
+	//	  backend node does not support package submission, or another
+	//	  error for issues like serialization, RPC communication, or
+	//	  fundamental package validation failures reported by the node.
+	SubmitPackage(parents []*wire.MsgTx, child *wire.MsgTx,
+		maxFeeRate chainfee.SatPerKWeight) (
+		*btcjson.SubmitPackageResult, error)
+}
+
 // WalletController defines an abstract interface for controlling a local Pure
 // Go wallet, a local or remote wallet via an RPC mechanism, or possibly even
 // a daemon assisted hardware wallet. This interface serves the purpose of
@@ -229,6 +278,8 @@ type TransactionSubscription interface {
 // behavior of all interface methods in order to ensure identical behavior
 // across all concrete implementations.
 type WalletController interface {
+	PackageBroadcaster
+
 	// FetchOutpointInfo queries for the WalletController's knowledge of
 	// the passed outpoint. If the base wallet determines this output is
 	// under its control, then the original txout should be returned.

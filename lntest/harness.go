@@ -1433,6 +1433,13 @@ func (h *HarnessTest) IsNeutrinoBackend() bool {
 	return h.manager.chainBackend.Name() == NeutrinoBackendName
 }
 
+// IsBitcoindBackend returns a bool indicating whether the node is using a
+// bitcoind as its backend. This is useful when we want to only run certain
+// tests with a bitcoind backend.
+func (h *HarnessTest) IsBitcoindBackend() bool {
+	return h.manager.chainBackend.Name() == BitcoindBackendName
+}
+
 // fundCoins attempts to send amt satoshis from the internal mining node to the
 // targeted lightning node. The confirmed boolean indicates whether the
 // transaction that pays to the target should confirm. For neutrino backend,
@@ -2297,6 +2304,24 @@ func (h *HarnessTest) SendCoins(a, b *node.HarnessNode,
 		TargetConf: 6,
 	}
 	a.RPC.SendCoins(sendReq)
+	tx := h.GetNumTxsFromMempool(1)[0]
+
+	return tx
+}
+
+// SendCoinsToAddr sends the given amount from the passed node to the given
+// address amount, returns the sending tx.
+func (h *HarnessTest) SendCoinsToAddr(node *node.HarnessNode,
+	addr btcutil.Address, amt btcutil.Amount) *wire.MsgTx {
+
+	// Send the coins to the given address. We should expect a tx to be
+	// broadcast and seen in the mempool.
+	sendReq := &lnrpc.SendCoinsRequest{
+		Addr:       addr.String(),
+		Amount:     int64(amt),
+		TargetConf: 6,
+	}
+	node.RPC.SendCoins(sendReq)
 	tx := h.GetNumTxsFromMempool(1)[0]
 
 	return tx

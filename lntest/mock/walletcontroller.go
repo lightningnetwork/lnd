@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -291,6 +292,12 @@ func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 
 func (w *WalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return nil
+}
+
+func (w *WalletController) SubmitPackage([]*wire.MsgTx, *wire.MsgTx,
+	chainfee.SatPerKWeight) (*btcjson.SubmitPackageResult, error) {
+
+	return nil, nil
 }
 
 // FetchDerivationInfo queries for the wallet's knowledge of the passed

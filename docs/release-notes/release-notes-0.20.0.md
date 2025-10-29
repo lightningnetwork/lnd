@@ -293,8 +293,12 @@ reader of a payment request.
   [removed](https://github.com/lightningnetwork/lnd/pull/9967) meaning that any 
   test network scripts that rely on bootstrapping being disabled will need to 
   explicitly define the `--nobootstrap` flag. Bootstrapping will now also be
-  [deterministic](https://github.com/lightningnetwork/lnd/pull/10003) on local 
+  [deterministic](https://github.com/lightningnetwork/lnd/pull/10003) on local
   test networks so that bootstrapping behaviour can be tested for.
+
+* [Increased wallet sync timeout](https://github.com/lightningnetwork/lnd/pull/10323)
+  in integration tests from 30 seconds to 90 seconds to reduce test flakiness
+  in CI environments, particularly for the neutrino backend wallet sync tests.
 
 ## Database
 

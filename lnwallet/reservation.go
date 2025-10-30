@@ -615,15 +615,9 @@ func (r *ChannelReservation) validateReserveBounds() bool {
 
 	// We take the smaller of the two ChannelReserves and compare it
 	// against the larger of the two DustLimits.
-	minChanReserve := ourRequiredReserve
-	if minChanReserve > theirRequiredReserve {
-		minChanReserve = theirRequiredReserve
-	}
+	minChanReserve := min(ourRequiredReserve, theirRequiredReserve)
 
-	maxDustLimit := ourDustLimit
-	if maxDustLimit < theirDustLimit {
-		maxDustLimit = theirDustLimit
-	}
+	maxDustLimit := max(ourDustLimit, theirDustLimit)
 
 	return minChanReserve >= maxDustLimit
 }

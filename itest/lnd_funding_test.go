@@ -198,10 +198,12 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 		privateChan = true
 	}
 
-	// If carol wants taproot, but dave wants something else, then we'll
-	// assert that the channel negotiation attempt fails.
+	// If carol wants taproot, but dave wants something else (excluding
+	// SIMPLE_TAPROOT_FINAL which is allowed via cross-type negotiation),
+	// then we'll assert that the channel negotiation attempt fails.
 	if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
-		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT &&
+		daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 
 		expectedErr := fmt.Errorf("requested channel type " +
 			"not supported")

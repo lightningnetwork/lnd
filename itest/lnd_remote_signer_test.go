@@ -48,6 +48,10 @@ var remoteSignerTestCases = []*lntest.TestCase{
 		TestFunc: testRemoteSignerAsyncPaymentsTaproot,
 	},
 	{
+		Name:     "funding async payments taproot final",
+		TestFunc: testRemoteSignerAsyncPaymentsTaprootFinal,
+	},
+	{
 		Name:     "shared key",
 		TestFunc: testRemoteSignerSharedKey,
 	},
@@ -154,7 +158,8 @@ func prepareRemoteSignerTest(ht *lntest.HarnessTest, tc remoteSignerTestCase) (
 	}
 
 	var commitArgs []string
-	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		tc.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		commitArgs = lntest.NodeArgsForCommitType(
 			tc.commitType,
 		)
@@ -301,6 +306,24 @@ func testRemoteSignerAsyncPaymentsTaproot(ht *lntest.HarnessTest) {
 			)
 		},
 		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	}
+
+	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)
+	tc.fn(ht, watchOnly, carol)
+}
+
+func testRemoteSignerAsyncPaymentsTaprootFinal(ht *lntest.HarnessTest) {
+	tc := remoteSignerTestCase{
+		name:      "async payments taproot final",
+		sendCoins: true,
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
+			commitType := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+			runAsyncPayments(
+				tt, wo, carol, &commitType,
+			)
+		},
+		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 	}
 
 	_, watchOnly, carol := prepareRemoteSignerTest(ht, tc)

@@ -1724,7 +1724,9 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	require.NoError(h, err)
 
 	switch p.CommitmentType {
-	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL:
+
 		require.IsType(h, &btcutil.AddressTaproot{}, fundingAddr)
 
 	default:
@@ -2580,6 +2582,7 @@ func (h *HarnessTest) DeriveFundingShim(alice, bob *node.HarnessNode,
 	)
 
 	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL ||
 		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY {
 
 		var carolKey, daveKey *btcec.PublicKey

@@ -145,7 +145,8 @@ func runPsbtChanFundingWithNodes(ht *lntest.HarnessTest, carol,
 
 	// If this is a taproot channel, then we'll decode the PSBT to assert
 	// that an internal key is included.
-	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		decodedPSBT, err := psbt.NewFromRawBytes(
 			bytes.NewReader(tempPsbt), false,
 		)

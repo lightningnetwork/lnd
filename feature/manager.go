@@ -199,6 +199,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoTaprootChans {
 			raw.Unset(lnwire.SimpleTaprootChannelsOptionalStaging)
 			raw.Unset(lnwire.SimpleTaprootChannelsRequiredStaging)
+			raw.Unset(lnwire.SimpleTaprootChannelsOptionalFinal)
+			raw.Unset(lnwire.SimpleTaprootChannelsRequiredFinal)
 		}
 		if cfg.NoRouteBlinding {
 			raw.Unset(lnwire.RouteBlindingOptional)

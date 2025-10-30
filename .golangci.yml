@@ -160,6 +160,7 @@ linters:
         - github.com/gogo/protobuf
         - google.golang.org/protobuf
         - github.com/lightningnetwork/lnd/sqldb
+        - github.com/lightningnetwork/lightning-onion 
       replace-local: true
 
     gosec:

@@ -693,6 +693,12 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 //   - Pending (confNtfn != nil): Spend detected, waiting for N confirmations
 //
 //   - Confirmed: Spend confirmed with N blocks, close has been processed
+//
+// For single-confirmation scenarios (numConfs == 1), we bypass the async state
+// machine and immediately dispatch close events upon spend detection. This
+// provides synchronous behavior for integration tests which expect immediate
+// notifications. For multi-confirmation scenarios (production with numConfs
+// >= 3), we use the full async state machine with reorg protection.
 func (c *chainWatcher) closeObserver() {
 	defer c.wg.Done()
 
@@ -712,7 +718,7 @@ func (c *chainWatcher) closeObserver() {
 	}
 
 	spendNtfn := c.fundingSpendNtfn
-	defer spendNtfn.Cancel()
+	defer func() { spendNtfn.Cancel() }()
 
 	// We use these variables to implement a state machine to track the
 	// state of the spend confirmation process:
@@ -744,6 +750,7 @@ func (c *chainWatcher) closeObserver() {
 					"duplicate spend detection for tx %v",
 					c.cfg.chanState.FundingOutpoint,
 					spend.SpenderTxHash)
+
 				return confNtfn, nil
 			}
 
@@ -803,7 +810,22 @@ func (c *chainWatcher) closeObserver() {
 				continue
 			}
 
+			// FAST PATH: Check if we should dispatch immediately
+			// for single-confirmation scenarios.
+			if c.handleSpendDispatch(spend, "blockbeat") {
+				if confNtfn != nil {
+					confNtfn.Cancel()
+					confNtfn = nil
+				}
+				pendingSpend = nil
+				continue
+			}
+
+			// ASYNC PATH: Multiple confirmations (production).
 			// STATE TRANSITION: None -> Pending (from blockbeat).
+			// We've detected a spend, but don't process it yet.
+			// Instead, register for confirmations to protect
+			// against shallow reorgs.
 			log.Infof("ChannelPoint(%v): detected spend from "+
 				"blockbeat, transitioning to %v",
 				c.cfg.chanState.FundingOutpoint,
@@ -813,7 +835,7 @@ func (c *chainWatcher) closeObserver() {
 			if err != nil {
 				log.Errorf("Unable to handle spend "+
 					"detection: %v", err)
-				return
+				continue
 			}
 			pendingSpend = spend
 			confNtfn = newConfNtfn
@@ -826,6 +848,18 @@ func (c *chainWatcher) closeObserver() {
 				return
 			}
 
+			// FAST PATH: Check if we should dispatch immediately
+			// for single-confirmation scenarios.
+			if c.handleSpendDispatch(spend, "spend notification") {
+				if confNtfn != nil {
+					confNtfn.Cancel()
+					confNtfn = nil
+				}
+				pendingSpend = nil
+				continue
+			}
+
+			// ASYNC PATH: Multiple confirmations (production).
 			log.Infof("ChannelPoint(%v): detected spend from "+
 				"notification, transitioning to %v",
 				c.cfg.chanState.FundingOutpoint,
@@ -835,7 +869,7 @@ func (c *chainWatcher) closeObserver() {
 			if err != nil {
 				log.Errorf("Unable to handle spend "+
 					"detection: %v", err)
-				return
+				continue
 			}
 			pendingSpend = spend
 			confNtfn = newConfNtfn
@@ -893,6 +927,8 @@ func (c *chainWatcher) closeObserver() {
 					"spend: %v", err)
 				return
 			}
+
+			c.fundingSpendNtfn = spendNtfn
 
 			log.Infof("ChannelPoint(%v): re-registered for spend "+
 				"detection", c.cfg.chanState.FundingOutpoint)
@@ -1582,6 +1618,30 @@ func deriveFundingPkScript(chanState *channeldb.OpenChannel) ([]byte, error) {
 	}
 
 	return fundingPkScript, nil
+}
+
+// handleSpendDispatch processes a detected spend. For single-confirmation
+// scenarios (numConfs == 1), it immediately dispatches the close event and
+// returns true. For multi-confirmation scenarios, it returns false, indicating
+// the caller should proceed with the async state machine.
+func (c *chainWatcher) handleSpendDispatch(spend *chainntnfs.SpendDetail,
+	source string) bool {
+
+	numConfs := c.requiredConfsForSpend()
+	if numConfs == 1 {
+		log.Infof("ChannelPoint(%v): single confirmation mode, "+
+			"dispatching immediately from %s",
+			c.cfg.chanState.FundingOutpoint, source)
+
+		err := c.handleCommitSpend(spend)
+		if err != nil {
+			log.Errorf("Failed to handle commit spend: %v", err)
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // handleCommitSpend takes a spending tx of the funding output and handles the

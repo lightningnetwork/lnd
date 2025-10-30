@@ -27,12 +27,20 @@ var channelForceCloseTestCases = []*lntest.TestCase{
 		TestFunc: testChannelForceClosureSimpleTaproot,
 	},
 	{
+		Name:     "simple taproot final",
+		TestFunc: testChannelForceClosureSimpleTaprootFinal,
+	},
+	{
 		Name:     "anchor restart",
 		TestFunc: testChannelForceClosureAnchorRestart,
 	},
 	{
 		Name:     "simple taproot restart",
 		TestFunc: testChannelForceClosureSimpleTaprootRestart,
+	},
+	{
+		Name:     "simple taproot final restart",
+		TestFunc: testChannelForceClosureSimpleTaprootFinalRestart,
 	},
 
 	{
@@ -77,6 +85,31 @@ func testChannelForceClosureSimpleTaproot(ht *lntest.HarnessTest) {
 		//
 		// TODO(roasbeef): lift after G175
 		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfgCarol}
+
+	runChannelForceClosureTest(ht, cfgs, openChannelParams)
+}
+
+// testChannelForceClosureSimpleTaprootFinal runs `runChannelForceClosureTest`
+// with production simple taproot channels.
+func testChannelForceClosureSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	// Create a simple network: Alice -> Carol, using production simple
+	// taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+		// If the channel is a taproot channel, then we'll need to
+		// create a private channel.
+		//
+		// TODO(roasbeef): lift after G175
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 		Private:        true,
 	}
 
@@ -665,6 +698,31 @@ func testChannelForceClosureSimpleTaprootRestart(ht *lntest.HarnessTest) {
 		//
 		// TODO(roasbeef): lift after G175
 		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfgCarol}
+
+	runChannelForceClosureTestRestart(ht, cfgs, openChannelParams)
+}
+
+// testChannelForceClosureSimpleTaprootFinalRestart runs
+// `runChannelForceClosureTestRestart` with production simple taproot channels.
+func testChannelForceClosureSimpleTaprootFinalRestart(ht *lntest.HarnessTest) {
+	// Create a simple network: Alice -> Carol, using production simple
+	// taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     chanAmt,
+		PushAmt: pushAmt,
+		// If the channel is a taproot channel, then we'll need to
+		// create a private channel.
+		//
+		// TODO(roasbeef): lift after G175
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL,
 		Private:        true,
 	}
 

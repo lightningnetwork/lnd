@@ -218,6 +218,35 @@ const (
 	// A witness that allows us to sweep the settled output of a malicious
 	// counterparty's who broadcasts a revoked taproot commitment transaction.
 	WitnessType_TAPROOT_COMMITMENT_REVOKE WitnessType = 35
+	// A witness type that allows us to spend our settled local commitment after a
+	// CSV delay when we force close a production taproot channel.
+	WitnessType_TAPROOT_LOCAL_COMMIT_SPEND_FINAL WitnessType = 36
+	// A witness type that allows us to spend our settled local commitment after
+	// a CSV delay when the remote party has force closed a production taproot
+	// channel.
+	WitnessType_TAPROOT_REMOTE_COMMIT_SPEND_FINAL WitnessType = 37
+	// A witness that allows us to timeout an HTLC we offered to the remote party
+	// on our production taproot commitment transaction. We use this when we need
+	// to go on chain to time out an HTLC.
+	WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL WitnessType = 38
+	// A witness type that allows us to sweep an HTLC we accepted on our
+	// production taproot commitment transaction after we go to the second level
+	// on chain.
+	WitnessType_TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL WitnessType = 39
+	// A witness that allows us to sweep an HTLC we offered to the remote party
+	// that lies on the production taproot commitment transaction for the remote
+	// party. We can spend this output after the absolute CLTV timeout of the
+	// HTLC as passed.
+	WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL WitnessType = 40
+	// A witness that allows us to sweep an HTLC that was offered to us by the
+	// remote party for a production taproot channel. We use this witness in the
+	// case that the remote party goes to chain, and we know the pre-image to the
+	// HTLC. We can sweep this without any additional timeout.
+	WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL WitnessType = 41
+	// A witness type that allows us to sweep the settled output of a malicious
+	// counterparty's who broadcasts a revoked production taproot commitment
+	// transaction.
+	WitnessType_TAPROOT_COMMITMENT_REVOKE_FINAL WitnessType = 42
 )
 
 // Enum value maps for WitnessType.
@@ -259,6 +288,13 @@ var (
 		33: "TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS",
 		34: "TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS",
 		35: "TAPROOT_COMMITMENT_REVOKE",
+		36: "TAPROOT_LOCAL_COMMIT_SPEND_FINAL",
+		37: "TAPROOT_REMOTE_COMMIT_SPEND_FINAL",
+		38: "TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL",
+		39: "TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL",
+		40: "TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL",
+		41: "TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL",
+		42: "TAPROOT_COMMITMENT_REVOKE_FINAL",
 	}
 	WitnessType_value = map[string]int32{
 		"UNKNOWN_WITNESS":                                    0,
@@ -297,6 +333,13 @@ var (
 		"TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS":               33,
 		"TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS":                34,
 		"TAPROOT_COMMITMENT_REVOKE":                          35,
+		"TAPROOT_LOCAL_COMMIT_SPEND_FINAL":                   36,
+		"TAPROOT_REMOTE_COMMIT_SPEND_FINAL":                  37,
+		"TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL":    38,
+		"TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL":   39,
+		"TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL":          40,
+		"TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL":         41,
+		"TAPROOT_COMMITMENT_REVOKE_FINAL":                    42,
 	}
 )
 
@@ -4755,7 +4798,7 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\x13WITNESS_PUBKEY_HASH\x10\x01\x12\x1e\n" +
 	"\x1aNESTED_WITNESS_PUBKEY_HASH\x10\x02\x12%\n" +
 	"!HYBRID_NESTED_WITNESS_PUBKEY_HASH\x10\x03\x12\x12\n" +
-	"\x0eTAPROOT_PUBKEY\x10\x04*\xfb\t\n" +
+	"\x0eTAPROOT_PUBKEY\x10\x04*\xb7\f\n" +
 	"\vWitnessType\x12\x13\n" +
 	"\x0fUNKNOWN_WITNESS\x10\x00\x12\x18\n" +
 	"\x14COMMITMENT_TIME_LOCK\x10\x01\x12\x17\n" +
@@ -4793,7 +4836,14 @@ const file_walletrpc_walletkit_proto_rawDesc = "" +
 	"\"TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT\x10 \x12(\n" +
 	"$TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS\x10!\x12'\n" +
 	"#TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS\x10\"\x12\x1d\n" +
-	"\x19TAPROOT_COMMITMENT_REVOKE\x10#*V\n" +
+	"\x19TAPROOT_COMMITMENT_REVOKE\x10#\x12$\n" +
+	" TAPROOT_LOCAL_COMMIT_SPEND_FINAL\x10$\x12%\n" +
+	"!TAPROOT_REMOTE_COMMIT_SPEND_FINAL\x10%\x123\n" +
+	"/TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL\x10&\x124\n" +
+	"0TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL\x10'\x12-\n" +
+	")TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL\x10(\x12.\n" +
+	"*TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL\x10)\x12#\n" +
+	"\x1fTAPROOT_COMMITMENT_REVOKE_FINAL\x10**V\n" +
 	"\x11ChangeAddressType\x12#\n" +
 	"\x1fCHANGE_ADDRESS_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18CHANGE_ADDRESS_TYPE_P2TR\x10\x012\xd6\x11\n" +

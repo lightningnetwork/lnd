@@ -94,10 +94,9 @@ func TestChainWatcherRemoteUnilateralClose(t *testing.T) {
 		t.Fatalf("unable to send blockbeat")
 	}
 
-	// Wait for the chain watcher to register for confirmations and send
-	// the confirmation. Since we set chanCloseConfs to 1, one confirmation
-	// is sufficient.
-	aliceNotifier.WaitForConfRegistrationAndSend(t)
+	// With chanCloseConfs set to 1, the fast-path dispatches immediately
+	// without confirmation registration. The close event should arrive
+	// directly after processing the blockbeat.
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.
@@ -231,10 +230,9 @@ func TestChainWatcherRemoteUnilateralClosePendingCommit(t *testing.T) {
 		t.Fatalf("unable to send blockbeat")
 	}
 
-	// Wait for the chain watcher to register for confirmations and send
-	// the confirmation. Since we set chanCloseConfs to 1, one confirmation
-	// is sufficient.
-	aliceNotifier.WaitForConfRegistrationAndSend(t)
+	// With chanCloseConfs set to 1, the fast-path dispatches immediately
+	// without confirmation registration. The close event should arrive
+	// directly after processing the blockbeat.
 
 	// We should get a new spend event over the remote unilateral close
 	// event channel.

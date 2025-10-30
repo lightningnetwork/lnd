@@ -24,6 +24,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/types"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -36,6 +37,14 @@ const (
 	// polling the database for a channel's commitpoint.
 	maxCommitPointPollTimeout = 10 * time.Minute
 )
+
+// AuxChanCloser is used to allow an external caller to finalize a cooperative
+// channel close.
+type AuxChanCloser interface {
+	// FinalizeClose is called after the close transaction has been agreed
+	// upon and confirmed.
+	FinalizeClose(desc types.AuxCloseDesc, closeTx *wire.MsgTx) error
+}
 
 // LocalUnilateralCloseInfo encapsulates all the information we need to act on
 // a local force close that gets confirmed.
@@ -229,6 +238,9 @@ type chainWatcherConfig struct {
 
 	// auxResolver is used to supplement contract resolution.
 	auxResolver fn.Option[lnwallet.AuxContractResolver]
+
+	// auxCloser is used to finalize cooperative closes.
+	auxCloser fn.Option[AuxChanCloser]
 }
 
 // chainWatcher is a system that's assigned to every active channel. The duty
@@ -986,6 +998,74 @@ func (c *chainWatcher) toSelfAmount(tx *wire.MsgTx) btcutil.Amount {
 	return btcutil.Amount(fn.Sum(vals))
 }
 
+// finalizeCoopClose calls the aux closer to finalize a cooperative close
+// transaction that has been confirmed on-chain.
+func (c *chainWatcher) finalizeCoopClose(aux AuxChanCloser,
+	closeTx *wire.MsgTx) error {
+
+	chanState := c.cfg.chanState
+
+	// Get the shutdown info to extract the local delivery script.
+	shutdown, err := chanState.ShutdownInfo()
+	if err != nil {
+		return fmt.Errorf("get shutdown info: %w", err)
+	}
+
+	// Build the AuxShutdownReq.
+	req := types.AuxShutdownReq{
+		ChanPoint:   chanState.FundingOutpoint,
+		ShortChanID: chanState.ShortChanID(),
+		Initiator:   chanState.IsInitiator,
+		CommitBlob:  chanState.LocalCommitment.CustomBlob,
+		FundingBlob: chanState.CustomBlob,
+	}
+
+	// Shutdown info must be present in order to continue.
+	if shutdown.IsNone() {
+		return fmt.Errorf("failed to finalize coop close, shutdown " +
+			"info missing")
+	}
+
+	// Extract close outputs from the transaction. We need to identify
+	// which outputs belong to local vs remote parties.
+	var localCloseOutput, remoteCloseOutput fn.Option[types.CloseOutput]
+
+	// Get the delivery scripts for the local party.
+	var localDeliveryScript lnwire.DeliveryAddress
+	shutdown.WhenSome(func(s channeldb.ShutdownInfo) {
+		localDeliveryScript = s.DeliveryScript.Val
+	})
+
+	// Scan through the close transaction outputs to identify local and
+	// remote outputs.
+	for _, out := range closeTx.TxOut {
+		if len(localDeliveryScript) > 0 &&
+			slices.Equal(out.PkScript, localDeliveryScript) {
+
+			localCloseOutput = fn.Some(types.CloseOutput{
+				Amt:       btcutil.Amount(out.Value),
+				PkScript:  out.PkScript,
+				DustLimit: chanState.LocalChanCfg.DustLimit,
+			})
+		} else {
+			// This must be the remote output.
+			remoteCloseOutput = fn.Some(types.CloseOutput{
+				Amt:       btcutil.Amount(out.Value),
+				PkScript:  out.PkScript,
+				DustLimit: chanState.RemoteChanCfg.DustLimit,
+			})
+		}
+	}
+
+	desc := types.AuxCloseDesc{
+		AuxShutdownReq:    req,
+		LocalCloseOutput:  localCloseOutput,
+		RemoteCloseOutput: remoteCloseOutput,
+	}
+
+	return aux.FinalizeClose(desc, closeTx)
+}
+
 // dispatchCooperativeClose processed a detect cooperative channel closure.
 // We'll use the spending transaction to locate our output within the
 // transaction, then clean up the database state. We'll also dispatch a
@@ -1034,6 +1114,17 @@ func (c *chainWatcher) dispatchCooperativeClose(commitSpend *chainntnfs.SpendDet
 	// cooperative closure.
 	closeInfo := &CooperativeCloseInfo{
 		ChannelCloseSummary: closeSummary,
+	}
+
+	// If we have an aux closer, finalize the cooperative close now that
+	// it's confirmed.
+	err = fn.MapOptionZ(
+		c.cfg.auxCloser, func(aux AuxChanCloser) error {
+			return c.finalizeCoopClose(aux, broadcastTx)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("finalize coop close: %w", err)
 	}
 
 	// With the event processed, we'll now notify all subscribers of the

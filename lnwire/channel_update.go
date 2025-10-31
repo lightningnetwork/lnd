@@ -169,7 +169,7 @@ func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 	var inboundFee = a.InboundFee.Zero()
 	typeMap, err := tlvRecords.ExtractRecords(&inboundFee)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrParsingExtraTLVBytes, err)
 	}
 
 	val, ok := typeMap[a.InboundFee.TlvType()]

@@ -45,7 +45,7 @@ type Actor[M Message, R any] struct {
 	behavior ActorBehavior[M, R]
 
 	// mailbox is the incoming message queue for the actor.
-	mailbox chan envelope[M, R]
+	mailbox Mailbox[M, R]
 
 	// ctx is the context governing the actor's lifecycle.
 	ctx context.Context
@@ -83,10 +83,13 @@ func NewActor[M Message, R any](cfg ActorConfig[M, R]) *Actor[M, R] {
 		mailboxCapacity = 1
 	}
 
+	// Create mailbox - could be injected via config in the future.
+	mailbox := NewChannelMailbox[M, R](ctx, mailboxCapacity)
+
 	actor := &Actor[M, R]{
 		id:       cfg.ID,
 		behavior: cfg.Behavior,
-		mailbox:  make(chan envelope[M, R], mailboxCapacity),
+		mailbox:  mailbox,
 		ctx:      ctx,
 		cancel:   cancel,
 		dlo:      cfg.DLO,
@@ -111,49 +114,32 @@ func (a *Actor[M, R]) Start() {
 // process is the main event loop for the actor. It continuously monitors its
 // mailbox for incoming messages and its context for cancellation signals.
 func (a *Actor[M, R]) process() {
-	for {
-		select {
-		case env := <-a.mailbox:
-			result := a.behavior.Receive(a.ctx, env.message)
+	// Use the new iterator pattern for receiving messages.
+	for env := range a.mailbox.Receive(a.ctx) {
+		result := a.behavior.Receive(a.ctx, env.message)
 
-			// If a promise was provided (i.e., it was an "ask"
-			// operation), complete the promise with the result from
-			// the behavior.
-			if env.promise != nil {
-				env.promise.Complete(result)
-			}
+		// If a promise was provided (i.e., it was an "ask"
+		// operation), complete the promise with the result from
+		// the behavior.
+		if env.promise != nil {
+			env.promise.Complete(result)
+		}
+	}
 
-		// The actor's context has been cancelled, signaling a stop
-		// request. Exit the processing loop to terminate the actor's
-		// goroutine. Before exiting, drain any remaining messages from
-		// the mailbox.
-		case <-a.ctx.Done():
-			// Close the mailbox to prevent new incoming messages
-			// and to allow the range operator below to terminate.
-			close(a.mailbox)
+	// Context was cancelled or mailbox closed, drain remaining messages.
+	a.mailbox.Close()
 
-			// Drain any remaining messages.
-			for env := range a.mailbox {
-				// If a DLO is configured, send the original
-				// message there for auditing or potential
-				// manual reprocessing.
-				if a.dlo != nil {
-					a.dlo.Tell(
-						context.Background(),
-						env.message,
-					)
-				}
+	for env := range a.mailbox.Drain() {
+		// If a DLO is configured, send the original message there
+		// for auditing or potential manual reprocessing.
+		if a.dlo != nil {
+			a.dlo.Tell(context.Background(), env.message)
+		}
 
-				// If it was an Ask, complete the promise with
-				// an error indicating the actor terminated.
-				if env.promise != nil {
-					env.promise.Complete(fn.Err[R](
-						ErrActorTerminated),
-					)
-				}
-			}
-
-			return
+		// If it was an Ask, complete the promise with an error
+		// indicating the actor terminated.
+		if env.promise != nil {
+			env.promise.Complete(fn.Err[R](ErrActorTerminated))
 		}
 	}
 }
@@ -186,19 +172,15 @@ func (ref *actorRefImpl[M, R]) Tell(ctx context.Context, msg M) {
 		return
 	}
 
-	select {
-	// Message successfully enqueued in the actor's mailbox.
-	case ref.actor.mailbox <- envelope[M, R]{message: msg, promise: nil}:
+	env := envelope[M, R]{message: msg, promise: nil}
 
-	// The context for the Tell operation was cancelled before the message
-	// could be enqueued. The message is dropped.
-	case <-ctx.Done():
-
-	// The actor itself has been stopped/terminated.
-	case <-ref.actor.ctx.Done():
-		// If the actor is terminated and has a DLO, send the message
-		// there. Otherwise, it's dropped.
-		ref.trySendToDLO(msg)
+	// Use mailbox Send method which internally checks both contexts.
+	if !ref.actor.mailbox.Send(ctx, env) {
+		// Failed to send - check if actor terminated.
+		if ref.actor.ctx.Err() != nil {
+			ref.trySendToDLO(msg)
+		}
+		// Otherwise it was the caller's context that cancelled.
 	}
 }
 
@@ -219,21 +201,16 @@ func (ref *actorRefImpl[M, R]) Ask(ctx context.Context, msg M) Future[R] {
 		return promise.Future()
 	}
 
-	select {
-	// Attempt to send the message along with its promise to the actor's
-	// mailbox.
-	case ref.actor.mailbox <- envelope[M, R]{message: msg, promise: promise}:
+	env := envelope[M, R]{message: msg, promise: promise}
 
-	// The context for the Ask operation was cancelled before the message
-	// could be enqueued. Complete the promise with the context's error to
-	// unblock the caller.
-	case <-ctx.Done():
-		promise.Complete(fn.Err[R](ctx.Err()))
-
-	// The actor's context was cancelled (e.g., actor stopped) while this
-	// Ask operation was attempting to send (e.g., mailbox was full).
-	case <-ref.actor.ctx.Done():
-		promise.Complete(fn.Err[R](ErrActorTerminated))
+	// Use mailbox Send method which internally checks both contexts.
+	if !ref.actor.mailbox.Send(ctx, env) {
+		// Determine the error based on what failed.
+		if ref.actor.ctx.Err() != nil {
+			promise.Complete(fn.Err[R](ErrActorTerminated))
+		} else {
+			promise.Complete(fn.Err[R](ctx.Err()))
+		}
 	}
 
 	// Return the future associated with the promise, allowing the caller to

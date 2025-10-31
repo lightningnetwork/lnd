@@ -2099,8 +2099,18 @@ func deserializeHTLCFailInfo(r io.Reader) (*HTLCFailInfo, error) {
 		f.Message, err = lnwire.DecodeFailureMessage(
 			bytes.NewReader(failureBytes), 0,
 		)
-		if err != nil {
+		if err != nil &&
+			!errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+
 			return nil, err
+		}
+
+		// In case we have an invalid TLV stream regarding the extra
+		// tlv data we still continue with the decoding of the
+		// HTLCFailInfo.
+		if errors.Is(err, lnwire.ErrParsingExtraTLVBytes) {
+			log.Warnf("Failed to decode extra TLV bytes for "+
+				"failure message: %v", err)
 		}
 	}
 

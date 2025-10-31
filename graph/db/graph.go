@@ -291,6 +291,25 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 	return nil
 }
 
+// SetSourceNode sets the source node in the graph database and also adds it
+// to the graph cache.
+func (c *ChannelGraph) SetSourceNode(ctx context.Context,
+	node *models.Node) error {
+
+	err := c.V1Store.SetSourceNode(ctx, node)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		c.graphCache.AddNodeFeatures(
+			node.PubKeyBytes, node.Features,
+		)
+	}
+
+	return nil
+}
+
 // DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
 func (c *ChannelGraph) DeleteNode(ctx context.Context,

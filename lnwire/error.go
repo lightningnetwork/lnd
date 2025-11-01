@@ -6,6 +6,13 @@ import (
 	"io"
 )
 
+var (
+	// ErrParsingExtraTLVBytes is returned when we attempt to parse
+	// extra opaque bytes as a TLV stream, but the parsing fails due to
+	// and invalid TLV stream.
+	ErrParsingExtraTLVBytes = fmt.Errorf("error parsing extra TLV bytes")
+)
+
 // FundingError represents a set of errors that can be encountered and sent
 // during the funding workflow.
 type FundingError uint8

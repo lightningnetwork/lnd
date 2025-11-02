@@ -499,6 +499,26 @@ func (b *Builder) IsZombieChannel(updateTime1,
 	return e1Zombie && e2Zombie
 }
 
+// IsZombieByAge checks if a channel is a zombie by its age. It uses the
+// timestamp of the block of the transaction that opened the channel. We use
+// this only for channels that have no edge policies, as we can't use the last
+// update timestamp to determine if the channel is a zombie.
+func (b *Builder) IsZombieByAge(scid uint64) (bool, error) {
+	blockHeight := lnwire.NewShortChanIDFromInt(scid).BlockHeight
+
+	blockhash, err := b.cfg.Chain.GetBlockHash(int64(blockHeight))
+	if err != nil {
+		return false, err
+	}
+
+	header, err := b.cfg.Chain.GetBlockHeader(blockhash)
+	if err != nil {
+		return false, err
+	}
+
+	return time.Since(header.Timestamp) >= b.cfg.ChannelPruneExpiry, nil
+}
+
 // pruneZombieChans is a method that will be called periodically to prune out
 // any "zombie" channels. We consider channels zombies if *both* edges haven't
 // been updated since our zombie horizon. If AssumeChannelValid is present,
@@ -533,6 +553,28 @@ func (b *Builder) pruneZombieChans() error {
 		// channels from the graph, as in any case this should be
 		// re-advertised by the sub-system above us.
 		if isSelfChannelEdge(info) {
+			return nil
+		}
+
+		// If both edges are nil, then we'll check if the channel is a
+		// zombie that has been opened for long and never received a
+		// policy update.
+		if e1 == nil && e2 == nil {
+			isZombie, err := b.IsZombieByAge(info.ChannelID)
+			if err != nil {
+				return fmt.Errorf("unable to check if "+
+					"channel is a zombie: %w", err)
+			}
+
+			if isZombie {
+				log.Trace("Channel with chan_id=%v is zombie",
+					info.ChannelID)
+
+				chansToPrune[info.ChannelID] = struct{}{}
+			}
+
+			// We've handled channels with no policies, so we can
+			// exit early to process the next channel.
 			return nil
 		}
 

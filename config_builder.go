@@ -36,6 +36,7 @@ import (
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
+	graphdbmig1 "github.com/lightningnetwork/lnd/graph/db/migration1"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1134,12 +1135,12 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			}
 
 			graphMig := func(tx *sqlc.Queries) error {
-				cfg := &graphdb.SQLStoreConfig{
+				cfg := &graphdbmig1.SQLStoreConfig{
 					//nolint:ll
 					ChainHash: *d.cfg.ActiveNetParams.GenesisHash,
 					QueryCfg:  queryCfg,
 				}
-				err := graphdb.MigrateGraphToSQL(
+				err := graphdbmig1.MigrateGraphToSQL(
 					ctx, cfg, dbs.ChanStateDB.Backend, tx,
 				)
 				if err != nil {

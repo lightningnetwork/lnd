@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// GetTx returns the underlying DBTX (either *sql.DB or *sql.Tx) used by the
-// Queries struct.
-func (q *Queries) GetTx() DBTX {
-	return q.db
-}
-
 // makeQueryParams generates a string of query parameters for a SQL query. It is
 // meant to replace the `?` placeholders in a SQL query with numbered parameters
 // like `$1`, `$2`, etc. This is required for the sqlc /*SLICE:<field_name>*/

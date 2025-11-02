@@ -3,10 +3,10 @@
 package migration1
 
 import (
-	"database/sql"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/graph/db/migration1/sqlc"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
@@ -69,11 +69,10 @@ func newBatchQuerier(t testing.TB) BatchedSQLQueries {
 func newBatchQuerierWithFixture(t testing.TB,
 	pgFixture *sqldb.TestPgFixture) BatchedSQLQueries {
 
-	db := sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+	rawDB := sqldb.NewTestPostgresDB(t, pgFixture).BaseDB.DB
 
-	return sqldb.NewTransactionExecutor(
-		db, func(tx *sql.Tx) SQLQueries {
-			return db.WithTx(tx)
-		},
-	)
+	return &testBatchedSQLQueries{
+		db:      rawDB,
+		Queries: sqlc.New(rawDB),
+	}
 }

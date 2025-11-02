@@ -1,11 +1,12 @@
 //go:build test_db_postgres || test_db_sqlite
 
-package graphdb
+package migration1
 
 import (
 	"bytes"
 	"cmp"
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image/color"
@@ -16,27 +17,46 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
-	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/graph/db/migration1/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/sqldb"
+	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
 var (
+	testPub = route.Vertex{2, 202, 4}
+
+	testRBytes, _ = hex.DecodeString(
+		"8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf03" +
+			"14f882d7",
+	)
+	testSBytes, _ = hex.DecodeString(
+		"299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a2" +
+			"92d24ae",
+	)
+	testRScalar = new(btcec.ModNScalar)
+	testSScalar = new(btcec.ModNScalar)
+	_           = testRScalar.SetByteSlice(testRBytes)
+	_           = testSScalar.SetByteSlice(testSBytes)
+	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
+
 	testChain         = *chaincfg.MainNetParams.GenesisHash
 	testColor         = color.RGBA{R: 1, G: 2, B: 3}
 	testTime          = time.Unix(11111, 0)
@@ -120,6 +140,58 @@ var (
 			'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
 			0x1F, 0x90,
 		},
+	}
+
+	testIP4 = net.ParseIP("192.168.1.1").To4()
+	testIP6 = net.ParseIP("2001:0db8:0000:0000:0000:ff00:0042:8329")
+
+	testIPV4Addr = &net.TCPAddr{
+		IP:   testIP4,
+		Port: 12345,
+	}
+
+	testIPV6Addr = &net.TCPAddr{
+		IP:   testIP6,
+		Port: 65535,
+	}
+
+	testOnionV2Addr = &tor.OnionAddr{
+		OnionService: "3g2upl4pq6kufc4m.onion",
+		Port:         9735,
+	}
+
+	testOnionV3Addr = &tor.OnionAddr{
+		OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.onion", //nolint:ll
+		Port:         80,
+	}
+
+	testOpaqueAddr = &lnwire.OpaqueAddrs{
+		// NOTE: the first byte is a protocol level address type. So
+		// for we set it to 0xff to guarantee that we do not know this
+		// type yet.
+		Payload: []byte{0xff, 0x02, 0x03, 0x04, 0x05, 0x06},
+	}
+
+	testDNSAddr = &lnwire.DNSAddress{
+		Hostname: "example.com",
+		Port:     8080,
+	}
+
+	testAddr = &net.TCPAddr{IP: (net.IP)([]byte{0xA, 0x0, 0x0, 0x1}),
+		Port: 9000}
+	anotherAddr, _ = net.ResolveTCPAddr("tcp",
+		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
+	testAddrs = []net.Addr{testAddr, anotherAddr}
+
+	testFeatures = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
+		lnwire.Features,
+	)
+
+	rev = [chainhash.HashSize]byte{
+		0x51, 0xb6, 0x37, 0xd8, 0xfc, 0xd2, 0xc6, 0xda,
+		0x48, 0x59, 0xe6, 0x96, 0x31, 0x13, 0xa1, 0x17,
+		0x2d, 0xe7, 0x93, 0xe4,
 	}
 )
 
@@ -820,6 +892,20 @@ func makeTestChannel(t *testing.T,
 // testPolicyOpt defines a functional option type that can be used to modify the
 // attributes of a models.ChannelEdgePolicy created by makeTestPolicy.
 type testPolicyOpt func(*models.ChannelEdgePolicy)
+
+var (
+	updateTime   = prand.Int63()
+	updateTimeMu sync.Mutex
+)
+
+func nextUpdateTime() time.Time {
+	updateTimeMu.Lock()
+	defer updateTimeMu.Unlock()
+
+	updateTime++
+
+	return time.Unix(updateTime, 0)
+}
 
 // makeTestPolicy creates a test models.ChannelEdgePolicy. The functional
 // options can be used to modify the policy's attributes.
@@ -1822,4 +1908,36 @@ func genRandomNode(t *rapid.T) *models.Node {
 	require.NoError(t, err)
 
 	return node
+}
+
+// putSerializedPolicy is a helper function that writes a serialized
+// ChannelEdgePolicy to the edge bucket in the database.
+func putSerializedPolicy(t *testing.T, db kvdb.Backend, from []byte,
+	chanID uint64, b []byte) {
+
+	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		require.NotNil(t, edges)
+
+		edgeIndex := edges.NestedReadWriteBucket(edgeIndexBucket)
+		require.NotNil(t, edgeIndex)
+
+		var edgeKey [33 + 8]byte
+		copy(edgeKey[:], from)
+		byteOrder.PutUint64(edgeKey[33:], chanID)
+
+		var scratch [8]byte
+		var indexKey [8 + 8]byte
+		copy(indexKey[:], scratch[:])
+		byteOrder.PutUint64(indexKey[8:], chanID)
+
+		updateIndex, err := edges.CreateBucketIfNotExists(
+			edgeUpdateIndexBucket,
+		)
+		require.NoError(t, err)
+		require.NoError(t, updateIndex.Put(indexKey[:], nil))
+
+		return edges.Put(edgeKey[:], b)
+	}, func() {})
+	require.NoError(t, err, "error writing db")
 }

@@ -3279,7 +3279,16 @@ func (s *server) createNewHiddenService(ctx context.Context) error {
 	// address it can be reached at to our list of advertised addresses.
 	newNodeAnn, err := s.genNodeAnnouncement(
 		nil, func(currentAnn *lnwire.NodeAnnouncement1) {
-			currentAnn.Addresses = append(currentAnn.Addresses, addr)
+			// Check if this address was already added.
+			for _, anAddr := range currentAnn.Addresses {
+				if anAddr.String() == addr.String() {
+					return
+				}
+			}
+
+			currentAnn.Addresses = append(
+				currentAnn.Addresses, addr,
+			)
 		},
 	)
 	if err != nil {

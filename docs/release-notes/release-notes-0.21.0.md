@@ -68,6 +68,8 @@
 * Freeze the [graph SQL migration 
   code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
   need for maintenance as the sqlc code evolves. 
+* Prepare the graph DB for handling gossip [V2 
+  nodes](https://github.com/lightningnetwork/lnd/pull/10339). 
 
 ## Code Health
 

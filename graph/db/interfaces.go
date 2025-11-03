@@ -28,9 +28,9 @@ type NodeTraverser interface {
 	FetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
 }
 
-// V1Store represents the main interface for the channel graph database for all
+// Store represents the main interface for the channel graph database for all
 // channels and nodes gossiped via the V1 gossip protocol as defined in BOLT 7.
-type V1Store interface { //nolint:interfacebloat
+type Store interface { //nolint:interfacebloat
 	NodeTraverser
 
 	// AddNode adds a vertex/node to the graph database. If the

@@ -60,7 +60,7 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 
 	// assertDBState is a helper function that asserts the state of the
 	// graph DB.
-	assertDBState := func(db graphdb.V1Store) {
+	assertDBState := func(db graphdb.Store) {
 		var (
 			numNodes int
 			edges    = make(map[uint64]bool)
@@ -127,7 +127,7 @@ func testGraphMigration(ht *lntest.HarnessTest) {
 }
 
 func openNativeSQLGraphDB(ht *lntest.HarnessTest,
-	hn *node.HarnessNode) graphdb.V1Store {
+	hn *node.HarnessNode) graphdb.Store {
 
 	db := openNativeSQLDB(ht, hn)
 

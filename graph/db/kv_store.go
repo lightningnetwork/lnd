@@ -199,8 +199,8 @@ type KVStore struct {
 }
 
 // A compile-time assertion to ensure that the KVStore struct implements the
-// V1Store interface.
-var _ V1Store = (*KVStore)(nil)
+// Store interface.
+var _ Store = (*KVStore)(nil)
 
 // NewKVStore allocates a new KVStore backed by a DB instance. The
 // returned instance has its own unique reject cache and channel cache.
@@ -804,7 +804,7 @@ func (c *KVStore) DisabledChannelIDs() ([]uint64, error) {
 // returns an error, then the transaction is aborted and the iteration stops
 // early.
 //
-// NOTE: this is part of the V1Store interface.
+// NOTE: this is part of the Store interface.
 func (c *KVStore) ForEachNode(_ context.Context,
 	cb func(*models.Node) error, reset func()) error {
 

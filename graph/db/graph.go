@@ -30,7 +30,7 @@ type ChannelGraph struct {
 
 	graphCache *GraphCache
 
-	V1Store
+	Store
 	*topologyManager
 
 	quit chan struct{}
@@ -38,7 +38,7 @@ type ChannelGraph struct {
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
-func NewChannelGraph(v1Store V1Store,
+func NewChannelGraph(v1Store Store,
 	options ...ChanGraphOption) (*ChannelGraph, error) {
 
 	opts := defaultChanGraphOptions()
@@ -47,7 +47,7 @@ func NewChannelGraph(v1Store V1Store,
 	}
 
 	g := &ChannelGraph{
-		V1Store:         v1Store,
+		Store:           v1Store,
 		topologyManager: newTopologyManager(),
 		quit:            make(chan struct{}),
 	}
@@ -161,7 +161,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.V1Store.ForEachNodeCacheable(ctx, func(node route.Vertex,
+	err := c.Store.ForEachNodeCacheable(ctx, func(node route.Vertex,
 		features *lnwire.FeatureVector) error {
 
 		c.graphCache.AddNodeFeatures(node, features)
@@ -172,7 +172,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 		return err
 	}
 
-	err = c.V1Store.ForEachChannelCacheable(
+	err = c.Store.ForEachChannelCacheable(
 		func(info *models.CachedEdgeInfo,
 			policy1, policy2 *models.CachedEdgePolicy) error {
 
@@ -208,7 +208,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.V1Store.ForEachNodeDirectedChannel(node, cb, reset)
+	return c.Store.ForEachNodeDirectedChannel(node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -224,7 +224,7 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 		return c.graphCache.GetFeatures(node), nil
 	}
 
-	return c.V1Store.FetchNodeFeatures(node)
+	return c.Store.FetchNodeFeatures(node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -238,7 +238,7 @@ func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error,
 		return cb(c)
 	}
 
-	return c.V1Store.GraphSession(cb, reset)
+	return c.Store.GraphSession(cb, reset)
 }
 
 // ForEachNodeCached iterates through all the stored vertices/nodes in the
@@ -259,7 +259,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 		)
 	}
 
-	return c.V1Store.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.Store.ForEachNodeCached(ctx, withAddrs, cb, reset)
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not
@@ -271,7 +271,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 func (c *ChannelGraph) AddNode(ctx context.Context,
 	node *models.Node, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddNode(ctx, node, op...)
+	err := c.Store.AddNode(ctx, node, op...)
 	if err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 func (c *ChannelGraph) DeleteNode(ctx context.Context,
 	nodePub route.Vertex) error {
 
-	err := c.V1Store.DeleteNode(ctx, nodePub)
+	err := c.Store.DeleteNode(ctx, nodePub)
 	if err != nil {
 		return err
 	}
@@ -317,7 +317,7 @@ func (c *ChannelGraph) DeleteNode(ctx context.Context,
 func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 	edge *models.ChannelEdgeInfo, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddChannelEdge(ctx, edge, op...)
+	err := c.Store.AddChannelEdge(ctx, edge, op...)
 	if err != nil {
 		return err
 	}
@@ -339,7 +339,7 @@ func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 // If the cache is enabled, the edge will be added back to the graph cache if
 // we still have a record of this channel in the DB.
 func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
-	err := c.V1Store.MarkEdgeLive(chanID)
+	err := c.Store.MarkEdgeLive(chanID)
 	if err != nil {
 		return err
 	}
@@ -347,7 +347,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.V1Store.FetchChanInfos([]uint64{chanID})
+		infos, err := c.Store.FetchChanInfos([]uint64{chanID})
 		if err != nil {
 			return err
 		}
@@ -385,7 +385,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
-	infos, err := c.V1Store.DeleteChannelEdges(
+	infos, err := c.Store.DeleteChannelEdges(
 		strictZombiePruning, markZombie, chanIDs...,
 	)
 	if err != nil {
@@ -414,7 +414,7 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
-	edges, err := c.V1Store.DisconnectBlockAtHeight(height)
+	edges, err := c.Store.DisconnectBlockAtHeight(height)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +442,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
-	edges, nodes, err := c.V1Store.PruneGraph(
+	edges, nodes, err := c.Store.PruneGraph(
 		spentOutputs, blockHash, blockHeight,
 	)
 	if err != nil {
@@ -487,7 +487,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
-	nodes, err := c.V1Store.PruneGraphNodes()
+	nodes, err := c.Store.PruneGraphNodes()
 	if err != nil {
 		return err
 	}
@@ -509,7 +509,7 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
 
-	unknown, knownZombies, err := c.V1Store.FilterKnownChanIDs(chansInfo)
+	unknown, knownZombies, err := c.Store.FilterKnownChanIDs(chansInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +538,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 		// timestamps could bring it back from the dead, then we mark it
 		// alive, and we let it be added to the set of IDs to query our
 		// peer for.
-		err := c.V1Store.MarkEdgeLive(
+		err := c.Store.MarkEdgeLive(
 			info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been marked
@@ -559,7 +559,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
-	err := c.V1Store.MarkEdgeZombie(chanID, pubKey1, pubKey2)
+	err := c.Store.MarkEdgeZombie(chanID, pubKey1, pubKey2)
 	if err != nil {
 		return err
 	}
@@ -581,7 +581,7 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	edge *models.ChannelEdgePolicy, op ...batch.SchedulerOption) error {
 
-	from, to, err := c.V1Store.UpdateEdgePolicy(ctx, edge, op...)
+	from, to, err := c.Store.UpdateEdgePolicy(ctx, edge, op...)
 	if err != nil {
 		return err
 	}
@@ -602,11 +602,11 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 }
 
 // MakeTestGraph creates a new instance of the ChannelGraph for testing
-// purposes. The backing V1Store implementation depends on the version of
+// purposes. The backing Store implementation depends on the version of
 // NewTestDB included in the current build.
 //
 // NOTE: this is currently unused, but is left here for future use to show how
-// NewTestDB can be used. As the SQL implementation of the V1Store is
+// NewTestDB can be used. As the SQL implementation of the Store is
 // implemented, unit tests will be switched to use this function instead of
 // the existing MakeTestGraph helper. Once only this function is used, the
 // existing MakeTestGraph function will be removed and this one will be renamed.

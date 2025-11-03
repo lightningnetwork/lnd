@@ -13,7 +13,7 @@ import (
 
 // NewTestDB is a helper function that creates a SQLStore backed by a SQL
 // database for testing.
-func NewTestDB(t testing.TB) V1Store {
+func NewTestDB(t testing.TB) Store {
 	return NewTestDBWithFixture(t, nil)
 }
 
@@ -31,7 +31,7 @@ func NewTestDBFixture(t *testing.T) *sqldb.TestPgFixture {
 // NewTestDBWithFixture is a helper function that creates a SQLStore backed by a
 // SQL database for testing.
 func NewTestDBWithFixture(t testing.TB,
-	pgFixture *sqldb.TestPgFixture) V1Store {
+	pgFixture *sqldb.TestPgFixture) Store {
 
 	var querier BatchedSQLQueries
 	if pgFixture == nil {

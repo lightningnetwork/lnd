@@ -56,6 +56,9 @@
   utxonursery (the legacy sweeper) where htlcs with a locktime of 0 would not
   be swept.
 
+- [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10330) to ensure that goroutine resources are properly freed in the case
+  of a disconnection or other failure event.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 

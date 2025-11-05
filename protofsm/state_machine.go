@@ -644,12 +644,18 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 
 // applyEvents applies a new event to the state machine. This will continue
 // until no further events are emitted by the state machine. Along the way,
-// we'll also ensure to execute any daemon events that are emitted.
+// we'll also ensure to execute any daemon events that are emitted. The
+// function returns the final state, any accumulated outbox events, and an
+// error if one occurred.
 func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 	currentState State[Event, Env], newEvent Event) (State[Event, Env],
-	error) {
+	[]Event, error) {
 
 	eventQueue := fn.NewQueue(newEvent)
+
+	// outbox accumulates all outbox events from state transitions during
+	// the entire event processing chain.
+	var outbox []Event
 
 	// Given the next event to handle, we'll process the event, then add
 	// any new emitted internal events to our event queue. This continues
@@ -694,6 +700,10 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 					eventQueue.Enqueue(inEvent)
 				}
 
+				// Accumulate any outbox events from this state
+				// transition.
+				outbox = append(outbox, events.Outbox...)
+
 				return nil
 			})
 			if err != nil {
@@ -717,11 +727,11 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 			return nil
 		})
 		if err != nil {
-			return currentState, err
+			return currentState, nil, err
 		}
 	}
 
-	return currentState, nil
+	return currentState, outbox, nil
 }
 
 // driveMachine is the main event loop of the state machine. It accepts any new
@@ -752,7 +762,7 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 		// machine forward until we either run out of internal events,
 		// or we reach a terminal state.
 		case newEvent := <-s.events:
-			newState, err := s.applyEvents(
+			newState, _, err := s.applyEvents(
 				ctx, currentState, newEvent,
 			)
 			if err != nil {
@@ -768,6 +778,37 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 			}
 
 			currentState = newState
+
+		// We have a synchronous event request that expects the
+		// accumulated outbox events to be returned via the promise.
+		case syncReq := <-s.syncEvents:
+			newState, outbox, err := s.applyEvents(
+				ctx, currentState, syncReq.event,
+			)
+			if err != nil {
+				s.cfg.ErrorReporter.ReportError(err)
+
+				s.log.ErrorS(ctx, "Unable to apply sync event",
+					err)
+
+				// Complete the promise with the error.
+				//
+				// TODO(roasbeef): distinguish between error
+				// types? state vs processing
+				syncReq.promise.Complete(fn.Err[[]Event](err))
+
+				// An error occurred, so we'll tear down the
+				// entire state machine as we can't proceed.
+				go s.Stop()
+
+				return
+			}
+
+			currentState = newState
+
+			// Complete the promise with the accumulated outbox
+			// events.
+			syncReq.promise.Complete(fn.Ok(outbox))
 
 		// An outside caller is querying our state, so we'll return the
 		// latest state.

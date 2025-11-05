@@ -42,6 +42,12 @@ type EmittedEvent[Event any] struct {
 	// ExternalEvent is an optional external event that is to be sent to
 	// the daemon for dispatch. Usually, this is some form of I/O.
 	ExternalEvents DaemonEventSet
+
+	// Outbox is an optional set of events that are accumulated during event
+	// processing and returned to the caller for processing into the main
+	// state machine. This enables nested state machines to emit events that
+	// bubble up to their parent.
+	Outbox []Event
 }
 
 // StateTransition is a state transition type. It denotes the next state to go

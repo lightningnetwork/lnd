@@ -566,4 +566,8 @@ type AttemptStore interface {
 	// those listed in the keepPids map. This allows for a "delete all
 	// except" approach to cleanup.
 	CleanStore(keepPids map[uint64]struct{}) error
+
+	// FetchPendingAttempts returns a list of all attempt IDs that are
+	// currently in the pending state.
+	FetchPendingAttempts() ([]uint64, error)
 }

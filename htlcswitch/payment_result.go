@@ -418,3 +418,50 @@ func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 		return nil
 	}, func() {})
 }
+
+// FetchPendingAttempts returns a list of all attempt IDs that are currently in
+// the pending state.
+func (store *networkResultStore) FetchPendingAttempts() ([]uint64, error) {
+	var pending []uint64
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, v []byte) error {
+			// If the key is not 8 bytes, it's not a valid attempt
+			// ID.
+			if len(k) != 8 {
+				return nil
+			}
+
+			// Deserialize the result to check its type.
+			r := bytes.NewReader(v)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				// If we can't deserialize, we'll log it and
+				// continue.
+				log.Warnf("Unable to deserialize result for "+
+					"key %x: %v", k, err)
+				return nil
+			}
+
+			// If the result is a pending result, add the attempt
+			// ID to our list.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				attemptID := binary.BigEndian.Uint64(k)
+				pending = append(pending, attemptID)
+			}
+
+			return nil
+		})
+	}, func() {
+		pending = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pending, nil
+}

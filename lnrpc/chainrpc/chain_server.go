@@ -18,6 +18,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -84,8 +86,8 @@ var (
 
 	// ErrChainNotifierServerNotActive indicates that the chain notifier hasn't
 	// finished the startup process.
-	ErrChainNotifierServerNotActive = errors.New("chain notifier RPC is " +
-		"still in the process of starting")
+	ErrChainNotifierServerNotActive = status.Error(codes.Unavailable,
+		"chain notifier RPC is still in the process of starting")
 )
 
 // ServerShell is a shell struct holding a reference to the actual sub-server.

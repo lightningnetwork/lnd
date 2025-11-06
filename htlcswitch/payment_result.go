@@ -27,6 +27,12 @@ var (
 	// ErrPaymentIDAlreadyExists is returned if we try to write a pending
 	// payment whose paymentID already exists.
 	ErrPaymentIDAlreadyExists = errors.New("paymentID already exists")
+
+	// ErrAttemptResultNotAvailable is returned if we try to get a result
+	// for a pending payment whose result is not yet available.
+	ErrAttemptResultNotAvailable = errors.New(
+		"attempt result not yet available",
+	)
 )
 
 const (
@@ -340,7 +346,7 @@ func (store *networkResultStore) GetResult(pid uint64) (
 		// available to preserve existing expectation for the behavior
 		// of this method.
 		if result.msg.MsgType() == pendingHtlcMsgType {
-			return ErrPaymentIDNotFound
+			return ErrAttemptResultNotAvailable
 		}
 
 		return nil

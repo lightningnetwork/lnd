@@ -554,10 +554,10 @@ type AttemptStore interface {
 	// GetResult returns the network result for the specified attempt ID if
 	// it's available.
 	//
-	// NOTE: This method will return ErrPaymentIDNotFound for attempts that
-	// have been initialized via InitAttempt but for which a final result
-	// (settle/fail) has not yet been stored. This is to preserve legacy
-	// behavior.
+	// NOTE: This method will return ErrAttemptResultNotAvailable for
+	// attempts that have been initialized via InitAttempt but for which a
+	// final result (settle/fail) has not yet been stored.
+	// ErrPaymentIDNotFound is returned for attempts that are unknown.
 	GetResult(attemptID uint64) (*networkResult, error)
 
 	// SubscribeResult subscribes to be notified when a result for a

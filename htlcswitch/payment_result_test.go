@@ -204,9 +204,25 @@ func TestNetworkResultStore(t *testing.T) {
 	t.Run("InitAttempt duplicate prevention", func(t *testing.T) {
 		var id uint64 = 100
 
+		// Now, try fetching the result directly. We expect to observe
+		// ErrAttemptResultNotAvailable since it's initialized but not
+		// yet finalized.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrPaymentIDNotFound,
+			"expected ErrAttemptResultNotAvailable for pending "+
+				"attempt")
+
 		// First initialization should succeed.
 		err := store.InitAttempt(id)
 		require.NoError(t, err, "unexpected InitAttempt failure")
+
+		// Now, try fetching the result directly. We expect to observe
+		// ErrAttemptResultNotAvailable since it's initialized but not
+		// yet finalized.
+		_, err = store.GetResult(id)
+		require.ErrorIs(t, err, ErrAttemptResultNotAvailable,
+			"expected ErrAttemptResultNotAvailable for pending "+
+				"attempt")
 
 		// Subscribe for the result following the initialization. No
 		// result should be received immediately as StoreResult has not

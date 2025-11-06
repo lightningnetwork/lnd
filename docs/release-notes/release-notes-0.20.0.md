@@ -59,6 +59,11 @@
 - [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10330) to ensure that goroutine resources are properly freed in the case
   of a disconnection or other failure event.
 
+- Chain notifier RPCs now [return the gRPC `Unavailable`
+  status](https://github.com/lightningnetwork/lnd/pull/10352) while the
+  sub-server is still starting. This allows clients to reliably detect the
+  transient condition and retry without brittle string matching.
+
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 
@@ -283,7 +288,7 @@ reader of a payment request.
 * [Require invoices to include a payment address or blinded paths](https://github.com/lightningnetwork/lnd/pull/9752) 
   to comply with updated BOLT 11 specifications before sending payments.
 
-* [LND can now recgonize DNS address type in node
+* [LND can now recognize DNS address type in node
   announcement msg](https://github.com/lightningnetwork/lnd/pull/9455). This
   allows users to forward node announcement with valid DNS address types. The
   validity aligns with Bolt 07 DNS constraints.

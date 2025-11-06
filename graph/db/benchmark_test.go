@@ -6,14 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btclog/v2"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/graph/db/models"
@@ -428,137 +426,6 @@ func TestPopulateDBs(t *testing.T) {
 				"%d, %d", destDB.name, numChan, numPol)
 		})
 	}
-}
-
-// TestPopulateViaMigration is a helper test that can be used to populate a
-// local native SQL graph from a kvdbgraph using the migration logic.
-//
-// NOTE: the testPostgres variable can be set to true to test with a
-// postgres backend instead of the kvdb-sqlite backend.
-//
-// NOTE: you will need to set the following build tags in order to run this
-// test:
-//
-//	test_native_sql
-//	kvdb_sqlite // If your source is kvdb-sqlite
-//	kvdb_postgres // If your source is kvdb-postgres
-//
-// NOTE: this is a helper test and is not run by default.
-func TestPopulateViaMigration(t *testing.T) {
-	// ======= STEP 0 ===========
-	// Comment out this SKipf line.
-	t.Skipf("Skipping local helper test")
-
-	const (
-		srcBBolt    = "kvdb-bbolt"
-		srcSQLite   = "kvdb-sqlite"
-		srcPostgres = "kvdb-postgres"
-	)
-
-	// ======= STEP 1 ===========
-	// Set your chosen SOURCE type by uncommenting the corresponding line
-	// below. By default, a kvdb-sqlite source is chosen.
-	srcDB := srcSQLite
-	// srcDB := srcBBolt
-	// srcDB := srcPostgres
-
-	// ======= STEP 2 ============
-	// Set this variable to the correct genesis hash of the source
-	// DB. By default, mainnet is assumed.
-	chain := *chaincfg.MainNetParams.GenesisHash
-
-	// ======= STEP 3 (ignore if source is postgres) ==============
-	// If your source destination is bbolt or sqlite, then set this to the
-	// path where your source database can be found.
-	const sourceDBPath = "testdata"
-
-	// ======= STEP 4 (only if source is bbolt!) ============
-	// If your source destination is bbolt, then set this to the name of
-	// the bbolt file that contains the channel graph data.
-	const sourceBBoltName = "channel.db"
-
-	// ======= STEP 5 (only if source is sqlite!) ============
-	// If your source destination is sqlite, then set this to the name of
-	// the sqlite file that contains the channel graph data.
-	const sourceSQLiteName = "channel.sqlite"
-
-	// ======= STEP 6 (only if source is postgres!) ============
-	// Set the DNS of your kvdb postgres instance below. This should be the
-	// same as what you have set in the config of the LND node that
-	// populated the instance (ie, whatever your --db.postgres.dsn is set
-	// to).
-	const kvdbPostgresDNS = "postgres://user@host/db_name"
-
-	// ======== STEP 7 ========================
-	// Finally, pick your destination DB! You can choose either SQLite or
-	// Postgres.
-	testSQLite := true
-
-	// ======== STEP 8 (only if destination is sqlite) ========
-	// Set the path where you want to create the destination SQLite
-	// database. This should be a directory that exists and is writable.
-	const destSQLitePath = "testdata"
-
-	// ======== STEP 9 (only if destination is sqlite) ========
-	// Pick a name for your destination SQLite database file.
-	// NOTE: if you run this test again, delete the previously created
-	// file first.
-	const destSQLiteFile = "lnd-graph-test.sqlite"
-
-	// ======== STEP 10 (only if destination is postgres) ========
-	// NB: this has some additional steps:
-	// 1. First, connect to your destination postgres instance: example:
-	//	 $ psql -U ellemouton -d postgres
-	// 2. Now, create the test database:
-	//	CREATE DATABASE graphtest;
-	// NOTE: if you restart this test for postgres, it helps to first drop
-	// the new database & recreate it.
-	// NOTE: the database name that you use above must be whatever you will
-	// use in the DNS you set below.
-	const sqlPostgresDNS = "postgres://user@host/graphtest"
-
-	// ======= YOUR WORK IS DONE =============
-
-	// Connect to source database.
-	var srcKVDB kvdb.Backend
-	switch srcDB {
-	case srcBBolt:
-		srcKVDB = kvdbBBolt(t, sourceDBPath, sourceBBoltName)
-	case srcSQLite:
-		srcKVDB = kvdbSqlite(t, sourceDBPath, sourceSQLiteName)
-	case srcPostgres:
-		srcKVDB = kvdbPostgres(t, kvdbPostgresDNS)
-	default:
-		t.Fatalf("Unsupported source database backend: %s", srcDB)
-	}
-
-	// Connect to destination database.
-	cfg := sqldb.DefaultSQLiteConfig()
-	dstSQL := sqlSQLite(t, destSQLitePath, destSQLiteFile)
-	if !testSQLite {
-		cfg = sqldb.DefaultPostgresConfig()
-		dstSQL = sqlPostgres(t, sqlPostgresDNS)
-	}
-
-	// Set up a logger so we can see the migration progress.
-	logger := btclog.NewDefaultHandler(os.Stdout)
-	UseLogger(btclog.NewSLogger(logger))
-	log.SetLevel(btclog.LevelDebug)
-
-	// Use the graph migration to populate the SQL graph from the
-	// kvdb graph.
-	ctx := t.Context()
-	err := dstSQL.ExecTx(
-		ctx, sqldb.WriteTxOpt(), func(queries SQLQueries) error {
-			return MigrateGraphToSQL(
-				ctx, &SQLStoreConfig{
-					QueryCfg:  cfg,
-					ChainHash: chain,
-				}, srcKVDB, queries,
-			)
-		}, func() {},
-	)
-	require.NoError(t, err)
 }
 
 // syncGraph synchronizes the source graph with the destination graph by

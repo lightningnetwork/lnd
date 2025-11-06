@@ -542,11 +542,20 @@ type AttemptStore interface {
 
 	// GetResult returns the network result for the specified attempt ID if
 	// it's available.
+	//
+	// NOTE: This method will return ErrPaymentIDNotFound for attempts that
+	// have been initialized via InitAttempt but for which a final result
+	// (settle/fail) has not yet been stored. This is to preserve legacy
+	// behavior.
 	GetResult(attemptID uint64) (*networkResult, error)
 
 	// SubscribeResult subscribes to be notified when a result for a
 	// specific attempt ID becomes available. It returns a channel that will
 	// receive the result.
+	//
+	// NOTE: The returned channel will only receive a value for attempts
+	// that have a final result (settle/fail). It will not be notified of
+	// the initial pending state created by InitAttempt.
 	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
 
 	// CleanStore removes all attempt results from the store except for

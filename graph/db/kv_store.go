@@ -1996,7 +1996,7 @@ func (c *KVStore) HighestChanID(_ context.Context) (uint64, error) {
 		lastChanID, _ := cidCursor.Last()
 
 		// If there's no key, then this means that we don't actually
-		// know of any channels, so we'll return a predicable error.
+		// know of any channels, so we'll return a predictable error.
 		if lastChanID == nil {
 			return ErrGraphNoEdgesFound
 		}
@@ -3153,7 +3153,7 @@ func makeZombiePubkeys(node1, node2 [33]byte, e1, e2 *time.Time) ([33]byte,
 
 	// Otherwise, we're missing edge2 or edge2 is the older side, so we
 	// return a blank pubkey for edge1. In this case, only an update from
-	// edge2 can resurect the channel.
+	// edge2 can resurrect the channel.
 	default:
 		return [33]byte{}, node1
 	}
@@ -3196,7 +3196,7 @@ func (c *KVStore) UpdateEdgePolicy(ctx context.Context,
 
 			from, to, isUpdate1, err = updateEdgePolicy(tx, edge)
 			if err != nil {
-				log.Errorf("UpdateEdgePolicy faild: %v", err)
+				log.Errorf("UpdateEdgePolicy failed: %v", err)
 			}
 
 			// Silence ErrEdgeNotFound so that the batch can
@@ -3574,7 +3574,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 		return kvdb.View(db, traversal, reset)
 	}
 
-	// Otherwise, we re-use the existing transaction to execute the graph
+	// Otherwise, we reuse the existing transaction to execute the graph
 	// traversal.
 	return traversal(tx)
 }
@@ -3649,7 +3649,7 @@ func (c *KVStore) ForEachSourceNodeChannel(_ context.Context,
 //
 // Unknown policies are passed into the callback as nil values.
 //
-// If the caller wishes to re-use an existing boltdb transaction, then it
+// If the caller wishes to reuse an existing boltdb transaction, then it
 // should be passed as the first argument.  Otherwise, the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.

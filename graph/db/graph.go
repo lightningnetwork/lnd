@@ -122,7 +122,7 @@ func (c *ChannelGraph) handleTopologySubscriptions() {
 			c.wg.Add(1)
 			go c.handleTopologyUpdate(update)
 
-			// TODO(roasbeef): remove all unconnected vertexes
+			// TODO(roasbeef): remove all unconnected vertices
 			// after N blocks pass with no corresponding
 			// announcements.
 

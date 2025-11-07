@@ -101,7 +101,7 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 
 	graph := MakeTestGraph(t)
 
-	// We'd like to test basic insertion/deletion for vertexes from the
+	// We'd like to test basic insertion/deletion for vertices from the
 	// graph, so we'll create a test vertex to start with.
 	timeStamp := int64(1232342)
 	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
@@ -414,11 +414,11 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
-	// vertexes to connect.
+	// vertices to connect.
 	node1 := createTestVertex(t)
 	node2 := createTestVertex(t)
 
-	// In addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertices we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -544,11 +544,11 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	}
 
 	// We'd like to test the insertion/deletion of edges, so we create two
-	// vertexes to connect.
+	// vertices to connect.
 	node1 := createTestVertex(t)
 	node2 := createTestVertex(t)
 
-	// In addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertices we create some fake channel
 	// identifiers.
 	var spendOutputs []*wire.OutPoint
 	var blockHash chainhash.Hash
@@ -753,7 +753,7 @@ func createChannelEdge(node1, node2 *models.Node,
 		secondNode = node1.PubKeyBytes
 	}
 
-	// In addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertices we create some fake channel
 	// identifiers.
 	chanID := uint64(prand.Int63())
 	outpoint := wire.OutPoint{
@@ -830,7 +830,7 @@ func TestEdgeInfoUpdates(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	// We'd like to test the update of edges inserted into the database, so
-	// we create two vertexes to connect.
+	// we create two vertices to connect.
 	node1 := createTestVertex(t)
 	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
@@ -1795,7 +1795,7 @@ func TestGraphPruning(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	// As initial set up for the test, we'll create a graph with 5 vertexes
+	// As initial set up for the test, we'll create a graph with 5 vertices
 	// and enough edges to create a fully connected graph. The graph will
 	// be rather simple, representing a straight line.
 	const numNodes = 5
@@ -1810,7 +1810,7 @@ func TestGraphPruning(t *testing.T) {
 		graphNodes[i] = node
 	}
 
-	// With the vertexes created, we'll next create a series of channels
+	// With the vertices created, we'll next create a series of channels
 	// between them.
 	channelPoints := make([]*wire.OutPoint, 0, numNodes-1)
 	edgePoints := make([]EdgePoint, 0, numNodes-1)
@@ -3324,12 +3324,12 @@ func TestFilterChannelRange(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			expRes := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:ll
+			express := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:ll
 
-			if len(expRes) == 0 {
+			if len(express) == 0 {
 				require.Nil(t, resp)
 			} else {
-				require.Equal(t, expRes, resp)
+				require.Equal(t, express, resp)
 			}
 
 			// Now, query the timestamps as well.
@@ -3338,12 +3338,12 @@ func TestFilterChannelRange(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			expRes = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:ll
+			express = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:ll
 
-			if len(expRes) == 0 {
+			if len(express) == 0 {
 				require.Nil(t, resp)
 			} else {
-				require.Equal(t, expRes, resp)
+				require.Equal(t, express, resp)
 			}
 		})
 	}
@@ -3693,7 +3693,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 	checkIndexTimestamps()
 }
 
-// TestPruneGraphNodes tests that unconnected vertexes are pruned via the
+// TestPruneGraphNodes tests that unconnected vertices are pruned via the
 // PruneSyncState method.
 func TestPruneGraphNodes(t *testing.T) {
 	t.Parallel()
@@ -4096,7 +4096,7 @@ func TestEdgePolicyMissingMaxHTLC(t *testing.T) {
 	}
 
 	// We'd like to test the update of edges inserted into the database, so
-	// we create two vertexes to connect.
+	// we create two vertices to connect.
 	node1 := createTestVertex(t)
 	if err := graph.AddNode(ctx, node1); err != nil {
 		t.Fatalf("unable to add node: %v", err)
@@ -4423,11 +4423,11 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 	require.Nil(t, graph.SetSourceNode(ctx, sourceNode))
 
 	// We'd like to test the insertion/deletion of edges, so we create two
-	// vertexes to connect.
+	// vertices to connect.
 	node1 := createTestVertex(t)
 	node2 := createTestVertex(t)
 
-	// In addition to the fake vertexes we create some fake channel
+	// In addition to the fake vertices we create some fake channel
 	// identifiers.
 	var spendOutputs []*wire.OutPoint
 	var blockHash chainhash.Hash
@@ -4497,7 +4497,7 @@ func TestBatchedUpdateEdgePolicy(t *testing.T) {
 	graph := MakeTestGraph(t)
 
 	// We'd like to test the update of edges inserted into the database, so
-	// we create two vertexes to connect.
+	// we create two vertices to connect.
 	node1 := createTestVertex(t)
 	require.NoError(t, graph.AddNode(ctx, node1))
 	node2 := createTestVertex(t)
@@ -4614,7 +4614,7 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// Create an edge and add it to the db.
 	edgeInfo, e1, e2 := createChannelEdge(node1, node2)
 
-	// Because of lexigraphical sorting and the usage of random node keys in
+	// Because of lexicographical sorting and the usage of random node keys in
 	// this test, we need to determine which edge belongs to node 1 at
 	// runtime.
 	var edge1 *models.ChannelEdgePolicy

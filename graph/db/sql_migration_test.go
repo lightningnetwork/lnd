@@ -741,7 +741,7 @@ func genPubKey(t require.TestingT) route.Vertex {
 }
 
 // testNodeOpt defines a functional option type that can be used to
-// modify the attributes of a models.Node crated by makeTestNode.
+// modify the attributes of a models.Node created by makeTestNode.
 type testNodeOpt func(*models.Node)
 
 // makeTestNode can be used to create a test models.Node. The

@@ -340,24 +340,25 @@ func (s *StateMachine[Event, Env]) AskEvent(ctx context.Context,
 	return promise.Future()
 }
 
-// Receive processes a message and returns a Result. The provided context is the
-// actor's internal context, which can be used to detect actor shutdown
-// requests.
+// Receive processes a message and returns a Result containing the accumulated
+// outbox events from the state machine. The provided context is the actor's
+// internal context, which can be used to detect actor shutdown requests.
+//
+// This method uses the AskEvent pattern to wait for the event to be fully
+// processed and collect any outbox events emitted during state transitions.
+// This enables the actor system to propagate events from nested state machines
+// up through the actor hierarchy.
 //
 // NOTE: This implements the actor.ActorBehavior interface.
 func (s *StateMachine[Event, Env]) Receive(ctx context.Context,
-	e ActorMessage[Event]) fn.Result[bool] {
+	e ActorMessage[Event]) fn.Result[[]Event] {
 
-	select {
-	case s.events <- e.Event:
-		return fn.Ok(true)
+	// Use AskEvent to process the event and get the outbox events back.
+	future := s.AskEvent(ctx, e.Event)
 
-	case <-ctx.Done():
-		return fn.Err[bool](ctx.Err())
-
-	case <-s.quit:
-		return fn.Err[bool](ErrStateMachineShutdown)
-	}
+	// Await the result which will contain the accumulated outbox events
+	// from all state transitions triggered by this event.
+	return future.Await(ctx)
 }
 
 // CanHandle returns true if the target message can be routed to the state

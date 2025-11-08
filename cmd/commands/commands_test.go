@@ -492,3 +492,159 @@ func TestParseChanIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestSatPerVByteFlagParsing tests parsing of various commands.
+func TestSatPerVByteFlagParsing(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		cmd            cli.Command
+		args           []string
+		expectedErrMsg string
+	}{
+		{
+			name: "closechannel valid",
+			cmd:  closeChannelCommand,
+			args: []string{
+				"lncli", "closechannel",
+				"--sat_per_vbyte", "30",
+			},
+		},
+		{
+			name: "closechannel valid, zero feerate",
+			cmd:  closeChannelCommand,
+			args: []string{
+				"lncli", "closechannel",
+				"--sat_per_vbyte", "0",
+			},
+		},
+		{
+			name: "closechannel valid, max u64 feerate",
+			cmd:  closeChannelCommand,
+			args: []string{
+				"lncli", "closechannel",
+				"--sat_per_vbyte",
+				strconv.FormatUint(math.MaxUint64, 10),
+			},
+		},
+		{
+			name: "closechannel invalid, negative feerate",
+			cmd:  closeChannelCommand,
+			args: []string{
+				"lncli", "closechannel",
+				"--sat_per_vbyte", "-1",
+			},
+			expectedErrMsg: "parse error",
+		},
+		{
+			name: "closechannel invalid, non-numeric feerate",
+			cmd:  closeChannelCommand,
+			args: []string{
+				"lncli", "closechannel",
+				"--sat_per_vbyte", "abc",
+			},
+			expectedErrMsg: "parse error",
+		},
+		{
+			name: "channelopen valid",
+			cmd:  openChannelCommand,
+			args: []string{
+				"lncli", "openchannel",
+				"--sat_per_vbyte", "50",
+				"--node_key", "pubkey",
+				"--local_amt", "100000",
+			},
+		},
+		{
+			name: "channelopen invalid, negative feerate",
+			cmd:  openChannelCommand,
+			args: []string{
+				"lncli", "openchannel",
+				"--sat_per_vbyte", "-1",
+				"--node_key", "pubkey",
+				"--local_amt", "100000",
+			},
+			expectedErrMsg: "parse error",
+		},
+		{
+			name: "sendcoins valid",
+			cmd:  sendCoinsCommand,
+			args: []string{
+				"lncli", "sendcoins",
+				"--sat_per_vbyte", "30",
+				"--addr", "bc1qexample",
+				"--amt", "1000",
+			},
+		},
+		{
+			name: "sendcoins invalid, negative feerate",
+			cmd:  sendCoinsCommand,
+			args: []string{
+				"lncli", "sendcoins",
+				"--sat_per_vbyte", "-1",
+				"--addr", "bc1qexample",
+				"--amt", "1000",
+			},
+			expectedErrMsg: "parse error",
+		},
+		{
+			name: "sendmany valid",
+			cmd:  sendManyCommand,
+			args: []string{
+				"lncli", "sendmany",
+				"--sat_per_vbyte", "40",
+				`{"bc1qexample": 500}`,
+			},
+		},
+		{
+			name: "sendmany invalid, negative feerate",
+			cmd:  sendManyCommand,
+			args: []string{
+				"lncli", "sendmany",
+				"--sat_per_vbyte", "-1",
+				`{"bc1qexample": 500}`,
+			},
+			expectedErrMsg: "parse error",
+		},
+		{
+			name: "closeallchannels valid",
+			cmd:  closeAllChannelsCommand,
+			args: []string{
+				"lncli", "closeallchannels",
+				"--sat_per_vbyte", "60",
+			},
+		},
+		{
+			name: "closeallchannels invalid, negative feerate",
+			cmd:  closeAllChannelsCommand,
+			args: []string{
+				"lncli", "closeallchannels",
+				"--sat_per_vbyte", "-1",
+			},
+			expectedErrMsg: "parse error",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := tc.cmd
+
+			// Disable the action so action doesn't run.
+			cmd.Action = func(ctx *cli.Context) error {
+				return nil
+			}
+
+			app := &cli.App{
+				Commands: []cli.Command{cmd},
+			}
+
+			err := app.Run(tc.args)
+			if tc.expectedErrMsg != "" {
+				require.ErrorContains(t, err, tc.expectedErrMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

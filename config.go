@@ -30,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/funding"
+	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/input"
@@ -675,8 +676,9 @@ func DefaultConfig() Config {
 			Sig:   lncfg.DefaultSigWorkers,
 		},
 		Caches: &lncfg.Caches{
-			RejectCacheSize:  channeldb.DefaultRejectCacheSize,
-			ChannelCacheSize: channeldb.DefaultChannelCacheSize,
+			RejectCacheSize:     channeldb.DefaultRejectCacheSize,
+			ChannelCacheSize:    channeldb.DefaultChannelCacheSize,
+			PublicNodeCacheSize: graphdb.DefaultPublicNodeCacheSize,
 		},
 		Prometheus: lncfg.DefaultPrometheus(),
 		Watchtower: lncfg.DefaultWatchtowerCfg(defaultTowerDir),

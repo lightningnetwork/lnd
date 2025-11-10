@@ -183,6 +183,18 @@ type SQLStore struct {
 	srcNodeMu sync.Mutex
 }
 
+// cachedPublicNode is a simple wrapper for a boolean value that can be
+// stored in an LRU cache. The LRU cache requires a Size() method.
+type cachedPublicNode struct {
+	isPublic bool
+}
+
+// Size returns the size of the cache entry. We return 1 as we just want to
+// limit the number of entries rather than their actual memory size.
+func (c *cachedPublicNode) Size() (uint64, error) {
+	return 1, nil
+}
+
 // A compile-time assertion to ensure that SQLStore implements the V1Store
 // interface.
 var _ V1Store = (*SQLStore)(nil)

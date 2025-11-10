@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -169,12 +170,14 @@ type SQLStore struct {
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries
 
-	// cacheMu guards all caches (rejectCache and chanCache). If
-	// this mutex will be acquired at the same time as the DB mutex then
-	// the cacheMu MUST be acquired first to prevent deadlock.
-	cacheMu     sync.RWMutex
-	rejectCache *rejectCache
-	chanCache   *channelCache
+	// cacheMu guards all caches (rejectCache, chanCache, and
+	// publicNodeCache). If this mutex will be acquired at the same time as
+	// the DB mutex then the cacheMu MUST be acquired first to prevent
+	// deadlock.
+	cacheMu         sync.RWMutex
+	rejectCache     *rejectCache
+	chanCache       *channelCache
+	publicNodeCache *lru.Cache[[33]byte, *cachedPublicNode]
 
 	chanScheduler batch.Scheduler[SQLQueries]
 	nodeScheduler batch.Scheduler[SQLQueries]
@@ -229,7 +232,10 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 		db:          db,
 		rejectCache: newRejectCache(opts.RejectCacheSize),
 		chanCache:   newChannelCache(opts.ChannelCacheSize),
-		srcNodes:    make(map[lnwire.GossipVersion]*srcNodeInfo),
+		publicNodeCache: lru.NewCache[[33]byte, *cachedPublicNode](
+			uint64(opts.PublicNodeCacheSize),
+		),
+		srcNodes: make(map[lnwire.GossipVersion]*srcNodeInfo),
 	}
 
 	s.chanScheduler = batch.NewTimeScheduler(

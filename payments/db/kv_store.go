@@ -359,7 +359,7 @@ func deserializePaymentIndex(r io.Reader) (lntypes.Hash, error) {
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
-func (p *KVStore) RegisterAttempt(paymentHash lntypes.Hash,
+func (p *KVStore) RegisterAttempt(_ context.Context, paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) (*MPPayment, error) {
 
 	// Serialize the information before opening the db transaction.

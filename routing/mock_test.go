@@ -354,8 +354,8 @@ func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
 	return nil
 }
 
-func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
-	a *paymentsdb.HTLCAttemptInfo) error {
+func (m *mockControlTowerOld) RegisterAttempt(_ context.Context,
+	phash lntypes.Hash, a *paymentsdb.HTLCAttemptInfo) error {
 
 	if m.registerAttempt != nil {
 		m.registerAttempt <- registerAttemptArgs{a}
@@ -746,8 +746,8 @@ func (m *mockControlTower) DeleteFailedAttempts(phash lntypes.Hash) error {
 	return args.Error(0)
 }
 
-func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
-	a *paymentsdb.HTLCAttemptInfo) error {
+func (m *mockControlTower) RegisterAttempt(_ context.Context,
+	phash lntypes.Hash, a *paymentsdb.HTLCAttemptInfo) error {
 
 	args := m.Called(phash, a)
 	return args.Error(0)

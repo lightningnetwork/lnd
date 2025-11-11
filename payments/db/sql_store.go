@@ -151,7 +151,8 @@ type paymentsBatchData struct {
 }
 
 // loadPaymentCustomRecords loads payment-level custom records for a given
-// set of payment IDs.
+// set of payment IDs. It uses a batch query to fetch all custom records for
+// the given payment IDs.
 func (s *SQLStore) loadPaymentCustomRecords(ctx context.Context,
 	db SQLQueries, paymentIDs []int64,
 	batchData *paymentsBatchData) error {
@@ -184,7 +185,8 @@ func (s *SQLStore) loadPaymentCustomRecords(ctx context.Context,
 }
 
 // loadHtlcAttempts loads HTLC attempts for all payments and returns all
-// attempt indices.
+// attempt indices. It uses a batch query to fetch all attempts for the given
+// payment IDs.
 func (s *SQLStore) loadHtlcAttempts(ctx context.Context, db SQLQueries,
 	paymentIDs []int64, batchData *paymentsBatchData) ([]int64, error) {
 
@@ -216,6 +218,7 @@ func (s *SQLStore) loadHtlcAttempts(ctx context.Context, db SQLQueries,
 }
 
 // loadHopsForAttempts loads hops for all attempts and returns all hop IDs.
+// It uses a batch query to fetch all hops for the given attempt indices.
 func (s *SQLStore) loadHopsForAttempts(ctx context.Context, db SQLQueries,
 	attemptIndices []int64, batchData *paymentsBatchData) ([]int64, error) {
 
@@ -247,7 +250,8 @@ func (s *SQLStore) loadHopsForAttempts(ctx context.Context, db SQLQueries,
 	return hopIDs, err
 }
 
-// loadHopCustomRecords loads hop-level custom records for all hops.
+// loadHopCustomRecords loads hop-level custom records for all hops. It uses
+// a batch query to fetch all custom records for the given hop IDs.
 func (s *SQLStore) loadHopCustomRecords(ctx context.Context, db SQLQueries,
 	hopIDs []int64, batchData *paymentsBatchData) error {
 
@@ -280,7 +284,8 @@ func (s *SQLStore) loadHopCustomRecords(ctx context.Context, db SQLQueries,
 }
 
 // loadRouteCustomRecords loads route-level first hop custom records for all
-// attempts.
+// attempts. It uses a batch query to fetch all custom records for the given
+// attempt indices.
 func (s *SQLStore) loadRouteCustomRecords(ctx context.Context, db SQLQueries,
 	attemptIndices []int64, batchData *paymentsBatchData) error {
 
@@ -309,6 +314,7 @@ func (s *SQLStore) loadRouteCustomRecords(ctx context.Context, db SQLQueries,
 }
 
 // loadPaymentsBatchData loads all related data for multiple payments in batch.
+// It uses a batch queries to fetch all data for the given payment IDs.
 func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 	paymentIDs []int64) (*paymentsBatchData, error) {
 

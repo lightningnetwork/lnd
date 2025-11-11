@@ -205,7 +205,6 @@ type MigrationTracker struct {
 
 type Payment struct {
 	ID                int64
-	IntentID          sql.NullInt64
 	AmountMsat        int64
 	CreatedAt         time.Time
 	PaymentIdentifier []byte
@@ -258,6 +257,7 @@ type PaymentHtlcAttemptResolution struct {
 
 type PaymentIntent struct {
 	ID            int64
+	PaymentID     int64
 	IntentType    int16
 	IntentPayload []byte
 }

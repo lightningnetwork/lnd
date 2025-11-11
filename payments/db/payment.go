@@ -744,6 +744,13 @@ func verifyAttempt(payment *MPPayment, attempt *HTLCAttemptInfo) error {
 	// in the split payment is correct.
 	isBlinded := len(attempt.Route.FinalHop().EncryptedData) != 0
 
+	// For blinded payments, the last hop must set the total amount.
+	if isBlinded {
+		if attempt.Route.FinalHop().TotalAmtMsat == 0 {
+			return ErrBlindedPaymentMissingTotalAmount
+		}
+	}
+
 	// Make sure any existing shards match the new one with regards
 	// to MPP options.
 	mpp := attempt.Route.FinalHop().MPP

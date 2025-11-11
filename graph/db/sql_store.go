@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
@@ -2310,8 +2311,27 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 	ctx := context.TODO()
 
+	// Check the cache first with a read lock.
+	s.cacheMu.RLock()
+	cached, err := s.publicNodeCache.Get(pubKey)
+
+	switch {
+	case errors.Is(err, cache.ErrElementNotFound):
+		// Cache not found, so we'll need to fetch the node from the
+		// database.
+
+	case cached != nil:
+		s.cacheMu.RUnlock()
+		return cached.isPublic, nil
+
+	case err != nil:
+		log.Warnf("unable to check cache if node is public: %w", err)
+	}
+
+	s.cacheMu.RUnlock()
+
 	var isPublic bool
-	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+	err = s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
 		isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
 
@@ -2321,6 +2341,17 @@ func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 		return false, fmt.Errorf("unable to check if node is "+
 			"public: %w", err)
 	}
+
+	// Store the result in cache.
+	s.cacheMu.Lock()
+	_, err = s.publicNodeCache.Put(pubKey, &cachedPublicNode{
+		isPublic: isPublic,
+	})
+	if err != nil {
+		log.Warnf("unable to store node info in cache: %w", err)
+	}
+
+	s.cacheMu.Unlock()
 
 	return isPublic, nil
 }

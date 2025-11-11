@@ -31,7 +31,8 @@ type ControlTower interface {
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	//
 	// NOTE: Subscribers should be notified by the new state of the payment.
-	RegisterAttempt(lntypes.Hash, *paymentsdb.HTLCAttemptInfo) error
+	RegisterAttempt(context.Context, lntypes.Hash,
+		*paymentsdb.HTLCAttemptInfo) error
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
 	// this is a multi shard payment, this might implicitly mean the the
@@ -196,13 +197,13 @@ func (p *controlTower) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the
 // DB.
-func (p *controlTower) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *paymentsdb.HTLCAttemptInfo) error {
+func (p *controlTower) RegisterAttempt(ctx context.Context,
+	paymentHash lntypes.Hash, attempt *paymentsdb.HTLCAttemptInfo) error {
 
 	p.paymentsMtx.Lock(paymentHash)
 	defer p.paymentsMtx.Unlock(paymentHash)
 
-	payment, err := p.db.RegisterAttempt(paymentHash, attempt)
+	payment, err := p.db.RegisterAttempt(ctx, paymentHash, attempt)
 	if err != nil {
 		return err
 	}

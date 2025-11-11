@@ -84,6 +84,12 @@ var (
 	ErrMixedBlindedAndNonBlindedPayments = errors.New("mixed blinded and " +
 		"non-blinded payments")
 
+	// ErrBlindedPaymentMissingTotalAmount is returned if we try to
+	// register a blinded payment attempt where the final hop doesn't set
+	// the total amount.
+	ErrBlindedPaymentMissingTotalAmount = errors.New("blinded payment " +
+		"final hop must set total amount")
+
 	// ErrMPPPaymentAddrMismatch is returned if we try to register an MPP
 	// shard where the payment address doesn't match existing shards.
 	ErrMPPPaymentAddrMismatch = errors.New("payment address mismatch")

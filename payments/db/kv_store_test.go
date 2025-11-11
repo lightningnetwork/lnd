@@ -85,7 +85,7 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 			t.Fatalf("unable to send htlc message: %v", err)
 		}
 		_, err = paymentDB.RegisterAttempt(
-			info.PaymentIdentifier, attempt,
+			ctx, info.PaymentIdentifier, attempt,
 		)
 		if err != nil {
 			t.Fatalf("unable to send htlc message: %v", err)

@@ -92,7 +92,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Register an attempt.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +223,9 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
 
 	// Register an attempt.
-	err = pControl.RegisterAttempt(info1.PaymentIdentifier, attempt1)
+	err = pControl.RegisterAttempt(
+		t.Context(), info1.PaymentIdentifier, attempt1,
+	)
 	require.NoError(t, err)
 
 	// Initiate a second payment after the subscription is already active.
@@ -232,7 +236,9 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register an attempt on the second payment.
-	err = pControl.RegisterAttempt(info2.PaymentIdentifier, attempt2)
+	err = pControl.RegisterAttempt(
+		t.Context(), info2.PaymentIdentifier, attempt2,
+	)
 	require.NoError(t, err)
 
 	// Mark the first payment as successful.
@@ -341,7 +347,9 @@ func TestKVStoreSubscribeAllImmediate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Register a payment update.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	require.NoError(t, err)
 
 	subscription, err := pControl.SubscribeAllPayments()
@@ -414,7 +422,9 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	subscription1.Close()
 
 	// Register a payment update.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	require.NoError(t, err)
 
 	// Assert only subscription 2 receives the update.
@@ -479,10 +489,10 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 	// making any attempts at all.
 	if registerAttempt {
 		// Register an attempt.
-		err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
-		if err != nil {
-			t.Fatal(err)
-		}
+		err = pControl.RegisterAttempt(
+			t.Context(), info.PaymentIdentifier, attempt,
+		)
+		require.NoError(t, err)
 
 		// Fail the payment attempt.
 		failInfo := paymentsdb.HTLCFailInfo{

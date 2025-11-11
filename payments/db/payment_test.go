@@ -151,7 +151,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 		require.NoError(t, err, "unable to send htlc message")
 
 		// Register and fail the first attempt for all payments.
-		_, err = p.RegisterAttempt(info.PaymentIdentifier, attempt)
+		_, err = p.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 		require.NoError(t, err, "unable to send htlc message")
 
 		htlcFailure := HTLCFailUnreadable
@@ -175,7 +175,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 		require.NoError(t, err)
 		attemptID++
 
-		_, err = p.RegisterAttempt(info.PaymentIdentifier, attempt)
+		_, err = p.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 		require.NoError(t, err, "unable to send htlc message")
 
 		switch payments[i].status {
@@ -592,7 +592,7 @@ func TestMPPRecordValidation(t *testing.T) {
 		info.Value, [32]byte{1},
 	)
 
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
 
 	// Now try to register a non-MPP attempt, which should fail.
@@ -604,21 +604,27 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	attempt2.Route.FinalHop().MPP = nil
 
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt2)
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt2,
+	)
 	require.ErrorIs(t, err, ErrMPPayment)
 
 	// Try to register attempt one with a different payment address.
 	attempt2.Route.FinalHop().MPP = record.NewMPP(
 		info.Value, [32]byte{2},
 	)
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt2)
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt2,
+	)
 	require.ErrorIs(t, err, ErrMPPPaymentAddrMismatch)
 
 	// Try registering one with a different total amount.
 	attempt2.Route.FinalHop().MPP = record.NewMPP(
 		info.Value/2, [32]byte{1},
 	)
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt2)
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt2,
+	)
 	require.ErrorIs(t, err, ErrMPPTotalAmountMismatch)
 
 	// Create and init a new payment. This time we'll check that we cannot
@@ -641,7 +647,9 @@ func TestMPPRecordValidation(t *testing.T) {
 	require.NoError(t, err, "unable to send htlc message")
 
 	attempt.Route.FinalHop().MPP = nil
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt,
+	)
 	require.NoError(t, err, "unable to send htlc message")
 
 	// Attempt to register an MPP attempt, which should fail.
@@ -655,7 +663,9 @@ func TestMPPRecordValidation(t *testing.T) {
 		info.Value, [32]byte{1},
 	)
 
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt2)
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt2,
+	)
 	require.ErrorIs(t, err, ErrNonMPPayment)
 }
 
@@ -1758,7 +1768,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	require.ErrorIs(t, err, ErrPaymentExists)
 
 	// Record an attempt.
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
 	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
@@ -1869,7 +1879,7 @@ func TestSwitchFail(t *testing.T) {
 	// Record a new attempt. In this test scenario, the attempt fails.
 	// However, this is not communicated to control tower in the current
 	// implementation. It only registers the initiation of the attempt.
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to register attempt")
 
 	htlcReason := HTLCFailUnreadable
@@ -1899,7 +1909,7 @@ func TestSwitchFail(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, attempt)
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
 	require.NoError(t, err, "unable to send htlc message")
 	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInFlight,
@@ -2017,7 +2027,7 @@ func TestMultiShard(t *testing.T) {
 			attempts = append(attempts, a)
 
 			_, err = paymentDB.RegisterAttempt(
-				info.PaymentIdentifier, a,
+				ctx, info.PaymentIdentifier, a,
 			)
 			if err != nil {
 				t.Fatalf("unable to send htlc message: %v", err)
@@ -2049,7 +2059,9 @@ func TestMultiShard(t *testing.T) {
 			info.Value, [32]byte{1},
 		)
 
-		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, b)
+		_, err = paymentDB.RegisterAttempt(
+			ctx, info.PaymentIdentifier, b,
+		)
 		require.ErrorIs(t, err, ErrValueExceedsAmt)
 
 		// Fail the second attempt.
@@ -2156,7 +2168,9 @@ func TestMultiShard(t *testing.T) {
 			info.Value, [32]byte{1},
 		)
 
-		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, b)
+		_, err = paymentDB.RegisterAttempt(
+			ctx, info.PaymentIdentifier, b,
+		)
 		if test.settleFirst {
 			require.ErrorIs(
 				t, err, ErrPaymentPendingSettled,
@@ -2255,7 +2269,9 @@ func TestMultiShard(t *testing.T) {
 		)
 
 		// Finally assert we cannot register more attempts.
-		_, err = paymentDB.RegisterAttempt(info.PaymentIdentifier, b)
+		_, err = paymentDB.RegisterAttempt(
+			ctx, info.PaymentIdentifier, b,
+		)
 		require.ErrorIs(t, err, registerErr)
 	}
 
@@ -2658,7 +2674,7 @@ func TestQueryPayments(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = paymentDB.RegisterAttempt(
-				lastPaymentInfo.PaymentIdentifier,
+				ctx, lastPaymentInfo.PaymentIdentifier,
 				&attempt.HTLCAttemptInfo,
 			)
 			require.NoError(t, err)
@@ -2842,7 +2858,7 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = paymentDB.RegisterAttempt(
-		info.PaymentIdentifier, attempt1,
+		ctx, info.PaymentIdentifier, attempt1,
 	)
 	require.NoError(t, err)
 
@@ -2850,7 +2866,7 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = paymentDB.RegisterAttempt(
-		info.PaymentIdentifier, attempt2,
+		ctx, info.PaymentIdentifier, attempt2,
 	)
 	require.NoError(t, err)
 

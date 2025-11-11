@@ -75,7 +75,8 @@ type PaymentControl interface {
 	//   - Result: 1700 sats sent, exceeding the payment amount
 	// The payment router/controller layer is responsible for ensuring
 	// serialized access per payment hash.
-	RegisterAttempt(lntypes.Hash, *HTLCAttemptInfo) (*MPPayment, error)
+	RegisterAttempt(context.Context, lntypes.Hash,
+		*HTLCAttemptInfo) (*MPPayment, error)
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
 	// this is a multi shard payment, this might implicitly mean the

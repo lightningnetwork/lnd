@@ -9,7 +9,7 @@ SELECT
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE (
     p.id > sqlc.narg('index_offset_get') OR
     sqlc.narg('index_offset_get') IS NULL
@@ -37,7 +37,7 @@ SELECT
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1;
 
 -- name: FetchPaymentsByIDs :many
@@ -46,7 +46,7 @@ SELECT
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
 
 -- name: CountPayments :one

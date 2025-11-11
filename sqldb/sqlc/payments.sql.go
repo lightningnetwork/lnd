@@ -317,11 +317,11 @@ func (q *Queries) FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds [
 
 const fetchPayment = `-- name: FetchPayment :one
 SELECT
-    p.id, p.intent_id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
+    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1
 `
 
@@ -336,7 +336,6 @@ func (q *Queries) FetchPayment(ctx context.Context, paymentIdentifier []byte) (F
 	var i FetchPaymentRow
 	err := row.Scan(
 		&i.Payment.ID,
-		&i.Payment.IntentID,
 		&i.Payment.AmountMsat,
 		&i.Payment.CreatedAt,
 		&i.Payment.PaymentIdentifier,
@@ -398,11 +397,11 @@ func (q *Queries) FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, pa
 
 const fetchPaymentsByIDs = `-- name: FetchPaymentsByIDs :many
 SELECT
-    p.id, p.intent_id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
+    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.id IN (/*SLICE:payment_ids*/?)
 `
 
@@ -433,7 +432,6 @@ func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([
 		var i FetchPaymentsByIDsRow
 		if err := rows.Scan(
 			&i.Payment.ID,
-			&i.Payment.IntentID,
 			&i.Payment.AmountMsat,
 			&i.Payment.CreatedAt,
 			&i.Payment.PaymentIdentifier,
@@ -510,11 +508,11 @@ const filterPayments = `-- name: FilterPayments :many
 */
 
 SELECT
-    p.id, p.intent_id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
+    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE (
     p.id > $1 OR
     $1 IS NULL
@@ -572,7 +570,6 @@ func (q *Queries) FilterPayments(ctx context.Context, arg FilterPaymentsParams) 
 		var i FilterPaymentsRow
 		if err := rows.Scan(
 			&i.Payment.ID,
-			&i.Payment.IntentID,
 			&i.Payment.AmountMsat,
 			&i.Payment.CreatedAt,
 			&i.Payment.PaymentIdentifier,

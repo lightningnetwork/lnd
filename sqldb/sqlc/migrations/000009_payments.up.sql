@@ -2,42 +2,11 @@
 -- Payment System Schema Migration
 -- ─────────────────────────────────────────────
 -- This migration creates the complete payment system schema including:
--- - Payment intents (BOLT 11/12 invoices, offers)
+-- - Payment intents (only BOLT 11 invoices for now)
 -- - Payment attempts and HTLC tracking
 -- - Route hops and custom TLV records
 -- - Resolution tracking for settled/failed payments
 -- ─────────────────────────────────────────────
-
--- ─────────────────────────────────────────────
--- Payment Intents Table
--- ─────────────────────────────────────────────
--- Stores the descriptor of what the payment is paying for.
--- Depending on the type, the payload might contain:
--- - BOLT 11 invoice data
--- - BOLT 12 offer data  
--- - NULL for legacy hash-only/keysend style payments
--- ─────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS payment_intents (
-    -- Primary key for the intent record
-    id INTEGER PRIMARY KEY,
-
-    -- The type of intent (e.g. 0 = bolt11_invoice, 1 = bolt12_offer)
-    -- Uses SMALLINT (int16) for efficient storage of enum values
-    intent_type SMALLINT NOT NULL,
-
-    -- The serialized payload for the payment intent
-    -- Content depends on type - could be invoice, offer, or NULL
-    intent_payload BLOB
-);
-
--- Index for efficient querying by intent type
-CREATE INDEX IF NOT EXISTS idx_payment_intents_type
-ON payment_intents(intent_type);
-
--- Unique constraint for deduplication of payment intents
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_intents_unique
-ON payment_intents(intent_type, intent_payload);
 
 -- ─────────────────────────────────────────────
 -- Payments Table
@@ -55,10 +24,6 @@ CREATE TABLE IF NOT EXISTS payments (
     -- Primary key for the payment record
     id INTEGER PRIMARY KEY,
 
-    -- Optional reference to the payment intent this payment was derived from
-    -- Links to BOLT 11 invoice, BOLT 12 offer, etc.
-    intent_id BIGINT REFERENCES payment_intents (id),
-
     -- The amount of the payment in millisatoshis
     amount_msat BIGINT NOT NULL,
 
@@ -70,19 +35,58 @@ CREATE TABLE IF NOT EXISTS payments (
     -- For AMP: the setID
     -- For future intent types: any unique payment-level key
     payment_identifier BLOB NOT NULL,
-    
+
     -- The reason for payment failure (only set if payment has failed)
     -- Integer enum type indicating failure reason
     fail_reason INTEGER,
 
     -- Ensure payment identifiers are unique across all payments
-    CONSTRAINT idx_payments_payment_identifier_unique 
+    CONSTRAINT idx_payments_payment_identifier_unique
     UNIQUE (payment_identifier)
 );
 
 -- Index for efficient querying by creation time (for chronological ordering)
-CREATE INDEX IF NOT EXISTS idx_payments_created_at 
+CREATE INDEX IF NOT EXISTS idx_payments_created_at
 ON payments(created_at);
+
+-- ─────────────────────────────────────────────
+-- Payment Intents Table
+-- ─────────────────────────────────────────────
+-- Stores the descriptor of what the payment is paying for.
+-- Depending on the type, the payload might contain:
+-- - BOLT 11 invoice data
+-- - BOLT 12 offer data
+-- - NULL for legacy hash-only/keysend style payments
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS payment_intents (
+    -- Primary key for the intent record
+    id INTEGER PRIMARY KEY,
+
+    -- Reference to the payment this intent belongs to (one-to-one relationship)
+    -- When the payment is deleted, the intent is automatically deleted
+    payment_id BIGINT NOT NULL REFERENCES payments (id) ON DELETE CASCADE,
+
+    -- The type of intent (e.g. 0 = bolt11_invoice, 1 = bolt12_invoice)
+    -- Uses SMALLINT (int16) for efficient storage of enum values
+    intent_type SMALLINT NOT NULL,
+
+    -- The serialized payload for the payment intent
+    -- Content depends on type - could be invoice, offer, or NULL
+    intent_payload BLOB,
+
+    -- Ensure one-to-one relationship: each payment has at most one intent.
+    -- Currently we only support one intent per payment this makes sure we do
+    -- not accidentally pay the same request multiple times. This currently
+    -- only has bolt 11 payment requests/invoices. But in the future this can
+    -- also include BOLT 12 offers/invoices.
+    CONSTRAINT idx_payment_intents_payment_id_unique
+    UNIQUE (payment_id)
+);
+
+-- Index for efficient querying by intent type
+CREATE INDEX IF NOT EXISTS idx_payment_intents_type
+ON payment_intents(intent_type);
 
 -- ─────────────────────────────────────────────
 -- Payment HTLC Attempts Table

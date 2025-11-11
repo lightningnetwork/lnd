@@ -584,6 +584,8 @@ func (p *paymentLifecycle) collectResult(
 func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 	remainingAmt lnwire.MilliSatoshi) (*paymentsdb.HTLCAttempt, error) {
 
+	ctx := context.TODO()
+
 	// If this route will consume the last remaining amount to send
 	// to the receiver, this will be our last shard (for now).
 	isLastAttempt := rt.ReceiverAmt() == remainingAmt
@@ -601,7 +603,7 @@ func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 	// Switch for its whereabouts. The route is needed to handle the result
 	// when it eventually comes back.
 	err = p.router.cfg.Control.RegisterAttempt(
-		p.identifier, &attempt.HTLCAttemptInfo,
+		ctx, p.identifier, &attempt.HTLCAttemptInfo,
 	)
 
 	return attempt, err

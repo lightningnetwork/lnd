@@ -1496,10 +1496,8 @@ func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 2 in the payment lifecycle control flow, called after InitPayment and
 // potentially multiple times for multi-path payments.
-func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
+func (s *SQLStore) RegisterAttempt(ctx context.Context, paymentHash lntypes.Hash,
 	attempt *HTLCAttemptInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 

@@ -1388,6 +1388,45 @@ func TestVerifyAttemptBlindedValidation(t *testing.T) {
 	require.NoError(t, verifyAttempt(payment, &matching))
 }
 
+// TestVerifyAttemptBlindedMissingTotalAmount tests that we return an error if
+// we try to register a blinded payment attempt where the final hop doesn't set
+// the total amount.
+func TestVerifyAttemptBlindedMissingTotalAmount(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(5000)
+
+	// Payment with no existing attempts.
+	payment := makePayment(total)
+
+	// Attempt with encrypted data (blinded payment) but missing total
+	// amount.
+	attemptMissingTotal := makeLastHopAttemptInfo(
+		1,
+		lastHopArgs{
+			amt:       2500,
+			total:     0,
+			encrypted: []byte{1, 2, 3},
+		},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &attemptMissingTotal),
+		ErrBlindedPaymentMissingTotalAmount,
+	)
+
+	// Attempt with encrypted data and valid total amount should succeed.
+	attemptWithTotal := makeLastHopAttemptInfo(
+		2,
+		lastHopArgs{
+			amt:       2500,
+			total:     total,
+			encrypted: []byte{4, 5, 6},
+		},
+	)
+	require.NoError(t, verifyAttempt(payment, &attemptWithTotal))
+}
+
 // TestVerifyAttemptBlindedMixedWithNonBlinded tests that we return an error if
 // we try to register a non-MPP attempt for a blinded payment.
 func TestVerifyAttemptBlindedMixedWithNonBlinded(t *testing.T) {

@@ -2116,6 +2116,10 @@
         "coin_selection_strategy": {
           "$ref": "#/definitions/lnrpcCoinSelectionStrategy",
           "description": "The strategy to use for selecting coins during sending the outputs."
+        },
+        "change_address": {
+          "type": "string",
+          "description": "An optional address to send the change to. If not specified, the change\nwill be sent to an address derived from the wallet."
         }
       }
     },

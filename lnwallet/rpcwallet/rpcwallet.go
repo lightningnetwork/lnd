@@ -112,80 +112,32 @@ func (r *RPCKeyRing) NewAddress(addrType lnwallet.AddressType, change bool,
 	return r.WalletController.NewAddress(addrType, change, account)
 }
 
-// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying out to
-// the specified outputs. In the case the wallet has insufficient funds, or the
-// outputs are non-standard, a non-nil error will be returned.
-//
-// NOTE: This method requires the global coin selection lock to be held.
-//
-// NOTE: This is a part of the WalletController interface.
-//
-// NOTE: This method only signs with BIP49/84 keys.
+// SendOutputs funds, signs, and broadcasts a Bitcoin transaction paying
+// out to the specified outputs using a wallet-generated change address.
 func (r *RPCKeyRing) SendOutputs(inputs fn.Set[wire.OutPoint],
-	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-	minConfs int32, label string,
-	strategy basewallet.CoinSelectionStrategy) (*wire.MsgTx, error) {
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string, strategy basewallet.CoinSelectionStrategy) (
+	*wire.MsgTx, error) {
 
-	tx, err := r.WalletController.SendOutputs(
+	return r.WalletController.SendOutputs(
 		inputs, outputs, feeRate, minConfs, label, strategy,
 	)
-	if err != nil && err != basewallet.ErrTxUnsigned {
-		return nil, err
-	}
-	if err == nil {
-		// This shouldn't happen since our wallet controller is watch-
-		// only and can't sign the TX.
-		return tx, nil
-	}
-
-	// We know at this point that we only have inputs from our own wallet.
-	// So we can just compute the input script using the remote signer.
-	outputFetcher := lnwallet.NewWalletPrevOutputFetcher(r.WalletController)
-	for i, txIn := range tx.TxIn {
-		signDesc := input.SignDescriptor{
-			HashType: txscript.SigHashAll,
-			SigHashes: txscript.NewTxSigHashes(
-				tx, outputFetcher,
-			),
-			PrevOutputFetcher: outputFetcher,
-		}
-
-		// We can only sign this input if it's ours, so we'll ask the
-		// watch-only wallet if it can map this outpoint into a coin we
-		// own. If not, then we can't continue because our wallet state
-		// is out of sync.
-		info, err := r.WalletController.FetchOutpointInfo(
-			&txIn.PreviousOutPoint,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error looking up utxo: %w", err)
-		}
-
-		if txscript.IsPayToTaproot(info.PkScript) {
-			signDesc.HashType = txscript.SigHashDefault
-		}
-
-		// Now that we know the input is ours, we'll populate the
-		// signDesc with the per input unique information.
-		signDesc.Output = &wire.TxOut{
-			Value:    int64(info.Value),
-			PkScript: info.PkScript,
-		}
-		signDesc.InputIndex = i
-
-		// Finally, we'll sign the input as is, and populate the input
-		// with the witness and sigScript (if needed).
-		inputScript, err := r.ComputeInputScript(tx, &signDesc)
-		if err != nil {
-			return nil, err
-		}
-
-		txIn.SignatureScript = inputScript.SigScript
-		txIn.Witness = inputScript.Witness
-	}
-
-	return tx, r.WalletController.PublishTransaction(tx, label)
 }
+
+// SendOutputsWithChangeAddr is like SendOutputs but allows specifying a
+// custom change address. If changeAddr is nil, behaves like SendOutputs.
+func (r *RPCKeyRing) SendOutputsWithChangeAddr(inputs fn.Set[wire.OutPoint],
+	outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string, strategy basewallet.CoinSelectionStrategy,
+	changeAddr btcutil.Address) (*wire.MsgTx, error) {
+
+	return r.WalletController.SendOutputsWithChangeAddr(
+		inputs, outputs, feeRate, minConfs, label, strategy, changeAddr,
+	)
+}
+
+	
+
 
 // SignPsbt expects a partial transaction with all inputs and outputs fully
 // declared and tries to sign all unsigned inputs that have all required fields

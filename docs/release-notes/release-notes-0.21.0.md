@@ -26,7 +26,17 @@
 
 ## RPC Additions
 
+* [Add sat_per_kw option for more fine granular control of transaction 
+  fees](https://github.com/lightningnetwork/lnd/pull/10067). This option is added for the sendcoins, sendmany, openchannel, batchopenchannel,
+  closechannel, closeallchannels and wallet bumpfee commands. Also add
+  max_fee_per_kw for closechannel command.
+
 ## lncli Additions
+
+* The [--sat_per_vbyte](https://github.com/lightningnetwork/lnd/pull/10067) 
+  option now supports fractional values (e.g. 1.05).
+  This option is added for the sendcoins, sendmany, openchannel,
+  batchopenchannel, closechannel, closeallchannels and wallet bumpfee commands. The max_fee_rate argument for closechannel also supports fractional values.
 
 # Improvements
 ## Functional Updates
@@ -41,6 +51,10 @@
 
 ## Deprecations
 
+### ⚠️ **Warning:** The deprecated fee rate option --sat_per_byte will be removed in release version **0.22**
+
+  The following RPCs will be impacted: sendcoins, sendmany, openchannel, closechannel, closeallchannels and wallet bumpfee.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
@@ -53,3 +67,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+Pins

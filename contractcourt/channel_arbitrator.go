@@ -2466,8 +2466,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				var chanType channeldb.ChannelType
+				if chanState != nil {
+					chanType = chanState.ChanType
+				}
+
 				resolver := newSuccessResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType, resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2494,8 +2499,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				var chanType channeldb.ChannelType
+				if chanState != nil {
+					chanType = chanState.ChanType
+				}
+
 				resolver := newTimeoutResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType, resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)
@@ -2534,8 +2544,13 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				var chanType channeldb.ChannelType
+				if chanState != nil {
+					chanType = chanState.ChanType
+				}
+
 				resolver := newIncomingContestResolver(
-					resolution, height, htlc,
+					resolution, height, htlc, chanType,
 					resolverCfg,
 				)
 				if chanState != nil {
@@ -2566,8 +2581,12 @@ func (c *ChannelArbitrator) prepContractResolutions(
 					continue
 				}
 
+				var chanType channeldb.ChannelType
+				if chanState != nil {
+					chanType = chanState.ChanType
+				}
 				resolver := newOutgoingContestResolver(
-					resolution, height, htlc, resolverCfg,
+					resolution, height, htlc, chanType, resolverCfg,
 				)
 				if chanState != nil {
 					resolver.SupplementState(chanState)

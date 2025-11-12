@@ -307,6 +307,189 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			expectsChanType:   nil,
 			expectsErr:        nil,
 		},
+
+		// Test cases for final taproot channels with explicit negotiation.
+		{
+			name: "explicit simple taproot final only",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredFinal,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+				),
+			),
+			expectsErr: nil,
+		},
+		{
+			name: "explicit simple taproot final with scid alias",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredFinal,
+				lnwire.ScidAliasRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ScidAliasOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ScidAliasOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.ScidAliasRequired,
+				),
+			),
+			scidAlias:  true,
+			expectsErr: nil,
+		},
+		{
+			name: "explicit simple taproot final with zero conf",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredFinal,
+				lnwire.ZeroConfRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ZeroConfOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ZeroConfOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.ZeroConfRequired,
+				),
+			),
+			zeroConf:   true,
+			expectsErr: nil,
+		},
+		{
+			name: "explicit simple taproot final with scid alias and zero conf",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredFinal,
+				lnwire.ScidAliasRequired,
+				lnwire.ZeroConfRequired,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ScidAliasOptional,
+				lnwire.ZeroConfOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ScidAliasOptional,
+				lnwire.ZeroConfOptional,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+					lnwire.ScidAliasRequired,
+					lnwire.ZeroConfRequired,
+				),
+			),
+			scidAlias:  true,
+			zeroConf:   true,
+			expectsErr: nil,
+		},
+		{
+			name: "explicit simple taproot final missing remote support",
+			channelFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsRequiredFinal,
+			),
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalStaging,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsErr: errUnsupportedChannelType,
+		},
+
+		// Test cases for implicit negotiation preferring final over staging.
+		{
+			name:            "implicit final taproot preferred over staging",
+			channelFeatures: nil,
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.SimpleTaprootChannelsOptionalStaging,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.SimpleTaprootChannelsOptionalStaging,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+				),
+			),
+			expectsErr: nil,
+		},
+		{
+			name:            "implicit staging taproot when final not supported",
+			channelFeatures: nil,
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.SimpleTaprootChannelsOptionalStaging,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalStaging,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaproot,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredStaging,
+				),
+			),
+			expectsErr: nil,
+		},
+		{
+			name:            "implicit final taproot only",
+			channelFeatures: nil,
+			localFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			remoteFeatures: lnwire.NewRawFeatureVector(
+				lnwire.SimpleTaprootChannelsOptionalFinal,
+				lnwire.ExplicitChannelTypeOptional,
+			),
+			expectsCommitType: lnwallet.CommitmentTypeSimpleTaprootFinal,
+			expectsChanType: (*lnwire.ChannelType)(
+				lnwire.NewRawFeatureVector(
+					lnwire.SimpleTaprootChannelsRequiredFinal,
+				),
+			),
+			expectsErr: nil,
+		},
 	}
 
 	for _, testCase := range testCases {

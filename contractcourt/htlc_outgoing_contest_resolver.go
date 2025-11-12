@@ -24,10 +24,10 @@ type htlcOutgoingContestResolver struct {
 // resolver.
 func newOutgoingContestResolver(res lnwallet.OutgoingHtlcResolution,
 	broadcastHeight uint32, htlc channeldb.HTLC,
-	resCfg ResolverConfig) *htlcOutgoingContestResolver {
+	chanType channeldb.ChannelType, resCfg ResolverConfig) *htlcOutgoingContestResolver {
 
 	timeout := newTimeoutResolver(
-		res, broadcastHeight, htlc, resCfg,
+		res, broadcastHeight, htlc, chanType, resCfg,
 	)
 
 	return &htlcOutgoingContestResolver{

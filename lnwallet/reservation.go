@@ -49,8 +49,15 @@ const (
 
 	// CommitmentTypeSimpleTaproot is the base commitment type for the
 	// channels that use a musig2 funding output and the tapscript tree
-	// where relevant for the commitment transaction pk scripts.
+	// where relevant for the commitment transaction pk scripts. This is
+	// the staging version using feature bits 180/181.
 	CommitmentTypeSimpleTaproot
+
+	// CommitmentTypeSimpleTaprootFinal is the production commitment type for
+	// taproot channels that use a musig2 funding output and the tapscript tree
+	// where relevant for the commitment transaction pk scripts. This uses the
+	// final feature bits 80/81 and production scripts.
+	CommitmentTypeSimpleTaprootFinal
 
 	// CommitmentTypeSimpleTaprootOverlay builds on the existing
 	// CommitmentTypeSimpleTaproot type but layers on a special overlay
@@ -66,6 +73,7 @@ func (c CommitmentType) HasStaticRemoteKey() bool {
 		CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
 		CommitmentTypeSimpleTaproot,
+		CommitmentTypeSimpleTaprootFinal,
 		CommitmentTypeSimpleTaprootOverlay:
 
 		return true
@@ -81,6 +89,7 @@ func (c CommitmentType) HasAnchors() bool {
 	case CommitmentTypeAnchorsZeroFeeHtlcTx,
 		CommitmentTypeScriptEnforcedLease,
 		CommitmentTypeSimpleTaproot,
+		CommitmentTypeSimpleTaprootFinal,
 		CommitmentTypeSimpleTaprootOverlay:
 
 		return true
@@ -93,6 +102,7 @@ func (c CommitmentType) HasAnchors() bool {
 // IsTaproot returns true if the channel type is a taproot channel.
 func (c CommitmentType) IsTaproot() bool {
 	return c == CommitmentTypeSimpleTaproot ||
+		c == CommitmentTypeSimpleTaprootFinal ||
 		c == CommitmentTypeSimpleTaprootOverlay
 }
 
@@ -109,6 +119,8 @@ func (c CommitmentType) String() string {
 		return "script-enforced-lease"
 	case CommitmentTypeSimpleTaproot:
 		return "simple-taproot"
+	case CommitmentTypeSimpleTaprootFinal:
+		return "simple-taproot-final"
 	case CommitmentTypeSimpleTaprootOverlay:
 		return "simple-taproot-overlay"
 	default:
@@ -441,6 +453,11 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	if req.CommitType.IsTaproot() {
 		chanType |= channeldb.SimpleTaprootFeatureBit
+
+		// Set the final bit if this is the production taproot version.
+		if req.CommitType == CommitmentTypeSimpleTaprootFinal {
+			chanType |= channeldb.TaprootFinalBit
+		}
 	}
 
 	if req.ZeroConf {

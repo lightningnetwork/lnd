@@ -275,8 +275,13 @@ const (
 	HtlcTimeoutWeight = 663
 
 	// TaprootHtlcTimeoutWeight is the total weight of the taproot HTLC
-	// timeout transaction.
+	// timeout transaction (using staging scripts).
 	TaprootHtlcTimeoutWeight = 645
+
+	// TaprootHtlcTimeoutWeightFinal is the total weight of the taproot HTLC
+	// timeout transaction using production scripts (with OP_CHECKSIGVERIFY
+	// instead of OP_CHECKSIG + OP_DROP).
+	TaprootHtlcTimeoutWeightFinal = 641
 
 	// HtlcSuccessWeight 703 weight
 	// HtlcSuccessWeight is the weight of the HTLC success transaction
@@ -284,8 +289,13 @@ const (
 	HtlcSuccessWeight = 703
 
 	// TaprootHtlcSuccessWeight is the total weight of the taproot HTLC
-	// success transaction.
+	// success transaction (using staging scripts).
 	TaprootHtlcSuccessWeight = 705
+
+	// TaprootHtlcSuccessWeightFinal is the total weight of the taproot HTLC
+	// success transaction using production scripts (with OP_CHECKSIGVERIFY
+	// instead of OP_CHECKSIG + OP_DROP).
+	TaprootHtlcSuccessWeightFinal = 701
 
 	// HtlcConfirmedScriptOverhead 3 bytes
 	// HtlcConfirmedScriptOverhead is the extra length of an HTLC script
@@ -729,6 +739,12 @@ const (
 	TaprootHtlcOfferedRemoteTimeoutScriptSize = (1 + 32 + 1 + 1 + 1 + 1 +
 		1 + 4 + 1 + 1)
 
+	// TaprootHtlcOfferedRemoteTimeoutScriptSizeFinal: 40 bytes (production scripts)
+	// Same as staging but replaces OP_CHECKSIG + OP_DROP patterns with
+	// OP_CHECKSIGVERIFY and OP_CHECKLOCKTIMEVERIFY + OP_DROP with
+	// OP_CHECKLOCKTIMEVERIFY, saving 2 bytes total.
+	TaprootHtlcOfferedRemoteTimeoutScriptSizeFinal = TaprootHtlcOfferedRemoteTimeoutScriptSize - 2
+
 	// TaprootHtlcOfferedRemoteTimeoutwitSize: 176 bytes
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
@@ -742,6 +758,11 @@ const (
 		TaprootHtlcOfferedRemoteTimeoutScriptSize + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
+	// TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal: 174 bytes (production scripts)
+	TaprootHtlcOfferedRemoteTimeoutWitnessSizeFinal = 1 + 1 + 65 + 1 +
+		TaprootHtlcOfferedRemoteTimeoutScriptSizeFinal + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
 	// TaprootHtlcOfferedLocalTmeoutScriptSize:
 	//	- OP_DATA: 1 byte (pub key len)
 	//	- local_key: 32 bytes
@@ -750,6 +771,11 @@ const (
 	//	- remote_key: 32 bytes
 	//	- OP_CHECKSIG: 1 byte
 	TaprootHtlcOfferedLocalTimeoutScriptSize = 1 + 32 + 1 + 1 + 32 + 1
+
+	// TaprootHtlcOfferedLocalTimeoutScriptSizeFinal: 66 bytes (production scripts)
+	// Same as staging but replaces OP_CHECKSIG + OP_DROP with OP_CHECKSIGVERIFY,
+	// saving 1 byte.
+	TaprootHtlcOfferedLocalTimeoutScriptSizeFinal = TaprootHtlcOfferedLocalTimeoutScriptSize - 1
 
 	// TaprootOfferedLocalTimeoutWitnessSize
 	//      - number_of_witness_elements: 1 byte
@@ -764,6 +790,11 @@ const (
 	//      - sibilng_merkle_proof: 32 bytes
 	TaprootOfferedLocalTimeoutWitnessSize = 1 + 1 + 65 + 1 + 65 + 1 +
 		TaprootHtlcOfferedLocalTimeoutScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootOfferedLocalTimeoutWitnessSizeFinal: 235 bytes (production scripts)
+	TaprootOfferedLocalTimeoutWitnessSizeFinal = 1 + 1 + 65 + 1 + 65 + 1 +
+		TaprootHtlcOfferedLocalTimeoutScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
 	// TaprootHtlcAcceptedRemoteSuccessScriptSize:
@@ -784,6 +815,11 @@ const (
 	TaprootHtlcAcceptedRemoteSuccessScriptSize = 1 + 1 + 1 + 1 + 1 + 1 +
 		1 + 20 + 1 + 32 + 1 + 1 + 1 + 1
 
+	// TaprootHtlcAcceptedRemoteSuccessScriptSizeFinal: 42 bytes (production scripts)
+	// Same as staging but replaces OP_CHECKSIG + OP_DROP with OP_CHECKSIGVERIFY
+	// and OP_CSV + OP_DROP with OP_CSV, saving 2 bytes total.
+	TaprootHtlcAcceptedRemoteSuccessScriptSizeFinal = TaprootHtlcAcceptedRemoteSuccessScriptSize - 2
+
 	// TaprootHtlcAcceptedRemoteSuccessScriptSize:
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
@@ -797,6 +833,11 @@ const (
 	//      - sibilng_merkle_proof: 32 bytes
 	TaprootHtlcAcceptedRemoteSuccessWitnessSize = 1 + 1 + 65 + 1 + 32 + 1 +
 		TaprootHtlcAcceptedRemoteSuccessScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootHtlcAcceptedRemoteSuccessWitnessSizeFinal: 166 bytes (production scripts)
+	TaprootHtlcAcceptedRemoteSuccessWitnessSizeFinal = 1 + 1 + 65 + 1 + 32 + 1 +
+		TaprootHtlcAcceptedRemoteSuccessScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 
 	// TaprootHtlcAcceptedLocalSuccessScriptSize:
@@ -817,6 +858,11 @@ const (
 	TaprootHtlcAcceptedLocalSuccessScriptSize = 1 + 1 + 1 + 1 + 1 + 1 +
 		20 + 1 + 1 + 32 + 1 + 1 + 32 + 1
 
+	// TaprootHtlcAcceptedLocalSuccessScriptSizeFinal: 73 bytes (production scripts)
+	// Same as staging but replaces OP_CHECKSIG + OP_DROP patterns with
+	// OP_CHECKSIGVERIFY, saving 1 byte.
+	TaprootHtlcAcceptedLocalSuccessScriptSizeFinal = TaprootHtlcAcceptedLocalSuccessScriptSize - 1
+
 	// TaprootHtlcAcceptedLocalSuccessWitnessSize:
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
@@ -832,6 +878,11 @@ const (
 	//      - sibilng_merkle_proof: 32 bytes
 	TaprootHtlcAcceptedLocalSuccessWitnessSize = 1 + 1 + 65 + 1 + 65 + 1 +
 		32 + 1 + TaprootHtlcAcceptedLocalSuccessScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal: 271 bytes (production scripts)
+	TaprootHtlcAcceptedLocalSuccessWitnessSizeFinal = 1 + 1 + 65 + 1 + 65 + 1 +
+		32 + 1 + TaprootHtlcAcceptedLocalSuccessScriptSizeFinal + 1 +
 		TaprootBaseControlBlockWitnessSize + 32
 )
 

@@ -48,6 +48,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 		TestFunc: testLocalClaimOutgoingHTLCSimpleTaprootZeroConf,
 	},
 	{
+		Name:     "local claim outgoing htlc simple taproot final",
+		TestFunc: testLocalClaimOutgoingHTLCSimpleTaprootFinal,
+	},
+	{
+		Name:     "local claim outgoing htlc simple taproot final zero conf",
+		TestFunc: testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf,
+	},
+	{
 		Name:     "local claim outgoing htlc leased",
 		TestFunc: testLocalClaimOutgoingHTLCLeased,
 	},
@@ -70,6 +78,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 	{
 		Name:     "receiver preimage claim simple taproot zero conf",
 		TestFunc: testMultiHopReceiverPreimageClaimSimpleTaprootZeroConf,
+	},
+	{
+		Name:     "receiver preimage claim simple taproot final",
+		TestFunc: testMultiHopReceiverPreimageClaimSimpleTaprootFinal,
+	},
+	{
+		Name:     "receiver preimage claim simple taproot final zero conf",
+		TestFunc: testMultiHopReceiverPreimageClaimSimpleTaprootFinalZeroConf,
 	},
 	{
 		Name:     "receiver preimage claim leased",
@@ -96,6 +112,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 		TestFunc: testLocalForceCloseBeforeTimeoutSimpleTaprootZeroConf,
 	},
 	{
+		Name:     "local force close before timeout simple taproot final",
+		TestFunc: testLocalForceCloseBeforeTimeoutSimpleTaprootFinal,
+	},
+	{
+		Name:     "local force close before timeout simple taproot final zero conf",
+		TestFunc: testLocalForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf,
+	},
+	{
 		Name:     "local force close before timeout leased",
 		TestFunc: testLocalForceCloseBeforeTimeoutLeased,
 	},
@@ -118,6 +142,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 	{
 		Name:     "remote force close before timeout simple taproot zero conf",
 		TestFunc: testRemoteForceCloseBeforeTimeoutSimpleTaprootZeroConf,
+	},
+	{
+		Name:     "remote force close before timeout simple taproot final",
+		TestFunc: testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal,
+	},
+	{
+		Name:     "remote force close before timeout simple taproot final zero conf",
+		TestFunc: testRemoteForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf,
 	},
 	{
 		Name:     "remote force close before timeout leased",
@@ -144,6 +176,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 		TestFunc: testLocalClaimIncomingHTLCSimpleTaprootZeroConf,
 	},
 	{
+		Name:     "local claim incoming htlc simple taproot final",
+		TestFunc: testLocalClaimIncomingHTLCSimpleTaprootFinal,
+	},
+	{
+		Name:     "local claim incoming htlc simple taproot final zero conf",
+		TestFunc: testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf,
+	},
+	{
 		Name:     "local claim incoming htlc leased",
 		TestFunc: testLocalClaimIncomingHTLCLeased,
 	},
@@ -168,6 +208,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 		TestFunc: testLocalPreimageClaimSimpleTaprootZeroConf,
 	},
 	{
+		Name:     "local preimage claim simple taproot final",
+		TestFunc: testLocalPreimageClaimSimpleTaprootFinal,
+	},
+	{
+		Name:     "local preimage claim simple taproot final zero conf",
+		TestFunc: testLocalPreimageClaimSimpleTaprootFinalZeroConf,
+	},
+	{
 		Name:     "local preimage claim leased",
 		TestFunc: testLocalPreimageClaimLeased,
 	},
@@ -190,6 +238,14 @@ var multiHopForceCloseTestCases = []*lntest.TestCase{
 	{
 		Name:     "htlc aggregation simple taproot zero conf",
 		TestFunc: testHtlcAggregaitonSimpleTaprootZeroConf,
+	},
+	{
+		Name:     "htlc aggregation simple taproot final",
+		TestFunc: testHtlcAggregaitonSimpleTaprootFinal,
+	},
+	{
+		Name:     "htlc aggregation simple taproot final zero conf",
+		TestFunc: testHtlcAggregaitonSimpleTaprootFinalZeroConf,
 	},
 	{
 		Name:     "htlc aggregation leased",
@@ -285,6 +341,53 @@ func testLocalClaimOutgoingHTLCSimpleTaprootZeroConf(ht *lntest.HarnessTest) {
 	runLocalClaimOutgoingHTLC(ht, cfgs, openChannelParams)
 }
 
+// testLocalClaimOutgoingHTLCSimpleTaprootFinal tests
+// `runLocalClaimOutgoingHTLC` with production simple taproot channel.
+func testLocalClaimOutgoingHTLCSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runLocalClaimOutgoingHTLC(ht, cfgs, openChannelParams)
+}
+
+// testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf tests
+// `runLocalClaimOutgoingHTLC` with zero-conf production simple taproot channel.
+func testLocalClaimOutgoingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runLocalClaimOutgoingHTLC(ht, cfgs, openChannelParams)
+}
+
 // testLocalClaimOutgoingHTLCLeased tests `runLocalClaimOutgoingHTLC` with
 // script enforced lease channel.
 func testLocalClaimOutgoingHTLCLeased(ht *lntest.HarnessTest) {
@@ -361,7 +464,8 @@ func runLocalClaimOutgoingHTLC(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -617,6 +721,55 @@ func testMultiHopReceiverPreimageClaimSimpleTaprootZeroConf(
 	runMultiHopReceiverPreimageClaim(ht, cfgs, openChannelParams)
 }
 
+// testMultiHopReceiverPreimageClaimSimpleTaprootFinal tests
+// `runMultiHopReceiverPreimageClaim` with production simple taproot channels.
+func testMultiHopReceiverPreimageClaimSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runMultiHopReceiverPreimageClaim(ht, cfgs, openChannelParams)
+}
+
+// testMultiHopReceiverPreimageClaimSimpleTaprootFinalZeroConf tests
+// `runMultiHopReceiverPreimageClaim` with zero-conf production simple taproot
+// channels.
+func testMultiHopReceiverPreimageClaimSimpleTaprootFinalZeroConf(
+	ht *lntest.HarnessTest) {
+
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased
+	// channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runMultiHopReceiverPreimageClaim(ht, cfgs, openChannelParams)
+}
+
 // testMultiHopReceiverPreimageClaimLeased tests
 // `runMultiHopReceiverPreimageClaim` with script enforce lease channels.
 func testMultiHopReceiverPreimageClaimLeased(ht *lntest.HarnessTest) {
@@ -691,7 +844,8 @@ func runMultiHopReceiverPreimageClaim(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -972,6 +1126,56 @@ func testLocalForceCloseBeforeTimeoutSimpleTaprootZeroConf(
 	runLocalForceCloseBeforeHtlcTimeout(ht, cfgs, params)
 }
 
+// testLocalForceCloseBeforeTimeoutSimpleTaprootFinal tests
+// `runLocalForceCloseBeforeHtlcTimeout` with production simple taproot channel.
+func testLocalForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runLocalForceCloseBeforeHtlcTimeout(ht, cfgs, params)
+}
+
+// testLocalForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf tests
+// `runLocalForceCloseBeforeHtlcTimeout` with zero-conf production simple
+// taproot channel.
+func testLocalForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf(
+	ht *lntest.HarnessTest) {
+
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runLocalForceCloseBeforeHtlcTimeout(ht, cfgs, params)
+}
+
 // testLocalForceCloseBeforeTimeoutLeased tests
 // `runLocalForceCloseBeforeHtlcTimeout` with script enforced lease channel.
 func testLocalForceCloseBeforeTimeoutLeased(ht *lntest.HarnessTest) {
@@ -1041,7 +1245,8 @@ func runLocalForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -1311,6 +1516,56 @@ func testRemoteForceCloseBeforeTimeoutSimpleTaproot(ht *lntest.HarnessTest) {
 	runRemoteForceCloseBeforeHtlcTimeout(ht, cfgs, params)
 }
 
+// testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal tests
+// `runRemoteForceCloseBeforeHtlcTimeout` with production simple taproot channel.
+func testRemoteForceCloseBeforeTimeoutSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runRemoteForceCloseBeforeHtlcTimeout(ht, cfgs, params)
+}
+
+// testRemoteForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf tests
+// `runRemoteForceCloseBeforeHtlcTimeout` with zero-conf production simple
+// taproot channel.
+func testRemoteForceCloseBeforeTimeoutSimpleTaprootFinalZeroConf(
+	ht *lntest.HarnessTest) {
+
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgCarol := append([]string{"--hodl.exit-settle"}, cfg...)
+	cfgs := [][]string{cfg, cfg, cfgCarol}
+
+	runRemoteForceCloseBeforeHtlcTimeout(ht, cfgs, params)
+}
+
 // testRemoteForceCloseBeforeTimeoutLeasedZeroConf tests
 // `runRemoteForceCloseBeforeHtlcTimeout` with zero-conf script enforced lease
 // channel.
@@ -1377,7 +1632,8 @@ func runRemoteForceCloseBeforeHtlcTimeout(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -1608,6 +1864,52 @@ func testLocalClaimIncomingHTLCSimpleTaproot(ht *lntest.HarnessTest) {
 	runLocalClaimIncomingHTLC(ht, cfgs, params)
 }
 
+// testLocalClaimIncomingHTLCSimpleTaprootFinal tests
+// `runLocalClaimIncomingHTLC` with production simple taproot channel.
+func testLocalClaimIncomingHTLCSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runLocalClaimIncomingHTLC(ht, cfgs, params)
+}
+
+// testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf tests
+// `runLocalClaimIncomingHTLC` with zero-conf production simple taproot channel.
+func testLocalClaimIncomingHTLCSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and simple taproot
+	// channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runLocalClaimIncomingHTLC(ht, cfgs, params)
+}
+
 // runLocalClaimIncomingHTLC tests that in a multi-hop HTLC scenario, if we
 // force close a channel with an incoming HTLC, and later find out the preimage
 // via the witness beacon, we properly settle the HTLC on-chain using the HTLC
@@ -1633,7 +1935,8 @@ func runLocalClaimIncomingHTLC(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -2236,6 +2539,51 @@ func testLocalPreimageClaimSimpleTaproot(ht *lntest.HarnessTest) {
 	runLocalPreimageClaim(ht, cfgs, params)
 }
 
+// testLocalPreimageClaimSimpleTaprootFinal tests `runLocalPreimageClaim` with
+// production simple taproot channel.
+func testLocalPreimageClaimSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runLocalPreimageClaim(ht, cfgs, params)
+}
+
+// testLocalPreimageClaimSimpleTaprootFinalZeroConf tests
+// `runLocalPreimageClaim` with zero-conf production simple taproot channel.
+func testLocalPreimageClaimSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runLocalPreimageClaim(ht, cfgs, params)
+}
+
 // runLocalPreimageClaim tests that in the multi-hop HTLC scenario, if the
 // remote party goes to chain while we have an incoming HTLC, then when we
 // found out the preimage via the witness beacon, we properly settle the HTLC
@@ -2262,7 +2610,8 @@ func runLocalPreimageClaim(ht *lntest.HarnessTest,
 	// If this is a taproot channel, then we'll need to make some manual
 	// route hints so Alice can actually find a route.
 	var routeHints []*lnrpc.RouteHint
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		routeHints = makeRouteHints(bob, carol, params.ZeroConf)
 	}
 
@@ -2808,6 +3157,51 @@ func testHtlcAggregaitonSimpleTaproot(ht *lntest.HarnessTest) {
 	runHtlcAggregation(ht, cfgs, params)
 }
 
+// testHtlcAggregaitonSimpleTaprootFinal tests `runHtlcAggregation` with
+// production simple taproot channel.
+func testHtlcAggregaitonSimpleTaprootFinal(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using production
+	// simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	cfg := node.CfgSimpleTaproot
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runHtlcAggregation(ht, cfgs, params)
+}
+
+// testHtlcAggregaitonSimpleTaprootFinalZeroConf tests `runHtlcAggregation`
+// with zero-conf production simple taproot channel.
+func testHtlcAggregaitonSimpleTaprootFinalZeroConf(ht *lntest.HarnessTest) {
+	c := lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL
+
+	// Create a three hop network: Alice -> Bob -> Carol, using zero-conf
+	// production simple taproot channels.
+	//
+	// Prepare params.
+	params := lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		ZeroConf:       true,
+		CommitmentType: c,
+		Private:        true,
+	}
+
+	// Prepare Carol's node config to enable zero-conf and leased channel.
+	cfg := node.CfgSimpleTaproot
+	cfg = append(cfg, node.CfgZeroConf...)
+	cfgs := [][]string{cfg, cfg, cfg}
+
+	runHtlcAggregation(ht, cfgs, params)
+}
+
 // testHtlcAggregaitonLeasedZeroConf tests `runHtlcAggregation` with zero-conf
 // script enforced lease channel.
 func testHtlcAggregaitonLeasedZeroConf(ht *lntest.HarnessTest) {
@@ -2878,7 +3272,8 @@ func runHtlcAggregation(ht *lntest.HarnessTest,
 		aliceRouteHints []*lnrpc.RouteHint
 	)
 
-	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+	if params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT ||
+		params.CommitmentType == lnrpc.CommitmentType_SIMPLE_TAPROOT_FINAL {
 		carolRouteHints = makeRouteHints(bob, carol, params.ZeroConf)
 		aliceRouteHints = makeRouteHints(bob, alice, params.ZeroConf)
 	}

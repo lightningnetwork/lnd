@@ -1303,18 +1303,25 @@ func extractTaprootPartialSigWithNonce(sigs lnwire.TaprootClosingSigs) (
 	return fn.None[lnwire.PartialSigWithNonce](), false
 }
 
-// createClosingSigMessage creates the ClosingSig message response for the closee role.
-func createClosingSigMessage(env *Environment, wireSig lnwire.Sig, localSig input.Signature,
+// createClosingSigMessage creates the ClosingSig message response for the
+// closee role.
+func createClosingSigMessage(env *Environment, wireSig lnwire.Sig,
+	localSig input.Signature,
 	localScript, remoteScript lnwire.DeliveryAddress, fee btcutil.Amount,
 	lockTime uint32, noClosee bool) (*lnwire.ClosingSig, error) {
 
-	var closingSigs lnwire.ClosingSigs
-	var taprootPartialSigs lnwire.TaprootPartialSigs
-	var nextCloseeNonce tlv.OptionalRecordT[tlv.TlvType22, lnwire.Musig2Nonce]
+	var (
+		closingSigs        lnwire.ClosingSigs
+		taprootPartialSigs lnwire.TaprootPartialSigs
+		nextCloseeNonce    tlv.OptionalRecordT[
+			tlv.TlvType22, lnwire.Musig2Nonce,
+		]
+	)
 
-	// For taproot channels, use PartialSig (no nonce) since receiver knows our nonce
+	// For taproot channels, use PartialSig (no nonce) since receiver knows
+	// our nonce
 	if env.IsTaproot() {
-		// We already have the MusigPartialSig from earlier
+		// We already have the MusigPartialSig from earlier.
 		musigSig := localSig.(*lnwallet.MusigPartialSig)
 		wireSigWithNonce := musigSig.ToWireSig()
 		partialSig := wireSigWithNonce.PartialSig
@@ -1330,21 +1337,29 @@ func createClosingSigMessage(env *Environment, wireSig lnwire.Sig, localSig inpu
 		}
 
 		// Generate our next closee nonce for the next RBF iteration
-		// This is the nonce the closer should use for our closee signature
-		// in the next RBF round. We always include this since RBF could occur.
+		// This is the nonce the closer should use for our closee
+		// signature in the next RBF round. We always include this since
+		// RBF could occur.
 		nextNonces, err := env.RemoteMusigSession.ClosingNonce()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate next closee nonce: %w", err)
+			return nil, fmt.Errorf("failed to generate next "+
+				"closee nonce: %w", err)
 		}
 		nextCloseeNonce = tlv.SomeRecordT(
-			tlv.NewRecordT[tlv.TlvType22](lnwire.Musig2Nonce(nextNonces.PubNonce)),
+			tlv.NewRecordT[tlv.TlvType22](
+				lnwire.Musig2Nonce(nextNonces.PubNonce),
+			),
 		)
 	} else {
-		// Non-taproot: use regular signatures
+		// Non-taproot: use regular signatures.
 		if noClosee {
-			closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](wireSig)
+			closingSigs.CloserNoClosee = newSigTlv[tlv.TlvType1](
+				wireSig,
+			)
 		} else {
-			closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](wireSig)
+			closingSigs.CloserAndClosee = newSigTlv[tlv.TlvType3](
+				wireSig,
+			)
 		}
 	}
 
@@ -1642,51 +1657,226 @@ func createLocalCloseeSignature(env *Environment, fee btcutil.Amount,
 	return wireSig, localSig, nil
 }
 
-// extractSigAndNonceFromComplete extracts signature and optional nonce from
-// ClosingComplete. For taproot channels, it extracts both the partial signature
-// and the JIT nonce. For non-taproot channels, it extracts just the signature.
-func extractSigAndNonceFromComplete(msg lnwire.ClosingComplete,
-) (sig fn.Option[lnwire.Sig], nonce fn.Option[lnwire.Musig2Nonce],
-	isNoClosee bool) {
+// SigType represents either a regular or taproot signature.
+// Left = regular signature, Right = taproot signature with nonce.
+type SigType = fn.Either[lnwire.Sig, lnwire.PartialSigWithNonce]
 
-	// If this is a taproot channel, then we'll extract the partial sigs.
-	partialSigOpt, isNoClosee := extractTaprootPartialSigWithNonce(
-		msg.TaprootClosingSigs,
+// NewRegularSigType creates a SigType for a regular (non-taproot) signature.
+func NewRegularSigType(sig lnwire.Sig) SigType {
+	return fn.NewLeft[lnwire.Sig, lnwire.PartialSigWithNonce](sig)
+}
+
+// NewTaprootSigType creates a SigType for a taproot signature with nonce.
+func NewTaprootSigType(ps lnwire.PartialSigWithNonce) SigType {
+	return fn.NewRight[lnwire.Sig, lnwire.PartialSigWithNonce](ps)
+}
+
+// SigFieldSet represents which signature fields are present in a
+// ClosingComplete message.
+type SigFieldSet struct {
+	// CloserNoClosee contains the signature for a transaction with only
+	// the closer's output (closee's output is dust/excluded).
+	CloserNoClosee fn.Option[SigType]
+
+	// NoCloserClosee contains the signature for a transaction with only
+	// the closee's output (closer's output is dust/excluded).
+	NoCloserClosee fn.Option[SigType]
+
+	// CloserAndClosee contains the signature for a transaction with both
+	// outputs present.
+	CloserAndClosee fn.Option[SigType]
+}
+
+// IsTaproot returns true if any taproot signatures are present in the field
+// set.
+func (s SigFieldSet) IsTaproot() bool {
+	checkTaproot := func(opt fn.Option[SigType]) bool {
+		return fn.MapOptionZ(opt, func(sig SigType) bool {
+			return sig.IsRight()
+		})
+	}
+
+	return checkTaproot(s.CloserNoClosee) ||
+		checkTaproot(s.NoCloserClosee) ||
+		checkTaproot(s.CloserAndClosee)
+}
+
+// HasAnySig returns true if at least one signature field is present.
+func (s SigFieldSet) HasAnySig() bool {
+	return s.CloserNoClosee.IsSome() ||
+		s.NoCloserClosee.IsSome() ||
+		s.CloserAndClosee.IsSome()
+}
+
+// parseSigFields extracts signature fields from a ClosingComplete message and
+// returns a structured representation of which fields are present.
+func parseSigFields(msg lnwire.ClosingComplete) SigFieldSet {
+	var fields SigFieldSet
+
+	// createSigType is a helper function that creates a SigType based on
+	// field otpions.
+	createSigType := func(
+		taprootOpt fn.Option[lnwire.PartialSigWithNonce],
+		regularOpt fn.Option[lnwire.Sig],
+	) fn.Option[SigType] {
+
+		// The taproot takes precedence if present.
+		if taprootOpt.IsSome() {
+			var ps lnwire.PartialSigWithNonce
+			taprootOpt.WhenSome(func(p lnwire.PartialSigWithNonce) {
+				ps = p
+			})
+
+			return fn.Some(NewTaprootSigType(ps))
+		}
+
+		// Otherwise, check for a regular signature.
+		if regularOpt.IsSome() {
+			var sig lnwire.Sig
+			regularOpt.WhenSome(func(s lnwire.Sig) {
+				sig = s
+			})
+
+			return fn.Some(NewRegularSigType(sig))
+		}
+
+		return fn.None[SigType]()
+	}
+
+	fields.CloserNoClosee = createSigType(
+		msg.TaprootClosingSigs.CloserNoClosee.ValOpt(),
+		msg.ClosingSigs.CloserNoClosee.ValOpt(),
 	)
 
-	// If we have a partial sig, then we'll covnert it into our shim wire
-	// format (just the 32 bytes of the partial sig).
-	if partialSigOpt.IsSome() {
-		var partialSig lnwire.PartialSigWithNonce
-		partialSigOpt.WhenSome(func(ps lnwire.PartialSigWithNonce) {
-			partialSig = ps
-		})
+	fields.NoCloserClosee = createSigType(
+		msg.TaprootClosingSigs.NoCloserClosee.ValOpt(),
+		msg.ClosingSigs.NoCloserClosee.ValOpt(),
+	)
 
-		var wireSig lnwire.Sig
+	fields.CloserAndClosee = createSigType(
+		msg.TaprootClosingSigs.CloserAndClosee.ValOpt(),
+		msg.ClosingSigs.CloserAndClosee.ValOpt(),
+	)
 
-		sigBytes := partialSig.PartialSig.Sig.Bytes()
-		copy(wireSig.RawBytes()[:32], sigBytes[:])
+	return fields
+}
 
-		wireSig.ForceSchnorr()
-
-		return fn.Some(wireSig), fn.Some(partialSig.Nonce), isNoClosee
+// validateSigFields validates that the signature field set conforms to BOLT
+// spec requirements based on the receiver's (closee's) output dust status.
+func validateSigFields(sigFields SigFieldSet, localIsDust bool) error {
+	// Check if any signature is present at all, if not then this is a
+	// terminal error.
+	if !sigFields.HasAnySig() {
+		return ErrNoSig
 	}
 
-	none := fn.None[lnwire.Musig2Nonce]()
+	// Per BOLT spec for the receiver (closee) of closing_complete:
+	//
+	// "Select a signature for validation:
+	//   1. If the local output amount is dust: MUST use closer_output_only
+	//      (CloserNoClosee).
+	//   3. Otherwise, if closer_and_closee_outputs is present: MUST use
+	//      closer_and_closee_outputs (CloserAndClosee).
+	//   4. Otherwise: MUST use closee_output_only (NoCloserClosee)."
+	//
+	// We validate that the required signature field is present.
+	if localIsDust {
+		// Local output is dust, we need CloserNoClosee.
+		if sigFields.CloserNoClosee.IsNone() {
+			return ErrCloserNoClosee
+		}
+	} else {
+		// Local output is not dust, we prefer CloserAndClosee, but can
+		// fall back to NoCloserClosee per spec step 4.
+		if sigFields.CloserAndClosee.IsNone() &&
+			sigFields.NoCloserClosee.IsNone() {
 
-	if msg.ClosingSigs.CloserNoClosee.IsSome() {
-		return msg.ClosingSigs.CloserNoClosee.ValOpt(), none, true
+			return ErrCloserAndClosee
+		}
 	}
 
-	if msg.ClosingSigs.NoCloserClosee.IsSome() {
-		return msg.ClosingSigs.NoCloserClosee.ValOpt(), none, false
+	return nil
+}
+
+// selectAndExtractSig selects the appropriate signature field based on BOLT
+// spec priority and extracts the signature and nonce.
+func selectAndExtractSig(fields SigFieldSet, localIsDust bool) (
+	sig lnwire.Sig, nonce fn.Option[lnwire.Musig2Nonce], isNoClosee bool,
+	err error) {
+
+	// Select which field to use based on BOLT spec priority.
+	var selectedField fn.Option[SigType]
+	if localIsDust {
+		// Spec step 1: Local output is dust, use CloserNoClosee.
+		selectedField = fields.CloserNoClosee
+		isNoClosee = true
+	} else {
+		// Spec step 3: Prefer CloserAndClosee if present.
+		if fields.CloserAndClosee.IsSome() {
+			selectedField = fields.CloserAndClosee
+			isNoClosee = false
+		} else {
+			// Spec step 4: Fallback to NoCloserClosee.
+			selectedField = fields.NoCloserClosee
+			isNoClosee = false
+		}
 	}
 
-	if msg.ClosingSigs.CloserAndClosee.IsSome() {
-		return msg.ClosingSigs.CloserAndClosee.ValOpt(), none, false
+	// If the selected field is none, this is an error.
+	sigType, err := selectedField.UnwrapOrErr(ErrNoSig)
+	if err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false, err
 	}
 
-	return fn.None[lnwire.Sig](), fn.None[lnwire.Musig2Nonce](), false
+	// Check if this is a taproot signature (Right side of Either) or
+	// regular (Left side).
+	nonce = fn.None[lnwire.Musig2Nonce]()
+
+	// If this is a regular signature, extract it directly.
+	sigType.WhenLeft(func(regularSig lnwire.Sig) {
+		sig = regularSig
+	})
+
+	// Otherwise, for taproot, extract the partial sig and nonce.
+	sigType.WhenRight(func(partialSig lnwire.PartialSigWithNonce) {
+		nonce = fn.Some(partialSig.Nonce)
+
+		sigBytes := partialSig.Sig.Bytes()
+		copy(sig.RawBytes()[:32], sigBytes[:])
+
+		sig.ForceSchnorr()
+	})
+
+	return sig, nonce, isNoClosee, nil
+}
+
+// extractSigAndNonceFromComplete extracts signature and optional nonce from
+// ClosingComplete using a three-phase approach: parse, validate, and select.
+//
+// This function implements the BOLT spec requirements for the receiver (closee)
+// of a closing_complete message.
+func extractSigAndNonceFromComplete(msg lnwire.ClosingComplete,
+	localIsDust bool) (sig lnwire.Sig, nonce fn.Option[lnwire.Musig2Nonce],
+	isNoClosee bool, err error) {
+
+	// First, parse the message to extract which signature fields are
+	// present.
+	fields := parseSigFields(msg)
+
+	// Next, validate that the parsed fields conform to BOLT spec
+	// requirements based on our (closee's) output dust status.
+	if err := validateSigFields(fields, localIsDust); err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false, err
+	}
+
+	// Finally, select and extract the appropriate signature based on BOLT
+	// spec priority.
+	sig, nonce, isNoClosee, err = selectAndExtractSig(fields, localIsDust)
+	if err != nil {
+		return lnwire.Sig{}, fn.None[lnwire.Musig2Nonce](), false, err
+	}
+
+	return sig, nonce, isNoClosee, nil
 }
 
 // ProcessEvent implements the state transition function for the
@@ -1712,24 +1902,11 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		// Extract the signature and JIT nonce from the ClosingComplete
-		// message.
-		sigOpt, jitNonce, noClosee := extractSigAndNonceFromComplete(
-			msg.SigMsg,
+		// message. This function parses, validates, and selects the
+		// appropriate signature per BOLT spec.
+		sig, jitNonce, noClosee, err := extractSigAndNonceFromComplete(
+			msg.SigMsg, l.LocalAmtIsDust(),
 		)
-
-		// Validate signature presence based on our balance.
-		switch {
-		case l.LocalAmtIsDust() && !noClosee:
-			return nil, ErrCloserNoClosee
-		case !l.LocalAmtIsDust() && noClosee:
-			return nil, ErrCloserAndClosee
-		}
-
-		if sigOpt.IsNone() {
-			return nil, ErrNoSig
-		}
-
-		sig, err := sigOpt.UnwrapOrErr(ErrNoSig)
 		if err != nil {
 			return nil, err
 		}

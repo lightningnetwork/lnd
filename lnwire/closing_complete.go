@@ -88,7 +88,7 @@ func decodeClosingSigs(c *ClosingSigs, tc *TaprootClosingSigs, tlvRecords ExtraO
 	sig1 := c.CloserNoClosee.Zero()
 	sig2 := c.NoCloserClosee.Zero()
 	sig3 := c.CloserAndClosee.Zero()
-	
+
 	// Taproot signatures (with nonces)
 	tSig1 := tc.CloserNoClosee.Zero()
 	tSig2 := tc.NoCloserClosee.Zero()
@@ -101,7 +101,6 @@ func decodeClosingSigs(c *ClosingSigs, tc *TaprootClosingSigs, tlvRecords ExtraO
 		return err
 	}
 
-	// Regular signatures
 	if val, ok := typeMap[c.CloserNoClosee.TlvType()]; ok && val == nil {
 		c.CloserNoClosee = tlv.SomeRecordT(sig1)
 	}
@@ -111,8 +110,7 @@ func decodeClosingSigs(c *ClosingSigs, tc *TaprootClosingSigs, tlvRecords ExtraO
 	if val, ok := typeMap[c.CloserAndClosee.TlvType()]; ok && val == nil {
 		c.CloserAndClosee = tlv.SomeRecordT(sig3)
 	}
-	
-	// Taproot signatures
+
 	if val, ok := typeMap[tc.CloserNoClosee.TlvType()]; ok && val == nil {
 		tc.CloserNoClosee = tlv.SomeRecordT(tSig1)
 	}
@@ -160,7 +158,7 @@ func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 // including both regular and taproot signatures.
 func closingSigRecords(c *ClosingSigs, tc *TaprootClosingSigs) []tlv.RecordProducer {
 	recordProducers := make([]tlv.RecordProducer, 0, 6)
-	
+
 	// Regular signatures
 	c.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType1, Sig]) {
 		recordProducers = append(recordProducers, &sig)
@@ -171,7 +169,7 @@ func closingSigRecords(c *ClosingSigs, tc *TaprootClosingSigs) []tlv.RecordProdu
 	c.CloserAndClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType3, Sig]) {
 		recordProducers = append(recordProducers, &sig)
 	})
-	
+
 	// Taproot signatures (with nonces)
 	tc.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType5, PartialSigWithNonce]) {
 		recordProducers = append(recordProducers, &sig)

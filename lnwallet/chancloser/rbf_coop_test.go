@@ -2555,6 +2555,48 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		closeHarness.assertNoStateTransitions()
 	})
 
+	// When both CloserNoClosee AND CloserAndClosee are present (which is
+	// spec-compliant), the closee should select CloserAndClosee when local
+	// output is not dust.
+	t.Run("recv_offer_both_sigs_present", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Per BOLT spec, when closee's output is not dust, sender MUST
+		// send both CloserNoClosee and CloserAndClosee sigs. The
+		// receiver should select CloserAndClosee.
+		event := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis:  absoluteFee,
+				CloserScript: remoteAddr,
+				CloseeScript: localAddr,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+		closeHarness.expectRemoteCloseFinalized(
+			&localSig, &remoteSig, localAddr, remoteAddr,
+			absoluteFee, balanceAfterClose, false,
+		)
+
+		closeHarness.chanCloser.SendEvent(ctx, event)
+
+		// We should remain in ClosingNegotiation (outer state doesn't
+		// change when receiving an offer). We also shouldn't have
+		// errored out.
+		closeHarness.assertStateTransitions(&ClosingNegotiation{})
+	})
+
 	// If everything lines up, then we should be able to do multiple RBF
 	// loops to enable the remote party to sign.new versions of the co-op
 	// close transaction.

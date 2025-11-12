@@ -561,6 +561,11 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.attemptStore.CleanStore(keepPids)
 }
 
+// AttemptStore provides access to the Switch's underlying attempt store.
+func (s *Switch) AttemptStore() AttemptStore {
+	return s.attemptStore
+}
+
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update. The attemptID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject

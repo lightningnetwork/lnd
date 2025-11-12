@@ -13,7 +13,7 @@ import (
 // either include both outputs, or only one of the outputs from either side.
 type ClosingSigs struct {
 	// CloserNoClosee is a signature that excludes the output of the
-	// clsoee.
+	// closee.
 	CloserNoClosee tlv.OptionalRecordT[tlv.TlvType1, Sig]
 
 	// NoCloserClosee is a signature that excludes the output of the
@@ -22,6 +22,23 @@ type ClosingSigs struct {
 
 	// CloserAndClosee is a signature that includes both outputs.
 	CloserAndClosee tlv.OptionalRecordT[tlv.TlvType3, Sig]
+}
+
+// TaprootClosingSigs houses the 3 possible taproot signatures (with nonces)
+// that can be sent when attempting to complete a cooperative channel closure.
+// These use PartialSigWithNonce to implement the JIT nonce pattern.
+type TaprootClosingSigs struct {
+	// CloserNoClosee is a partial signature with nonce that excludes the
+	// output of the closee. Uses TLV type 5.
+	CloserNoClosee tlv.OptionalRecordT[tlv.TlvType5, PartialSigWithNonce]
+
+	// NoCloserClosee is a partial signature with nonce that excludes the
+	// output of the closer. Uses TLV type 6.
+	NoCloserClosee tlv.OptionalRecordT[tlv.TlvType6, PartialSigWithNonce]
+
+	// CloserAndClosee is a partial signature with nonce that includes
+	// both outputs. Uses TLV type 7.
+	CloserAndClosee tlv.OptionalRecordT[tlv.TlvType7, PartialSigWithNonce]
 }
 
 // ClosingComplete is sent by either side to kick off the process of obtaining
@@ -47,7 +64,16 @@ type ClosingComplete struct {
 	LockTime uint32
 
 	// ClosingSigs houses the 3 possible signatures that can be sent.
+	// For non-taproot channels, these are regular signatures.
 	ClosingSigs
+
+	// TaprootClosingSigs houses the 3 possible taproot signatures that
+	// can be sent. Each signature includes the nonce for the next RBF
+	// round (implementing the JIT nonce pattern).
+	//
+	// NOTE: This field is only populated for taproot channels. When present,
+	// the above ClosingSigs MUST be empty.
+	TaprootClosingSigs
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -57,18 +83,23 @@ type ClosingComplete struct {
 
 // decodeClosingSigs decodes the closing sig TLV records in the passed
 // ExtraOpaqueData.
-func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
+func decodeClosingSigs(c *ClosingSigs, tc *TaprootClosingSigs, tlvRecords ExtraOpaqueData) error {
+	// Regular signatures
 	sig1 := c.CloserNoClosee.Zero()
 	sig2 := c.NoCloserClosee.Zero()
 	sig3 := c.CloserAndClosee.Zero()
 
-	typeMap, err := tlvRecords.ExtractRecords(&sig1, &sig2, &sig3)
+	// Taproot signatures (with nonces)
+	tSig1 := tc.CloserNoClosee.Zero()
+	tSig2 := tc.NoCloserClosee.Zero()
+	tSig3 := tc.CloserAndClosee.Zero()
+
+	typeMap, err := tlvRecords.ExtractRecords(
+		&sig1, &sig2, &sig3, &tSig1, &tSig2, &tSig3,
+	)
 	if err != nil {
 		return err
 	}
-
-	// TODO(roasbeef): helper func to made decode of the optional vals
-	// easier?
 
 	if val, ok := typeMap[c.CloserNoClosee.TlvType()]; ok && val == nil {
 		c.CloserNoClosee = tlv.SomeRecordT(sig1)
@@ -78,6 +109,16 @@ func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
 	}
 	if val, ok := typeMap[c.CloserAndClosee.TlvType()]; ok && val == nil {
 		c.CloserAndClosee = tlv.SomeRecordT(sig3)
+	}
+
+	if val, ok := typeMap[tc.CloserNoClosee.TlvType()]; ok && val == nil {
+		tc.CloserNoClosee = tlv.SomeRecordT(tSig1)
+	}
+	if val, ok := typeMap[tc.NoCloserClosee.TlvType()]; ok && val == nil {
+		tc.NoCloserClosee = tlv.SomeRecordT(tSig2)
+	}
+	if val, ok := typeMap[tc.CloserAndClosee.TlvType()]; ok && val == nil {
+		tc.CloserAndClosee = tlv.SomeRecordT(tSig3)
 	}
 
 	return nil
@@ -102,7 +143,7 @@ func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	if err := decodeClosingSigs(&c.ClosingSigs, tlvRecords); err != nil {
+	if err := decodeClosingSigs(&c.ClosingSigs, &c.TaprootClosingSigs, tlvRecords); err != nil {
 		return err
 	}
 
@@ -114,9 +155,11 @@ func (c *ClosingComplete) Decode(r io.Reader, _ uint32) error {
 }
 
 // closingSigRecords returns the set of records that encode the closing sigs,
-// if present.
-func closingSigRecords(c *ClosingSigs) []tlv.RecordProducer {
-	recordProducers := make([]tlv.RecordProducer, 0, 3)
+// including both regular and taproot signatures.
+func closingSigRecords(c *ClosingSigs, tc *TaprootClosingSigs) []tlv.RecordProducer {
+	recordProducers := make([]tlv.RecordProducer, 0, 6)
+
+	// Regular signatures
 	c.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType1, Sig]) {
 		recordProducers = append(recordProducers, &sig)
 	})
@@ -124,6 +167,17 @@ func closingSigRecords(c *ClosingSigs) []tlv.RecordProducer {
 		recordProducers = append(recordProducers, &sig)
 	})
 	c.CloserAndClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType3, Sig]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+
+	// Taproot signatures (with nonces)
+	tc.CloserNoClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType5, PartialSigWithNonce]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	tc.NoCloserClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType6, PartialSigWithNonce]) {
+		recordProducers = append(recordProducers, &sig)
+	})
+	tc.CloserAndClosee.WhenSome(func(sig tlv.RecordT[tlv.TlvType7, PartialSigWithNonce]) {
 		recordProducers = append(recordProducers, &sig)
 	})
 
@@ -151,7 +205,7 @@ func (c *ClosingComplete) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	recordProducers := closingSigRecords(&c.ClosingSigs)
+	recordProducers := closingSigRecords(&c.ClosingSigs, &c.TaprootClosingSigs)
 
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 
 type (
 	// ShutdownNonceType is the type of the shutdown nonce TLV record.
+	// This nonce represents the sender's "closee nonce" - the nonce they'll
+	// use when signing the other party's closing transaction.
 	ShutdownNonceType = tlv.TlvType8
 
 	// ShutdownNonceTLV is the TLV record that contains the shutdown nonce.
@@ -22,6 +24,7 @@ func SomeShutdownNonce(nonce Musig2Nonce) ShutdownNonceTLV {
 	)
 }
 
+
 // Shutdown is sent by either side in order to initiate the cooperative closure
 // of a channel. This message is sparse as both sides implicitly have the
 // information necessary to construct a transaction that will send the settled
@@ -34,8 +37,10 @@ type Shutdown struct {
 	// Address is the script to which the channel funds will be paid.
 	Address DeliveryAddress
 
-	// ShutdownNonce is the nonce the sender will use to sign the first
-	// co-op sign offer.
+	// ShutdownNonce is the musig2 nonce the sender will use when acting as
+	// the closee (signing the other party's closing transaction). For
+	// taproot channels with RBF support, subsequent nonces are sent using
+	// the JIT (just-in-time) pattern alongside signatures.
 	ShutdownNonce ShutdownNonceTLV
 
 	// CustomRecords maps TLV types to byte slices, storing arbitrary data

@@ -285,12 +285,13 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 	return feeBuffer.ToSatoshis()
 }
 
-// CustomRecordsWithUnendorsed copies the map of custom records and adds an
-// endorsed signal (replacing in the case of conflict) for assertion in tests.
-func CustomRecordsWithUnendorsed(
+// CustomRecordsWithUnaccountable copies the map of custom records and adds an
+// accountable signal (replacing in the case of conflict) for assertion in
+// tests.
+func CustomRecordsWithUnaccountable(
 	originalRecords lnwire.CustomRecords) map[uint64][]byte {
 
-	if !ExperimentalEndorsementActive() {
+	if !ExperimentalAccountabilityActive() {
 		// Return nil if there are no records, to match wire encoding.
 		if len(originalRecords) == 0 {
 			return nil
@@ -300,16 +301,16 @@ func CustomRecordsWithUnendorsed(
 	}
 
 	return originalRecords.MergedCopy(map[uint64][]byte{
-		uint64(lnwire.ExperimentalEndorsementType): {
-			lnwire.ExperimentalUnendorsed,
+		uint64(lnwire.ExperimentalAccountableType): {
+			lnwire.ExperimentalUnaccountable,
 		}},
 	)
 }
 
-// ExperimentalEndorsementActive returns true if the experimental endorsement
+// ExperimentalAccountabilityActive returns true if the experimental accountability
 // window is still open.
-func ExperimentalEndorsementActive() bool {
-	return time.Now().Before(lnd.EndorsementExperimentEnd)
+func ExperimentalAccountabilityActive() bool {
+	return time.Now().Before(lnd.AccountabilityExperimentEnd)
 }
 
 // LnrpcOutpointToStr returns a string representation of an lnrpc.OutPoint.

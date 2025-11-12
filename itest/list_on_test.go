@@ -700,8 +700,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testDebuglevelShow,
 	},
 	{
-		Name:     "experimental endorsement",
-		TestFunc: testExperimentalEndorsement,
+		Name:     "experimental accountability",
+		TestFunc: testExperimentalAccountability,
 	},
 	{
 		Name:     "quiescence",

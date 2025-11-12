@@ -15,19 +15,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testExperimentalEndorsement tests setting of positive and negative
-// experimental endorsement signals.
-func testExperimentalEndorsement(ht *lntest.HarnessTest) {
-	testEndorsement(ht, true)
-	testEndorsement(ht, false)
+// testExperimentalAccountability tests setting of positive and negative
+// experimental accountable signals.
+func testExperimentalAccountability(ht *lntest.HarnessTest) {
+	testAccountability(ht, true)
+	testAccountability(ht, false)
 }
 
-// testEndorsement sets up a 5 hop network and tests propagation of
-// experimental endorsement signals.
-func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
+// testAccountability sets up a 5 hop network and tests propagation of
+// experimental accountable signals.
+func testAccountability(ht *lntest.HarnessTest, aliceAccountable bool) {
 	cfg := node.CfgAnchor
 	carolCfg := append(
-		[]string{"--protocol.no-experimental-endorsement"}, cfg...,
+		[]string{"--protocol.no-experimental-accountability"}, cfg...,
 	)
 	cfgs := [][]string{cfg, cfg, carolCfg, cfg, cfg}
 
@@ -58,17 +58,17 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 	}
 
 	var expectedValue []byte
-	hasEndorsement := lntest.ExperimentalEndorsementActive()
+	hasAccountability := lntest.ExperimentalAccountabilityActive()
 
-	if hasEndorsement {
-		if aliceEndorse {
-			expectedValue = []byte{lnwire.ExperimentalEndorsed}
-			t := uint64(lnwire.ExperimentalEndorsementType)
+	if hasAccountability {
+		if aliceAccountable {
+			expectedValue = []byte{lnwire.ExperimentalAccountable}
+			t := uint64(lnwire.ExperimentalAccountableType)
 			sendReq.FirstHopCustomRecords = map[uint64][]byte{
 				t: expectedValue,
 			}
 		} else {
-			expectedValue = []byte{lnwire.ExperimentalUnendorsed}
+			expectedValue = []byte{lnwire.ExperimentalUnaccountable}
 		}
 	}
 
@@ -76,29 +76,29 @@ func testEndorsement(ht *lntest.HarnessTest, aliceEndorse bool) {
 
 	// Validate that our signal (positive or zero) propagates until carol
 	// and then is dropped because she has disabled the feature.
-	// When the endorsement experiment is not active, no signal is sent.
-	validateEndorsedAndResume(
-		ht, bobIntercept, hasEndorsement, expectedValue,
+	// When the accountability experiment is not active, no signal is sent.
+	validateAccountableAndResume(
+		ht, bobIntercept, hasAccountability, expectedValue,
 	)
-	validateEndorsedAndResume(
-		ht, carolIntercept, hasEndorsement, expectedValue,
+	validateAccountableAndResume(
+		ht, carolIntercept, hasAccountability, expectedValue,
 	)
-	validateEndorsedAndResume(ht, daveIntercept, false, nil)
+	validateAccountableAndResume(ht, daveIntercept, false, nil)
 
 	var preimage lntypes.Preimage
 	copy(preimage[:], invoice.RPreimage)
 	ht.AssertPaymentStatus(alice, preimage.Hash(), lnrpc.Payment_SUCCEEDED)
 }
 
-func validateEndorsedAndResume(ht *lntest.HarnessTest,
-	interceptor rpc.InterceptorClient, hasEndorsement bool,
+func validateAccountableAndResume(ht *lntest.HarnessTest,
+	interceptor rpc.InterceptorClient, hasAccountable bool,
 	expectedValue []byte) {
 
 	packet := ht.ReceiveHtlcInterceptor(interceptor)
 
 	var expectedRecords map[uint64][]byte
-	if hasEndorsement {
-		u64Type := uint64(lnwire.ExperimentalEndorsementType)
+	if hasAccountable {
+		u64Type := uint64(lnwire.ExperimentalAccountableType)
 		expectedRecords = map[uint64][]byte{
 			u64Type: expectedValue,
 		}

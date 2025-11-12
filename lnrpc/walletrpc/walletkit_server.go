@@ -237,6 +237,12 @@ var (
 		input.TaprootHtlcAcceptedRemoteSuccess:             WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS,
 		input.TaprootHtlcAcceptedLocalSuccess:              WitnessType_TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS,
 		input.TaprootCommitmentRevoke:                      WitnessType_TAPROOT_COMMITMENT_REVOKE,
+		input.TaprootLocalCommitSpendFinal:                 WitnessType_TAPROOT_LOCAL_COMMIT_SPEND_FINAL,
+		input.TaprootRemoteCommitSpendFinal:                WitnessType_TAPROOT_REMOTE_COMMIT_SPEND_FINAL,
+		input.TaprootHtlcOfferedTimeoutSecondLevelFinal:    WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_FINAL,
+		input.TaprootHtlcAcceptedSuccessSecondLevelFinal:   WitnessType_TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_FINAL,
+		input.TaprootHtlcOfferedRemoteTimeoutFinal:         WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT_FINAL,
+		input.TaprootHtlcAcceptedRemoteSuccessFinal:        WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS_FINAL,
 	}
 )
 

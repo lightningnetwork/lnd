@@ -423,6 +423,10 @@ func (s *SQLStore) DeleteNode(ctx context.Context,
 		return fmt.Errorf("unable to delete node: %w", err)
 	}
 
+	s.cacheMu.Lock()
+	s.removePublicNodeCache(pubKey)
+	s.cacheMu.Unlock()
+
 	return nil
 }
 
@@ -733,6 +737,10 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			default:
 				s.rejectCache.remove(edge.ChannelID)
 				s.chanCache.remove(edge.ChannelID)
+				s.removePublicNodeCache(
+					edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+				)
+
 				return nil
 			}
 		},
@@ -1749,6 +1757,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 
 	s.rejectCache.remove(chanID)
 	s.chanCache.remove(chanID)
+	s.removePublicNodeCache(pubKey1, pubKey2)
 
 	return nil
 }
@@ -1975,6 +1984,14 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		s.rejectCache.remove(chanID)
 		s.chanCache.remove(chanID)
 	}
+
+	var pubkeys [][33]byte
+	for _, edge := range edges {
+		pubkeys = append(
+			pubkeys, edge.NodeKey1Bytes, edge.NodeKey2Bytes,
+		)
+	}
+	s.removePublicNodeCache(pubkeys...)
 
 	return edges, nil
 }
@@ -2704,6 +2721,9 @@ func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	for _, channel := range closedChans {
 		s.rejectCache.remove(channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
+		s.removePublicNodeCache(
+			channel.NodeKey1Bytes, channel.NodeKey2Bytes,
+		)
 	}
 
 	return closedChans, prunedNodes, nil
@@ -2972,6 +2992,9 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	for _, channel := range removedChans {
 		s.rejectCache.remove(channel.ChannelID)
 		s.chanCache.remove(channel.ChannelID)
+		s.removePublicNodeCache(
+			channel.NodeKey1Bytes, channel.NodeKey2Bytes,
+		)
 	}
 	s.cacheMu.Unlock()
 
@@ -5917,4 +5940,14 @@ func handleZombieMarking(ctx context.Context, db SQLQueries,
 			NodeKey2: nodeKey2[:],
 		},
 	)
+}
+
+// removePublicNodeCache takes in a list of public keys and removes the
+// corresponding nodes info from the cache if it exists.
+//
+// NOTE: This method must be called with cacheMu held.
+func (s *SQLStore) removePublicNodeCache(pubkeys ...[33]byte) {
+	for _, pubkey := range pubkeys {
+		s.publicNodeCache.Delete(pubkey)
+	}
 }

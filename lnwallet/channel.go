@@ -5804,6 +5804,47 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
+// extractRevokeAndAckNonce extracts the next verification nonce from a
+// RevokeAndAck message. It prioritizes the new LocalNonces field over the
+// legacy LocalNonce field for backwards compatibility. The fundingTxid is used
+// to validate the nonce map key per the spec (bolts#995). If neither field is
+// present, an error is returned.
+func extractRevokeAndAckNonce(revMsg *lnwire.RevokeAndAck,
+	fundingTxid chainhash.Hash) (lnwire.Musig2Nonce, error) {
+
+	switch {
+	case revMsg.LocalNonces.IsSome():
+		noncesData, err := revMsg.LocalNonces.UnwrapOrErr(
+			fmt.Errorf("invalid LocalNonces"),
+		)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		// Per the spec, the nonce map key must match the channel's
+		// funding txid. Validate this before using the nonce.
+		nonce, ok := noncesData.NoncesMap[fundingTxid]
+		if ok {
+			return nonce, nil
+		}
+
+		return lnwire.Musig2Nonce{}, fmt.Errorf("no nonce for "+
+			"funding txid %v in revoke_and_ack", fundingTxid)
+
+	case revMsg.LocalNonce.IsSome():
+		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		if err != nil {
+			return lnwire.Musig2Nonce{}, err
+		}
+
+		return localNonce, nil
+
+	default:
+		return lnwire.Musig2Nonce{}, fmt.Errorf("remote " +
+			"verification nonce not sent")
+	}
+}
+
 // ReceiveRevocation processes a revocation sent by the remote party for the
 // lowest unrevoked commitment within their commitment chain. We receive a
 // revocation either during the initial session negotiation wherein revocation
@@ -5989,15 +6030,16 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// Now that we have a new verification nonce from them, we can refresh
 	// our remote musig2 session which allows us to create another state.
 	if lc.channelState.ChanType.IsTaproot() {
-		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		localNonce, err := extractRevokeAndAckNonce(
+			revMsg, fundingTxid,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		session, err := lc.musigSessions.RemoteSession.Refresh(
-			&musig2.Nonces{
-				PubNonce: localNonce,
-			},
+			&musig2.Nonces{PubNonce: localNonce},
 		)
 		if err != nil {
 			return nil, nil, err
@@ -9492,8 +9534,20 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 		if err != nil {
 			return nil, err
 		}
+
+		// Populate the legacy LocalNonce field for backwards
+		// compatibility.
 		revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(
 			nextVerificationNonce.PubNonce,
+		)
+
+		// Also populate the new LocalNonces field. For revoke and ack,
+		// we'll key our nonce by the funding txid.
+		fundingTxid := lc.channelState.FundingOutpoint.Hash
+		noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+		noncesMap[fundingTxid] = nextVerificationNonce.PubNonce
+		revocationMsg.LocalNonces = lnwire.SomeLocalNonces(
+			lnwire.LocalNoncesData{NoncesMap: noncesMap},
 		)
 	}
 

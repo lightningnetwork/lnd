@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -464,4 +465,38 @@ func (store *networkResultStore) FetchPendingAttempts() ([]uint64, error) {
 	}
 
 	return pending, nil
+}
+
+// FailAttempt transitions an initialized attempt from PENDING to FAILED,
+// recording the provided reason. This is the synchronous rollback mechanism for
+// attempts that fail before being committed to the forwarding engine. It
+// returns an error if the underlying storage fails.
+func (store *networkResultStore) FailAttempt(attemptID uint64,
+	linkErr *LinkError) error {
+
+	// The attempt to send the htlc failed before it was ever dispatched.
+	// We will write a failure result to the store to unblock any
+	// potential callers to GetAttemptResult.
+
+	// First, we need to serialize the wire message from our link error
+	// into a byte slice. This is what the downstream parsers expect.
+	var reasonBytes bytes.Buffer
+	wireMsg := linkErr.WireMessage()
+	if err := lnwire.EncodeFailure(&reasonBytes, wireMsg, 0); err != nil {
+		return fmt.Errorf("failed to encode failure for attempt %d: %w",
+			attemptID, err)
+	}
+
+	// We'll create a synthetic UpdateFailHTLC to represent this internal
+	// failure, following the pattern used by the contract resolver.
+	failMsg := &lnwire.UpdateFailHTLC{
+		Reason: lnwire.OpaqueReason(reasonBytes.Bytes()),
+	}
+
+	failureResult := &networkResult{
+		msg:         failMsg,
+		unencrypted: true, // This is a local failure
+	}
+
+	return store.StoreResult(attemptID, failureResult)
 }

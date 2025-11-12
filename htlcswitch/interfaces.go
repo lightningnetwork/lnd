@@ -544,6 +544,13 @@ type AttemptStore interface {
 	// network.
 	StoreResult(attemptID uint64, result *networkResult) error
 
+	// FailAttempt transitions an initialized attempt from an initialized
+	// to a failed state and records the provided reason. This is the
+	// synchronous rollback mechanism for attempts that fail before being
+	// committed to the forwarding engine. It returns an error if the
+	// underlying storage fails.
+	FailAttempt(attemptID uint64, reason *LinkError) error
+
 	// GetResult returns the network result for the specified attempt ID if
 	// it's available.
 	//

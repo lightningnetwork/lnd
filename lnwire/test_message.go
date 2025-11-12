@@ -1463,6 +1463,27 @@ func (c *RevokeAndAck) RandTestMessage(t *rapid.T) Message {
 		)
 	}
 
+	if rapid.Bool().Draw(t, "includeLocalNonces") {
+		numNonces := rapid.IntRange(0, 3).Draw(t, "numLocalNonces")
+		nonces := make(map[chainhash.Hash]Musig2Nonce)
+		for i := 0; i < numNonces; i++ {
+			txid := RandChainHash(t)
+
+			// Ensure unique txids for the map.
+			for {
+				_, ok := nonces[txid]
+				if !ok {
+					break
+				}
+				txid = RandChainHash(t)
+			}
+
+			nonces[txid] = RandMusig2Nonce(t)
+		}
+
+		msg.LocalNonces = SomeLocalNonces(LocalNoncesData{NoncesMap: nonces})
+	}
+
 	return msg
 }
 

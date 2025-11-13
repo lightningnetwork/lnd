@@ -49,6 +49,7 @@ type SQLQueries interface {
 	CountPayments(ctx context.Context) (int64, error)
 
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIDs []int64) ([]sqlc.FetchHtlcAttemptsForPaymentsRow, error)
+	FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error)
 	FetchAllInflightAttempts(ctx context.Context) ([]sqlc.PaymentHtlcAttempt, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]sqlc.FetchHopsForAttemptsRow, error)
 

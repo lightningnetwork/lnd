@@ -37,6 +37,8 @@ type Querier interface {
 	FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
+	// Lightweight query to fetch only HTLC resolution status.
+	FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIds []int64) ([]PaymentFirstHopCustomRecord, error)

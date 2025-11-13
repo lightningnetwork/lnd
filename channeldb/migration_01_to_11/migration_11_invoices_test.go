@@ -41,7 +41,7 @@ func beforeMigrationFuncV11(t *testing.T, d *DB, invoices []Invoice) {
 			invoiceNum++
 
 			var buf bytes.Buffer
-			err := serializeInvoiceLegacy(&buf, &invoice) // nolint:scopelint
+			err := serializeInvoiceLegacy(&buf, &invoice)
 			if err != nil {
 				return err
 			}

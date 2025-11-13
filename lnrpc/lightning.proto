@@ -597,6 +597,18 @@ service Lightning {
     rpc SubscribeCustomMessages (SubscribeCustomMessagesRequest)
         returns (stream CustomMessage);
 
+    /* lncli: `sendonion`
+    SendOnionMessage sends an onion message to a peer.
+    */
+    rpc SendOnionMessage (SendOnionMessageRequest)
+        returns (SendOnionMessageResponse);
+
+    /* lncli: `subscribeonion`
+    SubscribeOnionMessages subscribes to a stream of incoming onion messages.
+    */
+    rpc SubscribeOnionMessages (SubscribeOnionMessagesRequest)
+        returns (stream OnionMessage);
+
     /* lncli: `listaliases`
     ListAliases returns the set of all aliases that have ever existed with
     their confirmed SCID (if it exists) and/or the base SCID (in the case of
@@ -642,7 +654,8 @@ message CustomMessage {
 }
 
 message SendCustomMessageRequest {
-    // Peer to send the message to
+    // Peer to which the message will be sent. Represented as a byte-encoded
+    // public key
     bytes peer = 1;
 
     // Message type. This value needs to be in the custom range (>= 32768).
@@ -657,6 +670,53 @@ message SendCustomMessageRequest {
 
 message SendCustomMessageResponse {
     // The status of the send operation.
+    string status = 1;
+}
+
+message SubscribeOnionMessagesRequest {
+}
+
+message OnionMessage {
+    // Peer from which this message originates. Represented as a byte-encoded
+    // public key.
+    bytes peer = 1;
+
+    // PathKey is used to derive the blinded node id by tweaking the hop's
+    // static public key. The hop uses the corresponding blinded private key
+    // together with the sender's ephemeral key to perform ECDH and obtain the
+    // shared secret for decrypting the onion payload. Separately, for
+    // decrypting `encrypted_recipient_data`, the recipient performs ECDH
+    // between its static node private key and the path_key to derive the
+    // decryption key.
+    bytes path_key = 2;
+
+    // Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop
+    // encrypted payloads and routing instructions used to forward this message
+    // along its designated path.
+    bytes onion = 3;
+}
+
+message SendOnionMessageRequest {
+    // Peer to send the message to
+    bytes peer = 1;
+
+    // PathKey is used to derive the blinded node id by tweaking the hop's
+    // static public key. The hop uses the corresponding blinded private key
+    // together with the sender's ephemeral key to perform ECDH and obtain the
+    // shared secret for decrypting the onion payload. Separately, for
+    // decrypting `encrypted_recipient_data`, the recipient performs ECDH
+    // between its static node private key and the path_key to derive the
+    // decryption key.
+    bytes path_key = 2;
+
+    // Serialized Sphinx onion packet (BOLT 4) containing the layered, per-hop
+    // encrypted payloads and routing instructions used to forward this message
+    // along its designated path.
+    bytes onion = 3;
+}
+
+message SendOnionMessageResponse {
+    // The status of the onion message send operation.
     string status = 1;
 }
 

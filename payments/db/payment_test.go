@@ -1178,6 +1178,265 @@ func makeAttemptInfo(total, amtForwarded int) HTLCAttemptInfo {
 	}
 }
 
+// lastHopArgs is a helper struct that holds the arguments for the last hop
+// when creating an attempt with a route with a single hop (last hop).
+type lastHopArgs struct {
+	amt       lnwire.MilliSatoshi
+	total     lnwire.MilliSatoshi
+	mpp       *record.MPP
+	encrypted []byte
+}
+
+// makeLastHopAttemptInfo creates an HTLCAttemptInfo with a route with a single
+// hop (last hop).
+func makeLastHopAttemptInfo(id uint64, args lastHopArgs) HTLCAttemptInfo {
+	lastHop := &route.Hop{
+		PubKeyBytes:   vertex,
+		ChannelID:     1,
+		AmtToForward:  args.amt,
+		MPP:           args.mpp,
+		EncryptedData: args.encrypted,
+		TotalAmtMsat:  args.total,
+	}
+
+	return HTLCAttemptInfo{
+		AttemptID: id,
+		Route: route.Route{
+			SourcePubKey: vertex,
+			TotalAmount:  args.amt,
+			Hops:         []*route.Hop{lastHop},
+		},
+	}
+}
+
+// makePayment creates an MPPayment with set of attempts.
+func makePayment(total lnwire.MilliSatoshi,
+	attempts ...HTLCAttempt) *MPPayment {
+
+	return &MPPayment{
+		Info: &PaymentCreationInfo{
+			Value: total,
+		},
+		HTLCs: attempts,
+	}
+}
+
+// TestVerifyAttemptNonMPPAmountMismatch tests that we return an error if the
+// attempted amount doesn't match the payment amount.
+func TestVerifyAttemptNonMPPAmountMismatch(t *testing.T) {
+	t.Parallel()
+
+	payment := makePayment(1000)
+	attempt := makeLastHopAttemptInfo(1, lastHopArgs{amt: 900})
+
+	require.ErrorIs(t, verifyAttempt(payment, &attempt), ErrValueMismatch)
+}
+
+// TestVerifyAttemptNonMPPSuccess tests that we don't return an error if the
+// attempted amount matches the payment amount.
+func TestVerifyAttemptNonMPPSuccess(t *testing.T) {
+	t.Parallel()
+
+	payment := makePayment(1200)
+	attempt := makeLastHopAttemptInfo(1, lastHopArgs{amt: 1200})
+
+	require.NoError(t, verifyAttempt(payment, &attempt))
+}
+
+// TestVerifyAttemptMPPTransitionErrors tests cases where we cannot transition
+// from a non-MPP payment to an MPP payment or vice versa.
+func TestVerifyAttemptMPPTransitionErrors(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(2000)
+	mpp := record.NewMPP(total, testHash)
+
+	paymentWithMPP := makePayment(
+		total,
+		HTLCAttempt{
+			HTLCAttemptInfo: makeLastHopAttemptInfo(
+				1,
+				lastHopArgs{amt: 1000, mpp: mpp},
+			),
+		},
+	)
+	nonMPP := makeLastHopAttemptInfo(2, lastHopArgs{amt: 1000})
+	require.ErrorIs(t, verifyAttempt(paymentWithMPP, &nonMPP), ErrMPPayment)
+
+	paymentWithNonMPP := makePayment(
+		total,
+		HTLCAttempt{
+			HTLCAttemptInfo: makeLastHopAttemptInfo(
+				1,
+				lastHopArgs{amt: total},
+			),
+		},
+	)
+	mppAttempt := makeLastHopAttemptInfo(
+		2, lastHopArgs{amt: 1000, mpp: mpp},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(paymentWithNonMPP, &mppAttempt),
+		ErrNonMPPayment,
+	)
+}
+
+// TestVerifyAttemptMPPOptionMismatch tests that we return an error if the
+// MPP options don't match the payment options.
+func TestVerifyAttemptMPPOptionMismatch(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(3000)
+	goodMPP := record.NewMPP(total, testHash)
+	payment := makePayment(
+		total,
+		HTLCAttempt{
+			HTLCAttemptInfo: makeLastHopAttemptInfo(
+				1,
+				lastHopArgs{amt: 1500, mpp: goodMPP},
+			),
+		},
+	)
+
+	badAddr := record.NewMPP(total, rev)
+	attemptBadAddr := makeLastHopAttemptInfo(
+		2,
+		lastHopArgs{amt: 1500, mpp: badAddr},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &attemptBadAddr),
+		ErrMPPPaymentAddrMismatch,
+	)
+
+	badTotal := record.NewMPP(total-1, testHash)
+	attemptBadTotal := makeLastHopAttemptInfo(
+		3,
+		lastHopArgs{amt: 1500, mpp: badTotal},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &attemptBadTotal),
+		ErrMPPTotalAmountMismatch,
+	)
+
+	matching := makeLastHopAttemptInfo(
+		4,
+		lastHopArgs{amt: 1500, mpp: record.NewMPP(total, testHash)},
+	)
+	require.NoError(t, verifyAttempt(payment, &matching))
+}
+
+// TestVerifyAttemptBlindedValidation tests that we return an error if we try
+// to register an MPP attempt for a blinded payment.
+func TestVerifyAttemptBlindedValidation(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(5000)
+
+	// Payment with a blinded attempt.
+	existing := makeLastHopAttemptInfo(
+		1,
+		lastHopArgs{amt: 2500, total: total, encrypted: []byte{1}},
+	)
+	payment := makePayment(
+		total,
+		HTLCAttempt{HTLCAttemptInfo: existing},
+	)
+
+	// Attempt with a normal MPP record should fail because a payment
+	// cannot have a mix of blinded and non-blinded attempts.
+	goodMPP := makeLastHopAttemptInfo(
+		2,
+		lastHopArgs{amt: 2500, mpp: record.NewMPP(total, testHash)},
+	)
+	require.ErrorIs(
+		t, verifyAttempt(payment, &goodMPP),
+		ErrMixedBlindedAndNonBlindedPayments,
+	)
+
+	blindedMPP := makeLastHopAttemptInfo(
+		2,
+		lastHopArgs{
+			amt:       2500,
+			total:     total,
+			mpp:       record.NewMPP(total, testHash),
+			encrypted: []byte{2},
+		},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &blindedMPP),
+		ErrMPPRecordInBlindedPayment,
+	)
+
+	mismatchedTotal := makeLastHopAttemptInfo(
+		3,
+		lastHopArgs{amt: 2500, total: total + 1, encrypted: []byte{3}},
+	)
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &mismatchedTotal),
+		ErrBlindedPaymentTotalAmountMismatch,
+	)
+
+	matching := makeLastHopAttemptInfo(
+		4,
+		lastHopArgs{amt: 2500, total: total, encrypted: []byte{4}},
+	)
+	require.NoError(t, verifyAttempt(payment, &matching))
+}
+
+// TestVerifyAttemptBlindedMixedWithNonBlinded tests that we return an error if
+// we try to register a non-MPP attempt for a blinded payment.
+func TestVerifyAttemptBlindedMixedWithNonBlinded(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(4000)
+
+	// Payment with a blinded attempt.
+	existing := makeLastHopAttemptInfo(
+		1,
+		lastHopArgs{amt: 2000, total: total, encrypted: []byte{1}},
+	)
+	payment := makePayment(
+		total,
+		HTLCAttempt{HTLCAttemptInfo: existing},
+	)
+
+	partial := makeLastHopAttemptInfo(2, lastHopArgs{amt: 2000})
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &partial),
+		ErrMixedBlindedAndNonBlindedPayments,
+	)
+
+	full := makeLastHopAttemptInfo(3, lastHopArgs{amt: total})
+	require.ErrorIs(
+		t,
+		verifyAttempt(payment, &full),
+		ErrMixedBlindedAndNonBlindedPayments,
+	)
+}
+
+// TestVerifyAttemptAmountExceedsTotal tests that we return an error if the
+// attempted amount exceeds the payment amount.
+func TestVerifyAttemptAmountExceedsTotal(t *testing.T) {
+	t.Parallel()
+
+	total := lnwire.MilliSatoshi(1000)
+	mpp := record.NewMPP(total, testHash)
+	existing := makeLastHopAttemptInfo(1, lastHopArgs{amt: 800, mpp: mpp})
+	payment := makePayment(
+		total,
+		HTLCAttempt{HTLCAttemptInfo: existing},
+	)
+
+	attempt := makeLastHopAttemptInfo(2, lastHopArgs{amt: 300, mpp: mpp})
+	require.ErrorIs(t, verifyAttempt(payment, &attempt), ErrValueExceedsAmt)
+}
+
 // TestEmptyRoutesGenerateSphinxPacket tests that the generateSphinxPacket
 // function is able to gracefully handle being passed a nil set of hops for the
 // route by the caller.

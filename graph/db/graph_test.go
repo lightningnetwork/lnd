@@ -70,19 +70,18 @@ var (
 )
 
 func createNode(priv *btcec.PrivateKey) *models.Node {
-	pub := priv.PubKey().SerializeCompressed()
-	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		AuthSigBytes:         testSig.Serialize(),
-		LastUpdate:           nextUpdateTime(),
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + hex.EncodeToString(pub),
-		Features:             testFeatures,
-		Addresses:            testAddrs,
-	}
-	copy(n.PubKeyBytes[:], priv.PubKey().SerializeCompressed())
+	pubKey := route.NewVertex(priv.PubKey())
 
-	return n
+	return models.NewV1Node(
+		pubKey, &models.NodeV1Fields{
+			LastUpdate:   nextUpdateTime(),
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + hex.EncodeToString(pubKey[:]),
+			Addresses:    testAddrs,
+			Features:     testFeatures.RawFeatureVector,
+			AuthSigBytes: testSig.Serialize(),
+		},
+	)
 }
 
 func createTestVertex(t testing.TB) *models.Node {
@@ -106,17 +105,18 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 	timeStamp := int64(1232342)
 	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
 		timeStamp++
-		return &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           time.Unix(timeStamp, 0),
-			Color:                color.RGBA{1, 2, 3, 0},
-			Alias:                "kek",
-			Features:             testFeatures,
-			Addresses:            addrs,
-			ExtraOpaqueData:      []byte{1, 1, 1, 2, 2, 2, 2},
-			PubKeyBytes:          testPub,
-		}
+
+		return models.NewV1Node(
+			testPub, &models.NodeV1Fields{
+				AuthSigBytes:    testSig.Serialize(),
+				LastUpdate:      time.Unix(timeStamp, 0),
+				Color:           color.RGBA{1, 2, 3, 0},
+				Alias:           "kek",
+				Features:        testFeatures.RawFeatureVector,
+				Addresses:       addrs,
+				ExtraOpaqueData: []byte{1, 1, 1, 2, 2, 2, 2},
+			},
+		)
 	}
 
 	// First, insert the node into the graph DB. This should succeed
@@ -315,12 +315,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode1 := &models.Node{
-		HaveNodeAnnouncement: false,
-		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          pubKey1,
-		Features:             lnwire.EmptyFeatureVector(),
-	}
+	expectedNode1 := models.NewV1ShellNode(pubKey1)
 	compareNodes(t, expectedNode1, dbNode1)
 
 	_, exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
@@ -329,12 +324,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode2 := &models.Node{
-		HaveNodeAnnouncement: false,
-		LastUpdate:           time.Unix(0, 0),
-		PubKeyBytes:          pubKey2,
-		Features:             lnwire.EmptyFeatureVector(),
-	}
+	expectedNode2 := models.NewV1ShellNode(pubKey2)
 	compareNodes(t, expectedNode2, dbNode2)
 
 	// Next, delete the node from the graph, this should purge all data
@@ -369,7 +359,7 @@ func TestAliasLookup(t *testing.T) {
 	require.NoError(t, err, "unable to generate pubkey")
 	dbAlias, err := graph.LookupAlias(ctx, nodePub)
 	require.NoError(t, err, "unable to find alias")
-	require.Equal(t, testNode.Alias, dbAlias)
+	require.Equal(t, testNode.Alias.UnwrapOr(""), dbAlias)
 
 	// Ensure that looking up a non-existent alias results in an error.
 	node := createTestVertex(t)
@@ -1604,7 +1594,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 		node := createTestVertex(t)
 
 		nodes[i] = node
-		nodeIndex[node.Alias] = struct{}{}
+		nodeIndex[node.Alias.UnwrapOr("")] = struct{}{}
 	}
 
 	// Add each of the nodes into the graph, they should be inserted
@@ -1616,7 +1606,7 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 	// Iterate over each node as returned by the graph, if all nodes are
 	// reached, then the map created above should be empty.
 	err := graph.ForEachNode(ctx, func(n *models.Node) error {
-		delete(nodeIndex, n.Alias)
+		delete(nodeIndex, n.Alias.UnwrapOr(""))
 		return nil
 	}, func() {})
 	require.NoError(t, err)
@@ -2293,7 +2283,7 @@ func TestNodeUpdatesInHorizon(t *testing.T) {
 		require.Len(t, resp, len(queryCase.resp))
 
 		for i := 0; i < len(resp); i++ {
-			compareNodes(t, &queryCase.resp[i], &resp[i])
+			compareNodes(t, &queryCase.resp[i], resp[i])
 		}
 	}
 }
@@ -2491,7 +2481,7 @@ func TestNodeUpdatesInHorizonEarlyTermination(t *testing.T) {
 			)
 
 			// Collect only up to stopAt nodes, breaking afterwards.
-			var collected []models.Node
+			var collected []*models.Node
 			count := 0
 			for node := range iter {
 				if count >= stopAt {
@@ -3782,11 +3772,11 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 	// a shell node present.
 	node1, err := graph.FetchNode(ctx, node1.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node1")
-	require.True(t, node1.HaveNodeAnnouncement)
+	require.True(t, node1.HaveAnnouncement())
 
 	node2, err = graph.FetchNode(ctx, node2.PubKeyBytes)
 	require.NoError(t, err, "unable to fetch node2")
-	require.False(t, node2.HaveNodeAnnouncement)
+	require.False(t, node2.HaveAnnouncement())
 
 	// Show that attempting to add the channel again will result in an
 	// error.
@@ -3828,7 +3818,7 @@ func TestNodePruningUpdateIndexDeletion(t *testing.T) {
 		t.Fatalf("should have 1 nodes instead have: %v",
 			len(nodesInHorizon))
 	}
-	compareNodes(t, node1, &nodesInHorizon[0])
+	compareNodes(t, node1, nodesInHorizon[0])
 
 	// We'll now delete the node from the graph, this should result in it
 	// being removed from the update index as well.

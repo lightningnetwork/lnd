@@ -22,6 +22,12 @@
 # Bug Fixes
 
 # New Features
+
+- Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
+  consisting of a new message type, `OnionMessage`. This includes the message's
+  definition, comprising a path key and an onion blob, along with the necessary
+  serialization and deserialization logic for peer-to-peer communication.
+
 ## Functional Enhancements
 
 ## RPC Additions
@@ -48,8 +54,14 @@
 
 ## Database
 
+* Freeze the [graph SQL migration 
+  code](https://github.com/lightningnetwork/lnd/pull/10338) to prevent the 
+  need for maintenance as the sqlc code evolves. 
+
 ## Code Health
 
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Elle Mouton

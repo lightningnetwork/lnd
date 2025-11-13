@@ -83,16 +83,16 @@ func createTestNode(t *testing.T) *models.Node {
 	require.NoError(t, err)
 
 	pub := priv.PubKey().SerializeCompressed()
-	n := &models.Node{
-		HaveNodeAnnouncement: true,
-		LastUpdate:           time.Unix(updateTime, 0),
-		Addresses:            testAddrs,
-		Color:                color.RGBA{1, 2, 3, 0},
-		Alias:                "kek" + hex.EncodeToString(pub),
-		AuthSigBytes:         testSig.Serialize(),
-		Features:             testFeatures,
-	}
-	copy(n.PubKeyBytes[:], pub)
+	n := models.NewV1Node(
+		route.NewVertex(priv.PubKey()), &models.NodeV1Fields{
+			LastUpdate:   time.Unix(updateTime, 0),
+			Addresses:    testAddrs,
+			Color:        color.RGBA{1, 2, 3, 0},
+			Alias:        "kek" + hex.EncodeToString(pub),
+			AuthSigBytes: testSig.Serialize(),
+			Features:     testFeatures.RawFeatureVector,
+		},
+	)
 
 	return n
 }
@@ -700,15 +700,12 @@ func TestNodeUpdateNotification(t *testing.T) {
 			t, testFeaturesBuf.Bytes(), featuresBuf.Bytes(),
 		)
 
-		if nodeUpdate.Alias != ann.Alias {
-			t.Fatalf("node alias doesn't match: expected %v, got %v",
-				ann.Alias, nodeUpdate.Alias)
-		}
-		if nodeUpdate.Color != graphdb.EncodeHexColor(ann.Color) {
-			t.Fatalf("node color doesn't match: expected %v, "+
-				"got %v", graphdb.EncodeHexColor(ann.Color),
-				nodeUpdate.Color)
-		}
+		require.Equal(t, nodeUpdate.Alias, ann.Alias.UnwrapOr(""))
+		require.Equal(
+			t, nodeUpdate.Color, graphdb.EncodeHexColor(
+				ann.Color.UnwrapOr(color.RGBA{}),
+			),
+		)
 	}
 
 	// Create lookup map for notifications we are intending to receive. Entries

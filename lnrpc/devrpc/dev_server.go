@@ -226,15 +226,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 
 	var err error
 	for _, rpcNode := range graph.Nodes {
-		node := &models.Node{
-			HaveNodeAnnouncement: true,
-			LastUpdate: time.Unix(
-				int64(rpcNode.LastUpdate), 0,
-			),
-			Alias: rpcNode.Alias,
-		}
-
-		node.PubKeyBytes, err = parsePubKey(rpcNode.PubKey)
+		pubKeyBytes, err := parsePubKey(rpcNode.PubKey)
 		if err != nil {
 			return nil, err
 		}
@@ -251,14 +243,24 @@ func (s *Server) ImportGraph(ctx context.Context,
 		}
 
 		featureVector := lnwire.NewRawFeatureVector(featureBits...)
-		node.Features = lnwire.NewFeatureVector(
-			featureVector, featureNames,
-		)
 
-		node.Color, err = lncfg.ParseHexColor(rpcNode.Color)
+		nodeColor, err := lncfg.ParseHexColor(rpcNode.Color)
 		if err != nil {
 			return nil, err
 		}
+
+		node := models.NewV1Node(pubKeyBytes, &models.NodeV1Fields{
+			LastUpdate: time.Unix(
+				int64(rpcNode.LastUpdate), 0,
+			),
+			Alias:    rpcNode.Alias,
+			Features: featureVector,
+			Color:    nodeColor,
+			// NOTE: this is a workaround to ensure that
+			// HaveAnnouncement() returns true so that the other
+			// fields are properly persisted. However,
+			AuthSigBytes: []byte{0},
+		})
 
 		if err := graphDB.AddNode(ctx, node); err != nil {
 			return nil, fmt.Errorf("unable to add node %v: %w",

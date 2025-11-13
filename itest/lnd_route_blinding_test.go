@@ -423,8 +423,6 @@ func (b *blindedForwardTest) cleanup() {
 
 // createRouteToBlinded queries for a route from alice to the blinded path
 // provided.
-//
-//nolint:gomnd
 func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
 	blindedPath *lnrpc.BlindedPaymentPath) *lnrpc.Route {
 

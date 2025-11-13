@@ -228,15 +228,16 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			return nil, err
 		}
 
-		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                node.Alias,
-			Features:             testFeatures,
-		}
-		copy(dbNode.PubKeyBytes[:], pubBytes)
+		pubKey, err := route.NewVertexFromBytes(pubBytes)
+		require.NoError(t, err)
+
+		dbNode := models.NewV1Node(pubKey, &models.NodeV1Fields{
+			AuthSigBytes: testSig.Serialize(),
+			LastUpdate:   testTime,
+			Addresses:    testAddrs,
+			Alias:        node.Alias,
+			Features:     testFeatures.RawFeatureVector,
+		})
 
 		// We require all aliases within the graph to be unique for our
 		// tests.
@@ -565,16 +566,15 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			features = lnwire.EmptyFeatureVector()
 		}
 
-		dbNode := &models.Node{
-			HaveNodeAnnouncement: true,
-			AuthSigBytes:         testSig.Serialize(),
-			LastUpdate:           testTime,
-			Addresses:            testAddrs,
-			Alias:                alias,
-			Features:             features,
-		}
-
-		copy(dbNode.PubKeyBytes[:], pubKey.SerializeCompressed())
+		dbNode := models.NewV1Node(
+			route.NewVertex(pubKey), &models.NodeV1Fields{
+				AuthSigBytes: testSig.Serialize(),
+				LastUpdate:   testTime,
+				Addresses:    testAddrs,
+				Alias:        alias,
+				Features:     features.RawFeatureVector,
+			},
+		)
 
 		privKeyMap[alias] = privKey
 
@@ -1250,13 +1250,13 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
 	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
 	require.NoError(t, err, "unable to decode public key")
-	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
-	require.NoError(t, err, "unable to parse public key from bytes")
 
-	doge := &models.Node{}
-	doge.AddPubKey(dogePubKey)
-	doge.Alias = "doge"
-	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
+	pubKey, err := route.NewVertexFromBytes(dogePubKeyBytes)
+	require.NoError(t, err)
+
+	doge := models.NewV1Node(pubKey, &models.NodeV1Fields{
+		Alias: "doge",
+	})
 	graph.aliasMap["doge"] = doge.PubKeyBytes
 
 	// Create the channel edge going from songoku to doge and include it in

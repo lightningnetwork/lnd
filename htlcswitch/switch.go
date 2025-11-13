@@ -1885,6 +1885,13 @@ func (s *Switch) Start() error {
 
 	log.Infof("HTLC Switch starting")
 
+	// Before starting the main event loop, we'll check for any orphaned
+	// HTLC attempts that may have been left behind by a previous crash.
+	if err := s.cleanupOrphanedAttempts(); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned attempts: %w",
+			err)
+	}
+
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -1905,6 +1912,54 @@ func (s *Switch) Start() error {
 		_ = s.Stop()
 		log.Errorf("unable to reforward resolutions: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+// cleanupOrphanedAttempts is a helper function that is called on startup to
+// clean up any orphaned HTLC attempts. An orphaned attempt is one that has
+// been initialized in the attempt store but for which no corresponding circuit
+// exists in the circuit map. This can happen if the node crashes after
+// initializing an attempt but before committing the circuit.
+func (s *Switch) cleanupOrphanedAttempts() error {
+	pending, err := s.attemptStore.FetchPendingAttempts()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pending attempts: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d pending HTLC attempts, checking for orphans",
+		len(pending))
+
+	for _, attemptID := range pending {
+		// For each pending attempt, we check if a corresponding circuit
+		// exists.
+		inKey := CircuitKey{
+			ChanID: hop.Source,
+			HtlcID: attemptID,
+		}
+		if s.circuits.LookupCircuit(inKey) != nil {
+			// This is a legitimate in-flight HTLC, so we can
+			// ignore it.
+			continue
+		}
+
+		// If no circuit exists, this is an orphaned attempt. We'll
+		// fail it with a temporary node failure.
+		log.Warnf("Found orphaned HTLC attempt with id %d, failing",
+			attemptID)
+
+		err := s.attemptStore.FailAttempt(attemptID, NewLinkError(
+			&lnwire.FailTemporaryNodeFailure{},
+		))
+		if err != nil {
+			log.Errorf("Unable to fail orphaned attempt %d: %v",
+				attemptID, err)
+		}
 	}
 
 	return nil

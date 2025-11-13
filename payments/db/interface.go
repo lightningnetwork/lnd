@@ -61,6 +61,17 @@ type PaymentControl interface {
 	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
+	//
+	// IMPORTANT: Callers MUST serialize calls to RegisterAttempt for the
+	// same payment hash. Concurrent calls will result in race conditions
+	// where both calls read the same initial payment state, validate
+	// against stale data, and could cause overpayment. For example:
+	//   - Both goroutines fetch payment with 400 sats sent
+	//   - Both validate sending 650 sats won't overpay (within limit)
+	//   - Both commit successfully
+	//   - Result: 1700 sats sent, exceeding the payment amount
+	// The payment router/controller layer is responsible for ensuring
+	// serialized access per payment hash.
 	RegisterAttempt(lntypes.Hash, *HTLCAttemptInfo) (*MPPayment, error)
 
 	// SettleAttempt marks the given attempt settled with the preimage. If

@@ -64,6 +64,8 @@ require (
 	pgregory.net/rapid v1.2.0
 )
 
+require github.com/lightningnetwork/lnd/actor v0.0.1-alpha
+
 require (
 	dario.cat/mergo v1.0.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
@@ -212,6 +214,9 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+
+// Use the local actor module for development.
+replace github.com/lightningnetwork/lnd/actor => ./actor
 
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as

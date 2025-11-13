@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -42,6 +43,12 @@ type EmittedEvent[Event any] struct {
 	// ExternalEvent is an optional external event that is to be sent to
 	// the daemon for dispatch. Usually, this is some form of I/O.
 	ExternalEvents DaemonEventSet
+
+	// Outbox is an optional set of events that are accumulated during event
+	// processing and returned to the caller for processing into the main
+	// state machine. This enables nested state machines to emit events that
+	// bubble up to their parent.
+	Outbox []Event
 }
 
 // StateTransition is a state transition type. It denotes the next state to go
@@ -124,6 +131,18 @@ type stateQuery[Event any, Env Environment] struct {
 	CurrentState chan State[Event, Env]
 }
 
+// syncEventRequest is used to send an event to the state machine synchronously,
+// waiting for the event processing to complete and returning the accumulated
+// outbox events.
+type syncEventRequest[Event any] struct {
+	// event is the event to process.
+	event Event
+
+	// promise is used to signal completion and return the accumulated
+	// outbox events or an error.
+	promise actor.Promise[[]Event]
+}
+
 // StateMachine represents an abstract FSM that is able to process new incoming
 // events and drive a state machine to termination. This implementation uses
 // type params to abstract over the types of events and environment. Events
@@ -139,6 +158,10 @@ type StateMachine[Event any, Env Environment] struct {
 	// events is the channel that will be used to send new events to the
 	// FSM.
 	events chan Event
+
+	// syncEvents is the channel that will be used to send synchronous event
+	// requests to the FSM, returning the accumulated outbox events.
+	syncEvents chan syncEventRequest[Event]
 
 	// newStateEvents is an EventDistributor that will be used to notify
 	// any relevant callers of new state transitions that occur.
@@ -214,6 +237,7 @@ func NewStateMachine[Event any, Env Environment](
 			fmt.Sprintf("FSM(%v):", cfg.Env.Name()),
 		),
 		events:         make(chan Event, 1),
+		syncEvents:     make(chan syncEventRequest[Event], 1),
 		stateQuery:     make(chan stateQuery[Event, Env]),
 		gm:             *fn.NewGoroutineManager(),
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
@@ -257,6 +281,84 @@ func (s *StateMachine[Event, Env]) SendEvent(ctx context.Context, event Event) {
 	case <-s.quit:
 		return
 	}
+}
+
+// AskEvent sends a new event to the state machine using the Ask pattern
+// (request-response), waiting for the event to be fully processed. It
+// returns a Future that will be resolved with the accumulated outbox events
+// from all state transitions triggered by this event, including nested
+// internal events. The Future's Await method will return fn.Result[[]Event]
+// containing either the accumulated outbox events or an error if processing
+// failed.
+func (s *StateMachine[Event, Env]) AskEvent(ctx context.Context,
+	event Event) actor.Future[[]Event] {
+
+	s.log.Debugf("Asking event %T", event)
+
+	// Create a promise to signal completion and return results.
+	promise := actor.NewPromise[[]Event]()
+
+	req := syncEventRequest[Event]{
+		event:   event,
+		promise: promise,
+	}
+
+	// Check for context cancellation or shutdown first to avoid races.
+	select {
+	case <-ctx.Done():
+		promise.Complete(
+			fn.Errf[[]Event]("context cancelled: %w",
+				ctx.Err()),
+		)
+
+		return promise.Future()
+
+	case <-s.quit:
+		promise.Complete(fn.Err[[]Event](ErrStateMachineShutdown))
+
+		return promise.Future()
+
+	default:
+	}
+
+	// Send the request to the state machine. If we can't send it due to
+	// context cancellation or shutdown, complete the promise with an error.
+	select {
+	// Successfully sent, the promise will be completed by driveMachine.
+	case s.syncEvents <- req:
+
+	case <-ctx.Done():
+		promise.Complete(
+			fn.Errf[[]Event]("context cancelled: %w",
+				ctx.Err()),
+		)
+
+	case <-s.quit:
+		promise.Complete(fn.Err[[]Event](ErrStateMachineShutdown))
+	}
+
+	return promise.Future()
+}
+
+// Receive processes a message and returns a Result containing the accumulated
+// outbox events from the state machine. The provided context is the actor's
+// internal context, which can be used to detect actor shutdown requests.
+//
+// This method uses the AskEvent pattern to wait for the event to be fully
+// processed and collect any outbox events emitted during state transitions.
+// This enables the actor system to propagate events from nested state machines
+// up through the actor hierarchy.
+//
+// NOTE: This implements the actor.ActorBehavior interface.
+func (s *StateMachine[Event, Env]) Receive(ctx context.Context,
+	e ActorMessage[Event]) fn.Result[[]Event] {
+
+	// Use AskEvent to process the event and get the outbox events back.
+	future := s.AskEvent(ctx, e.Event)
+
+	// Await the result which will contain the accumulated outbox events
+	// from all state transitions triggered by this event.
+	return future.Await(ctx)
 }
 
 // CanHandle returns true if the target message can be routed to the state
@@ -563,12 +665,18 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 
 // applyEvents applies a new event to the state machine. This will continue
 // until no further events are emitted by the state machine. Along the way,
-// we'll also ensure to execute any daemon events that are emitted.
+// we'll also ensure to execute any daemon events that are emitted. The
+// function returns the final state, any accumulated outbox events, and an
+// error if one occurred.
 func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 	currentState State[Event, Env], newEvent Event) (State[Event, Env],
-	error) {
+	[]Event, error) {
 
 	eventQueue := fn.NewQueue(newEvent)
+
+	// outbox accumulates all outbox events from state transitions during
+	// the entire event processing chain.
+	var outbox []Event
 
 	// Given the next event to handle, we'll process the event, then add
 	// any new emitted internal events to our event queue. This continues
@@ -613,6 +721,10 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 					eventQueue.Enqueue(inEvent)
 				}
 
+				// Accumulate any outbox events from this state
+				// transition.
+				outbox = append(outbox, events.Outbox...)
+
 				return nil
 			})
 			if err != nil {
@@ -636,11 +748,11 @@ func (s *StateMachine[Event, Env]) applyEvents(ctx context.Context,
 			return nil
 		})
 		if err != nil {
-			return currentState, err
+			return currentState, nil, err
 		}
 	}
 
-	return currentState, nil
+	return currentState, outbox, nil
 }
 
 // driveMachine is the main event loop of the state machine. It accepts any new
@@ -671,7 +783,7 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 		// machine forward until we either run out of internal events,
 		// or we reach a terminal state.
 		case newEvent := <-s.events:
-			newState, err := s.applyEvents(
+			newState, _, err := s.applyEvents(
 				ctx, currentState, newEvent,
 			)
 			if err != nil {
@@ -687,6 +799,37 @@ func (s *StateMachine[Event, Env]) driveMachine(ctx context.Context) {
 			}
 
 			currentState = newState
+
+		// We have a synchronous event request that expects the
+		// accumulated outbox events to be returned via the promise.
+		case syncReq := <-s.syncEvents:
+			newState, outbox, err := s.applyEvents(
+				ctx, currentState, syncReq.event,
+			)
+			if err != nil {
+				s.cfg.ErrorReporter.ReportError(err)
+
+				s.log.ErrorS(ctx, "Unable to apply sync event",
+					err)
+
+				// Complete the promise with the error.
+				//
+				// TODO(roasbeef): distinguish between error
+				// types? state vs processing
+				syncReq.promise.Complete(fn.Err[[]Event](err))
+
+				// An error occurred, so we'll tear down the
+				// entire state machine as we can't proceed.
+				go s.Stop()
+
+				return
+			}
+
+			currentState = newState
+
+			// Complete the promise with the accumulated outbox
+			// events.
+			syncReq.promise.Complete(fn.Ok(outbox))
 
 		// An outside caller is querying our state, so we'll return the
 		// latest state.

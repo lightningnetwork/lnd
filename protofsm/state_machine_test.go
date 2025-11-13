@@ -1,6 +1,7 @@
 package protofsm
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync/atomic"
@@ -865,6 +866,350 @@ func TestStateMachineMsgMapper(t *testing.T) {
 	assertStateTransitions(t, stateSub, expectedStates)
 
 	dummyMapper.AssertExpectations(t)
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// outboxEvent is a test event type that gets added to the outbox.
+type outboxEvent struct {
+	id int
+}
+
+func (o *outboxEvent) dummy() {
+}
+
+// emitOutbox is a test event that triggers a state to emit outbox events.
+type emitOutbox struct {
+	numOutbox     int
+	numInternal   int
+	shouldGoToFin bool
+}
+
+func (e *emitOutbox) dummy() {
+}
+
+// dummyStateOutbox is a test state that emits outbox events during
+// transitions.
+type dummyStateOutbox struct {
+	counter int
+}
+
+func (d *dummyStateOutbox) String() string {
+	return fmt.Sprintf("dummyStateOutbox(%d)", d.counter)
+}
+
+func (d *dummyStateOutbox) ProcessEvent(event dummyEvents, env *dummyEnv,
+) (*StateTransition[dummyEvents, *dummyEnv], error) {
+
+	switch newEvent := event.(type) {
+	case *emitOutbox:
+		// Create outbox events based on the request.
+		outbox := make([]dummyEvents, newEvent.numOutbox)
+		for i := 0; i < newEvent.numOutbox; i++ {
+			outbox[i] = &outboxEvent{
+				id: d.counter*100 + i,
+			}
+		}
+
+		// Create internal events that will also emit outbox events.
+		internalEvents := make([]dummyEvents, newEvent.numInternal)
+		for i := 0; i < newEvent.numInternal; i++ {
+			internalEvents[i] = &emitOutbox{
+				numOutbox:     1,
+				numInternal:   0,
+				shouldGoToFin: false,
+			}
+		}
+
+		var nextState State[dummyEvents, *dummyEnv]
+		if newEvent.shouldGoToFin {
+			nextState = &dummyStateFin{}
+		} else {
+			nextState = &dummyStateOutbox{counter: d.counter + 1}
+		}
+
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: nextState,
+			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
+				InternalEvent: internalEvents,
+				Outbox:        outbox,
+			}),
+		}, nil
+
+	case *goToFin:
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: &dummyStateFin{},
+		}, nil
+
+	case *outboxEvent:
+		// When processing an outbox event (shouldn't happen in normal
+		// flow), just stay in current state.
+		return &StateTransition[dummyEvents, *dummyEnv]{
+			NextState: d,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("unknown event: %T", event)
+}
+
+func (d *dummyStateOutbox) IsTerminal() bool {
+	return false
+}
+
+// TestStateMachineAskEvent tests the AskEvent method and outbox event
+// accumulation functionality.
+func TestStateMachineAskEvent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                string
+		event               dummyEvents
+		expectedOutboxCount int
+		expectError         bool
+	}{
+		{
+			name: "basic outbox accumulation",
+			event: &emitOutbox{
+				numOutbox:     3,
+				numInternal:   0,
+				shouldGoToFin: false,
+			},
+			expectedOutboxCount: 3,
+			expectError:         false,
+		},
+
+		// 2 from top-level + 3 from internal events (1 each).
+		{
+			name: "nested internal events with outbox",
+			event: &emitOutbox{
+				numOutbox:     2,
+				numInternal:   3,
+				shouldGoToFin: false,
+			},
+			expectedOutboxCount: 5,
+			expectError:         false,
+		},
+
+		{
+			name: "empty outbox",
+			event: &emitOutbox{
+				numOutbox:     0,
+				numInternal:   0,
+				shouldGoToFin: false,
+			},
+			expectedOutboxCount: 0,
+			expectError:         false,
+		},
+
+		// 1 from top-level + 5 from internal events.
+		{
+			name: "deeply nested outbox",
+			event: &emitOutbox{
+				numOutbox:     1,
+				numInternal:   5,
+				shouldGoToFin: false,
+			},
+			expectedOutboxCount: 6,
+			expectError:         false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+
+			// Create our state machine with the outbox test state.
+			env := &dummyEnv{}
+			startingState := &dummyStateOutbox{counter: 0}
+			adapters := newDaemonAdapters()
+
+			cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+				Daemon:       adapters,
+				InitialState: startingState,
+				Env:          env,
+			}
+			stateMachine := NewStateMachine(cfg)
+
+			stateSub := stateMachine.RegisterStateEvents()
+			defer stateMachine.RemoveStateSub(stateSub)
+
+			stateMachine.Start(ctx)
+			defer stateMachine.Stop()
+
+			// Wait for initial state.
+			expectedStates := []State[dummyEvents, *dummyEnv]{
+				&dummyStateOutbox{},
+			}
+			assertStateTransitions(t, stateSub, expectedStates)
+
+			// Send the event using Ask pattern.
+			future := stateMachine.AskEvent(ctx, tc.event)
+			require.NotNil(t, future)
+
+			result := future.Await(ctx)
+
+			if tc.expectError {
+				require.True(t, result.IsErr())
+			} else {
+				require.True(t, result.IsOk())
+
+				// Extract the outbox events.
+				outbox := result.UnwrapOr(nil)
+				require.Len(t, outbox, tc.expectedOutboxCount)
+
+				// Verify outbox events are of the correct type.
+				for _, event := range outbox {
+					_, ok := event.(*outboxEvent)
+					require.True(t, ok,
+						"expected outboxEvent, got %T",
+						event)
+				}
+			}
+
+			adapters.AssertExpectations(t)
+			env.AssertExpectations(t)
+		})
+	}
+}
+
+// TestStateMachineOutboxWithMixedEvents tests that outbox accumulation works
+// correctly when mixed with regular SendEvent calls.
+func TestStateMachineOutboxWithMixedEvents(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	// Create our state machine with the outbox test state.
+	env := &dummyEnv{}
+	startingState := &dummyStateOutbox{counter: 0}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	// Subscribe to state transitions, then start the main state machine.
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateOutbox{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Send a regular async event first.
+	stateMachine.SendEvent(ctx, &emitOutbox{
+		numOutbox:     1,
+		numInternal:   0,
+		shouldGoToFin: false,
+	})
+
+	// Wait for state transition from async event.
+	expectedStates = []State[dummyEvents, *dummyEnv]{
+		&dummyStateOutbox{counter: 1},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// Now send an event using Ask pattern.
+	future := stateMachine.AskEvent(ctx, &emitOutbox{
+		numOutbox:     2,
+		numInternal:   1,
+		shouldGoToFin: false,
+	})
+
+	result := future.Await(ctx)
+	require.True(t, result.IsOk())
+
+	// We should have 3 outbox events (2 from top-level + 1 from internal).
+	outbox := result.UnwrapOr(nil)
+	require.Len(t, outbox, 3)
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// TestStateMachineAskEventContextCancellation tests that context cancellation
+// is properly handled in AskEvent.
+func TestStateMachineAskEventContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	env := &dummyEnv{}
+	startingState := &dummyStateOutbox{counter: 0}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateMachine.Start(ctx)
+	defer stateMachine.Stop()
+
+	// Create a context that's already cancelled.
+	cancelledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Try to send an event with a cancelled context.
+	future := stateMachine.AskEvent(cancelledCtx, &emitOutbox{
+		numOutbox:     1,
+		numInternal:   0,
+		shouldGoToFin: false,
+	})
+
+	// The future should be completed with an error.
+	result := future.Await(ctx)
+	require.True(t, result.IsErr())
+
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+// TestStateMachineAskEventAfterShutdown tests that AskEvent properly handles
+// the case where the state machine has been shut down.
+func TestStateMachineAskEventAfterShutdown(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	// Create our state machine.
+	env := &dummyEnv{}
+	startingState := &dummyStateOutbox{counter: 0}
+	adapters := newDaemonAdapters()
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+	}
+	stateMachine := NewStateMachine(cfg)
+
+	stateMachine.Start(ctx)
+
+	// Stop the state machine.
+	stateMachine.Stop()
+
+	// Try to send an event after shutdown.
+	future := stateMachine.AskEvent(ctx, &emitOutbox{
+		numOutbox:     1,
+		numInternal:   0,
+		shouldGoToFin: false,
+	})
+
+	// The future should be completed with a shutdown error.
+	result := future.Await(ctx)
+	require.True(t, result.IsErr())
+	require.ErrorIs(t, result.Err(), ErrStateMachineShutdown)
+
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)
 }

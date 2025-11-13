@@ -1942,24 +1942,52 @@ func (s *Switch) cleanupOrphanedAttempts() error {
 			ChanID: hop.Source,
 			HtlcID: attemptID,
 		}
-		if s.circuits.LookupCircuit(inKey) != nil {
-			// This is a legitimate in-flight HTLC, so we can
-			// ignore it.
+		circuit := s.circuits.LookupCircuit(inKey)
+
+		// If no circuit exists, this is an orphan from a crash
+		// between InitAttempt and CommitCircuits. We'll fail it with
+		// a temporary node failure.
+		if circuit == nil {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(no circuit), failing", attemptID)
+
+			err := s.attemptStore.FailAttempt(attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
 			continue
 		}
 
-		// If no circuit exists, this is an orphaned attempt. We'll
-		// fail it with a temporary node failure.
-		log.Warnf("Found orphaned HTLC attempt with id %d, failing",
-			attemptID)
+		// If a circuit *does* exist, we must perform a second check.
+		// If the circuit is still "half-open" (it has not been
+		// assigned a keystone by the outgoing link), then it's an
+		// orphan from a crash between CommitCircuits and the handoff
+		// to the link. We must also fail this to prevent a hang.
+		if !circuit.HasKeystone() {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(half-open circuit), failing", attemptID)
 
-		err := s.attemptStore.FailAttempt(attemptID, NewLinkError(
-			&lnwire.FailTemporaryNodeFailure{},
-		))
-		if err != nil {
-			log.Errorf("Unable to fail orphaned attempt %d: %v",
-				attemptID, err)
+			err := s.attemptStore.FailAttempt(attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
 		}
+
+		// If the circuit exists and is fully open, it's a legitimate
+		// in-flight HTLC that will be resumed by the router.
 	}
 
 	return nil

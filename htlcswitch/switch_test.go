@@ -5828,6 +5828,51 @@ func TestSwitchOrphanCleanup(t *testing.T) {
 				require.NoError(t, err, "unable to init")
 			},
 		},
+		{
+			name: "half-open orphan",
+			setupOrphan: func(t *testing.T, s *Switch,
+				_ *channeldb.DB) {
+
+				// We need a valid, running link for the payment
+				// to be dispatched to, otherwise CommitCircuits
+				// will fail early.
+				alicePeer, err := newMockServer(
+					t, "alice", testStartingHeight, nil,
+					testDefaultDelta,
+				)
+				require.NoError(t, err)
+
+				chanID, _, aliceChanID, _ := genIDs()
+				link := newMockChannelLink(
+					s, chanID, aliceChanID, emptyScid,
+					alicePeer, true, false, false, false,
+				)
+				// require.NoError(t, s.AddLink(link))
+
+				// Manually initialize an attempt and commit a
+				// circuit to simulate the state of the database
+				// if the node crashed after CommitCircuits but
+				// before the packet was handed off to the link.
+				err = s.attemptStore.InitAttempt(attemptID)
+				require.NoError(t, err, "unable to init")
+
+				htlc := &lnwire.UpdateAddHTLC{
+					PaymentHash: lntypes.Hash{0x01},
+				}
+				packet := &htlcPacket{
+					incomingChanID: hop.Source,
+					incomingHTLCID: attemptID,
+					outgoingChanID: link.ShortChanID(),
+					htlc:           htlc,
+					amount:         htlc.Amount,
+				}
+				circuit := newPaymentCircuit(
+					&htlc.PaymentHash, packet,
+				)
+				_, err = s.circuits.CommitCircuits(circuit)
+				require.NoError(t, err, "commit failed")
+			},
+		},
 	}
 
 	for _, tc := range testCases {

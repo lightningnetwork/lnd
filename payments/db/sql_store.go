@@ -793,6 +793,24 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 	}, nil
 }
 
+// fetchPaymentByHash fetches a payment by its hash from the database. It is a
+// convenience wrapper around the FetchPayment method and checks for
+// no rows error and returns ErrPaymentNotInitiated if no payment is found.
+func fetchPaymentByHash(ctx context.Context, db SQLQueries,
+	paymentHash lntypes.Hash) (sqlc.FetchPaymentRow, error) {
+
+	dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return dbPayment, fmt.Errorf("failed to fetch payment: %w", err)
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return dbPayment, ErrPaymentNotInitiated
+	}
+
+	return dbPayment, nil
+}
+
 // FetchPayment retrieves a complete payment record from the database by its
 // payment hash. The returned MPPayment includes all payment metadata such as
 // creation info, payment status, current state, all HTLC attempts (both
@@ -808,13 +826,9 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 	var mpPayment *MPPayment
 
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("failed to fetch payment: %w", err)
-		}
-
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrPaymentNotInitiated
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
+		if err != nil {
+			return err
 		}
 
 		mpPayment, err = s.fetchPaymentWithCompleteData(
@@ -1017,9 +1031,9 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 	ctx := context.TODO()
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch payment: %w", err)
+			return err
 		}
 
 		paymentStatus, err := s.computePaymentStatusFromDB(
@@ -1036,7 +1050,7 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 		}
 
 		// Then we delete the failed attempts for this payment.
-		return db.DeleteFailedAttempts(ctx, dbPayment.Payment.ID)
+		return db.DeleteFailedAttempts(ctx, dbPayment.GetPayment().ID)
 	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("failed to delete failed attempts for "+
@@ -1113,10 +1127,9 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 	}
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch "+
-				"payment: %w", err)
+			return err
 		}
 
 		paymentStatus, err := s.computePaymentStatusFromDB(
@@ -1135,13 +1148,13 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 		// If we are only deleting failed HTLCs, we delete them.
 		if failedHtlcsOnly {
 			return db.DeleteFailedAttempts(
-				ctx, dbPayment.Payment.ID,
+				ctx, dbPayment.GetPayment().ID,
 			)
 		}
 
 		// In case we are not deleting failed HTLCs, we delete the
 		// payment which will cascade delete all related data.
-		return db.DeletePayment(ctx, dbPayment.Payment.ID)
+		return db.DeletePayment(ctx, dbPayment.GetPayment().ID)
 	}, sqldb.NoOpReset)
 	if err != nil {
 		return fmt.Errorf("failed to delete failed attempts for "+
@@ -1409,10 +1422,10 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 	var mpPayment *MPPayment
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		// First Fetch the payment and check if it is registrable.
-		existingPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		// Make sure the payment exists.
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch payment: %w", err)
+			return err
 		}
 
 		// We fetch the complete payment to determine if the payment is
@@ -1422,7 +1435,7 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 		// the last hop data is needed here not the complete payment
 		// data.
 		mpPayment, err = s.fetchPaymentWithCompleteData(
-			ctx, db, existingPayment,
+			ctx, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment with "+
@@ -1444,7 +1457,7 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 		sessionKeyBytes := sessionKey.Serialize()
 
 		_, err = db.InsertHtlcAttempt(ctx, sqlc.InsertHtlcAttemptParams{
-			PaymentID:    existingPayment.Payment.ID,
+			PaymentID:    dbPayment.GetPayment().ID,
 			AttemptIndex: int64(attempt.AttemptID),
 			SessionKey:   sessionKeyBytes,
 			AttemptTime:  attempt.AttemptTime,
@@ -1529,9 +1542,9 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 	var mpPayment *MPPayment
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch payment: %w", err)
+			return err
 		}
 
 		paymentStatus, err := s.computePaymentStatusFromDB(
@@ -1604,9 +1617,10 @@ func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
 	var mpPayment *MPPayment
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		// Make sure the payment exists.
+		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
 		if err != nil {
-			return fmt.Errorf("failed to fetch payment: %w", err)
+			return err
 		}
 
 		paymentStatus, err := s.computePaymentStatusFromDB(

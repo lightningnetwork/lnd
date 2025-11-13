@@ -242,6 +242,39 @@ func (q *Queries) FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices [
 	return items, nil
 }
 
+const fetchHtlcAttemptResolutionsForPayment = `-- name: FetchHtlcAttemptResolutionsForPayment :many
+SELECT
+    hr.resolution_type
+FROM payment_htlc_attempts ha
+LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
+WHERE ha.payment_id = $1
+ORDER BY ha.attempt_time ASC
+`
+
+// Lightweight query to fetch only HTLC resolution status.
+func (q *Queries) FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error) {
+	rows, err := q.db.QueryContext(ctx, fetchHtlcAttemptResolutionsForPayment, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []sql.NullInt32
+	for rows.Next() {
+		var resolution_type sql.NullInt32
+		if err := rows.Scan(&resolution_type); err != nil {
+			return nil, err
+		}
+		items = append(items, resolution_type)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchHtlcAttemptsForPayments = `-- name: FetchHtlcAttemptsForPayments :many
 SELECT
     ha.id,

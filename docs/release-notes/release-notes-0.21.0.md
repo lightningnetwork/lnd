@@ -174,6 +174,9 @@
     SQL Backend](https://github.com/lightningnetwork/lnd/pull/10287)
   * Implement insert methods for the [payments db 
     SQL Backend](https://github.com/lightningnetwork/lnd/pull/10291)
+  * Implement third(final) Part of SQL backend [payment
+  functions](https://github.com/lightningnetwork/lnd/pull/10368)
+
 
 ## Code Health
 

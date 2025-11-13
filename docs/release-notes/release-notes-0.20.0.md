@@ -59,11 +59,6 @@
 - [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/10330) to ensure that goroutine resources are properly freed in the case
   of a disconnection or other failure event.
 
-- Chain notifier RPCs now [return the gRPC `Unavailable`
-  status](https://github.com/lightningnetwork/lnd/pull/10352) while the
-  sub-server is still starting. This allows clients to reliably detect the
-  transient condition and retry without brittle string matching.
-
 # New Features
  
 * Use persisted [nodeannouncement](https://github.com/lightningnetwork/lnd/pull/8825) 

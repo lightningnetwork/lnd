@@ -7,11 +7,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -290,27 +288,11 @@ func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 // tests.
 func CustomRecordsWithUnaccountable(
 	originalRecords lnwire.CustomRecords) map[uint64][]byte {
-
-	if !ExperimentalAccountabilityActive() {
-		// Return nil if there are no records, to match wire encoding.
-		if len(originalRecords) == 0 {
-			return nil
-		}
-
-		return originalRecords.Copy()
-	}
-
 	return originalRecords.MergedCopy(map[uint64][]byte{
 		uint64(lnwire.ExperimentalAccountableType): {
 			lnwire.ExperimentalUnaccountable,
 		}},
 	)
-}
-
-// ExperimentalAccountabilityActive returns true if the experimental accountability
-// window is still open.
-func ExperimentalAccountabilityActive() bool {
-	return time.Now().Before(lnd.AccountabilityExperimentEnd)
 }
 
 // LnrpcOutpointToStr returns a string representation of an lnrpc.OutPoint.

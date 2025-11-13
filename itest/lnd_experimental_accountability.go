@@ -57,18 +57,12 @@ func testAccountability(ht *lntest.HarnessTest, aliceAccountable bool) {
 		FeeLimitMsat:   math.MaxInt64,
 	}
 
-	var expectedValue []byte
-	hasAccountability := lntest.ExperimentalAccountabilityActive()
-
-	if hasAccountability {
-		if aliceAccountable {
-			expectedValue = []byte{lnwire.ExperimentalAccountable}
-			t := uint64(lnwire.ExperimentalAccountableType)
-			sendReq.FirstHopCustomRecords = map[uint64][]byte{
-				t: expectedValue,
-			}
-		} else {
-			expectedValue = []byte{lnwire.ExperimentalUnaccountable}
+	expectedValue := []byte{lnwire.ExperimentalUnaccountable}
+	if aliceAccountable {
+		expectedValue = []byte{lnwire.ExperimentalAccountable}
+		t := uint64(lnwire.ExperimentalAccountableType)
+		sendReq.FirstHopCustomRecords = map[uint64][]byte{
+			t: expectedValue,
 		}
 	}
 
@@ -76,12 +70,11 @@ func testAccountability(ht *lntest.HarnessTest, aliceAccountable bool) {
 
 	// Validate that our signal (positive or zero) propagates until carol
 	// and then is dropped because she has disabled the feature.
-	// When the accountability experiment is not active, no signal is sent.
 	validateAccountableAndResume(
-		ht, bobIntercept, hasAccountability, expectedValue,
+		ht, bobIntercept, true, expectedValue,
 	)
 	validateAccountableAndResume(
-		ht, carolIntercept, hasAccountability, expectedValue,
+		ht, carolIntercept, true, expectedValue,
 	)
 	validateAccountableAndResume(ht, daveIntercept, false, nil)
 

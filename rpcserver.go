@@ -780,13 +780,7 @@ func (r *rpcServer) addDeps(ctx context.Context, s *server,
 			return nil
 		},
 		ShouldSetExpAccountability: func() bool {
-			if s.cfg.ProtocolOptions.NoExpAccountability() {
-				return false
-			}
-
-			return clock.NewDefaultClock().Now().Before(
-				AccountabilityExperimentEnd,
-			)
+			return !s.cfg.ProtocolOptions.NoExpAccountability()
 		},
 	}
 

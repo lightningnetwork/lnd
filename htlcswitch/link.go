@@ -3346,8 +3346,6 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg) {
 func (l *channelLink) experimentalAccountability(
 	customUpdateAdd record.CustomSet) fn.Option[byte] {
 
-	// Only relay experimental signal if we are within the experiment
-	// period.
 	if !l.cfg.ShouldFwdExpAccountability() {
 		return fn.None[byte]()
 	}

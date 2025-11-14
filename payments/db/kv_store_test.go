@@ -18,7 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -250,83 +249,6 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, 1, indexCount)
-}
-
-type htlcStatus struct {
-	*HTLCAttemptInfo
-	settle  *lntypes.Preimage
-	failure *HTLCFailReason
-}
-
-// fetchPaymentIndexEntry gets the payment hash for the sequence number provided
-// from our payment indexes bucket.
-func fetchPaymentIndexEntry(t *testing.T, p *KVStore,
-	sequenceNumber uint64) (*lntypes.Hash, error) {
-
-	t.Helper()
-
-	var hash lntypes.Hash
-
-	if err := kvdb.View(p.db, func(tx walletdb.ReadTx) error {
-		indexBucket := tx.ReadBucket(paymentsIndexBucket)
-		key := make([]byte, 8)
-		byteOrder.PutUint64(key, sequenceNumber)
-
-		indexValue := indexBucket.Get(key)
-		if indexValue == nil {
-			return ErrNoSequenceNrIndex
-		}
-
-		r := bytes.NewReader(indexValue)
-
-		var err error
-		hash, err = deserializePaymentIndex(r)
-
-		return err
-	}, func() {
-		hash = lntypes.Hash{}
-	}); err != nil {
-		return nil, err
-	}
-
-	return &hash, nil
-}
-
-// assertPaymentIndex looks up the index for a payment in the db and checks
-// that its payment hash matches the expected hash passed in.
-func assertPaymentIndex(t *testing.T, p DB, expectedHash lntypes.Hash) {
-	t.Helper()
-
-	// Only the kv implementation uses the index so we exit early if the
-	// payment db is not a kv implementation. This helps us to reuse the
-	// same test for both implementations.
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	// Lookup the payment so that we have its sequence number and check
-	// that is has correctly been indexed in the payment indexes bucket.
-	pmt, err := kvPaymentDB.FetchPayment(expectedHash)
-	require.NoError(t, err)
-
-	hash, err := fetchPaymentIndexEntry(t, kvPaymentDB, pmt.SequenceNum)
-	require.NoError(t, err)
-	assert.Equal(t, expectedHash, *hash)
-}
-
-// assertNoIndex checks that an index for the sequence number provided does not
-// exist.
-func assertNoIndex(t *testing.T, p DB, seqNr uint64) {
-	t.Helper()
-
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	_, err := fetchPaymentIndexEntry(t, kvPaymentDB, seqNr)
-	require.Equal(t, ErrNoSequenceNrIndex, err)
 }
 
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,

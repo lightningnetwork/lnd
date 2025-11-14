@@ -6,14 +6,16 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
 
 // NewTestDB is a helper function that creates a SQLStore backed by a SQL
 // database for testing.
-func NewTestDB(t testing.TB, opts ...OptionModifier) DB {
-	return NewTestDBWithFixture(t, nil, opts...)
+func NewTestDB(t testing.TB, opts ...OptionModifier) (DB, TestHarness) {
+	db := NewTestDBWithFixture(t, nil, opts...)
+	return db, &noopTestHarness{}
 }
 
 // NewTestDBFixture creates a new sqldb.TestPgFixture for testing purposes.
@@ -74,4 +76,20 @@ func newBatchQuerierWithFixture(t testing.TB,
 			return db.WithTx(tx)
 		},
 	)
+}
+
+// noopTestHarness is the SQL test harness implementation. Since SQL doesn't
+// use a separate payment index bucket like KV, these assertions are no-ops.
+type noopTestHarness struct{}
+
+// AssertPaymentIndex is a no-op for SQL implementations.
+func (h *noopTestHarness) AssertPaymentIndex(t *testing.T,
+	expectedHash lntypes.Hash) {
+
+	// No-op: SQL doesn't use a separate index bucket.
+}
+
+// AssertNoIndex is a no-op for SQL implementations.
+func (h *noopTestHarness) AssertNoIndex(t *testing.T, seqNr uint64) {
+	// No-op: SQL doesn't use a separate index bucket.
 }

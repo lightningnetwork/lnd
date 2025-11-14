@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -407,18 +406,18 @@ func TestSourceNode(t *testing.T) {
 	compareNodes(t, testNode, sourceNode)
 }
 
-// TestSetSourceNodeSameTimestamp demonstrates that SetSourceNode can return an
-// error when called with the same last update timestamp. Calling SetSourceNode
-// with the same timestamp should be allowed (unlike AddNode), as it is
-// possible that our own node announcement may change quickly. This will be
-// fixed in an upcoming commit.
+// TestSetSourceNodeSameTimestamp tests that SetSourceNode accepts updates
+// with the same timestamp. This is necessary because multiple code paths
+// (setSelfNode, createNewHiddenService, RPC updates) can race during startup,
+// reading the same old timestamp and independently incrementing it to the same
+// new value. For our own node, we want parameter changes to persist even with
+// timestamp collisions (unlike network gossip where same timestamp means same
+// content).
 func TestSetSourceNodeSameTimestamp(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
 	graph := MakeTestGraph(t)
-
-	_, isSQLStore := graph.V1Store.(*SQLStore)
 
 	// Create and set the initial source node.
 	testNode := createTestVertex(t)
@@ -431,8 +430,9 @@ func TestSetSourceNodeSameTimestamp(t *testing.T) {
 
 	// Create a modified version of the node with the same timestamp but
 	// different parameters (e.g., different alias and color). This
-	// could well be the case for our own node announcement (unlike other
-	// announcements where same timestamp means same parameters).
+	// simulates the race condition where multiple goroutines read the
+	// same old timestamp, independently increment it, and try to update
+	// with different changes.
 	modifiedNode := &models.Node{
 		PubKeyBytes:          testNode.PubKeyBytes,
 		HaveNodeAnnouncement: true,
@@ -447,20 +447,20 @@ func TestSetSourceNodeSameTimestamp(t *testing.T) {
 	}
 
 	// Attempt to set the source node with the same timestamp but
-	// different parameters.
-	err = graph.SetSourceNode(ctx, modifiedNode)
+	// different parameters. This should now succeed for both SQL and KV
+	// stores. The SQL store uses UpsertSourceNode which removes the
+	// strict timestamp constraint, allowing last-write-wins semantics.
+	require.NoError(t, graph.SetSourceNode(ctx, modifiedNode))
 
-	// The SQL store will return sql.ErrNoRows because the UPDATE clause
-	// in the upsert query requires the new timestamp to be strictly
-	// greater than the existing one. When this condition is not met, no
-	// rows are updated and the SQL query returns ErrNoRows. The bbolt KV
-	// store, on the other hand, silently ignores stale updates and returns
-	// no error.
-	if isSQLStore {
-		require.ErrorIs(t, err, sql.ErrNoRows)
-	} else {
-		require.NoError(t, err)
-	}
+	// Verify that the parameter changes actually persisted.
+	updatedNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "different-alias", updatedNode.Alias)
+	require.Equal(
+		t, color.RGBA{R: 100, G: 200, B: 50, A: 0},
+		updatedNode.Color,
+	)
+	require.Equal(t, testNode.LastUpdate, updatedNode.LastUpdate)
 }
 
 // TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.

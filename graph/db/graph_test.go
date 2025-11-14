@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -394,6 +395,62 @@ func TestSourceNode(t *testing.T) {
 	sourceNode, err := graph.SourceNode(ctx)
 	require.NoError(t, err, "unable to fetch source node")
 	compareNodes(t, testNode, sourceNode)
+}
+
+// TestSetSourceNodeSameTimestamp demonstrates that SetSourceNode can return an
+// error when called with the same last update timestamp. Calling SetSourceNode
+// with the same timestamp should be allowed (unlike AddNode), as it is
+// possible that our own node announcement may change quickly. This will be
+// fixed in an upcoming commit.
+func TestSetSourceNodeSameTimestamp(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	graph := MakeTestGraph(t)
+
+	_, isSQLStore := graph.V1Store.(*SQLStore)
+
+	// Create and set the initial source node.
+	testNode := createTestVertex(t)
+	require.NoError(t, graph.SetSourceNode(ctx, testNode))
+
+	// Verify the source node was set correctly.
+	sourceNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	compareNodes(t, testNode, sourceNode)
+
+	// Create a modified version of the node with the same timestamp but
+	// different parameters (e.g., different alias and color). This
+	// could well be the case for our own node announcement (unlike other
+	// announcements where same timestamp means same parameters).
+	modifiedNode := models.NewV1Node(
+		testNode.PubKeyBytes, &models.NodeV1Fields{
+			// Same timestamp.
+			LastUpdate: testNode.LastUpdate,
+			// Different alias.
+			Alias:        "different-alias",
+			Color:        color.RGBA{R: 100, G: 200, B: 50, A: 0},
+			Addresses:    testNode.Addresses,
+			Features:     testNode.Features.RawFeatureVector,
+			AuthSigBytes: testNode.AuthSigBytes,
+		},
+	)
+
+	// Attempt to set the source node with the same timestamp but
+	// different parameters.
+	err = graph.SetSourceNode(ctx, modifiedNode)
+
+	// The SQL store will return sql.ErrNoRows because the UPDATE clause
+	// in the upsert query requires the new timestamp to be strictly
+	// greater than the existing one. When this condition is not met, no
+	// rows are updated and the SQL query returns ErrNoRows. The bbolt KV
+	// store, on the other hand, silently ignores stale updates and returns
+	// no error.
+	if isSQLStore {
+		require.ErrorIs(t, err, sql.ErrNoRows)
+	} else {
+		require.NoError(t, err)
+	}
 }
 
 // TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.

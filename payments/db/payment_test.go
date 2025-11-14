@@ -103,6 +103,14 @@ var (
 	}
 )
 
+// htlcStatus is a helper structure used in tests to track the status of an HTLC
+// attempt, including whether it was settled or failed.
+type htlcStatus struct {
+	*HTLCAttemptInfo
+	settle  *lntypes.Preimage
+	failure *HTLCFailReason
+}
+
 // payment is a helper structure that holds basic information on a test payment,
 // such as the payment id, the status and the total number of HTLCs attempted.
 type payment struct {
@@ -446,7 +454,7 @@ func TestDeleteFailedAttempts(t *testing.T) {
 // testDeleteFailedAttempts tests the DeleteFailedAttempts method with the
 // given keepFailedPaymentAttempts flag as argument.
 func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
-	paymentDB := NewTestDB(
+	paymentDB, _ := NewTestDB(
 		t, WithKeepFailedPaymentAttempts(keepFailedPaymentAttempts),
 	)
 
@@ -537,7 +545,7 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 func TestMPPRecordValidation(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, _ := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
 	require.NoError(t, err)
@@ -638,7 +646,7 @@ func TestMPPRecordValidation(t *testing.T) {
 func TestDeleteSinglePayment(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, _ := NewTestDB(t)
 
 	// Register four payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -1542,7 +1550,7 @@ func TestEmptyRoutesGenerateSphinxPacket(t *testing.T) {
 func TestSuccessesWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, _ := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
 	require.NoError(t, err)
@@ -1565,7 +1573,7 @@ func TestSuccessesWithoutInFlight(t *testing.T) {
 func TestFailsWithoutInFlight(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, _ := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
 	require.NoError(t, err)
@@ -1585,7 +1593,7 @@ func TestFailsWithoutInFlight(t *testing.T) {
 func TestDeletePayments(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, _ := NewTestDB(t)
 
 	// Register three payments:
 	// 1. A payment with two failed attempts.
@@ -1643,7 +1651,7 @@ func TestDeletePayments(t *testing.T) {
 func TestSwitchDoubleSend(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, harness := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
 	require.NoError(t, err)
@@ -1658,7 +1666,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
 
-	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
+	harness.AssertPaymentIndex(t, info.PaymentIdentifier)
 	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
@@ -1721,7 +1729,7 @@ func TestSwitchDoubleSend(t *testing.T) {
 func TestSwitchFail(t *testing.T) {
 	t.Parallel()
 
-	paymentDB := NewTestDB(t)
+	paymentDB, harness := NewTestDB(t)
 
 	preimg, err := genPreimage(t)
 	require.NoError(t, err)
@@ -1735,7 +1743,7 @@ func TestSwitchFail(t *testing.T) {
 	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
 
-	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
+	harness.AssertPaymentIndex(t, info.PaymentIdentifier)
 	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 	)
@@ -1769,8 +1777,8 @@ func TestSwitchFail(t *testing.T) {
 
 	// Check that our index has been updated, and the old index has been
 	// removed.
-	assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
-	assertNoIndex(t, paymentDB, payment.SequenceNum)
+	harness.AssertPaymentIndex(t, info.PaymentIdentifier)
+	harness.AssertNoIndex(t, payment.SequenceNum)
 
 	assertDBPaymentstatus(
 		t, paymentDB, info.PaymentIdentifier, StatusInitiated,
@@ -1887,7 +1895,7 @@ func TestMultiShard(t *testing.T) {
 	}
 
 	runSubTest := func(t *testing.T, test testCase) {
-		paymentDB := NewTestDB(t)
+		paymentDB, harness := NewTestDB(t)
 
 		preimg, err := genPreimage(t)
 		require.NoError(t, err)
@@ -1899,7 +1907,7 @@ func TestMultiShard(t *testing.T) {
 		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
 		require.NoError(t, err)
 
-		assertPaymentIndex(t, paymentDB, info.PaymentIdentifier)
+		harness.AssertPaymentIndex(t, info.PaymentIdentifier)
 		assertDBPaymentstatus(
 			t, paymentDB, info.PaymentIdentifier, StatusInitiated,
 		)
@@ -2494,7 +2502,7 @@ func TestQueryPayments(t *testing.T) {
 
 			ctx := t.Context()
 
-			paymentDB := NewTestDB(t)
+			paymentDB, harness := NewTestDB(t)
 
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
@@ -2553,8 +2561,8 @@ func TestQueryPayments(t *testing.T) {
 			)
 
 			// Verify the index is removed (KV store only).
-			assertNoIndex(
-				t, paymentDB, pmt.SequenceNum,
+			harness.AssertNoIndex(
+				t, pmt.SequenceNum,
 			)
 
 			// For the last payment, settle it so we have at least

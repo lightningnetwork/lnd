@@ -1269,3 +1269,76 @@ func testFundingManagerFundingTimeout(ht *lntest.HarnessTest) {
 	// Cleanup the mempool by mining blocks.
 	ht.MineBlocksAndAssertNumTxes(6, 1)
 }
+
+// testOpenChannelWithShutdownAddr verifies that if the funder or fundee
+// specifies an upfront shutdown address in the config, the funds are correctly
+// transferred to the specified address during channel closure.
+func testOpenChannelWithShutdownAddr(ht *lntest.HarnessTest) {
+	const (
+		// Channel funding amount in sat.
+		channelAmount int64 = 100000
+
+		// Payment amount in sat.
+		paymentAmount int64 = 50000
+	)
+
+	// Create nodes for testing, ensuring Alice has sufficient initial
+	// funds.
+	alice := ht.NewNodeWithCoins("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	// Generate upfront shutdown addresses for both nodes.
+	aliceShutdownAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+	})
+	bobShutdownAddr := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH,
+	})
+
+	// Update nodes with upfront shutdown addresses and restart them.
+	aliceNodeArgs := []string{
+		fmt.Sprintf(
+			"--upfront-shutdown-address=%s",
+			aliceShutdownAddr.Address,
+		),
+	}
+	ht.RestartNodeWithExtraArgs(alice, aliceNodeArgs)
+
+	bobNodeArgs := []string{
+		fmt.Sprintf(
+			"--upfront-shutdown-address=%s",
+			bobShutdownAddr.Address,
+		),
+	}
+	ht.RestartNodeWithExtraArgs(bob, bobNodeArgs)
+
+	// Connect Alice and Bob.
+	ht.ConnectNodes(alice, bob)
+
+	// Open a channel between Alice and Bob.
+	openChannelParams := lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(channelAmount),
+		PushAmt: btcutil.Amount(paymentAmount),
+	}
+	channelPoint := ht.OpenChannel(alice, bob, openChannelParams)
+
+	// Now close out the channel and obtain the raw closing TX.
+	closingTxid := ht.CloseChannel(alice, channelPoint)
+	closingTx := ht.GetRawTransaction(closingTxid).MsgTx()
+
+	// Calculate Alice's updated balance.
+	aliceFee := ht.CalculateTxFee(closingTx)
+	aliceExpectedBalance := channelAmount - paymentAmount - int64(aliceFee)
+
+	// Ensure Alice sees the change output in the list of unspent outputs.
+	// We expect 6 confirmed UTXOs, as 5 UTXOs of 1 BTC each were sent to
+	// the node during NewNodeWithCoins.
+	aliceUTXOConfirmed := ht.AssertNumUTXOsConfirmed(alice, 6)[0]
+	require.Equal(ht, aliceShutdownAddr.Address, aliceUTXOConfirmed.Address)
+	require.Equal(ht, aliceExpectedBalance, aliceUTXOConfirmed.AmountSat)
+
+	// Ensure Bob see the change output in the list of unspent outputs.
+	bobUTXOConfirmed := ht.AssertNumUTXOsConfirmed(bob, 1)[0]
+	require.Equal(ht, bobShutdownAddr.Address, bobUTXOConfirmed.Address)
+	require.Equal(ht, paymentAmount, bobUTXOConfirmed.AmountSat)
+}

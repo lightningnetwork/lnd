@@ -21,6 +21,11 @@
 
 # Bug Fixes
 
+- Chain notifier RPCs now [return the gRPC `Unavailable`
+  status](https://github.com/lightningnetwork/lnd/pull/10352) while the
+  sub-server is still starting. This allows clients to reliably detect the
+  transient condition and retry without brittle string matching.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -64,4 +69,5 @@
 
 # Contributors (Alphabetical Order)
 
+* Boris Nagaev
 * Elle Mouton

@@ -1745,6 +1745,160 @@ func TestDeletePayments(t *testing.T) {
 	assertDBPayments(t, paymentDB, payments[2:])
 }
 
+// TestDeleteNonInFlight checks that calling DeletePayments only deletes
+// payments from the database that are not in-flight.
+func TestDeleteNonInFlight(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	// Create payments with different statuses: failed, success, inflight,
+	// and another success.
+	payments := []struct {
+		failed  bool
+		success bool
+	}{
+		// Payment 0: failed.
+		{failed: true, success: false},
+		// Payment 1: success.
+		{failed: false, success: true},
+		// Payment 2: inflight.
+		{failed: false, success: false},
+		// Payment 3: success.
+		{failed: false, success: true},
+	}
+
+	var numSuccess, numInflight int
+
+	for _, p := range payments {
+		preimg, err := genPreimage(t)
+		require.NoError(t, err)
+
+		rhash := sha256.Sum256(preimg[:])
+		info := genPaymentCreationInfo(t, rhash)
+		attempt, err := genAttemptWithHash(
+			t, 0, genSessionKey(t), rhash,
+		)
+		require.NoError(t, err)
+
+		// Init payment which initiates StatusInFlight.
+		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+		require.NoError(t, err, "unable to init payment")
+
+		_, err = paymentDB.RegisterAttempt(
+			ctx, info.PaymentIdentifier, attempt,
+		)
+		require.NoError(t, err, "unable to register attempt")
+
+		switch {
+		case p.failed:
+			// Fail the payment attempt.
+			htlcFailure := HTLCFailUnreadable
+			_, err := paymentDB.FailAttempt(
+				ctx, info.PaymentIdentifier, attempt.AttemptID,
+				&HTLCFailInfo{
+					Reason: htlcFailure,
+				},
+			)
+			require.NoError(t, err, "unable to fail htlc")
+
+			// Fail the payment, which should move it to Failed.
+			failReason := FailureReasonNoRoute
+			_, err = paymentDB.Fail(
+				ctx, info.PaymentIdentifier, failReason,
+			)
+			require.NoError(t, err, "unable to fail payment")
+
+			// Verify the status is indeed Failed.
+			assertDBPaymentstatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusFailed,
+			)
+
+		case p.success:
+			// Settle the attempt.
+			_, err := paymentDB.SettleAttempt(
+				ctx, info.PaymentIdentifier, attempt.AttemptID,
+				&HTLCSettleInfo{
+					Preimage: preimg,
+				},
+			)
+			require.NoError(t, err, "unable to settle attempt")
+
+			assertDBPaymentstatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusSucceeded,
+			)
+
+			numSuccess++
+
+		default:
+			// Leave as inflight.
+			assertDBPaymentstatus(
+				t, paymentDB, info.PaymentIdentifier,
+				StatusInFlight,
+			)
+
+			numInflight++
+		}
+	}
+
+	// Delete all failed payments.
+	numPayments, err := paymentDB.DeletePayments(ctx, true, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments)
+
+	// This should leave the succeeded and in-flight payments.
+	resp, err := paymentDB.QueryPayments(ctx, Query{
+		IndexOffset:       0,
+		MaxPayments:       math.MaxUint64,
+		IncludeIncomplete: true,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, numSuccess+numInflight, len(resp.Payments),
+		"expected %d payments, got %d", numSuccess+numInflight,
+		len(resp.Payments))
+
+	var s, i int
+	for _, p := range resp.Payments {
+		switch p.Status {
+		case StatusSucceeded:
+			s++
+		case StatusInFlight:
+			i++
+		}
+	}
+
+	require.Equal(t, numSuccess, s,
+		"expected %d succeeded payments, got %d", numSuccess, s)
+	require.Equal(t, numInflight, i,
+		"expected %d in-flight payments, got %d", numInflight, i)
+
+	// Now delete all payments except in-flight.
+	numPayments, err = paymentDB.DeletePayments(ctx, false, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, numPayments)
+
+	// This should leave the in-flight payment.
+	resp, err = paymentDB.QueryPayments(ctx, Query{
+		IndexOffset:       0,
+		MaxPayments:       math.MaxUint64,
+		IncludeIncomplete: true,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, numInflight, len(resp.Payments),
+		"expected %d payments, got %d", numInflight, len(resp.Payments))
+
+	for _, p := range resp.Payments {
+		require.Equal(t, StatusInFlight, p.Status,
+			"expected in-flight status, got %v", p.Status)
+	}
+}
+
 // TestSwitchDoubleSend checks the ability of payment control to
 // prevent double sending of htlc message, when message is in StatusInFlight.
 func TestSwitchDoubleSend(t *testing.T) {

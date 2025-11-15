@@ -23,224 +23,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestKVStoreDeleteNonInFlight checks that calling DeletePayments only
-// deletes payments from the database that are not in-flight.
-//
-// TODO(ziggie): Make this test db agnostic.
-func TestKVStoreDeleteNonInFlight(t *testing.T) {
+// TestKVStoreDeleteDuplicatePayments tests that when a payment with duplicate
+// payments is deleted, both the parent payment and its duplicates are properly
+// removed from the payment index. This is specific to the KV store's legacy
+// duplicate payment handling.
+func TestKVStoreDeleteDuplicatePayments(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 
 	paymentDB := NewKVTestDB(t)
 
-	// Create a sequence number for duplicate payments that will not collide
-	// with the sequence numbers for the payments we create. These values
-	// start at 1, so 9999 is a safe bet for this test.
-	var duplicateSeqNr = 9999
-
-	payments := []struct {
-		failed       bool
-		success      bool
-		hasDuplicate bool
-	}{
-		{
-			failed:       true,
-			success:      false,
-			hasDuplicate: false,
-		},
-		{
-			failed:       false,
-			success:      true,
-			hasDuplicate: false,
-		},
-		{
-			failed:       false,
-			success:      false,
-			hasDuplicate: false,
-		},
-		{
-			failed:       false,
-			success:      true,
-			hasDuplicate: true,
-		},
-	}
-
-	var numSuccess, numInflight int
-
-	for _, p := range payments {
-		preimg, err := genPreimage(t)
-		require.NoError(t, err)
-
-		rhash := sha256.Sum256(preimg[:])
-		info := genPaymentCreationInfo(t, rhash)
-		attempt, err := genAttemptWithHash(
-			t, 0, genSessionKey(t), rhash,
-		)
-		require.NoError(t, err)
-
-		// Sends base htlc message which initiate StatusInFlight.
-		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
-		if err != nil {
-			t.Fatalf("unable to send htlc message: %v", err)
-		}
-		_, err = paymentDB.RegisterAttempt(
-			ctx, info.PaymentIdentifier, attempt,
-		)
-		if err != nil {
-			t.Fatalf("unable to send htlc message: %v", err)
-		}
-
-		htlc := &htlcStatus{
-			HTLCAttemptInfo: attempt,
-		}
-
-		switch {
-		case p.failed:
-			// Fail the payment attempt.
-			htlcFailure := HTLCFailUnreadable
-			_, err := paymentDB.FailAttempt(
-				ctx, info.PaymentIdentifier, attempt.AttemptID,
-				&HTLCFailInfo{
-					Reason: htlcFailure,
-				},
-			)
-			if err != nil {
-				t.Fatalf("unable to fail htlc: %v", err)
-			}
-
-			// Fail the payment, which should moved it to Failed.
-			failReason := FailureReasonNoRoute
-			_, err = paymentDB.Fail(
-				ctx, info.PaymentIdentifier, failReason,
-			)
-			if err != nil {
-				t.Fatalf("unable to fail payment hash: %v", err)
-			}
-
-			// Verify the status is indeed Failed.
-			assertDBPaymentstatus(
-				t, paymentDB, info.PaymentIdentifier,
-				StatusFailed,
-			)
-
-			htlc.failure = &htlcFailure
-			assertPaymentInfo(
-				t, paymentDB, info.PaymentIdentifier, info,
-				&failReason, htlc,
-			)
-
-		case p.success:
-			// Verifies that status was changed to StatusSucceeded.
-			_, err := paymentDB.SettleAttempt(
-				ctx, info.PaymentIdentifier, attempt.AttemptID,
-				&HTLCSettleInfo{
-					Preimage: preimg,
-				},
-			)
-			if err != nil {
-				t.Fatalf("error shouldn't have been received,"+
-					" got: %v", err)
-			}
-
-			assertDBPaymentstatus(
-				t, paymentDB, info.PaymentIdentifier,
-				StatusSucceeded,
-			)
-
-			htlc.settle = &preimg
-			assertPaymentInfo(
-				t, paymentDB, info.PaymentIdentifier, info, nil,
-				htlc,
-			)
-
-			numSuccess++
-
-		default:
-			assertDBPaymentstatus(
-				t, paymentDB, info.PaymentIdentifier,
-				StatusInFlight,
-			)
-			assertPaymentInfo(
-				t, paymentDB, info.PaymentIdentifier, info, nil,
-				htlc,
-			)
-
-			numInflight++
-		}
-
-		// If the payment is intended to have a duplicate payment, we
-		// add one.
-		if p.hasDuplicate {
-			appendDuplicatePayment(
-				t, paymentDB.db, info.PaymentIdentifier,
-				uint64(duplicateSeqNr), preimg,
-			)
-			duplicateSeqNr++
-			numSuccess++
-		}
-	}
-
-	// Delete all failed payments.
-	numPayments, err := paymentDB.DeletePayments(ctx, true, false)
+	// Create a successful payment.
+	preimg, err := genPreimage(t)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, numPayments)
 
-	// This should leave the succeeded and in-flight payments.
-	dbPayments, err := paymentDB.FetchPayments()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(dbPayments) != numSuccess+numInflight {
-		t.Fatalf("expected %d payments, got %d",
-			numSuccess+numInflight, len(dbPayments))
-	}
-
-	var s, i int
-	for _, p := range dbPayments {
-		t.Log("fetch payment has status", p.Status)
-		switch p.Status {
-		case StatusSucceeded:
-			s++
-		case StatusInFlight:
-			i++
-		}
-	}
-
-	if s != numSuccess {
-		t.Fatalf("expected %d succeeded payments , got %d",
-			numSuccess, s)
-	}
-	if i != numInflight {
-		t.Fatalf("expected %d in-flight payments, got %d",
-			numInflight, i)
-	}
-
-	// Now delete all payments except in-flight.
-	numPayments, err = paymentDB.DeletePayments(ctx, false, false)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+	attempt, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, numPayments)
 
-	// This should leave the in-flight payment.
-	dbPayments, err = paymentDB.FetchPayments()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Init and settle the payment.
+	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err, "unable to init payment")
 
-	if len(dbPayments) != numInflight {
-		t.Fatalf("expected %d payments, got %d", numInflight,
-			len(dbPayments))
-	}
+	_, err = paymentDB.RegisterAttempt(
+		ctx, info.PaymentIdentifier, attempt,
+	)
+	require.NoError(t, err, "unable to register attempt")
 
-	for _, p := range dbPayments {
-		if p.Status != StatusInFlight {
-			t.Fatalf("expected in-fligth status, got %v", p.Status)
-		}
-	}
+	_, err = paymentDB.SettleAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID,
+		&HTLCSettleInfo{
+			Preimage: preimg,
+		},
+	)
+	require.NoError(t, err, "unable to settle attempt")
 
-	// Finally, check that we only have a single index left in the payment
-	// index bucket.
+	assertDBPaymentstatus(
+		t, paymentDB, info.PaymentIdentifier, StatusSucceeded,
+	)
+
+	// Fetch the payment to get its sequence number.
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+
+	// Add two duplicate payments. Use high sequence numbers that won't
+	// collide with the original payment.
+	duplicateSeqNr1 := payment.SequenceNum + 1000
+	duplicateSeqNr2 := payment.SequenceNum + 1001
+
+	appendDuplicatePayment(
+		t, paymentDB.db, info.PaymentIdentifier, duplicateSeqNr1,
+		preimg,
+	)
+	appendDuplicatePayment(
+		t, paymentDB.db, info.PaymentIdentifier, duplicateSeqNr2,
+		preimg,
+	)
+
+	// Verify we now have 3 index entries: original + 2 duplicates.
 	var indexCount int
 	err = kvdb.View(paymentDB.db, func(tx walletdb.ReadTx) error {
 		index := tx.ReadBucket(paymentsIndexBucket)
@@ -251,8 +93,33 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 		})
 	}, func() { indexCount = 0 })
 	require.NoError(t, err)
+	require.Equal(t, 3, indexCount, "expected 3 index entries "+
+		"(parent + 2 duplicates)")
 
-	require.Equal(t, 1, indexCount)
+	// Delete all successful payments.
+	numPayments, err := paymentDB.DeletePayments(ctx, false, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments, "should delete 1 payment")
+
+	// Verify all payments are deleted.
+	dbPayments, err := paymentDB.FetchPayments()
+	require.NoError(t, err)
+	require.Empty(t, dbPayments, "all payments should be deleted")
+
+	// Verify the payment index is now empty - all 3 entries (parent +
+	// duplicates) should be removed.
+	indexCount = 0
+	err = kvdb.View(paymentDB.db, func(tx walletdb.ReadTx) error {
+		index := tx.ReadBucket(paymentsIndexBucket)
+
+		return index.ForEach(func(k, v []byte) error {
+			indexCount++
+			return nil
+		})
+	}, func() { indexCount = 0 })
+	require.NoError(t, err)
+	require.Equal(t, 0, indexCount, "payment index should be empty "+
+		"after deleting payment with duplicates")
 }
 
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,

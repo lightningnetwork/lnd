@@ -297,7 +297,7 @@ reader of a payment request.
   test networks so that bootstrapping behaviour can be tested for.
 
 * [Increased wallet sync timeout](https://github.com/lightningnetwork/lnd/pull/10323)
-  in integration tests from 30 seconds to 90 seconds to reduce test flakiness
+  in integration tests from 30 seconds to 120 seconds to reduce test flakiness
   in CI environments, particularly for the neutrino backend wallet sync tests.
 
 ## Database

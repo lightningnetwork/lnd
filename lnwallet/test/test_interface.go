@@ -2973,12 +2973,12 @@ func waitForMempoolTx(r *rpctest.Harness, txid *chainhash.Hash) error {
 	var found bool
 	var tx *btcutil.Tx
 	var err error
-	timeout := time.After(30 * time.Second)
+	timeout := time.After(120 * time.Second)
 	for !found {
 		// Do a short wait
 		select {
 		case <-timeout:
-			return errors.New("timeout after 30s")
+			return errors.New("timeout after 120s")
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -3009,12 +3009,12 @@ func waitForWalletSync(r *rpctest.Harness, w *lnwallet.LightningWallet) error {
 		bestHash, knownHash     *chainhash.Hash
 		bestHeight, knownHeight int32
 	)
-	timeout := time.After(90 * time.Second)
+	timeout := time.After(120 * time.Second)
 	for !synced {
 		// Do a short wait
 		select {
 		case <-timeout:
-			return errors.New("timeout after 90s")
+			return errors.New("timeout after 120s")
 		case <-time.Tick(100 * time.Millisecond):
 		}
 

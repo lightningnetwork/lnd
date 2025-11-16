@@ -1439,6 +1439,11 @@ func (r *ChannelRouter) resumePayments() error {
 	log.Debugf("Scanning finished, found %d inflight payments",
 		len(payments))
 
+	// TODO(ziggie): Also check for payments which have no HTLCs at all
+	// this can happen because we register an attempt after initializing the
+	// payment, so there is a small chance that we init a payment but never
+	// register an attempt for it.
+
 	// Before we restart existing payments and start accepting more
 	// payments to be made, we clean the network result store of the
 	// Switch. We do this here at startup to ensure no more payments can be

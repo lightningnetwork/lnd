@@ -896,8 +896,8 @@ func (l *LightningPayment) Identifier() [32]byte {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
-	*route.Route, error) {
+func (r *ChannelRouter) SendPayment(ctx context.Context,
+	payment *LightningPayment) ([32]byte, *route.Route, error) {
 
 	paySession, shardTracker, err := r.PreparePayment(payment)
 	if err != nil {
@@ -908,7 +908,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 		spewPayment(payment))
 
 	return r.sendPayment(
-		context.Background(), payment.FeeLimit, payment.Identifier(),
+		ctx, payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 		payment.FirstHopCustomRecords,
 	)

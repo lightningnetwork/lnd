@@ -6002,7 +6002,7 @@ func (r *rpcServer) dispatchPaymentIntent(ctx context.Context,
 		}
 
 		preImage, route, routerErr = r.server.chanRouter.SendPayment(
-			payment,
+			ctx, payment,
 		)
 	} else {
 		var attempt *paymentsdb.HTLCAttempt

@@ -36,6 +36,8 @@ func NewOnionMessage(pathKey *btcec.PublicKey,
 // A compile-time check to ensure OnionMessage implements the Message interface.
 var _ Message = (*OnionMessage)(nil)
 
+var _ SizeableMessage = (*OnionMessage)(nil)
+
 // Decode reads the bytes stream and converts it to the object.
 func (o *OnionMessage) Decode(r io.Reader, _ uint32) error {
 	if err := ReadElement(r, &o.PathKey); err != nil {
@@ -78,4 +80,11 @@ func (o *OnionMessage) Encode(w *bytes.Buffer, _ uint32) error {
 // wire.
 func (o *OnionMessage) MsgType() MessageType {
 	return MsgOnionMessage
+}
+
+// SerializedSize returns the serialized size of the message in bytes.
+//
+// This is part of the lnwire.SizeableMessage interface.
+func (o *OnionMessage) SerializedSize() (uint32, error) {
+	return MessageSerializedSize(o)
 }

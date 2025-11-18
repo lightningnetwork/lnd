@@ -460,20 +460,7 @@ func genInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage, error) {
 func TestDeleteFailedAttempts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("keep failed payment attempts", func(t *testing.T) {
-		testDeleteFailedAttempts(t, true)
-	})
-	t.Run("remove failed payment attempts", func(t *testing.T) {
-		testDeleteFailedAttempts(t, false)
-	})
-}
-
-// testDeleteFailedAttempts tests the DeleteFailedAttempts method with the
-// given keepFailedPaymentAttempts flag as argument.
-func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
-	paymentDB, _ := NewTestDB(
-		t, WithKeepFailedPaymentAttempts(keepFailedPaymentAttempts),
-	)
+	paymentDB, _ := NewTestDB(t)
 
 	// Register three payments:
 	// All payments will have one failed HTLC attempt and one HTLC attempt
@@ -507,29 +494,16 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 		t.Context(), payments[0].id,
 	))
 
-	// Expect all HTLCs to be deleted if the config is set to delete them.
-	if !keepFailedPaymentAttempts {
-		payments[0].htlcs = 0
-	}
+	// Expect all HTLCs to be deleted.
+	payments[0].htlcs = 0
 	assertDBPayments(t, paymentDB, payments)
 
 	// Calling DeleteFailedAttempts on an in-flight payment should return
 	// an error.
-	//
-	// NOTE: In case the option keepFailedPaymentAttempts is set no delete
-	// operation are performed in general therefore we do NOT expect an
-	// error in this case.
-	if keepFailedPaymentAttempts {
-		err := paymentDB.DeleteFailedAttempts(
-			t.Context(), payments[1].id,
-		)
-		require.NoError(t, err)
-	} else {
-		err := paymentDB.DeleteFailedAttempts(
-			t.Context(), payments[1].id,
-		)
-		require.Error(t, err)
-	}
+	err := paymentDB.DeleteFailedAttempts(
+		t.Context(), payments[1].id,
+	)
+	require.Error(t, err)
 
 	// Since DeleteFailedAttempts returned an error, we should expect the
 	// payment to be unchanged.
@@ -540,34 +514,16 @@ func testDeleteFailedAttempts(t *testing.T, keepFailedPaymentAttempts bool) {
 		t.Context(), payments[2].id,
 	))
 
-	// Expect all HTLCs except for the settled one to be deleted if the
-	// config is set to delete them.
-	if !keepFailedPaymentAttempts {
-		payments[2].htlcs = 1
-	}
+	// Expect all HTLCs except for the settled one to be deleted.
+	payments[2].htlcs = 1
 	assertDBPayments(t, paymentDB, payments)
 
-	// NOTE: In case the option keepFailedPaymentAttempts is set no delete
-	// operation are performed in general therefore we do NOT expect an
-	// error in this case.
-	if keepFailedPaymentAttempts {
-		// DeleteFailedAttempts is ignored, even for non-existent
-		// payments, if the control tower is configured to keep failed
-		// HTLCs.
-		require.NoError(
-			t, paymentDB.DeleteFailedAttempts(
-				t.Context(), lntypes.ZeroHash,
-			),
-		)
-	} else {
-		// Attempting to cleanup a non-existent payment returns an
-		// error.
-		require.Error(
-			t, paymentDB.DeleteFailedAttempts(
-				t.Context(), lntypes.ZeroHash,
-			),
-		)
-	}
+	// Attempting to cleanup a non-existent payment returns an error.
+	require.Error(
+		t, paymentDB.DeleteFailedAttempts(
+			t.Context(), lntypes.ZeroHash,
+		),
+	)
 }
 
 // TestMPPRecordValidation tests MPP record validation.
@@ -1754,6 +1710,11 @@ func TestDeleteNonInFlight(t *testing.T) {
 
 	paymentDB, _ := NewTestDB(t)
 
+	var (
+		numSuccess, numInflight int
+		attemptID               uint64 = 0
+	)
+
 	// Create payments with different statuses: failed, success, inflight,
 	// and another success.
 	payments := []struct {
@@ -1770,8 +1731,6 @@ func TestDeleteNonInFlight(t *testing.T) {
 		{failed: false, success: true},
 	}
 
-	var numSuccess, numInflight int
-
 	for _, p := range payments {
 		preimg, err := genPreimage(t)
 		require.NoError(t, err)
@@ -1779,9 +1738,14 @@ func TestDeleteNonInFlight(t *testing.T) {
 		rhash := sha256.Sum256(preimg[:])
 		info := genPaymentCreationInfo(t, rhash)
 		attempt, err := genAttemptWithHash(
-			t, 0, genSessionKey(t), rhash,
+			t, attemptID, genSessionKey(t), rhash,
 		)
 		require.NoError(t, err)
+
+		// After generating the attempt, increment the attempt ID to
+		// have unique attempt IDs for each attempt otherwise the unique
+		// constraint on the attempt ID will be violated.
+		attemptID++
 
 		// Init payment which initiates StatusInFlight.
 		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)

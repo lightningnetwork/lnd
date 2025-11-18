@@ -1236,9 +1236,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// will build a SQL payments backend.
 		sqlPaymentsDB, err := d.getPaymentsStore(
 			baseDB, dbs.ChanStateDB.Backend,
-			paymentsdb.WithKeepFailedPaymentAttempts(
-				cfg.KeepFailedPaymentAttempts,
-			),
 		)
 		if err != nil {
 			err = fmt.Errorf("unable to get payments store: %w",
@@ -1280,9 +1277,6 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		// Create the payments DB.
 		kvPaymentsDB, err := paymentsdb.NewKVStore(
 			dbs.ChanStateDB,
-			paymentsdb.WithKeepFailedPaymentAttempts(
-				cfg.KeepFailedPaymentAttempts,
-			),
 		)
 		if err != nil {
 			cleanUp()

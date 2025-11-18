@@ -99,10 +99,6 @@ type BatchedSQLQueries interface {
 type SQLStore struct {
 	cfg *SQLStoreConfig
 	db  BatchedSQLQueries
-
-	// keepFailedPaymentAttempts is a flag that indicates whether we should
-	// keep failed payment attempts in the database.
-	keepFailedPaymentAttempts bool
 }
 
 // A compile-time constraint to ensure SQLStore implements DB.
@@ -130,9 +126,8 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 	}
 
 	return &SQLStore{
-		cfg:                       cfg,
-		db:                        db,
-		keepFailedPaymentAttempts: opts.KeepFailedPaymentAttempts,
+		cfg: cfg,
+		db:  db,
 	}, nil
 }
 
@@ -1094,10 +1089,6 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 //   - StatusSucceeded: Can delete failed attempts (payment completed)
 //   - StatusFailed: Can delete failed attempts (payment permanently failed)
 //
-// If the keepFailedPaymentAttempts configuration flag is enabled, this method
-// returns immediately without deleting anything, allowing failed attempts to
-// be retained for debugging or auditing purposes.
-//
 // This method is idempotent - calling it multiple times on the same payment
 // has no adverse effects.
 //
@@ -1108,15 +1099,6 @@ func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 // failed) to clean up historical failed attempts.
 func (s *SQLStore) DeleteFailedAttempts(ctx context.Context,
 	paymentHash lntypes.Hash) error {
-
-	// In case we are configured to keep failed payment attempts, we exit
-	// early.
-	//
-	// TODO(ziggie): Refactor to not mix application logic with database
-	// logic. This decision should be made in the application layer.
-	if s.keepFailedPaymentAttempts {
-		return nil
-	}
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)

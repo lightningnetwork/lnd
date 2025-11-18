@@ -21,21 +21,24 @@ type PaymentReader interface {
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error)
+	FetchPayment(ctx context.Context,
+		paymentHash lntypes.Hash) (*MPPayment, error)
 
 	// FetchInFlightPayments returns all payments with status InFlight.
-	FetchInFlightPayments() ([]*MPPayment, error)
+	FetchInFlightPayments(ctx context.Context) ([]*MPPayment, error)
 }
 
 // PaymentWriter represents the interface to write operations to the payments
 // database.
 type PaymentWriter interface {
 	// DeletePayment deletes a payment from the DB given its payment hash.
-	DeletePayment(paymentHash lntypes.Hash, failedAttemptsOnly bool) error
+	DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
+		failedAttemptsOnly bool) error
 
 	// DeletePayments deletes all payments from the DB given the specified
 	// flags.
-	DeletePayments(failedOnly, failedAttemptsOnly bool) (int, error)
+	DeletePayments(ctx context.Context, failedOnly,
+		failedAttemptsOnly bool) (int, error)
 
 	PaymentControl
 }
@@ -58,10 +61,22 @@ type PaymentControl interface {
 	// exists in the database before creating a new payment. However, it
 	// should allow the user making a subsequent payment if the payment is
 	// in a Failed state.
-	InitPayment(lntypes.Hash, *PaymentCreationInfo) error
+	InitPayment(context.Context, lntypes.Hash, *PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
-	RegisterAttempt(lntypes.Hash, *HTLCAttemptInfo) (*MPPayment, error)
+	//
+	// IMPORTANT: Callers MUST serialize calls to RegisterAttempt for the
+	// same payment hash. Concurrent calls will result in race conditions
+	// where both calls read the same initial payment state, validate
+	// against stale data, and could cause overpayment. For example:
+	//   - Both goroutines fetch payment with 400 sats sent
+	//   - Both validate sending 650 sats won't overpay (within limit)
+	//   - Both commit successfully
+	//   - Result: 1700 sats sent, exceeding the payment amount
+	// The payment router/controller layer is responsible for ensuring
+	// serialized access per payment hash.
+	RegisterAttempt(context.Context, lntypes.Hash,
+		*HTLCAttemptInfo) (*MPPayment, error)
 
 	// SettleAttempt marks the given attempt settled with the preimage. If
 	// this is a multi shard payment, this might implicitly mean the
@@ -71,10 +86,12 @@ type PaymentControl interface {
 	// error to prevent us from making duplicate payments to the same
 	// payment hash. The provided preimage is atomically saved to the DB
 	// for record keeping.
-	SettleAttempt(lntypes.Hash, uint64, *HTLCSettleInfo) (*MPPayment, error)
+	SettleAttempt(context.Context, lntypes.Hash, uint64,
+		*HTLCSettleInfo) (*MPPayment, error)
 
 	// FailAttempt marks the given payment attempt failed.
-	FailAttempt(lntypes.Hash, uint64, *HTLCFailInfo) (*MPPayment, error)
+	FailAttempt(context.Context, lntypes.Hash, uint64,
+		*HTLCFailInfo) (*MPPayment, error)
 
 	// Fail transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only
@@ -82,12 +99,12 @@ type PaymentControl interface {
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
-	Fail(lntypes.Hash, FailureReason) (*MPPayment, error)
+	Fail(context.Context, lntypes.Hash, FailureReason) (*MPPayment, error)
 
 	// DeleteFailedAttempts removes all failed HTLCs from the db. It should
 	// be called for a given payment whenever all inflight htlcs are
 	// completed, and the payment has reached a final terminal state.
-	DeleteFailedAttempts(lntypes.Hash) error
+	DeleteFailedAttempts(context.Context, lntypes.Hash) error
 }
 
 // DBMPPayment is an interface that represents the payment state during a

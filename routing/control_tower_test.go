@@ -50,10 +50,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -81,7 +78,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	err = pControl.InitPayment(t.Context(), info.PaymentIdentifier, info)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +89,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got")
 
 	// Register an attempt.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,8 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		Preimage: preimg,
 	}
 	htlcAttempt, err := pControl.SettleAttempt(
-		info.PaymentIdentifier, attempt.AttemptID, &settleInfo,
+		t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+		&settleInfo,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -179,17 +179,11 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 func TestKVStoreSubscribeFail(t *testing.T) {
 	t.Parallel()
 
-	t.Run("register attempt, keep failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, true, true)
+	t.Run("register attempt", func(t *testing.T) {
+		testKVStoreSubscribeFail(t, true)
 	})
-	t.Run("register attempt, delete failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, true, false)
-	})
-	t.Run("no register attempt, keep failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, false, true)
-	})
-	t.Run("no register attempt, delete failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, false, false)
+	t.Run("no register attempt", func(t *testing.T) {
+		testKVStoreSubscribeFail(t, false)
 	})
 }
 
@@ -200,10 +194,7 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -212,7 +203,7 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 	info1, attempt1, preimg1, err := genInfo()
 	require.NoError(t, err)
 
-	err = pControl.InitPayment(info1.PaymentIdentifier, info1)
+	err = pControl.InitPayment(t.Context(), info1.PaymentIdentifier, info1)
 	require.NoError(t, err)
 
 	// Subscription should succeed and immediately report the Initiated
@@ -221,18 +212,22 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 	require.NoError(t, err, "expected subscribe to succeed, but got: %v")
 
 	// Register an attempt.
-	err = pControl.RegisterAttempt(info1.PaymentIdentifier, attempt1)
+	err = pControl.RegisterAttempt(
+		t.Context(), info1.PaymentIdentifier, attempt1,
+	)
 	require.NoError(t, err)
 
 	// Initiate a second payment after the subscription is already active.
 	info2, attempt2, preimg2, err := genInfo()
 	require.NoError(t, err)
 
-	err = pControl.InitPayment(info2.PaymentIdentifier, info2)
+	err = pControl.InitPayment(t.Context(), info2.PaymentIdentifier, info2)
 	require.NoError(t, err)
 
 	// Register an attempt on the second payment.
-	err = pControl.RegisterAttempt(info2.PaymentIdentifier, attempt2)
+	err = pControl.RegisterAttempt(
+		t.Context(), info2.PaymentIdentifier, attempt2,
+	)
 	require.NoError(t, err)
 
 	// Mark the first payment as successful.
@@ -240,7 +235,8 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 		Preimage: preimg1,
 	}
 	htlcAttempt1, err := pControl.SettleAttempt(
-		info1.PaymentIdentifier, attempt1.AttemptID, &settleInfo1,
+		t.Context(), info1.PaymentIdentifier, attempt1.AttemptID,
+		&settleInfo1,
 	)
 	require.NoError(t, err)
 	require.Equal(
@@ -253,7 +249,8 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 		Preimage: preimg2,
 	}
 	htlcAttempt2, err := pControl.SettleAttempt(
-		info2.PaymentIdentifier, attempt2.AttemptID, &settleInfo2,
+		t.Context(), info2.PaymentIdentifier, attempt2.AttemptID,
+		&settleInfo2,
 	)
 	require.NoError(t, err)
 	require.Equal(
@@ -325,10 +322,7 @@ func TestKVStoreSubscribeAllImmediate(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -337,11 +331,13 @@ func TestKVStoreSubscribeAllImmediate(t *testing.T) {
 	info, attempt, _, err := genInfo()
 	require.NoError(t, err)
 
-	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	err = pControl.InitPayment(t.Context(), info.PaymentIdentifier, info)
 	require.NoError(t, err)
 
 	// Register a payment update.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	require.NoError(t, err)
 
 	subscription, err := pControl.SubscribeAllPayments()
@@ -374,10 +370,7 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -392,7 +385,7 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	info, attempt, _, err := genInfo()
 	require.NoError(t, err)
 
-	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	err = pControl.InitPayment(t.Context(), info.PaymentIdentifier, info)
 	require.NoError(t, err)
 
 	// Assert all subscriptions receive the update.
@@ -414,7 +407,9 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	subscription1.Close()
 
 	// Register a payment update.
-	err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
+	err = pControl.RegisterAttempt(
+		t.Context(), info.PaymentIdentifier, attempt,
+	)
 	require.NoError(t, err)
 
 	// Assert only subscription 2 receives the update.
@@ -435,7 +430,8 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 		Reason: paymentsdb.HTLCFailInternal,
 	}
 	_, err = pControl.FailAttempt(
-		info.PaymentIdentifier, attempt.AttemptID, &failInfo,
+		t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+		&failInfo,
 	)
 	require.NoError(t, err, "unable to fail htlc")
 
@@ -444,17 +440,10 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	require.Len(t, subscription2.Updates(), 0)
 }
 
-func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
-	keepFailedPaymentAttempts bool) {
-
+func testKVStoreSubscribeFail(t *testing.T, registerAttempt bool) {
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -465,7 +454,7 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentIdentifier, info)
+	err = pControl.InitPayment(t.Context(), info.PaymentIdentifier, info)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,17 +468,18 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 	// making any attempts at all.
 	if registerAttempt {
 		// Register an attempt.
-		err = pControl.RegisterAttempt(info.PaymentIdentifier, attempt)
-		if err != nil {
-			t.Fatal(err)
-		}
+		err = pControl.RegisterAttempt(
+			t.Context(), info.PaymentIdentifier, attempt,
+		)
+		require.NoError(t, err)
 
 		// Fail the payment attempt.
 		failInfo := paymentsdb.HTLCFailInfo{
 			Reason: paymentsdb.HTLCFailInternal,
 		}
 		htlcAttempt, err := pControl.FailAttempt(
-			info.PaymentIdentifier, attempt.AttemptID, &failInfo,
+			t.Context(), info.PaymentIdentifier, attempt.AttemptID,
+			&failInfo,
 		)
 		if err != nil {
 			t.Fatalf("unable to fail htlc: %v", err)
@@ -501,7 +491,8 @@ func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
 
 	// Mark the payment as failed.
 	err = pControl.FailPayment(
-		info.PaymentIdentifier, paymentsdb.FailureReasonTimeout,
+		t.Context(), info.PaymentIdentifier,
+		paymentsdb.FailureReasonTimeout,
 	)
 	if err != nil {
 		t.Fatal(err)

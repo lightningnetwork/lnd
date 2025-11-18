@@ -21,24 +21,34 @@ type Querier interface {
 	DeleteChannelPolicyExtraTypes(ctx context.Context, channelPolicyID int64) error
 	DeleteChannels(ctx context.Context, ids []int64) error
 	DeleteExtraNodeType(ctx context.Context, arg DeleteExtraNodeTypeParams) error
+	// Delete all failed HTLC attempts for the given payment. Resolution type 2
+	// indicates a failed attempt.
+	DeleteFailedAttempts(ctx context.Context, paymentID int64) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
 	DeleteNodeAddresses(ctx context.Context, nodeID int64) error
 	DeleteNodeByPubKey(ctx context.Context, arg DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNodeFeature(ctx context.Context, arg DeleteNodeFeatureParams) error
+	DeletePayment(ctx context.Context, id int64) error
 	DeletePruneLogEntriesInRange(ctx context.Context, arg DeletePruneLogEntriesInRangeParams) error
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
+	FailAttempt(ctx context.Context, arg FailAttemptParams) error
+	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
-	// Fetch all inflight attempts across all payments
-	FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error)
+	// Fetch all inflight attempts with their payment data using pagination.
+	// Returns attempt data joined with payment and intent data to avoid separate queries.
+	FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]FetchAllInflightAttemptsRow, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
+	// Batch query to fetch only HTLC resolution status for multiple payments.
+	// We don't need to order by payment_id and attempt_time because we will
+	// group the resolutions by payment_id in the background.
+	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIds []int64) ([]PaymentFirstHopCustomRecord, error)
-	FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
@@ -112,6 +122,7 @@ type Querier interface {
 	// UpsertEdgePolicy query is used because of the constraint in that query that
 	// requires a policy update to have a newer last_update than the existing one).
 	InsertEdgePolicyMig(ctx context.Context, arg InsertEdgePolicyMigParams) (int64, error)
+	InsertHtlcAttempt(ctx context.Context, arg InsertHtlcAttemptParams) (int64, error)
 	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error)
@@ -125,6 +136,19 @@ type Querier interface {
 	// is used because of the constraint in that query that requires a node update
 	// to have a newer last_update than the existing node).
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
+	// Insert a new payment and return its ID.
+	// When creating a payment we don't have a fail reason because we start the
+	// payment process.
+	InsertPayment(ctx context.Context, arg InsertPaymentParams) (int64, error)
+	InsertPaymentAttemptFirstHopCustomRecord(ctx context.Context, arg InsertPaymentAttemptFirstHopCustomRecordParams) error
+	InsertPaymentFirstHopCustomRecord(ctx context.Context, arg InsertPaymentFirstHopCustomRecordParams) error
+	InsertPaymentHopCustomRecord(ctx context.Context, arg InsertPaymentHopCustomRecordParams) error
+	// Insert a payment intent for a given payment and return its ID.
+	InsertPaymentIntent(ctx context.Context, arg InsertPaymentIntentParams) (int64, error)
+	InsertRouteHop(ctx context.Context, arg InsertRouteHopParams) (int64, error)
+	InsertRouteHopAmp(ctx context.Context, arg InsertRouteHopAmpParams) error
+	InsertRouteHopBlinded(ctx context.Context, arg InsertRouteHopBlindedParams) error
+	InsertRouteHopMpp(ctx context.Context, arg InsertRouteHopMppParams) error
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
@@ -144,6 +168,7 @@ type Querier interface {
 	OnInvoiceSettled(ctx context.Context, arg OnInvoiceSettledParams) error
 	SetKVInvoicePaymentHash(ctx context.Context, arg SetKVInvoicePaymentHashParams) error
 	SetMigration(ctx context.Context, arg SetMigrationParams) error
+	SettleAttempt(ctx context.Context, arg SettleAttemptParams) error
 	UpdateAMPSubInvoiceHTLCPreimage(ctx context.Context, arg UpdateAMPSubInvoiceHTLCPreimageParams) (sql.Result, error)
 	UpdateAMPSubInvoiceState(ctx context.Context, arg UpdateAMPSubInvoiceStateParams) error
 	UpdateInvoiceAmountPaid(ctx context.Context, arg UpdateInvoiceAmountPaidParams) (sql.Result, error)

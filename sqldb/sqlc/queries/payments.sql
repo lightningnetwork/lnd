@@ -9,7 +9,7 @@ SELECT
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE (
     p.id > sqlc.narg('index_offset_get') OR
     sqlc.narg('index_offset_get') IS NULL
@@ -37,17 +37,8 @@ SELECT
     i.intent_type AS "intent_type",
     i.intent_payload AS "intent_payload"
 FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
+LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1;
-
--- name: FetchPaymentsByIDs :many
-SELECT
-    sqlc.embed(p),
-    i.intent_type AS "intent_type",
-    i.intent_payload AS "intent_payload"
-FROM payments p
-LEFT JOIN payment_intents i ON i.id = p.intent_id
-WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
 
 -- name: CountPayments :one
 SELECT COUNT(*) FROM payments;
@@ -75,8 +66,20 @@ LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_i
 WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
 ORDER BY ha.payment_id ASC, ha.attempt_time ASC;
 
+-- name: FetchHtlcAttemptResolutionsForPayments :many
+-- Batch query to fetch only HTLC resolution status for multiple payments.
+-- We don't need to order by payment_id and attempt_time because we will
+-- group the resolutions by payment_id in the background.
+SELECT
+    ha.payment_id,
+    hr.resolution_type
+FROM payment_htlc_attempts ha
+LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
+WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
+
 -- name: FetchAllInflightAttempts :many
--- Fetch all inflight attempts across all payments
+-- Fetch all inflight attempts with their payment data using pagination.
+-- Returns attempt data joined with payment and intent data to avoid separate queries.
 SELECT
     ha.id,
     ha.attempt_index,
@@ -87,13 +90,23 @@ SELECT
     ha.first_hop_amount_msat,
     ha.route_total_time_lock,
     ha.route_total_amount,
-    ha.route_source_key
+    ha.route_source_key,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
 FROM payment_htlc_attempts ha
+INNER JOIN payments p ON p.id = ha.payment_id
+LEFT JOIN payment_intents pi ON pi.payment_id = p.id
 WHERE NOT EXISTS (
     SELECT 1 FROM payment_htlc_attempt_resolutions hr
     WHERE hr.attempt_index = ha.attempt_index
 )
-ORDER BY ha.attempt_index ASC;
+AND ha.attempt_index > $1
+ORDER BY ha.attempt_index ASC
+LIMIT $2;
 
 -- name: FetchHopsForAttempts :many
 SELECT
@@ -151,3 +164,198 @@ FROM payment_hop_custom_records l
 WHERE l.hop_id IN (sqlc.slice('hop_ids')/*SLICE:hop_ids*/)
 ORDER BY l.hop_id ASC, l.key ASC;
 
+
+-- name: DeletePayment :exec
+DELETE FROM payments WHERE id = $1;
+
+-- name: DeleteFailedAttempts :exec
+-- Delete all failed HTLC attempts for the given payment. Resolution type 2
+-- indicates a failed attempt.
+DELETE FROM payment_htlc_attempts WHERE payment_id = $1 AND attempt_index IN (
+    SELECT attempt_index FROM payment_htlc_attempt_resolutions WHERE resolution_type = 2
+);
+
+-- name: InsertPaymentIntent :one
+-- Insert a payment intent for a given payment and return its ID.
+INSERT INTO payment_intents (
+    payment_id,
+    intent_type, 
+    intent_payload)
+VALUES (
+    @payment_id,
+    @intent_type, 
+    @intent_payload
+)
+RETURNING id;
+
+-- name: InsertPayment :one
+-- Insert a new payment and return its ID.
+-- When creating a payment we don't have a fail reason because we start the
+-- payment process.
+INSERT INTO payments (
+    amount_msat, 
+    created_at, 
+    payment_identifier,
+    fail_reason)
+VALUES (
+    @amount_msat,
+    @created_at,
+    @payment_identifier,
+    NULL
+)
+RETURNING id;
+
+-- name: InsertPaymentFirstHopCustomRecord :exec
+INSERT INTO payment_first_hop_custom_records (
+    payment_id,
+    key,
+    value
+)
+VALUES (
+    @payment_id,
+    @key,
+    @value
+);
+
+-- name: InsertHtlcAttempt :one
+INSERT INTO payment_htlc_attempts (
+    payment_id,
+    attempt_index,
+    session_key,
+    attempt_time,
+    payment_hash,
+    first_hop_amount_msat,
+    route_total_time_lock,
+    route_total_amount,
+    route_source_key)
+VALUES (
+    @payment_id,
+    @attempt_index,
+    @session_key,
+    @attempt_time,
+    @payment_hash, 
+    @first_hop_amount_msat, 
+    @route_total_time_lock, 
+    @route_total_amount, 
+    @route_source_key)
+RETURNING id;
+
+-- name: InsertPaymentAttemptFirstHopCustomRecord :exec
+INSERT INTO payment_attempt_first_hop_custom_records (
+    htlc_attempt_index,
+    key,
+    value
+)
+VALUES (
+    @htlc_attempt_index,
+    @key,
+    @value
+);
+
+-- name: InsertRouteHop :one
+INSERT INTO payment_route_hops (
+    htlc_attempt_index,
+    hop_index,
+    pub_key,
+    scid,
+    outgoing_time_lock,
+    amt_to_forward,
+    meta_data
+)
+VALUES (
+    @htlc_attempt_index,
+    @hop_index,
+    @pub_key,
+    @scid,
+    @outgoing_time_lock,
+    @amt_to_forward,
+    @meta_data
+)
+RETURNING id;
+
+-- name: InsertRouteHopMpp :exec
+INSERT INTO payment_route_hop_mpp (
+    hop_id,
+    payment_addr,
+    total_msat
+)
+VALUES (
+    @hop_id,
+    @payment_addr,
+    @total_msat
+);
+
+-- name: InsertRouteHopAmp :exec
+INSERT INTO payment_route_hop_amp (
+    hop_id,
+    root_share,
+    set_id,
+    child_index
+)
+VALUES (
+    @hop_id,
+    @root_share,
+    @set_id,
+    @child_index
+);
+
+-- name: InsertRouteHopBlinded :exec
+INSERT INTO payment_route_hop_blinded (
+    hop_id,
+    encrypted_data,
+    blinding_point,
+    blinded_path_total_amt
+)
+VALUES (
+    @hop_id,
+    @encrypted_data,
+    @blinding_point,
+    @blinded_path_total_amt
+);
+
+-- name: InsertPaymentHopCustomRecord :exec
+INSERT INTO payment_hop_custom_records (
+    hop_id,
+    key,
+    value
+)
+VALUES (
+    @hop_id,
+    @key,
+    @value
+);
+
+-- name: SettleAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    settle_preimage
+)
+VALUES (
+    @attempt_index,
+    @resolution_time,
+    @resolution_type,
+    @settle_preimage
+);
+
+-- name: FailAttempt :exec
+INSERT INTO payment_htlc_attempt_resolutions (
+    attempt_index,
+    resolution_time,
+    resolution_type,
+    failure_source_index,
+    htlc_fail_reason,
+    failure_msg
+)
+VALUES (
+    @attempt_index,
+    @resolution_time,
+    @resolution_type,
+    @failure_source_index,
+    @htlc_fail_reason,
+    @failure_msg
+);
+
+-- name: FailPayment :execresult
+UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;

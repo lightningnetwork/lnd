@@ -127,10 +127,6 @@ type KVStore struct {
 
 	// db is the underlying database implementation.
 	db kvdb.Backend
-
-	// keepFailedPaymentAttempts is a flag that indicates whether we should
-	// keep failed payment attempts in the database.
-	keepFailedPaymentAttempts bool
 }
 
 // A compile-time constraint to ensure KVStore implements DB.
@@ -152,8 +148,7 @@ func NewKVStore(db kvdb.Backend,
 	}
 
 	return &KVStore{
-		db:                        db,
-		keepFailedPaymentAttempts: opts.KeepFailedPaymentAttempts,
+		db: db,
 	}, nil
 }
 
@@ -288,19 +283,14 @@ func (p *KVStore) InitPayment(_ context.Context, paymentHash lntypes.Hash,
 	return updateErr
 }
 
-// DeleteFailedAttempts deletes all failed htlcs for a payment if configured
-// by the KVStore db.
+// DeleteFailedAttempts deletes all failed htlcs for a payment.
 func (p *KVStore) DeleteFailedAttempts(ctx context.Context,
 	hash lntypes.Hash) error {
 
-	// TODO(ziggie): Refactor to not mix application logic with database
-	// logic. This decision should be made in the application layer.
-	if !p.keepFailedPaymentAttempts {
-		const failedHtlcsOnly = true
-		err := p.DeletePayment(ctx, hash, failedHtlcsOnly)
-		if err != nil {
-			return err
-		}
+	const failedHtlcsOnly = true
+	err := p.DeletePayment(ctx, hash, failedHtlcsOnly)
+	if err != nil {
+		return err
 	}
 
 	return nil

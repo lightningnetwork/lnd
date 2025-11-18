@@ -295,6 +295,10 @@ type Config struct {
 	// TrafficShaper is an optional traffic shaper that can be used to
 	// control the outgoing channel of a payment.
 	TrafficShaper fn.Option[htlcswitch.AuxTrafficShaper]
+
+	// KeepFailedPaymentAttempts indicates whether to keep failed payment
+	// attempts in the database.
+	KeepFailedPaymentAttempts bool
 }
 
 // EdgeLocator is a struct used to identify a specific edge.

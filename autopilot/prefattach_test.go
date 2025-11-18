@@ -112,7 +112,7 @@ func TestPrefAttachmentSelectEmptyGraph(t *testing.T) {
 }
 
 // TestPrefAttachmentSelectTwoVertexes ensures that when passed a
-// graph with only two eligible vertexes, then both are given the same score,
+// graph with only two eligible vertices, then both are given the same score,
 // and the funds are appropriately allocated across each peer.
 func TestPrefAttachmentSelectTwoVertexes(t *testing.T) {
 	t.Parallel()

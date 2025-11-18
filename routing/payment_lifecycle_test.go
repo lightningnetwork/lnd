@@ -1280,6 +1280,156 @@ func TestResumePaymentSuccess(t *testing.T) {
 	require.Equal(t, 1, m.collectResultsCount)
 }
 
+// TestKeepFailedPaymentAttempts tests that DeleteFailedAttempts is
+// called or skipped based on the KeepFailedPaymentAttempts
+// configuration of the router.
+func TestKeepFailedPaymentAttempts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name                      string
+		keepFailedPaymentAttempts bool
+		expectDeleteCalled        bool
+	}{
+		{
+			name: "keep failed attempts - " +
+				"delete not called",
+			keepFailedPaymentAttempts: true,
+			expectDeleteCalled:        false,
+		},
+		{
+			name: "delete failed attempts - " +
+				"delete called",
+			keepFailedPaymentAttempts: false,
+			expectDeleteCalled:        true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a test paymentLifecycle with the initial two
+			// calls mocked.
+			p, m := setupTestPaymentLifecycle(t)
+
+			// Set the KeepFailedPaymentAttempts configuration.
+			p.router.cfg.KeepFailedPaymentAttempts =
+				tc.keepFailedPaymentAttempts
+
+			// Create a dummy route that will be returned by
+			// `RequestRoute`.
+			paymentAmt := lnwire.MilliSatoshi(10000)
+			rt := createDummyRoute(t, paymentAmt)
+
+			// We now enter the payment lifecycle loop.
+			//
+			// 1.1. calls `FetchPayment` and return the payment.
+			m.control.On("FetchPayment", p.identifier).
+				Return(m.payment, nil).Once()
+
+			// 1.2. calls `GetState` and return the state.
+			ps := &paymentsdb.MPPaymentState{
+				RemainingAmt: paymentAmt,
+			}
+			m.payment.On("GetState").Return(ps).Once()
+
+			// NOTE: GetStatus is only used to populate the logs
+			// which is not critical so we loosen the checks on how
+			// many times it's been called.
+			m.payment.On("GetStatus").
+				Return(paymentsdb.StatusInFlight)
+
+			// 1.3. decideNextStep now returns stepProceed.
+			m.payment.On("AllowMoreAttempts").
+				Return(true, nil).Once()
+
+			// 1.4. mock requestRoute to return an route.
+			m.paySession.On("RequestRoute",
+				paymentAmt, p.feeLimit,
+				uint32(ps.NumAttemptsInFlight),
+				uint32(p.currentHeight), mock.Anything,
+			).Return(rt, nil).Once()
+
+			// 1.5. mock `registerAttempt` to return an attempt.
+			//
+			// Mock NextPaymentID to always return the attemptID.
+			attemptID := uint64(1)
+			p.router.cfg.NextPaymentID = func() (uint64, error) {
+				return attemptID, nil
+			}
+
+			// Mock shardTracker to return the mock shard.
+			m.shardTracker.On("NewShard",
+				attemptID, true,
+			).Return(m.shard, nil).Once()
+
+			// Mock the methods on the shard.
+			m.shard.On("MPP").Return(&record.MPP{}).Twice().
+				On("AMP").Return(nil).Once().
+				On("Hash").Return(p.identifier).Once()
+
+			// Mock the time and expect it to be called.
+			m.clock.On("Now").Return(time.Now())
+
+			// We now register attempt and return no error.
+			m.control.On("RegisterAttempt",
+				p.identifier, mock.Anything,
+			).Return(nil).Once()
+
+			// 1.6. mock `sendAttempt` to succeed, which brings us
+			// into the next iteration of the lifecycle.
+			m.payer.On("SendHTLC",
+				mock.Anything, attemptID, mock.Anything,
+			).Return(nil).Once()
+
+			// We now enter the second iteration of the lifecycle
+			// loop.
+			//
+			// 2.1. calls `FetchPayment` and return the payment.
+			m.control.On("FetchPayment", p.identifier).
+				Return(m.payment, nil).Once()
+
+			// 2.2. calls `GetState` and return the state.
+			m.payment.On("GetState").Return(ps).
+				Run(func(args mock.Arguments) {
+					ps.RemainingAmt = 0
+				}).Once()
+
+			// 2.3. decideNextStep now returns stepExit and exits
+			// the loop.
+			m.payment.On("AllowMoreAttempts").
+				Return(false, nil).Once().
+				On("NeedWaitAttempts").Return(false, nil).Once()
+
+			// Conditionally expect DeleteFailedAttempts to be
+			// called based on the configuration.
+			if tc.expectDeleteCalled {
+				m.control.On("DeleteFailedAttempts",
+					p.identifier).Return(nil).Once()
+			}
+			// If expectDeleteCalled is false, we don't set up the
+			// expectation, which means the mock will fail if it's
+			// called.
+
+			// Finally, mock the `TerminalInfo` to return the
+			// settled attempt. Create a SettleAttempt.
+			testPreimage := lntypes.Preimage{1, 2, 3}
+			settledAttempt := makeSettledAttempt(
+				t, int(paymentAmt), testPreimage,
+			)
+			m.payment.On("TerminalInfo").
+				Return(settledAttempt, nil).Once()
+
+			// Send the payment and assert the preimage is matched.
+			sendPaymentAndAssertSucceeded(t, p, testPreimage)
+
+			// Expected collectResultAsync to called.
+			require.Equal(t, 1, m.collectResultsCount)
+		})
+	}
+}
+
 // TestResumePaymentSuccessWithTwoAttempts checks a successful payment flow
 // with two HTLC attempts.
 //

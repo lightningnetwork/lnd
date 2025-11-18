@@ -50,10 +50,7 @@ func TestControlTowerSubscribeUnknown(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -182,17 +179,11 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 func TestKVStoreSubscribeFail(t *testing.T) {
 	t.Parallel()
 
-	t.Run("register attempt, keep failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, true, true)
+	t.Run("register attempt", func(t *testing.T) {
+		testKVStoreSubscribeFail(t, true)
 	})
-	t.Run("register attempt, delete failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, true, false)
-	})
-	t.Run("no register attempt, keep failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, false, true)
-	})
-	t.Run("no register attempt, delete failed payments", func(t *testing.T) {
-		testKVStoreSubscribeFail(t, false, false)
+	t.Run("no register attempt", func(t *testing.T) {
+		testKVStoreSubscribeFail(t, false)
 	})
 }
 
@@ -203,10 +194,7 @@ func TestKVStoreSubscribeAllSuccess(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -334,10 +322,7 @@ func TestKVStoreSubscribeAllImmediate(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -385,10 +370,7 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(true),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)
@@ -458,17 +440,10 @@ func TestKVStoreUnsubscribeSuccess(t *testing.T) {
 	require.Len(t, subscription2.Updates(), 0)
 }
 
-func testKVStoreSubscribeFail(t *testing.T, registerAttempt,
-	keepFailedPaymentAttempts bool) {
-
+func testKVStoreSubscribeFail(t *testing.T, registerAttempt bool) {
 	db := initDB(t)
 
-	paymentDB, err := paymentsdb.NewKVStore(
-		db,
-		paymentsdb.WithKeepFailedPaymentAttempts(
-			keepFailedPaymentAttempts,
-		),
-	)
+	paymentDB, err := paymentsdb.NewKVStore(db)
 	require.NoError(t, err)
 
 	pControl := NewControlTower(paymentDB)

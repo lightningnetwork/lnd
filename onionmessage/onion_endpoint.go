@@ -10,6 +10,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
+	"github.com/lightningnetwork/lnd/actor"
+	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -48,11 +50,64 @@ var (
 	ErrNoNextNodeID = errors.New("next node ID required")
 )
 
-// OnionMessageSender is a function type that defines how to send an onion
-// message. It takes the next node's public key (as [33]byte), the blinding
-// point (*btcec.PublicKey), and the onion packet ([]byte) to send to a peer.
-type OnionMessageSender func(context.Context, [33]byte, *btcec.PublicKey,
-	[]byte) error
+type OMRequest struct {
+	// Embed BaseMessage to satisfy the Message interface.
+	actor.BaseMessage
+	msg lnwire.OnionMessage
+}
+
+// MessageType returns a string identifier for this message type.
+func (m *OMRequest) MessageType() string {
+	return "OnionMessageRequest"
+}
+
+// MyResponse might be a corresponding response type.
+type OMResponse struct {
+	actor.BaseMessage
+	Success bool
+}
+
+func (m *OMResponse) MessageType() string {
+	return "OnionMessageResponse"
+}
+
+type OnionPeerActorRef actor.ActorRef[*OMRequest, *OMResponse]
+
+// PeerOnionSenderKey returns the actor key used to send onion messages to a
+// specific peer identified by their public key.
+func SpawnOnionPeerActor(system *actor.ActorSystem,
+	sender func(msg *lnwire.OnionMessage),
+	pubKey [33]byte) OnionPeerActorRef {
+
+	// The actor logic creates a function behavior that sends onion messages
+	// using the provided sender function.
+	actorLogic := func(ctx context.Context,
+		req *OMRequest) fn.Result[*OMResponse] {
+
+		select {
+		case <-ctx.Done():
+			return fn.Err[*OMResponse](
+				errors.New("actor shutting down"),
+			)
+		default:
+		}
+
+		sender(&req.msg)
+		response := &OMResponse{Success: true}
+		return fn.Ok(response)
+	}
+
+	// Create a behavior from the function.
+	behavior := actor.NewFunctionBehavior(actorLogic)
+
+	pubKeyHex := hex.EncodeToString(pubKey[:])
+	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
+	actorRef := serviceKey.Spawn(
+		system, "onion-peer-actor-"+pubKeyHex, behavior,
+	)
+
+	return actorRef
+}
 
 // OnionMessageUpdate is onion message update dispatched to any potential
 // subscriber.
@@ -89,13 +144,6 @@ func WithMessageServer(server *subscribe.Server) OnionEndpointOption {
 	}
 }
 
-// WithMessageSender sets the onion message sender for the OnionEndpoint.
-func WithMessageSender(msgSender OnionMessageSender) OnionEndpointOption {
-	return func(o *OnionEndpoint) {
-		o.MsgSender = msgSender
-	}
-}
-
 // WithOnionProcessor sets the onion processor for the OnionEndpoint.
 func WithOnionProcessor(processor *hop.OnionProcessor) OnionEndpointOption {
 	return func(o *OnionEndpoint) {
@@ -111,8 +159,9 @@ type OnionEndpoint struct {
 	// onionProcessor is the onion processor used to process onion packets.
 	onionProcessor *hop.OnionProcessor
 
-	// MsgSender sends a onion message to the target peer.
-	MsgSender OnionMessageSender
+	// receptionist is the actor system receptionist used to look up peer
+	// onion actors.
+	receptionist *actor.Receptionist
 }
 
 // A compile-time check to ensure OnionEndpoint implements the Endpoint
@@ -120,9 +169,9 @@ type OnionEndpoint struct {
 var _ msgmux.Endpoint = (*OnionEndpoint)(nil)
 
 // NewOnionEndpoint creates a new OnionEndpoint with the given options.
-func NewOnionEndpoint(opts ...OnionEndpointOption) *OnionEndpoint {
+func NewOnionEndpoint(receptionist *actor.Receptionist, opts ...OnionEndpointOption) *OnionEndpoint {
 	o := &OnionEndpoint{
-		onionMessageServer: nil,
+		receptionist: receptionist,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -283,12 +332,26 @@ func (o *OnionEndpoint) forwardMessage(ctx context.Context,
 	var nextNodeIDBytes [33]byte
 	copy(nextNodeIDBytes[:], nextNodeID.SerializeCompressed())
 
-	err := o.MsgSender(
-		ctx, nextNodeIDBytes, nextBlindingPoint, nextPacket,
-	)
+	// err := o.MsgSender(
+	// 	ctx, nextNodeIDBytes, nextBlindingPoint, nextPacket,
+	// )
 
-	if err != nil {
-		return fmt.Errorf("could not send message: %w", err)
+	// Find the onion peer actor for the next node ID.
+	pubKeyHex := hex.EncodeToString(nextNodeIDBytes[:])
+	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
+	foundActorRefs := actor.FindInReceptionist(o.receptionist, serviceKey)
+
+	// If we found an actor, send the onion message to it.
+	if len(foundActorRefs) > 0 {
+		actorRef := foundActorRefs[0]
+		onionMsg := lnwire.NewOnionMessage(
+			nextBlindingPoint, nextPacket,
+		)
+		req := &OMRequest{msg: *onionMsg}
+		actorRef.Tell(ctx, req)
+	} else {
+		return fmt.Errorf("No actors found for service key: %v",
+			serviceKey)
 	}
 
 	return nil

@@ -332,3 +332,108 @@ func BenchmarkMissionControlStoreFlushing(b *testing.B) {
 		})
 	}
 }
+
+// TestMissionControlStoreDeletesCorruptedEntries tests that fetchAll() skips
+// entries that fail to deserialize, deletes them from the database, and
+// removes them from the in-memory tracking structures.
+func TestMissionControlStoreDeletesCorruptedEntries(t *testing.T) {
+	h := newMCStoreTestHarness(t, testMaxRecords, time.Second)
+	store := h.store
+
+	failureSourceIdx := 1
+
+	// Create two valid results.
+	result1 := newPaymentResult(
+		1, mcStoreTestRoute, testTime, testTime,
+		fn.Some(newPaymentFailure(
+			&failureSourceIdx,
+			lnwire.NewFailIncorrectDetails(100, 1000),
+		)),
+	)
+
+	result2 := newPaymentResult(
+		2, mcStoreTestRoute, testTime.Add(time.Hour),
+		testTime.Add(time.Hour),
+		fn.Some(newPaymentFailure(
+			&failureSourceIdx,
+			lnwire.NewFailIncorrectDetails(100, 1000),
+		)),
+	)
+
+	// Store both results.
+	store.AddResult(result1)
+	store.AddResult(result2)
+	require.NoError(t, store.storeResults())
+
+	// Insert a corrupted entry into the database.
+	var corruptedKey [8 + 8 + 33]byte
+	byteOrder.PutUint64(corruptedKey[:], uint64(testTime.Add(
+		30*time.Minute).UnixNano()),
+	)
+	byteOrder.PutUint64(corruptedKey[8:], 99) // Unique ID.
+	copy(corruptedKey[16:], result1.route.Val.sourcePubKey.Val[:])
+
+	err := store.db.update(func(bucket kvdb.RwBucket) error {
+		// Insert corrupted/invalid TLV data that will fail to
+		// deserialize.
+		corruptedValue := []byte{0xFF, 0xFF, 0xFF, 0xFF}
+
+		return bucket.Put(corruptedKey[:], corruptedValue)
+	}, func() {})
+	require.NoError(t, err)
+
+	// Add the corrupted key to in-memory tracking to simulate it being
+	// loaded at startup (newMissionControlStore populates keysMap from
+	// all DB keys).
+	corruptedKeyStr := string(corruptedKey[:])
+	store.keysMap[corruptedKeyStr] = struct{}{}
+	store.keys.PushBack(corruptedKeyStr)
+
+	// Verify the corrupted key is in the in-memory tracking.
+	_, exists := store.keysMap[corruptedKeyStr]
+	require.True(t, exists, "corrupted key should be in keysMap")
+
+	// Verify we have 3 entries in the database before fetchAll.
+	var dbEntryCountBefore int
+	err = store.db.view(func(bucket kvdb.RBucket) error {
+		return bucket.ForEach(func(k, v []byte) error {
+			dbEntryCountBefore++
+			return nil
+		})
+	}, func() {
+		dbEntryCountBefore = 0
+	})
+	require.NoError(t, err)
+	require.Equal(t, 3, dbEntryCountBefore, "should have 3 entries "+
+		"in the database before cleanup")
+
+	// Now fetch all results. The corrupted entry should be skipped,
+	// deleted from the DB, and removed from in-memory tracking.
+	results, err := store.fetchAll()
+	require.NoError(t, err, "fetchAll should not return an error "+
+		"even when encountering corrupted entries")
+	require.Len(t, results, 2, "should skip the corrupted entry and "+
+		"return only valid results")
+
+	// Verify we still have the correct results.
+	require.Equal(t, result1, results[0])
+	require.Equal(t, result2, results[1])
+
+	// Verify the corrupted entry was removed from in-memory tracking.
+	_, exists = store.keysMap[corruptedKeyStr]
+	require.False(t, exists, "corrupted key should not exist in keysMap")
+
+	// Verify the corrupted entry was deleted from the database.
+	var dbEntryCountAfter int
+	err = store.db.view(func(bucket kvdb.RBucket) error {
+		return bucket.ForEach(func(k, v []byte) error {
+			dbEntryCountAfter++
+			return nil
+		})
+	}, func() {
+		dbEntryCountAfter = 0
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, dbEntryCountAfter, "corrupted entry should be "+
+		"deleted from the database")
+}

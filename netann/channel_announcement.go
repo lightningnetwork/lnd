@@ -34,48 +34,14 @@ const (
 // function is used to transform out database structs into the corresponding wire
 // structs for announcing new channels to other peers, or simply syncing up a
 // peer's initial routing table upon connect.
-func CreateChanAnnouncement(chanProof *models.ChannelAuthProof,
-	chanInfo *models.ChannelEdgeInfo,
+func CreateChanAnnouncement(chanInfo *models.ChannelEdgeInfo,
 	e1, e2 *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, *lnwire.ChannelUpdate1, error) {
 
 	// First, using the parameters of the channel, along with the channel
-	// authentication chanProof, we'll create re-create the original
+	// authentication proof, we'll create re-create the original
 	// authenticated channel announcement.
-	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
-	chanAnn := &lnwire.ChannelAnnouncement1{
-		ShortChannelID:  chanID,
-		NodeID1:         chanInfo.NodeKey1Bytes,
-		NodeID2:         chanInfo.NodeKey2Bytes,
-		ChainHash:       chanInfo.ChainHash,
-		BitcoinKey1:     chanInfo.BitcoinKey1Bytes,
-		BitcoinKey2:     chanInfo.BitcoinKey2Bytes,
-		Features:        chanInfo.Features.RawFeatureVector,
-		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
-	}
-
-	var err error
-	chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
-		chanProof.BitcoinSig1(),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
-		chanProof.BitcoinSig2(),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
-		chanProof.NodeSig1(),
-	)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
-		chanProof.NodeSig2(),
-	)
+	chanAnn, err := chanInfo.ToChannelAnnouncement()
 	if err != nil {
 		return nil, nil, nil, err
 	}

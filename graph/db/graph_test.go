@@ -146,6 +146,10 @@ var versionedTests = []versionedTest{
 		name: "partial node",
 		test: testPartialNode,
 	},
+	{
+		name: "node is public",
+		test: testNodeIsPublic,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -4125,9 +4129,9 @@ func nextBlockHeight() uint32 {
 	return updateBlock
 }
 
-// TestNodeIsPublic ensures that we properly detect nodes that are seen as
+// testNodeIsPublic ensures that we properly detect nodes that are seen as
 // public within the network graph.
-func TestNodeIsPublic(t *testing.T) {
+func testNodeIsPublic(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
@@ -4139,33 +4143,29 @@ func TestNodeIsPublic(t *testing.T) {
 	// We'll need to create a separate database and channel graph for each
 	// participant to replicate real-world scenarios (private edges being in
 	// some graphs but not others, etc.).
-	aliceGraph := MakeTestGraph(t)
-	aliceNode := createTestVertex(t, lnwire.GossipVersion1)
+	aliceGraph := NewVersionedGraph(MakeTestGraph(t), v)
+	aliceNode := createTestVertex(t, v)
 	err := aliceGraph.SetSourceNode(ctx, aliceNode)
 	require.NoError(t, err, "unable to set source node")
 
-	bobGraph := MakeTestGraph(t)
-	bobNode := createTestVertex(t, lnwire.GossipVersion1)
+	bobGraph := NewVersionedGraph(MakeTestGraph(t), v)
+	bobNode := createTestVertex(t, v)
 	err = bobGraph.SetSourceNode(ctx, bobNode)
 	require.NoError(t, err, "unable to set source node")
 
-	carolGraph := MakeTestGraph(t)
-	carolNode := createTestVertex(t, lnwire.GossipVersion1)
+	carolGraph := NewVersionedGraph(MakeTestGraph(t), v)
+	carolNode := createTestVertex(t, v)
 	err = carolGraph.SetSourceNode(ctx, carolNode)
 	require.NoError(t, err, "unable to set source node")
 
-	aliceBobEdge, _ := createEdge(
-		lnwire.GossipVersion1, 10, 0, 0, 0, aliceNode, bobNode,
-	)
-	bobCarolEdge, _ := createEdge(
-		lnwire.GossipVersion1, 10, 1, 0, 1, bobNode, carolNode,
-	)
+	aliceBobEdge, _ := createEdge(v, 10, 0, 0, 0, aliceNode, bobNode)
+	bobCarolEdge, _ := createEdge(v, 10, 1, 0, 1, bobNode, carolNode)
 
 	// After creating all of our nodes and edges, we'll add them to each
 	// participant's graph.
 	nodes := []*models.Node{aliceNode, bobNode, carolNode}
 	edges := []*models.ChannelEdgeInfo{aliceBobEdge, bobCarolEdge}
-	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
+	graphs := []*VersionedGraph{aliceGraph, bobGraph, carolGraph}
 	for _, graph := range graphs {
 		for _, node := range nodes {
 			node.LastUpdate = nextUpdateTime()
@@ -4181,7 +4181,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// checkNodes is a helper closure that will be used to assert that the
 	// given nodes are seen as public/private within the given graphs.
 	checkNodes := func(nodes []*models.Node,
-		graphs []*ChannelGraph, public bool) {
+		graphs []*VersionedGraph, public bool) {
 
 		t.Helper()
 
@@ -4212,7 +4212,7 @@ func TestNodeIsPublic(t *testing.T) {
 	}
 	checkNodes(
 		[]*models.Node{aliceNode},
-		[]*ChannelGraph{bobGraph, carolGraph},
+		[]*VersionedGraph{bobGraph, carolGraph},
 		false,
 	)
 
@@ -4240,7 +4240,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// node from both Alice's and Carol's perspective.
 	checkNodes(
 		[]*models.Node{bobNode},
-		[]*ChannelGraph{aliceGraph, carolGraph},
+		[]*VersionedGraph{aliceGraph, carolGraph},
 		false,
 	)
 }

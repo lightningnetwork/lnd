@@ -831,6 +831,36 @@ func (c *VersionedGraph) SourceNode(ctx context.Context) (*models.Node,
 	return c.db.SourceNode(ctx, c.v)
 }
 
+// DeleteChannelEdges removes edges with the given channel IDs from the
+// database and marks them as zombies. This ensures that we're unable to re-add
+// it to our database once again. If an edge does not exist within the
+// database, then ErrEdgeNotFound will be returned. If strictZombiePruning is
+// true, then when we mark these edges as zombies, we'll set up the keys such
+// that we require the node that failed to send the fresh update to be the one
+// that resurrects the channel from its zombie state. The markZombie bool
+// denotes whether to mark the channel as a zombie.
+func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
+	markZombie bool, chanIDs ...uint64) error {
+
+	infos, err := c.db.DeleteChannelEdges(
+		c.v, strictZombiePruning, markZombie, chanIDs...,
+	)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		for _, info := range infos {
+			c.graphCache.RemoveChannel(
+				info.NodeKey1Bytes, info.NodeKey2Bytes,
+				info.ChannelID,
+			)
+		}
+	}
+
+	return err
+}
+
 // MakeTestGraph creates a new instance of the ChannelGraph for testing
 // purposes. The backing Store implementation depends on the version of
 // NewTestDB included in the current build.

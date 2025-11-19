@@ -1422,7 +1422,7 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 			return nil, fmt.Errorf("we don't have an edge")
 		}
 
-		err = s.graphDB.DeleteChannelEdges(
+		err = s.v1Graph.DeleteChannelEdges(
 			false, false, scid.ToUint64(),
 		)
 		return ourPolicy, err

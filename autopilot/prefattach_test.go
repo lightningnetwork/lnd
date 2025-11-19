@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	graphdb "github.com/lightningnetwork/lnd/graph/db"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -492,16 +493,24 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	chanID := randChanID()
-	edge := &models.ChannelEdgeInfo{
-		Version:   lnwire.GossipVersion1,
-		ChannelID: chanID.ToUint64(),
-		Capacity:  capacity,
-		Features:  lnwire.EmptyFeatureVector(),
+	nodeKey1 := route.NewVertex(lnNode1)
+	nodeKey2 := route.NewVertex(lnNode2)
+	btcKey1 := route.NewVertex(lnNode1)
+	btcKey2 := route.NewVertex(lnNode2)
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		chainhash.Hash{},
+		nodeKey1,
+		nodeKey2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		},
+		models.WithCapacity(capacity),
+	)
+	if err != nil {
+		return nil, nil, err
 	}
-	copy(edge.NodeKey1Bytes[:], lnNode1.SerializeCompressed())
-	copy(edge.NodeKey2Bytes[:], lnNode2.SerializeCompressed())
-	copy(edge.BitcoinKey1Bytes[:], lnNode1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], lnNode2.SerializeCompressed())
 
 	if err := d.db.AddChannelEdge(ctx, edge); err != nil {
 		return nil, nil, err

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 )
 
@@ -209,11 +210,21 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
-						Version:      lnwire.GossipVersion1,
-						Capacity:     chanCap,
-						ChannelPoint: chanPointValid,
-					},
+					//nolint:ll
+					edgeInfo: func() *models.ChannelEdgeInfo {
+						info, err := models.NewV1Channel(
+							0,
+							chainhash.Hash{},
+							route.Vertex{},
+							route.Vertex{},
+							&models.ChannelV1Fields{},
+							models.WithCapacity(chanCap),
+							models.WithChannelPoint(chanPointValid),
+						)
+						require.NoError(t, err)
+
+						return info
+					}(),
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
@@ -228,11 +239,21 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
-						Version:      lnwire.GossipVersion1,
-						Capacity:     chanCap,
-						ChannelPoint: chanPointValid,
-					},
+					//nolint:ll
+					edgeInfo: func() *models.ChannelEdgeInfo {
+						info, err := models.NewV1Channel(
+							0,
+							chainhash.Hash{},
+							route.Vertex{},
+							route.Vertex{},
+							&models.ChannelV1Fields{},
+							models.WithCapacity(chanCap),
+							models.WithChannelPoint(chanPointValid),
+						)
+						require.NoError(t, err)
+
+						return info
+					}(),
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{},
@@ -247,11 +268,22 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
-						Version:      lnwire.GossipVersion1,
-						Capacity:     chanCap,
-						ChannelPoint: chanPointValid,
-					},
+					//nolint:ll
+					edgeInfo: func() *models.ChannelEdgeInfo {
+						info, err := models.NewV1Channel(
+							0,
+							chainhash.Hash{},
+							route.Vertex{},
+							route.Vertex{},
+							&models.ChannelV1Fields{},
+							models.WithCapacity(chanCap),
+							models.WithChannelPoint(chanPointValid),
+						)
+
+						require.NoError(t, err)
+
+						return info
+					}(),
 				},
 			},
 			specifiedChanPoints: []wire.OutPoint{chanPointMissing},
@@ -270,11 +302,22 @@ func TestManager(t *testing.T) {
 			newPolicy:     noMaxHtlcPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
-						Version:      lnwire.GossipVersion1,
-						Capacity:     chanCap,
-						ChannelPoint: chanPointValid,
-					},
+					//nolint:ll
+					edgeInfo: func() *models.ChannelEdgeInfo {
+						info, err := models.NewV1Channel(
+							0,
+							chainhash.Hash{},
+							route.Vertex{},
+							route.Vertex{},
+							&models.ChannelV1Fields{},
+							models.WithCapacity(chanCap),
+							models.WithChannelPoint(chanPointValid),
+						)
+
+						require.NoError(t, err)
+
+						return info
+					}(),
 				},
 			},
 			specifiedChanPoints:    []wire.OutPoint{chanPointValid},
@@ -389,22 +432,21 @@ func TestCreateEdgeLower(t *testing.T) {
 			Index: 0,
 		},
 	}
-	expectedInfo := &models.ChannelEdgeInfo{
-		Version:       lnwire.GossipVersion1,
-		ChannelID:     8,
-		ChainHash:     channel.ChainHash,
-		Features:      lnwire.EmptyFeatureVector(),
-		Capacity:      9,
-		ChannelPoint:  channel.FundingOutpoint,
-		NodeKey1Bytes: sp,
-		NodeKey2Bytes: rp,
-		BitcoinKey1Bytes: [33]byte(
-			localMultisigKey.SerializeCompressed()),
-		BitcoinKey2Bytes: [33]byte(
-			remoteMultisigKey.SerializeCompressed()),
-		AuthProof:       nil,
-		ExtraOpaqueData: nil,
-	}
+	btcKey1 := route.NewVertex(localMultisigKey)
+	btcKey2 := route.NewVertex(remoteMultisigKey)
+	expectedInfo, err := models.NewV1Channel(
+		8,
+		channel.ChainHash,
+		sp,
+		rp,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		},
+		models.WithCapacity(9),
+		models.WithChannelPoint(channel.FundingOutpoint),
+	)
+	require.NoError(t, err)
 	expectedEdge := &models.ChannelEdgePolicy{
 		ChannelID:                 8,
 		LastUpdate:                timestamp,
@@ -478,22 +520,21 @@ func TestCreateEdgeHigher(t *testing.T) {
 			Index: 0,
 		},
 	}
-	expectedInfo := &models.ChannelEdgeInfo{
-		Version:       lnwire.GossipVersion1,
-		ChannelID:     8,
-		ChainHash:     channel.ChainHash,
-		Features:      lnwire.EmptyFeatureVector(),
-		Capacity:      9,
-		ChannelPoint:  channel.FundingOutpoint,
-		NodeKey1Bytes: rp,
-		NodeKey2Bytes: sp,
-		BitcoinKey1Bytes: [33]byte(
-			remoteMultisigKey.SerializeCompressed()),
-		BitcoinKey2Bytes: [33]byte(
-			localMultisigKey.SerializeCompressed()),
-		AuthProof:       nil,
-		ExtraOpaqueData: nil,
-	}
+	btcKey1 := route.NewVertex(remoteMultisigKey)
+	btcKey2 := route.NewVertex(localMultisigKey)
+	expectedInfo, err := models.NewV1Channel(
+		8,
+		channel.ChainHash,
+		rp,
+		sp,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+		},
+		models.WithCapacity(9),
+		models.WithChannelPoint(channel.FundingOutpoint),
+	)
+	require.NoError(t, err)
 	expectedEdge := &models.ChannelEdgePolicy{
 		ChannelID:                 8,
 		LastUpdate:                timestamp,

@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -305,10 +307,18 @@ var shouldIncludeChannelTestCases = []struct {
 		h.Mock.On(
 			"FetchChannelEdgesByID", mock.Anything,
 		).Once().Return(
-			&models.ChannelEdgeInfo{
-				Version:       lnwire.GossipVersion1,
-				NodeKey1Bytes: selectedPolicy,
-			},
+			func() *models.ChannelEdgeInfo {
+				edge, err := models.NewV1Channel(
+					0,
+					chainhash.Hash{},
+					selectedPolicy,
+					route.Vertex{},
+					&models.ChannelV1Fields{},
+				)
+				require.NoError(h.t, err)
+
+				return edge
+			}(),
 			&models.ChannelEdgePolicy{
 				FeeBaseMSat:               1000,
 				FeeProportionalMillionths: 20,

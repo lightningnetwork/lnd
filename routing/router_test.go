@@ -2738,16 +2738,17 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create channel edge")
 
-	edge := &models.ChannelEdgeInfo{
-		Version:          lnwire.GossipVersion1,
-		ChannelID:        chanID.ToUint64(),
-		NodeKey1Bytes:    pub1,
-		NodeKey2Bytes:    pub2,
-		BitcoinKey1Bytes: pub1,
-		BitcoinKey2Bytes: pub2,
-		Features:         lnwire.EmptyFeatureVector(),
-		AuthProof:        nil,
-	}
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		chainhash.Hash{},
+		pub1,
+		pub2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: pub1,
+			BitcoinKey2Bytes: pub2,
+		},
+	)
+	require.NoError(t, err)
 	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 
 	// We must add the edge policy to be able to use the edge for route
@@ -2819,16 +2820,20 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		10000, 510)
 	require.NoError(t, err, "unable to create channel edge")
 
-	edge = &models.ChannelEdgeInfo{
-		Version:   lnwire.GossipVersion1,
-		ChannelID: chanID.ToUint64(),
-		Features:  lnwire.EmptyFeatureVector(),
-		AuthProof: nil,
-	}
-	copy(edge.NodeKey1Bytes[:], node1Bytes)
-	edge.NodeKey2Bytes = node2Bytes
-	copy(edge.BitcoinKey1Bytes[:], node1Bytes)
-	edge.BitcoinKey2Bytes = node2Bytes
+	node1Vertex, err := route.NewVertexFromBytes(node1Bytes)
+	require.NoError(t, err)
+
+	edge, err = models.NewV1Channel(
+		chanID.ToUint64(),
+		chainhash.Hash{},
+		node1Vertex,
+		node2Bytes,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: node1Vertex,
+			BitcoinKey2Bytes: node2Bytes,
+		},
+	)
+	require.NoError(t, err)
 
 	require.NoError(t, ctx.graph.AddChannelEdge(ctxb, edge))
 

@@ -1398,6 +1398,12 @@ func (c *KVStore) HasChannelEdge(
 func (c *KVStore) AddEdgeProof(chanID lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
+	// We only support v1 channel proofs in the KVStore.
+	if proof.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only v1 channel proofs supported, got v%d",
+			proof.Version)
+	}
+
 	// Construct the channel's primary key which is the 8-byte channel ID.
 	var chanKey [8]byte
 	binary.BigEndian.PutUint64(chanKey[:], chanID.ToUint64())
@@ -4736,10 +4742,10 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	authProof := edgeInfo.AuthProof
 	var nodeSig1, nodeSig2, bitcoinSig1, bitcoinSig2 []byte
 	if authProof != nil {
-		nodeSig1 = authProof.NodeSig1Bytes
-		nodeSig2 = authProof.NodeSig2Bytes
-		bitcoinSig1 = authProof.BitcoinSig1Bytes
-		bitcoinSig2 = authProof.BitcoinSig2Bytes
+		nodeSig1 = authProof.NodeSig1()
+		nodeSig2 = authProof.NodeSig2()
+		bitcoinSig1 = authProof.BitcoinSig1()
+		bitcoinSig2 = authProof.BitcoinSig2()
 	}
 
 	if err := wire.WriteVarBytes(&b, 0, nodeSig1); err != nil {
@@ -4828,23 +4834,41 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 	}
 	edgeInfo.Features = lnwire.NewFeatureVector(features, lnwire.Features)
 
-	proof := &models.ChannelAuthProof{}
+	proof := &models.ChannelAuthProof{
+		// KV store always uses v1.
+		Version: lnwire.GossipVersion1,
+	}
 
-	proof.NodeSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	nodeSig1, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.NodeSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(nodeSig1) > 0 {
+		proof.NodeSig1Bytes = fn.Some(nodeSig1)
+	}
+
+	nodeSig2, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.BitcoinSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(nodeSig2) > 0 {
+		proof.NodeSig2Bytes = fn.Some(nodeSig2)
+	}
+
+	bitcoinSig1, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.BitcoinSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(bitcoinSig1) > 0 {
+		proof.BitcoinSig1Bytes = fn.Some(bitcoinSig1)
+	}
+
+	bitcoinSig2, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
+	}
+	if len(bitcoinSig2) > 0 {
+		proof.BitcoinSig2Bytes = fn.Some(bitcoinSig2)
 	}
 
 	if !proof.IsEmpty() {

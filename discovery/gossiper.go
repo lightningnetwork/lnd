@@ -2404,25 +2404,25 @@ func (d *AuthenticatedGossiper) updateChannel(ctx context.Context,
 			ExtraOpaqueData: info.ExtraOpaqueData,
 		}
 		chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.NodeSig1Bytes,
+			info.AuthProof.NodeSig1(),
 		)
 		if err != nil {
 			return nil, nil, err
 		}
 		chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.NodeSig2Bytes,
+			info.AuthProof.NodeSig2(),
 		)
 		if err != nil {
 			return nil, nil, err
 		}
 		chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.BitcoinSig1Bytes,
+			info.AuthProof.BitcoinSig1(),
 		)
 		if err != nil {
 			return nil, nil, err
 		}
 		chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.BitcoinSig2Bytes,
+			info.AuthProof.BitcoinSig2(),
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2692,12 +2692,12 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 		// If the proof checks out, then we'll save the proof itself to
 		// the database so we can fetch it later when gossiping with
 		// other nodes.
-		proof = &models.ChannelAuthProof{
-			NodeSig1Bytes:    ann.NodeSig1.ToSignatureBytes(),
-			NodeSig2Bytes:    ann.NodeSig2.ToSignatureBytes(),
-			BitcoinSig1Bytes: ann.BitcoinSig1.ToSignatureBytes(),
-			BitcoinSig2Bytes: ann.BitcoinSig2.ToSignatureBytes(),
-		}
+		proof = models.NewV1ChannelAuthProof(
+			ann.NodeSig1.ToSignatureBytes(),
+			ann.NodeSig2.ToSignatureBytes(),
+			ann.BitcoinSig1.ToSignatureBytes(),
+			ann.BitcoinSig2.ToSignatureBytes(),
+		)
 	}
 
 	// With the proof validated (if necessary), we can now store it within
@@ -3621,21 +3621,25 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	// We now have both halves of the channel announcement proof, then
 	// we'll reconstruct the initial announcement so we can validate it
 	// shortly below.
-	var dbProof models.ChannelAuthProof
+	var dbProof *models.ChannelAuthProof
 	if isFirstNode {
-		dbProof.NodeSig1Bytes = ann.NodeSignature.ToSignatureBytes()
-		dbProof.NodeSig2Bytes = oppProof.NodeSignature.ToSignatureBytes()
-		dbProof.BitcoinSig1Bytes = ann.BitcoinSignature.ToSignatureBytes()
-		dbProof.BitcoinSig2Bytes = oppProof.BitcoinSignature.ToSignatureBytes()
+		dbProof = models.NewV1ChannelAuthProof(
+			ann.NodeSignature.ToSignatureBytes(),
+			oppProof.NodeSignature.ToSignatureBytes(),
+			ann.BitcoinSignature.ToSignatureBytes(),
+			oppProof.BitcoinSignature.ToSignatureBytes(),
+		)
 	} else {
-		dbProof.NodeSig1Bytes = oppProof.NodeSignature.ToSignatureBytes()
-		dbProof.NodeSig2Bytes = ann.NodeSignature.ToSignatureBytes()
-		dbProof.BitcoinSig1Bytes = oppProof.BitcoinSignature.ToSignatureBytes()
-		dbProof.BitcoinSig2Bytes = ann.BitcoinSignature.ToSignatureBytes()
+		dbProof = models.NewV1ChannelAuthProof(
+			oppProof.NodeSignature.ToSignatureBytes(),
+			ann.NodeSignature.ToSignatureBytes(),
+			oppProof.BitcoinSignature.ToSignatureBytes(),
+			ann.BitcoinSignature.ToSignatureBytes(),
+		)
 	}
 
 	chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement(
-		&dbProof, chanInfo, e1, e2,
+		dbProof, chanInfo, e1, e2,
 	)
 	if err != nil {
 		log.Error(err)
@@ -3661,7 +3665,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 	// attest to the bitcoin keys by validating the signatures of
 	// announcement. If proof is valid then we'll populate the channel edge
 	// with it, so we can announce it on peer connect.
-	err = d.cfg.Graph.AddProof(ann.ShortChannelID, &dbProof)
+	err = d.cfg.Graph.AddProof(ann.ShortChannelID, dbProof)
 	if err != nil {
 		err := fmt.Errorf("unable add proof to the channel chanID=%v:"+
 			" %v", ann.ChannelID, err)

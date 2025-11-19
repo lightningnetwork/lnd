@@ -509,12 +509,12 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 		Version:   lnwire.GossipVersion1,
 		ChannelID: chanID,
 		ChainHash: *chaincfg.MainNetParams.GenesisHash,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		Features:     lnwire.EmptyFeatureVector(),
 		ChannelPoint: outpoint,
 		Capacity:     9000,
@@ -585,12 +585,12 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 		Version:   lnwire.GossipVersion1,
 		ChannelID: shortChanID.ToUint64(),
 		ChainHash: *chaincfg.MainNetParams.GenesisHash,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		ChannelPoint:    outpoint,
 		Capacity:        9000,
 		ExtraOpaqueData: make([]byte, 0),
@@ -764,17 +764,20 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 
 	require.True(t, bytes.Equal(
-		e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes,
+		e1.AuthProof.NodeSig1(),
+		e2.AuthProof.NodeSig1(),
 	))
 	require.True(t, bytes.Equal(
-		e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes,
+		e1.AuthProof.NodeSig2(),
+		e2.AuthProof.NodeSig2(),
 	))
 	require.True(t, bytes.Equal(
-		e1.AuthProof.BitcoinSig1Bytes,
-		e2.AuthProof.BitcoinSig1Bytes,
+		e1.AuthProof.BitcoinSig1(),
+		e2.AuthProof.BitcoinSig1(),
 	))
 	require.True(t, bytes.Equal(
-		e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes,
+		e1.AuthProof.BitcoinSig2(),
+		e2.AuthProof.BitcoinSig2(),
 	))
 
 	if e1.ChannelPoint != e2.ChannelPoint {
@@ -860,12 +863,12 @@ func createChannelEdge(node1, node2 *models.Node,
 		return edgeInfo, nil, nil
 	}
 
-	edgeInfo.AuthProof = &models.ChannelAuthProof{
-		NodeSig1Bytes:    testSig.Serialize(),
-		NodeSig2Bytes:    testSig.Serialize(),
-		BitcoinSig1Bytes: testSig.Serialize(),
-		BitcoinSig2Bytes: testSig.Serialize(),
-	}
+	edgeInfo.AuthProof = models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
 
 	edge1 := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -1316,12 +1319,12 @@ func TestAddEdgeProof(t *testing.T) {
 	require.Equal(t, edge1, dbEdge)
 
 	// Now, add the edge proof.
-	proof := &models.ChannelAuthProof{
-		NodeSig1Bytes:    testSig.Serialize(),
-		NodeSig2Bytes:    testSig.Serialize(),
-		BitcoinSig1Bytes: testSig.Serialize(),
-		BitcoinSig2Bytes: testSig.Serialize(),
-	}
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
 
 	// First, add the proof to the rest of the channel edge info and try
 	// to call AddChannelEdge again - this should fail due to the channel
@@ -1722,12 +1725,12 @@ func fillTestGraph(t testing.TB, graph *ChannelGraph, numNodes,
 				Version:   lnwire.GossipVersion1,
 				ChannelID: chanID,
 				ChainHash: *chaincfg.MainNetParams.GenesisHash,
-				AuthProof: &models.ChannelAuthProof{
-					NodeSig1Bytes:    testSig.Serialize(),
-					NodeSig2Bytes:    testSig.Serialize(),
-					BitcoinSig1Bytes: testSig.Serialize(),
-					BitcoinSig2Bytes: testSig.Serialize(),
-				},
+				AuthProof: models.NewV1ChannelAuthProof(
+					testSig.Serialize(),
+					testSig.Serialize(),
+					testSig.Serialize(),
+					testSig.Serialize(),
+				),
 				Features:     lnwire.EmptyFeatureVector(),
 				ChannelPoint: op,
 				Capacity:     1000,
@@ -1905,12 +1908,12 @@ func TestGraphPruning(t *testing.T) {
 			Version:   lnwire.GossipVersion1,
 			ChannelID: chanID,
 			ChainHash: *chaincfg.MainNetParams.GenesisHash,
-			AuthProof: &models.ChannelAuthProof{
-				NodeSig1Bytes:    testSig.Serialize(),
-				NodeSig2Bytes:    testSig.Serialize(),
-				BitcoinSig1Bytes: testSig.Serialize(),
-				BitcoinSig2Bytes: testSig.Serialize(),
-			},
+			AuthProof: models.NewV1ChannelAuthProof(
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+			),
 			Features:     lnwire.EmptyFeatureVector(),
 			ChannelPoint: op,
 			Capacity:     1000,

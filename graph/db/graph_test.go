@@ -153,6 +153,7 @@ var versionedTests = []versionedTest{
 func TestVersionedDBs(t *testing.T) {
 	t.Parallel()
 
+	// Run all v1 tests.
 	for _, vt := range versionedTests {
 		vt := vt
 

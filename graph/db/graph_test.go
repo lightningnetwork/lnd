@@ -139,6 +139,10 @@ var versionedTests = []versionedTest{
 		test: testAliasLookup,
 	},
 	{
+		name: "edge insertion deletion",
+		test: testEdgeInsertionDeletion,
+	},
+	{
 		name: "partial node",
 		test: testPartialNode,
 	},
@@ -488,79 +492,41 @@ func testSourceNode(t *testing.T, v lnwire.GossipVersion) {
 	compareNodes(t, testNode, sourceNode)
 }
 
-// TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
-func TestEdgeInsertionDeletion(t *testing.T) {
+// testEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
+func testEdgeInsertionDeletion(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// We'd like to test the insertion/deletion of edges, so we create two
 	// vertexes to connect.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
 
-	// In addition to the fake vertexes we create some fake channel
-	// identifiers.
-	chanID := uint64(prand.Int63())
+	// Create a fake channel and add it to the graph.
+	const (
+		blockHeight   = 1234
+		txIndex       = 1
+		txPosition    = 0
+		outPointIndex = 9
+	)
+
+	edgeInfo, shortChanID := createEdge(
+		v, blockHeight, txIndex, txPosition, outPointIndex, node1, node2,
+	)
+	chanID := shortChanID.ToUint64()
 	outpoint := wire.OutPoint{
 		Hash:  rev,
-		Index: 9,
+		Index: outPointIndex,
 	}
 
-	// Add the new edge to the database, this should proceed without any
-	// errors.
-	node1Pub, err := node1.PubKey()
-	require.NoError(t, err, "unable to generate node key")
-	node2Pub, err := node2.PubKey()
-	require.NoError(t, err, "unable to generate node key")
-
-	node1Vertex, err := route.NewVertexFromBytes(
-		node1Pub.SerializeCompressed(),
-	)
-	require.NoError(t, err)
-	node2Vertex, err := route.NewVertexFromBytes(
-		node2Pub.SerializeCompressed(),
-	)
-	require.NoError(t, err)
-
-	btcKey1, err := route.NewVertexFromBytes(
-		node1Pub.SerializeCompressed(),
-	)
-	require.NoError(t, err)
-	btcKey2, err := route.NewVertexFromBytes(
-		node2Pub.SerializeCompressed(),
-	)
-	require.NoError(t, err)
-
-	proof := models.NewV1ChannelAuthProof(
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
-	)
-
-	edgeInfo, err := models.NewV1Channel(
-		chanID,
-		*chaincfg.MainNetParams.GenesisHash,
-		node1Vertex,
-		node2Vertex,
-		&models.ChannelV1Fields{
-			BitcoinKey1Bytes: btcKey1,
-			BitcoinKey2Bytes: btcKey2,
-		},
-		models.WithChanProof(proof),
-		models.WithChannelPoint(outpoint),
-		models.WithCapacity(9000),
-	)
-	require.NoError(t, err)
-
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
-	assertEdgeWithNoPoliciesInCache(t, graph, edgeInfo)
+	assertEdgeWithNoPoliciesInCache(t, graph.ChannelGraph, edgeInfo)
 
 	// Show that trying to insert the same channel again will return the
 	// expected error.
-	err = graph.AddChannelEdge(ctx, edgeInfo)
+	err := graph.AddChannelEdge(ctx, edgeInfo)
 	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
 	// Ensure that both policies are returned as unknown (nil).
@@ -572,7 +538,7 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 	// Next, attempt to delete the edge from the database, again this
 	// should proceed without any issues.
 	require.NoError(t, graph.DeleteChannelEdges(false, true, chanID))
-	assertNoEdge(t, graph, chanID)
+	assertNoEdge(t, graph.ChannelGraph, chanID)
 
 	// Ensure that any query attempts to lookup the delete channel edge are
 	// properly deleted.

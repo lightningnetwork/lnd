@@ -273,6 +273,7 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 		}
 
 		return &models.ChannelEdgeInfo{
+			Version:       lnwire.GossipVersion1,
 			NodeKey1Bytes: pubKeys[0],
 			NodeKey2Bytes: pubKeys[1],
 		}, nil, nil, graphdb.ErrZombieEdge

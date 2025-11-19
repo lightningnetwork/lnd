@@ -101,6 +101,7 @@ func createEdgePolicies(t *testing.T, channel *channeldb.OpenChannel,
 	dir2 |= lnwire.ChanUpdateDirection
 
 	return &models.ChannelEdgeInfo{
+			Version:       lnwire.GossipVersion1,
 			ChannelPoint:  channel.FundingOutpoint,
 			NodeKey1Bytes: pubkey1,
 			NodeKey2Bytes: pubkey2,

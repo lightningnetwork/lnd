@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/graph/db/models"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // TestChannelCache checks the behavior of the channelCache with respect to
@@ -101,6 +102,7 @@ func assertHasChanEntries(t *testing.T, c *channelCache, start, end uint64) {
 func channelForInt(i uint64) ChannelEdge {
 	return ChannelEdge{
 		Info: &models.ChannelEdgeInfo{
+			Version:   lnwire.GossipVersion1,
 			ChannelID: i,
 		},
 	}

@@ -212,6 +212,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &models.ChannelEdgeInfo{
+						Version:      lnwire.GossipVersion1,
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -230,6 +231,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &models.ChannelEdgeInfo{
+						Version:      lnwire.GossipVersion1,
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -248,6 +250,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &models.ChannelEdgeInfo{
+						Version:      lnwire.GossipVersion1,
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -270,6 +273,7 @@ func TestManager(t *testing.T) {
 			channelSet: []channel{
 				{
 					edgeInfo: &models.ChannelEdgeInfo{
+						Version:      lnwire.GossipVersion1,
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -392,6 +396,7 @@ func TestCreateEdgeLower(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedInfo := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
 		Features:      lnwire.EmptyFeatureVector(),
@@ -485,6 +490,7 @@ func TestCreateEdgeHigher(t *testing.T) {
 	require.NoError(t, err)
 
 	expectedInfo := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     8,
 		ChainHash:     channel.ChainHash,
 		Features:      lnwire.EmptyFeatureVector(),

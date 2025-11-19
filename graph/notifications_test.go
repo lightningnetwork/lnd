@@ -448,6 +448,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
 	edge := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -642,6 +643,7 @@ func TestNodeUpdateNotification(t *testing.T) {
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
 
 	edge := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -828,6 +830,7 @@ func TestNotificationCancellation(t *testing.T) {
 	ntfnClient.Cancel()
 
 	edge := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -904,6 +907,7 @@ func TestChannelCloseNotification(t *testing.T) {
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
 	edge := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,

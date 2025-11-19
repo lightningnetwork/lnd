@@ -4288,15 +4288,19 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	createParams := sqlc.CreateChannelParams{
-		Version:     int16(v),
-		Scid:        channelIDToBytes(edge.ChannelID),
-		NodeID1:     node1DBID,
-		NodeID2:     node2DBID,
-		Outpoint:    edge.ChannelPoint.String(),
-		Capacity:    capacity,
-		BitcoinKey1: edge.BitcoinKey1Bytes[:],
-		BitcoinKey2: edge.BitcoinKey2Bytes[:],
+		Version:  int16(v),
+		Scid:     channelIDToBytes(edge.ChannelID),
+		NodeID1:  node1DBID,
+		NodeID2:  node2DBID,
+		Outpoint: edge.ChannelPoint.String(),
+		Capacity: capacity,
 	}
+	edge.BitcoinKey1Bytes.WhenSome(func(vertex route.Vertex) {
+		createParams.BitcoinKey1 = vertex[:]
+	})
+	edge.BitcoinKey2Bytes.WhenSome(func(vertex route.Vertex) {
+		createParams.BitcoinKey2 = vertex[:]
+	})
 
 	if edge.AuthProof != nil {
 		proof := edge.AuthProof

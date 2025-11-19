@@ -838,10 +838,14 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	if !bytes.Equal(e1.NodeKey2Bytes[:], e2.NodeKey2Bytes[:]) {
 		t.Fatalf("nodekey2 doesn't match")
 	}
-	if !bytes.Equal(e1.BitcoinKey1Bytes[:], e2.BitcoinKey1Bytes[:]) {
+	btcKey1E1 := e1.BitcoinKey1Bytes.UnwrapOr(route.Vertex{})
+	btcKey1E2 := e2.BitcoinKey1Bytes.UnwrapOr(route.Vertex{})
+	if !bytes.Equal(btcKey1E1[:], btcKey1E2[:]) {
 		t.Fatalf("bitcoinkey1 doesn't match")
 	}
-	if !bytes.Equal(e1.BitcoinKey2Bytes[:], e2.BitcoinKey2Bytes[:]) {
+	btcKey2E1 := e1.BitcoinKey2Bytes.UnwrapOr(route.Vertex{})
+	btcKey2E2 := e2.BitcoinKey2Bytes.UnwrapOr(route.Vertex{})
+	if !bytes.Equal(btcKey2E1[:], btcKey2E2[:]) {
 		t.Fatalf("bitcoinkey2 doesn't match")
 	}
 
@@ -2040,9 +2044,10 @@ func TestGraphPruning(t *testing.T) {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
+		btcKey1 := edgeInfo.BitcoinKey1Bytes.UnwrapOr(route.Vertex{})
+		btcKey2 := edgeInfo.BitcoinKey2Bytes.UnwrapOr(route.Vertex{})
 		pkScript, err := genMultiSigP2WSH(
-			edgeInfo.BitcoinKey1Bytes[:],
-			edgeInfo.BitcoinKey2Bytes[:],
+			btcKey1[:], btcKey2[:],
 		)
 		if err != nil {
 			t.Fatalf("unable to gen multi-sig p2wsh: %v", err)

@@ -4112,9 +4112,14 @@ func (c *KVStore) ChannelView() ([]EdgePoint, error) {
 					return err
 				}
 
+				btcKey1 := edgeInfo.BitcoinKey1Bytes.UnwrapOr(
+					route.Vertex{},
+				)
+				btcKey2 := edgeInfo.BitcoinKey2Bytes.UnwrapOr(
+					route.Vertex{},
+				)
 				pkScript, err := genMultiSigP2WSH(
-					edgeInfo.BitcoinKey1Bytes[:],
-					edgeInfo.BitcoinKey2Bytes[:],
+					btcKey1[:], btcKey2[:],
 				)
 				if err != nil {
 					return err
@@ -4728,10 +4733,24 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	if _, err := b.Write(edgeInfo.NodeKey2Bytes[:]); err != nil {
 		return err
 	}
-	if _, err := b.Write(edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+
+	btc1Key, err := edgeInfo.BitcoinKey1Bytes.UnwrapOrErr(
+		fmt.Errorf("edge missing bitcoin key 1"),
+	)
+	if err != nil {
 		return err
 	}
-	if _, err := b.Write(edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+	btc2Key, err := edgeInfo.BitcoinKey2Bytes.UnwrapOrErr(
+		fmt.Errorf("edge missing bitcoin key 2"),
+	)
+	if err != nil {
+		return err
+	}
+
+	if _, err := b.Write(btc1Key[:]); err != nil {
+		return err
+	}
+	if _, err := b.Write(btc2Key[:]); err != nil {
 		return err
 	}
 
@@ -4769,7 +4788,7 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
-	err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity))
+	err = binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity))
 	if err != nil {
 		return err
 	}
@@ -4819,12 +4838,17 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey2Bytes[:]); err != nil {
 		return nil, err
 	}
-	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+
+	var btcKey1, btcKey2 route.Vertex
+	if _, err := io.ReadFull(r, btcKey1[:]); err != nil {
 		return nil, err
 	}
-	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+	edgeInfo.BitcoinKey1Bytes = fn.Some(btcKey1)
+
+	if _, err := io.ReadFull(r, btcKey2[:]); err != nil {
 		return nil, err
 	}
+	edgeInfo.BitcoinKey2Bytes = fn.Some(btcKey2)
 
 	featureBytes, err := wire.ReadVarBytes(r, 0, 900, "features")
 	if err != nil {

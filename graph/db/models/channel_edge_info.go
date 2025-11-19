@@ -199,3 +199,66 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 			"this channel")
 	}
 }
+
+// ToChannelAnnouncement converts the ChannelEdgeInfo to a
+// lnwire.ChannelAnnouncement1 message. Returns an error if AuthProof is nil
+// or if the version is not v1.
+func (c *ChannelEdgeInfo) ToChannelAnnouncement() (
+	*lnwire.ChannelAnnouncement1, error) {
+
+	// We currently only support v1 channel announcements.
+	if c.Version != lnwire.GossipVersion1 {
+		return nil, fmt.Errorf("unsupported channel version: %d",
+			c.Version)
+	}
+
+	// If there's no auth proof, we can't create a full channel
+	// announcement.
+	if c.AuthProof == nil {
+		return nil, fmt.Errorf("cannot create channel announcement " +
+			"without auth proof")
+	}
+
+	chanID := lnwire.NewShortChanIDFromInt(c.ChannelID)
+	chanAnn := &lnwire.ChannelAnnouncement1{
+		ShortChannelID:  chanID,
+		NodeID1:         c.NodeKey1Bytes,
+		NodeID2:         c.NodeKey2Bytes,
+		ChainHash:       c.ChainHash,
+		BitcoinKey1:     c.BitcoinKey1Bytes,
+		BitcoinKey2:     c.BitcoinKey2Bytes,
+		Features:        c.Features.RawFeatureVector,
+		ExtraOpaqueData: c.ExtraOpaqueData,
+	}
+
+	var err error
+	chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
+		c.AuthProof.NodeSig1(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
+		c.AuthProof.NodeSig2(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
+		c.AuthProof.BitcoinSig1(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
+		c.AuthProof.BitcoinSig2(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return chanAnn, nil
+}

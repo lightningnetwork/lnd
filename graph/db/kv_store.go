@@ -3948,11 +3948,14 @@ func (c *KVStore) FetchChannelEdgesByID(chanID uint64) (
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it and return an error signaling so.
-			edgeInfo = &models.ChannelEdgeInfo{
-				Version:       lnwire.GossipVersion1,
-				NodeKey1Bytes: pubKey1,
-				NodeKey2Bytes: pubKey2,
+			zombieEdge, err := models.NewV1Channel(
+				0, chainhash.Hash{}, pubKey1, pubKey2,
+				&models.ChannelV1Fields{},
+			)
+			if err != nil {
+				return err
 			}
+			edgeInfo = zombieEdge
 
 			return ErrZombieEdge
 		}

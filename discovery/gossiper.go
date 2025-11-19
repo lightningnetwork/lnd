@@ -2702,19 +2702,26 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 
 	// With the proof validated (if necessary), we can now store it within
 	// the database for our path finding and syncing needs.
-	edge := &models.ChannelEdgeInfo{
-		Version:          lnwire.GossipVersion1,
-		ChannelID:        scid.ToUint64(),
-		ChainHash:        ann.ChainHash,
-		NodeKey1Bytes:    ann.NodeID1,
-		NodeKey2Bytes:    ann.NodeID2,
-		BitcoinKey1Bytes: ann.BitcoinKey1,
-		BitcoinKey2Bytes: ann.BitcoinKey2,
-		AuthProof:        proof,
-		Features: lnwire.NewFeatureVector(
-			ann.Features, lnwire.Features,
-		),
-		ExtraOpaqueData: ann.ExtraOpaqueData,
+	edge, err := models.NewV1Channel(
+		scid.ToUint64(), ann.ChainHash, ann.NodeID1, ann.NodeID2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: ann.BitcoinKey1,
+			BitcoinKey2Bytes: ann.BitcoinKey2,
+			ExtraOpaqueData:  ann.ExtraOpaqueData,
+		},
+		models.WithChanProof(proof), models.WithFeatures(ann.Features),
+	)
+	if err != nil {
+		key := newRejectCacheKey(
+			ann.GossipVersion(),
+			scid.ToUint64(),
+			sourceToPub(nMsg.source),
+		)
+		_, _ = d.recentRejects.Put(key, &cachedReject{})
+
+		log.Errorf("unable to create channel edge: %v", err)
+		nMsg.err <- err
+		return nil, false
 	}
 
 	// If there were any optional message fields provided, we'll include

@@ -2022,11 +2022,22 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it.
-			edge = &models.ChannelEdgeInfo{
-				Version: lnwire.GossipVersion1,
+			node1, err := route.NewVertexFromBytes(zombie.NodeKey1)
+			if err != nil {
+				return err
 			}
-			copy(edge.NodeKey1Bytes[:], zombie.NodeKey1)
-			copy(edge.NodeKey2Bytes[:], zombie.NodeKey2)
+			node2, err := route.NewVertexFromBytes(zombie.NodeKey2)
+			if err != nil {
+				return err
+			}
+			zombieEdge, err := models.NewV1Channel(
+				0, chainhash.Hash{}, node1, node2,
+				&models.ChannelV1Fields{},
+			)
+			if err != nil {
+				return err
+			}
+			edge = zombieEdge
 
 			return ErrZombieEdge
 		} else if err != nil {
@@ -4340,22 +4351,28 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 		recs = make([]byte, 0)
 	}
 
-	var btcKey1, btcKey2 route.Vertex
-	copy(btcKey1[:], dbChan.BitcoinKey1)
-	copy(btcKey2[:], dbChan.BitcoinKey2)
+	btcKey1, err := route.NewVertexFromBytes(dbChan.BitcoinKey1)
+	if err != nil {
+		return nil, err
+	}
+	btcKey2, err := route.NewVertexFromBytes(dbChan.BitcoinKey2)
+	if err != nil {
+		return nil, err
+	}
 
-	channel := &models.ChannelEdgeInfo{
-		Version:          lnwire.GossipVersion1,
-		ChainHash:        chain,
-		ChannelID:        byteOrder.Uint64(dbChan.Scid),
-		NodeKey1Bytes:    node1,
-		NodeKey2Bytes:    node2,
-		BitcoinKey1Bytes: btcKey1,
-		BitcoinKey2Bytes: btcKey2,
-		ChannelPoint:     *op,
-		Capacity:         btcutil.Amount(dbChan.Capacity.Int64),
-		Features:         fv,
-		ExtraOpaqueData:  recs,
+	channel, err := models.NewV1Channel(
+		byteOrder.Uint64(dbChan.Scid), chain, node1, node2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+			ExtraOpaqueData:  recs,
+		},
+		models.WithChannelPoint(*op),
+		models.WithCapacity(btcutil.Amount(dbChan.Capacity.Int64)),
+		models.WithFeatures(fv.RawFeatureVector),
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// We always set all the signatures at the same time, so we can

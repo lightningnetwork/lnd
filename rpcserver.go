@@ -6965,10 +6965,10 @@ func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	// channel announcement.
 	if includeAuthProof && edgeInfo.AuthProof != nil {
 		edge.AuthProof = &lnrpc.ChannelAuthProof{
-			NodeSig1:    edgeInfo.AuthProof.NodeSig1Bytes,
-			BitcoinSig1: edgeInfo.AuthProof.BitcoinSig1Bytes,
-			NodeSig2:    edgeInfo.AuthProof.NodeSig2Bytes,
-			BitcoinSig2: edgeInfo.AuthProof.BitcoinSig2Bytes,
+			NodeSig1:    edgeInfo.AuthProof.NodeSig1(),
+			BitcoinSig1: edgeInfo.AuthProof.BitcoinSig1(),
+			NodeSig2:    edgeInfo.AuthProof.NodeSig2(),
+			BitcoinSig2: edgeInfo.AuthProof.BitcoinSig2(),
 		}
 	}
 

@@ -279,12 +279,12 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		ChannelID:     chanID1,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(fundingScript1),
 	}
@@ -300,12 +300,12 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		ChannelID:     chanID2,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some(fundingScript2),
 	}
@@ -493,12 +493,12 @@ func TestDisconnectedBlocks(t *testing.T) {
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some([]byte{}),
 	}
@@ -516,12 +516,12 @@ func TestDisconnectedBlocks(t *testing.T) {
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		Features:      lnwire.EmptyFeatureVector(),
 		FundingScript: fn.Some([]byte{}),
 	}
@@ -649,12 +649,12 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 		ChannelID:     chanID1.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
-		},
+		AuthProof: models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		),
 		ChannelPoint:  *chanUTXO,
 		Capacity:      chanValue,
 		Features:      lnwire.EmptyFeatureVector(),

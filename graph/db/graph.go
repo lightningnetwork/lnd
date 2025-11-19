@@ -711,7 +711,9 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByOutpoint(op)
+	return c.db.FetchChannelEdgesByOutpoint(
+		lnwire.GossipVersion1, op,
+	)
 }
 
 // FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
@@ -719,7 +721,9 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
-	return c.db.FetchChannelEdgesByID(chanID)
+	return c.db.FetchChannelEdgesByID(
+		lnwire.GossipVersion1, chanID,
+	)
 }
 
 // ChannelView returns the verifiable edge information for each active channel.
@@ -783,6 +787,23 @@ func (c *VersionedGraph) FetchNode(ctx context.Context,
 	nodePub route.Vertex) (*models.Node, error) {
 
 	return c.db.FetchNode(ctx, c.v, nodePub)
+}
+
+// FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
+func (c *VersionedGraph) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByID(c.v, chanID)
+}
+
+// FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
+// outpoint.
+func (c *VersionedGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByOutpoint(c.v, op)
 }
 
 // AddrsForNode returns all known addresses for the target node public key.

@@ -276,7 +276,7 @@ type Store interface { //nolint:interfacebloat
 	// houses the general information for the channel itself is returned as
 	// well as two structs that contain the routing policies for the channel
 	// in either direction.
-	FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	FetchChannelEdgesByOutpoint(v lnwire.GossipVersion, op *wire.OutPoint) (
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 
@@ -291,7 +291,7 @@ type Store interface { //nolint:interfacebloat
 	// zombie within the database. In this case, the ChannelEdgePolicy's
 	// will be nil, and the ChannelEdgeInfo will only include the public
 	// keys of each node.
-	FetchChannelEdgesByID(chanID uint64) (
+	FetchChannelEdgesByID(v lnwire.GossipVersion, chanID uint64) (
 		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy, error)
 

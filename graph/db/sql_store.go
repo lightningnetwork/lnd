@@ -82,6 +82,7 @@ type SQLQueries interface {
 	*/
 	CreateChannel(ctx context.Context, arg sqlc.CreateChannelParams) (int64, error)
 	AddV1ChannelProof(ctx context.Context, arg sqlc.AddV1ChannelProofParams) (sql.Result, error)
+	AddV2ChannelProof(ctx context.Context, arg sqlc.AddV2ChannelProofParams) (sql.Result, error)
 	GetChannelBySCID(ctx context.Context, arg sqlc.GetChannelBySCIDParams) (sqlc.GraphChannel, error)
 	GetChannelsBySCIDs(ctx context.Context, arg sqlc.GetChannelsBySCIDsParams) ([]sqlc.GraphChannel, error)
 	GetChannelsByOutpoints(ctx context.Context, outpoints []string) ([]sqlc.GetChannelsByOutpointsRow, error)
@@ -2984,9 +2985,8 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
-	// For now, we only support v1 channel proofs.
-	if proof.Version != lnwire.GossipVersion1 {
-		return fmt.Errorf("only v1 channel proofs supported, got v%d",
+	if !isKnownGossipVersion(proof.Version) {
+		return fmt.Errorf("unsupported gossip version: %d",
 			proof.Version)
 	}
 
@@ -2996,15 +2996,34 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 	)
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		res, err := db.AddV1ChannelProof(
-			ctx, sqlc.AddV1ChannelProofParams{
-				Scid:              scidBytes,
-				Node1Signature:    proof.NodeSig1(),
-				Node2Signature:    proof.NodeSig2(),
-				Bitcoin1Signature: proof.BitcoinSig1(),
-				Bitcoin2Signature: proof.BitcoinSig2(),
-			},
+		var (
+			res sql.Result
+			err error
 		)
+		switch proof.Version {
+		case lnwire.GossipVersion1:
+			res, err = db.AddV1ChannelProof(
+				ctx, sqlc.AddV1ChannelProofParams{
+					Scid:              scidBytes,
+					Node1Signature:    proof.NodeSig1(),
+					Node2Signature:    proof.NodeSig2(),
+					Bitcoin1Signature: proof.BitcoinSig1(),
+					Bitcoin2Signature: proof.BitcoinSig2(),
+				},
+			)
+
+		case lnwire.GossipVersion2:
+			res, err = db.AddV2ChannelProof(
+				ctx, sqlc.AddV2ChannelProofParams{
+					Scid:      scidBytes,
+					Signature: proof.Sig(),
+				},
+			)
+
+		default:
+			return fmt.Errorf("unsupported gossip version: %d",
+				proof.Version)
+		}
 		if err != nil {
 			return fmt.Errorf("unable to add edge proof: %w", err)
 		}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -20,9 +19,6 @@ type ChannelEdgePolicy struct {
 	// signature for validation purposes. Do not set SigBytes directly, but
 	// use SetSigBytes instead to make sure that the cache is invalidated.
 	SigBytes []byte
-
-	// sig is a cached fully parsed signature.
-	sig *ecdsa.Signature
 
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
@@ -84,31 +80,10 @@ type ChannelEdgePolicy struct {
 	ExtraOpaqueData lnwire.ExtraOpaqueData
 }
 
-// Signature is a channel announcement signature, which is needed for proper
-// edge policy announcement.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
-	if c.sig != nil {
-		return c.sig, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.SigBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.sig = sig
-
-	return sig, nil
-}
-
 // SetSigBytes updates the signature and invalidates the cached parsed
 // signature.
 func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
 	c.SigBytes = sig
-	c.sig = nil
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.

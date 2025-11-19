@@ -1262,9 +1262,9 @@ func (c *KVStore) addChannelEdge(tx kvdb.RwTx,
 
 	// Mark edge policies for both sides as unknown. This is to enable
 	// efficient incoming channel lookup for a node.
-	keys := []*[33]byte{
-		&edge.NodeKey1Bytes,
-		&edge.NodeKey2Bytes,
+	keys := []route.Vertex{
+		edge.NodeKey1Bytes,
+		edge.NodeKey2Bytes,
 	}
 	for _, key := range keys {
 		err := putChanEdgePolicyUnknown(edges, edge.ChannelID, key[:])
@@ -1397,6 +1397,12 @@ func (c *KVStore) HasChannelEdge(
 // AddEdgeProof sets the proof of an existing edge in the graph database.
 func (c *KVStore) AddEdgeProof(chanID lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
+
+	// We only support v1 channel proofs in the KVStore.
+	if proof.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only v1 channel proofs supported, got v%d",
+			proof.Version)
+	}
 
 	// Construct the channel's primary key which is the 8-byte channel ID.
 	var chanKey [8]byte
@@ -3942,10 +3948,17 @@ func (c *KVStore) FetchChannelEdgesByID(chanID uint64) (
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it and return an error signaling so.
-			edgeInfo = &models.ChannelEdgeInfo{
-				NodeKey1Bytes: pubKey1,
-				NodeKey2Bytes: pubKey2,
+			zombieEdge, err := models.NewV1Channel(
+				0,
+				chainhash.Hash{},
+				pubKey1,
+				pubKey2,
+				&models.ChannelV1Fields{},
+			)
+			if err != nil {
+				return err
 			}
+			edgeInfo = zombieEdge
 
 			return ErrZombieEdge
 		}
@@ -4100,10 +4113,7 @@ func (c *KVStore) ChannelView() ([]EdgePoint, error) {
 					return err
 				}
 
-				pkScript, err := genMultiSigP2WSH(
-					edgeInfo.BitcoinKey1Bytes[:],
-					edgeInfo.BitcoinKey2Bytes[:],
-				)
+				pkScript, err := edgeInfo.FundingPKScript()
 				if err != nil {
 					return err
 				}
@@ -4702,6 +4712,12 @@ func deserializeLightningNode(r io.Reader) (*models.Node, error) {
 func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	edgeInfo *models.ChannelEdgeInfo, chanID [8]byte) error {
 
+	// We only support V1 channel edges in the KV store.
+	if edgeInfo.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only V1 channel edges supported, got V%d",
+			edgeInfo.Version)
+	}
+
 	var b bytes.Buffer
 
 	if _, err := b.Write(edgeInfo.NodeKey1Bytes[:]); err != nil {
@@ -4710,10 +4726,24 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	if _, err := b.Write(edgeInfo.NodeKey2Bytes[:]); err != nil {
 		return err
 	}
-	if _, err := b.Write(edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+
+	btc1Key, err := edgeInfo.BitcoinKey1Bytes.UnwrapOrErr(
+		fmt.Errorf("edge missing bitcoin key 1"),
+	)
+	if err != nil {
 		return err
 	}
-	if _, err := b.Write(edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+	btc2Key, err := edgeInfo.BitcoinKey2Bytes.UnwrapOrErr(
+		fmt.Errorf("edge missing bitcoin key 2"),
+	)
+	if err != nil {
+		return err
+	}
+
+	if _, err := b.Write(btc1Key[:]); err != nil {
+		return err
+	}
+	if _, err := b.Write(btc2Key[:]); err != nil {
 		return err
 	}
 
@@ -4729,10 +4759,10 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	authProof := edgeInfo.AuthProof
 	var nodeSig1, nodeSig2, bitcoinSig1, bitcoinSig2 []byte
 	if authProof != nil {
-		nodeSig1 = authProof.NodeSig1Bytes
-		nodeSig2 = authProof.NodeSig2Bytes
-		bitcoinSig1 = authProof.BitcoinSig1Bytes
-		bitcoinSig2 = authProof.BitcoinSig2Bytes
+		nodeSig1 = authProof.NodeSig1()
+		nodeSig2 = authProof.NodeSig2()
+		bitcoinSig1 = authProof.BitcoinSig1()
+		bitcoinSig2 = authProof.BitcoinSig2()
 	}
 
 	if err := wire.WriteVarBytes(&b, 0, nodeSig1); err != nil {
@@ -4751,7 +4781,7 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	if err := WriteOutpoint(&b, &edgeInfo.ChannelPoint); err != nil {
 		return err
 	}
-	err := binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity))
+	err = binary.Write(&b, byteOrder, uint64(edgeInfo.Capacity))
 	if err != nil {
 		return err
 	}
@@ -4792,18 +4822,26 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 		edgeInfo models.ChannelEdgeInfo
 	)
 
+	// All channel edges in the KV store are V1.
+	edgeInfo.Version = lnwire.GossipVersion1
+
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey1Bytes[:]); err != nil {
 		return nil, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey2Bytes[:]); err != nil {
 		return nil, err
 	}
-	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+
+	var btcKey1, btcKey2 route.Vertex
+	if _, err := io.ReadFull(r, btcKey1[:]); err != nil {
 		return nil, err
 	}
-	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+	edgeInfo.BitcoinKey1Bytes = fn.Some(btcKey1)
+
+	if _, err := io.ReadFull(r, btcKey2[:]); err != nil {
 		return nil, err
 	}
+	edgeInfo.BitcoinKey2Bytes = fn.Some(btcKey2)
 
 	featureBytes, err := wire.ReadVarBytes(r, 0, 900, "features")
 	if err != nil {
@@ -4818,23 +4856,41 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 	}
 	edgeInfo.Features = lnwire.NewFeatureVector(features, lnwire.Features)
 
-	proof := &models.ChannelAuthProof{}
+	proof := &models.ChannelAuthProof{
+		// KV store always uses v1.
+		Version: lnwire.GossipVersion1,
+	}
 
-	proof.NodeSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	nodeSig1, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.NodeSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(nodeSig1) > 0 {
+		proof.NodeSig1Bytes = fn.Some(nodeSig1)
+	}
+
+	nodeSig2, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.BitcoinSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(nodeSig2) > 0 {
+		proof.NodeSig2Bytes = fn.Some(nodeSig2)
+	}
+
+	bitcoinSig1, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
 	}
-	proof.BitcoinSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if len(bitcoinSig1) > 0 {
+		proof.BitcoinSig1Bytes = fn.Some(bitcoinSig1)
+	}
+
+	bitcoinSig2, err := wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
 		return nil, err
+	}
+	if len(bitcoinSig2) > 0 {
+		proof.BitcoinSig2Bytes = fn.Some(bitcoinSig2)
 	}
 
 	if !proof.IsEmpty() {

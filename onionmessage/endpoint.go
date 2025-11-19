@@ -1,7 +1,6 @@
 package onionmessage
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -10,15 +9,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/actor"
-	"github.com/lightningnetwork/lnd/fn/v2"
-	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/subscribe"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -49,65 +46,6 @@ var (
 	// encrypted data blob and one was not provided.
 	ErrNoNextNodeID = errors.New("next node ID required")
 )
-
-type OMRequest struct {
-	// Embed BaseMessage to satisfy the Message interface.
-	actor.BaseMessage
-	msg lnwire.OnionMessage
-}
-
-// MessageType returns a string identifier for this message type.
-func (m *OMRequest) MessageType() string {
-	return "OnionMessageRequest"
-}
-
-// MyResponse might be a corresponding response type.
-type OMResponse struct {
-	actor.BaseMessage
-	Success bool
-}
-
-func (m *OMResponse) MessageType() string {
-	return "OnionMessageResponse"
-}
-
-type OnionPeerActorRef actor.ActorRef[*OMRequest, *OMResponse]
-
-// PeerOnionSenderKey returns the actor key used to send onion messages to a
-// specific peer identified by their public key.
-func SpawnOnionPeerActor(system *actor.ActorSystem,
-	sender func(msg *lnwire.OnionMessage),
-	pubKey [33]byte) OnionPeerActorRef {
-
-	// The actor logic creates a function behavior that sends onion messages
-	// using the provided sender function.
-	actorLogic := func(ctx context.Context,
-		req *OMRequest) fn.Result[*OMResponse] {
-
-		select {
-		case <-ctx.Done():
-			return fn.Err[*OMResponse](
-				errors.New("actor shutting down"),
-			)
-		default:
-		}
-
-		sender(&req.msg)
-		response := &OMResponse{Success: true}
-		return fn.Ok(response)
-	}
-
-	// Create a behavior from the function.
-	behavior := actor.NewFunctionBehavior(actorLogic)
-
-	pubKeyHex := hex.EncodeToString(pubKey[:])
-	serviceKey := actor.NewServiceKey[*OMRequest, *OMResponse](pubKeyHex)
-	actorRef := serviceKey.Spawn(
-		system, "onion-peer-actor-"+pubKeyHex, behavior,
-	)
-
-	return actorRef
-}
 
 // OnionMessageUpdate is onion message update dispatched to any potential
 // subscriber.
@@ -144,20 +82,13 @@ func WithMessageServer(server *subscribe.Server) OnionEndpointOption {
 	}
 }
 
-// WithOnionProcessor sets the onion processor for the OnionEndpoint.
-func WithOnionProcessor(processor *hop.OnionProcessor) OnionEndpointOption {
-	return func(o *OnionEndpoint) {
-		o.onionProcessor = processor
-	}
-}
-
 // OnionEndpoint handles incoming onion messages.
 type OnionEndpoint struct {
 	// subscribe.Server is used for subscriptions to onion messages.
 	onionMessageServer *subscribe.Server
 
-	// onionProcessor is the onion processor used to process onion packets.
-	onionProcessor *hop.OnionProcessor
+	// router is the sphinx router used to process onion_message_packet
+	router *sphinx.Router
 
 	// receptionist is the actor system receptionist used to look up peer
 	// onion actors.
@@ -169,9 +100,12 @@ type OnionEndpoint struct {
 var _ msgmux.Endpoint = (*OnionEndpoint)(nil)
 
 // NewOnionEndpoint creates a new OnionEndpoint with the given options.
-func NewOnionEndpoint(receptionist *actor.Receptionist, opts ...OnionEndpointOption) *OnionEndpoint {
+func NewOnionEndpoint(receptionist *actor.Receptionist, router *sphinx.Router,
+	opts ...OnionEndpointOption) *OnionEndpoint {
+
 	o := &OnionEndpoint{
 		receptionist: receptionist,
+		router:       router,
 	}
 	for _, opt := range opts {
 		opt(o)
@@ -213,9 +147,19 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 		btclog.HexN("onion_blob", onionMsg.OnionBlob, 10),
 		slog.Int("blob_length", len(onionMsg.OnionBlob)))
 
-	payload, err := o.handleOnionMessage(ctx, *onionMsg)
+	payload, nextNodeID, nextBlindingPoint, nextPacket, err := processOnionMessage(o.router, *onionMsg)
 	if err != nil {
 		log.Errorf("Failed to handle onion message: %v", err)
+	}
+	// If we have a next hop, forward the message.
+	if nextNodeID != nil && nextBlindingPoint != nil && nextPacket != nil {
+		err := forwardMessage(
+			ctx, nextNodeID, nextBlindingPoint, nextPacket,
+		)
+		if err != nil {
+			return false
+		}
+
 	}
 
 	var peerArr [33]byte
@@ -253,88 +197,12 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	return true
 }
 
-// handleOnionMessage decodes and processes an onion message.
-func (o *OnionEndpoint) handleOnionMessage(ctx context.Context,
-	msg lnwire.OnionMessage) (*hop.Payload, error) {
-
-	blindingPoint := tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
-			msg.PathKey,
-		),
-	)
-	reqs := []hop.DecodeHopIteratorRequest{
-		{
-			OnionReader:    bytes.NewReader(msg.OnionBlob),
-			RHash:          nil,
-			IncomingCltv:   0,
-			IncomingAmount: 0,
-			BlindingPoint:  blindingPoint,
-			IsOnionMessage: true,
-		},
-	}
-
-	resps, err := o.onionProcessor.DecodeHopIterators(
-		nil, reqs, false,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: could not process onion packet: %w",
-			ErrBadOnionBlob, err)
-	}
-
-	if resps[0].FailCode != lnwire.CodeNone {
-		return nil, fmt.Errorf("%w: could not process onion packet, "+
-			"fail code: %v", ErrBadOnionBlob, resps[0].FailCode)
-	}
-
-	payload, routeRole, err := resps[0].HopIterator.HopPayload()
-	if err != nil {
-		return nil, fmt.Errorf("%w: could not process onion packet: %w",
-			ErrBadOnionBlob, err)
-	}
-
-	if payload.IsFinal() {
-		return payload, nil
-	}
-
-	if routeRole != hop.RouteRoleRelaying {
-		return nil, fmt.Errorf("lnd only supports onion messaging " +
-			"forwarding at the moment")
-	}
-
-	nextBlindingpoint, err := payload.FwdInfo.NextBlinding.UnwrapOrErr(
-		fmt.Errorf("no next blinding point provided in onion message"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	nextNodeID := payload.FwdInfo.NextNodeID
-	buf := new(bytes.Buffer)
-	if err := resps[0].HopIterator.EncodeNextHop(buf); err != nil {
-		return nil, fmt.Errorf("could not encode next packet: %w", err)
-	}
-	nextPacket := buf.Bytes()
-
-	err = o.forwardMessage(
-		ctx, nextNodeID, nextBlindingpoint.Val, nextPacket,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("forwarding onion message failed: %w",
-			err)
-	}
-
-	return payload, nil
-}
-
-func (o *OnionEndpoint) forwardMessage(ctx context.Context,
+func forwardMessage(ctx context.Context,
 	nextNodeID *btcec.PublicKey, nextBlindingPoint *btcec.PublicKey,
 	nextPacket []byte) error {
 
 	var nextNodeIDBytes [33]byte
 	copy(nextNodeIDBytes[:], nextNodeID.SerializeCompressed())
-
-	// err := o.MsgSender(
-	// 	ctx, nextNodeIDBytes, nextBlindingPoint, nextPacket,
-	// )
 
 	// Find the onion peer actor for the next node ID.
 	pubKeyHex := hex.EncodeToString(nextNodeIDBytes[:])

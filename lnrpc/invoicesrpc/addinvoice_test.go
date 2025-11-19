@@ -306,6 +306,7 @@ var shouldIncludeChannelTestCases = []struct {
 			"FetchChannelEdgesByID", mock.Anything,
 		).Once().Return(
 			&models.ChannelEdgeInfo{
+				Version:       lnwire.GossipVersion1,
 				NodeKey1Bytes: selectedPolicy,
 			},
 			&models.ChannelEdgePolicy{

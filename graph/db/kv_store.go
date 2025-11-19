@@ -4112,15 +4112,7 @@ func (c *KVStore) ChannelView() ([]EdgePoint, error) {
 					return err
 				}
 
-				btcKey1 := edgeInfo.BitcoinKey1Bytes.UnwrapOr(
-					route.Vertex{},
-				)
-				btcKey2 := edgeInfo.BitcoinKey2Bytes.UnwrapOr(
-					route.Vertex{},
-				)
-				pkScript, err := genMultiSigP2WSH(
-					btcKey1[:], btcKey2[:],
-				)
+				pkScript, err := edgeInfo.FundingPKScript()
 				if err != nil {
 					return err
 				}

@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	AddSourceNode(ctx context.Context, nodeID int64) error
 	AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofParams) (sql.Result, error)
+	AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error)
 	ClearKVInvoiceHashIndex(ctx context.Context) error
 	CountZombieChannels(ctx context.Context, version int16) (int64, error)
 	CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error)

@@ -383,6 +383,8 @@ type server struct {
 
 	sphinx *hop.OnionProcessor
 
+	sphinxRouterNoReplayLog *sphinx.Router
+
 	towerClientMgr *wtclient.Manager
 
 	connMgr *connmgr.ConnManager
@@ -615,6 +617,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
+	sphinxRouterNoReplayLog := sphinx.NewRouter(nodeKeyECDH, nil)
+
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
 		pool.DefaultWriteBufferExpiryInterval,
@@ -711,7 +715,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: hop.NewOnionProcessor(sphinxRouter),
+		sphinx:                  hop.NewOnionProcessor(sphinxRouter),
+		sphinxRouterNoReplayLog: sphinxRouterNoReplayLog,
 
 		torController: torController,
 
@@ -4383,6 +4388,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		Sphinx:                  s.sphinx,
+		sphinxRouterNoReplayLog: s.sphinxRouterNoReplayLog,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,

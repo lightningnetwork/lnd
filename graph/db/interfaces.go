@@ -215,8 +215,9 @@ type Store interface { //nolint:interfacebloat
 	// failed to send the fresh update to be the one that resurrects the
 	// channel from its zombie state. The markZombie bool denotes whether
 	// to mark the channel as a zombie.
-	DeleteChannelEdges(strictZombiePruning, markZombie bool,
-		chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error)
+	DeleteChannelEdges(v lnwire.GossipVersion, strictZombiePruning,
+		markZombie bool, chanIDs ...uint64) (
+		[]*models.ChannelEdgeInfo, error)
 
 	// AddEdgeProof sets the proof of an existing edge in the graph
 	// database.

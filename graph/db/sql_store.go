@@ -1890,8 +1890,9 @@ func (s *SQLStore) NumZombies() (uint64, error) {
 // denotes whether to mark the channel as a zombie.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
-	chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error) {
+func (s *SQLStore) DeleteChannelEdges(v lnwire.GossipVersion,
+	strictZombiePruning, markZombie bool, chanIDs ...uint64) (
+	[]*models.ChannelEdgeInfo, error) {
 
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
@@ -1924,7 +1925,7 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		}
 
 		err := s.forEachChanWithPoliciesInSCIDList(
-			ctx, db, chanCallBack, chanIDs,
+			ctx, db, v, chanCallBack, chanIDs,
 		)
 		if err != nil {
 			return err
@@ -1952,7 +1953,7 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 				scid := byteOrder.Uint64(row.GraphChannel.Scid)
 
 				err := handleZombieMarking(
-					ctx, db, row, edges[i],
+					ctx, db, v, row, edges[i],
 					strictZombiePruning, scid,
 				)
 				if err != nil {
@@ -2370,7 +2371,7 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 		}
 
 		err := s.forEachChanWithPoliciesInSCIDList(
-			ctx, db, chanCallBack, chanIDs,
+			ctx, db, lnwire.GossipVersion1, chanCallBack, chanIDs,
 		)
 		if err != nil {
 			return err
@@ -2418,7 +2419,7 @@ func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 // GetChannelsBySCIDWithPolicies query that allows us to iterate through
 // channels in a paginated manner.
 func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
-	db SQLQueries, cb func(ctx context.Context,
+	db SQLQueries, v lnwire.GossipVersion, cb func(ctx context.Context,
 		row sqlc.GetChannelsBySCIDWithPoliciesRow) error,
 	chanIDs []uint64) error {
 
@@ -2428,7 +2429,7 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 
 		return db.GetChannelsBySCIDWithPolicies(
 			ctx, sqlc.GetChannelsBySCIDWithPoliciesParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				Scids:   scids,
 			},
 		)
@@ -5909,12 +5910,19 @@ func batchBuildChannelInfo[T sqlc.ChannelAndNodeIDs](ctx context.Context,
 // we are in strict zombie pruning mode, and adjusts the node public keys
 // accordingly based on the last update timestamps of the channel policies.
 func handleZombieMarking(ctx context.Context, db SQLQueries,
+	v lnwire.GossipVersion,
 	row sqlc.GetChannelsBySCIDWithPoliciesRow, info *models.ChannelEdgeInfo,
 	strictZombiePruning bool, scid uint64) error {
 
 	nodeKey1, nodeKey2 := info.NodeKey1Bytes, info.NodeKey2Bytes
 
 	if strictZombiePruning {
+		// TODO(elle): update for V2 last update times.
+		if v != lnwire.GossipVersion1 {
+			return fmt.Errorf("strict zombie pruning only "+
+				"supported for gossip v1, got %v", v)
+		}
+
 		var e1UpdateTime, e2UpdateTime *time.Time
 		if row.Policy1LastUpdate.Valid {
 			e1Time := time.Unix(row.Policy1LastUpdate.Int64, 0)
@@ -5933,7 +5941,7 @@ func handleZombieMarking(ctx context.Context, db SQLQueries,
 
 	return db.UpsertZombieChannel(
 		ctx, sqlc.UpsertZombieChannelParams{
-			Version:  int16(lnwire.GossipVersion1),
+			Version:  int16(v),
 			Scid:     channelIDToBytes(scid),
 			NodeKey1: nodeKey1[:],
 			NodeKey2: nodeKey2[:],

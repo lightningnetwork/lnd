@@ -59,9 +59,7 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		models.WithFeatures(features),
 	)
 	require.NoError(t, err)
-	chanAnn, _, _, err := CreateChanAnnouncement(
-		chanProof, chanInfo, nil, nil,
-	)
+	chanAnn, _, _, err := CreateChanAnnouncement(chanInfo, nil, nil)
 	require.NoError(t, err, "unable to create channel announcement")
 
 	assert.Equal(t, chanAnn, expChanAnn)

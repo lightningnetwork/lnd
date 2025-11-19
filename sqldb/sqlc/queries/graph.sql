@@ -312,6 +312,12 @@ SET node_1_signature = $2,
 WHERE scid = $1
   AND version = 1;
 
+-- name: AddV2ChannelProof :execresult
+UPDATE graph_channels
+SET signature = $2
+WHERE scid = $1
+  AND version = 2;
+
 -- name: GetChannelsBySCIDRange :many
 SELECT sqlc.embed(c),
     n1.pub_key AS node1_pub_key,

@@ -1824,8 +1824,8 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 // returned.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
-	error) {
+func (s *SQLStore) IsZombieEdge(v lnwire.GossipVersion,
+	chanID uint64) (bool, [33]byte, [33]byte, error) {
 
 	var (
 		ctx              = context.TODO()
@@ -1834,11 +1834,16 @@ func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 		chanIDB          = channelIDToBytes(chanID)
 	)
 
+	if !isKnownGossipVersion(v) {
+		return false, [33]byte{}, [33]byte{},
+			fmt.Errorf("unsupported gossip version: %d", v)
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		zombie, err := db.GetZombieChannel(
 			ctx, sqlc.GetZombieChannelParams{
 				Scid:    chanIDB,
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {

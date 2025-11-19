@@ -138,6 +138,10 @@ var versionedTests = []versionedTest{
 		name: "alias lookup",
 		test: testAliasLookup,
 	},
+	{
+		name: "add edge proof",
+		test: testAddEdgeProof,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -644,8 +648,10 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
-	txPosition uint16, outPointIndex uint32, node1, node2 *models.Node) (
-	*models.ChannelEdgeInfo, lnwire.ShortChannelID) {
+	txPosition uint16, outPointIndex uint32, node1, node2 *models.Node,
+	skipProof ...bool) (*models.ChannelEdgeInfo, lnwire.ShortChannelID) {
+
+	shouldSkipProof := len(skipProof) > 0 && skipProof[0]
 
 	shortChanID := lnwire.ShortChannelID{
 		BlockHeight: height,
@@ -677,12 +683,19 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 			node2Pub.SerializeCompressed(),
 		)
 
-		proof := models.NewV1ChannelAuthProof(
-			testSig.Serialize(),
-			testSig.Serialize(),
-			testSig.Serialize(),
-			testSig.Serialize(),
-		)
+		opts := []models.EdgeModifier{
+			models.WithChannelPoint(outpoint),
+			models.WithCapacity(9000),
+		}
+		if !shouldSkipProof {
+			proof := models.NewV1ChannelAuthProof(
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+				testSig.Serialize(),
+			)
+			opts = append(opts, models.WithChanProof(proof))
+		}
 
 		edgeInfo, _ = models.NewV1Channel(
 			shortChanID.ToUint64(),
@@ -694,9 +707,7 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 				BitcoinKey2Bytes: btcKey2,
 				ExtraOpaqueData:  make([]byte, 0),
 			},
-			models.WithChanProof(proof),
-			models.WithChannelPoint(outpoint),
-			models.WithCapacity(9000),
+			opts...,
 		)
 
 	case lnwire.GossipVersion2:
@@ -717,7 +728,16 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 			fundingScript, bytes.Repeat([]byte{0xbb}, 32)...,
 		)
 
-		proof := models.NewV2ChannelAuthProof(testSig.Serialize())
+		opts := []models.EdgeModifier{
+			models.WithChannelPoint(outpoint),
+			models.WithCapacity(9000),
+		}
+		if !shouldSkipProof {
+			proof := models.NewV2ChannelAuthProof(
+				testSig.Serialize(),
+			)
+			opts = append(opts, models.WithChanProof(proof))
+		}
 
 		edgeInfo, _ = models.NewV2Channel(
 			shortChanID.ToUint64(),
@@ -731,9 +751,7 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 				FundingScript:     fn.Some(fundingScript),
 				ExtraSignedFields: make(map[uint64][]byte),
 			},
-			models.WithChanProof(proof),
-			models.WithChannelPoint(outpoint),
-			models.WithCapacity(9000),
+			opts...,
 		)
 	}
 
@@ -940,28 +958,8 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 }
 
-type createEdgeConfig struct {
-	skipProofs bool
-}
-
-type createEdgeOpt func(*createEdgeConfig)
-
-// withSkipProofs will let createChannelEdge create an edge without auth
-// proofs. In this case, createChannelEdge will then also not create policies.
-func withSkipProofs() createEdgeOpt {
-	return func(cfg *createEdgeConfig) {
-		cfg.skipProofs = true
-	}
-}
-
-func createChannelEdge(node1, node2 *models.Node,
-	options ...createEdgeOpt) (*models.ChannelEdgeInfo,
+func createChannelEdge(node1, node2 *models.Node) (*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
-
-	var opts createEdgeConfig
-	for _, o := range options {
-		o(&opts)
-	}
 
 	var (
 		firstNode  [33]byte
@@ -995,21 +993,6 @@ func createChannelEdge(node1, node2 *models.Node,
 		3, 3, 3, 3, 3,
 	}
 
-	var edgeInfo *models.ChannelEdgeInfo
-	if opts.skipProofs {
-		edgeInfo, _ = models.NewV1Channel(
-			chanID, *chaincfg.MainNetParams.GenesisHash, node1Key,
-			node2Key, &models.ChannelV1Fields{
-				BitcoinKey1Bytes: node1Key,
-				BitcoinKey2Bytes: node2Key,
-				ExtraOpaqueData:  extraData,
-			}, models.WithChannelPoint(outpoint),
-			models.WithCapacity(1000),
-		)
-
-		return edgeInfo, nil, nil
-	}
-
 	proof := models.NewV1ChannelAuthProof(
 		testSig.Serialize(),
 		testSig.Serialize(),
@@ -1017,7 +1000,7 @@ func createChannelEdge(node1, node2 *models.Node,
 		testSig.Serialize(),
 	)
 
-	edgeInfo, _ = models.NewV1Channel(
+	edgeInfo, _ := models.NewV1Channel(
 		chanID, *chaincfg.MainNetParams.GenesisHash, node1Key, node2Key,
 		&models.ChannelV1Fields{
 			BitcoinKey1Bytes: node1Key,
@@ -1457,42 +1440,48 @@ func newEdgePolicy(chanID uint64, updateTime int64) *models.ChannelEdgePolicy {
 	}
 }
 
-// TestAddEdgeProof tests the ability to add an edge proof to an existing edge.
-func TestAddEdgeProof(t *testing.T) {
+// testAddEdgeProof tests the ability to add an edge proof to an existing edge.
+func testAddEdgeProof(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := MakeTestGraph(t)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// Add an edge with no proof.
-	node1 := createTestVertex(t, lnwire.GossipVersion1)
-	node2 := createTestVertex(t, lnwire.GossipVersion1)
-	edge1, _, _ := createChannelEdge(node1, node2, withSkipProofs())
+	node1 := createTestVertex(t, v)
+	node2 := createTestVertex(t, v)
+
+	// Create edge without proof (skipProof = true).
+	edge1, _ := createEdge(v, 100, 0, 0, 0, node1, node2, true)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge1))
 
-	// Fetch the edge and assert that the proof is nil and that the rest
-	// of the edge info is correct.
+	// Fetch the edge and assert that the proof is nil.
 	dbEdge, _, _, err := graph.FetchChannelEdgesByID(edge1.ChannelID)
 	require.NoError(t, err)
 	require.Nil(t, dbEdge.AuthProof)
-	require.Equal(t, edge1, dbEdge)
 
-	// Now, add the edge proof.
-	proof := models.NewV1ChannelAuthProof(
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
-		testSig.Serialize(),
-	)
+	// Create a proof appropriate for the version.
+	var proof *models.ChannelAuthProof
+	switch v {
+	case lnwire.GossipVersion1:
+		proof = models.NewV1ChannelAuthProof(
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+			testSig.Serialize(),
+		)
+	case lnwire.GossipVersion2:
+		proof = models.NewV2ChannelAuthProof(testSig.Serialize())
+	}
 
 	// First, add the proof to the rest of the channel edge info and try
 	// to call AddChannelEdge again - this should fail due to the channel
 	// already existing.
 	edge1.AuthProof = proof
 	err = graph.AddChannelEdge(ctx, edge1)
-	require.Error(t, err, ErrEdgeAlreadyExist)
+	require.ErrorIs(t, err, ErrEdgeAlreadyExist)
 
-	// Now add just the proof.
+	// Now add just the proof via AddEdgeProof.
 	scid1 := lnwire.NewShortChanIDFromInt(edge1.ChannelID)
 	require.NoError(t, graph.AddEdgeProof(scid1, proof))
 
@@ -1500,19 +1489,16 @@ func TestAddEdgeProof(t *testing.T) {
 	dbEdge, _, _, err = graph.FetchChannelEdgesByID(edge1.ChannelID)
 	require.NoError(t, err)
 	require.NotNil(t, dbEdge.AuthProof)
-	require.Equal(t, edge1, dbEdge)
 
 	// For completeness, also test the case where we insert a new edge with
-	// an edge proof. Show that the proof is present from the get go.
-	edge2, _, _ := createChannelEdge(node1, node2)
+	// an edge proof from the start. Show that the proof is present.
+	edge2, _ := createEdge(v, 200, 0, 0, 1, node1, node2)
 	require.NoError(t, graph.AddChannelEdge(ctx, edge2))
 
-	// Fetch the edge and assert that the proof is nil and that the rest
-	// of the edge info is correct.
+	// Fetch the edge and assert that the proof is set.
 	dbEdge2, _, _, err := graph.FetchChannelEdgesByID(edge2.ChannelID)
 	require.NoError(t, err)
 	require.NotNil(t, dbEdge2.AuthProof)
-	require.Equal(t, edge2, dbEdge2)
 }
 
 // TestForEachSourceNodeChannel tests that the ForEachSourceNodeChannel

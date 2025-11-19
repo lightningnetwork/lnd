@@ -66,6 +66,7 @@ func TestAddProof(t *testing.T) {
 
 	// After utxo was recreated adding the edge without the proof.
 	edge := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -152,6 +153,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -273,6 +275,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	node2 := createTestNode(t)
 
 	edge1 := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID1,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -293,6 +296,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	}
 
 	edge2 := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID2,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -483,6 +487,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	node2 := createTestNode(t)
 
 	edge1 := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID1,
 		NodeKey1Bytes:    node1.PubKeyBytes,
 		NodeKey2Bytes:    node2.PubKeyBytes,
@@ -505,6 +510,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 	}
 
 	edge2 := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID2,
 		NodeKey1Bytes:    node1.PubKeyBytes,
 		NodeKey2Bytes:    node2.PubKeyBytes,
@@ -639,6 +645,7 @@ func TestChansClosedOfflinePruneGraph(t *testing.T) {
 	node2 := createTestNode(t)
 
 	edge1 := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     chanID1.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
@@ -1062,6 +1069,7 @@ func TestIsStaleNode(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1142,6 +1150,7 @@ func TestIsKnownEdge(t *testing.T) {
 	ctx.chain.addBlock(fundingBlock, chanID.BlockHeight, chanID.BlockHeight)
 
 	edge := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1202,6 +1211,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 
 	edge := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        chanID.ToUint64(),
 		NodeKey1Bytes:    pub1,
 		NodeKey2Bytes:    pub2,
@@ -1514,6 +1524,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := models.ChannelEdgeInfo{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
@@ -1885,6 +1896,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		// We first insert the existence of the edge between the two
 		// nodes.
 		edgeInfo := models.ChannelEdgeInfo{
+			Version:      lnwire.GossipVersion1,
 			ChannelID:    channelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: *fundingPoint,

@@ -137,6 +137,13 @@ func WithFundingScript(script []byte) EdgeModifier {
 	}
 }
 
+// WithMerkleRootHash sets the merkle root hash on the edge.
+func WithMerkleRootHash(hash chainhash.Hash) EdgeModifier {
+	return func(e *ChannelEdgeInfo) {
+		e.MerkleRootHash = fn.Some(hash)
+	}
+}
+
 // ChannelV1Fields contains the fields that are specific to v1 channel
 // announcements.
 type ChannelV1Fields struct {
@@ -201,6 +208,14 @@ type ChannelV2Fields struct {
 	// BitcoinKey2Bytes is the raw public key of the second node.
 	BitcoinKey2Bytes fn.Option[route.Vertex]
 
+	// FundingScript is the funding output's pkScript. This is required for
+	// v2 channels when the bitcoin keys are not provided.
+	FundingScript fn.Option[[]byte]
+
+	// MerkleRootHash is an optional root hash of a Merkle tree that the
+	// funding output is committed to.
+	MerkleRootHash fn.Option[chainhash.Hash]
+
 	// ExtraSignedFields is a map of extra fields that are covered by the
 	// node announcement's signature that we have not explicitly parsed.
 	//
@@ -219,6 +234,8 @@ func NewV2Channel(chanID uint64, chainHash chainhash.Hash, node1,
 		NodeKey2Bytes:     node2,
 		BitcoinKey1Bytes:  v2Fields.BitcoinKey1Bytes,
 		BitcoinKey2Bytes:  v2Fields.BitcoinKey2Bytes,
+		FundingScript:     v2Fields.FundingScript,
+		MerkleRootHash:    v2Fields.MerkleRootHash,
 		ChannelID:         chanID,
 		ChainHash:         chainHash,
 		Features:          lnwire.EmptyFeatureVector(),

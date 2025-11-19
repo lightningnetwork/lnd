@@ -2089,10 +2089,14 @@ func (d *AuthenticatedGossiper) processRejectedEdge(_ context.Context,
 		return nil, nil
 	}
 
+	// Attach the proof to the channel info before creating the
+	// announcement.
+	chanInfo.AuthProof = proof
+
 	// We'll then create then validate the new fully assembled
 	// announcement.
 	chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement(
-		proof, chanInfo, e1, e2,
+		chanInfo, e1, e2,
 	)
 	if err != nil {
 		return nil, err
@@ -2485,44 +2489,13 @@ func (d *AuthenticatedGossiper) updateChannel(ctx context.Context,
 	// have a full channel announcement for this channel.
 	var chanAnn *lnwire.ChannelAnnouncement1
 	if info.AuthProof != nil {
-		chanID := lnwire.NewShortChanIDFromInt(info.ChannelID)
-		chanAnn = &lnwire.ChannelAnnouncement1{
-			ShortChannelID:  chanID,
-			NodeID1:         info.NodeKey1Bytes,
-			NodeID2:         info.NodeKey2Bytes,
-			ChainHash:       info.ChainHash,
-			BitcoinKey1:     info.BitcoinKey1Bytes,
-			Features:        lnwire.NewRawFeatureVector(),
-			BitcoinKey2:     info.BitcoinKey2Bytes,
-			ExtraOpaqueData: info.ExtraOpaqueData,
-		}
-		chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.NodeSig1(),
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.NodeSig2(),
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.BitcoinSig1(),
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
-			info.AuthProof.BitcoinSig2(),
-		)
+		chanAnn, err = info.ToChannelAnnouncement()
 		if err != nil {
 			return nil, nil, err
 		}
 	}
 
-	return chanAnn, chanUpdate, err
+	return chanAnn, chanUpdate, nil
 }
 
 // SyncManager returns the gossiper's SyncManager instance.
@@ -3696,7 +3669,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 					ann.ChannelID, peerID)
 
 				ca, _, _, err := netann.CreateChanAnnouncement(
-					chanInfo.AuthProof, chanInfo, e1, e2,
+					chanInfo, e1, e2,
 				)
 				if err != nil {
 					log.Errorf("unable to gen ann: %v",
@@ -3775,8 +3748,12 @@ func (d *AuthenticatedGossiper) handleAnnSig(ctx context.Context,
 		)
 	}
 
+	// Attach the proof to the channel info before creating the
+	// announcement.
+	chanInfo.AuthProof = dbProof
+
 	chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement(
-		dbProof, chanInfo, e1, e2,
+		chanInfo, e1, e2,
 	)
 	if err != nil {
 		log.Error(err)

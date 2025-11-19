@@ -4112,14 +4112,20 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) error {
 
+	v := lnwire.GossipVersion1
+
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
-	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
+	node1DBID, err := maybeCreateShellNode(
+		ctx, db, v, edge.NodeKey1Bytes,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
-	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
+	node2DBID, err := maybeCreateShellNode(
+		ctx, db, v, edge.NodeKey2Bytes,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
@@ -4130,7 +4136,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	createParams := sqlc.CreateChannelParams{
-		Version:     int16(lnwire.GossipVersion1),
+		Version:     int16(v),
 		Scid:        channelIDToBytes(edge.ChannelID),
 		NodeID1:     node1DBID,
 		NodeID2:     node2DBID,
@@ -4199,12 +4205,12 @@ func insertChannel(ctx context.Context, db SQLQueries,
 // created. The ID of the node is returned. A shell node only has a protocol
 // version and public key persisted.
 func maybeCreateShellNode(ctx context.Context, db SQLQueries,
-	pubKey route.Vertex) (int64, error) {
+	v lnwire.GossipVersion, pubKey route.Vertex) (int64, error) {
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
 			PubKey:  pubKey[:],
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 		},
 	)
 	// The node exists. Return the ID.
@@ -4217,7 +4223,7 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	// Otherwise, the node does not exist, so we create a shell entry for
 	// it.
 	id, err := db.UpsertNode(ctx, sqlc.UpsertNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(v),
 		PubKey:  pubKey[:],
 	})
 	if err != nil {

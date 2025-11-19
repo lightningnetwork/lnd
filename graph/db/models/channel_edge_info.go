@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // ChannelEdgeInfo represents a fully authenticated channel along with all its
@@ -29,18 +30,18 @@ type ChannelEdgeInfo struct {
 	ChainHash chainhash.Hash
 
 	// NodeKey1Bytes is the raw public key of the first node.
-	NodeKey1Bytes [33]byte
+	NodeKey1Bytes route.Vertex
 	nodeKey1      *btcec.PublicKey
 
 	// NodeKey2Bytes is the raw public key of the first node.
-	NodeKey2Bytes [33]byte
+	NodeKey2Bytes route.Vertex
 	nodeKey2      *btcec.PublicKey
 
 	// BitcoinKey1Bytes is the raw public key of the first node.
-	BitcoinKey1Bytes [33]byte
+	BitcoinKey1Bytes route.Vertex
 
 	// BitcoinKey2Bytes is the raw public key of the first node.
-	BitcoinKey2Bytes [33]byte
+	BitcoinKey2Bytes route.Vertex
 
 	// Features is the list of protocol features supported by this channel
 	// edge.
@@ -118,7 +119,7 @@ func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
 
 // OtherNodeKeyBytes returns the node key bytes of the other end of the channel.
 func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
-	[33]byte, error) {
+	route.Vertex, error) {
 
 	switch {
 	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
@@ -126,7 +127,7 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
 		return c.NodeKey1Bytes, nil
 	default:
-		return [33]byte{}, fmt.Errorf("node not participating in " +
+		return route.Vertex{}, fmt.Errorf("node not participating in " +
 			"this channel")
 	}
 }

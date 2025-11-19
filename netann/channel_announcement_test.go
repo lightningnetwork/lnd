@@ -47,6 +47,7 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		BitcoinSig2Bytes: expChanAnn.BitcoinSig2.ToSignatureBytes(),
 	}
 	chanInfo := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChainHash:        expChanAnn.ChainHash,
 		ChannelID:        expChanAnn.ShortChannelID.ToUint64(),
 		ChannelPoint:     wire.OutPoint{Index: 1},

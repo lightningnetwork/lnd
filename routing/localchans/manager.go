@@ -329,6 +329,7 @@ func (r *Manager) createEdge(channel *channeldb.OpenChannel,
 	}
 
 	info := &models.ChannelEdgeInfo{
+		Version:       lnwire.GossipVersion1,
 		ChannelID:     shortChanID.ToUint64(),
 		ChainHash:     channel.ChainHash,
 		Features:      lnwire.EmptyFeatureVector(),

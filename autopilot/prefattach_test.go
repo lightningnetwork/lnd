@@ -493,6 +493,7 @@ func (d *testDBGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 
 	chanID := randChanID()
 	edge := &models.ChannelEdgeInfo{
+		Version:   lnwire.GossipVersion1,
 		ChannelID: chanID.ToUint64(),
 		Capacity:  capacity,
 		Features:  lnwire.EmptyFeatureVector(),

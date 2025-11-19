@@ -314,7 +314,8 @@ type Store interface { //nolint:interfacebloat
 	// IsZombieEdge returns whether the edge is considered zombie. If it is
 	// a zombie, then the two node public keys corresponding to this edge
 	// are also returned.
-	IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte, error)
+	IsZombieEdge(v lnwire.GossipVersion, chanID uint64) (bool, [33]byte,
+		[33]byte, error)
 
 	// NumZombies returns the current number of zombie channels in the
 	// graph.

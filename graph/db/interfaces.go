@@ -146,7 +146,7 @@ type Store interface { //nolint:interfacebloat
 	// IsPublicNode is a helper method that determines whether the node with
 	// the given public key is seen as a public node in the graph from the
 	// graph's source node's point of view.
-	IsPublicNode(pubKey [33]byte) (bool, error)
+	IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool, error)
 
 	// GraphSession will provide the call-back with access to a
 	// NodeTraverser instance which can be used to perform queries against

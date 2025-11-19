@@ -4005,7 +4005,13 @@ func (c *KVStore) FetchChannelEdgesByID(chanID uint64) (
 // IsPublicNode is a helper method that determines whether the node with the
 // given public key is seen as a public node in the graph from the graph's
 // source node's point of view.
-func (c *KVStore) IsPublicNode(pubKey [33]byte) (bool, error) {
+func (c *KVStore) IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool,
+	error) {
+
+	if v != lnwire.GossipVersion1 {
+		return false, ErrVersionNotSupportedForKVDB
+	}
+
 	var nodeIsPublic bool
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		nodes := tx.ReadBucket(nodeBucket)

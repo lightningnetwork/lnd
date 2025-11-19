@@ -3811,8 +3811,8 @@ func computeEdgePolicyKeys(info *models.ChannelEdgeInfo) ([]byte, []byte) {
 // found, then ErrEdgeNotFound is returned. A struct which houses the general
 // information for the channel itself is returned as well as two structs that
 // contain the routing policies for the channel in either direction.
-func (c *KVStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (c *KVStore) FetchChannelEdgesByOutpoint(v lnwire.GossipVersion,
+	op *wire.OutPoint) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
 	var (
@@ -3820,6 +3820,10 @@ func (c *KVStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		policy1  *models.ChannelEdgePolicy
 		policy2  *models.ChannelEdgePolicy
 	)
+
+	if v != lnwire.GossipVersion1 {
+		return nil, nil, nil, ErrVersionNotSupportedForKVDB
+	}
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		// First, grab the node bucket. This will be used to populate
@@ -3897,9 +3901,13 @@ func (c *KVStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 // ErrZombieEdge an be returned if the edge is currently marked as a zombie
 // within the database. In this case, the ChannelEdgePolicy's will be nil, and
 // the ChannelEdgeInfo will only include the public keys of each node.
-func (c *KVStore) FetchChannelEdgesByID(chanID uint64) (
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (c *KVStore) FetchChannelEdgesByID(v lnwire.GossipVersion,
+	chanID uint64) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
+
+	if v != lnwire.GossipVersion1 {
+		return nil, nil, nil, ErrVersionNotSupportedForKVDB
+	}
 
 	var (
 		edgeInfo  *models.ChannelEdgeInfo

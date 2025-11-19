@@ -371,7 +371,8 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
 	infos, err := c.db.DeleteChannelEdges(
-		strictZombiePruning, markZombie, chanIDs...,
+		lnwire.GossipVersion1, strictZombiePruning, markZombie,
+		chanIDs...,
 	)
 	if err != nil {
 		return err

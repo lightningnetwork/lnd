@@ -703,6 +703,11 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 func (s *SQLStore) AddChannelEdge(ctx context.Context,
 	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
+	if !isKnownGossipVersion(edge.Version) {
+		return fmt.Errorf("unsupported gossip version: %d",
+			edge.Version)
+	}
+
 	var alreadyExists bool
 	r := &batch.Request[SQLQueries]{
 		Opts: batch.NewSchedulerOptions(opts...),
@@ -720,7 +725,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 			_, err := tx.GetChannelBySCID(
 				ctx, sqlc.GetChannelBySCIDParams{
 					Scid:    chanIDB,
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(edge.Version),
 				},
 			)
 			if err == nil {
@@ -4259,26 +4264,16 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) error {
 
-	v := lnwire.GossipVersion1
-
-	// For now, we only support V1 channel edges in the SQL store.
-	if edge.Version != v {
-		return fmt.Errorf("only V1 channel edges supported, got V%d",
-			edge.Version)
-	}
+	v := edge.Version
 
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
-	node1DBID, err := maybeCreateShellNode(
-		ctx, db, v, edge.NodeKey1Bytes,
-	)
+	node1DBID, err := maybeCreateShellNode(ctx, db, v, edge.NodeKey1Bytes)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
-	node2DBID, err := maybeCreateShellNode(
-		ctx, db, v, edge.NodeKey2Bytes,
-	)
+	node2DBID, err := maybeCreateShellNode(ctx, db, v, edge.NodeKey2Bytes)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
@@ -4302,6 +4297,12 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	edge.BitcoinKey2Bytes.WhenSome(func(vertex route.Vertex) {
 		createParams.BitcoinKey2 = vertex[:]
 	})
+	edge.FundingScript.WhenSome(func(script []byte) {
+		createParams.FundingPkScript = script
+	})
+	edge.MerkleRootHash.WhenSome(func(hash chainhash.Hash) {
+		createParams.MerkleRootHash = hash[:]
+	})
 
 	if edge.AuthProof != nil {
 		proof := edge.AuthProof
@@ -4310,6 +4311,7 @@ func insertChannel(ctx context.Context, db SQLQueries,
 		createParams.Node2Signature = proof.NodeSig2()
 		createParams.Bitcoin1Signature = proof.BitcoinSig1()
 		createParams.Bitcoin2Signature = proof.BitcoinSig2()
+		createParams.Signature = proof.Sig()
 	}
 
 	// Insert the new channel record.
@@ -4333,10 +4335,13 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	// Finally, insert any extra TLV fields in the channel announcement.
-	extra, err := marshalExtraOpaqueData(edge.ExtraOpaqueData)
-	if err != nil {
-		return fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
+	extra := edge.ExtraSignedFields
+	if v == lnwire.GossipVersion1 {
+		extra, err = marshalExtraOpaqueData(edge.ExtraOpaqueData)
+		if err != nil {
+			return fmt.Errorf("unable to marshal extra opaque "+
+				"data: %w", err)
+		}
 	}
 
 	for tlvType, value := range extra {
@@ -4448,9 +4453,9 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 	dbChan sqlc.GraphChannel, node1, node2 route.Vertex,
 	batchData *batchChannelData) (*models.ChannelEdgeInfo, error) {
 
-	if dbChan.Version != int16(lnwire.GossipVersion1) {
-		return nil, fmt.Errorf("unsupported channel version: %d",
-			dbChan.Version)
+	v := lnwire.GossipVersion(dbChan.Version)
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unknown channel version: %d", v)
 	}
 
 	// Use pre-loaded features and extras types.
@@ -4474,45 +4479,50 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 		return nil, err
 	}
 
-	recs, err := lnwire.CustomRecords(extras).Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("unable to serialize extra signed "+
-			"fields: %w", err)
-	}
-	if recs == nil {
-		recs = make([]byte, 0)
-	}
+	// Build the appropriate channel based on version.
+	var channel *models.ChannelEdgeInfo
+	switch v {
+	case lnwire.GossipVersion1:
+		// For v1, serialize extras into ExtraOpaqueData.
+		recs, err := lnwire.CustomRecords(extras).Serialize()
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize extra "+
+				"signed fields: %w", err)
+		}
+		if recs == nil {
+			recs = make([]byte, 0)
+		}
 
-	btcKey1, err := route.NewVertexFromBytes(dbChan.BitcoinKey1)
-	if err != nil {
-		return nil, err
-	}
-	btcKey2, err := route.NewVertexFromBytes(dbChan.BitcoinKey2)
-	if err != nil {
-		return nil, err
-	}
+		// Bitcoin keys are required for v1.
+		btcKey1, err := route.NewVertexFromBytes(dbChan.BitcoinKey1)
+		if err != nil {
+			return nil, err
+		}
+		btcKey2, err := route.NewVertexFromBytes(dbChan.BitcoinKey2)
+		if err != nil {
+			return nil, err
+		}
 
-	channel, err := models.NewV1Channel(
-		byteOrder.Uint64(dbChan.Scid), chain, node1, node2,
-		&models.ChannelV1Fields{
-			BitcoinKey1Bytes: btcKey1,
-			BitcoinKey2Bytes: btcKey2,
-			ExtraOpaqueData:  recs,
-		},
-		models.WithChannelPoint(*op),
-		models.WithCapacity(btcutil.Amount(dbChan.Capacity.Int64)),
-		models.WithFeatures(fv.RawFeatureVector),
-	)
-	if err != nil {
-		return nil, err
-	}
+		channel, err = models.NewV1Channel(
+			byteOrder.Uint64(dbChan.Scid), chain, node1, node2,
+			&models.ChannelV1Fields{
+				BitcoinKey1Bytes: btcKey1,
+				BitcoinKey2Bytes: btcKey2,
+				ExtraOpaqueData:  recs,
+			},
+			models.WithChannelPoint(*op),
+			models.WithCapacity(
+				btcutil.Amount(dbChan.Capacity.Int64),
+			),
+			models.WithFeatures(fv.RawFeatureVector),
+		)
+		if err != nil {
+			return nil, err
+		}
 
-	// We always set all the signatures at the same time, so we can
-	// safely check if one signature is present to determine if we have the
-	// rest of the signatures for the auth proof.
-	if len(dbChan.Bitcoin1Signature) > 0 {
-		// For v1 channels, we have four signatures.
-		if dbChan.Version == int16(lnwire.GossipVersion1) {
+		// For v1 channels, attach the auth proof if all four
+		// signatures are present.
+		if len(dbChan.Bitcoin1Signature) > 0 {
 			channel.AuthProof = models.NewV1ChannelAuthProof(
 				dbChan.Node1Signature,
 				dbChan.Node2Signature,
@@ -4520,7 +4530,69 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 				dbChan.Bitcoin2Signature,
 			)
 		}
-		// TODO(elle): Add v2 support when needed.
+
+	case lnwire.GossipVersion2:
+		v2Fields := &models.ChannelV2Fields{
+			ExtraSignedFields: extras,
+		}
+
+		// For v2, bitcoin keys are optional.
+		if len(dbChan.BitcoinKey1) > 0 {
+			btcKey1, err := route.NewVertexFromBytes(
+				dbChan.BitcoinKey1,
+			)
+			if err != nil {
+				return nil, err
+			}
+			v2Fields.BitcoinKey1Bytes = fn.Some(btcKey1)
+		}
+		if len(dbChan.BitcoinKey2) > 0 {
+			btcKey2, err := route.NewVertexFromBytes(
+				dbChan.BitcoinKey2,
+			)
+			if err != nil {
+				return nil, err
+			}
+			v2Fields.BitcoinKey2Bytes = fn.Some(btcKey2)
+		}
+
+		// Parse funding script if present.
+		if len(dbChan.FundingPkScript) > 0 {
+			v2Fields.FundingScript = fn.Some(dbChan.FundingPkScript)
+		}
+
+		// Parse merkle root hash if present.
+		if len(dbChan.MerkleRootHash) > 0 {
+			var hash chainhash.Hash
+			copy(hash[:], dbChan.MerkleRootHash)
+			v2Fields.MerkleRootHash = fn.Some(hash)
+		}
+
+		opts := []models.EdgeModifier{
+			models.WithChannelPoint(*op),
+			models.WithCapacity(btcutil.Amount(
+				dbChan.Capacity.Int64,
+			)),
+			models.WithFeatures(fv.RawFeatureVector),
+		}
+
+		// For v2 channels, attach the auth proof if the signature is
+		// present.
+		if len(dbChan.Signature) > 0 {
+			proof := models.NewV2ChannelAuthProof(dbChan.Signature)
+			opts = append(opts, models.WithChanProof(proof))
+		}
+
+		channel, err = models.NewV2Channel(
+			byteOrder.Uint64(dbChan.Scid), chain, node1, node2,
+			v2Fields, opts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported channel version: %d", v)
 	}
 
 	return channel, nil

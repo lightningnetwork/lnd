@@ -735,7 +735,7 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 	error) {
 
-	return c.db.IsZombieEdge(chanID)
+	return c.db.IsZombieEdge(lnwire.GossipVersion1, chanID)
 }
 
 // NumZombies returns the current number of zombie channels in the graph.
@@ -804,6 +804,13 @@ func (c *VersionedGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	*models.ChannelEdgePolicy, error) {
 
 	return c.db.FetchChannelEdgesByOutpoint(c.v, op)
+}
+
+// IsZombieEdge returns whether the edge is considered zombie for this version.
+func (c *VersionedGraph) IsZombieEdge(chanID uint64) (bool, [33]byte,
+	[33]byte, error) {
+
+	return c.db.IsZombieEdge(c.v, chanID)
 }
 
 // AddrsForNode returns all known addresses for the target node public key.

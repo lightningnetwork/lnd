@@ -2761,6 +2761,7 @@ func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 		handleChannel := func(_ context.Context,
 			channel sqlc.ListChannelsPaginatedRow) error {
 
+			// TODO(elle): update to handle V2 channels.
 			pkScript, err := genMultiSigP2WSH(
 				channel.BitcoinKey1, channel.BitcoinKey2,
 			)

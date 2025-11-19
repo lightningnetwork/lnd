@@ -50,6 +50,7 @@ type SQLQueries interface {
 	ListNodesPaginated(ctx context.Context, arg sqlc.ListNodesPaginatedParams) ([]sqlc.GraphNode, error)
 	ListNodeIDsAndPubKeys(ctx context.Context, arg sqlc.ListNodeIDsAndPubKeysParams) ([]sqlc.ListNodeIDsAndPubKeysRow, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
+	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
@@ -2338,13 +2339,23 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 // source node's point of view.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
+func (s *SQLStore) IsPublicNode(v lnwire.GossipVersion, pubKey [33]byte) (bool,
+	error) {
+
 	ctx := context.TODO()
+	if !isKnownGossipVersion(v) {
+		return false, fmt.Errorf("unsupported gossip version: %d", v)
+	}
 
 	var isPublic bool
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
-		isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
+		switch v {
+		case lnwire.GossipVersion1:
+			isPublic, err = db.IsPublicV1Node(ctx, pubKey[:])
+		case lnwire.GossipVersion2:
+			isPublic, err = db.IsPublicV2Node(ctx, pubKey[:])
+		}
 
 		return err
 	}, sqldb.NoOpReset)

@@ -2751,6 +2751,36 @@ func (q *Queries) IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, erro
 	return exists, err
 }
 
+const isPublicV2Node = `-- name: IsPublicV2Node :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_1
+    -- NOTE: we hard-code the version here since the clauses
+    -- here that determine if a node is public is specific
+    -- to the V2 gossip protocol.
+    WHERE c.version = 2
+      AND c.signature IS NOT NULL
+      AND n.pub_key = $1
+
+    UNION ALL
+
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_2
+    WHERE c.version = 2
+      AND COALESCE(length(c.signature), 0) > 0
+      AND n.pub_key = $1
+)
+`
+
+func (q *Queries) IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isPublicV2Node, pubKey)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const isZombieChannel = `-- name: IsZombieChannel :one
 SELECT EXISTS (
     SELECT 1

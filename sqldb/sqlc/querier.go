@@ -117,6 +117,7 @@ type Querier interface {
 	InsertNodeMig(ctx context.Context, arg InsertNodeMigParams) (int64, error)
 	IsClosedChannel(ctx context.Context, scid []byte) (bool, error)
 	IsPublicV1Node(ctx context.Context, pubKey []byte) (bool, error)
+	IsPublicV2Node(ctx context.Context, pubKey []byte) (bool, error)
 	IsZombieChannel(ctx context.Context, arg IsZombieChannelParams) (bool, error)
 	ListChannelsByNodeID(ctx context.Context, arg ListChannelsByNodeIDParams) ([]ListChannelsByNodeIDRow, error)
 	ListChannelsForNodeIDs(ctx context.Context, arg ListChannelsForNodeIDsParams) ([]ListChannelsForNodeIDsRow, error)

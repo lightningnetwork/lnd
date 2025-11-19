@@ -78,6 +78,92 @@ type ChannelEdgeInfo struct {
 	ExtraOpaqueData []byte
 }
 
+// EdgeModifier is a functional option that modifies a ChannelEdgeInfo.
+type EdgeModifier func(*ChannelEdgeInfo)
+
+// WithChannelPoint sets the channel point (funding outpoint) on the edge.
+func WithChannelPoint(cp wire.OutPoint) EdgeModifier {
+	return func(e *ChannelEdgeInfo) {
+		e.ChannelPoint = cp
+	}
+}
+
+// WithFeatures sets the feature vector on the edge.
+func WithFeatures(f *lnwire.RawFeatureVector) EdgeModifier {
+	return func(e *ChannelEdgeInfo) {
+		e.Features = lnwire.NewFeatureVector(f, lnwire.Features)
+	}
+}
+
+// WithCapacity sets the capacity on the edge.
+func WithCapacity(c btcutil.Amount) EdgeModifier {
+	return func(e *ChannelEdgeInfo) {
+		e.Capacity = c
+	}
+}
+
+// WithChanProof sets the authentication proof on the edge.
+func WithChanProof(proof *ChannelAuthProof) EdgeModifier {
+	return func(e *ChannelEdgeInfo) {
+		e.AuthProof = proof
+	}
+}
+
+// ChannelV1Fields contains the fields that are specific to v1 channel
+// announcements.
+type ChannelV1Fields struct {
+	// BitcoinKey1Bytes is the raw public key of the first node.
+	BitcoinKey1Bytes route.Vertex
+
+	// BitcoinKey2Bytes is the raw public key of the first node.
+	BitcoinKey2Bytes route.Vertex
+
+	// ExtraOpaqueData is the set of data that was appended to this
+	// message, some of which we may not actually know how to iterate or
+	// parse. By holding onto this data, we ensure that we're able to
+	// properly validate the set of signatures that cover these new fields,
+	// and ensure we're able to make upgrades to the network in a forwards
+	// compatible manner.
+	ExtraOpaqueData []byte
+}
+
+// NewV1Channel creates a new ChannelEdgeInfo for a v1 channel announcement.
+// It takes the required fields for all channels (chanID, chainHash, node keys)
+// and v1-specific fields, along with optional modifiers for setting additional
+// fields like capacity, channel point, features, and auth proof.
+//
+// The constructor validates that if an AuthProof is provided via modifiers, its
+// version matches the channel version (v1).
+func NewV1Channel(chanID uint64, chainHash chainhash.Hash, node1,
+	node2 route.Vertex, v1Fields *ChannelV1Fields,
+	opts ...EdgeModifier) (*ChannelEdgeInfo, error) {
+
+	edge := &ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
+		NodeKey1Bytes:    node1,
+		NodeKey2Bytes:    node2,
+		BitcoinKey1Bytes: v1Fields.BitcoinKey1Bytes,
+		BitcoinKey2Bytes: v1Fields.BitcoinKey2Bytes,
+		ChannelID:        chanID,
+		ChainHash:        chainHash,
+		Features:         lnwire.EmptyFeatureVector(),
+		ExtraOpaqueData:  v1Fields.ExtraOpaqueData,
+	}
+
+	for _, opt := range opts {
+		opt(edge)
+	}
+
+	// Validate some fields after the options have been applied.
+	if edge.AuthProof != nil && edge.AuthProof.Version != edge.Version {
+		return nil, fmt.Errorf("channel auth proof version %d does "+
+			"not match channel version %d", edge.AuthProof.Version,
+			edge.Version)
+	}
+
+	return edge, nil
+}
+
 // NodeKey1 is the identity public key of the "first" node that was involved in
 // the creation of this channel. A node is considered "first" if the
 // lexicographical ordering the its serialized public key is "smaller" than

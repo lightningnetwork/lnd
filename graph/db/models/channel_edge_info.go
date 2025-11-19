@@ -41,10 +41,10 @@ type ChannelEdgeInfo struct {
 	nodeKey2      *btcec.PublicKey
 
 	// BitcoinKey1Bytes is the raw public key of the first node.
-	BitcoinKey1Bytes route.Vertex
+	BitcoinKey1Bytes fn.Option[route.Vertex]
 
 	// BitcoinKey2Bytes is the raw public key of the second node.
-	BitcoinKey2Bytes route.Vertex
+	BitcoinKey2Bytes fn.Option[route.Vertex]
 
 	// Features is the list of protocol features supported by this channel
 	// edge.
@@ -149,8 +149,8 @@ func NewV1Channel(chanID uint64, chainHash chainhash.Hash, node1,
 		Version:          lnwire.GossipVersion1,
 		NodeKey1Bytes:    node1,
 		NodeKey2Bytes:    node2,
-		BitcoinKey1Bytes: v1Fields.BitcoinKey1Bytes,
-		BitcoinKey2Bytes: v1Fields.BitcoinKey2Bytes,
+		BitcoinKey1Bytes: fn.Some(v1Fields.BitcoinKey1Bytes),
+		BitcoinKey2Bytes: fn.Some(v1Fields.BitcoinKey2Bytes),
 		ChannelID:        chanID,
 		ChainHash:        chainHash,
 		Features:         lnwire.EmptyFeatureVector(),
@@ -247,19 +247,32 @@ func (c *ChannelEdgeInfo) ToChannelAnnouncement() (
 			"without auth proof")
 	}
 
+	btc1, err := c.BitcoinKey1Bytes.UnwrapOrErr(
+		fmt.Errorf("bitcoin key 1 missing for v1 channel announcement"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	btc2, err := c.BitcoinKey2Bytes.UnwrapOrErr(
+		fmt.Errorf("bitcoin key 2 missing for v1 channel announcement"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	chanID := lnwire.NewShortChanIDFromInt(c.ChannelID)
 	chanAnn := &lnwire.ChannelAnnouncement1{
 		ShortChannelID:  chanID,
 		NodeID1:         c.NodeKey1Bytes,
 		NodeID2:         c.NodeKey2Bytes,
 		ChainHash:       c.ChainHash,
-		BitcoinKey1:     c.BitcoinKey1Bytes,
-		BitcoinKey2:     c.BitcoinKey2Bytes,
+		BitcoinKey1:     btc1,
+		BitcoinKey2:     btc2,
 		Features:        c.Features.RawFeatureVector,
 		ExtraOpaqueData: c.ExtraOpaqueData,
 	}
 
-	var err error
 	chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
 		c.AuthProof.NodeSig1(),
 	)

@@ -637,7 +637,7 @@ func (c *ChannelGraph) HasV1Node(ctx context.Context,
 
 // IsPublicNode determines whether the node is seen as public in the graph.
 func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
-	return c.db.IsPublicNode(pubKey)
+	return c.db.IsPublicNode(lnwire.GossipVersion1, pubKey)
 }
 
 // ForEachChannel iterates through all channel edges stored within the graph.
@@ -859,6 +859,11 @@ func (c *VersionedGraph) DeleteChannelEdges(strictZombiePruning,
 	}
 
 	return err
+}
+
+// IsPublicNode determines whether the node is seen as public in the graph.
+func (c *VersionedGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
+	return c.db.IsPublicNode(c.v, pubKey)
 }
 
 // MakeTestGraph creates a new instance of the ChannelGraph for testing

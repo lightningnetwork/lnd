@@ -133,28 +133,79 @@ func (b *missionControlStore) clear() error {
 }
 
 // fetchAll returns all results currently stored in the database.
+// It also removes any corrupted entries that fail to deserialize from both
+// the database and the in-memory tracking structures.
 func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 	var results []*paymentResult
+	var corruptedKeys [][]byte
 
-	err := b.db.view(func(resultBucket kvdb.RBucket) error {
+	err := b.db.update(func(resultBucket kvdb.RwBucket) error {
 		results = make([]*paymentResult, 0)
+		corruptedKeys = make([][]byte, 0)
 
-		return resultBucket.ForEach(func(k, v []byte) error {
+		err := resultBucket.ForEach(func(k, v []byte) error {
 			result, err := deserializeResult(k, v)
+
+			// In case of an error, track the key for removal.
 			if err != nil {
-				return err
+				log.Warnf("Failed to deserialize mission "+
+					"control entry (key=%x): %v", k, err)
+
+				// Make a copy of the key since ForEach reuses
+				// the slice.
+				keyCopy := make([]byte, len(k))
+				copy(keyCopy, k)
+				corruptedKeys = append(corruptedKeys, keyCopy)
+
+				return nil
 			}
 
 			results = append(results, result)
 
 			return nil
 		})
+		if err != nil {
+			return err
+		}
 
+		// Delete corrupted entries from the database.
+		for _, key := range corruptedKeys {
+			if err := resultBucket.Delete(key); err != nil {
+				return fmt.Errorf("failed to delete corrupted "+
+					"entry: %w", err)
+			}
+		}
+
+		return nil
 	}, func() {
 		results = nil
+		corruptedKeys = nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Remove corrupted keys from in-memory tracking.
+	for _, key := range corruptedKeys {
+		keyStr := string(key)
+		delete(b.keysMap, keyStr)
+
+		// Remove from the keys list.
+		for e := b.keys.Front(); e != nil; e = e.Next() {
+			keyVal, ok := e.Value.(string)
+			if !ok {
+				continue
+			}
+			if keyVal == keyStr {
+				b.keys.Remove(e)
+				break
+			}
+		}
+	}
+
+	if len(corruptedKeys) > 0 {
+		log.Infof("Removed %d corrupted mission control entries",
+			len(corruptedKeys))
 	}
 
 	return results, nil

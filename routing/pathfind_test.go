@@ -99,12 +99,12 @@ var (
 	_             = testSScalar.SetByteSlice(testSBytes)
 	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = models.ChannelAuthProof{
-		NodeSig1Bytes:    testSig.Serialize(),
-		NodeSig2Bytes:    testSig.Serialize(),
-		BitcoinSig1Bytes: testSig.Serialize(),
-		BitcoinSig2Bytes: testSig.Serialize(),
-	}
+	testAuthProof = *models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
 )
 
 // noProbabilitySource is used in testing to return the same probability 1 for

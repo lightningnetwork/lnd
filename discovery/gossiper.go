@@ -2812,6 +2812,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(ctx context.Context,
 	// With the proof validated (if necessary), we can now store it within
 	// the database for our path finding and syncing needs.
 	edge := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChannelID:        scid.ToUint64(),
 		ChainHash:        ann.ChainHash,
 		NodeKey1Bytes:    ann.NodeID1,

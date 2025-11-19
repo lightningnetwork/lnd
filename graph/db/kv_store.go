@@ -3945,6 +3945,7 @@ func (c *KVStore) FetchChannelEdgesByID(chanID uint64) (
 			// party as this is the only information we have about
 			// it and return an error signaling so.
 			edgeInfo = &models.ChannelEdgeInfo{
+				Version:       lnwire.GossipVersion1,
 				NodeKey1Bytes: pubKey1,
 				NodeKey2Bytes: pubKey2,
 			}
@@ -4704,6 +4705,12 @@ func deserializeLightningNode(r io.Reader) (*models.Node, error) {
 func putChanEdgeInfo(edgeIndex kvdb.RwBucket,
 	edgeInfo *models.ChannelEdgeInfo, chanID [8]byte) error {
 
+	// We only support V1 channel edges in the KV store.
+	if edgeInfo.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only V1 channel edges supported, got V%d",
+			edgeInfo.Version)
+	}
+
 	var b bytes.Buffer
 
 	if _, err := b.Write(edgeInfo.NodeKey1Bytes[:]); err != nil {
@@ -4793,6 +4800,9 @@ func deserializeChanEdgeInfo(r io.Reader) (*models.ChannelEdgeInfo, error) {
 		err      error
 		edgeInfo models.ChannelEdgeInfo
 	)
+
+	// All channel edges in the KV store are V1.
+	edgeInfo.Version = lnwire.GossipVersion1
 
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey1Bytes[:]); err != nil {
 		return nil, err

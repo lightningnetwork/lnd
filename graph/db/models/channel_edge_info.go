@@ -20,6 +20,9 @@ import (
 // policy of a channel are stored within a ChannelEdgePolicy for each direction
 // of the channel.
 type ChannelEdgeInfo struct {
+	// Version is the gossip version that this channel was advertised on.
+	Version lnwire.GossipVersion
+
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
 	// and the last 2 bytes are the output index for the channel.

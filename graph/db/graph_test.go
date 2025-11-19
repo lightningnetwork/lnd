@@ -4079,21 +4079,18 @@ func TestNodeIsPublic(t *testing.T) {
 	// some graphs but not others, etc.).
 	aliceGraph := MakeTestGraph(t)
 	aliceNode := createTestVertex(t, lnwire.GossipVersion1)
-	if err := aliceGraph.SetSourceNode(ctx, aliceNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
+	err := aliceGraph.SetSourceNode(ctx, aliceNode)
+	require.NoError(t, err, "unable to set source node")
 
 	bobGraph := MakeTestGraph(t)
 	bobNode := createTestVertex(t, lnwire.GossipVersion1)
-	if err := bobGraph.SetSourceNode(ctx, bobNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
+	err = bobGraph.SetSourceNode(ctx, bobNode)
+	require.NoError(t, err, "unable to set source node")
 
 	carolGraph := MakeTestGraph(t)
 	carolNode := createTestVertex(t, lnwire.GossipVersion1)
-	if err := carolGraph.SetSourceNode(ctx, carolNode); err != nil {
-		t.Fatalf("unable to set source node: %v", err)
-	}
+	err = carolGraph.SetSourceNode(ctx, carolNode)
+	require.NoError(t, err, "unable to set source node")
 
 	aliceBobEdge, _ := createEdge(10, 0, 0, 0, aliceNode, bobNode)
 	bobCarolEdge, _ := createEdge(10, 1, 0, 1, bobNode, carolNode)
@@ -4127,19 +4124,9 @@ func TestNodeIsPublic(t *testing.T) {
 				isPublic, err := graph.IsPublicNode(
 					node.PubKeyBytes,
 				)
-				if err != nil {
-					t.Fatalf("unable to determine if "+
-						"pivot is public: %v", err)
-				}
+				require.NoError(t, err)
 
-				switch {
-				case isPublic && !public:
-					t.Fatalf("expected %x to be private",
-						node.PubKeyBytes)
-				case !isPublic && public:
-					t.Fatalf("expected %x to be public",
-						node.PubKeyBytes)
-				}
+				require.Equal(t, public, isPublic)
 			}
 		}
 	}
@@ -4155,9 +4142,7 @@ func TestNodeIsPublic(t *testing.T) {
 		err := graph.DeleteChannelEdges(
 			false, true, aliceBobEdge.ChannelID,
 		)
-		if err != nil {
-			t.Fatalf("unable to remove edge: %v", err)
-		}
+		require.NoError(t, err, "unable to remove edge")
 	}
 	checkNodes(
 		[]*models.Node{aliceNode},
@@ -4174,18 +4159,15 @@ func TestNodeIsPublic(t *testing.T) {
 		err := graph.DeleteChannelEdges(
 			false, true, bobCarolEdge.ChannelID,
 		)
-		if err != nil {
-			t.Fatalf("unable to remove edge: %v", err)
-		}
+		require.NoError(t, err, "unable to remove edge")
 
 		if graph == aliceGraph {
 			continue
 		}
 
 		bobCarolEdge.AuthProof = nil
-		if err := graph.AddChannelEdge(ctx, bobCarolEdge); err != nil {
-			t.Fatalf("unable to add edge: %v", err)
-		}
+		err = graph.AddChannelEdge(ctx, bobCarolEdge)
+		require.NoError(t, err, "unable to add edge")
 	}
 
 	// With the modifications above, Bob should now be seen as a private

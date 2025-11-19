@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -345,19 +346,28 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
-			Version:      lnwire.GossipVersion1,
-			ChannelID:    edge.ChannelID,
-			AuthProof:    &testAuthProof,
-			ChannelPoint: fundingPoint,
-			Features:     lnwire.EmptyFeatureVector(),
-			Capacity:     btcutil.Amount(edge.Capacity),
-		}
+		var node1Vertex, node2Vertex route.Vertex
+		copy(node1Vertex[:], node1Bytes)
+		copy(node2Vertex[:], node2Bytes)
 
-		copy(edgeInfo.NodeKey1Bytes[:], node1Bytes)
-		copy(edgeInfo.NodeKey2Bytes[:], node2Bytes)
-		copy(edgeInfo.BitcoinKey1Bytes[:], node1Bytes)
-		copy(edgeInfo.BitcoinKey2Bytes[:], node2Bytes)
+		var btcKey1, btcKey2 route.Vertex
+		copy(btcKey1[:], node1Bytes)
+		copy(btcKey2[:], node2Bytes)
+
+		edgeInfo, err := models.NewV1Channel(
+			edge.ChannelID, *chaincfg.SimNetParams.GenesisHash,
+			node1Vertex, node2Vertex,
+			&models.ChannelV1Fields{
+				BitcoinKey1Bytes: btcKey1,
+				BitcoinKey2Bytes: btcKey2,
+			},
+			models.WithChanProof(&testAuthProof),
+			models.WithChannelPoint(fundingPoint),
+			models.WithCapacity(btcutil.Amount(edge.Capacity)),
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		shortID := lnwire.NewShortChanIDFromInt(edge.ChannelID)
 		links[shortID] = &mockLink{
@@ -366,7 +376,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			),
 		}
 
-		err = graph.AddChannelEdge(ctx, &edgeInfo)
+		err = graph.AddChannelEdge(ctx, edgeInfo)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}
@@ -396,12 +406,12 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 
 		// We also store the channel IDs info for each of the node.
-		node1Vertex, err := route.NewVertexFromBytes(node1Bytes)
+		node1Vertex, err = route.NewVertexFromBytes(node1Bytes)
 		if err != nil {
 			return nil, err
 		}
 
-		node2Vertex, err := route.NewVertexFromBytes(node2Bytes)
+		node2Vertex, err = route.NewVertexFromBytes(node2Bytes)
 		if err != nil {
 			return nil, err
 		}
@@ -678,21 +688,21 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := models.ChannelEdgeInfo{
-			Version:      lnwire.GossipVersion1,
-			ChannelID:    channelID,
-			AuthProof:    &testAuthProof,
-			ChannelPoint: *fundingPoint,
-			Capacity:     testChannel.Capacity,
-			Features:     lnwire.EmptyFeatureVector(),
-
-			NodeKey1Bytes:    node1Vertex,
-			BitcoinKey1Bytes: node1Vertex,
-			NodeKey2Bytes:    node2Vertex,
-			BitcoinKey2Bytes: node2Vertex,
+		edgeInfo, err := models.NewV1Channel(
+			channelID, *chaincfg.SimNetParams.GenesisHash,
+			node1Vertex, node2Vertex, &models.ChannelV1Fields{
+				BitcoinKey1Bytes: node1Vertex,
+				BitcoinKey2Bytes: node2Vertex,
+			},
+			models.WithChanProof(&testAuthProof),
+			models.WithChannelPoint(*fundingPoint),
+			models.WithCapacity(testChannel.Capacity),
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		err = graph.AddChannelEdge(ctx, &edgeInfo)
+		err = graph.AddChannelEdge(ctx, edgeInfo)
 		if err != nil && !errors.Is(err, graphdb.ErrEdgeAlreadyExist) {
 			return nil, err
 		}

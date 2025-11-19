@@ -2022,7 +2022,9 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it.
-			edge = &models.ChannelEdgeInfo{}
+			edge = &models.ChannelEdgeInfo{
+				Version: lnwire.GossipVersion1,
+			}
 			copy(edge.NodeKey1Bytes[:], zombie.NodeKey1)
 			copy(edge.NodeKey2Bytes[:], zombie.NodeKey2)
 
@@ -4114,6 +4116,12 @@ func insertChannel(ctx context.Context, db SQLQueries,
 
 	v := lnwire.GossipVersion1
 
+	// For now, we only support V1 channel edges in the SQL store.
+	if edge.Version != v {
+		return fmt.Errorf("only V1 channel edges supported, got V%d",
+			edge.Version)
+	}
+
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
 	node1DBID, err := maybeCreateShellNode(
@@ -4331,6 +4339,7 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 	copy(btcKey2[:], dbChan.BitcoinKey2)
 
 	channel := &models.ChannelEdgeInfo{
+		Version:          lnwire.GossipVersion1,
 		ChainHash:        chain,
 		ChannelID:        byteOrder.Uint64(dbChan.Scid),
 		NodeKey1Bytes:    node1,

@@ -274,6 +274,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 		rpcEdge := rpcEdge
 
 		edge := &models.ChannelEdgeInfo{
+			Version:   lnwire.GossipVersion1,
 			ChannelID: rpcEdge.ChannelId,
 			ChainHash: *s.cfg.ActiveNetParams.GenesisHash,
 			Capacity:  btcutil.Amount(rpcEdge.Capacity),

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -40,9 +41,15 @@ type ChannelEdgeInfo struct {
 	NodeKey2Bytes route.Vertex
 
 	// BitcoinKey1Bytes is the raw public key of the first node.
+	//
+	// NOTE: this must be set for v1 channels but is optional for v2 and
+	// beyond.
 	BitcoinKey1Bytes fn.Option[route.Vertex]
 
 	// BitcoinKey2Bytes is the raw public key of the second node.
+	//
+	// NOTE: this must be set for v1 channels but is optional for v2 and
+	// beyond.
 	BitcoinKey2Bytes fn.Option[route.Vertex]
 
 	// Features is the list of protocol features supported by this channel
@@ -68,13 +75,28 @@ type ChannelEdgeInfo struct {
 	// the edge object is loaded from the database.
 	FundingScript fn.Option[[]byte]
 
+	// MerkleRootHash is an optional root hash of a Merkle tree that the
+	// funding output is committed to. This is then used to compute the
+	// final funding output script.
+	//
+	// NOTE: only used for version 2 channels and beyond.
+	MerkleRootHash fn.Option[chainhash.Hash]
+
 	// ExtraOpaqueData is the set of data that was appended to this
 	// message, some of which we may not actually know how to iterate or
 	// parse. By holding onto this data, we ensure that we're able to
 	// properly validate the set of signatures that cover these new fields,
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
+	//
+	// NOTE: only used for version 1 channels.
 	ExtraOpaqueData []byte
+
+	// ExtraSignedFields is a map of extra fields that are covered by the
+	// node announcement's signature that we have not explicitly parsed.
+	//
+	// NOTE: This is only used for version 2 node announcements and beyond.
+	ExtraSignedFields map[uint64][]byte
 }
 
 // EdgeModifier is a functional option that modifies a ChannelEdgeInfo.
@@ -170,6 +192,53 @@ func NewV1Channel(chanID uint64, chainHash chainhash.Hash, node1,
 	return edge, nil
 }
 
+// ChannelV2Fields contains the fields that are specific to v2 channel
+// announcements.
+type ChannelV2Fields struct {
+	// BitcoinKey1Bytes is the raw public key of the first node.
+	BitcoinKey1Bytes fn.Option[route.Vertex]
+
+	// BitcoinKey2Bytes is the raw public key of the second node.
+	BitcoinKey2Bytes fn.Option[route.Vertex]
+
+	// ExtraSignedFields is a map of extra fields that are covered by the
+	// node announcement's signature that we have not explicitly parsed.
+	//
+	// NOTE: This is only used for version 2 node announcements and beyond.
+	ExtraSignedFields map[uint64][]byte
+}
+
+// NewV2Channel creates a new ChannelEdgeInfo for a v2 channel announcement.
+func NewV2Channel(chanID uint64, chainHash chainhash.Hash, node1,
+	node2 route.Vertex, v2Fields *ChannelV2Fields,
+	opts ...EdgeModifier) (*ChannelEdgeInfo, error) {
+
+	edge := &ChannelEdgeInfo{
+		Version:           lnwire.GossipVersion2,
+		NodeKey1Bytes:     node1,
+		NodeKey2Bytes:     node2,
+		BitcoinKey1Bytes:  v2Fields.BitcoinKey1Bytes,
+		BitcoinKey2Bytes:  v2Fields.BitcoinKey2Bytes,
+		ChannelID:         chanID,
+		ChainHash:         chainHash,
+		Features:          lnwire.EmptyFeatureVector(),
+		ExtraSignedFields: v2Fields.ExtraSignedFields,
+	}
+
+	for _, opt := range opts {
+		opt(edge)
+	}
+
+	// Validate some fields after the options have been applied.
+	if edge.AuthProof != nil && edge.AuthProof.Version != edge.Version {
+		return nil, fmt.Errorf("channel auth proof version %d does "+
+			"not match channel version %d", edge.AuthProof.Version,
+			edge.Version)
+	}
+
+	return edge, nil
+}
+
 // NodeKey1 is the identity public key of the "first" node that was involved in
 // the creation of this channel. A node is considered "first" if the
 // lexicographical ordering the its serialized public key is "smaller" than
@@ -226,6 +295,64 @@ func (c *ChannelEdgeInfo) FundingPKScript() ([]byte, error) {
 		}
 
 		return input.WitnessScriptHash(witnessScript)
+
+	case lnwire.GossipVersion2:
+		var (
+			pubKey1 *btcec.PublicKey
+			pubKey2 *btcec.PublicKey
+			err     error
+		)
+		c.BitcoinKey1Bytes.WhenSome(func(key route.Vertex) {
+			pubKey1, err = btcec.ParsePubKey(key[:])
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		c.BitcoinKey2Bytes.WhenSome(func(key route.Vertex) {
+			pubKey2, err = btcec.ParsePubKey(key[:])
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// If both bitcoin keys are not present in the announcement,
+		// then we should previously have stored the funding script
+		// found on-chain.
+		if pubKey1 == nil || pubKey2 == nil {
+			return c.FundingScript.UnwrapOrErr(fmt.Errorf(
+				"expected a funding pk script since no " +
+					"bitcoin keys were provided",
+			))
+		}
+
+		// By default, the tweak is empty which results in a BIP86
+		// output. If we have a merkle root, we'll use that as the
+		// tweak.
+		muSig2Opt := musig2.WithBIP86KeyTweak()
+		c.MerkleRootHash.WhenSome(func(hash chainhash.Hash) {
+			muSig2Opt = musig2.WithTaprootKeyTweak(hash[:])
+		})
+
+		// Compute the output key.
+		combinedKey, _, _, err := musig2.AggregateKeys(
+			[]*btcec.PublicKey{pubKey1, pubKey2}, true, muSig2Opt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now that we have the combined key, we can create a taproot
+		// pkScript from this, and then make the txout given the amount.
+		fundingScript, err := input.PayToTaprootScript(
+			combinedKey.FinalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make taproot "+
+				"pkscript: %w", err)
+		}
+
+		return fundingScript, nil
 
 	default:
 		return nil, fmt.Errorf("unsupported channel version: %d",

@@ -78,9 +78,9 @@ INSERT INTO graph_channels (
     version, scid, node_id_1, node_id_2,
     outpoint, capacity, bitcoin_key_1, bitcoin_key_2,
     node_1_signature, node_2_signature, bitcoin_1_signature,
-    bitcoin_2_signature
+    bitcoin_2_signature, signature, funding_pk_script, merkle_root_hash
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 RETURNING id
 `
@@ -98,6 +98,9 @@ type CreateChannelParams struct {
 	Node2Signature    []byte
 	Bitcoin1Signature []byte
 	Bitcoin2Signature []byte
+	Signature         []byte
+	FundingPkScript   []byte
+	MerkleRootHash    []byte
 }
 
 func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (int64, error) {
@@ -114,6 +117,9 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) (i
 		arg.Node2Signature,
 		arg.Bitcoin1Signature,
 		arg.Bitcoin2Signature,
+		arg.Signature,
+		arg.FundingPkScript,
+		arg.MerkleRootHash,
 	)
 	var id int64
 	err := row.Scan(&id)

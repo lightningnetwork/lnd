@@ -55,6 +55,22 @@ func (q *Queries) AddV1ChannelProof(ctx context.Context, arg AddV1ChannelProofPa
 	)
 }
 
+const addV2ChannelProof = `-- name: AddV2ChannelProof :execresult
+UPDATE graph_channels
+SET signature = $2
+WHERE scid = $1
+  AND version = 2
+`
+
+type AddV2ChannelProofParams struct {
+	Scid      []byte
+	Signature []byte
+}
+
+func (q *Queries) AddV2ChannelProof(ctx context.Context, arg AddV2ChannelProofParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, addV2ChannelProof, arg.Scid, arg.Signature)
+}
+
 const countZombieChannels = `-- name: CountZombieChannels :one
 SELECT COUNT(*)
 FROM graph_zombie_channels

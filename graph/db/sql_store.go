@@ -2948,6 +2948,12 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
+	// For now, we only support v1 channel proofs.
+	if proof.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only v1 channel proofs supported, got v%d",
+			proof.Version)
+	}
+
 	var (
 		ctx       = context.TODO()
 		scidBytes = channelIDToBytes(scid.ToUint64())
@@ -2957,10 +2963,10 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 		res, err := db.AddV1ChannelProof(
 			ctx, sqlc.AddV1ChannelProofParams{
 				Scid:              scidBytes,
-				Node1Signature:    proof.NodeSig1Bytes,
-				Node2Signature:    proof.NodeSig2Bytes,
-				Bitcoin1Signature: proof.BitcoinSig1Bytes,
-				Bitcoin2Signature: proof.BitcoinSig2Bytes,
+				Node1Signature:    proof.NodeSig1(),
+				Node2Signature:    proof.NodeSig2(),
+				Bitcoin1Signature: proof.BitcoinSig1(),
+				Bitcoin2Signature: proof.BitcoinSig2(),
 			},
 		)
 		if err != nil {
@@ -4157,10 +4163,10 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	if edge.AuthProof != nil {
 		proof := edge.AuthProof
 
-		createParams.Node1Signature = proof.NodeSig1Bytes
-		createParams.Node2Signature = proof.NodeSig2Bytes
-		createParams.Bitcoin1Signature = proof.BitcoinSig1Bytes
-		createParams.Bitcoin2Signature = proof.BitcoinSig2Bytes
+		createParams.Node1Signature = proof.NodeSig1()
+		createParams.Node2Signature = proof.NodeSig2()
+		createParams.Bitcoin1Signature = proof.BitcoinSig1()
+		createParams.Bitcoin2Signature = proof.BitcoinSig2()
 	}
 
 	// Insert the new channel record.
@@ -4356,12 +4362,16 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 	// safely check if one signature is present to determine if we have the
 	// rest of the signatures for the auth proof.
 	if len(dbChan.Bitcoin1Signature) > 0 {
-		channel.AuthProof = &models.ChannelAuthProof{
-			NodeSig1Bytes:    dbChan.Node1Signature,
-			NodeSig2Bytes:    dbChan.Node2Signature,
-			BitcoinSig1Bytes: dbChan.Bitcoin1Signature,
-			BitcoinSig2Bytes: dbChan.Bitcoin2Signature,
+		// For v1 channels, we have four signatures.
+		if dbChan.Version == int16(lnwire.GossipVersion1) {
+			channel.AuthProof = models.NewV1ChannelAuthProof(
+				dbChan.Node1Signature,
+				dbChan.Node2Signature,
+				dbChan.Bitcoin1Signature,
+				dbChan.Bitcoin2Signature,
+			)
 		}
+		// TODO(elle): Add v2 support when needed.
 	}
 
 	return channel, nil

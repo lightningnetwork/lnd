@@ -2044,14 +2044,9 @@ func TestGraphPruning(t *testing.T) {
 			t.Fatalf("unable to add node: %v", err)
 		}
 
-		btcKey1 := edgeInfo.BitcoinKey1Bytes.UnwrapOr(route.Vertex{})
-		btcKey2 := edgeInfo.BitcoinKey2Bytes.UnwrapOr(route.Vertex{})
-		pkScript, err := genMultiSigP2WSH(
-			btcKey1[:], btcKey2[:],
-		)
-		if err != nil {
-			t.Fatalf("unable to gen multi-sig p2wsh: %v", err)
-		}
+		pkScript, err := edgeInfo.FundingPKScript()
+		require.NoError(t, err)
+
 		edgePoints = append(edgePoints, EdgePoint{
 			FundingPkScript: pkScript,
 			OutPoint:        op,

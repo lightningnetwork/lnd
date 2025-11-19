@@ -142,6 +142,10 @@ var versionedTests = []versionedTest{
 		name: "add edge proof",
 		test: testAddEdgeProof,
 	},
+	{
+		name: "partial node",
+		test: testPartialNode,
+	},
 }
 
 // TestVersionedDBs runs various tests against both v1 and v2 versioned
@@ -367,24 +371,22 @@ func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 	require.NoError(t, err)
 }
 
-// TestPartialNode checks that we can add and retrieve a Node where
-// only the pubkey is known to the database.
-func TestPartialNode(t *testing.T) {
+// testPartialNode tests that partial/shell nodes are correctly created when
+// a channel edge is added referencing nodes we are not yet aware of.
+func testPartialNode(t *testing.T, v lnwire.GossipVersion) {
 	t.Parallel()
 	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// To insert a partial node, we need to add a channel edge that has
-	// node keys for nodes we are not yet aware
+	// node keys for nodes we are not yet aware of.
 	var node1, node2 models.Node
 	copy(node1.PubKeyBytes[:], pubKey1Bytes)
 	copy(node2.PubKeyBytes[:], pubKey2Bytes)
 
 	// Create an edge attached to these nodes and add it to the graph.
-	edgeInfo, _ := createEdge(
-		lnwire.GossipVersion1, 140, 0, 0, 0, &node1, &node2,
-	)
+	edgeInfo, _ := createEdge(v, 140, 0, 0, 0, &node1, &node2)
 	require.NoError(t, graph.AddChannelEdge(ctx, edgeInfo))
 
 	// Both of the nodes should now be in both the graph (as partial/shell)
@@ -392,7 +394,7 @@ func TestPartialNode(t *testing.T) {
 	assertNodeInCache(t, graph.ChannelGraph, &node1, nil)
 	assertNodeInCache(t, graph.ChannelGraph, &node2, nil)
 
-	// Next, fetch the node2 from the database to ensure everything was
+	// Next, fetch the nodes from the database to ensure everything was
 	// serialized properly.
 	dbNode1, err := graph.FetchNode(ctx, pubKey1)
 	require.NoError(t, err)
@@ -405,7 +407,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode1 := models.NewV1ShellNode(pubKey1)
+	expectedNode1 := models.NewShellNode(v, pubKey1)
 	compareNodes(t, expectedNode1, dbNode1)
 
 	exists, err = graph.HasNode(ctx, dbNode2.PubKeyBytes)
@@ -414,7 +416,7 @@ func TestPartialNode(t *testing.T) {
 
 	// The two nodes should match exactly! (with default values for
 	// LastUpdate and db set to satisfy compareNodes())
-	expectedNode2 := models.NewV1ShellNode(pubKey2)
+	expectedNode2 := models.NewShellNode(v, pubKey2)
 	compareNodes(t, expectedNode2, dbNode2)
 
 	// Next, delete the node from the graph, this should purge all data

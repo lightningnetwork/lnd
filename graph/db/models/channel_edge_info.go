@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -218,6 +219,38 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 	default:
 		return route.Vertex{}, fmt.Errorf("node not participating in " +
 			"this channel")
+	}
+}
+
+// FundingPKScript returns the funding output's pkScript for the channel.
+func (c *ChannelEdgeInfo) FundingPKScript() ([]byte, error) {
+	switch c.Version {
+	case lnwire.GossipVersion1:
+		btc1Key, err := c.BitcoinKey1Bytes.UnwrapOrErr(
+			fmt.Errorf("missing bitcoin key 1"),
+		)
+		if err != nil {
+			return nil, err
+		}
+		btc2Key, err := c.BitcoinKey2Bytes.UnwrapOrErr(
+			fmt.Errorf("missing bitcoin key 2"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		witnessScript, err := input.GenMultiSigScript(
+			btc1Key[:], btc2Key[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return input.WitnessScriptHash(witnessScript)
+
+	default:
+		return nil, fmt.Errorf("unsupported channel version: %d",
+			c.Version)
 	}
 }
 

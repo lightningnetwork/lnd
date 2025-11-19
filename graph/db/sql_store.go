@@ -2008,8 +2008,8 @@ func (s *SQLStore) DeleteChannelEdges(v lnwire.GossipVersion,
 // the ChannelEdgeInfo will only include the public keys of each node.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (s *SQLStore) FetchChannelEdgesByID(v lnwire.GossipVersion,
+	chanID uint64) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
 	var (
@@ -2018,11 +2018,18 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 		policy1, policy2 *models.ChannelEdgePolicy
 		chanIDB          = channelIDToBytes(chanID)
 	)
+
+	if !isKnownGossipVersion(v) {
+		return nil, nil, nil, fmt.Errorf(
+			"unsupported gossip version: %d", v,
+		)
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		row, err := db.GetChannelBySCIDWithPolicies(
 			ctx, sqlc.GetChannelBySCIDWithPoliciesParams{
 				Scid:    chanIDB,
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -2031,7 +2038,7 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 			zombie, err := db.GetZombieChannel(
 				ctx, sqlc.GetZombieChannelParams{
 					Scid:    chanIDB,
-					Version: int16(lnwire.GossipVersion1),
+					Version: int16(v),
 				},
 			)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -2118,8 +2125,8 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 // contain the routing policies for the channel in either direction.
 //
 // NOTE: part of the Store interface.
-func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
-	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+func (s *SQLStore) FetchChannelEdgesByOutpoint(v lnwire.GossipVersion,
+	op *wire.OutPoint) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
 
 	var (
@@ -2127,11 +2134,18 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 		edge             *models.ChannelEdgeInfo
 		policy1, policy2 *models.ChannelEdgePolicy
 	)
+
+	if !isKnownGossipVersion(v) {
+		return nil, nil, nil, fmt.Errorf(
+			"unsupported gossip version: %d", v,
+		)
+	}
+
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		row, err := db.GetChannelByOutpointWithPolicies(
 			ctx, sqlc.GetChannelByOutpointWithPoliciesParams{
 				Outpoint: op.String(),
-				Version:  int16(lnwire.GossipVersion1),
+				Version:  int16(v),
 			},
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -4660,6 +4674,21 @@ func getAndBuildChanPolicies(ctx context.Context, cfg *sqldb.QueryConfig,
 
 	if dbPol1 == nil && dbPol2 == nil {
 		return nil, nil, nil
+	}
+
+	// TODO(elle): update to support v2 policies.
+	if dbPol1 != nil &&
+		lnwire.GossipVersion(dbPol1.Version) != lnwire.GossipVersion1 {
+
+		return nil, nil, fmt.Errorf("unsupported policy1 version: %d",
+			dbPol1.Version)
+	}
+
+	if dbPol2 != nil &&
+		lnwire.GossipVersion(dbPol2.Version) != lnwire.GossipVersion1 {
+
+		return nil, nil, fmt.Errorf("unsupported policy2 version: %d",
+			dbPol2.Version)
 	}
 
 	var policyIDs = make([]int64, 0, 2)

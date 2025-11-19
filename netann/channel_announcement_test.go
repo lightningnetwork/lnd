@@ -46,21 +46,19 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		expChanAnn.BitcoinSig1.ToSignatureBytes(),
 		expChanAnn.BitcoinSig2.ToSignatureBytes(),
 	)
-	chanInfo := &models.ChannelEdgeInfo{
-		Version:          lnwire.GossipVersion1,
-		ChainHash:        expChanAnn.ChainHash,
-		ChannelID:        expChanAnn.ShortChannelID.ToUint64(),
-		ChannelPoint:     wire.OutPoint{Index: 1},
-		Capacity:         btcutil.SatoshiPerBitcoin,
-		NodeKey1Bytes:    key,
-		NodeKey2Bytes:    key,
-		BitcoinKey1Bytes: key,
-		BitcoinKey2Bytes: key,
-		Features: lnwire.NewFeatureVector(
-			features, lnwire.Features,
-		),
-		ExtraOpaqueData: expChanAnn.ExtraOpaqueData,
-	}
+	chanInfo, err := models.NewV1Channel(
+		expChanAnn.ShortChannelID.ToUint64(), expChanAnn.ChainHash,
+		key, key, &models.ChannelV1Fields{
+			BitcoinKey1Bytes: key,
+			BitcoinKey2Bytes: key,
+			ExtraOpaqueData:  expChanAnn.ExtraOpaqueData,
+		},
+		models.WithChanProof(chanProof),
+		models.WithChannelPoint(wire.OutPoint{Index: 1}),
+		models.WithCapacity(btcutil.SatoshiPerBitcoin),
+		models.WithFeatures(features),
+	)
+	require.NoError(t, err)
 	chanAnn, _, _, err := CreateChanAnnouncement(
 		chanProof, chanInfo, nil, nil,
 	)

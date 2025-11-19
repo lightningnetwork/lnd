@@ -272,11 +272,15 @@ func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 			return nil, nil, nil, graphdb.ErrEdgeNotFound
 		}
 
-		return &models.ChannelEdgeInfo{
-			Version:       lnwire.GossipVersion1,
-			NodeKey1Bytes: pubKeys[0],
-			NodeKey2Bytes: pubKeys[1],
-		}, nil, nil, graphdb.ErrZombieEdge
+		zombieEdge, err := models.NewV1Channel(
+			0, chainhash.Hash{}, pubKeys[0], pubKeys[1],
+			&models.ChannelV1Fields{},
+		)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		return zombieEdge, nil, nil, graphdb.ErrZombieEdge
 	}
 
 	edges := r.edges[chanID.ToUint64()]

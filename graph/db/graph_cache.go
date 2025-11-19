@@ -121,13 +121,9 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 		return
 	}
 
-	if policy1 != nil && policy1.IsDisabled() &&
-		policy2 != nil && policy2.IsDisabled() {
-
-		return
-	}
-
-	// Create the edge entry for both nodes.
+	// Create the edge entry for both nodes. We always add the channel
+	// structure to the cache, even if both policies are currently disabled,
+	// so that later policy updates can find and update the channel entry.
 	c.mtx.Lock()
 	c.updateOrAddEdge(info.NodeKey1Bytes, &DirectedChannel{
 		ChannelID: info.ChannelID,
@@ -142,6 +138,19 @@ func (c *GraphCache) AddChannel(info *models.CachedEdgeInfo,
 		Capacity:  info.Capacity,
 	})
 	c.mtx.Unlock()
+
+	// Skip adding policies if both are disabled, as the channel is
+	// currently unusable for routing. However, we still add the channel
+	// structure above so that policy updates can later enable it.
+	if policy1 != nil && policy1.IsDisabled() &&
+		policy2 != nil && policy2.IsDisabled() {
+
+		log.Debugf("Skipping policies for channel %v: both "+
+			"policies are disabled (channel structure still "+
+			"cached for future updates)", info.ChannelID)
+
+		return
+	}
 
 	// The policy's node is always the to_node. So if policy 1 has to_node
 	// of node 2 then we have the policy 1 as seen from node 1.

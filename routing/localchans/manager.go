@@ -449,7 +449,7 @@ func (r *Manager) updateEdge(chanPoint wire.OutPoint,
 	}
 
 	// Clear signature to help prevent usage of the previous signature.
-	edge.SetSigBytes(nil)
+	edge.SigBytes = nil
 
 	return nil
 }

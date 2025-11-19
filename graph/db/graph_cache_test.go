@@ -139,3 +139,113 @@ func assertCachedPolicyEqual(t *testing.T, original,
 		require.Equal(t, original.ToNodePubKey(), cached.ToNodePubKey())
 	}
 }
+
+// TestGraphCacheDisabledPoliciesRegression is a regression test for the bug
+// where channels with both policies disabled were not added to the graph cache
+// during population, preventing future policy updates from working.
+//
+// The bug flow was:
+// 1. Channel with both policies disabled exists in DB.
+// 2. populateCache skips adding it to graph cache entirely.
+// 3. Later, a policy update arrives enabling one direction.
+// 4. UpdateEdgePolicy updates the DB successfully.
+// 5. UpdateEdgePolicy tries to update graph cache but channel not found.
+// 6. Channel never becomes usable for routing.
+func TestGraphCacheDisabledPoliciesRegression(t *testing.T) {
+	t.Parallel()
+
+	// Create a simple cache instance.
+	cache := NewGraphCache(10)
+
+	// Simulate a channel with both policies disabled.
+	chanID := uint64(12345)
+	node1 := pubKey1
+	node2 := pubKey2
+
+	edgeInfo := &models.CachedEdgeInfo{
+		ChannelID:     chanID,
+		NodeKey1Bytes: node1,
+		NodeKey2Bytes: node2,
+		Capacity:      1000000,
+	}
+
+	// Create two disabled policies.
+	disabledPolicy1 := &models.CachedEdgePolicy{
+		ChannelID:    chanID,
+		ChannelFlags: lnwire.ChanUpdateDisabled,
+	}
+	disabledPolicy2 := &models.CachedEdgePolicy{
+		ChannelID: chanID,
+		ChannelFlags: lnwire.ChanUpdateDisabled |
+			lnwire.ChanUpdateDirection,
+	}
+
+	// Add the channel with both policies disabled (simulating
+	// populateCache).
+	cache.AddChannel(edgeInfo, disabledPolicy1, disabledPolicy2)
+
+	// Verify the channel structure was added to cache.
+	var foundChannels []*DirectedChannel
+	err := cache.ForEachChannel(node1, func(c *DirectedChannel) error {
+		if c.ChannelID == chanID {
+			foundChannels = append(foundChannels, c)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, foundChannels, 1,
+		"channel structure should be in cache even when both "+
+			"policies are disabled")
+
+	// Verify policies were NOT added (both disabled).
+	require.False(t, foundChannels[0].OutPolicySet,
+		"disabled outgoing policy should not be set in cache")
+	require.Nil(t, foundChannels[0].InPolicy,
+		"disabled incoming policy should not be set in cache")
+
+	// Now simulate receiving a fresh update enabling one direction.
+	enabledPolicy1 := &models.CachedEdgePolicy{
+		ChannelID:     chanID,
+		ChannelFlags:  0, // NOT disabled anymore
+		TimeLockDelta: 40,
+		MinHTLC:       lnwire.MilliSatoshi(1000),
+	}
+
+	// Update the policy (simulating what UpdateEdgePolicy does).
+	cache.UpdatePolicy(enabledPolicy1, node1, node2)
+
+	// Verify the policy update succeeded. Before the fix, UpdatePolicy
+	// would log "Channel not found in graph cache" and return early,
+	// so the policy would never be added.
+	foundChannels = nil
+	err = cache.ForEachChannel(node1, func(c *DirectedChannel) error {
+		if c.ChannelID == chanID {
+			foundChannels = append(foundChannels, c)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, foundChannels, 1)
+
+	// The policy should now be set.
+	require.True(t, foundChannels[0].OutPolicySet,
+		"REGRESSION: policy update should work even for channels that "+
+			"had both policies disabled initially")
+
+	// Verify we can also see it from node2's perspective.
+	foundChannels = nil
+	err = cache.ForEachChannel(node2, func(c *DirectedChannel) error {
+		if c.ChannelID == chanID {
+			foundChannels = append(foundChannels, c)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, foundChannels, 1)
+	require.NotNil(t, foundChannels[0].InPolicy,
+		"incoming policy should be set after policy update")
+	require.Equal(t, uint16(40), foundChannels[0].InPolicy.TimeLockDelta)
+}

@@ -713,7 +713,9 @@ func createEdge(version lnwire.GossipVersion, height, txIndex uint32,
 
 		// Create a test funding script.
 		fundingScript := []byte{0x00, 0x20}
-		fundingScript = append(fundingScript, bytes.Repeat([]byte{0xbb}, 32)...)
+		fundingScript = append(
+			fundingScript, bytes.Repeat([]byte{0xbb}, 32)...,
+		)
 
 		proof := models.NewV2ChannelAuthProof(testSig.Serialize())
 
@@ -777,7 +779,9 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(lnwire.GossipVersion1, height, 0, 0, 0, node1, node2)
+	edgeInfo, _ := createEdge(
+		lnwire.GossipVersion1, height, 0, 0, 0, node1, node2,
+	)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
@@ -2238,8 +2242,12 @@ func TestHighestChanID(t *testing.T) {
 
 	// The first channel with be at height 10, while the other will be at
 	// height 100.
-	edge1, _ := createEdge(lnwire.GossipVersion1, 10, 0, 0, 0, node1, node2)
-	edge2, chanID2 := createEdge(lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2)
+	edge1, _ := createEdge(
+		lnwire.GossipVersion1, 10, 0, 0, 0, node1, node2,
+	)
+	edge2, chanID2 := createEdge(
+		lnwire.GossipVersion1, 100, 0, 0, 0, node1, node2,
+	)
 
 	if err := graph.AddChannelEdge(ctx, edge1); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
@@ -4723,7 +4731,9 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(lnwire.GossipVersion1, height, 0, 0, 0, node1, node2)
+	edgeInfo, _ := createEdge(
+		lnwire.GossipVersion1, height, 0, 0, 0, node1, node2,
+	)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make

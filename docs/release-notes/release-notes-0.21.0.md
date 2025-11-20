@@ -61,6 +61,9 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 
+LND now [enforces](https://github.com/lightning/bolts/pull/1284) low-S canonical
+signatures when `n` field is present in a BOLT11 invoice.
+
 ## Testing
 
 ## Database
@@ -78,3 +81,4 @@
 * Boris Nagaev
 * Elle Mouton
 * Nishant Bansal
+* Pins

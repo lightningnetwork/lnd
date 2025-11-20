@@ -143,19 +143,22 @@ var _ DB = (*SQLStore)(nil)
 // including attempts, hops, and custom records from the database.
 // This is a convenience wrapper around the batch loading functions for single
 // payment operations.
-func (s *SQLStore) fetchPaymentWithCompleteData(ctx context.Context,
-	db SQLQueries, dbPayment sqlc.PaymentAndIntent) (*MPPayment, error) {
+func fetchPaymentWithCompleteData(ctx context.Context,
+	cfg *sqldb.QueryConfig, db SQLQueries,
+	dbPayment sqlc.PaymentAndIntent) (*MPPayment, error) {
 
 	payment := dbPayment.GetPayment()
 
 	// Load batch data for this single payment.
-	batchData, err := s.loadPaymentsBatchData(ctx, db, []int64{payment.ID})
+	batchData, err := loadPaymentsBatchData(
+		ctx, cfg, db, []int64{payment.ID},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load batch data: %w", err)
 	}
 
 	// Build the payment from the batch data.
-	return s.buildPaymentFromBatchData(dbPayment, batchData)
+	return buildPaymentFromBatchData(dbPayment, batchData)
 }
 
 // paymentsBatchData holds all the batch-loaded data for multiple payments.
@@ -180,12 +183,12 @@ type paymentsBatchData struct {
 // loadPaymentCustomRecords loads payment-level custom records for a given
 // set of payment IDs. It uses a batch query to fetch all custom records for
 // the given payment IDs.
-func (s *SQLStore) loadPaymentCustomRecords(ctx context.Context,
-	db SQLQueries, paymentIDs []int64,
+func loadPaymentCustomRecords(ctx context.Context,
+	cfg *sqldb.QueryConfig, db SQLQueries, paymentIDs []int64,
 	batchData *paymentsBatchData) error {
 
 	return sqldb.ExecuteBatchQuery(
-		ctx, s.cfg.QueryCfg, paymentIDs,
+		ctx, cfg, paymentIDs,
 		func(id int64) int64 { return id },
 		func(ctx context.Context, ids []int64) (
 			[]sqlc.PaymentFirstHopCustomRecord, error) {
@@ -214,13 +217,14 @@ func (s *SQLStore) loadPaymentCustomRecords(ctx context.Context,
 // loadHtlcAttempts loads HTLC attempts for all payments and returns all
 // attempt indices. It uses a batch query to fetch all attempts for the given
 // payment IDs.
-func (s *SQLStore) loadHtlcAttempts(ctx context.Context, db SQLQueries,
-	paymentIDs []int64, batchData *paymentsBatchData) ([]int64, error) {
+func loadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, paymentIDs []int64,
+	batchData *paymentsBatchData) ([]int64, error) {
 
 	var allAttemptIndices []int64
 
 	err := sqldb.ExecuteBatchQuery(
-		ctx, s.cfg.QueryCfg, paymentIDs,
+		ctx, cfg, paymentIDs,
 		func(id int64) int64 { return id },
 		func(ctx context.Context, ids []int64) (
 			[]sqlc.FetchHtlcAttemptsForPaymentsRow, error) {
@@ -246,13 +250,14 @@ func (s *SQLStore) loadHtlcAttempts(ctx context.Context, db SQLQueries,
 
 // loadHopsForAttempts loads hops for all attempts and returns all hop IDs.
 // It uses a batch query to fetch all hops for the given attempt indices.
-func (s *SQLStore) loadHopsForAttempts(ctx context.Context, db SQLQueries,
-	attemptIndices []int64, batchData *paymentsBatchData) ([]int64, error) {
+func loadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, attemptIndices []int64,
+	batchData *paymentsBatchData) ([]int64, error) {
 
 	var hopIDs []int64
 
 	err := sqldb.ExecuteBatchQuery(
-		ctx, s.cfg.QueryCfg, attemptIndices,
+		ctx, cfg, attemptIndices,
 		func(idx int64) int64 { return idx },
 		func(ctx context.Context, indices []int64) (
 			[]sqlc.FetchHopsForAttemptsRow, error) {
@@ -279,11 +284,11 @@ func (s *SQLStore) loadHopsForAttempts(ctx context.Context, db SQLQueries,
 
 // loadHopCustomRecords loads hop-level custom records for all hops. It uses
 // a batch query to fetch all custom records for the given hop IDs.
-func (s *SQLStore) loadHopCustomRecords(ctx context.Context, db SQLQueries,
-	hopIDs []int64, batchData *paymentsBatchData) error {
+func loadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, hopIDs []int64, batchData *paymentsBatchData) error {
 
 	return sqldb.ExecuteBatchQuery(
-		ctx, s.cfg.QueryCfg, hopIDs,
+		ctx, cfg, hopIDs,
 		func(id int64) int64 { return id },
 		func(ctx context.Context, ids []int64) (
 			[]sqlc.PaymentHopCustomRecord, error) {
@@ -313,11 +318,12 @@ func (s *SQLStore) loadHopCustomRecords(ctx context.Context, db SQLQueries,
 // loadRouteCustomRecords loads route-level first hop custom records for all
 // attempts. It uses a batch query to fetch all custom records for the given
 // attempt indices.
-func (s *SQLStore) loadRouteCustomRecords(ctx context.Context, db SQLQueries,
-	attemptIndices []int64, batchData *paymentsBatchData) error {
+func loadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, attemptIndices []int64,
+	batchData *paymentsBatchData) error {
 
 	return sqldb.ExecuteBatchQuery(
-		ctx, s.cfg.QueryCfg, attemptIndices,
+		ctx, cfg, attemptIndices,
 		func(idx int64) int64 { return idx },
 		func(ctx context.Context, indices []int64) (
 			[]sqlc.PaymentAttemptFirstHopCustomRecord, error) {
@@ -342,8 +348,8 @@ func (s *SQLStore) loadRouteCustomRecords(ctx context.Context, db SQLQueries,
 
 // loadPaymentsBatchData loads all related data for multiple payments in batch.
 // It uses a batch queries to fetch all data for the given payment IDs.
-func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
-	paymentIDs []int64) (*paymentsBatchData, error) {
+func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, paymentIDs []int64) (*paymentsBatchData, error) {
 
 	batchData := &paymentsBatchData{
 		paymentCustomRecords: make(
@@ -368,15 +374,15 @@ func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 	}
 
 	// Load payment-level custom records.
-	err := s.loadPaymentCustomRecords(ctx, db, paymentIDs, batchData)
+	err := loadPaymentCustomRecords(ctx, cfg, db, paymentIDs, batchData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch payment custom "+
 			"records: %w", err)
 	}
 
 	// Load HTLC attempts and collect attempt indices.
-	allAttemptIndices, err := s.loadHtlcAttempts(
-		ctx, db, paymentIDs, batchData,
+	allAttemptIndices, err := loadHtlcAttempts(
+		ctx, cfg, db, paymentIDs, batchData,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch HTLC attempts: %w",
@@ -389,8 +395,8 @@ func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 	}
 
 	// Load hops for all attempts and collect hop IDs.
-	hopIDs, err := s.loadHopsForAttempts(
-		ctx, db, allAttemptIndices, batchData,
+	hopIDs, err := loadHopsForAttempts(
+		ctx, cfg, db, allAttemptIndices, batchData,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch hops for attempts: %w",
@@ -399,7 +405,7 @@ func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 
 	// Load hop-level custom records if there are any hops.
 	if len(hopIDs) > 0 {
-		err = s.loadHopCustomRecords(ctx, db, hopIDs, batchData)
+		err = loadHopCustomRecords(ctx, cfg, db, hopIDs, batchData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch hop custom "+
 				"records: %w", err)
@@ -407,7 +413,7 @@ func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 	}
 
 	// Load route-level first hop custom records.
-	err = s.loadRouteCustomRecords(ctx, db, allAttemptIndices, batchData)
+	err = loadRouteCustomRecords(ctx, cfg, db, allAttemptIndices, batchData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch route custom "+
 			"records: %w", err)
@@ -418,7 +424,7 @@ func (s *SQLStore) loadPaymentsBatchData(ctx context.Context, db SQLQueries,
 
 // buildPaymentFromBatchData builds a complete MPPayment from a database payment
 // and pre-loaded batch data.
-func (s *SQLStore) buildPaymentFromBatchData(dbPayment sqlc.PaymentAndIntent,
+func buildPaymentFromBatchData(dbPayment sqlc.PaymentAndIntent,
 	batchData *paymentsBatchData) (*MPPayment, error) {
 
 	// The query will only return BOLT 11 payment intents or intents with
@@ -555,7 +561,9 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		batchDataFunc := func(ctx context.Context, paymentIDs []int64) (
 			*paymentsBatchData, error) {
 
-			return s.loadPaymentsBatchData(ctx, db, paymentIDs)
+			return loadPaymentsBatchData(
+				ctx, s.cfg.QueryCfg, db, paymentIDs,
+			)
 		}
 
 		// processPayment processes each payment with the batch-loaded
@@ -565,7 +573,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 			batchData *paymentsBatchData) error {
 
 			// Build the payment from the pre-loaded batch data.
-			mpPayment, err := s.buildPaymentFromBatchData(
+			mpPayment, err := buildPaymentFromBatchData(
 				dbPayment, batchData,
 			)
 			if err != nil {
@@ -708,8 +716,8 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 			return ErrPaymentNotInitiated
 		}
 
-		mpPayment, err = s.fetchPaymentWithCompleteData(
-			ctx, db, dbPayment,
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment with "+
@@ -1176,8 +1184,8 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 	var mpPayment *MPPayment
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		// First Fetch the payment and check if it is registrable.
-		existingPayment, err := db.FetchPayment(ctx, paymentHash[:])
+		// Make sure the payment exists.
+		dbPayment, err := db.FetchPayment(ctx, paymentHash[:])
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment: %w", err)
 		}
@@ -1188,8 +1196,8 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 		// TODO(ziggie): We could improve the query here since only
 		// the last hop data is needed here not the complete payment
 		// data.
-		mpPayment, err = s.fetchPaymentWithCompleteData(
-			ctx, db, existingPayment,
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment with "+
@@ -1211,7 +1219,7 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 		sessionKeyBytes := sessionKey.Serialize()
 
 		_, err = db.InsertHtlcAttempt(ctx, sqlc.InsertHtlcAttemptParams{
-			PaymentID:    existingPayment.Payment.ID,
+			PaymentID:    dbPayment.Payment.ID,
 			AttemptIndex: int64(attempt.AttemptID),
 			SessionKey:   sessionKeyBytes,
 			AttemptTime:  attempt.AttemptTime,
@@ -1268,8 +1276,8 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 		// interface), we still refetch here to guarantee we return
 		// consistent, up-to-date data that reflects all changes made
 		// within this transaction.
-		mpPayment, err = s.fetchPaymentWithCompleteData(
-			ctx, db, existingPayment,
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment with "+
@@ -1331,8 +1339,8 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 		}
 
 		// Fetch the complete payment after we settled the attempt.
-		mpPayment, err = s.fetchPaymentWithCompleteData(
-			ctx, db, dbPayment,
+		mpPayment, err = fetchPaymentWithCompleteData(
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to fetch payment with "+

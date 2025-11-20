@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -26,6 +27,18 @@ var (
 	// ErrPaymentIDAlreadyExists is returned if we try to write a pending
 	// payment whose paymentID already exists.
 	ErrPaymentIDAlreadyExists = errors.New("paymentID already exists")
+
+	// ErrAttemptResultNotAvailable is returned if we try to get a result
+	// for a pending payment whose result is not yet available.
+	ErrAttemptResultNotAvailable = errors.New(
+		"attempt result not yet available",
+	)
+)
+
+const (
+	// pendingHtlcMsgType is a custom message type used to represent a
+	// pending HTLC in the network result store.
+	pendingHtlcMsgType lnwire.MessageType = 32768
 )
 
 // PaymentResult wraps a decoded result received from the network after a
@@ -104,9 +117,97 @@ func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	}
 }
 
-// storeResult stores the networkResult for the given attemptID, and notifies
+// InitAttempt initializes the payment attempt with the given attemptID.
+//
+// If any record (even a pending result placeholder) already exists in the
+// store, this method returns ErrPaymentIDAlreadyExists. This guarantees that
+// only one HTLC will be initialized and dispatched for a given attempt ID until
+// the ID is explicitly cleaned from attempt store.
+//
+// NOTE: Subscribed clients do not receive notice of this initialization.
+func (store *networkResultStore) InitAttempt(attemptID uint64) error {
+	// We get a mutex for this attempt ID. This is needed to ensure
+	// consistency between the database state and the subscribers in case
+	// of concurrent calls.
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
+
+	// Check if any attempt by this ID is already initialized or whether a
+	// result for the attempt exists in the store.
+	var existingResult *networkResult
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		var err error
+		existingResult, err = fetchResult(tx, attemptID)
+		if err != nil && !errors.Is(err, ErrPaymentIDNotFound) {
+			return err
+		}
+
+		return nil
+	}, func() {
+		existingResult = nil
+	})
+	if err != nil {
+		return err
+	}
+
+	// If the result is already in-progress, return an error indicating that
+	// the attempt already exists.
+	if existingResult != nil {
+		log.Warnf("Already initialized attempt for ID=%v", attemptID)
+
+		return ErrPaymentIDAlreadyExists
+	}
+
+	// Create an empty networkResult to serve as place holder until a result
+	// from the network is received.
+	pendingMsg, err := lnwire.NewCustom(pendingHtlcMsgType, nil)
+	if err != nil {
+		// This should not happen with a static message type.
+		return err
+	}
+	inProgressResult := &networkResult{
+		msg:          pendingMsg,
+		unencrypted:  true,
+		isResolution: false,
+	}
+
+	var b bytes.Buffer
+	if err := serializeNetworkResult(&b, inProgressResult); err != nil {
+		return err
+	}
+
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
+
+	// Mark an attempt with this ID as having been seen. No network result
+	// is available yet.
+	//
+	// NOTE: Subscribed clients expecting to block until a network result is
+	// available must not be notified of this initialization.
+	err = kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
+		networkResults, err := tx.CreateTopLevelBucket(
+			networkResultStoreBucketKey,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Store the in-progress result.
+		return networkResults.Put(attemptIDBytes[:], b.Bytes())
+	})
+	if err != nil {
+		return err
+	}
+
+	log.Debugf("Initialized attempt for local payment with attemptID=%v",
+		attemptID)
+
+	return nil
+}
+
+// StoreResult stores the networkResult for the given attemptID, and notifies
 // any subscribers.
-func (store *networkResultStore) storeResult(attemptID uint64,
+func (store *networkResultStore) StoreResult(attemptID uint64,
 	result *networkResult) error {
 
 	// We get a mutex for this attempt ID. This is needed to ensure
@@ -117,7 +218,7 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 
 	log.Debugf("Storing result for attemptID=%v", attemptID)
 
-	// Serialize the payment result.
+	// Handle finalized result (success or failure).
 	var b bytes.Buffer
 	if err := serializeNetworkResult(&b, result); err != nil {
 		return err
@@ -141,20 +242,23 @@ func (store *networkResultStore) storeResult(attemptID uint64,
 	}
 
 	// Now that the result is stored in the database, we can notify any
-	// active subscribers.
-	store.resultsMtx.Lock()
-	for _, res := range store.results[attemptID] {
-		res <- result
+	// active subscribers - but only if this isn't an initialized attempt
+	// awaiting a settle/fail result from the network.
+	if result.msg.MsgType() != pendingHtlcMsgType {
+		store.resultsMtx.Lock()
+		for _, res := range store.results[attemptID] {
+			res <- result
+		}
+		delete(store.results, attemptID)
+		store.resultsMtx.Unlock()
 	}
-	delete(store.results, attemptID)
-	store.resultsMtx.Unlock()
 
 	return nil
 }
 
-// subscribeResult is used to get the HTLC attempt result for the given attempt
+// SubscribeResult is used to get the HTLC attempt result for the given attempt
 // ID.  It returns a channel on which the result will be delivered when ready.
-func (store *networkResultStore) subscribeResult(attemptID uint64) (
+func (store *networkResultStore) SubscribeResult(attemptID uint64) (
 	<-chan *networkResult, error) {
 
 	// We get a mutex for this payment ID. This is needed to ensure
@@ -194,11 +298,21 @@ func (store *networkResultStore) subscribeResult(attemptID uint64) (
 		return nil, err
 	}
 
-	// If the result was found, we can send it on the result channel
-	// imemdiately.
+	// If a result is back from the network, we can send it on the result
+	// channel immemdiately. If the result is still our initialized place
+	// holder, then treat it as not yet available.
 	if result != nil {
-		resultChan <- result
-		return resultChan, nil
+		if result.msg.MsgType() != pendingHtlcMsgType {
+			log.Debugf("Obtained full result for attemptID=%v",
+				attemptID)
+
+			resultChan <- result
+
+			return resultChan, nil
+		}
+
+		log.Debugf("Awaiting result (settle/fail) for attemptID=%v",
+			attemptID)
 	}
 
 	// Otherwise we store the result channel for when the result is
@@ -212,16 +326,30 @@ func (store *networkResultStore) subscribeResult(attemptID uint64) (
 	return resultChan, nil
 }
 
-// getResult attempts to immediately fetch the result for the given pid from
-// the store. If no result is available, ErrPaymentIDNotFound is returned.
-func (store *networkResultStore) getResult(pid uint64) (
+// GetResult attempts to immediately fetch the *final* network result for the
+// given attempt ID from the store. If no result is available, or if the only
+// entry is an initialization placeholder (e.g. created via InitAttempt),
+// ErrPaymentIDNotFound is returned to signal that the result is not yet
+// available.
+func (store *networkResultStore) GetResult(pid uint64) (
 	*networkResult, error) {
 
 	var result *networkResult
 	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
 		result, err = fetchResult(tx, pid)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// If the attempt is still in-flight, treat it as not yet
+		// available to preserve existing expectation for the behavior
+		// of this method.
+		if result.msg.MsgType() == pendingHtlcMsgType {
+			return ErrAttemptResultNotAvailable
+		}
+
+		return nil
 	}, func() {
 		result = nil
 	})
@@ -253,12 +381,12 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 	return deserializeNetworkResult(r)
 }
 
-// cleanStore removes all entries from the store, except the payment IDs given.
+// CleanStore removes all entries from the store, except the payment IDs given.
 // NOTE: Since every result not listed in the keep map will be deleted, care
 // should be taken to ensure no new payment attempts are being made
 // concurrently while this process is ongoing, as its result might end up being
 // deleted.
-func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
+func (store *networkResultStore) CleanStore(keep map[uint64]struct{}) error {
 	return kvdb.Update(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
 			networkResultStoreBucketKey,
@@ -296,4 +424,85 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 
 		return nil
 	}, func() {})
+}
+
+// FetchPendingAttempts returns a list of all attempt IDs that are currently in
+// the pending state.
+func (store *networkResultStore) FetchPendingAttempts() ([]uint64, error) {
+	var pending []uint64
+	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
+		bucket := tx.ReadBucket(networkResultStoreBucketKey)
+		if bucket == nil {
+			return nil
+		}
+
+		return bucket.ForEach(func(k, v []byte) error {
+			// If the key is not 8 bytes, it's not a valid attempt
+			// ID.
+			if len(k) != 8 {
+				return nil
+			}
+
+			// Deserialize the result to check its type.
+			r := bytes.NewReader(v)
+			result, err := deserializeNetworkResult(r)
+			if err != nil {
+				// If we can't deserialize, we'll log it and
+				// continue.
+				log.Warnf("Unable to deserialize result for "+
+					"key %x: %v", k, err)
+				return nil
+			}
+
+			// If the result is a pending result, add the attempt
+			// ID to our list.
+			if result.msg.MsgType() == pendingHtlcMsgType {
+				attemptID := binary.BigEndian.Uint64(k)
+				pending = append(pending, attemptID)
+			}
+
+			return nil
+		})
+	}, func() {
+		pending = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return pending, nil
+}
+
+// FailAttempt transitions an initialized attempt from PENDING to FAILED,
+// recording the provided reason. This is the synchronous rollback mechanism for
+// attempts that fail before being committed to the forwarding engine. It
+// returns an error if the underlying storage fails.
+func (store *networkResultStore) FailAttempt(attemptID uint64,
+	linkErr *LinkError) error {
+
+	// The attempt to send the htlc failed before it was ever dispatched.
+	// We will write a failure result to the store to unblock any
+	// potential callers to GetAttemptResult.
+
+	// First, we need to serialize the wire message from our link error
+	// into a byte slice. This is what the downstream parsers expect.
+	var reasonBytes bytes.Buffer
+	wireMsg := linkErr.WireMessage()
+	if err := lnwire.EncodeFailure(&reasonBytes, wireMsg, 0); err != nil {
+		return fmt.Errorf("failed to encode failure for attempt %d: %w",
+			attemptID, err)
+	}
+
+	// We'll create a synthetic UpdateFailHTLC to represent this internal
+	// failure, following the pattern used by the contract resolver.
+	failMsg := &lnwire.UpdateFailHTLC{
+		Reason: lnwire.OpaqueReason(reasonBytes.Bytes()),
+	}
+
+	failureResult := &networkResult{
+		msg:         failMsg,
+		unencrypted: true, // This is a local failure
+	}
+
+	return store.StoreResult(attemptID, failureResult)
 }

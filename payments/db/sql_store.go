@@ -364,45 +364,59 @@ type paymentStatusData struct {
 // batchLoadPaymentResolutions loads only HTLC resolution types for multiple
 // payments. This is a lightweight alternative to batchLoadPaymentsRelatedData
 // that's optimized for operations that only need to determine payment status.
-func batchLoadPaymentResolutions(ctx context.Context, db SQLQueries,
-	paymentIDs []int64) (*paymentStatusData, error) {
+func batchLoadPaymentResolutions(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, paymentIDs []int64) (*paymentStatusData, error) {
 
-	batchData := &paymentStatusData{
+	batchStatusData := &paymentStatusData{
 		resolutionTypes: make(map[int64][]sql.NullInt32),
 	}
 
 	if len(paymentIDs) == 0 {
-		return batchData, nil
+		return batchStatusData, nil
 	}
 
-	// Fetch resolution types for all payments in a single batch query.
-	resolutions, err := db.FetchHtlcAttemptResolutionsForPayments(
-		ctx, paymentIDs,
+	// Use a batch query to fetch all resolution types for the given payment
+	// IDs.
+	err := sqldb.ExecuteBatchQuery(
+		ctx, cfg, paymentIDs,
+		func(id int64) int64 { return id },
+		func(ctx context.Context, ids []int64) (
+			[]sqlc.FetchHtlcAttemptResolutionsForPaymentsRow,
+			error) {
+
+			return db.FetchHtlcAttemptResolutionsForPayments(
+				ctx, ids,
+			)
+		},
+		//nolint:ll
+		func(ctx context.Context,
+			res sqlc.FetchHtlcAttemptResolutionsForPaymentsRow) error {
+
+			// Group resolutions by payment ID.
+			batchStatusData.resolutionTypes[res.PaymentID] = append(
+				batchStatusData.resolutionTypes[res.PaymentID],
+				res.ResolutionType,
+			)
+
+			return nil
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch HTLC resolutions: %w",
 			err)
 	}
 
-	// Group resolutions by payment ID.
-	for _, res := range resolutions {
-		batchData.resolutionTypes[res.PaymentID] = append(
-			batchData.resolutionTypes[res.PaymentID],
-			res.ResolutionType,
-		)
-	}
-
-	return batchData, nil
+	return batchStatusData, nil
 }
 
 // loadPaymentResolutions is a single-payment wrapper around
 // batchLoadPaymentResolutions for convenience and to prevent duplicate queries
 // so we reuse the same batch query for all payments.
-func loadPaymentResolutions(ctx context.Context, db SQLQueries,
-	paymentID int64) ([]sql.NullInt32, error) {
+func loadPaymentResolutions(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, paymentID int64) ([]sql.NullInt32, error) {
 
 	batchData, err := batchLoadPaymentResolutions(
-		ctx, db, []int64{paymentID},
+		ctx, cfg, db, []int64{paymentID},
 	)
 	if err != nil {
 		return nil, err
@@ -902,7 +916,7 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 		}
 
 		paymentStatus, err := computePaymentStatusFromDB(
-			ctx, db, dbPayment,
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to compute payment "+
@@ -929,14 +943,14 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 // data from the database. This is a lightweight query optimized for SQL that
 // doesn't load route data, making it significantly more efficient than
 // FetchPayment when only the status is needed.
-func computePaymentStatusFromDB(ctx context.Context, db SQLQueries,
-	dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
+func computePaymentStatusFromDB(ctx context.Context, cfg *sqldb.QueryConfig,
+	db SQLQueries, dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
 
 	payment := dbPayment.GetPayment()
 
 	// Load the resolution types for the payment.
 	resolutionTypes, err := loadPaymentResolutions(
-		ctx, db, payment.ID,
+		ctx, cfg, db, payment.ID,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load payment resolutions: %w",
@@ -993,7 +1007,7 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 		}
 
 		paymentStatus, err := computePaymentStatusFromDB(
-			ctx, db, dbPayment,
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to compute payment "+
@@ -1057,7 +1071,7 @@ func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
 		// status to see if we can re-initialize.
 		case err == nil:
 			paymentStatus, err := computePaymentStatusFromDB(
-				ctx, db, existingPayment,
+				ctx, s.cfg.QueryCfg, db, existingPayment,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to compute payment "+
@@ -1418,7 +1432,7 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 		}
 
 		paymentStatus, err := computePaymentStatusFromDB(
-			ctx, db, dbPayment,
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to compute payment "+
@@ -1494,7 +1508,7 @@ func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
 		}
 
 		paymentStatus, err := computePaymentStatusFromDB(
-			ctx, db, dbPayment,
+			ctx, s.cfg.QueryCfg, db, dbPayment,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to compute payment "+
@@ -1675,7 +1689,7 @@ func (s *SQLStore) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
 			*paymentStatusData, error) {
 
 			return batchLoadPaymentResolutions(
-				ctx, db, paymentIDs,
+				ctx, s.cfg.QueryCfg, db, paymentIDs,
 			)
 		}
 

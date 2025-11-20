@@ -530,9 +530,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		initialCursor int64
 	)
 
-	extractCursor := func(
-		row sqlc.FilterPaymentsRow) int64 {
-
+	extractCursor := func(row sqlc.FilterPaymentsRow) int64 {
 		return row.Payment.ID
 	}
 
@@ -549,9 +547,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		}
 
 		// collectFunc extracts the payment ID from each payment row.
-		collectFunc := func(row sqlc.FilterPaymentsRow) (int64,
-			error) {
-
+		collectFunc := func(row sqlc.FilterPaymentsRow) (int64, error) {
 			return row.Payment.ID, nil
 		}
 

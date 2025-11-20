@@ -154,7 +154,7 @@ func fetchPaymentWithCompleteData(ctx context.Context,
 	payment := dbPayment.GetPayment()
 
 	// Load batch data for this single payment.
-	batchData, err := loadPaymentsBatchData(
+	batchData, err := batchLoadPaymentDetailsData(
 		ctx, cfg, db, []int64{payment.ID},
 	)
 	if err != nil {
@@ -187,10 +187,10 @@ type paymentsDetailsData struct {
 	routeCustomRecords map[int64][]sqlc.PaymentAttemptFirstHopCustomRecord
 }
 
-// loadPaymentCustomRecords loads payment-level custom records for a given
+// batchLoadPaymentCustomRecords loads payment-level custom records for a given
 // set of payment IDs. It uses a batch query to fetch all custom records for
 // the given payment IDs.
-func loadPaymentCustomRecords(ctx context.Context,
+func batchLoadPaymentCustomRecords(ctx context.Context,
 	cfg *sqldb.QueryConfig, db SQLQueries, paymentIDs []int64,
 	batchData *paymentsDetailsData) error {
 
@@ -221,10 +221,10 @@ func loadPaymentCustomRecords(ctx context.Context,
 	)
 }
 
-// loadHtlcAttempts loads HTLC attempts for all payments and returns all
+// batchLoadHtlcAttempts loads HTLC attempts for all payments and returns all
 // attempt indices. It uses a batch query to fetch all attempts for the given
 // payment IDs.
-func loadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
+func batchLoadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, paymentIDs []int64,
 	batchData *paymentsDetailsData) ([]int64, error) {
 
@@ -255,9 +255,9 @@ func loadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	return allAttemptIndices, err
 }
 
-// loadHopsForAttempts loads hops for all attempts and returns all hop IDs.
+// batchLoadHopsForAttempts loads hops for all attempts and returns all hop IDs.
 // It uses a batch query to fetch all hops for the given attempt indices.
-func loadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
+func batchLoadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, attemptIndices []int64,
 	batchData *paymentsDetailsData) ([]int64, error) {
 
@@ -289,9 +289,9 @@ func loadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	return hopIDs, err
 }
 
-// loadHopCustomRecords loads hop-level custom records for all hops. It uses
-// a batch query to fetch all custom records for the given hop IDs.
-func loadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
+// batchLoadHopCustomRecords loads hop-level custom records for all hops. It
+// uses a batch query to fetch all custom records for the given hop IDs.
+func batchLoadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, hopIDs []int64, batchData *paymentsDetailsData) error {
 
 	return sqldb.ExecuteBatchQuery(
@@ -322,10 +322,10 @@ func loadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 	)
 }
 
-// loadRouteCustomRecords loads route-level first hop custom records for all
-// attempts. It uses a batch query to fetch all custom records for the given
+// batchLoadRouteCustomRecords loads route-level first hop custom records for
+// all attempts. It uses a batch query to fetch all custom records for the given
 // attempt indices.
-func loadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
+func batchLoadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, attemptIndices []int64,
 	batchData *paymentsDetailsData) error {
 
@@ -362,8 +362,8 @@ type paymentStatusData struct {
 }
 
 // batchLoadPaymentResolutions loads only HTLC resolution types for multiple
-// payments. This is a lightweight alternative to loadPaymentsBatchData that's
-// optimized for operations that only need to determine payment status.
+// payments. This is a lightweight alternative to batchLoadPaymentsRelatedData
+// that's optimized for operations that only need to determine payment status.
 func batchLoadPaymentResolutions(ctx context.Context, db SQLQueries,
 	paymentIDs []int64) (*paymentStatusData, error) {
 
@@ -396,8 +396,8 @@ func batchLoadPaymentResolutions(ctx context.Context, db SQLQueries,
 }
 
 // loadPaymentResolutions is a single-payment wrapper around
-// batchLoadPaymentResolutions for convenience and to prevent duplicate
-// queries.
+// batchLoadPaymentResolutions for convenience and to prevent duplicate queries
+// so we reuse the same batch query for all payments.
 func loadPaymentResolutions(ctx context.Context, db SQLQueries,
 	paymentID int64) ([]sql.NullInt32, error) {
 
@@ -455,9 +455,9 @@ func computePaymentStatusFromResolutions(resolutionTypes []sql.NullInt32,
 	return decidePaymentStatus(htlcs, failureReason)
 }
 
-// loadPaymentsBatchData loads all related data for multiple payments in batch.
-// It uses a batch queries to fetch all data for the given payment IDs.
-func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
+// batchLoadPaymentDetailsData loads all related data for multiple payments in
+// batch. It uses a batch queries to fetch all data for the given payment IDs.
+func batchLoadPaymentDetailsData(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, paymentIDs []int64) (*paymentsDetailsData, error) {
 
 	batchData := &paymentsDetailsData{
@@ -483,14 +483,16 @@ func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	// Load payment-level custom records.
-	err := loadPaymentCustomRecords(ctx, cfg, db, paymentIDs, batchData)
+	err := batchLoadPaymentCustomRecords(
+		ctx, cfg, db, paymentIDs, batchData,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch payment custom "+
 			"records: %w", err)
 	}
 
 	// Load HTLC attempts and collect attempt indices.
-	allAttemptIndices, err := loadHtlcAttempts(
+	allAttemptIndices, err := batchLoadHtlcAttempts(
 		ctx, cfg, db, paymentIDs, batchData,
 	)
 	if err != nil {
@@ -504,7 +506,7 @@ func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	// Load hops for all attempts and collect hop IDs.
-	hopIDs, err := loadHopsForAttempts(
+	hopIDs, err := batchLoadHopsForAttempts(
 		ctx, cfg, db, allAttemptIndices, batchData,
 	)
 	if err != nil {
@@ -514,7 +516,7 @@ func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
 
 	// Load hop-level custom records if there are any hops.
 	if len(hopIDs) > 0 {
-		err = loadHopCustomRecords(ctx, cfg, db, hopIDs, batchData)
+		err = batchLoadHopCustomRecords(ctx, cfg, db, hopIDs, batchData)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch hop custom "+
 				"records: %w", err)
@@ -522,7 +524,9 @@ func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
 	}
 
 	// Load route-level first hop custom records.
-	err = loadRouteCustomRecords(ctx, cfg, db, allAttemptIndices, batchData)
+	err = batchLoadRouteCustomRecords(
+		ctx, cfg, db, allAttemptIndices, batchData,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch route custom "+
 			"records: %w", err)
@@ -670,7 +674,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		batchDataFunc := func(ctx context.Context, paymentIDs []int64) (
 			*paymentsDetailsData, error) {
 
-			return loadPaymentsBatchData(
+			return batchLoadPaymentDetailsData(
 				ctx, s.cfg.QueryCfg, db, paymentIDs,
 			)
 		}
@@ -925,13 +929,15 @@ func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
 // data from the database. This is a lightweight query optimized for SQL that
 // doesn't load route data, making it significantly more efficient than
 // FetchPayment when only the status is needed.
-func computePaymentStatusFromDB(ctx context.Context,
-	db SQLQueries, dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
+func computePaymentStatusFromDB(ctx context.Context, db SQLQueries,
+	dbPayment sqlc.PaymentAndIntent) (PaymentStatus, error) {
 
 	payment := dbPayment.GetPayment()
 
-	// Use the batch-optimized wrapper to fetch resolution types.
-	resolutionTypes, err := loadPaymentResolutions(ctx, db, payment.ID)
+	// Load the resolution types for the payment.
+	resolutionTypes, err := loadPaymentResolutions(
+		ctx, db, payment.ID,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load payment resolutions: %w",
 			err)

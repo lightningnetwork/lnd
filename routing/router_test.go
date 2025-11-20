@@ -61,7 +61,8 @@ type testCtx struct {
 
 	graphBuilder *mockGraphBuilder
 
-	graph *graphdb.ChannelGraph
+	graph   *graphdb.ChannelGraph
+	v1Graph *graphdb.VersionedGraph
 
 	aliases map[string]route.Vertex
 
@@ -131,7 +132,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	sourceNode, err := graphInstance.graph.SourceNode(t.Context())
+	sourceNode, err := graphInstance.v1Graph.SourceNode(t.Context())
 	require.NoError(t, err)
 	sessionSource := &SessionSource{
 		GraphSessionFactory: graphInstance.graph,
@@ -170,9 +171,12 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		router:       router,
 		graphBuilder: graphBuilder,
 		graph:        graphInstance.graph,
-		aliases:      graphInstance.aliasMap,
-		privKeys:     graphInstance.privKeyMap,
-		channelIDs:   graphInstance.channelIDs,
+		v1Graph: graphdb.NewVersionedGraph(
+			graphInstance.graph, lnwire.GossipVersion1,
+		),
+		aliases:    graphInstance.aliasMap,
+		privKeys:   graphInstance.privKeyMap,
+		channelIDs: graphInstance.channelIDs,
 	}
 
 	t.Cleanup(func() {
@@ -1201,7 +1205,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
 
-	sourceNode, err := ctx.graph.SourceNode(t.Context())
+	sourceNode, err := ctx.v1Graph.SourceNode(t.Context())
 	require.NoError(t, err, "unable to fetch source node")
 
 	amt := lnwire.MilliSatoshi(100)
@@ -1212,7 +1216,7 @@ func TestFindPathFeeWeighting(t *testing.T) {
 	// the edge weighting, we should select the direct path over the 2 hop
 	// path even though the direct path has a higher potential time lock.
 	path, err := dbFindPath(
-		ctx.graph, nil, &mockBandwidthHints{},
+		ctx.v1Graph, nil, &mockBandwidthHints{},
 		noRestrictions,
 		testPathFindingConfig,
 		sourceNode.PubKeyBytes, target, amt, 0, 0,
@@ -2717,11 +2721,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	copy(pub2[:], priv2.PubKey().SerializeCompressed())
 
 	// The two nodes we are about to add should not exist yet.
-	_, exists1, err := ctx.graph.HasNode(ctxb, pub1)
+	exists1, err := ctx.v1Graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists1)
 
-	_, exists2, err := ctx.graph.HasNode(ctxb, pub2)
+	exists2, err := ctx.v1Graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.False(t, exists2)
 
@@ -2778,11 +2782,11 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// After adding the edge between the two previously unknown nodes, they
 	// should have been added to the graph.
-	_, exists1, err = ctx.graph.HasNode(ctxb, pub1)
+	exists1, err = ctx.v1Graph.HasNode(ctxb, pub1)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists1)
 
-	_, exists2, err = ctx.graph.HasNode(ctxb, pub2)
+	exists2, err = ctx.v1Graph.HasNode(ctxb, pub2)
 	require.NoError(t, err, "unable to query graph")
 	require.True(t, exists2)
 
@@ -2907,12 +2911,12 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
-	copy1, err := ctx.graph.FetchNode(ctxb, pub1)
+	copy1, err := ctx.v1Graph.FetchNode(ctxb, pub1)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n1.Alias, copy1.Alias)
 
-	copy2, err := ctx.graph.FetchNode(ctxb, pub2)
+	copy2, err := ctx.v1Graph.FetchNode(ctxb, pub2)
 	require.NoError(t, err, "unable to fetch node")
 
 	require.Equal(t, n2.Alias, copy2.Alias)

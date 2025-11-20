@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/batch"
@@ -30,7 +32,7 @@ type ChannelGraph struct {
 
 	graphCache *GraphCache
 
-	V1Store
+	db Store
 	*topologyManager
 
 	quit chan struct{}
@@ -38,7 +40,7 @@ type ChannelGraph struct {
 }
 
 // NewChannelGraph creates a new ChannelGraph instance with the given backend.
-func NewChannelGraph(v1Store V1Store,
+func NewChannelGraph(v1Store Store,
 	options ...ChanGraphOption) (*ChannelGraph, error) {
 
 	opts := defaultChanGraphOptions()
@@ -47,7 +49,7 @@ func NewChannelGraph(v1Store V1Store,
 	}
 
 	g := &ChannelGraph{
-		V1Store:         v1Store,
+		db:              v1Store,
 		topologyManager: newTopologyManager(),
 		quit:            make(chan struct{}),
 	}
@@ -161,7 +163,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 	log.Info("Populating in-memory channel graph, this might take a " +
 		"while...")
 
-	err := c.V1Store.ForEachNodeCacheable(ctx, func(node route.Vertex,
+	err := c.db.ForEachNodeCacheable(ctx, func(node route.Vertex,
 		features *lnwire.FeatureVector) error {
 
 		c.graphCache.AddNodeFeatures(node, features)
@@ -172,7 +174,7 @@ func (c *ChannelGraph) populateCache(ctx context.Context) error {
 		return err
 	}
 
-	err = c.V1Store.ForEachChannelCacheable(
+	err = c.db.ForEachChannelCacheable(
 		func(info *models.CachedEdgeInfo,
 			policy1, policy2 *models.CachedEdgePolicy) error {
 
@@ -208,7 +210,7 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(node route.Vertex,
 		return c.graphCache.ForEachChannel(node, cb)
 	}
 
-	return c.V1Store.ForEachNodeDirectedChannel(node, cb, reset)
+	return c.db.ForEachNodeDirectedChannel(node, cb, reset)
 }
 
 // FetchNodeFeatures returns the features of the given node. If no features are
@@ -224,7 +226,7 @@ func (c *ChannelGraph) FetchNodeFeatures(node route.Vertex) (
 		return c.graphCache.GetFeatures(node), nil
 	}
 
-	return c.V1Store.FetchNodeFeatures(node)
+	return c.db.FetchNodeFeatures(lnwire.GossipVersion1, node)
 }
 
 // GraphSession will provide the call-back with access to a NodeTraverser
@@ -238,7 +240,7 @@ func (c *ChannelGraph) GraphSession(cb func(graph NodeTraverser) error,
 		return cb(c)
 	}
 
-	return c.V1Store.GraphSession(cb, reset)
+	return c.db.GraphSession(cb, reset)
 }
 
 // ForEachNodeCached iterates through all the stored vertices/nodes in the
@@ -259,7 +261,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 		)
 	}
 
-	return c.V1Store.ForEachNodeCached(ctx, withAddrs, cb, reset)
+	return c.db.ForEachNodeCached(ctx, withAddrs, cb, reset)
 }
 
 // AddNode adds a vertex/node to the graph database. If the node is not
@@ -271,7 +273,7 @@ func (c *ChannelGraph) ForEachNodeCached(ctx context.Context, withAddrs bool,
 func (c *ChannelGraph) AddNode(ctx context.Context,
 	node *models.Node, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddNode(ctx, node, op...)
+	err := c.db.AddNode(ctx, node, op...)
 	if err != nil {
 		return err
 	}
@@ -291,23 +293,6 @@ func (c *ChannelGraph) AddNode(ctx context.Context,
 	return nil
 }
 
-// DeleteNode starts a new database transaction to remove a vertex/node
-// from the database according to the node's public key.
-func (c *ChannelGraph) DeleteNode(ctx context.Context,
-	nodePub route.Vertex) error {
-
-	err := c.V1Store.DeleteNode(ctx, nodePub)
-	if err != nil {
-		return err
-	}
-
-	if c.graphCache != nil {
-		c.graphCache.RemoveNode(nodePub)
-	}
-
-	return nil
-}
-
 // AddChannelEdge adds a new (undirected, blank) edge to the graph database. An
 // undirected edge from the two target nodes are created. The information stored
 // denotes the static attributes of the channel, such as the channelID, the keys
@@ -317,7 +302,7 @@ func (c *ChannelGraph) DeleteNode(ctx context.Context,
 func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 	edge *models.ChannelEdgeInfo, op ...batch.SchedulerOption) error {
 
-	err := c.V1Store.AddChannelEdge(ctx, edge, op...)
+	err := c.db.AddChannelEdge(ctx, edge, op...)
 	if err != nil {
 		return err
 	}
@@ -339,7 +324,7 @@ func (c *ChannelGraph) AddChannelEdge(ctx context.Context,
 // If the cache is enabled, the edge will be added back to the graph cache if
 // we still have a record of this channel in the DB.
 func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
-	err := c.V1Store.MarkEdgeLive(chanID)
+	err := c.db.MarkEdgeLive(chanID)
 	if err != nil {
 		return err
 	}
@@ -347,7 +332,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 	if c.graphCache != nil {
 		// We need to add the channel back into our graph cache,
 		// otherwise we won't use it for path finding.
-		infos, err := c.V1Store.FetchChanInfos([]uint64{chanID})
+		infos, err := c.db.FetchChanInfos([]uint64{chanID})
 		if err != nil {
 			return err
 		}
@@ -385,7 +370,7 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) error {
 
-	infos, err := c.V1Store.DeleteChannelEdges(
+	infos, err := c.db.DeleteChannelEdges(
 		strictZombiePruning, markZombie, chanIDs...,
 	)
 	if err != nil {
@@ -414,7 +399,7 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
-	edges, err := c.V1Store.DisconnectBlockAtHeight(height)
+	edges, err := c.db.DisconnectBlockAtHeight(height)
 	if err != nil {
 		return nil, err
 	}
@@ -442,7 +427,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
-	edges, nodes, err := c.V1Store.PruneGraph(
+	edges, nodes, err := c.db.PruneGraph(
 		spentOutputs, blockHash, blockHeight,
 	)
 	if err != nil {
@@ -487,7 +472,7 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 // that we only maintain a graph of reachable nodes. In the event that a pruned
 // node gains more channels, it will be re-added back to the graph.
 func (c *ChannelGraph) PruneGraphNodes() error {
-	nodes, err := c.V1Store.PruneGraphNodes()
+	nodes, err := c.db.PruneGraphNodes()
 	if err != nil {
 		return err
 	}
@@ -509,7 +494,7 @@ func (c *ChannelGraph) PruneGraphNodes() error {
 func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
 
-	unknown, knownZombies, err := c.V1Store.FilterKnownChanIDs(chansInfo)
+	unknown, knownZombies, err := c.db.FilterKnownChanIDs(chansInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +523,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 		// timestamps could bring it back from the dead, then we mark it
 		// alive, and we let it be added to the set of IDs to query our
 		// peer for.
-		err := c.V1Store.MarkEdgeLive(
+		err := c.db.MarkEdgeLive(
 			info.ShortChannelID.ToUint64(),
 		)
 		// Since there is a chance that the edge could have been marked
@@ -559,7 +544,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
-	err := c.V1Store.MarkEdgeZombie(chanID, pubKey1, pubKey2)
+	err := c.db.MarkEdgeZombie(chanID, pubKey1, pubKey2)
 	if err != nil {
 		return err
 	}
@@ -581,7 +566,7 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	edge *models.ChannelEdgePolicy, op ...batch.SchedulerOption) error {
 
-	from, to, err := c.V1Store.UpdateEdgePolicy(ctx, edge, op...)
+	from, to, err := c.db.UpdateEdgePolicy(ctx, edge, op...)
 	if err != nil {
 		return err
 	}
@@ -601,12 +586,256 @@ func (c *ChannelGraph) UpdateEdgePolicy(ctx context.Context,
 	return nil
 }
 
+// ForEachSourceNodeChannel iterates through all channels of the source node.
+func (c *ChannelGraph) ForEachSourceNodeChannel(ctx context.Context,
+	cb func(chanPoint wire.OutPoint, havePolicy bool,
+		otherNode *models.Node) error, reset func()) error {
+
+	return c.db.ForEachSourceNodeChannel(ctx, cb, reset)
+}
+
+// ForEachNodeChannel iterates through all channels of the given node.
+func (c *ChannelGraph) ForEachNodeChannel(ctx context.Context,
+	nodePub route.Vertex, cb func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachNodeChannel(ctx, nodePub, cb, reset)
+}
+
+// ForEachNode iterates through all stored vertices/nodes in the graph.
+func (c *ChannelGraph) ForEachNode(ctx context.Context,
+	cb func(*models.Node) error, reset func()) error {
+
+	return c.db.ForEachNode(ctx, cb, reset)
+}
+
+// ForEachNodeCacheable iterates through all stored vertices/nodes in the graph.
+func (c *ChannelGraph) ForEachNodeCacheable(ctx context.Context,
+	cb func(route.Vertex, *lnwire.FeatureVector) error,
+	reset func()) error {
+
+	return c.db.ForEachNodeCacheable(ctx, cb, reset)
+}
+
+// NodeUpdatesInHorizon returns all known lightning nodes with updates in the
+// range.
+func (c *ChannelGraph) NodeUpdatesInHorizon(startTime, endTime time.Time,
+	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
+
+	return c.db.NodeUpdatesInHorizon(startTime, endTime, opts...)
+}
+
+// HasV1Node determines if the graph has a vertex identified by the target node
+// in the V1 graph.
+func (c *ChannelGraph) HasV1Node(ctx context.Context,
+	nodePub [33]byte) (time.Time, bool, error) {
+
+	return c.db.HasV1Node(ctx, nodePub)
+}
+
+// IsPublicNode determines whether the node is seen as public in the graph.
+func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
+	return c.db.IsPublicNode(pubKey)
+}
+
+// ForEachChannel iterates through all channel edges stored within the graph.
+func (c *ChannelGraph) ForEachChannel(ctx context.Context,
+	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error, reset func()) error {
+
+	return c.db.ForEachChannel(ctx, cb, reset)
+}
+
+// ForEachChannelCacheable iterates through all channel edges for the cache.
+func (c *ChannelGraph) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
+	*models.CachedEdgePolicy, *models.CachedEdgePolicy) error,
+	reset func()) error {
+
+	return c.db.ForEachChannelCacheable(cb, reset)
+}
+
+// DisabledChannelIDs returns the channel ids of disabled channels.
+func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
+	return c.db.DisabledChannelIDs()
+}
+
+// HasChannelEdge returns true if the database knows of a channel edge.
+func (c *ChannelGraph) HasChannelEdge(chanID uint64) (time.Time, time.Time,
+	bool, bool, error) {
+
+	return c.db.HasChannelEdge(chanID)
+}
+
+// AddEdgeProof sets the proof of an existing edge in the graph database.
+func (c *ChannelGraph) AddEdgeProof(chanID lnwire.ShortChannelID,
+	proof *models.ChannelAuthProof) error {
+
+	return c.db.AddEdgeProof(chanID, proof)
+}
+
+// ChannelID attempts to lookup the 8-byte compact channel ID.
+func (c *ChannelGraph) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
+	return c.db.ChannelID(chanPoint)
+}
+
+// HighestChanID returns the "highest" known channel ID in the channel graph.
+func (c *ChannelGraph) HighestChanID(ctx context.Context) (uint64, error) {
+	return c.db.HighestChanID(ctx)
+}
+
+// ChanUpdatesInHorizon returns all known channel edges with updates in the
+// horizon.
+func (c *ChannelGraph) ChanUpdatesInHorizon(startTime, endTime time.Time,
+	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
+
+	return c.db.ChanUpdatesInHorizon(startTime, endTime, opts...)
+}
+
+// FilterChannelRange returns channel IDs within the passed block height range.
+func (c *ChannelGraph) FilterChannelRange(startHeight, endHeight uint32,
+	withTimestamps bool) ([]BlockChannelRange, error) {
+
+	return c.db.FilterChannelRange(startHeight, endHeight, withTimestamps)
+}
+
+// FetchChanInfos returns the set of channel edges for the passed channel IDs.
+func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+	return c.db.FetchChanInfos(chanIDs)
+}
+
+// FetchChannelEdgesByOutpoint attempts to lookup directed edges by funding
+// outpoint.
+func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByOutpoint(op)
+}
+
+// FetchChannelEdgesByID attempts to lookup directed edges by channel ID.
+func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
+
+	return c.db.FetchChannelEdgesByID(chanID)
+}
+
+// ChannelView returns the verifiable edge information for each active channel.
+func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
+	return c.db.ChannelView()
+}
+
+// IsZombieEdge returns whether the edge is considered zombie.
+func (c *ChannelGraph) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
+	error) {
+
+	return c.db.IsZombieEdge(chanID)
+}
+
+// NumZombies returns the current number of zombie channels in the graph.
+func (c *ChannelGraph) NumZombies() (uint64, error) {
+	return c.db.NumZombies()
+}
+
+// PutClosedScid stores a SCID for a closed channel in the database.
+func (c *ChannelGraph) PutClosedScid(scid lnwire.ShortChannelID) error {
+	return c.db.PutClosedScid(scid)
+}
+
+// IsClosedScid checks whether a channel identified by the scid is closed.
+func (c *ChannelGraph) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
+	return c.db.IsClosedScid(scid)
+}
+
+// SetSourceNode sets the source node within the graph database.
+func (c *ChannelGraph) SetSourceNode(ctx context.Context,
+	node *models.Node) error {
+
+	return c.db.SetSourceNode(ctx, node)
+}
+
+// PruneTip returns the block height and hash of the latest pruning block.
+func (c *ChannelGraph) PruneTip() (*chainhash.Hash, uint32, error) {
+	return c.db.PruneTip()
+}
+
+// VersionedGraph is a wrapper around ChannelGraph that will call underlying
+// Store methods with a specific gossip version.
+type VersionedGraph struct {
+	*ChannelGraph
+	v lnwire.GossipVersion
+}
+
+// NewVersionedGraph creates a new VersionedGraph.
+func NewVersionedGraph(c *ChannelGraph,
+	v lnwire.GossipVersion) *VersionedGraph {
+
+	return &VersionedGraph{
+		ChannelGraph: c,
+		v:            v,
+	}
+}
+
+// FetchNode attempts to look up a target node by its identity public key.
+func (c *VersionedGraph) FetchNode(ctx context.Context,
+	nodePub route.Vertex) (*models.Node, error) {
+
+	return c.db.FetchNode(ctx, c.v, nodePub)
+}
+
+// AddrsForNode returns all known addresses for the target node public key.
+func (c *VersionedGraph) AddrsForNode(ctx context.Context,
+	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
+
+	return c.db.AddrsForNode(ctx, c.v, nodePub)
+}
+
+// DeleteNode starts a new database transaction to remove a vertex/node
+// from the database according to the node's public key.
+func (c *VersionedGraph) DeleteNode(ctx context.Context,
+	nodePub route.Vertex) error {
+
+	err := c.db.DeleteNode(ctx, c.v, nodePub)
+	if err != nil {
+		return err
+	}
+
+	if c.graphCache != nil {
+		c.graphCache.RemoveNode(nodePub)
+	}
+
+	return nil
+}
+
+// HasNode determines if the graph has a vertex identified by the target node
+// in the V1 graph.
+func (c *VersionedGraph) HasNode(ctx context.Context, nodePub [33]byte) (bool,
+	error) {
+
+	return c.db.HasNode(ctx, c.v, nodePub)
+}
+
+// LookupAlias attempts to return the alias as advertised by the target node.
+func (c *VersionedGraph) LookupAlias(ctx context.Context,
+	pub *btcec.PublicKey) (string, error) {
+
+	return c.db.LookupAlias(ctx, c.v, pub)
+}
+
+// SourceNode returns the source node of the graph.
+func (c *VersionedGraph) SourceNode(ctx context.Context) (*models.Node,
+	error) {
+
+	return c.db.SourceNode(ctx, c.v)
+}
+
 // MakeTestGraph creates a new instance of the ChannelGraph for testing
-// purposes. The backing V1Store implementation depends on the version of
+// purposes. The backing Store implementation depends on the version of
 // NewTestDB included in the current build.
 //
 // NOTE: this is currently unused, but is left here for future use to show how
-// NewTestDB can be used. As the SQL implementation of the V1Store is
+// NewTestDB can be used. As the SQL implementation of the Store is
 // implemented, unit tests will be switched to use this function instead of
 // the existing MakeTestGraph helper. Once only this function is used, the
 // existing MakeTestGraph function will be removed and this one will be renamed.

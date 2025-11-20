@@ -31,12 +31,14 @@ type testGraph interface {
 }
 
 type testDBGraph struct {
-	db *graphdb.ChannelGraph
+	db *graphdb.VersionedGraph
 	databaseChannelGraph
 }
 
 func newDiskChanGraph(t *testing.T) (testGraph, error) {
-	graphDB := graphdb.MakeTestGraph(t)
+	graphDB := graphdb.NewVersionedGraph(
+		graphdb.MakeTestGraph(t), lnwire.GossipVersion1,
+	)
 	require.NoError(t, graphDB.Start())
 	t.Cleanup(func() {
 		require.NoError(t, graphDB.Stop())

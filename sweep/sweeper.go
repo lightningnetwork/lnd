@@ -326,6 +326,12 @@ type updateResp struct {
 	err        error
 }
 
+// triggerSweepReq is an internal message we'll use to represent an external
+// caller's intent to trigger an immediate sweep of all pending inputs.
+type triggerSweepReq struct {
+	respChan chan int
+}
+
 // UtxoSweeper is responsible for sweeping outputs back into the wallet
 type UtxoSweeper struct {
 	started uint32 // To be used atomically.
@@ -348,6 +354,10 @@ type UtxoSweeper struct {
 	// updateReqs is a channel that will be sent requests by external
 	// callers who wish to bump the fee rate of a given input.
 	updateReqs chan *updateReq
+
+	// triggerSweepReqs is a channel that will be sent requests by external
+	// callers who wish to trigger an immediate sweep of all pending inputs.
+	triggerSweepReqs chan *triggerSweepReq
 
 	// inputs is the total set of inputs the UtxoSweeper has been requested
 	// to sweep.
@@ -451,6 +461,7 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		spendChan:         make(chan *chainntnfs.SpendDetail),
 		updateReqs:        make(chan *updateReq),
 		pendingSweepsReqs: make(chan *pendingSweepsReq),
+		triggerSweepReqs:  make(chan *triggerSweepReq),
 		quit:              make(chan struct{}),
 		inputs:            make(InputsMap),
 		bumpRespChan:      make(chan *bumpResp, 100),
@@ -710,6 +721,25 @@ func (s *UtxoSweeper) collector() {
 				log.Errorf("Failed to handle bump event: %v",
 					err)
 			}
+
+		// A new external request has been received to trigger an
+		// immediate sweep of all pending inputs.
+		case req := <-s.triggerSweepReqs:
+			// Update the inputs with the latest height.
+			inputs := s.updateSweeperInputs()
+
+			// Mark all inputs as immediate so they are broadcast
+			// right away. This is necessary for testing where we
+			// want to deterministically trigger sweeps.
+			for _, inp := range inputs {
+				inp.params.Immediate = true
+			}
+
+			// Attempt to sweep any pending inputs.
+			s.sweepPendingInputs(inputs)
+
+			// Send back the number of inputs we attempted to sweep.
+			req.respChan <- len(inputs)
 
 		// A new block comes in, update the bestHeight, perform a check
 		// over all pending inputs and publish sweeping txns if needed.
@@ -1201,6 +1231,23 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 // ListSweeps returns a list of the sweeps recorded by the sweep store.
 func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()
+}
+
+// TriggerSweep triggers an immediate attempt to create and broadcast sweep
+// transactions for all pending inputs. This is useful for testing to
+// deterministically control when sweeps are broadcast. This method is
+// thread-safe as it sends a message to the collector goroutine's event loop.
+func (s *UtxoSweeper) TriggerSweep() int {
+	req := &triggerSweepReq{
+		respChan: make(chan int, 1),
+	}
+
+	select {
+	case s.triggerSweepReqs <- req:
+		return <-req.respChan
+	case <-s.quit:
+		return 0
+	}
 }
 
 // mempoolLookup takes an input's outpoint and queries the mempool to see

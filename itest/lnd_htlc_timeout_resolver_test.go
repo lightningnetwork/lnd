@@ -175,7 +175,8 @@ func testHtlcTimeoutResolverExtractPreimageRemote(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(carol, 1)
 
 	// We should now have Carol's htlc success tx in the mempool.
-	ht.AssertNumTxsInMempool(1)
+	// Trigger Carol's sweeper to ensure it appears.
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, carol)
 
 	// Restart Bob. Once he finishes syncing the channel state, he should
 	// notice the force close from Carol.
@@ -348,7 +349,7 @@ func testHtlcTimeoutResolverExtractPreimageLocal(ht *lntest.HarnessTest) {
 	// Check the current mempool state and we should see,
 	// - Carol's direct spend tx, which contains the preimage.
 	// - Carol's anchor sweep tx cannot be broadcast as it's uneconomical.
-	ht.AssertNumTxsInMempool(1)
+	ht.AssertNumTxsInMempoolWithSweepTrigger(1, carol)
 
 	// We'll now mine enough blocks to trigger Bob's htlc timeout resolver
 	// to act. Once his timeout resolver starts, it will extract the

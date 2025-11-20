@@ -161,8 +161,11 @@ func fetchPaymentWithCompleteData(ctx context.Context,
 	return buildPaymentFromBatchData(dbPayment, batchData)
 }
 
-// paymentsBatchData holds all the batch-loaded data for multiple payments.
-type paymentsBatchData struct {
+// paymentsDetailsData holds all the batch-loaded data for multiple payments.
+// This does not include the core payment and intent data which is fetched
+// separately. It includes the additional data like attempts, hops, hop custom
+// records, and route custom records.
+type paymentsDetailsData struct {
 	// paymentCustomRecords maps payment ID to its custom records.
 	paymentCustomRecords map[int64][]sqlc.PaymentFirstHopCustomRecord
 
@@ -185,7 +188,7 @@ type paymentsBatchData struct {
 // the given payment IDs.
 func loadPaymentCustomRecords(ctx context.Context,
 	cfg *sqldb.QueryConfig, db SQLQueries, paymentIDs []int64,
-	batchData *paymentsBatchData) error {
+	batchData *paymentsDetailsData) error {
 
 	return sqldb.ExecuteBatchQuery(
 		ctx, cfg, paymentIDs,
@@ -219,7 +222,7 @@ func loadPaymentCustomRecords(ctx context.Context,
 // payment IDs.
 func loadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, paymentIDs []int64,
-	batchData *paymentsBatchData) ([]int64, error) {
+	batchData *paymentsDetailsData) ([]int64, error) {
 
 	var allAttemptIndices []int64
 
@@ -252,7 +255,7 @@ func loadHtlcAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 // It uses a batch query to fetch all hops for the given attempt indices.
 func loadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, attemptIndices []int64,
-	batchData *paymentsBatchData) ([]int64, error) {
+	batchData *paymentsDetailsData) ([]int64, error) {
 
 	var hopIDs []int64
 
@@ -285,7 +288,7 @@ func loadHopsForAttempts(ctx context.Context, cfg *sqldb.QueryConfig,
 // loadHopCustomRecords loads hop-level custom records for all hops. It uses
 // a batch query to fetch all custom records for the given hop IDs.
 func loadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
-	db SQLQueries, hopIDs []int64, batchData *paymentsBatchData) error {
+	db SQLQueries, hopIDs []int64, batchData *paymentsDetailsData) error {
 
 	return sqldb.ExecuteBatchQuery(
 		ctx, cfg, hopIDs,
@@ -320,7 +323,7 @@ func loadHopCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 // attempt indices.
 func loadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 	db SQLQueries, attemptIndices []int64,
-	batchData *paymentsBatchData) error {
+	batchData *paymentsDetailsData) error {
 
 	return sqldb.ExecuteBatchQuery(
 		ctx, cfg, attemptIndices,
@@ -349,9 +352,9 @@ func loadRouteCustomRecords(ctx context.Context, cfg *sqldb.QueryConfig,
 // loadPaymentsBatchData loads all related data for multiple payments in batch.
 // It uses a batch queries to fetch all data for the given payment IDs.
 func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
-	db SQLQueries, paymentIDs []int64) (*paymentsBatchData, error) {
+	db SQLQueries, paymentIDs []int64) (*paymentsDetailsData, error) {
 
-	batchData := &paymentsBatchData{
+	batchData := &paymentsDetailsData{
 		paymentCustomRecords: make(
 			map[int64][]sqlc.PaymentFirstHopCustomRecord,
 		),
@@ -425,7 +428,7 @@ func loadPaymentsBatchData(ctx context.Context, cfg *sqldb.QueryConfig,
 // buildPaymentFromBatchData builds a complete MPPayment from a database payment
 // and pre-loaded batch data.
 func buildPaymentFromBatchData(dbPayment sqlc.PaymentAndIntent,
-	batchData *paymentsBatchData) (*MPPayment, error) {
+	batchData *paymentsDetailsData) (*MPPayment, error) {
 
 	// The query will only return BOLT 11 payment intents or intents with
 	// no intent type set.
@@ -559,7 +562,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 
 		// batchDataFunc loads all related data for a batch of payments.
 		batchDataFunc := func(ctx context.Context, paymentIDs []int64) (
-			*paymentsBatchData, error) {
+			*paymentsDetailsData, error) {
 
 			return loadPaymentsBatchData(
 				ctx, s.cfg.QueryCfg, db, paymentIDs,
@@ -570,7 +573,7 @@ func (s *SQLStore) QueryPayments(ctx context.Context, query Query) (Response,
 		// data.
 		processPayment := func(ctx context.Context,
 			dbPayment sqlc.FilterPaymentsRow,
-			batchData *paymentsBatchData) error {
+			batchData *paymentsDetailsData) error {
 
 			// Build the payment from the pre-loaded batch data.
 			mpPayment, err := buildPaymentFromBatchData(

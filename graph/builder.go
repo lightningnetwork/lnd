@@ -625,7 +625,7 @@ func (b *Builder) pruneZombieChans() error {
 		toPrune = append(toPrune, chanID)
 		log.Tracef("Pruning zombie channel with ChannelID(%v)", chanID)
 	}
-	err := b.cfg.Graph.DeleteChannelEdges(
+	err := b.v1Graph.DeleteChannelEdges(
 		b.cfg.StrictZombiePruning, true, toPrune...,
 	)
 	if err != nil {
@@ -1330,7 +1330,7 @@ func (b *Builder) IsStaleNode(ctx context.Context, node route.Vertex,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) IsPublicNode(node route.Vertex) (bool, error) {
-	return b.cfg.Graph.IsPublicNode(node)
+	return b.v1Graph.IsPublicNode(node)
 }
 
 // IsKnownEdge returns true if the graph source already knows of the passed

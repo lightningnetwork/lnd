@@ -2972,19 +2972,6 @@ func exportChanBackup(ctx *cli.Context) error {
 
 	// TODO(roasbeef): support for export | restore ?
 
-	var chanPoints []string
-	for _, chanPoint := range chanBackup.MultiChanBackup.ChanPoints {
-		txid, err := chainhash.NewHash(chanPoint.GetFundingTxidBytes())
-		if err != nil {
-			return err
-		}
-
-		chanPoints = append(chanPoints, wire.OutPoint{
-			Hash:  *txid,
-			Index: chanPoint.OutputIndex,
-		}.String())
-	}
-
 	printRespJSON(chanBackup)
 
 	return nil

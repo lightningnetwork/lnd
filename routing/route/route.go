@@ -164,6 +164,9 @@ type Hop struct {
 	// The only reason we are keeping this member is that it could be the
 	// case that we have serialised hops persisted to disk where
 	// LegacyPayload is true.
+	//
+	// TODO(ziggie): Remove this field once we phase out the kv backend
+	// for payments.
 	LegacyPayload bool
 
 	// Metadata is additional data that is sent along with the payment to

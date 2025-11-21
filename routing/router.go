@@ -967,6 +967,8 @@ func spewPayment(payment *LightningPayment) lnutils.LogClosure {
 func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	PaymentSession, shards.ShardTracker, error) {
 
+	ctx := context.TODO()
+
 	// Assemble any custom data we want to send to the first hop only.
 	var firstHopData fn.Option[tlv.Blob]
 	if len(payment.FirstHopCustomRecords) > 0 {
@@ -1026,7 +1028,7 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 		)
 	}
 
-	err = r.cfg.Control.InitPayment(payment.Identifier(), info)
+	err = r.cfg.Control.InitPayment(ctx, payment.Identifier(), info)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1064,13 +1066,15 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
+	ctx := context.TODO()
+
 	// Helper function to fail a payment. It makes sure the payment is only
 	// failed once so that the failure reason is not overwritten.
 	failPayment := func(paymentIdentifier lntypes.Hash,
 		reason paymentsdb.FailureReason) error {
 
 		payment, fetchErr := r.cfg.Control.FetchPayment(
-			paymentIdentifier,
+			ctx, paymentIdentifier,
 		)
 		if fetchErr != nil {
 			return fetchErr
@@ -1084,7 +1088,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 			return nil
 		}
 
-		return r.cfg.Control.FailPayment(paymentIdentifier, reason)
+		return r.cfg.Control.FailPayment(
+			ctx, paymentIdentifier, reason,
+		)
 	}
 
 	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
@@ -1129,7 +1135,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 
-	err := r.cfg.Control.InitPayment(paymentIdentifier, info)
+	err := r.cfg.Control.InitPayment(ctx, paymentIdentifier, info)
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
@@ -1415,9 +1421,11 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 // resumePayments fetches inflight payments and resumes their payment
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
+	ctx := context.TODO()
+
 	// Get all payments that are inflight.
 	log.Debugf("Scanning for inflight payments")
-	payments, err := r.cfg.Control.FetchInFlightPayments()
+	payments, err := r.cfg.Control.FetchInFlightPayments(ctx)
 	if err != nil {
 		return err
 	}
@@ -1525,6 +1533,8 @@ func (r *ChannelRouter) resumePayments() error {
 func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 	payHash lntypes.Hash) {
 
+	ctx := context.TODO()
+
 	// We can only fail inflight HTLCs so we skip the settled/failed ones.
 	if a.Failure != nil || a.Settle != nil {
 		return
@@ -1608,7 +1618,7 @@ func (r *ChannelRouter) failStaleAttempt(a paymentsdb.HTLCAttempt,
 		Reason:   paymentsdb.HTLCFailUnknown,
 		FailTime: r.cfg.Clock.Now(),
 	}
-	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)
+	_, err = r.cfg.Control.FailAttempt(ctx, payHash, a.AttemptID, failInfo)
 	if err != nil {
 		log.Errorf("Fail attempt=%v got error: %v", a.AttemptID, err)
 	}

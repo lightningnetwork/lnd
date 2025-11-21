@@ -393,7 +393,7 @@ func (c *commitSweepResolver) Launch() error {
 		unlockHeight = max(unlockHeight, c.leaseExpiry)
 	}
 
-	// Update report now that we learned the confirmation height.
+	// Update report with the calculated maturity height.
 	c.reportLock.Lock()
 	c.currentReport.MaturityHeight = unlockHeight
 	c.reportLock.Unlock()

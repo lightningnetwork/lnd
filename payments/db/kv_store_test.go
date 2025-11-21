@@ -35,16 +35,14 @@ func TestKVStoreDeleteDuplicatePayments(t *testing.T) {
 	paymentDB := NewKVTestDB(t)
 
 	// Create a successful payment.
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
-	attempt, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
-	require.NoError(t, err)
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
 
 	// Init and settle the payment.
-	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to init payment")
 
 	_, err = paymentDB.RegisterAttempt(
@@ -279,11 +277,10 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	ctx := t.Context()
 
 	// Generate a test payment which does not have duplicates.
-	noDuplicates, _, err := genInfo(t)
-	require.NoError(t, err)
+	noDuplicates, _ := genInfo(t)
 
 	// Create a new payment entry in the database.
-	err = paymentDB.InitPayment(
+	err := paymentDB.InitPayment(
 		ctx, noDuplicates.PaymentIdentifier, noDuplicates,
 	)
 	require.NoError(t, err)
@@ -295,8 +292,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate a test payment which we will add duplicates to.
-	hasDuplicates, preimg, err := genInfo(t)
-	require.NoError(t, err)
+	hasDuplicates, preimg := genInfo(t)
 
 	// Create a new payment entry in the database.
 	err = paymentDB.InitPayment(
@@ -453,8 +449,7 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	require.NoError(t, err)
 
 	// Generate fake information for the duplicate payment.
-	info, _, err := genInfo(t)
-	require.NoError(t, err)
+	info, _ := genInfo(t)
 
 	// Write the payment info to disk under the creation info key. This code
 	// is copied rather than using serializePaymentCreationInfo to ensure
@@ -579,10 +574,6 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 
 			paymentDB := NewKVTestDB(t)
 
-			// Initialize the payment database.
-			paymentDB, err := NewKVStore(paymentDB.db)
-			require.NoError(t, err)
-
 			// Make a preliminary query to make sure it's ok to
 			// query when we have no payments.
 			resp, err := paymentDB.QueryPayments(ctx, tt.query)
@@ -600,11 +591,8 @@ func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
-				info, preimg, err := genInfo(t)
-				if err != nil {
-					t.Fatalf("unable to create test "+
-						"payment: %v", err)
-				}
+				info, preimg := genInfo(t)
+
 				// Override creation time to allow for testing
 				// of CreationDateStart and CreationDateEnd.
 				info.CreationTime = time.Unix(int64(i+1), 0)

@@ -123,37 +123,6 @@ func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
 	}
 }
 
-// getCommitTxConfHeight waits for confirmation of the commitment tx and
-// returns the confirmation height.
-func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
-	txID := c.commitResolution.SelfOutPoint.Hash
-	signDesc := c.commitResolution.SelfOutputSignDesc
-	pkScript := signDesc.Output.PkScript
-
-	const confDepth = 1
-
-	confChan, err := c.Notifier.RegisterConfirmationsNtfn(
-		&txID, pkScript, confDepth, c.confirmHeight,
-	)
-	if err != nil {
-		return 0, err
-	}
-	defer confChan.Cancel()
-
-	select {
-	case txConfirmation, ok := <-confChan.Confirmed:
-		if !ok {
-			return 0, fmt.Errorf("cannot get confirmation "+
-				"for commit tx %v", txID)
-		}
-
-		return txConfirmation.BlockHeight, nil
-
-	case <-c.quit:
-		return 0, errResolverShuttingDown
-	}
-}
-
 // Resolve instructs the contract resolver to resolve the output on-chain. Once
 // the output has been *fully* resolved, the function should return immediately
 // with a nil ContractResolver value for the first return value.  In the case
@@ -381,14 +350,9 @@ func (c *commitSweepResolver) Launch() error {
 		return nil
 	}
 
-	confHeight, err := c.getCommitTxConfHeight()
-	if err != nil {
-		return err
-	}
-
 	// Wait up until the CSV expires, unless we also have a CLTV that
 	// expires after.
-	unlockHeight := confHeight + c.commitResolution.MaturityDelay
+	unlockHeight := c.confirmHeight + c.commitResolution.MaturityDelay
 	if c.hasCLTV() {
 		unlockHeight = max(unlockHeight, c.leaseExpiry)
 	}

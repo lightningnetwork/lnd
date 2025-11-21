@@ -153,7 +153,7 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	}
 	// If we have a next hop, forward the message.
 	if nextNodeID != nil && nextBlindingPoint != nil && nextPacket != nil {
-		err := forwardMessage(
+		err := o.forwardMessage(
 			ctx, nextNodeID, nextBlindingPoint, nextPacket,
 		)
 		if err != nil {
@@ -178,9 +178,9 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 
 	// If we have a payload (no error), add its contents to our update.
 	if payload != nil {
-		update.CustomRecords = payload.CustomRecords()
-		update.ReplyPath = payload.ReplyPath()
-		update.EncryptedRecipientData = payload.EncryptedData()
+		update.CustomRecords = payload.customRecords
+		update.ReplyPath = payload.replyPath
+		update.EncryptedRecipientData = payload.encryptedData
 	}
 
 	// Send the update to any subscribers.
@@ -197,7 +197,7 @@ func (o *OnionEndpoint) SendMessage(ctx context.Context,
 	return true
 }
 
-func forwardMessage(ctx context.Context,
+func (o *OnionEndpoint) forwardMessage(ctx context.Context,
 	nextNodeID *btcec.PublicKey, nextBlindingPoint *btcec.PublicKey,
 	nextPacket []byte) error {
 

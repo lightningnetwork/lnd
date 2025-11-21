@@ -27,9 +27,6 @@ type Payload struct {
 	// in blinded routes.
 	encryptedData []byte
 
-	// blindingPoint is an ephemeral pubkey for use in blinded routes.
-	blindingPoint *btcec.PublicKey
-
 	// replyPath is the blinded route a reply to an onion message should
 	// take to receive the sender of the original onion message.
 	replyPath *lnwire.ReplyPath
@@ -40,18 +37,16 @@ func processOnionMessage(router *sphinx.Router,
 	msg lnwire.OnionMessage) (*Payload, *btcec.PublicKey, *btcec.PublicKey,
 	[]byte, error) {
 
-	onionPkt := &sphinx.OnionPacket{}
+	var onionPkt sphinx.OnionPacket
 
 	err := onionPkt.Decode(bytes.NewReader(msg.OnionBlob))
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("could not decode onion packet: %w", err)
 	}
 
-	var opts []sphinx.ProcessOnionOpt
-	opts = append(opts, sphinx.WithBlindingPoint(msg.PathKey))
-
+	blindingPoint := sphinx.WithBlindingPoint(msg.PathKey)
 	processedPkt, err := router.ProcessOnionPacket(
-		onionPkt, nil, 10, opts...,
+		&onionPkt, nil, 10, blindingPoint,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("%w: could not process onion packet: %w",
@@ -87,7 +82,7 @@ func processOnionMessage(router *sphinx.Router,
 
 	// Otherwise, we must be a forwarding node.
 	decrypted, err := router.DecryptBlindedHopData(
-		payload.blindingPoint, payload.encryptedData,
+		msg.PathKey, payload.encryptedData,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("decrypt blinded data: %w", err)
@@ -105,7 +100,7 @@ func processOnionMessage(router *sphinx.Router,
 	nextEph, err := routeData.NextBlindingOverride.UnwrapOrFuncErr(
 		func() (tlv.RecordT[tlv.TlvType8, *btcec.PublicKey], error) {
 			next, err := router.NextEphemeral(
-				payload.blindingPoint,
+				msg.PathKey,
 			)
 			if err != nil {
 				return routeData.NextBlindingOverride.Zero(),

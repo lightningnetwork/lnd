@@ -617,7 +617,11 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
-	sphinxRouterNoReplayLog := sphinx.NewRouter(nodeKeyECDH, nil)
+	// TODO(gijs): remove the memory replay log once lightning-onion
+	// supports it.
+	sphinxRouterNoReplayLog := sphinx.NewRouter(
+		nodeKeyECDH, sphinx.NewMemoryReplayLog(),
+	)
 
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
@@ -2336,6 +2340,15 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		cleanup = cleanup.add(func() error {
+			s.sphinxRouterNoReplayLog.Stop()
+			return nil
+		})
+		if err := s.sphinxRouterNoReplayLog.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
@@ -2606,6 +2619,9 @@ func (s *server) Stop() error {
 
 		// Shutdown the actor system to stop all actors.
 		s.actorSystem.Shutdown()
+
+		// Shutdown the onion router for onion messaging.
+		s.sphinxRouterNoReplayLog.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
@@ -4388,7 +4404,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		Sphinx:                  s.sphinx,
-		sphinxRouterNoReplayLog: s.sphinxRouterNoReplayLog,
+		SphinxRouterNoReplayLog: s.sphinxRouterNoReplayLog,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,

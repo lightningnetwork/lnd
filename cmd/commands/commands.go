@@ -1030,6 +1030,11 @@ var closeChannelCommand = cli.Command{
 	if an upfront shutdown address has not already been set. If neither are
 	set the funds will be delivered to a new wallet address.
 
+	Starting with v0.19.0, if the --protocol.rbf-coop-close config option is
+	enabled, users can issue multiple closechannel calls with increasing fee
+	rates to use RBF to bump an existing signed co-op close transaction.
+	Channel peers must support option_simple_close for this to work.
+
 	To view which funding_txids/output_indexes can be used for a channel close,
 	see the channel_point values within the listchannels command output.
 	The format for a channel_point is 'funding_txid:output_index'.`,

@@ -393,7 +393,7 @@ func TestRequestRouteSucceed(t *testing.T) {
 		mock.Anything,
 	).Return(dummyRoute, nil)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 	require.NoError(t, err, "expect no error")
 	require.Equal(t, dummyRoute, result, "returned route not matched")
 
@@ -430,7 +430,7 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 		mock.Anything,
 	).Return(nil, errDummy)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect an error is returned since it's critical.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -470,7 +470,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 		p.identifier, paymentsdb.FailureReasonNoRoute,
 	).Return(nil).Once()
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect no error is returned since it's not critical.
 	require.NoError(t, err, "expected no error")
@@ -513,7 +513,7 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 		mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect an error is returned.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -599,7 +599,7 @@ func TestDecideNextStep(t *testing.T) {
 
 		// Once the setup is finished, run the test cases.
 		t.Run(tc.name, func(t *testing.T) {
-			step, err := p.decideNextStep(payment)
+			step, err := p.decideNextStep(t.Context(), payment)
 			require.Equal(t, tc.expectedStep, step)
 			require.ErrorIs(t, tc.expectedErr, err)
 		})
@@ -628,7 +628,7 @@ func TestDecideNextStepOnRouterQuit(t *testing.T) {
 	close(p.router.quit)
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and an error to be returned.
 	require.Equal(t, stepExit, step)
@@ -657,7 +657,7 @@ func TestDecideNextStepOnLifecycleQuit(t *testing.T) {
 	close(p.quit)
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and an error to be returned.
 	require.Equal(t, stepExit, step)
@@ -716,7 +716,7 @@ func TestDecideNextStepHandleAttemptResultSucceed(t *testing.T) {
 		mock.Anything).Return(attempt, nil).Once()
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepSkip and no error to be returned.
 	require.Equal(t, stepSkip, step)
@@ -774,7 +774,7 @@ func TestDecideNextStepHandleAttemptResultFail(t *testing.T) {
 		mock.Anything).Return(attempt, errDummy).Once()
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and the above error to be returned.
 	require.Equal(t, stepExit, step)
@@ -1467,7 +1467,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1513,7 +1513,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1539,7 +1539,7 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, htlcswitch.ErrSwitchExiting,
 		"expected switch exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1566,7 +1566,7 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, ErrRouterShuttingDown, "expected router exit")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1592,7 +1592,7 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, ErrPaymentLifecycleExiting,
 		"expected lifecycle exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1636,7 +1636,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected settle error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1678,7 +1678,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, preimage, result.attempt.Settle.Preimage,
 		"preimage mismatch")
@@ -1762,7 +1762,9 @@ func TestHandleAttemptResultWithError(t *testing.T) {
 
 	// Call the method under test and expect the dummy error to be
 	// returned.
-	attemptResult, err := p.handleAttemptResult(attempt, result)
+	attemptResult, err := p.handleAttemptResult(
+		t.Context(), attempt, result,
+	)
 	require.ErrorIs(t, err, errDummy, "expected fail error")
 	require.Nil(t, attemptResult, "expected nil attempt result")
 }
@@ -1800,7 +1802,9 @@ func TestHandleAttemptResultSuccess(t *testing.T) {
 
 	// Call the method under test and expect the dummy error to be
 	// returned.
-	attemptResult, err := p.handleAttemptResult(attempt, result)
+	attemptResult, err := p.handleAttemptResult(
+		t.Context(), attempt, result,
+	)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, attempt, attemptResult.attempt)
 }
@@ -1846,7 +1850,7 @@ func TestReloadInflightAttemptsLegacy(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	payment, err := p.reloadInflightAttempts()
+	payment, err := p.reloadInflightAttempts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, m.payment, payment)
 

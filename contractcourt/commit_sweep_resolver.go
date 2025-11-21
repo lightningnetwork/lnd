@@ -38,10 +38,10 @@ type commitSweepResolver struct {
 	// this HTLC on-chain.
 	commitResolution lnwallet.CommitOutputResolution
 
-	// broadcastHeight is the height that the original contract was
-	// broadcast to the main-chain at. We'll use this value to bound any
-	// historical queries to the chain for spends/confirmations.
-	broadcastHeight uint32
+	// confirmHeight is the block height that the commitment transaction was
+	// confirmed at. We'll use this value to bound any historical queries to
+	// the chain for spends/confirmations.
+	confirmHeight uint32
 
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
@@ -74,13 +74,13 @@ type commitSweepResolver struct {
 
 // newCommitSweepResolver instantiates a new direct commit output resolver.
 func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
-	broadcastHeight uint32, chanPoint wire.OutPoint,
+	confirmHeight uint32, chanPoint wire.OutPoint,
 	resCfg ResolverConfig) *commitSweepResolver {
 
 	r := &commitSweepResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		commitResolution:    res,
-		broadcastHeight:     broadcastHeight,
+		confirmHeight:       confirmHeight,
 		chanPoint:           chanPoint,
 	}
 
@@ -133,7 +133,7 @@ func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
 	const confDepth = 1
 
 	confChan, err := c.Notifier.RegisterConfirmationsNtfn(
-		&txID, pkScript, confDepth, c.broadcastHeight,
+		&txID, pkScript, confDepth, c.confirmHeight,
 	)
 	if err != nil {
 		return 0, err
@@ -268,7 +268,7 @@ func (c *commitSweepResolver) Encode(w io.Writer) error {
 	if err := binary.Write(w, endian, c.IsResolved()); err != nil {
 		return err
 	}
-	if err := binary.Write(w, endian, c.broadcastHeight); err != nil {
+	if err := binary.Write(w, endian, c.confirmHeight); err != nil {
 		return err
 	}
 	if _, err := w.Write(c.chanPoint.Hash[:]); err != nil {
@@ -308,7 +308,7 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		c.markResolved()
 	}
 
-	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
+	if err := binary.Read(r, endian, &c.confirmHeight); err != nil {
 		return nil, err
 	}
 	_, err := io.ReadFull(r, c.chanPoint.Hash[:])
@@ -412,7 +412,7 @@ func (c *commitSweepResolver) Launch() error {
 		inp = input.NewCsvInputWithCltv(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
-			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			c.confirmHeight, c.commitResolution.MaturityDelay,
 			c.leaseExpiry, input.WithResolutionBlob(
 				c.commitResolution.ResolutionBlob,
 			),
@@ -421,7 +421,7 @@ func (c *commitSweepResolver) Launch() error {
 		inp = input.NewCsvInput(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
-			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			c.confirmHeight, c.commitResolution.MaturityDelay,
 			input.WithResolutionBlob(
 				c.commitResolution.ResolutionBlob,
 			),

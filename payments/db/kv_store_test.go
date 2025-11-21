@@ -1,7 +1,10 @@
+//go:build !test_db_sqlite && !test_db_postgres
+
 package paymentsdb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"io"
 	"math"
@@ -17,7 +20,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,10 +67,15 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	var numSuccess, numInflight int
 
 	for _, p := range payments {
-		info, attempt, preimg, err := genInfo(t)
-		if err != nil {
-			t.Fatalf("unable to generate htlc message: %v", err)
-		}
+		preimg, err := genPreimage(t)
+		require.NoError(t, err)
+
+		rhash := sha256.Sum256(preimg[:])
+		info := genPaymentCreationInfo(t, rhash)
+		attempt, err := genAttemptWithHash(
+			t, 0, genSessionKey(t), rhash,
+		)
+		require.NoError(t, err)
 
 		// Sends base htlc message which initiate StatusInFlight.
 		err = paymentDB.InitPayment(info.PaymentIdentifier, info)
@@ -246,83 +253,6 @@ func TestKVStoreDeleteNonInFlight(t *testing.T) {
 	require.Equal(t, 1, indexCount)
 }
 
-type htlcStatus struct {
-	*HTLCAttemptInfo
-	settle  *lntypes.Preimage
-	failure *HTLCFailReason
-}
-
-// fetchPaymentIndexEntry gets the payment hash for the sequence number provided
-// from our payment indexes bucket.
-func fetchPaymentIndexEntry(t *testing.T, p *KVStore,
-	sequenceNumber uint64) (*lntypes.Hash, error) {
-
-	t.Helper()
-
-	var hash lntypes.Hash
-
-	if err := kvdb.View(p.db, func(tx walletdb.ReadTx) error {
-		indexBucket := tx.ReadBucket(paymentsIndexBucket)
-		key := make([]byte, 8)
-		byteOrder.PutUint64(key, sequenceNumber)
-
-		indexValue := indexBucket.Get(key)
-		if indexValue == nil {
-			return ErrNoSequenceNrIndex
-		}
-
-		r := bytes.NewReader(indexValue)
-
-		var err error
-		hash, err = deserializePaymentIndex(r)
-
-		return err
-	}, func() {
-		hash = lntypes.Hash{}
-	}); err != nil {
-		return nil, err
-	}
-
-	return &hash, nil
-}
-
-// assertPaymentIndex looks up the index for a payment in the db and checks
-// that its payment hash matches the expected hash passed in.
-func assertPaymentIndex(t *testing.T, p DB, expectedHash lntypes.Hash) {
-	t.Helper()
-
-	// Only the kv implementation uses the index so we exit early if the
-	// payment db is not a kv implementation. This helps us to reuse the
-	// same test for both implementations.
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	// Lookup the payment so that we have its sequence number and check
-	// that is has correctly been indexed in the payment indexes bucket.
-	pmt, err := kvPaymentDB.FetchPayment(expectedHash)
-	require.NoError(t, err)
-
-	hash, err := fetchPaymentIndexEntry(t, kvPaymentDB, pmt.SequenceNum)
-	require.NoError(t, err)
-	assert.Equal(t, expectedHash, *hash)
-}
-
-// assertNoIndex checks that an index for the sequence number provided does not
-// exist.
-func assertNoIndex(t *testing.T, p DB, seqNr uint64) {
-	t.Helper()
-
-	kvPaymentDB, ok := p.(*KVStore)
-	if !ok {
-		return
-	}
-
-	_, err := fetchPaymentIndexEntry(t, kvPaymentDB, seqNr)
-	require.Equal(t, ErrNoSequenceNrIndex, err)
-}
-
 func makeFakeInfo(t *testing.T) (*PaymentCreationInfo,
 	*HTLCAttemptInfo) {
 
@@ -478,7 +408,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	paymentDB := NewKVTestDB(t)
 
 	// Generate a test payment which does not have duplicates.
-	noDuplicates, _, _, err := genInfo(t)
+	noDuplicates, _, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -494,7 +424,7 @@ func TestFetchPaymentWithSequenceNumber(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate a test payment which we will add duplicates to.
-	hasDuplicates, _, preimg, err := genInfo(t)
+	hasDuplicates, preimg, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Create a new payment entry in the database.
@@ -652,7 +582,7 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	require.NoError(t, err)
 
 	// Generate fake information for the duplicate payment.
-	info, _, _, err := genInfo(t)
+	info, _, err := genInfo(t)
 	require.NoError(t, err)
 
 	// Write the payment info to disk under the creation info key. This code
@@ -684,17 +614,19 @@ func putDuplicatePayment(t *testing.T, duplicateBucket kvdb.RwBucket,
 	require.NoError(t, err)
 }
 
-// TestQueryPayments tests retrieval of payments with forwards and reversed
-// queries.
-//
-// TODO(ziggie): Make this test db agnostic.
-func TestQueryPayments(t *testing.T) {
-	// Define table driven test for QueryPayments.
+// TestKVStoreQueryPaymentsDuplicates tests the KV store's legacy duplicate
+// payment handling. This tests the specific case where duplicate payments
+// are stored in a nested bucket within the parent payment bucket.
+func TestKVStoreQueryPaymentsDuplicates(t *testing.T) {
+	t.Parallel()
+
 	// Test payments have sequence indices [1, 3, 4, 5, 6, 7].
 	// Note that the payment with index 7 has the same payment hash as 6,
 	// and is stored in a nested bucket within payment 6 rather than being
-	// its own entry in the payments bucket. We do this to test retrieval
-	// of legacy payments.
+	// its own entry in the payments bucket. This tests retrieval of legacy
+	// duplicate payments which is KV-store specific.
+	// These test cases focus on validating that duplicate payments (seq 7,
+	// nested under payment 6) are correctly returned in queries.
 	tests := []struct {
 		name       string
 		query      Query
@@ -706,31 +638,20 @@ func TestQueryPayments(t *testing.T) {
 		expectedSeqNrs []uint64
 	}{
 		{
-			name: "IndexOffset at the end of the payments range",
+			name: "query includes duplicate payment in forward " +
+				"order",
 			query: Query{
-				IndexOffset:       7,
-				MaxPayments:       7,
+				IndexOffset:       5,
+				MaxPayments:       3,
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex:     0,
-			lastIndex:      0,
-			expectedSeqNrs: nil,
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
 		},
 		{
-			name: "query in forwards order, start at beginning",
-			query: Query{
-				IndexOffset:       0,
-				MaxPayments:       2,
-				Reversed:          false,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     1,
-			lastIndex:      3,
-			expectedSeqNrs: []uint64{1, 3},
-		},
-		{
-			name: "query in forwards order, start at end, overflow",
+			name: "query duplicate payment at end",
 			query: Query{
 				IndexOffset:       6,
 				MaxPayments:       2,
@@ -742,85 +663,23 @@ func TestQueryPayments(t *testing.T) {
 			expectedSeqNrs: []uint64{7},
 		},
 		{
-			name: "start at offset index outside of payments",
+			name: "query includes duplicate in reverse order",
 			query: Query{
-				IndexOffset:       20,
+				IndexOffset:       0,
 				MaxPayments:       2,
-				Reversed:          false,
+				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex:     0,
-			lastIndex:      0,
-			expectedSeqNrs: nil,
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
 		},
 		{
-			name: "overflow in forwards order",
+			name: "query all payments includes duplicate",
 			query: Query{
-				IndexOffset:       4,
+				IndexOffset:       0,
 				MaxPayments:       math.MaxUint64,
 				Reversed:          false,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     5,
-			lastIndex:      7,
-			expectedSeqNrs: []uint64{5, 6, 7},
-		},
-		{
-			name: "start at offset index outside of payments, " +
-				"reversed order",
-			query: Query{
-				IndexOffset:       9,
-				MaxPayments:       2,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     6,
-			lastIndex:      7,
-			expectedSeqNrs: []uint64{6, 7},
-		},
-		{
-			name: "query in reverse order, start at end",
-			query: Query{
-				IndexOffset:       0,
-				MaxPayments:       2,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     6,
-			lastIndex:      7,
-			expectedSeqNrs: []uint64{6, 7},
-		},
-		{
-			name: "query in reverse order, starting in middle",
-			query: Query{
-				IndexOffset:       4,
-				MaxPayments:       2,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     1,
-			lastIndex:      3,
-			expectedSeqNrs: []uint64{1, 3},
-		},
-		{
-			name: "query in reverse order, starting in middle, " +
-				"with underflow",
-			query: Query{
-				IndexOffset:       4,
-				MaxPayments:       5,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     1,
-			lastIndex:      3,
-			expectedSeqNrs: []uint64{1, 3},
-		},
-		{
-			name: "all payments in reverse, order maintained",
-			query: Query{
-				IndexOffset:       0,
-				MaxPayments:       7,
-				Reversed:          true,
 				IncludeIncomplete: true,
 			},
 			firstIndex:     1,
@@ -828,7 +687,7 @@ func TestQueryPayments(t *testing.T) {
 			expectedSeqNrs: []uint64{1, 3, 4, 5, 6, 7},
 		},
 		{
-			name: "exclude incomplete payments",
+			name: "exclude incomplete includes duplicate",
 			query: Query{
 				IndexOffset:       0,
 				MaxPayments:       7,
@@ -838,96 +697,6 @@ func TestQueryPayments(t *testing.T) {
 			firstIndex:     7,
 			lastIndex:      7,
 			expectedSeqNrs: []uint64{7},
-		},
-		{
-			name: "query payments at index gap",
-			query: Query{
-				IndexOffset:       1,
-				MaxPayments:       7,
-				Reversed:          false,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     3,
-			lastIndex:      7,
-			expectedSeqNrs: []uint64{3, 4, 5, 6, 7},
-		},
-		{
-			name: "query payments reverse before index gap",
-			query: Query{
-				IndexOffset:       3,
-				MaxPayments:       7,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     1,
-			lastIndex:      1,
-			expectedSeqNrs: []uint64{1},
-		},
-		{
-			name: "query payments reverse on index gap",
-			query: Query{
-				IndexOffset:       2,
-				MaxPayments:       7,
-				Reversed:          true,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     1,
-			lastIndex:      1,
-			expectedSeqNrs: []uint64{1},
-		},
-		{
-			name: "query payments forward on index gap",
-			query: Query{
-				IndexOffset:       2,
-				MaxPayments:       2,
-				Reversed:          false,
-				IncludeIncomplete: true,
-			},
-			firstIndex:     3,
-			lastIndex:      4,
-			expectedSeqNrs: []uint64{3, 4},
-		},
-		{
-			name: "query in forwards order, with start creation " +
-				"time",
-			query: Query{
-				IndexOffset:       0,
-				MaxPayments:       2,
-				Reversed:          false,
-				IncludeIncomplete: true,
-				CreationDateStart: 5,
-			},
-			firstIndex:     5,
-			lastIndex:      6,
-			expectedSeqNrs: []uint64{5, 6},
-		},
-		{
-			name: "query in forwards order, with start creation " +
-				"time at end, overflow",
-			query: Query{
-				IndexOffset:       0,
-				MaxPayments:       2,
-				Reversed:          false,
-				IncludeIncomplete: true,
-				CreationDateStart: 7,
-			},
-			firstIndex:     7,
-			lastIndex:      7,
-			expectedSeqNrs: []uint64{7},
-		},
-		{
-			name: "query with start and end creation time",
-			query: Query{
-				IndexOffset:       9,
-				MaxPayments:       math.MaxUint64,
-				Reversed:          true,
-				IncludeIncomplete: true,
-				CreationDateStart: 3,
-				CreationDateEnd:   5,
-			},
-			firstIndex:     3,
-			lastIndex:      5,
-			expectedSeqNrs: []uint64{3, 4, 5},
 		},
 	}
 
@@ -960,7 +729,7 @@ func TestQueryPayments(t *testing.T) {
 
 			for i := 0; i < nonDuplicatePayments; i++ {
 				// Generate a test payment.
-				info, _, preimg, err := genInfo(t)
+				info, preimg, err := genInfo(t)
 				if err != nil {
 					t.Fatalf("unable to create test "+
 						"payment: %v", err)

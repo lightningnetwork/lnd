@@ -34,17 +34,24 @@ type Querier interface {
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteZombieChannel(ctx context.Context, arg DeleteZombieChannelParams) (sql.Result, error)
 	FailAttempt(ctx context.Context, arg FailAttemptParams) error
+	FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error)
 	FetchAMPSubInvoiceHTLCs(ctx context.Context, arg FetchAMPSubInvoiceHTLCsParams) ([]FetchAMPSubInvoiceHTLCsRow, error)
 	FetchAMPSubInvoices(ctx context.Context, arg FetchAMPSubInvoicesParams) ([]AmpSubInvoice, error)
-	// Fetch all inflight attempts across all payments
-	FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error)
+	// Fetch all inflight attempts with their payment data using pagination.
+	// Returns attempt data joined with payment and intent data to avoid separate queries.
+	FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error)
 	FetchHopLevelCustomRecords(ctx context.Context, hopIds []int64) ([]PaymentHopCustomRecord, error)
 	FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices []int64) ([]FetchHopsForAttemptsRow, error)
-	// Lightweight query to fetch only HTLC resolution status.
-	FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error)
+	// Batch query to fetch only HTLC resolution status for multiple payments.
+	// We don't need to order by payment_id and attempt_time because we will
+	// group the resolutions by payment_id in the background.
+	FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error)
 	FetchHtlcAttemptsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptsForPaymentsRow, error)
 	FetchPayment(ctx context.Context, paymentIdentifier []byte) (FetchPaymentRow, error)
 	FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, paymentIds []int64) ([]PaymentFirstHopCustomRecord, error)
+	// Batch fetch payment and intent data for a set of payment IDs.
+	// Used to avoid fetching redundant payment data when processing multiple
+	// attempts for the same payment.
 	FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error)
 	FetchRouteLevelFirstHopCustomRecords(ctx context.Context, htlcAttemptIndices []int64) ([]PaymentAttemptFirstHopCustomRecord, error)
 	FetchSettledAMPSubInvoices(ctx context.Context, arg FetchSettledAMPSubInvoicesParams) ([]FetchSettledAMPSubInvoicesRow, error)

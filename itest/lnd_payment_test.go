@@ -504,61 +504,86 @@ func testListPayments(ht *lntest.HarnessTest) {
 		expected  bool
 	}
 
-	// Create test cases to check the timestamp filters.
-	createCases := func(createTimeSeconds uint64) []testCase {
+	// Create test cases with proper rounding for start and end dates.
+	createCases := func(startTimeSeconds,
+		endTimeSeconds uint64) []testCase {
+
 		return []testCase{
 			{
 				// Use a start date same as the creation date
-				// should return us the item.
+				// (truncated) should return us the item.
 				name:      "exact start date",
-				startDate: createTimeSeconds,
+				startDate: startTimeSeconds,
 				expected:  true,
 			},
 			{
 				// Use an earlier start date should return us
 				// the item.
 				name:      "earlier start date",
-				startDate: createTimeSeconds - 1,
+				startDate: startTimeSeconds - 1,
 				expected:  true,
 			},
 			{
 				// Use a future start date should return us
 				// nothing.
 				name:      "future start date",
-				startDate: createTimeSeconds + 1,
+				startDate: startTimeSeconds + 1,
 				expected:  false,
 			},
 			{
 				// Use an end date same as the creation date
-				// should return us the item.
+				// (ceiling) should return us the item.
 				name:     "exact end date",
-				endDate:  createTimeSeconds,
+				endDate:  endTimeSeconds,
 				expected: true,
 			},
 			{
 				// Use an end date in the future should return
 				// us the item.
 				name:     "future end date",
-				endDate:  createTimeSeconds + 1,
+				endDate:  endTimeSeconds + 1,
 				expected: true,
 			},
 			{
 				// Use an earlier end date should return us
 				// nothing.
-				name:     "earlier end date",
-				endDate:  createTimeSeconds - 1,
+				name: "earlier end date",
+				// The native sql backend has a higher
+				// precision than the kv backend, the native sql
+				// backend uses microseconds, the kv backend
+				// when filtering uses seconds so we need to
+				// subtract 2 seconds to ensure the payment is
+				// not included.
+				// We could also truncate before inserting
+				// into the sql db but I rather relax this test
+				// here.
+				endDate:  endTimeSeconds - 2,
 				expected: false,
 			},
 		}
 	}
 
-	// Get the payment creation time in seconds.
-	paymentCreateSeconds := uint64(
-		p.CreationTimeNs / time.Second.Nanoseconds(),
+	// Get the payment creation time in seconds, using different approaches
+	// for start and end date comparisons to avoid rounding issues.
+	creationTime := time.Unix(0, p.CreationTimeNs)
+
+	// For start date comparisons: use truncation (floor) to include
+	// payments from the beginning of that second.
+	paymentCreateSecondsStart := uint64(
+		creationTime.Truncate(time.Second).Unix(),
+	)
+
+	// For end date comparisons: use ceiling to include payments up to the
+	// end of that second.
+	paymentCreateSecondsEnd := uint64(
+		(p.CreationTimeNs + time.Second.Nanoseconds() - 1) /
+			time.Second.Nanoseconds(),
 	)
 
 	// Create test cases from the payment creation time.
-	testCases := createCases(paymentCreateSeconds)
+	testCases := createCases(
+		paymentCreateSecondsStart, paymentCreateSecondsEnd,
+	)
 
 	// We now check the timestamp filters in `ListPayments`.
 	for _, tc := range testCases {
@@ -578,7 +603,9 @@ func testListPayments(ht *lntest.HarnessTest) {
 	}
 
 	// Create test cases from the invoice creation time.
-	testCases = createCases(uint64(invoice.CreationDate))
+	testCases = createCases(
+		uint64(invoice.CreationDate), uint64(invoice.CreationDate),
+	)
 
 	// We now do the same check for `ListInvoices`.
 	for _, tc := range testCases {

@@ -130,8 +130,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 	attemptID := uint64(0)
 
 	for i := 0; i < len(payments); i++ {
-		preimg, err := genPreimage(t)
-		require.NoError(t, err)
+		preimg := genPreimage(t)
 
 		rhash := sha256.Sum256(preimg[:])
 		info := genPaymentCreationInfo(t, rhash)
@@ -139,15 +138,14 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 		// Set the payment id accordingly in the payments slice.
 		payments[i].id = info.PaymentIdentifier
 
-		attempt, err := genAttemptWithHash(
+		attempt := genAttemptWithHash(
 			t, attemptID, genSessionKey(t), rhash,
 		)
-		require.NoError(t, err)
 
 		attemptID++
 
 		// Init the payment.
-		err = p.InitPayment(ctx, info.PaymentIdentifier, info)
+		err := p.InitPayment(ctx, info.PaymentIdentifier, info)
 		require.NoError(t, err, "unable to send htlc message")
 
 		// Register and fail the first attempt for all payments.
@@ -169,10 +167,9 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 
 		// Depending on the test case, fail or succeed the next
 		// attempt.
-		attempt, err = genAttemptWithHash(
+		attempt = genAttemptWithHash(
 			t, attemptID, genSessionKey(t), rhash,
 		)
-		require.NoError(t, err)
 		attemptID++
 
 		_, err = p.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
@@ -182,7 +179,7 @@ func createTestPayments(t *testing.T, p DB, payments []*payment) {
 		// Fail the attempt and the payment overall.
 		case StatusFailed:
 			htlcFailure := HTLCFailUnreadable
-			_, err = p.FailAttempt(
+			_, err := p.FailAttempt(
 				ctx, info.PaymentIdentifier, attempt.AttemptID,
 				&HTLCFailInfo{
 					Reason: htlcFailure,
@@ -363,15 +360,14 @@ func assertDBPayments(t *testing.T, paymentDB DB, payments []*payment) {
 }
 
 // genPreimage generates a random preimage.
-func genPreimage(t *testing.T) (lntypes.Preimage, error) {
+func genPreimage(t *testing.T) lntypes.Preimage {
 	t.Helper()
 
 	var preimage [32]byte
-	if _, err := io.ReadFull(rand.Reader, preimage[:]); err != nil {
-		return preimage, err
-	}
+	_, err := io.ReadFull(rand.Reader, preimage[:])
+	require.NoError(t, err, "unable to generate preimage")
 
-	return preimage, nil
+	return preimage
 }
 
 // genSessionKey generates a new random private key for use as a session key.
@@ -410,24 +406,22 @@ func genPaymentCreationInfo(t *testing.T,
 }
 
 // genPreimageAndHash generates a random preimage and its corresponding hash.
-func genPreimageAndHash(t *testing.T) (lntypes.Preimage, lntypes.Hash, error) {
+func genPreimageAndHash(t *testing.T) (lntypes.Preimage, lntypes.Hash) {
 	t.Helper()
 
-	preimage, err := genPreimage(t)
-	require.NoError(t, err)
+	preimage := genPreimage(t)
 
 	rhash := sha256.Sum256(preimage[:])
 	var hash lntypes.Hash
 	copy(hash[:], rhash[:])
 
-	return preimage, hash, nil
+	return preimage, hash
 }
 
 // genAttemptWithPreimage generates an HTLC attempt and returns both the
 // attempt and preimage.
 func genAttemptWithHash(t *testing.T, attemptID uint64,
-	sessionKey *btcec.PrivateKey, hash lntypes.Hash) (*HTLCAttemptInfo,
-	error) {
+	sessionKey *btcec.PrivateKey, hash lntypes.Hash) *HTLCAttemptInfo {
 
 	t.Helper()
 
@@ -435,24 +429,21 @@ func genAttemptWithHash(t *testing.T, attemptID uint64,
 		attemptID, sessionKey, *testRoute.Copy(), time.Time{},
 		&hash,
 	)
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err, "unable to generate htlc attempt")
 
-	return &attempt.HTLCAttemptInfo, nil
+	return &attempt.HTLCAttemptInfo
 }
 
 // genInfo generates a payment creation info and the corresponding preimage.
-func genInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage, error) {
-	preimage, _, err := genPreimageAndHash(t)
-	if err != nil {
-		return nil, preimage, err
-	}
+func genInfo(t *testing.T) (*PaymentCreationInfo, lntypes.Preimage) {
+	t.Helper()
+
+	preimage, _ := genPreimageAndHash(t)
 
 	rhash := sha256.Sum256(preimage[:])
 	creationInfo := genPaymentCreationInfo(t, rhash)
 
-	return creationInfo, preimage, nil
+	return creationInfo, preimage
 }
 
 // TestDeleteFailedAttempts checks that DeleteFailedAttempts properly removes
@@ -534,21 +525,19 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	paymentDB, _ := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
 
 	attemptID := uint64(0)
 
-	attempt, err := genAttemptWithHash(
+	attempt := genAttemptWithHash(
 		t, attemptID, genSessionKey(t), rhash,
 	)
-	require.NoError(t, err, "unable to generate htlc message")
 
 	// Init the payment.
-	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
 
 	// Create three unique attempts we'll use for the test, and
@@ -566,10 +555,9 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	// Now try to register a non-MPP attempt, which should fail.
 	attemptID++
-	attempt2, err := genAttemptWithHash(
+	attempt2 := genAttemptWithHash(
 		t, attemptID, genSessionKey(t), rhash,
 	)
-	require.NoError(t, err)
 
 	attempt2.Route.FinalHop().MPP = nil
 
@@ -598,19 +586,15 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	// Create and init a new payment. This time we'll check that we cannot
 	// register an MPP attempt if we already registered a non-MPP one.
-	preimg, err = genPreimage(t)
-	require.NoError(t, err)
+	preimg = genPreimage(t)
 
 	rhash = sha256.Sum256(preimg[:])
 	info = genPaymentCreationInfo(t, rhash)
 
 	attemptID++
-	attempt, err = genAttemptWithHash(
+	attempt = genAttemptWithHash(
 		t, attemptID, genSessionKey(t), rhash,
 	)
-	require.NoError(t, err)
-
-	require.NoError(t, err, "unable to generate htlc message")
 
 	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
@@ -623,10 +607,9 @@ func TestMPPRecordValidation(t *testing.T) {
 
 	// Attempt to register an MPP attempt, which should fail.
 	attemptID++
-	attempt2, err = genAttemptWithHash(
+	attempt2 = genAttemptWithHash(
 		t, attemptID, genSessionKey(t), rhash,
 	)
-	require.NoError(t, err)
 
 	attempt2.Route.FinalHop().MPP = record.NewMPP(
 		info.Value, [32]byte{1},
@@ -1604,14 +1587,13 @@ func TestSuccessesWithoutInFlight(t *testing.T) {
 
 	paymentDB, _ := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
 
 	// Attempt to complete the payment should fail.
-	_, err = paymentDB.SettleAttempt(
+	_, err := paymentDB.SettleAttempt(
 		t.Context(),
 		info.PaymentIdentifier, 0,
 		&HTLCSettleInfo{
@@ -1628,14 +1610,13 @@ func TestFailsWithoutInFlight(t *testing.T) {
 
 	paymentDB, _ := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
 
 	// Calling Fail should return an error.
-	_, err = paymentDB.Fail(
+	_, err := paymentDB.Fail(
 		t.Context(), info.PaymentIdentifier, FailureReasonNoRoute,
 	)
 	require.ErrorIs(t, err, ErrPaymentNotInitiated)
@@ -1732,15 +1713,13 @@ func TestDeleteNonInFlight(t *testing.T) {
 	}
 
 	for _, p := range payments {
-		preimg, err := genPreimage(t)
-		require.NoError(t, err)
+		preimg := genPreimage(t)
 
 		rhash := sha256.Sum256(preimg[:])
 		info := genPaymentCreationInfo(t, rhash)
-		attempt, err := genAttemptWithHash(
+		attempt := genAttemptWithHash(
 			t, attemptID, genSessionKey(t), rhash,
 		)
-		require.NoError(t, err)
 
 		// After generating the attempt, increment the attempt ID to
 		// have unique attempt IDs for each attempt otherwise the unique
@@ -1748,7 +1727,7 @@ func TestDeleteNonInFlight(t *testing.T) {
 		attemptID++
 
 		// Init payment which initiates StatusInFlight.
-		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+		err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 		require.NoError(t, err, "unable to init payment")
 
 		_, err = paymentDB.RegisterAttempt(
@@ -1872,17 +1851,15 @@ func TestSwitchDoubleSend(t *testing.T) {
 
 	paymentDB, harness := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
-	attempt, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
-	require.NoError(t, err)
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
 
 	// Sends base htlc message which initiate base status and move it to
 	// StatusInFlight and verifies that it was changed.
-	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
 
 	harness.AssertPaymentIndex(t, info.PaymentIdentifier)
@@ -1952,16 +1929,14 @@ func TestSwitchFail(t *testing.T) {
 
 	paymentDB, harness := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
-	attempt, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
-	require.NoError(t, err)
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
 
 	// Sends base htlc message which initiate StatusInFlight.
-	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err, "unable to send htlc message")
 
 	harness.AssertPaymentIndex(t, info.PaymentIdentifier)
@@ -2036,7 +2011,7 @@ func TestSwitchFail(t *testing.T) {
 	assertPaymentInfo(t, paymentDB, info.PaymentIdentifier, info, nil, htlc)
 
 	// Record another attempt.
-	attempt, err = genAttemptWithHash(
+	attempt = genAttemptWithHash(
 		t, 1, genSessionKey(t), rhash,
 	)
 	require.NoError(t, err)
@@ -2120,14 +2095,13 @@ func TestMultiShard(t *testing.T) {
 	runSubTest := func(t *testing.T, test testCase) {
 		paymentDB, harness := NewTestDB(t)
 
-		preimg, err := genPreimage(t)
-		require.NoError(t, err)
+		preimg := genPreimage(t)
 
 		rhash := sha256.Sum256(preimg[:])
 		info := genPaymentCreationInfo(t, rhash)
 
 		// Init the payment, moving it to the StatusInFlight state.
-		err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+		err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 		require.NoError(t, err)
 
 		harness.AssertPaymentIndex(t, info.PaymentIdentifier)
@@ -2146,10 +2120,9 @@ func TestMultiShard(t *testing.T) {
 
 		var attempts []*HTLCAttemptInfo
 		for i := uint64(0); i < 3; i++ {
-			a, err := genAttemptWithHash(
+			a := genAttemptWithHash(
 				t, i, genSessionKey(t), rhash,
 			)
-			require.NoError(t, err)
 
 			a.Route.FinalHop().AmtToForward = shardAmt
 			a.Route.FinalHop().MPP = record.NewMPP(
@@ -2181,10 +2154,9 @@ func TestMultiShard(t *testing.T) {
 		// For a fourth attempt, check that attempting to
 		// register it will fail since the total sent amount
 		// will be too large.
-		b, err := genAttemptWithHash(
+		b := genAttemptWithHash(
 			t, 3, genSessionKey(t), rhash,
 		)
-		require.NoError(t, err)
 
 		b.Route.FinalHop().AmtToForward = shardAmt
 		b.Route.FinalHop().MPP = record.NewMPP(
@@ -2290,10 +2262,9 @@ func TestMultiShard(t *testing.T) {
 
 		// Try to register yet another attempt. This should fail now
 		// that the payment has reached a terminal condition.
-		b, err = genAttemptWithHash(
+		b = genAttemptWithHash(
 			t, 3, genSessionKey(t), rhash,
 		)
-		require.NoError(t, err)
 
 		b.Route.FinalHop().AmtToForward = shardAmt
 		b.Route.FinalHop().MPP = record.NewMPP(
@@ -2752,8 +2723,7 @@ func TestQueryPayments(t *testing.T) {
 			// First, create all payments.
 			for i := range numberOfPayments {
 				// Generate a test payment.
-				info, _, err := genInfo(t)
-				require.NoError(t, err)
+				info, _ := genInfo(t)
 
 				// Override creation time to allow for testing
 				// of CreationDateStart and CreationDateEnd.
@@ -2941,8 +2911,7 @@ func TestFetchInFlightPayments(t *testing.T) {
 	require.Contains(t, inFlightHashes, payments[3].id)
 
 	// Now settle one of the in-flight payments.
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	_, err = paymentDB.SettleAttempt(
 		ctx, payments[2].id, 5,
@@ -2974,28 +2943,25 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 
 	paymentDB, _ := NewTestDB(t)
 
-	preimg, err := genPreimage(t)
-	require.NoError(t, err)
+	preimg := genPreimage(t)
 
 	rhash := sha256.Sum256(preimg[:])
 	info := genPaymentCreationInfo(t, rhash)
 
 	// Init payment with double the amount to allow two attempts.
 	info.Value *= 2
-	err = paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
 	require.NoError(t, err)
 
 	// Register two attempts for the same payment.
-	attempt1, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
-	require.NoError(t, err)
+	attempt1 := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
 
 	_, err = paymentDB.RegisterAttempt(
 		ctx, info.PaymentIdentifier, attempt1,
 	)
 	require.NoError(t, err)
 
-	attempt2, err := genAttemptWithHash(t, 1, genSessionKey(t), rhash)
-	require.NoError(t, err)
+	attempt2 := genAttemptWithHash(t, 1, genSessionKey(t), rhash)
 
 	_, err = paymentDB.RegisterAttempt(
 		ctx, info.PaymentIdentifier, attempt2,

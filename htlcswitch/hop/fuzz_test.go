@@ -45,15 +45,19 @@ func FuzzHopPayload(f *testing.F) {
 
 		r := bytes.NewReader(data)
 
-		var hopPayload1, hopPayload2 sphinx.HopPayload
+		var hopPayload1, hopPayload2 *sphinx.HopPayload
+		tlvGuaranteed := false
 
-		if err := hopPayload1.Decode(r); err != nil {
+		hopPayload1, err := sphinx.DecodeHopPayload(r, tlvGuaranteed)
+		if err != nil {
 			return
 		}
 
 		var b bytes.Buffer
 		require.NoError(t, hopPayload1.Encode(&b))
-		require.NoError(t, hopPayload2.Decode(&b))
+
+		hopPayload2, err = sphinx.DecodeHopPayload(&b, tlvGuaranteed)
+		require.NoError(t, err)
 
 		require.Equal(t, hopPayload1, hopPayload2)
 	})

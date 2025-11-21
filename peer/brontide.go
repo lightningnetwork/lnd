@@ -308,7 +308,7 @@ type Config struct {
 
 	// SphinxRouterNoReplayLog is the router used to decode sphinx onion
 	// blobs from an onion_message_packet.
-	sphinxRouterNoReplayLog *sphinx.Router
+	SphinxRouterNoReplayLog *sphinx.Router
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.
@@ -937,7 +937,7 @@ func (p *Brontide) Start() error {
 	// messages to the endpoint for further processing.
 	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
 		p.cfg.ActorSystem.Receptionist(),
-		p.cfg.sphinxRouterNoReplayLog,
+		p.cfg.SphinxRouterNoReplayLog,
 		onionmessage.WithMessageServer(p.cfg.OnionMessageServer),
 	)
 

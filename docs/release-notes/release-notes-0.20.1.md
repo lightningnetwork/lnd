@@ -24,6 +24,10 @@
 * Fix bug where channels with both [policies disabled at startup could never
   be used for routing](https://github.com/lightningnetwork/lnd/pull/10378)
 
+* [Fix a case where resolving the 
+  to_local/to_remote output](https://github.com/lightningnetwork/lnd/pull/10387)
+  might take too long.
+  
 # New Features
 
 ## Functional Enhancements

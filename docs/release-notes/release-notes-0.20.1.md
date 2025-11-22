@@ -31,6 +31,11 @@
 * Fix a bug where [repeated network
   addresses](https://github.com/lightningnetwork/lnd/pull/10341) were added to
   the node announcement and `getinfo` output.
+  
+* [Fix a startup issue in LND when encountering a 
+  deserialization issue](https://github.com/lightningnetwork/lnd/pull/10383) 
+  in the mission control store. Now we skip over potential errors and also
+  delete them from the store.
 
 # New Features
 

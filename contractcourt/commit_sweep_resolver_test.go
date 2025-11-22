@@ -18,6 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testCommitSweepConfHeight = 99
+)
+
 type commitSweepResolverTestContext struct {
 	resolver           *commitSweepResolver
 	notifier           *mock.ChainNotifier
@@ -27,7 +31,8 @@ type commitSweepResolverTestContext struct {
 }
 
 func newCommitSweepResolverTestContext(t *testing.T,
-	resolution *lnwallet.CommitOutputResolution) *commitSweepResolverTestContext {
+	resolution *lnwallet.CommitOutputResolution,
+	confirmHeight uint32) *commitSweepResolverTestContext {
 
 	notifier := &mock.ChainNotifier{
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
@@ -68,7 +73,7 @@ func newCommitSweepResolverTestContext(t *testing.T,
 	}
 
 	resolver := newCommitSweepResolver(
-		*resolution, 0, wire.OutPoint{}, cfg,
+		*resolution, confirmHeight, wire.OutPoint{}, cfg,
 	)
 
 	return &commitSweepResolverTestContext{
@@ -178,7 +183,9 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 		},
 	}
 
-	ctx := newCommitSweepResolverTestContext(t, &res)
+	ctx := newCommitSweepResolverTestContext(
+		t, &res, testCommitSweepConfHeight,
+	)
 
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
@@ -197,14 +204,11 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 
 	ctx.resolve()
 
-	spendTx := &wire.MsgTx{}
-	spendHash := spendTx.TxHash()
-	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
-		Tx: spendTx,
-	}
-
 	// No csv delay, so the input should be swept immediately.
 	<-ctx.sweeper.sweptInputs
+
+	spendTx := &wire.MsgTx{}
+	spendHash := spendTx.TxHash()
 
 	amt := btcutil.Amount(res.SelfOutputSignDesc.Output.Value)
 	expectedReport := &channeldb.ResolverReport{
@@ -242,7 +246,10 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		SelfOutPoint:  outpoint,
 	}
 
-	ctx := newCommitSweepResolverTestContext(t, &res)
+	// Use confirmHeight = 99, so maturityHeight = 99 + 3 = 102.
+	ctx := newCommitSweepResolverTestContext(
+		t, &res, testCommitSweepConfHeight,
+	)
 
 	// Replace our checkpoint with one which will push reports into a
 	// channel for us to consume. We replace this function on the resolver
@@ -270,25 +277,18 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		Amount:       btcutil.Amount(amt),
 		LimboBalance: btcutil.Amount(amt),
 	}
-	if *report != expectedReport {
-		t.Fatalf("unexpected resolver report. want=%v got=%v",
-			expectedReport, report)
-	}
+	require.Equal(t, expectedReport, *report)
 
 	ctx.resolve()
 
-	ctx.notifier.ConfChan <- &chainntnfs.TxConfirmation{
-		BlockHeight: testInitialBlockHeight - 1,
-	}
-
-	// Allow resolver to process confirmation.
+	// Allow resolver to launch and update the report.
 	time.Sleep(sweepProcessInterval)
 
 	// Expect report to be updated.
+	// confirmHeight(99) + maturityDelay(3) = 102.
 	report = ctx.resolver.report()
-	if report.MaturityHeight != testInitialBlockHeight+2 {
-		t.Fatal("report maturity height incorrect")
-	}
+	expectedMaturity := testCommitSweepConfHeight + res.MaturityDelay
+	require.Equal(t, expectedMaturity, report.MaturityHeight)
 
 	// Notify initial block height. Although the csv lock is still in
 	// effect, we expect the input being sent to the sweeper before the csv
@@ -325,13 +325,10 @@ func testCommitSweepResolverDelay(t *testing.T, sweepErr error) {
 		Outpoint:         outpoint,
 		Type:             ReportOutputUnencumbered,
 		Amount:           btcutil.Amount(amt),
-		MaturityHeight:   testInitialBlockHeight + 2,
+		MaturityHeight:   testCommitSweepConfHeight + res.MaturityDelay,
 		RecoveredBalance: expectedRecoveredBalance,
 	}
-	if *report != expectedReport {
-		t.Fatalf("unexpected resolver report. want=%v got=%v",
-			expectedReport, report)
-	}
+	require.Equal(t, expectedReport, *report)
 }
 
 // TestCommitSweepResolverDelay tests resolution of a direct commitment output

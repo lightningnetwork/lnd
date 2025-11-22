@@ -278,9 +278,9 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 			t.Fatalf("expected %v, got %v", ogRes.resolved.Load(),
 				diskRes.resolved.Load())
 		}
-		if ogRes.broadcastHeight != diskRes.broadcastHeight {
+		if ogRes.confirmHeight != diskRes.confirmHeight {
 			t.Fatalf("expected %v, got %v",
-				ogRes.broadcastHeight, diskRes.broadcastHeight)
+				ogRes.confirmHeight, diskRes.confirmHeight)
 		}
 		if ogRes.chanPoint != diskRes.chanPoint {
 			t.Fatalf("expected %v, got %v", ogRes.chanPoint,
@@ -341,8 +341,8 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			SelfOutputSignDesc: testSignDesc,
 			MaturityDelay:      99,
 		},
-		broadcastHeight: 109,
-		chanPoint:       testChanPoint1,
+		confirmHeight: 109,
+		chanPoint:     testChanPoint1,
 	}
 	commitResolver.resolved.Store(false)
 

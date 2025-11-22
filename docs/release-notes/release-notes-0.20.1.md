@@ -24,6 +24,11 @@
 * Fix bug where channels with both [policies disabled at startup could never
   be used for routing](https://github.com/lightningnetwork/lnd/pull/10378)
 
+* [Fix a startup issue in LND when ecounntering a 
+  deserialization issue](https://github.com/lightningnetwork/lnd/pull/10383) 
+  in the mission control store. Now we skip over potential errors and also
+  delete them from the store.
+
 # New Features
 
 ## Functional Enhancements

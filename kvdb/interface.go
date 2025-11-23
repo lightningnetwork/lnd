@@ -145,6 +145,31 @@ func RootBucket(t RTx) RBucket {
 	return nil
 }
 
+// DeferrableBackend is an optional interface that backends can implement to
+// indicate they prefer deferring heavy operations (like bulk deletes) to
+// startup rather than executing them inline. SQL-based backends typically
+// implement this interface since concurrent large transactions can cause
+// lock contention and timeouts.
+type DeferrableBackend interface {
+	// ShouldDeferHeavyOperations returns true if the backend prefers to
+	// defer expensive operations (like deleting thousands of revocation
+	// log entries) to startup rather than executing them inline during
+	// normal operations.
+	ShouldDeferHeavyOperations() bool
+}
+
+// ShouldDeferHeavyOperations checks if the backend implements
+// DeferrableBackend and if so, returns the result of
+// ShouldDeferHeavyOperations(). Returns false for backends that don't
+// implement the interface (like bbolt).
+func ShouldDeferHeavyOperations(backend Backend) bool {
+	if db, ok := backend.(DeferrableBackend); ok {
+		return db.ShouldDeferHeavyOperations()
+	}
+
+	return false
+}
+
 var (
 	// ErrBucketNotFound is returned when trying to access a bucket that
 	// has not been created yet.

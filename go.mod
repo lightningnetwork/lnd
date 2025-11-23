@@ -205,6 +205,9 @@ require (
 // TODO(elle): remove once the gossip V2 sqldb changes have been made.
 replace github.com/lightningnetwork/lnd/sqldb => ./sqldb
 
+// TODO: remove once the deferred cleanup changes have been released.
+replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
+
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
 replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 

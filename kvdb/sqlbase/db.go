@@ -95,6 +95,16 @@ type db struct {
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
 
+// ShouldDeferHeavyOperations returns true for postgres backends, indicating
+// they prefer deferring heavy operations (like bulk deletes of revocation logs)
+// to startup. This helps avoid lock contention and transaction timeouts that
+// can occur when multiple channels are closed concurrently. SQLite uses the
+// same immediate cleanup approach as bbolt since it doesn't have the same
+// concurrency constraints.
+func (db *db) ShouldDeferHeavyOperations() bool {
+	return db.cfg.DriverName == "pgx"
+}
+
 var (
 	// dbConns is a global set of database connections.
 	dbConns   *dbConnSet

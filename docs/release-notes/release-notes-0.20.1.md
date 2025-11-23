@@ -43,6 +43,15 @@
 
 ## Performance Improvements
 
+* [Defer deletion of closed 
+  channel data](https://github.com/lightningnetwork/lnd/pull/10390) to the
+  next restart for postgres backends. Normally deleting everything as soon as
+  the channel is closed is ok, but for the kvdb backend for postgres this can
+  cause severe stress on the kv table, so we introduce this performance
+  improvment until the native sql schema for channels and revocation logs are
+  deployed.
+
+
 ## Deprecations
 
 # Technical and Architectural Updates

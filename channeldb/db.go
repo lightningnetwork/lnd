@@ -2023,6 +2023,157 @@ func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 	}, func() {})
 }
 
+// CleanupPendingCloses processes any channels that were closed but whose heavy
+// cleanup operations (deleting revocation logs, forwarding packages) were
+// deferred to startup. This is used by postgres backends to avoid lock
+// contention during normal operation.
+func (c *ChannelStateDB) CleanupPendingCloses() error {
+	// First, collect all the pending cleanup entries.
+	var cleanupEntries []*PendingCleanupInfo
+	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
+		cleanupBucket := tx.ReadBucket(pendingCleanupBucket)
+		if cleanupBucket == nil {
+			return nil
+		}
+
+		return cleanupBucket.ForEach(func(k, v []byte) error {
+			info := &PendingCleanupInfo{}
+			if err := info.Decode(bytes.NewReader(v)); err != nil {
+				return err
+			}
+
+			cleanupEntries = append(cleanupEntries, info)
+
+			return nil
+		})
+	}, func() {
+		cleanupEntries = nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(cleanupEntries) == 0 {
+		return nil
+	}
+
+	log.Infof("Processing %d deferred channel cleanups",
+		len(cleanupEntries))
+
+	// Process each cleanup entry.
+	for _, info := range cleanupEntries {
+		err := c.cleanupChannel(info)
+		if err != nil {
+			log.Warnf("Failed to cleanup channel %v: %v",
+				info.ChanPoint, err)
+			continue
+		}
+
+		log.Debugf("Cleaned up deferred channel data for %v",
+			info.ChanPoint)
+	}
+
+	return nil
+}
+
+// cleanupChannel performs the actual cleanup for a single channel.
+func (c *ChannelStateDB) cleanupChannel(info *PendingCleanupInfo) error {
+	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
+		// Get the open channel bucket structure.
+		openChanBucket := tx.ReadWriteBucket(openChannelBucket)
+		if openChanBucket == nil {
+			// If there's no open channel bucket, nothing to clean.
+			return c.removePendingCleanup(tx, &info.ChanPoint)
+		}
+
+		nodeChanBucket := openChanBucket.NestedReadWriteBucket(
+			info.NodePub[:],
+		)
+		if nodeChanBucket == nil {
+			return c.removePendingCleanup(tx, &info.ChanPoint)
+		}
+
+		chainBucket := nodeChanBucket.NestedReadWriteBucket(
+			info.ChainHash[:],
+		)
+		if chainBucket == nil {
+			return c.removePendingCleanup(tx, &info.ChanPoint)
+		}
+
+		var chanPointBuf bytes.Buffer
+		err := graphdb.WriteOutpoint(&chanPointBuf, &info.ChanPoint)
+		if err != nil {
+			return err
+		}
+		chanKey := chanPointBuf.Bytes()
+
+		chanBucket := chainBucket.NestedReadWriteBucket(chanKey)
+		if chanBucket == nil {
+			// Channel bucket doesn't exist, just remove the
+			// pending cleanup entry.
+			return c.removePendingCleanup(tx, &info.ChanPoint)
+		}
+
+		// Fetch the channel state to get the packager.
+		chanState, err := fetchOpenChannel(
+			chanBucket, &info.ChanPoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Delete all the forwarding packages stored for this channel.
+		if err := chanState.Packager.Wipe(tx); err != nil {
+			return err
+		}
+
+		// Purge the remaining channel metadata from the database.
+		if err := deleteOpenChannel(chanBucket); err != nil {
+			return err
+		}
+
+		// Remove the channel from the frozen channel bucket if needed.
+		if chanState.ChanType.IsFrozen() ||
+			chanState.ChanType.HasLeaseExpiration() {
+
+			if err := deleteThawHeight(chanBucket); err != nil {
+				return err
+			}
+		}
+
+		// Delete the information stored within the revocation log.
+		if err := deleteLogBucket(chanBucket); err != nil {
+			return err
+		}
+
+		// Delete the channel bucket itself.
+		if err := chainBucket.DeleteNestedBucket(chanKey); err != nil {
+			return err
+		}
+
+		// Finally, remove the pending cleanup entry.
+		return c.removePendingCleanup(tx, &info.ChanPoint)
+	}, func() {})
+}
+
+// removePendingCleanup removes a channel's entry from the pending cleanup
+// bucket.
+func (c *ChannelStateDB) removePendingCleanup(tx kvdb.RwTx,
+	chanPoint *wire.OutPoint) error {
+
+	cleanupBucket := tx.ReadWriteBucket(pendingCleanupBucket)
+	if cleanupBucket == nil {
+		return nil
+	}
+
+	var chanPointBuf bytes.Buffer
+	if err := graphdb.WriteOutpoint(&chanPointBuf, chanPoint); err != nil {
+		return err
+	}
+
+	return cleanupBucket.Delete(chanPointBuf.Bytes())
+}
+
 // MakeTestInvoiceDB is used to create a test invoice database for testing
 // purposes. It simply calls into MakeTestDB so the same modifiers can be used.
 func MakeTestInvoiceDB(t *testing.T, modifiers ...OptionModifier) (

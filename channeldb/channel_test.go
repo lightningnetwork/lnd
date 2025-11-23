@@ -509,6 +509,12 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 		t.Fatalf("unable to close channel: %v", err)
 	}
 
+	// For postgres backends, cleanup is deferred. Process it now.
+	if kvdb.ShouldDeferHeavyOperations(fullDB.Backend) {
+		err = cdb.CleanupPendingCloses()
+		require.NoError(t, err, "unable to cleanup pending closes")
+	}
+
 	// As the channel is now closed, attempting to fetch all open channels
 	// for our fake node ID should return an empty slice.
 	openChans, err := cdb.FetchOpenChannels(state.IdentityPub)
@@ -953,6 +959,12 @@ func TestChannelStateTransition(t *testing.T) {
 	}
 	if err := updatedChannel[0].CloseChannel(closeSummary); err != nil {
 		t.Fatalf("unable to delete updated channel: %v", err)
+	}
+
+	// For postgres backends, cleanup is deferred. Process it now.
+	if kvdb.ShouldDeferHeavyOperations(fullDB.Backend) {
+		err = cdb.CleanupPendingCloses()
+		require.NoError(t, err, "unable to cleanup pending closes")
 	}
 
 	// If we attempt to fetch the target channel again, it shouldn't be

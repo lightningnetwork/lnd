@@ -456,6 +456,12 @@ func TestAbandonChannel(t *testing.T) {
 	err = cdb.AbandonChannel(&chanState.FundingOutpoint, closeHeight)
 	require.NoError(t, err, "unable to abandon channel")
 
+	// For postgres backends, cleanup is deferred. Process it now.
+	if kvdb.ShouldDeferHeavyOperations(fullDB.Backend) {
+		err = cdb.CleanupPendingCloses()
+		require.NoError(t, err, "unable to cleanup pending closes")
+	}
+
 	// At this point, the channel should no longer be found in the set of
 	// open channels.
 	_, err = cdb.FetchChannel(chanState.FundingOutpoint)

@@ -78,6 +78,12 @@ var (
 	// is retained.
 	historicalChannelBucket = []byte("historical-chan-bucket")
 
+	// pendingCleanupBucket stores information about channels that have been
+	// closed but whose data (revocation logs, forwarding packages) has not
+	// yet been deleted. This is used by SQL backends to defer heavy cleanup
+	// operations to startup.
+	pendingCleanupBucket = []byte("pending-cleanup-bucket")
+
 	// chanInfoKey can be accessed within the bucket for a channel
 	// (identified by its chanPoint). This key stores all the static
 	// information for a channel which is decided at the end of  the
@@ -3759,6 +3765,57 @@ const (
 	Abandoned ClosureType = 5
 )
 
+// PendingCleanupInfo contains the information needed to clean up a channel's
+// data after it has been closed. This is used by SQL backends to defer heavy
+// deletion operations to startup.
+type PendingCleanupInfo struct {
+	// ChanPoint is the funding outpoint of the channel.
+	ChanPoint wire.OutPoint
+
+	// ShortChanID is the short channel ID of the channel.
+	ShortChanID lnwire.ShortChannelID
+
+	// NodePub is the compressed public key of the remote node.
+	NodePub [33]byte
+
+	// ChainHash is the hash of the chain this channel belongs to.
+	ChainHash chainhash.Hash
+}
+
+// Encode serializes the PendingCleanupInfo to the given writer.
+func (p *PendingCleanupInfo) Encode(w io.Writer) error {
+	if err := WriteElements(w, p.ChanPoint, p.ShortChanID); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(p.NodePub[:]); err != nil {
+		return err
+	}
+
+	if _, err := w.Write(p.ChainHash[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode deserializes the PendingCleanupInfo from the given reader.
+func (p *PendingCleanupInfo) Decode(r io.Reader) error {
+	if err := ReadElements(r, &p.ChanPoint, &p.ShortChanID); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, p.NodePub[:]); err != nil {
+		return err
+	}
+
+	if _, err := io.ReadFull(r, p.ChainHash[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // ChannelCloseSummary contains the final state of a channel at the point it
 // was closed. Once a channel is closed, all the information pertaining to that
 // channel within the openChannelBucket is deleted, and a compact summary is
@@ -3853,6 +3910,10 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 	c.Lock()
 	defer c.Unlock()
 
+	// Check if the backend prefers deferring heavy operations to startup.
+	// Postgres backends return true here to avoid lock contention.
+	deferCleanup := kvdb.ShouldDeferHeavyOperations(c.Db.backend)
+
 	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
 		openChanBucket := tx.ReadWriteBucket(openChannelBucket)
 		if openChanBucket == nil {
@@ -3893,37 +3954,25 @@ func (c *OpenChannel) CloseChannel(summary *ChannelCloseSummary,
 			return err
 		}
 
-		// Delete all the forwarding packages stored for this particular
-		// channel.
-		if err = chanState.Packager.Wipe(tx); err != nil {
-			return err
-		}
-
-		// Now that the index to this channel has been deleted, purge
-		// the remaining channel metadata from the database.
-		err = deleteOpenChannel(chanBucket)
-		if err != nil {
-			return err
-		}
-
-		// We'll also remove the channel from the frozen channel bucket
-		// if we need to.
-		if c.ChanType.IsFrozen() || c.ChanType.HasLeaseExpiration() {
-			err := deleteThawHeight(chanBucket)
+		if deferCleanup {
+			// For postgres backends, store cleanup info and defer
+			// the heavy deletion operations to startup.
+			err = storePendingCleanup(
+				tx, c, nodePub, chanKey,
+			)
 			if err != nil {
 				return err
 			}
-		}
-
-		// With the base channel data deleted, attempt to delete the
-		// information stored within the revocation log.
-		if err := deleteLogBucket(chanBucket); err != nil {
-			return err
-		}
-
-		err = chainBucket.DeleteNestedBucket(chanPointBuf.Bytes())
-		if err != nil {
-			return err
+		} else {
+			// For non-postgres backends (bbolt, sqlite), perform
+			// immediate cleanup.
+			err = performImmediateCleanup(
+				tx, chanState, chanBucket, chainBucket,
+				chanPointBuf.Bytes(),
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Fetch the outpoint bucket to see if the outpoint exists or
@@ -4731,6 +4780,71 @@ func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 	}
 
 	return nil
+}
+
+// storePendingCleanup stores cleanup info for a channel to be processed at
+// startup. This is used by postgres backends to defer heavy deletion
+// operations.
+func storePendingCleanup(tx kvdb.RwTx, c *OpenChannel, nodePub []byte,
+	chanKey []byte) error {
+
+	cleanupBucket, err := tx.CreateTopLevelBucket(pendingCleanupBucket)
+	if err != nil {
+		return err
+	}
+
+	var nodePubKey [33]byte
+	copy(nodePubKey[:], nodePub)
+
+	cleanupInfo := &PendingCleanupInfo{
+		ChanPoint:   c.FundingOutpoint,
+		ShortChanID: c.ShortChannelID,
+		NodePub:     nodePubKey,
+		ChainHash:   c.ChainHash,
+	}
+
+	var cleanupBuf bytes.Buffer
+	if err := cleanupInfo.Encode(&cleanupBuf); err != nil {
+		return err
+	}
+
+	return cleanupBucket.Put(chanKey, cleanupBuf.Bytes())
+}
+
+// performImmediateCleanup handles the cleanup operations that are performed
+// immediately during channel close for non-postgres backends (bbolt, sqlite).
+// This includes wiping forwarding packages, deleting channel data, thaw height,
+// revocation logs, and the channel bucket itself.
+func performImmediateCleanup(tx kvdb.RwTx, chanState *OpenChannel,
+	chanBucket kvdb.RwBucket, chainBucket kvdb.RwBucket,
+	chanKey []byte) error {
+
+	// Delete all the forwarding packages stored for this channel.
+	if err := chanState.Packager.Wipe(tx); err != nil {
+		return err
+	}
+
+	// Purge the remaining channel metadata from the database.
+	if err := deleteOpenChannel(chanBucket); err != nil {
+		return err
+	}
+
+	// Remove the channel from the frozen channel bucket if needed.
+	if chanState.ChanType.IsFrozen() ||
+		chanState.ChanType.HasLeaseExpiration() {
+
+		if err := deleteThawHeight(chanBucket); err != nil {
+			return err
+		}
+	}
+
+	// Delete the information stored within the revocation log.
+	if err := deleteLogBucket(chanBucket); err != nil {
+		return err
+	}
+
+	// Delete the channel bucket itself.
+	return chainBucket.DeleteNestedBucket(chanKey)
 }
 
 // makeLogKey converts a uint64 into an 8 byte array.

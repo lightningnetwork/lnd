@@ -1,6 +1,7 @@
 package channeldb
 
 import (
+	"bytes"
 	"image/color"
 	"math"
 	"math/rand"
@@ -832,4 +833,108 @@ func createTestVertex(t *testing.T) *models.Node {
 	require.NoError(t, err)
 
 	return createNode(priv)
+}
+
+// TestPendingCleanupInfoEncodeDecode tests that PendingCleanupInfo can be
+// properly encoded and decoded.
+func TestPendingCleanupInfoEncodeDecode(t *testing.T) {
+	t.Parallel()
+
+	// Create a test PendingCleanupInfo.
+	var nodePub [33]byte
+	copy(nodePub[:], bytes.Repeat([]byte{0x02}, 33))
+
+	chanPoint := wire.OutPoint{
+		Hash:  chainhash.Hash{0x01, 0x02, 0x03},
+		Index: 42,
+	}
+	shortChanID := lnwire.NewShortChanIDFromInt(123456)
+	chainHash := chainhash.Hash{0x0a, 0x0b, 0x0c}
+
+	info := &PendingCleanupInfo{
+		ChanPoint:   chanPoint,
+		ShortChanID: shortChanID,
+		NodePub:     nodePub,
+		ChainHash:   chainHash,
+	}
+
+	// Encode it.
+	var buf bytes.Buffer
+	err := info.Encode(&buf)
+	require.NoError(t, err)
+
+	// Decode it.
+	decoded := &PendingCleanupInfo{}
+	err = decoded.Decode(&buf)
+	require.NoError(t, err)
+
+	// Verify all fields match.
+	require.Equal(t, info.ChanPoint, decoded.ChanPoint)
+	require.Equal(t, info.ShortChanID, decoded.ShortChanID)
+	require.Equal(t, info.NodePub, decoded.NodePub)
+	require.Equal(t, info.ChainHash, decoded.ChainHash)
+}
+
+// TestCleanupPendingClosesEmpty tests that CleanupPendingCloses works
+// correctly when there are no pending cleanups.
+func TestCleanupPendingClosesEmpty(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Calling CleanupPendingCloses when there's nothing to clean should
+	// succeed without error.
+	err = cdb.CleanupPendingCloses()
+	require.NoError(t, err)
+}
+
+// TestImmediateCleanupOnClose tests that for non-postgres backends (like
+// bbolt and sqlite), channel close performs immediate cleanup without
+// deferring to the pending cleanup bucket.
+func TestImmediateCleanupOnClose(t *testing.T) {
+	t.Parallel()
+
+	// Skip this test for postgres as it defers cleanup.
+	if kvdb.PostgresBackend {
+		t.Skip("Skipping test for postgres backend")
+	}
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err)
+
+	cdb := fullDB.ChannelStateDB()
+
+	// Create an open channel.
+	channel := createTestChannel(t, cdb, openChannelOption())
+
+	// Close the channel.
+	err = channel.CloseChannel(&ChannelCloseSummary{
+		ChanPoint:      channel.FundingOutpoint,
+		RemotePub:      channel.IdentityPub,
+		SettledBalance: btcutil.Amount(500),
+	})
+	require.NoError(t, err)
+
+	// For non-postgres backends, the pending cleanup bucket should be
+	// empty (or not exist).
+	var pendingCleanupCount int
+	err = kvdb.View(fullDB.Backend, func(tx kvdb.RTx) error {
+		cleanupBucket := tx.ReadBucket(pendingCleanupBucket)
+		if cleanupBucket == nil {
+			return nil
+		}
+
+		return cleanupBucket.ForEach(func(k, v []byte) error {
+			pendingCleanupCount++
+			return nil
+		})
+	}, func() {
+		pendingCleanupCount = 0
+	})
+	require.NoError(t, err)
+	require.Zero(t, pendingCleanupCount,
+		"expected no pending cleanup entries for non-postgres backend")
 }

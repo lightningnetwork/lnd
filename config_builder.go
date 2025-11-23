@@ -1094,11 +1094,28 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		return nil, nil, err
 	}
 
+	// Process any deferred channel cleanups. For postgres backends, heavy
+	// cleanup operations (deleting revocation logs, forwarding packages)
+	// are deferred to startup to avoid lock contention. For other backends
+	// (bbolt, sqlite), this is a no-op as they perform immediate cleanup.
+	if kvdb.ShouldDeferHeavyOperations(databaseBackends.ChanStateDB) {
+		err = dbs.ChanStateDB.ChannelStateDB().CleanupPendingCloses()
+		if err != nil {
+			cleanUp()
+
+			err = fmt.Errorf("unable to cleanup pending "+
+				"closes: %w", err)
+			d.logger.Error(err)
+			return nil, nil, err
+		}
+	}
+
 	// The graph store implementation we will use depends on whether
 	// native SQL is enabled or not.
 	var graphStore graphdb.V1Store
 
 	// Instantiate a native SQL store if the flag is set.
+	//nolint:nestif
 	if d.cfg.DB.UseNativeSQL {
 		migrations := sqldb.GetMigrations()
 

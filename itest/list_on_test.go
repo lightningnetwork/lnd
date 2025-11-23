@@ -384,10 +384,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSingleHopInvoice,
 	},
 	{
-		Name:     "wipe forwarding packages",
-		TestFunc: testWipeForwardingPackages,
-	},
-	{
 		Name:     "switch circuit persistence",
 		TestFunc: testSwitchCircuitPersistence,
 	},

@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2983,4 +2984,65 @@ func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
 
 	// Verify the payment has both attempts.
 	require.Len(t, inFlightPayments[0].HTLCs, 2)
+}
+
+// TestRouteFirstHopData tests that Route.FirstHopAmount and
+// Route.FirstHopWireCustomRecords are correctly stored and retrieved.
+func TestRouteFirstHopData(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+	firstHopAmount := lnwire.MilliSatoshi(1234)
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Create an attempt with both FirstHopAmount and
+	// FirstHopWireCustomRecords set on the route.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+	attempt.Route.FirstHopAmount = tlv.NewRecordT[tlv.TlvType0](
+		tlv.NewBigSizeT(firstHopAmount),
+	)
+	typeIdx1 := uint64(lnwire.MinCustomRecordsTlvType + 10)
+	typeIdx2 := uint64(lnwire.MinCustomRecordsTlvType + 20)
+	attempt.Route.FirstHopWireCustomRecords = lnwire.CustomRecords{
+		typeIdx1: []byte("wire_record_1"),
+		typeIdx2: []byte("wire_record_2"),
+	}
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Fetch the payment and verify first hop data was stored.
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+
+	require.Len(t, payment.HTLCs, 1)
+	htlc := payment.HTLCs[0]
+
+	// Verify the FirstHopAmount matches what we set.
+	require.NotNil(t, htlc.Route.FirstHopAmount)
+	require.Equal(
+		t, firstHopAmount,
+		htlc.Route.FirstHopAmount.Val.Int(),
+	)
+
+	// Verify the FirstHopWireCustomRecords match what we set.
+	require.NotEmpty(t, htlc.Route.FirstHopWireCustomRecords)
+	require.Len(t, htlc.Route.FirstHopWireCustomRecords, 2)
+	require.Equal(
+		t, []byte("wire_record_1"),
+		htlc.Route.FirstHopWireCustomRecords[typeIdx1],
+	)
+	require.Equal(
+		t, []byte("wire_record_2"),
+		htlc.Route.FirstHopWireCustomRecords[typeIdx2],
+	)
 }

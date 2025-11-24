@@ -38,10 +38,10 @@ type commitSweepResolver struct {
 	// this HTLC on-chain.
 	commitResolution lnwallet.CommitOutputResolution
 
-	// broadcastHeight is the height that the original contract was
-	// broadcast to the main-chain at. We'll use this value to bound any
-	// historical queries to the chain for spends/confirmations.
-	broadcastHeight uint32
+	// confirmHeight is the block height that the commitment transaction was
+	// confirmed at. We'll use this value to bound any historical queries to
+	// the chain for spends/confirmations.
+	confirmHeight uint32
 
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
@@ -74,13 +74,13 @@ type commitSweepResolver struct {
 
 // newCommitSweepResolver instantiates a new direct commit output resolver.
 func newCommitSweepResolver(res lnwallet.CommitOutputResolution,
-	broadcastHeight uint32, chanPoint wire.OutPoint,
+	confirmHeight uint32, chanPoint wire.OutPoint,
 	resCfg ResolverConfig) *commitSweepResolver {
 
 	r := &commitSweepResolver{
 		contractResolverKit: *newContractResolverKit(resCfg),
 		commitResolution:    res,
-		broadcastHeight:     broadcastHeight,
+		confirmHeight:       confirmHeight,
 		chanPoint:           chanPoint,
 	}
 
@@ -120,37 +120,6 @@ func waitForSpend(op *wire.OutPoint, pkScript []byte, heightHint uint32,
 
 	case <-quit:
 		return nil, errResolverShuttingDown
-	}
-}
-
-// getCommitTxConfHeight waits for confirmation of the commitment tx and
-// returns the confirmation height.
-func (c *commitSweepResolver) getCommitTxConfHeight() (uint32, error) {
-	txID := c.commitResolution.SelfOutPoint.Hash
-	signDesc := c.commitResolution.SelfOutputSignDesc
-	pkScript := signDesc.Output.PkScript
-
-	const confDepth = 1
-
-	confChan, err := c.Notifier.RegisterConfirmationsNtfn(
-		&txID, pkScript, confDepth, c.broadcastHeight,
-	)
-	if err != nil {
-		return 0, err
-	}
-	defer confChan.Cancel()
-
-	select {
-	case txConfirmation, ok := <-confChan.Confirmed:
-		if !ok {
-			return 0, fmt.Errorf("cannot get confirmation "+
-				"for commit tx %v", txID)
-		}
-
-		return txConfirmation.BlockHeight, nil
-
-	case <-c.quit:
-		return 0, errResolverShuttingDown
 	}
 }
 
@@ -268,7 +237,7 @@ func (c *commitSweepResolver) Encode(w io.Writer) error {
 	if err := binary.Write(w, endian, c.IsResolved()); err != nil {
 		return err
 	}
-	if err := binary.Write(w, endian, c.broadcastHeight); err != nil {
+	if err := binary.Write(w, endian, c.confirmHeight); err != nil {
 		return err
 	}
 	if _, err := w.Write(c.chanPoint.Hash[:]); err != nil {
@@ -308,7 +277,7 @@ func newCommitSweepResolverFromReader(r io.Reader, resCfg ResolverConfig) (
 		c.markResolved()
 	}
 
-	if err := binary.Read(r, endian, &c.broadcastHeight); err != nil {
+	if err := binary.Read(r, endian, &c.confirmHeight); err != nil {
 		return nil, err
 	}
 	_, err := io.ReadFull(r, c.chanPoint.Hash[:])
@@ -381,19 +350,14 @@ func (c *commitSweepResolver) Launch() error {
 		return nil
 	}
 
-	confHeight, err := c.getCommitTxConfHeight()
-	if err != nil {
-		return err
-	}
-
 	// Wait up until the CSV expires, unless we also have a CLTV that
 	// expires after.
-	unlockHeight := confHeight + c.commitResolution.MaturityDelay
+	unlockHeight := c.confirmHeight + c.commitResolution.MaturityDelay
 	if c.hasCLTV() {
 		unlockHeight = max(unlockHeight, c.leaseExpiry)
 	}
 
-	// Update report now that we learned the confirmation height.
+	// Update report with the calculated maturity height.
 	c.reportLock.Lock()
 	c.currentReport.MaturityHeight = unlockHeight
 	c.reportLock.Unlock()
@@ -412,7 +376,7 @@ func (c *commitSweepResolver) Launch() error {
 		inp = input.NewCsvInputWithCltv(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
-			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			c.confirmHeight, c.commitResolution.MaturityDelay,
 			c.leaseExpiry, input.WithResolutionBlob(
 				c.commitResolution.ResolutionBlob,
 			),
@@ -421,7 +385,7 @@ func (c *commitSweepResolver) Launch() error {
 		inp = input.NewCsvInput(
 			&c.commitResolution.SelfOutPoint, witnessType,
 			&c.commitResolution.SelfOutputSignDesc,
-			c.broadcastHeight, c.commitResolution.MaturityDelay,
+			c.confirmHeight, c.commitResolution.MaturityDelay,
 			input.WithResolutionBlob(
 				c.commitResolution.ResolutionBlob,
 			),

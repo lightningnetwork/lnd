@@ -82,23 +82,24 @@ var (
 		SourcePubKey:  vertex,
 		Hops: []*route.Hop{
 			{
-				PubKeyBytes:      vertex,
-				ChannelID:        9876,
-				OutgoingTimeLock: 120,
-				AmtToForward:     900,
-				EncryptedData:    []byte{1, 3, 3},
-				BlindingPoint:    pub,
+				PubKeyBytes:   vertex,
+				EncryptedData: []byte{1, 3, 3},
+				BlindingPoint: pub,
 			},
 			{
 				PubKeyBytes:   vertex,
 				EncryptedData: []byte{3, 2, 1},
 			},
 			{
+				// Final hop must have AmtToForward,
+				// OutgoingTimeLock, and TotalAmtMsat per
+				// BOLT spec. We use the correct values here
+				// although it is not tested in this test.
 				PubKeyBytes:      vertex,
-				Metadata:         []byte{4, 5, 6},
-				AmtToForward:     500,
+				EncryptedData:    []byte{2, 2, 2},
+				AmtToForward:     1000,
 				OutgoingTimeLock: 100,
-				TotalAmtMsat:     500,
+				TotalAmtMsat:     1000,
 			},
 		},
 	}
@@ -3045,4 +3046,288 @@ func TestRouteFirstHopData(t *testing.T) {
 		t, []byte("wire_record_2"),
 		htlc.Route.FirstHopWireCustomRecords[typeIdx2],
 	)
+}
+
+// TestRegisterAttemptWithAMP tests that AMP data is correctly stored and
+// retrieved on route hops.
+func TestRegisterAttemptWithAMP(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Create a basic attempt, then modify the route to include AMP data.
+	// This bypasses the route validation in NewHtlcAttempt.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+
+	// Add AMP data to the final hop.
+	rootShare := [32]byte{1, 2, 3, 4}
+	setID := [32]byte{5, 6, 7, 8}
+	childIndex := uint32(42)
+
+	finalHopIdx := len(attempt.Route.Hops) - 1
+	attempt.Route.Hops[finalHopIdx].AMP = record.NewAMP(
+		rootShare, setID, childIndex,
+	)
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Fetch the payment and verify AMP data was stored.
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+
+	require.Len(t, payment.HTLCs, 1)
+	htlc := payment.HTLCs[0]
+
+	// Verify the AMP data on the final hop matches what we set.
+	finalHop := htlc.Route.Hops[finalHopIdx]
+	require.NotNil(t, finalHop.AMP)
+	require.Equal(t, rootShare, finalHop.AMP.RootShare())
+	require.Equal(t, setID, finalHop.AMP.SetID())
+	require.Equal(t, childIndex, finalHop.AMP.ChildIndex())
+}
+
+// TestRegisterAttemptWithBlindedRoute tests that blinded route data
+// (EncryptedData, BlindingPoint, TotalAmtMsat) is correctly stored and
+// retrieved.
+func TestRegisterAttemptWithBlindedRoute(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+
+	// Create payment info with amount matching
+	// testBlindedRoute.TotalAmount.
+	info := &PaymentCreationInfo{
+		PaymentIdentifier: rhash,
+		Value:             testBlindedRoute.TotalAmount,
+		CreationTime:      time.Unix(time.Now().Unix(), 0),
+		PaymentRequest:    []byte("blinded"),
+	}
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Create a basic attempt, then replace the route with testBlindedRoute.
+	// This bypasses the route validation in NewHtlcAttempt.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+
+	// Replace with testBlindedRoute which has the correct blinded route
+	// structure.
+	attempt.Route = testBlindedRoute
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Fetch the payment and verify blinded route data was stored.
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+
+	require.Len(t, payment.HTLCs, 1)
+	htlc := payment.HTLCs[0]
+
+	// Verify the blinded route data.
+	require.Len(t, htlc.Route.Hops, 3)
+
+	// First hop (introduction point) should have BlindingPoint and
+	// EncryptedData.
+	hop0 := htlc.Route.Hops[0]
+	require.Equal(t, []byte{1, 3, 3}, hop0.EncryptedData)
+	require.NotNil(t, hop0.BlindingPoint)
+	require.True(t, hop0.BlindingPoint.IsEqual(pub))
+
+	// Second hop (intermediate) should have only EncryptedData.
+	hop1 := htlc.Route.Hops[1]
+	require.Equal(t, []byte{3, 2, 1}, hop1.EncryptedData)
+	require.Nil(t, hop1.BlindingPoint)
+
+	// Third hop (final) should have EncryptedData, AmtToForward,
+	// OutgoingTimeLock, and TotalAmtMsat.
+	hop2 := htlc.Route.Hops[2]
+	require.Equal(t, []byte{2, 2, 2}, hop2.EncryptedData)
+	require.Equal(t, lnwire.MilliSatoshi(1000), hop2.AmtToForward)
+	require.Equal(t, uint32(100), hop2.OutgoingTimeLock)
+	require.Equal(t, lnwire.MilliSatoshi(1000), hop2.TotalAmtMsat)
+}
+
+// TestFailAttemptWithoutMessage tests that FailAttempt works correctly when
+// no failure message is provided.
+func TestFailAttemptWithoutMessage(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Register an attempt.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Fail the attempt without a failure message (nil Message).
+	failInfo := &HTLCFailInfo{
+		Reason:             HTLCFailUnreadable,
+		FailureSourceIndex: 2,
+		Message:            nil, // No message.
+	}
+
+	payment, err := paymentDB.FailAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID, failInfo,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, payment)
+
+	// Verify the attempt was failed.
+	require.Len(t, payment.HTLCs, 1)
+	htlc := payment.HTLCs[0]
+	require.NotNil(t, htlc.Failure)
+	require.Equal(t, HTLCFailUnreadable, htlc.Failure.Reason)
+	require.Equal(t, uint32(2), htlc.Failure.FailureSourceIndex)
+	require.Nil(t, htlc.Failure.Message)
+}
+
+// TestFailAttemptWithMessage tests that FailAttempt correctly stores and
+// retrieves a failure message.
+func TestFailAttemptWithMessage(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Register an attempt.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Create a failure message.
+	failureMsg := lnwire.NewTemporaryChannelFailure(nil)
+
+	// Fail the attempt with a failure message.
+	failInfo := &HTLCFailInfo{
+		Reason:             HTLCFailUnreadable,
+		FailureSourceIndex: 1,
+		Message:            failureMsg,
+	}
+
+	payment, err := paymentDB.FailAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID, failInfo,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, payment)
+
+	// Verify the attempt was failed.
+	require.Len(t, payment.HTLCs, 1)
+	htlc := payment.HTLCs[0]
+	require.NotNil(t, htlc.Failure)
+	require.Equal(t, HTLCFailUnreadable, htlc.Failure.Reason)
+}
+
+// TestFailAttemptOnSucceededPayment tests that FailAttempt returns an error
+// when trying to fail an attempt on an already succeeded payment.
+func TestFailAttemptOnSucceededPayment(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Register an attempt.
+	attempt := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+
+	_, err = paymentDB.RegisterAttempt(ctx, info.PaymentIdentifier, attempt)
+	require.NoError(t, err)
+
+	// Settle the attempt, which makes the payment succeed.
+	_, err = paymentDB.SettleAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID,
+		&HTLCSettleInfo{Preimage: preimg},
+	)
+	require.NoError(t, err)
+
+	// Now try to fail the same attempt - this should fail because the
+	// payment is already succeeded.
+	failInfo := &HTLCFailInfo{
+		Reason: HTLCFailUnreadable,
+	}
+
+	_, err = paymentDB.FailAttempt(
+		ctx, info.PaymentIdentifier, attempt.AttemptID, failInfo,
+	)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrPaymentAlreadySucceeded)
+}
+
+// TestFetchPaymentWithNoAttempts tests that FetchPayment correctly returns a
+// payment that has been initialized but has no HTLC attempts yet. This tests
+// the early return path in batchLoadPaymentDetailsData when there are no
+// attempts.
+func TestFetchPaymentWithNoAttempts(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg := genPreimage(t)
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment but don't register any attempts.
+	err := paymentDB.InitPayment(ctx, info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Fetch the payment - it should have no HTLCs.
+	payment, err := paymentDB.FetchPayment(ctx, info.PaymentIdentifier)
+	require.NoError(t, err)
+	require.NotNil(t, payment)
+
+	// Verify the payment has no HTLCs.
+	require.Empty(t, payment.HTLCs)
+
+	// Verify the payment info is correct.
+	require.Equal(t, info.PaymentIdentifier, payment.Info.PaymentIdentifier)
+	require.Equal(t, info.Value, payment.Info.Value)
+	require.Equal(t, StatusInitiated, payment.Status)
 }

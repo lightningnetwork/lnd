@@ -2710,3 +2710,127 @@ func TestQueryPayments(t *testing.T) {
 		})
 	}
 }
+
+// TestFetchInFlightPayments tests that FetchInFlightPayments correctly returns
+// only payments that are in-flight.
+func TestFetchInFlightPayments(t *testing.T) {
+	t.Parallel()
+
+	paymentDB, _ := NewTestDB(t)
+
+	// Register payments with different statuses:
+	// 1. A payment with two failed attempts (StatusFailed).
+	// 2. A payment with one failed and one settled attempt
+	//    (StatusSucceeded).
+	// 3. A payment with one failed and one in-flight attempt
+	//    (StatusInFlight).
+	// 4. Another payment with one failed and one in-flight attempt
+	//    (StatusInFlight).
+	payments := []*payment{
+		{status: StatusFailed},
+		{status: StatusSucceeded},
+		{status: StatusInFlight},
+		{status: StatusInFlight},
+	}
+
+	// Use helper function to register the test payments in the database and
+	// populate the data to the payments slice.
+	createTestPayments(t, paymentDB, payments)
+
+	// Check that all payments are there as we added them.
+	assertDBPayments(t, paymentDB, payments)
+
+	// Fetch in-flight payments.
+	inFlightPayments, err := paymentDB.FetchInFlightPayments()
+	require.NoError(t, err)
+
+	// We should only get the two in-flight payments.
+	require.Len(t, inFlightPayments, 2)
+
+	// Verify that the returned payments are the in-flight ones.
+	inFlightHashes := make(map[lntypes.Hash]struct{})
+	for _, p := range inFlightPayments {
+		require.Equal(t, StatusInFlight, p.Status)
+		inFlightHashes[p.Info.PaymentIdentifier] = struct{}{}
+	}
+
+	// Check that the in-flight payments match the expected ones.
+	require.Contains(t, inFlightHashes, payments[2].id)
+	require.Contains(t, inFlightHashes, payments[3].id)
+
+	// Now settle one of the in-flight payments.
+	preimg, err := genPreimage(t)
+	require.NoError(t, err)
+
+	_, err = paymentDB.SettleAttempt(
+		payments[2].id, 5,
+		&HTLCSettleInfo{
+			Preimage: preimg,
+		},
+	)
+	require.NoError(t, err)
+
+	// Fetch in-flight payments again.
+	inFlightPayments, err = paymentDB.FetchInFlightPayments()
+	require.NoError(t, err)
+
+	// We should now only get one in-flight payment.
+	require.Len(t, inFlightPayments, 1)
+	require.Equal(
+		t, payments[3].id,
+		inFlightPayments[0].Info.PaymentIdentifier,
+	)
+	require.Equal(t, StatusInFlight, inFlightPayments[0].Status)
+}
+
+// TestFetchInFlightPaymentsMultipleAttempts tests that when fetching in-flight
+// payments, a payment with multiple in-flight attempts is only returned once.
+func TestFetchInFlightPaymentsMultipleAttempts(t *testing.T) {
+	t.Parallel()
+
+	paymentDB, _ := NewTestDB(t)
+
+	preimg, err := genPreimage(t)
+	require.NoError(t, err)
+
+	rhash := sha256.Sum256(preimg[:])
+	info := genPaymentCreationInfo(t, rhash)
+
+	// Init payment with double the amount to allow two attempts.
+	info.Value *= 2
+	err = paymentDB.InitPayment(info.PaymentIdentifier, info)
+	require.NoError(t, err)
+
+	// Register two attempts for the same payment.
+	attempt1, err := genAttemptWithHash(t, 0, genSessionKey(t), rhash)
+	require.NoError(t, err)
+
+	_, err = paymentDB.RegisterAttempt(
+		info.PaymentIdentifier, attempt1,
+	)
+	require.NoError(t, err)
+
+	attempt2, err := genAttemptWithHash(t, 1, genSessionKey(t), rhash)
+	require.NoError(t, err)
+
+	_, err = paymentDB.RegisterAttempt(
+		info.PaymentIdentifier, attempt2,
+	)
+	require.NoError(t, err)
+
+	// Both attempts are in-flight. Fetch in-flight payments.
+	inFlightPayments, err := paymentDB.FetchInFlightPayments()
+	require.NoError(t, err)
+
+	// We should only get one payment even though it has 2 in-flight
+	// attempts.
+	require.Len(t, inFlightPayments, 1)
+	require.Equal(
+		t, info.PaymentIdentifier,
+		inFlightPayments[0].Info.PaymentIdentifier,
+	)
+	require.Equal(t, StatusInFlight, inFlightPayments[0].Status)
+
+	// Verify the payment has both attempts.
+	require.Len(t, inFlightPayments[0].HTLCs, 2)
+}

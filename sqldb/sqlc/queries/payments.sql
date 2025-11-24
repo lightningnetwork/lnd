@@ -40,15 +40,6 @@ FROM payments p
 LEFT JOIN payment_intents i ON i.payment_id = p.id
 WHERE p.payment_identifier = $1;
 
--- name: FetchPaymentsByIDs :many
-SELECT
-    sqlc.embed(p),
-    i.intent_type AS "intent_type",
-    i.intent_payload AS "intent_payload"
-FROM payments p
-LEFT JOIN payment_intents i ON i.payment_id = p.id
-WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
-
 -- name: CountPayments :one
 SELECT COUNT(*) FROM payments;
 
@@ -75,17 +66,37 @@ LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_i
 WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
 ORDER BY ha.payment_id ASC, ha.attempt_time ASC;
 
--- name: FetchHtlcAttemptResolutionsForPayment :many
--- Lightweight query to fetch only HTLC resolution status.
+-- name: FetchHtlcAttemptResolutionsForPayments :many
+-- Batch query to fetch only HTLC resolution status for multiple payments.
+-- We don't need to order by payment_id and attempt_time because we will
+-- group the resolutions by payment_id in the background.
 SELECT
+    ha.payment_id,
     hr.resolution_type
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
-WHERE ha.payment_id = $1
-ORDER BY ha.attempt_time ASC;
+WHERE ha.payment_id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/);
+
+-- name: FetchPaymentsByIDs :many
+-- Batch fetch payment and intent data for a set of payment IDs.
+-- Used to avoid fetching redundant payment data when processing multiple
+-- attempts for the same payment.
+SELECT
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
+FROM payments p
+LEFT JOIN payment_intents pi ON pi.payment_id = p.id
+WHERE p.id IN (sqlc.slice('payment_ids')/*SLICE:payment_ids*/)
+ORDER BY p.id ASC;
 
 -- name: FetchAllInflightAttempts :many
--- Fetch all inflight attempts across all payments
+-- Fetch all inflight attempts with their payment data using pagination.
+-- Returns attempt data joined with payment and intent data to avoid separate queries.
 SELECT
     ha.id,
     ha.attempt_index,
@@ -102,7 +113,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM payment_htlc_attempt_resolutions hr
     WHERE hr.attempt_index = ha.attempt_index
 )
-ORDER BY ha.attempt_index ASC;
+AND ha.attempt_index > $1
+ORDER BY ha.attempt_index ASC
+LIMIT $2;
 
 -- name: FetchHopsForAttempts :many
 SELECT
@@ -352,3 +365,6 @@ VALUES (
     @htlc_fail_reason,
     @failure_msg
 );
+
+-- name: FailPayment :execresult
+UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2;

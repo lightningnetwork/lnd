@@ -85,6 +85,19 @@ func (q *Queries) FailAttempt(ctx context.Context, arg FailAttemptParams) error 
 	return err
 }
 
+const failPayment = `-- name: FailPayment :execresult
+UPDATE payments SET fail_reason = $1 WHERE payment_identifier = $2
+`
+
+type FailPaymentParams struct {
+	FailReason        sql.NullInt32
+	PaymentIdentifier []byte
+}
+
+func (q *Queries) FailPayment(ctx context.Context, arg FailPaymentParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, failPayment, arg.FailReason, arg.PaymentIdentifier)
+}
+
 const fetchAllInflightAttempts = `-- name: FetchAllInflightAttempts :many
 SELECT
     ha.id,
@@ -102,12 +115,20 @@ WHERE NOT EXISTS (
     SELECT 1 FROM payment_htlc_attempt_resolutions hr
     WHERE hr.attempt_index = ha.attempt_index
 )
+AND ha.attempt_index > $1
 ORDER BY ha.attempt_index ASC
+LIMIT $2
 `
 
-// Fetch all inflight attempts across all payments
-func (q *Queries) FetchAllInflightAttempts(ctx context.Context) ([]PaymentHtlcAttempt, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts)
+type FetchAllInflightAttemptsParams struct {
+	AttemptIndex int64
+	Limit        int32
+}
+
+// Fetch all inflight attempts with their payment data using pagination.
+// Returns attempt data joined with payment and intent data to avoid separate queries.
+func (q *Queries) FetchAllInflightAttempts(ctx context.Context, arg FetchAllInflightAttemptsParams) ([]PaymentHtlcAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAllInflightAttempts, arg.AttemptIndex, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -284,29 +305,46 @@ func (q *Queries) FetchHopsForAttempts(ctx context.Context, htlcAttemptIndices [
 	return items, nil
 }
 
-const fetchHtlcAttemptResolutionsForPayment = `-- name: FetchHtlcAttemptResolutionsForPayment :many
+const fetchHtlcAttemptResolutionsForPayments = `-- name: FetchHtlcAttemptResolutionsForPayments :many
 SELECT
+    ha.payment_id,
     hr.resolution_type
 FROM payment_htlc_attempts ha
 LEFT JOIN payment_htlc_attempt_resolutions hr ON hr.attempt_index = ha.attempt_index
-WHERE ha.payment_id = $1
-ORDER BY ha.attempt_time ASC
+WHERE ha.payment_id IN (/*SLICE:payment_ids*/?)
 `
 
-// Lightweight query to fetch only HTLC resolution status.
-func (q *Queries) FetchHtlcAttemptResolutionsForPayment(ctx context.Context, paymentID int64) ([]sql.NullInt32, error) {
-	rows, err := q.db.QueryContext(ctx, fetchHtlcAttemptResolutionsForPayment, paymentID)
+type FetchHtlcAttemptResolutionsForPaymentsRow struct {
+	PaymentID      int64
+	ResolutionType sql.NullInt32
+}
+
+// Batch query to fetch only HTLC resolution status for multiple payments.
+// We don't need to order by payment_id and attempt_time because we will
+// group the resolutions by payment_id in the background.
+func (q *Queries) FetchHtlcAttemptResolutionsForPayments(ctx context.Context, paymentIds []int64) ([]FetchHtlcAttemptResolutionsForPaymentsRow, error) {
+	query := fetchHtlcAttemptResolutionsForPayments
+	var queryParams []interface{}
+	if len(paymentIds) > 0 {
+		for _, v := range paymentIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", makeQueryParams(len(queryParams), len(paymentIds)), 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:payment_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []sql.NullInt32
+	var items []FetchHtlcAttemptResolutionsForPaymentsRow
 	for rows.Next() {
-		var resolution_type sql.NullInt32
-		if err := rows.Scan(&resolution_type); err != nil {
+		var i FetchHtlcAttemptResolutionsForPaymentsRow
+		if err := rows.Scan(&i.PaymentID, &i.ResolutionType); err != nil {
 			return nil, err
 		}
-		items = append(items, resolution_type)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -492,20 +530,32 @@ func (q *Queries) FetchPaymentLevelFirstHopCustomRecords(ctx context.Context, pa
 
 const fetchPaymentsByIDs = `-- name: FetchPaymentsByIDs :many
 SELECT
-    p.id, p.amount_msat, p.created_at, p.payment_identifier, p.fail_reason,
-    i.intent_type AS "intent_type",
-    i.intent_payload AS "intent_payload"
+    p.id,
+    p.amount_msat,
+    p.created_at,
+    p.payment_identifier,
+    p.fail_reason,
+    pi.intent_type,
+    pi.intent_payload
 FROM payments p
-LEFT JOIN payment_intents i ON i.payment_id = p.id
+LEFT JOIN payment_intents pi ON pi.payment_id = p.id
 WHERE p.id IN (/*SLICE:payment_ids*/?)
+ORDER BY p.id ASC
 `
 
 type FetchPaymentsByIDsRow struct {
-	Payment       Payment
-	IntentType    sql.NullInt16
-	IntentPayload []byte
+	ID                int64
+	AmountMsat        int64
+	CreatedAt         time.Time
+	PaymentIdentifier []byte
+	FailReason        sql.NullInt32
+	IntentType        sql.NullInt16
+	IntentPayload     []byte
 }
 
+// Batch fetch payment and intent data for a set of payment IDs.
+// Used to avoid fetching redundant payment data when processing multiple
+// attempts for the same payment.
 func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([]FetchPaymentsByIDsRow, error) {
 	query := fetchPaymentsByIDs
 	var queryParams []interface{}
@@ -526,11 +576,11 @@ func (q *Queries) FetchPaymentsByIDs(ctx context.Context, paymentIds []int64) ([
 	for rows.Next() {
 		var i FetchPaymentsByIDsRow
 		if err := rows.Scan(
-			&i.Payment.ID,
-			&i.Payment.AmountMsat,
-			&i.Payment.CreatedAt,
-			&i.Payment.PaymentIdentifier,
-			&i.Payment.FailReason,
+			&i.ID,
+			&i.AmountMsat,
+			&i.CreatedAt,
+			&i.PaymentIdentifier,
+			&i.FailReason,
 			&i.IntentType,
 			&i.IntentPayload,
 		); err != nil {

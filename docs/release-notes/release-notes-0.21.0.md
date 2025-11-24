@@ -139,6 +139,13 @@
 
 ## Performance Improvements
 
+* Let the [channel graph cache be populated
+  asynchronously](https://github.com/lightningnetwork/lnd/pull/10065) on
+  startup. While the cache is being populated, the graph is still available for
+  queries, but all read queries will be served from the database until the cache
+  is fully populated. This new behaviour can be opted out of via the new
+  `--db.sync-graph-cache-load` option.
+
 * [Replace the catch-all `FilterInvoices` SQL query with five focused,
   index-friendly queries](https://github.com/lightningnetwork/lnd/pull/10601)
   (`FetchPendingInvoices`, `FilterInvoicesBySettleIndex`,
@@ -149,11 +156,11 @@
   only the parameters it actually needs and uses a direct `ORDER BY`, allowing
   the planner to perform efficient index range scans on the invoice table.
 
-*  [Fix full table scans on the HTLC settlement 
+* [Fix full table scans on the HTLC settlement
     hot path](https://github.com/lightningnetwork/lnd/pull/10619).
     Replace the catch-all `GetInvoice` query (which used `OR $1 IS NULL`
     predicates that forced full table scans) with three dedicated queries
-    targeting uniquely-constrained columns. Also drop four redundant indexes 
+    targeting uniquely-constrained columns. Also drop four redundant indexes
     that duplicated UNIQUE constraints or were never used as query filters.
 
 ## Deprecations

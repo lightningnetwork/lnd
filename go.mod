@@ -181,7 +181,7 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/net v0.39.0 // indirect
+	golang.org/x/net v0.39.0
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
@@ -215,6 +215,12 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+
+// Temporary replace until the next version of tor is tagged.
+replace (
+	github.com/lightningnetwork/lnd/tor v0.0.0-local => ./tor
+	github.com/lightningnetwork/lnd/tor v1.1.6 => ./tor
+)
 
 // If you change this please also update docs/INSTALL.md and GO_VERSION in
 // Makefile (then run `make lint` to see where else it needs to be updated as

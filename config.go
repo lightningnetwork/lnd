@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
+	"golang.org/x/net/proxy"
 )
 
 const (
@@ -76,12 +77,16 @@ const (
 	defaultLetsEncryptDirname            = "letsencrypt"
 	defaultLetsEncryptListen             = ":80"
 
+	defaultNetSOCKS          = ""
+	defaultNetNoProxyTargets = "localhost,::1/128,127.0.0.0/8"
+
 	defaultTorSOCKSPort            = 9050
 	defaultTorDNSHost              = "soa.nodes.lightning.directory"
 	defaultTorDNSPort              = 53
 	defaultTorControlPort          = 9051
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
+	defaultTorNoProxyTargets       = "localhost,::1/128,127.0.0.0/8"
 
 	// defaultZMQReadDeadline is the default read deadline to be used for
 	// both the block and tx ZMQ subscriptions.
@@ -356,6 +361,8 @@ type Config struct {
 	MinBackoff        time.Duration `long:"minbackoff" description:"Shortest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	MaxBackoff        time.Duration `long:"maxbackoff" description:"Longest backoff when reconnecting to persistent peers. Valid time units are {s, m, h}."`
 	ConnectionTimeout time.Duration `long:"connectiontimeout" description:"The timeout value for network connections. Valid time units are {ms, s, m, h}."`
+	SOCKS             string        `long:"socks" description:"The SOCKS5 proxy to use for any outbound connections not going over Tor with format [user:pass]@host:port"`
+	NoProxyTargets    []string      `long:"no-proxy-targets" description:"Specify a target that should bypass the configured proxy. Each value is either an IP address, a CIDR range, a zone (*.example.com) or a hostname (localhost). A best effort is made to parse the string and errors are ignored. Can be specified multiple times. (default: localhost,127.0.0.0/8,::1/128)"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level for all subsystems {trace, debug, info, warn, error, critical} -- You may also specify <global-level>,<subsystem>=<level>,<subsystem2>=<level>,... to set the log level for individual subsystems -- Use show to list available subsystems"`
 
@@ -664,11 +671,15 @@ func DefaultConfig() Config {
 		NumGraphSyncPeers:             defaultMinPeers,
 		HistoricalSyncInterval:        discovery.DefaultHistoricalSyncInterval,
 		Tor: &lncfg.Tor{
-			SOCKS:   defaultTorSOCKS,
-			DNS:     defaultTorDNS,
-			Control: defaultTorControl,
+			SOCKS:          defaultTorSOCKS,
+			DNS:            defaultTorDNS,
+			Control:        defaultTorControl,
+			NoProxyTargets: strings.Split(defaultTorNoProxyTargets, ","),
 		},
-		net: &tor.ClearNet{},
+		net: &tor.ClearNet{
+			SOCKS:          defaultNetSOCKS,
+			NoProxyTargets: defaultNetNoProxyTargets,
+		},
 		Workers: &lncfg.Workers{
 			Read:  lncfg.DefaultReadWorkers,
 			Write: lncfg.DefaultWriteWorkers,
@@ -1122,15 +1133,35 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			cfg.MaxCommitFeeRateAnchors)
 	}
 
+	socksAuth := &proxy.Auth{}
+	if cfg.SOCKS != "" {
+		socksAddress := cfg.SOCKS
+		if strings.Contains(socksAddress, "@") {
+			parts := strings.Split(socksAddress, "@")
+			socksAddress = parts[1]
+			creds := strings.Split(parts[0], ":")
+			socksAuth.User = creds[0]
+			socksAuth.Password = creds[1]
+		}
+		socks, err := lncfg.ParseAddressString(
+			socksAddress, "",
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, err
+		}
+		cfg.SOCKS = socks.String()
+	}
+
 	// Validate the Tor config parameters.
-	socks, err := lncfg.ParseAddressString(
+	torSocks, err := lncfg.ParseAddressString(
 		cfg.Tor.SOCKS, strconv.Itoa(defaultTorSOCKSPort),
 		cfg.net.ResolveTCPAddr,
 	)
 	if err != nil {
 		return nil, err
 	}
-	cfg.Tor.SOCKS = socks.String()
+	cfg.Tor.SOCKS = torSocks.String()
 
 	// We'll only attempt to normalize and resolve the DNS host if it hasn't
 	// changed, as it doesn't need to be done for the default.
@@ -1204,13 +1235,34 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// default. If we should be proxying all traffic through Tor, then
 	// we'll use the Tor proxy specific functions in order to avoid leaking
 	// our real information.
+
+	clearNet := &tor.ClearNet{
+		SOCKS:          cfg.SOCKS,
+		SOCKSAuth:      socksAuth,
+		NoProxyTargets: strings.Join(cfg.NoProxyTargets, ","),
+	}
 	if cfg.Tor.Active {
-		cfg.net = &tor.ProxyNet{
-			SOCKS:                       cfg.Tor.SOCKS,
-			DNS:                         cfg.Tor.DNS,
-			StreamIsolation:             cfg.Tor.StreamIsolation,
-			SkipProxyForClearNetTargets: cfg.Tor.SkipProxyForClearNetTargets,
+		torNet := &tor.ProxyNet{
+			SOCKS:           cfg.Tor.SOCKS,
+			DNS:             cfg.Tor.DNS,
+			StreamIsolation: cfg.Tor.StreamIsolation,
+			NoProxyTargets: strings.Join(
+				cfg.Tor.NoProxyTargets, ","),
+			ClearNet: clearNet,
 		}
+		if !cfg.Tor.SkipProxyForClearNetTargets {
+			torNet.ClearNet = &tor.ProxyNet{
+				SOCKS:           cfg.Tor.SOCKS,
+				DNS:             cfg.Tor.DNS,
+				StreamIsolation: cfg.Tor.StreamIsolation,
+				NoProxyTargets: strings.Join(
+					cfg.Tor.NoProxyTargets, ","),
+				ClearNet: clearNet,
+			}
+		}
+		cfg.net = torNet
+	} else {
+		cfg.net = clearNet
 	}
 
 	if cfg.DisableListen && cfg.NAT {

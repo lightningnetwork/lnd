@@ -56,6 +56,13 @@
 
 ## Performance Improvements
 
+* Let the [channel graph cache be populated
+  asynchronously](https://github.com/lightningnetwork/lnd/pull/10065) on
+  startup. While the cache is being populated, the graph is still available for
+  queries, but all read queries will be served from the database until the cache
+  is fully populated. This new behaviour can be opted out of via the new
+  `--db.sync-graph-cache-load` option.
+
 ## Deprecations
 
 # Technical and Architectural Updates

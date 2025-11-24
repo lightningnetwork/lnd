@@ -77,6 +77,10 @@ type ResolutionReq struct {
 	// CommitTx is the force close commitment transaction.
 	CommitTx *wire.MsgTx
 
+	// CommitTxBlockHeight is the block height where the commitment
+	// transaction confirmed. It is 0 if unknown or not confirmed yet.
+	CommitTxBlockHeight uint32
+
 	// CommitFee is the fee that was paid for the commitment transaction.
 	CommitFee btcutil.Amount
 

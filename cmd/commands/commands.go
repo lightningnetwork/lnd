@@ -607,7 +607,7 @@ func sendCoins(ctx *cli.Context) error {
 	if ctx.IsSet("utxo") {
 		utxos := ctx.StringSlice("utxo")
 
-		outpoints, err = UtxosToOutpoints(utxos)
+		outpoints, err = lnd.UtxosToOutpoints(utxos)
 		if err != nil {
 			return fmt.Errorf("unable to decode utxos: %w", err)
 		}
@@ -784,12 +784,12 @@ func listUnspent(ctx *cli.Context) error {
 	// to stdout. At the moment, this filters out the raw txid bytes from
 	// each utxo's outpoint and only prints the txid string.
 	var listUnspentResp = struct {
-		Utxos []*Utxo `json:"utxos"`
+		Utxos []*lnd.Utxo `json:"utxos"`
 	}{
-		Utxos: make([]*Utxo, 0, len(resp.Utxos)),
+		Utxos: make([]*lnd.Utxo, 0, len(resp.Utxos)),
 	}
 	for _, protoUtxo := range resp.Utxos {
-		utxo := NewUtxoFromProto(protoUtxo)
+		utxo := lnd.NewUtxoFromProto(protoUtxo)
 		listUnspentResp.Utxos = append(listUnspentResp.Utxos, utxo)
 	}
 
@@ -2789,12 +2789,14 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	// to stdout. At the moment, this filters out the raw txid bytes from
 	// each failed update's outpoint and only prints the txid string.
 	var listFailedUpdateResp = struct {
-		FailedUpdates []*FailedUpdate `json:"failed_updates"`
+		FailedUpdates []*lnd.FailedUpdate `json:"failed_updates"`
 	}{
-		FailedUpdates: make([]*FailedUpdate, 0, len(resp.FailedUpdates)),
+		FailedUpdates: make(
+			[]*lnd.FailedUpdate, 0, len(resp.FailedUpdates),
+		),
 	}
 	for _, protoUpdate := range resp.FailedUpdates {
-		failedUpdate := NewFailedUpdateFromProto(protoUpdate)
+		failedUpdate := lnd.NewFailedUpdateFromProto(protoUpdate)
 		listFailedUpdateResp.FailedUpdates = append(
 			listFailedUpdateResp.FailedUpdates, failedUpdate)
 	}

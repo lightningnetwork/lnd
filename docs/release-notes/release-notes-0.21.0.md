@@ -64,7 +64,15 @@
   it becomes available. These methods provide an alternative to the standard
   `MuSig2RegisterNonces` workflow and are only supported in MuSig2 v1.0.0rc2.
 
+* The `EstimateFee` RPC now supports [explicit input
+  selection](https://github.com/lightningnetwork/lnd/pull/10296). Users can
+  specify a list of inputs to use as transaction inputs via the new
+  `inputs` field in `EstimateFeeRequest`.
+
 ## lncli Additions
+
+* The `estimatefee` command now supports the `--utxos` flag to specify explicit
+  inputs for fee estimation.
 
 # Improvements
 ## Functional Updates
@@ -138,6 +146,7 @@
 * Boris Nagaev
 * Elle Mouton
 * Erick Cestari
+* hieblmi
 * Mohamed Awnallah
 * Nishant Bansal
 * Pins

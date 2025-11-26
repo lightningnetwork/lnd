@@ -352,7 +352,23 @@ lint-config-check:
 	$(GOTOOL) $(GOLINT_PKG) config verify -v
 
 #? lint: Run static code analysis
-lint: check-go-version lint-config-check lint-source 
+lint: check-go-version lint-config-check lint-source
+
+# Globs to exclude generated files from ast-grep.
+AST_GREP_EXCLUDE := --globs '!**/*.pb.go' --globs '!**/*.pb.gw.go' --globs '!**/*.pb.json.go' --globs '!**/sqlc/*.go'
+
+# Optional directory/package filter for ast-grep (e.g., make ast-lint pkg=lnwallet).
+AST_GREP_PATH := $(if $(pkg),$(pkg),.)
+
+#? ast-lint: Run ast-grep style checks. Use pkg=<dir> to focus on a specific directory.
+ast-lint:
+	@$(call print, "Running ast-grep style checks.")
+	sg scan $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
+
+#? ast-grep-fix: Auto-fix ast-grep style issues. Use pkg=<dir> to focus on a specific directory.
+ast-grep-fix:
+	@$(call print, "Auto-fixing ast-grep style issues.")
+	sg scan --update-all $(AST_GREP_EXCLUDE) $(AST_GREP_PATH)
 
 #? protolint: Lint proto files using protolint
 protolint:

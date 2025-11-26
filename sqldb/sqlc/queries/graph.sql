@@ -35,6 +35,14 @@ FROM graph_nodes
 WHERE pub_key = $1
   AND version = $2;
 
+-- name: NodeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_nodes
+    WHERE pub_key = $1
+      AND version = $2
+) AS node_exists;
+
 -- name: GetNodeIDByPubKey :one
 SELECT id
 FROM graph_nodes

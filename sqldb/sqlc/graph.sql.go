@@ -3530,6 +3530,27 @@ func (q *Queries) ListNodesPaginated(ctx context.Context, arg ListNodesPaginated
 	return items, nil
 }
 
+const nodeExists = `-- name: NodeExists :one
+SELECT EXISTS (
+    SELECT 1
+    FROM graph_nodes
+    WHERE pub_key = $1
+      AND version = $2
+) AS node_exists
+`
+
+type NodeExistsParams struct {
+	PubKey  []byte
+	Version int16
+}
+
+func (q *Queries) NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, nodeExists, arg.PubKey, arg.Version)
+	var node_exists bool
+	err := row.Scan(&node_exists)
+	return node_exists, err
+}
+
 const upsertChanPolicyExtraType = `-- name: UpsertChanPolicyExtraType :exec
 /* ─────────────────────────────────────────────
    graph_channel_policy_extra_types table queries

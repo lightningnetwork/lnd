@@ -151,10 +151,10 @@ type PendingUpdate struct {
 	// transaction.
 	OutputIndex uint32
 
-	// FeePerVByte is an optional field, that is set only when the new RBF
+	// FeePerKw is an optional field, that is set only when the new RBF
 	// coop close flow is used. This indicates the new closing fee rate on
 	// the closing transaction.
-	FeePerVbyte fn.Option[chainfee.SatPerVByte]
+	FeePerKw fn.Option[chainfee.SatPerKWeight]
 
 	// IsLocalCloseTx is an optional field that indicates if this update is
 	// sent for our local close txn, or the close txn of the remote party.
@@ -3628,7 +3628,7 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 
 	var (
 		lastTxids    lntypes.Dual[chainhash.Hash]
-		lastFeeRates lntypes.Dual[chainfee.SatPerVByte]
+		lastFeeRates lntypes.Dual[chainfee.SatPerKWeight]
 	)
 
 	maybeNotifyTxBroadcast := func(state chancloser.AsymmetricPeerState,
@@ -3687,8 +3687,8 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 		if closeReq != nil && closingTxid != lastTxid {
 			select {
 			case closeReq.Updates <- &PendingUpdate{
-				Txid:        closingTxid[:],
-				FeePerVbyte: fn.Some(closePending.FeeRate),
+				Txid:     closingTxid[:],
+				FeePerKw: fn.Some(closePending.FeeRate),
 				IsLocalCloseTx: fn.Some(
 					party == lntypes.Local,
 				),
@@ -3945,7 +3945,7 @@ func (p *Brontide) initRbfChanCloser(
 		ChanID:         chanID,
 		Scid:           scid,
 		ChanType:       channel.ChanType(),
-		DefaultFeeRate: defaultFeePerKw.FeePerVByte(),
+		DefaultFeeRate: defaultFeePerKw,
 		ThawHeight:     fn.Some(thawHeight),
 		RemoteUpfrontShutdown: ChooseAddr(
 			channel.RemoteUpfrontShutdownScript(),
@@ -4206,7 +4206,7 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 		}
 
 		ctx, _ := p.cg.Create(context.Background())
-		feeRate := defaultFeePerKw.FeePerVByte()
+		feeRate := defaultFeePerKw
 
 		// Depending on the state of the state machine, we'll either
 		// kick things off by sending shutdown, or attempt to send a new

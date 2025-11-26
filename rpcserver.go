@@ -3179,8 +3179,11 @@ func createRPCCloseUpdate(
 		u.IsLocalCloseTx.WhenSome(func(isLocal bool) {
 			upd.LocalCloseTx = isLocal
 		})
-		u.FeePerVbyte.WhenSome(func(feeRate chainfee.SatPerVByte) {
-			upd.FeePerVbyte = int64(feeRate)
+		u.FeePerKw.WhenSome(func(feeRate chainfee.SatPerKWeight) {
+			upd.FeePerKw = uint64(feeRate)
+
+			// Convert to vbyte fee for the RPC response.
+			upd.FeePerVbyte = int64(feeRate.FeePerVByte())
 		})
 
 		return &lnrpc.CloseStatusUpdate{

@@ -3378,6 +3378,18 @@ func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
 		modifier(&newNodeAnn)
 	}
 
+	// The modifiers may have added duplicate addresses, so we need to
+	// de-duplicate them here.
+	uniqueAddrs := map[string]struct{}{}
+	dedupedAddrs := make([]net.Addr, 0)
+	for _, addr := range newNodeAnn.Addresses {
+		if _, ok := uniqueAddrs[addr.String()]; !ok {
+			uniqueAddrs[addr.String()] = struct{}{}
+			dedupedAddrs = append(dedupedAddrs, addr)
+		}
+	}
+	newNodeAnn.Addresses = dedupedAddrs
+
 	// Sign a new update after applying all of the passed modifiers.
 	err := netann.SignNodeAnnouncement(
 		s.nodeSigner, s.identityKeyLoc, &newNodeAnn,

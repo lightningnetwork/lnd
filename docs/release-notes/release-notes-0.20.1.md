@@ -27,6 +27,11 @@
 * [Fix a case where resolving the 
   to_local/to_remote output](https://github.com/lightningnetwork/lnd/pull/10387)
   might take too long.
+
+* [Fix source node race 
+  condition](https://github.com/lightningnetwork/lnd/pull/10371) which could
+  prevent a node from starting up if two goroutines attempt to update the 
+  node's announcement at the same time.
   
 # New Features
 

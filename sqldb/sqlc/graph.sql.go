@@ -3735,6 +3735,51 @@ func (q *Queries) UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEnt
 	return err
 }
 
+const upsertSourceNode = `-- name: UpsertSourceNode :one
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- Update the following fields if a conflict occurs on pub_key
+    -- and version.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+WHERE graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update >= graph_nodes.last_update
+RETURNING id
+`
+
+type UpsertSourceNodeParams struct {
+	Version    int16
+	PubKey     []byte
+	Alias      sql.NullString
+	LastUpdate sql.NullInt64
+	Color      sql.NullString
+	Signature  []byte
+}
+
+// We use a separate upsert for our own node since we want to be less strict
+// about the last_update field. For our own node, we always want to
+// update the record even if the last_update is the same as what we have.
+func (q *Queries) UpsertSourceNode(ctx context.Context, arg UpsertSourceNodeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertSourceNode,
+		arg.Version,
+		arg.PubKey,
+		arg.Alias,
+		arg.LastUpdate,
+		arg.Color,
+		arg.Signature,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const upsertZombieChannel = `-- name: UpsertZombieChannel :exec
 /* ─────────────────────────────────────────────
    graph_zombie_channels table queries

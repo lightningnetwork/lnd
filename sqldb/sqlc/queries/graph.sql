@@ -21,6 +21,27 @@ WHERE graph_nodes.last_update IS NULL
     OR EXCLUDED.last_update > graph_nodes.last_update
 RETURNING id;
 
+-- We use a separate upsert for our own node since we want to be less strict
+-- about the last_update field. For our own node, we always want to
+-- update the record even if the last_update is the same as what we have.
+-- name: UpsertSourceNode :one
+INSERT INTO graph_nodes (
+    version, pub_key, alias, last_update, color, signature
+) VALUES (
+    $1, $2, $3, $4, $5, $6
+)
+ON CONFLICT (pub_key, version)
+    -- Update the following fields if a conflict occurs on pub_key
+    -- and version.
+    DO UPDATE SET
+        alias = EXCLUDED.alias,
+        last_update = EXCLUDED.last_update,
+        color = EXCLUDED.color,
+        signature = EXCLUDED.signature
+WHERE graph_nodes.last_update IS NULL
+    OR EXCLUDED.last_update >= graph_nodes.last_update
+RETURNING id;
+
 -- name: GetNodesByIDs :many
 SELECT *
 FROM graph_nodes

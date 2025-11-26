@@ -147,6 +147,10 @@ type Querier interface {
 	UpsertNodeAddress(ctx context.Context, arg UpsertNodeAddressParams) error
 	UpsertNodeExtraType(ctx context.Context, arg UpsertNodeExtraTypeParams) error
 	UpsertPruneLogEntry(ctx context.Context, arg UpsertPruneLogEntryParams) error
+	// We use a separate upsert for our own node since we want to be less strict
+	// about the last_update field. For our own node, we always want to
+	// update the record even if the last_update is the same as what we have.
+	UpsertSourceNode(ctx context.Context, arg UpsertSourceNodeParams) (int64, error)
 	UpsertZombieChannel(ctx context.Context, arg UpsertZombieChannelParams) error
 }
 

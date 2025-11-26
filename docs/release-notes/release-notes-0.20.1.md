@@ -27,7 +27,11 @@
 * [Fix a case where resolving the 
   to_local/to_remote output](https://github.com/lightningnetwork/lnd/pull/10387)
   might take too long.
-  
+
+* Fix a bug where [repeated network
+  addresses](https://github.com/lightningnetwork/lnd/pull/10341) were added to
+  the node announcement and `getinfo` output.
+
 # New Features
 
 ## Functional Enhancements
@@ -62,4 +66,5 @@
 
 # Contributors (Alphabetical Order)
 
+* bitromortac
 * Ziggie

@@ -120,22 +120,47 @@ func createTestVertex(t testing.TB, v lnwire.GossipVersion) *models.Node {
 	return createNode(t, v, priv)
 }
 
-// TestNodeInsertionAndDeletion tests the CRUD operations for a Node.
-func TestNodeInsertionAndDeletion(t *testing.T) {
+type versionedTest struct {
+	name string
+	test func(t *testing.T, v lnwire.GossipVersion)
+}
+
+var versionedTests = []versionedTest{
+	{
+		name: "node crud",
+		test: testNodeInsertionAndDeletion,
+	},
+}
+
+// TestVersionedDBs runs various tests against both v1 and v2 versioned
+// backends.
+func TestVersionedDBs(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 
-	graph := NewVersionedGraph(MakeTestGraph(t), lnwire.GossipVersion1)
+	for _, vt := range versionedTests {
+		vt := vt
 
-	// We'd like to test basic insertion/deletion for vertexes from the
-	// graph, so we'll create a test vertex to start with.
-	timeStamp := int64(1232342)
+		t.Run(vt.name+"/v1", func(t *testing.T) {
+			vt.test(t, lnwire.GossipVersion1)
+		})
+
+		if !isSQLDB {
+			continue
+		}
+
+		t.Run(vt.name+"/v2", func(t *testing.T) {
+			vt.test(t, lnwire.GossipVersion2)
+		})
+	}
+}
+
+// testNodeInsertionAndDeletion tests the CRUD operations for a Node.
+func testNodeInsertionAndDeletion(t *testing.T, v lnwire.GossipVersion) {
 	nodeWithAddrs := func(addrs []net.Addr) *models.Node {
-		timeStamp++
 		return models.NewV1Node(
 			testPub, &models.NodeV1Fields{
 				AuthSigBytes:    testSig.Serialize(),
-				LastUpdate:      time.Unix(timeStamp, 0),
+				LastUpdate:      nextUpdateTime(),
 				Color:           color.RGBA{1, 2, 3, 0},
 				Alias:           "kek",
 				Features:        testFeatures.RawFeatureVector,
@@ -144,6 +169,31 @@ func TestNodeInsertionAndDeletion(t *testing.T) {
 			},
 		)
 	}
+
+	if v == lnwire.GossipVersion2 {
+		nodeWithAddrs = func(addrs []net.Addr) *models.Node {
+			return models.NewV2Node(
+				testPub, &models.NodeV2Fields{
+					Signature:       testSig.Serialize(),
+					LastBlockHeight: nextBlockHeight(),
+					Color: fn.Some(
+						color.RGBA{1, 2, 3, 0},
+					),
+					Alias: fn.Some("kek"),
+					Features: testFeatures.
+						RawFeatureVector,
+					Addresses: addrs,
+					ExtraSignedFields: map[uint64][]byte{
+						20: {0x1, 0x2, 0x3},
+						21: {0x4, 0x5, 0x6, 0x7},
+					},
+				},
+			)
+		}
+	}
+
+	ctx := t.Context()
+	graph := NewVersionedGraph(MakeTestGraph(t), v)
 
 	// First, insert the node into the graph DB. This should succeed
 	// without any errors.

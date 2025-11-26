@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -68,12 +69,12 @@ var (
 	_           = testSScalar.SetByteSlice(testSBytes)
 	testSig     = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = models.ChannelAuthProof{
-		NodeSig1Bytes:    testSig.Serialize(),
-		NodeSig2Bytes:    testSig.Serialize(),
-		BitcoinSig1Bytes: testSig.Serialize(),
-		BitcoinSig2Bytes: testSig.Serialize(),
-	}
+	testAuthProof = *models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
 )
 
 func createTestNode(t *testing.T) *models.Node {
@@ -447,23 +448,31 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// update to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		*chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes,
+		node2.PubKeyBytes,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
 		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanPoint,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+		models.WithChanProof(proof),
+		models.WithChannelPoint(*chanPoint),
+		models.WithCapacity(chanValue),
+	)
+	require.NoError(t, err)
+	edge.FundingScript = fn.Some(script)
 
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
@@ -641,21 +650,29 @@ func TestNodeUpdateNotification(t *testing.T) {
 	testFeaturesBuf := new(bytes.Buffer)
 	require.NoError(t, testFeatures.Encode(testFeaturesBuf))
 
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		Features:      lnwire.EmptyFeatureVector(),
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		*chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes,
+		node2.PubKeyBytes,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
 		},
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+		models.WithChanProof(proof),
+	)
+	require.NoError(t, err)
+	edge.FundingScript = fn.Some(script)
 
 	// Adding the edge will add the nodes to the graph, but with no info
 	// except the pubkey known.
@@ -827,23 +844,31 @@ func TestNotificationCancellation(t *testing.T) {
 	// to the client.
 	ntfnClient.Cancel()
 
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		*chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes,
+		node2.PubKeyBytes,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
 		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanPoint,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+		models.WithChanProof(proof),
+		models.WithChannelPoint(*chanPoint),
+		models.WithCapacity(chanValue),
+	)
+	require.NoError(t, err)
+	edge.FundingScript = fn.Some(script)
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -903,23 +928,31 @@ func TestChannelCloseNotification(t *testing.T) {
 
 	// Finally, to conclude our test set up, we'll create a channel
 	// announcement to announce the created channel between the two nodes.
-	edge := &models.ChannelEdgeInfo{
-		ChannelID:     chanID.ToUint64(),
-		NodeKey1Bytes: node1.PubKeyBytes,
-		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
-			NodeSig1Bytes:    testSig.Serialize(),
-			NodeSig2Bytes:    testSig.Serialize(),
-			BitcoinSig1Bytes: testSig.Serialize(),
-			BitcoinSig2Bytes: testSig.Serialize(),
+	btcKey1 := route.NewVertex(bitcoinKey1)
+	btcKey2 := route.NewVertex(bitcoinKey2)
+
+	proof := models.NewV1ChannelAuthProof(
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+		testSig.Serialize(),
+	)
+
+	edge, err := models.NewV1Channel(
+		chanID.ToUint64(),
+		*chaincfg.SimNetParams.GenesisHash,
+		node1.PubKeyBytes,
+		node2.PubKeyBytes,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
 		},
-		Features:      lnwire.EmptyFeatureVector(),
-		ChannelPoint:  *chanUtxo,
-		Capacity:      chanValue,
-		FundingScript: fn.Some(script),
-	}
-	copy(edge.BitcoinKey1Bytes[:], bitcoinKey1.SerializeCompressed())
-	copy(edge.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
+		models.WithChanProof(proof),
+		models.WithChannelPoint(*chanUtxo),
+		models.WithCapacity(chanValue),
+	)
+	require.NoError(t, err)
+	edge.FundingScript = fn.Some(script)
 	if err := ctx.builder.AddEdge(ctxb, edge); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}

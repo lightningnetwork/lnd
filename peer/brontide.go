@@ -192,10 +192,10 @@ type PendingUpdate struct {
 	// transaction.
 	OutputIndex uint32
 
-	// FeePerVByte is an optional field, that is set only when the new RBF
+	// FeePerKw is an optional field, that is set only when the new RBF
 	// coop close flow is used. This indicates the new closing fee rate on
 	// the closing transaction.
-	FeePerVbyte fn.Option[chainfee.SatPerVByte]
+	FeePerKw fn.Option[chainfee.SatPerKWeight]
 
 	// IsLocalCloseTx is an optional field that indicates if this update is
 	// sent for our local close txn, or the close txn of the remote party.
@@ -4483,7 +4483,7 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 
 	var (
 		lastTxids    lntypes.Dual[chainhash.Hash]
-		lastFeeRates lntypes.Dual[chainfee.SatPerVByte]
+		lastFeeRates lntypes.Dual[chainfee.SatPerKWeight]
 	)
 
 	maybeNotifyTxBroadcast := func(state chancloser.AsymmetricPeerState,
@@ -4538,8 +4538,8 @@ func (p *Brontide) observeRbfCloseUpdatesWithSeq(
 		if closeReq != nil && closingTxid != lastTxid {
 			select {
 			case closeReq.Updates <- &PendingUpdate{
-				Txid:        closingTxid[:],
-				FeePerVbyte: fn.Some(closePending.FeeRate),
+				Txid:     closingTxid[:],
+				FeePerKw: fn.Some(closePending.FeeRate),
 				IsLocalCloseTx: fn.Some(
 					party == lntypes.Local,
 				),
@@ -4903,7 +4903,7 @@ func (p *Brontide) initRbfChanCloser(
 		ChanID:         chanID,
 		Scid:           scid,
 		ChanType:       channel.ChanType(),
-		DefaultFeeRate: defaultFeePerKw.FeePerVByte(),
+		DefaultFeeRate: defaultFeePerKw,
 		ThawHeight:     fn.Some(thawHeight),
 		RemoteUpfrontShutdown: ChooseAddr(
 			channel.RemoteUpfrontShutdownScript(),
@@ -5127,9 +5127,7 @@ func (p *Brontide) startRbfChanCloser(shutdown shutdownInit,
 			chanPoint)
 	}
 
-	targetFeeOpt := fn.MapOption(func(fee chainfee.SatPerKWeight) chainfee.SatPerVByte { //nolint:ll
-		return fee.FeePerVByte()
-	})(shutdownStartFeeRate(shutdown))
+	targetFeeOpt := shutdownStartFeeRate(shutdown)
 
 	chanCloser.WhenRight(func(rbfCloser *chancloser.RbfChanCloser) {
 		peerLog.Infof("ChannelPoint(%v): rbf-coop close requested",

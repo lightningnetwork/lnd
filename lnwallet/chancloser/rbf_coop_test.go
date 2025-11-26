@@ -994,7 +994,7 @@ func newRbfCloserTestHarness(t *testing.T,
 		ChanID:                  chanID,
 		Scid:                    scid,
 		ChanType:                cfg.chanType,
-		DefaultFeeRate:          defaultFeeRate.FeePerVByte(),
+		DefaultFeeRate:          defaultFeeRate,
 		ThawHeight:              cfg.thawHeight,
 		RemoteUpfrontShutdown:   cfg.remoteUpfrontAddr,
 		LocalUpfrontShutdown:    cfg.localUpfrontAddr,
@@ -1078,7 +1078,7 @@ func testInitiatorShutdownRecvOkNonTap(t *testing.T, ctx context.Context,
 	t.Run("non_taproot", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -1137,7 +1137,7 @@ func testInitiatorShutdownRecvOkTaproot(t *testing.T, ctx context.Context,
 	t.Run("taproot", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -1386,7 +1386,7 @@ func TestRbfChannelActiveTransitions(t *testing.T) {
 	localAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x01}, 20))
 	remoteAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x02}, 20))
 
-	feeRate := chainfee.SatPerVByte(1000)
+	feeRate := chainfee.SatPerKWeight(250_000)
 
 	// Test that if a spend event is received, the FSM transitions to the
 	// CloseFin terminal state.
@@ -1672,7 +1672,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Run("initiator_shutdown_recv_taproot_no_nonce_fail", func(t *testing.T) { //nolint:ll
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -1724,7 +1724,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Run("responder_complete", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -1755,7 +1755,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Run("early_remote_offer_shutdown_complete", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -1802,7 +1802,7 @@ func TestRbfShutdownPendingTransitions(t *testing.T) {
 	t.Run("early_remote_offer_shutdown_received", func(t *testing.T) {
 		firstState := *startingState
 		firstState.IdealFeeRate = fn.Some(
-			chainfee.FeePerKwFloor.FeePerVByte(),
+			chainfee.FeePerKwFloor,
 		)
 		firstState.ShutdownScripts = ShutdownScripts{
 			LocalDeliveryScript:  localAddr,
@@ -2051,7 +2051,7 @@ func testSendOfferRbfIterationLoopNonTap(t *testing.T,
 			noDustExpect, false,
 		)
 
-		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
+		rbfFeeBump := chainfee.FeePerKwFloor * 10
 		localOffer := &SendOfferEvent{
 			TargetFeeRate: rbfFeeBump,
 		}
@@ -2114,7 +2114,7 @@ func testSendOfferRbfIterationLoopTaproot(t *testing.T,
 			lnwire.Musig2Nonce{7, 8, 9},
 		)
 
-		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
+		rbfFeeBump := chainfee.FeePerKwFloor * 10
 		localOffer := &SendOfferEvent{
 			TargetFeeRate: rbfFeeBump,
 		}
@@ -2412,7 +2412,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 	}
 
 	sendOfferEvent := &SendOfferEvent{
-		TargetFeeRate: chainfee.FeePerKwFloor.FeePerVByte(),
+		TargetFeeRate: chainfee.FeePerKwFloor,
 	}
 
 	balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
@@ -2600,7 +2600,7 @@ func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
 		// the amount we have in the channel.
 		closeHarness.expectFeeEstimate(btcutil.SatoshiPerBitcoin, 1)
 
-		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte()
+		rbfFeeBump := chainfee.FeePerKwFloor
 		localOffer := &SendOfferEvent{
 			TargetFeeRate: rbfFeeBump,
 		}
@@ -3086,7 +3086,7 @@ func TestRbfCloseErr(t *testing.T) {
 		})
 		defer closeHarness.stopAndAssert()
 
-		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte()
+		rbfFeeBump := chainfee.FeePerKwFloor
 		localOffer := &SendOfferEvent{
 			TargetFeeRate: rbfFeeBump,
 		}
@@ -3422,7 +3422,7 @@ func TestLocalOfferSentUsesStoredSig(t *testing.T) {
 	localOfferSent := &LocalOfferSent{
 		CloseChannelTerms: closeTerms,
 		ProposedFee:       btcutil.Amount(1000),
-		ProposedFeeRate:   chainfee.FeePerKwFloor.FeePerVByte(),
+		ProposedFeeRate:   chainfee.FeePerKwFloor,
 		LocalSig:          localSchnorrSig,
 		LocalMusigSig:     fn.Some(lnwallet.MusigPartialSig{}),
 	}
@@ -3491,7 +3491,7 @@ func TestRbfLocalCloseReqBuffering(t *testing.T) {
 
 	localBalance := lnwire.NewMSatFromSatoshis(500_000)
 	remoteBalance := lnwire.NewMSatFromSatoshis(500_000)
-	initialRate := chainfee.FeePerKwFloor.FeePerVByte()
+	initialRate := chainfee.FeePerKwFloor
 	bumpRate := initialRate * 5
 	bumpAbsFee := btcutil.Amount(5000)
 

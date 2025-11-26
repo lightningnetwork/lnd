@@ -397,7 +397,7 @@ func TestRbfAuxShutdownRecords(t *testing.T) {
 	ctx := t.Context()
 
 	internalKey := randPubKey(t)
-	feeRate := chainfee.SatPerVByte(1000)
+	feeRate := chainfee.SatPerKWeight(250_000)
 
 	shutdownWithRecords := singleMsgMatcher(func(m *lnwire.Shutdown) bool {
 		return maps.EqualFunc(
@@ -790,7 +790,7 @@ func TestRbfAuxLocalOffer(t *testing.T) {
 	}
 
 	sendOfferEvent := &SendOfferEvent{
-		TargetFeeRate: chainfee.FeePerKwFloor.FeePerVByte(),
+		TargetFeeRate: chainfee.FeePerKwFloor,
 	}
 
 	t.Run("aux_outputs_in_offer", func(t *testing.T) {

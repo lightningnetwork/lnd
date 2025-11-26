@@ -125,6 +125,7 @@ type Querier interface {
 	ListNodeIDsAndPubKeys(ctx context.Context, arg ListNodeIDsAndPubKeysParams) ([]ListNodeIDsAndPubKeysRow, error)
 	ListNodesPaginated(ctx context.Context, arg ListNodesPaginatedParams) ([]GraphNode, error)
 	NextInvoiceSettleIndex(ctx context.Context) (int64, error)
+	NodeExists(ctx context.Context, arg NodeExistsParams) (bool, error)
 	OnAMPSubInvoiceCanceled(ctx context.Context, arg OnAMPSubInvoiceCanceledParams) error
 	OnAMPSubInvoiceCreated(ctx context.Context, arg OnAMPSubInvoiceCreatedParams) error
 	OnAMPSubInvoiceSettled(ctx context.Context, arg OnAMPSubInvoiceSettledParams) error

@@ -359,7 +359,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 	// Create new router with same graph database.
 	router, err := NewBuilder(&Config{
 		SelfNode:           selfNode.PubKeyBytes,
-		Graph:              ctx.graph,
+		Graph:              ctx.graph.ChannelGraph,
 		Chain:              ctx.chain,
 		ChainView:          ctx.chainView,
 		ChannelPruneExpiry: time.Hour * 24,
@@ -1595,7 +1595,9 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
+		graph: graphdb.NewVersionedGraph(
+			graph, lnwire.GossipVersion1,
+		),
 		aliasMap:   aliasMap,
 		privKeyMap: privKeyMap,
 		channelIDs: channelIDs,
@@ -1690,7 +1692,7 @@ func asymmetricTestChannel(alias1, alias2 string, capacity btcutil.Amount,
 
 // assertChannelsPruned ensures that only the given channels are pruned from the
 // graph out of the set of all channels.
-func assertChannelsPruned(t *testing.T, graph *graphdb.ChannelGraph,
+func assertChannelsPruned(t *testing.T, graph *graphdb.VersionedGraph,
 	channels []*testChannel, prunedChanIDs ...uint64) {
 
 	t.Helper()
@@ -1980,7 +1982,9 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 	}
 
 	return &testGraphInstance{
-		graph:      graph,
+		graph: graphdb.NewVersionedGraph(
+			graph, lnwire.GossipVersion1,
+		),
 		aliasMap:   aliasMap,
 		privKeyMap: privKeyMap,
 		links:      links,

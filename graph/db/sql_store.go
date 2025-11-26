@@ -52,6 +52,7 @@ type SQLQueries interface {
 	DeleteUnconnectedNodes(ctx context.Context) ([][]byte, error)
 	DeleteNodeByPubKey(ctx context.Context, arg sqlc.DeleteNodeByPubKeyParams) (sql.Result, error)
 	DeleteNode(ctx context.Context, id int64) error
+	NodeExists(ctx context.Context, arg sqlc.NodeExistsParams) (bool, error)
 
 	GetExtraNodeTypes(ctx context.Context, nodeID int64) ([]sqlc.GraphNodeExtraType, error)
 	GetNodeExtraTypesBatch(ctx context.Context, ids []int64) ([]sqlc.GraphNodeExtraType, error)
@@ -162,7 +163,7 @@ type BatchedSQLQueries interface {
 	sqldb.BatchedTx[SQLQueries]
 }
 
-// SQLStore is an implementation of the V1Store interface that uses a SQL
+// SQLStore is an implementation of the Store interface that uses a SQL
 // database as the backend.
 type SQLStore struct {
 	cfg *SQLStoreConfig
@@ -182,9 +183,9 @@ type SQLStore struct {
 	srcNodeMu sync.Mutex
 }
 
-// A compile-time assertion to ensure that SQLStore implements the V1Store
+// A compile-time assertion to ensure that SQLStore implements the Store
 // interface.
-var _ V1Store = (*SQLStore)(nil)
+var _ Store = (*SQLStore)(nil)
 
 // SQLStoreConfig holds the configuration for the SQLStore.
 type SQLStoreConfig struct {
@@ -234,7 +235,7 @@ func NewSQLStore(cfg *SQLStoreConfig, db BatchedSQLQueries,
 // graph. If it is present from before, this will update that node's
 // information.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) AddNode(ctx context.Context,
 	node *models.Node, opts ...batch.SchedulerOption) error {
 
@@ -264,14 +265,16 @@ func (s *SQLStore) AddNode(ctx context.Context,
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
 // returned.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) FetchNode(ctx context.Context,
+// NOTE: part of the Store interface.
+func (s *SQLStore) FetchNode(ctx context.Context, v lnwire.GossipVersion,
 	pubKey route.Vertex) (*models.Node, error) {
 
 	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		var err error
-		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, pubKey)
+		_, node, err = getNodeByPubKey(
+			ctx, s.cfg.QueryCfg, db, v, pubKey,
+		)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -282,14 +285,14 @@ func (s *SQLStore) FetchNode(ctx context.Context,
 	return node, nil
 }
 
-// HasNode determines if the graph has a vertex identified by the
+// HasV1Node determines if the graph has a vertex identified by the
 // target node identity public key. If the node exists in the database, a
 // timestamp of when the data for the node was lasted updated is returned along
 // with a true boolean. Otherwise, an empty time.Time is returned with a false
 // boolean.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) HasNode(ctx context.Context,
+// NOTE: part of the Store interface.
+func (s *SQLStore) HasV1Node(ctx context.Context,
 	pubKey [33]byte) (time.Time, bool, error) {
 
 	var (
@@ -325,12 +328,37 @@ func (s *SQLStore) HasNode(ctx context.Context,
 	return lastUpdate, exists, nil
 }
 
+// HasNode determines if the graph has a vertex identified by the
+// target node identity public key.
+//
+// NOTE: part of the Store interface.
+func (s *SQLStore) HasNode(ctx context.Context, v lnwire.GossipVersion,
+	pubKey [33]byte) (bool, error) {
+
+	var exists bool
+	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
+		var err error
+		exists, err = db.NodeExists(ctx, sqlc.NodeExistsParams{
+			Version: int16(v),
+			PubKey:  pubKey[:],
+		})
+
+		return err
+	}, sqldb.NoOpReset)
+	if err != nil {
+		return false, fmt.Errorf("unable to check if node (%x) "+
+			"exists: %w", pubKey, err)
+	}
+
+	return exists, nil
+}
+
 // AddrsForNode returns all known addresses for the target node public key
 // that the graph DB is aware of. The returned boolean indicates if the
 // given node is unknown to the graph DB or not.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) AddrsForNode(ctx context.Context,
+// NOTE: part of the Store interface.
+func (s *SQLStore) AddrsForNode(ctx context.Context, v lnwire.GossipVersion,
 	nodePub *btcec.PublicKey) (bool, []net.Addr, error) {
 
 	var (
@@ -342,7 +370,7 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 		// does.
 		dbID, err := db.GetNodeIDByPubKey(
 			ctx, sqlc.GetNodeIDByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  nodePub.SerializeCompressed(),
 			},
 		)
@@ -371,14 +399,14 @@ func (s *SQLStore) AddrsForNode(ctx context.Context,
 // DeleteNode starts a new database transaction to remove a vertex/node
 // from the database according to the node's public key.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) DeleteNode(ctx context.Context,
+// NOTE: part of the Store interface.
+func (s *SQLStore) DeleteNode(ctx context.Context, v lnwire.GossipVersion,
 	pubKey route.Vertex) error {
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		res, err := db.DeleteNodeByPubKey(
 			ctx, sqlc.DeleteNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  pubKey[:],
 			},
 		)
@@ -410,19 +438,19 @@ func (s *SQLStore) DeleteNode(ctx context.Context,
 // known for the node, an empty feature vector is returned.
 //
 // NOTE: this is part of the graphdb.NodeTraverser interface.
-func (s *SQLStore) FetchNodeFeatures(nodePub route.Vertex) (
-	*lnwire.FeatureVector, error) {
+func (s *SQLStore) FetchNodeFeatures(v lnwire.GossipVersion,
+	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
 
 	ctx := context.TODO()
 
-	return fetchNodeFeatures(ctx, s.db, nodePub)
+	return fetchNodeFeatures(ctx, s.db, v, nodePub)
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
 // A channel is disabled when two of the associated ChanelEdgePolicies
 // have their disabled bit on.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
 	var (
 		ctx     = context.TODO()
@@ -449,15 +477,15 @@ func (s *SQLStore) DisabledChannelIDs() ([]uint64, error) {
 
 // LookupAlias attempts to return the alias as advertised by the target node.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) LookupAlias(ctx context.Context,
+// NOTE: part of the Store interface.
+func (s *SQLStore) LookupAlias(ctx context.Context, v lnwire.GossipVersion,
 	pub *btcec.PublicKey) (string, error) {
 
 	var alias string
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
 		dbNode, err := db.GetNodeByPubKey(
 			ctx, sqlc.GetNodeByPubKeyParams{
-				Version: int16(lnwire.GossipVersion1),
+				Version: int16(v),
 				PubKey:  pub.SerializeCompressed(),
 			},
 		)
@@ -487,21 +515,21 @@ func (s *SQLStore) LookupAlias(ctx context.Context,
 // a path finding algorithm in order to explore the reachability of another
 // node based off the source node.
 //
-// NOTE: part of the V1Store interface.
-func (s *SQLStore) SourceNode(ctx context.Context) (*models.Node,
-	error) {
+// NOTE: part of the Store interface.
+func (s *SQLStore) SourceNode(ctx context.Context,
+	v lnwire.GossipVersion) (*models.Node, error) {
 
 	var node *models.Node
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
-		_, nodePub, err := s.getSourceNode(
-			ctx, db, lnwire.GossipVersion1,
-		)
+		_, nodePub, err := s.getSourceNode(ctx, db, v)
 		if err != nil {
 			return fmt.Errorf("unable to fetch V1 source node: %w",
 				err)
 		}
 
-		_, node, err = getNodeByPubKey(ctx, s.cfg.QueryCfg, db, nodePub)
+		_, node, err = getNodeByPubKey(
+			ctx, s.cfg.QueryCfg, db, v, nodePub,
+		)
 
 		return err
 	}, sqldb.NoOpReset)
@@ -516,7 +544,7 @@ func (s *SQLStore) SourceNode(ctx context.Context) (*models.Node,
 // node is to be used as the center of a star-graph within path finding
 // algorithms.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) SetSourceNode(ctx context.Context,
 	node *models.Node) error {
 
@@ -554,7 +582,7 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 // nodes to quickly determine if they have the same set of up to date node
 // announcements.
 //
-// NOTE: This is part of the V1Store interface.
+// NOTE: This is part of the Store interface.
 func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 	opts ...IteratorOption) iter.Seq2[*models.Node, error] {
 
@@ -663,7 +691,7 @@ func (s *SQLStore) NodeUpdatesInHorizon(startTime, endTime time.Time,
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) AddChannelEdge(ctx context.Context,
 	edge *models.ChannelEdgeInfo, opts ...batch.SchedulerOption) error {
 
@@ -718,7 +746,7 @@ func (s *SQLStore) AddChannelEdge(ctx context.Context,
 // This represents the "newest" channel from the PoV of the chain. This method
 // can be used by peers to quickly determine if their graphs are in sync.
 //
-// NOTE: This is part of the V1Store interface.
+// NOTE: This is part of the Store interface.
 func (s *SQLStore) HighestChanID(ctx context.Context) (uint64, error) {
 	var highestChanID uint64
 	err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(), func(db SQLQueries) error {
@@ -749,7 +777,7 @@ func (s *SQLStore) HighestChanID(ctx context.Context) (uint64, error) {
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) UpdateEdgePolicy(ctx context.Context,
 	edge *models.ChannelEdgePolicy,
 	opts ...batch.SchedulerOption) (route.Vertex, route.Vertex, error) {
@@ -847,7 +875,7 @@ func (s *SQLStore) updateEdgeCache(e *models.ChannelEdgePolicy,
 // channel's outpoint, whether we have a policy for the channel and the channel
 // peer's node information.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 	cb func(chanPoint wire.OutPoint, havePolicy bool,
 		otherNode *models.Node) error, reset func()) error {
@@ -884,7 +912,8 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 				}
 
 				_, otherNode, err := getNodeByPubKey(
-					ctx, s.cfg.QueryCfg, db, otherNodePub,
+					ctx, s.cfg.QueryCfg, db,
+					lnwire.GossipVersion1, otherNodePub,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to fetch "+
@@ -906,7 +935,7 @@ func (s *SQLStore) ForEachSourceNodeChannel(ctx context.Context,
 // returns an error, then the transaction is aborted and the iteration stops
 // early.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ForEachNode(ctx context.Context,
 	cb func(node *models.Node) error, reset func()) error {
 
@@ -974,7 +1003,7 @@ func (s *SQLStore) ForEachNodeCacheable(ctx context.Context,
 //
 // Unknown policies are passed into the callback as nil values.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ForEachNodeChannel(ctx context.Context, nodePub route.Vertex,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
@@ -1091,7 +1120,7 @@ func (s *SQLStore) updateChanCacheBatch(edgesToCache map[uint64]ChannelEdge) {
 // 5. Update cache after successful batch
 // 6. Repeat with updated pagination cursor until no more results
 //
-// NOTE: This is part of the V1Store interface.
+// NOTE: This is part of the Store interface.
 func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 	opts ...IteratorOption) iter.Seq2[ChannelEdge, error] {
 
@@ -1252,7 +1281,7 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 // result in an additional round-trip to the database, so it should only be used
 // if the addresses are actually needed.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ForEachNodeCached(ctx context.Context, withAddrs bool,
 	cb func(ctx context.Context, node route.Vertex, addrs []net.Addr,
 		chans map[uint64]*DirectedChannel) error, reset func()) error {
@@ -1548,7 +1577,7 @@ func (s *SQLStore) ForEachChannelCacheable(cb func(*models.CachedEdgeInfo,
 // for that particular channel edge routing policy will be passed into the
 // callback.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ForEachChannel(ctx context.Context,
 	cb func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error, reset func()) error {
@@ -1566,7 +1595,7 @@ func (s *SQLStore) ForEachChannel(ctx context.Context,
 // timestamp info of the latest received channel update messages of the channel
 // will be included in the response.
 //
-// NOTE: This is part of the V1Store interface.
+// NOTE: This is part of the Store interface.
 func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 	withTimestamps bool) ([]BlockChannelRange, error) {
 
@@ -1686,7 +1715,7 @@ func (s *SQLStore) FilterChannelRange(startHeight, endHeight uint32,
 // zombie. This method is used on an ad-hoc basis, when channels need to be
 // marked as zombies outside the normal pruning cycle.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 	pubKey1, pubKey2 [33]byte) error {
 
@@ -1720,7 +1749,7 @@ func (s *SQLStore) MarkEdgeZombie(chanID uint64,
 
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
@@ -1771,7 +1800,7 @@ func (s *SQLStore) MarkEdgeLive(chanID uint64) error {
 // zombie, then the two node public keys corresponding to this edge are also
 // returned.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 	error) {
 
@@ -1814,7 +1843,7 @@ func (s *SQLStore) IsZombieEdge(chanID uint64) (bool, [33]byte, [33]byte,
 
 // NumZombies returns the current number of zombie channels in the graph.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) NumZombies() (uint64, error) {
 	var (
 		ctx        = context.TODO()
@@ -1849,7 +1878,7 @@ func (s *SQLStore) NumZombies() (uint64, error) {
 // that resurrects the channel from its zombie state. The markZombie bool
 // denotes whether to mark the channel as a zombie.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 	chanIDs ...uint64) ([]*models.ChannelEdgeInfo, error) {
 
@@ -1954,7 +1983,7 @@ func (s *SQLStore) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 // within the database. In this case, the ChannelEdgePolicy's will be nil, and
 // the ChannelEdgeInfo will only include the public keys of each node.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
@@ -2051,7 +2080,7 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 // information for the channel itself is returned as well as two structs that
 // contain the routing policies for the channel in either direction.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
 	*models.ChannelEdgePolicy, error) {
@@ -2121,7 +2150,7 @@ func (s *SQLStore) FetchChannelEdgesByOutpoint(op *wire.OutPoint) (
 // it is not found, then the zombie index is checked and its result is returned
 // as the second boolean.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 	bool, error) {
 
@@ -2237,7 +2266,7 @@ func (s *SQLStore) HasChannelEdge(chanID uint64) (time.Time, time.Time, bool,
 // passed channel point (outpoint). If the passed channel doesn't exist within
 // the database, then ErrEdgeNotFound is returned.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 	var (
 		ctx       = context.TODO()
@@ -2272,7 +2301,7 @@ func (s *SQLStore) ChannelID(chanPoint *wire.OutPoint) (uint64, error) {
 // given public key is seen as a public node in the graph from the graph's
 // source node's point of view.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 	ctx := context.TODO()
 
@@ -2297,7 +2326,7 @@ func (s *SQLStore) IsPublicNode(pubKey [33]byte) (bool, error) {
 // of the query. This can be used to respond to peer queries that are seeking to
 // fill in gaps in their view of the channel graph.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 	var (
 		ctx   = context.TODO()
@@ -2391,7 +2420,7 @@ func (s *SQLStore) forEachChanWithPoliciesInSCIDList(ctx context.Context,
 // channels another peer knows of that we don't. The ChannelUpdateInfos for the
 // known zombies is also returned.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo) ([]uint64,
 	[]ChannelUpdateInfo, error) {
 
@@ -2515,7 +2544,7 @@ func (s *SQLStore) forEachChanInSCIDList(ctx context.Context, db SQLQueries,
 // NOTE: this prunes nodes across protocol versions. It will never prune the
 // source nodes.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) PruneGraphNodes() ([]route.Vertex, error) {
 	var ctx = context.TODO()
 
@@ -2544,7 +2573,7 @@ func (s *SQLStore) PruneGraphNodes() ([]route.Vertex, error) {
 // the target block along with any pruned nodes are returned if the function
 // succeeds without error.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) PruneGraph(spentOutputs []*wire.OutPoint,
 	blockHash *chainhash.Hash, blockHeight uint32) (
 	[]*models.ChannelEdgeInfo, []route.Vertex, error) {
@@ -2699,7 +2728,7 @@ func (s *SQLStore) deleteChannels(ctx context.Context, db SQLQueries,
 // returned are the ones that need to be watched on chain to detect channel
 // closes on the resident blockchain.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 	var (
 		ctx        = context.TODO()
@@ -2765,7 +2794,7 @@ func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 // to tell if the graph is currently in sync with the current best known UTXO
 // state.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) PruneTip() (*chainhash.Hash, uint32, error) {
 	var (
 		ctx       = context.TODO()
@@ -2827,7 +2856,7 @@ func (s *SQLStore) pruneGraphNodes(ctx context.Context,
 // Channels that were removed from the graph resulting from the
 // disconnected block are returned.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 	[]*models.ChannelEdgeInfo, error) {
 
@@ -2913,7 +2942,7 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 
 // AddEdgeProof sets the proof of an existing edge in the graph database.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
@@ -2963,7 +2992,7 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 // that we can ignore channel announcements that we know to be closed without
 // having to validate them and fetch a block.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) PutClosedScid(scid lnwire.ShortChannelID) error {
 	var (
 		ctx     = context.TODO()
@@ -2978,7 +3007,7 @@ func (s *SQLStore) PutClosedScid(scid lnwire.ShortChannelID) error {
 // IsClosedScid checks whether a channel identified by the passed in scid is
 // closed. This helps avoid having to perform expensive validation checks.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 	var (
 		ctx      = context.TODO()
@@ -3006,7 +3035,7 @@ func (s *SQLStore) IsClosedScid(scid lnwire.ShortChannelID) (bool, error) {
 // GraphSession will provide the call-back with access to a NodeTraverser
 // instance which can be used to perform queries against the channel graph.
 //
-// NOTE: part of the V1Store interface.
+// NOTE: part of the Store interface.
 func (s *SQLStore) GraphSession(cb func(graph NodeTraverser) error,
 	reset func()) error {
 
@@ -3059,7 +3088,7 @@ func (s *sqlNodeTraverser) FetchNodeFeatures(nodePub route.Vertex) (
 
 	ctx := context.TODO()
 
-	return fetchNodeFeatures(ctx, s.db, nodePub)
+	return fetchNodeFeatures(ctx, s.db, lnwire.GossipVersion1, nodePub)
 }
 
 // forEachNodeDirectedChannel iterates through all channels of a given
@@ -3421,11 +3450,12 @@ func updateChanEdgePolicy(ctx context.Context, tx SQLQueries,
 
 // getNodeByPubKey attempts to look up a target node by its public key.
 func getNodeByPubKey(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
-	pubKey route.Vertex) (int64, *models.Node, error) {
+	v lnwire.GossipVersion, pubKey route.Vertex) (int64, *models.Node,
+	error) {
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 			PubKey:  pubKey[:],
 		},
 	)
@@ -3471,6 +3501,19 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 	return buildNodeWithBatchData(dbNode, data)
 }
 
+// isKnownGossipVersion checks whether the provided gossip version is known
+// and supported.
+func isKnownGossipVersion(v lnwire.GossipVersion) bool {
+	switch v {
+	case lnwire.GossipVersion1:
+		return true
+	case lnwire.GossipVersion2:
+		return true
+	default:
+		return false
+	}
+}
+
 // buildNodeWithBatchData builds a models.Node instance
 // from the provided sqlc.GraphNode and batchNodeData. If the node does have
 // features/addresses/extra fields, then the corresponding fields are expected
@@ -3478,15 +3521,18 @@ func buildNode(ctx context.Context, cfg *sqldb.QueryConfig, db SQLQueries,
 func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	batchData *batchNodeData) (*models.Node, error) {
 
-	if dbNode.Version != int16(lnwire.GossipVersion1) {
-		return nil, fmt.Errorf("unsupported node version: %d",
-			dbNode.Version)
+	v := lnwire.GossipVersion(dbNode.Version)
+
+	if !isKnownGossipVersion(v) {
+		return nil, fmt.Errorf("unknown node version: %d", v)
 	}
 
-	var pub [33]byte
-	copy(pub[:], dbNode.PubKey)
+	pub, err := route.NewVertexFromBytes(dbNode.PubKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse pubkey: %w", err)
+	}
 
-	node := models.NewV1ShellNode(pub)
+	node := models.NewShellNode(v, pub)
 
 	if len(dbNode.Signature) == 0 {
 		return node, nil
@@ -3500,8 +3546,10 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 	if dbNode.LastUpdate.Valid {
 		node.LastUpdate = time.Unix(dbNode.LastUpdate.Int64, 0)
 	}
+	if dbNode.BlockHeight.Valid {
+		node.LastBlockHeight = uint32(dbNode.BlockHeight.Int64)
+	}
 
-	var err error
 	if dbNode.Color.Valid {
 		nodeColor, err := DecodeHexColor(dbNode.Color.String)
 		if err != nil {
@@ -3533,13 +3581,19 @@ func buildNodeWithBatchData(dbNode sqlc.GraphNode,
 
 	// Use preloaded extra fields.
 	if extraFields, exists := batchData.extraFields[dbNode.ID]; exists {
-		recs, err := lnwire.CustomRecords(extraFields).Serialize()
-		if err != nil {
-			return nil, fmt.Errorf("unable to serialize extra "+
-				"signed fields: %w", err)
-		}
-		if len(recs) != 0 {
-			node.ExtraOpaqueData = recs
+		if v == lnwire.GossipVersion1 {
+			records := lnwire.CustomRecords(extraFields)
+			recs, err := records.Serialize()
+			if err != nil {
+				return nil, fmt.Errorf("unable to serialize "+
+					"extra signed fields: %w", err)
+			}
+
+			if len(recs) != 0 {
+				node.ExtraOpaqueData = recs
+			}
+		} else if len(extraFields) > 0 {
+			node.ExtraSignedFields = extraFields
 		}
 	}
 
@@ -3606,8 +3660,12 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 func upsertNode(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
 
+	if !isKnownGossipVersion(node.Version) {
+		return 0, fmt.Errorf("unknown gossip version: %d", node.Version)
+	}
+
 	params := sqlc.UpsertNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(node.Version),
 		PubKey:  node.PubKeyBytes[:],
 	}
 
@@ -3619,6 +3677,9 @@ func upsertNode(ctx context.Context, db SQLQueries,
 			)
 
 		case lnwire.GossipVersion2:
+			params.BlockHeight = sqldb.SQLInt64(
+				int64(node.LastBlockHeight),
+			)
 
 		default:
 			return 0, fmt.Errorf("unknown gossip version: %d",
@@ -3660,10 +3721,13 @@ func upsertNode(ctx context.Context, db SQLQueries,
 
 	// Convert the flat extra opaque data into a map of TLV types to
 	// values.
-	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
-	if err != nil {
-		return 0, fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
+	extra := node.ExtraSignedFields
+	if node.Version == lnwire.GossipVersion1 {
+		extra, err = marshalExtraOpaqueData(node.ExtraOpaqueData)
+		if err != nil {
+			return 0, fmt.Errorf("unable to marshal extra opaque "+
+				"data: %w", err)
+		}
 	}
 
 	// Update the node's extra signed fields.
@@ -3738,12 +3802,13 @@ func upsertNodeFeatures(ctx context.Context, db SQLQueries, nodeID int64,
 
 // fetchNodeFeatures fetches the features for a node with the given public key.
 func fetchNodeFeatures(ctx context.Context, queries SQLQueries,
-	nodePub route.Vertex) (*lnwire.FeatureVector, error) {
+	v lnwire.GossipVersion, nodePub route.Vertex) (*lnwire.FeatureVector,
+	error) {
 
 	rows, err := queries.GetNodeFeaturesByPubKey(
 		ctx, sqlc.GetNodeFeaturesByPubKeyParams{
 			PubKey:  nodePub[:],
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 		},
 	)
 	if err != nil {

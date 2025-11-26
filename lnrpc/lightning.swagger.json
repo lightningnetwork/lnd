@@ -7140,7 +7140,13 @@
         },
         "fee_per_vbyte": {
           "type": "string",
-          "format": "int64"
+          "format": "int64",
+          "description": "The fee rate of the closing transaction in sat/vbyte, rounded down."
+        },
+        "fee_per_kw": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate of the closing transaction in sat/kw."
         },
         "local_close_tx": {
           "type": "boolean"

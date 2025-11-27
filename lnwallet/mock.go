@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -314,6 +315,13 @@ func (w *mockWalletController) FetchDerivationInfo(
 
 func (w *mockWalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	return nil
+}
+
+func (w *mockWalletController) SubmitPackage(parents []*wire.MsgTx,
+	child *wire.MsgTx, maxFeeRate chainfee.SatPerKWeight) (
+	*btcjson.SubmitPackageResult, error) {
+
+	return nil, nil
 }
 
 // mockChainNotifier is a mock implementation of the ChainNotifier interface.

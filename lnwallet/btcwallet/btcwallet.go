@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -1848,4 +1849,63 @@ func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
 	}
 
 	return nil
+}
+
+// SubmitPackage attempts to broadcast a package containing one or more parent
+// transactions and exactly one child transaction to the mempool atomically
+// using the backend node's package submission capabilities (e.g., Bitcoin
+// Core's `submitpackage` RPC).
+//
+// The package must adhere to the backend's requirements, typically meaning the
+// transactions are topologically sorted (parents first, child last) and form a
+// valid "child-with-unconfirmed-parents" set.
+//
+// Parameters:
+//   - parents: A slice containing one or more parent transactions. These are
+//     typically the transactions being fee-bumped.
+//   - child: The single child transaction that spends outputs from one or more
+//     of the transactions in `parents`. This transaction should provide
+//     sufficient fees for the entire package to meet mempool requirements.
+//   - maxFeeRate: An optional fee rate cap for the package, expressed in
+//     sat/kwu. If non-zero, the backend node may reject the package if its
+//     effective fee rate exceeds this value. A value of 0 typically indicates
+//     no specific limit should be enforced by the caller (allowing the backend
+//     node's default behavior).
+//
+// Returns:
+//   - *btcjson.SubmitPackageResult: On successful RPC execution with the
+//     backend node, this struct provides detailed outcomes for the package.
+//   - error: nil if the submission process was initiated successfully (even if
+//     some transactions were rejected or already present). Returns
+//     ErrSubmitPackageUnsupported if the backend node does not support package
+//     submission, or another error for issues like serialization, RPC
+//     communication, or fundamental package validation failures reported by the
+//     node.
+//
+// NOTE: This method is only supported by Bitcoin Core (bitcoind).
+func (b *BtcWallet) SubmitPackage(parents []*wire.MsgTx, child *wire.MsgTx,
+	maxFeeRate chainfee.SatPerKWeight) (*btcjson.SubmitPackageResult,
+	error) {
+
+	// We know that currently only bitcoind supports this method, so we can
+	// return an error if the backend is not bitcoind.
+	if b.chain.BackEnd() != "bitcoind" {
+		return nil, lnwallet.ErrSubmitPackageUnsupported
+	}
+
+	maxFeeRateBTCPerVByte := float64(maxFeeRate.FeePerVByte())
+
+	result, err := b.chain.SubmitPackage(
+		parents, child, &maxFeeRateBTCPerVByte,
+	)
+	if err != nil {
+		// Convert the ErrUnimplemented error to our own error type.
+		if err == chain.ErrUnimplemented {
+			return nil, lnwallet.ErrSubmitPackageUnsupported
+		}
+
+		return nil, err
+	}
+
+	return result, nil
 }

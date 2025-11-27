@@ -71,8 +71,8 @@ type ProtocolOptions struct {
 	// NoRouteBlindingOption disables forwarding of payments in blinded routes.
 	NoRouteBlindingOption bool `long:"no-route-blinding" description:"do not forward payments that are a part of a blinded route"`
 
-	// NoExperimentalEndorsementOption disables experimental endorsement.
-	NoExperimentalEndorsementOption bool `long:"no-experimental-endorsement" description:"do not forward experimental endorsement signals"`
+	// NoExperimentalAccountabilityOption disables experimental accountability.
+	NoExperimentalAccountabilityOption bool `long:"no-experimental-accountability" description:"do not forward experimental accountability signals"`
 
 	// CustomMessage allows the custom message APIs to handle messages with
 	// the provided protocol numbers, which fall outside the custom message
@@ -139,10 +139,10 @@ func (l *ProtocolOptions) NoRouteBlinding() bool {
 	return l.NoRouteBlindingOption
 }
 
-// NoExperimentalEndorsement returns true if experimental endorsement should
-// be disabled.
-func (l *ProtocolOptions) NoExperimentalEndorsement() bool {
-	return l.NoExperimentalEndorsementOption
+// NoExpAccountability returns true if experimental accountability should be
+// disabled.
+func (l *ProtocolOptions) NoExpAccountability() bool {
+	return l.NoExperimentalAccountabilityOption
 }
 
 // NoQuiescence returns true if quiescence is disabled.

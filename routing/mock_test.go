@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -296,8 +297,8 @@ func makeMockControlTower() *mockControlTowerOld {
 	}
 }
 
-func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
-	c *paymentsdb.PaymentCreationInfo) error {
+func (m *mockControlTowerOld) InitPayment(_ context.Context,
+	phash lntypes.Hash, c *paymentsdb.PaymentCreationInfo) error {
 
 	if m.init != nil {
 		m.init <- initArgs{c}
@@ -327,7 +328,9 @@ func (m *mockControlTowerOld) InitPayment(phash lntypes.Hash,
 	return nil
 }
 
-func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
+func (m *mockControlTowerOld) DeleteFailedAttempts(_ context.Context,
+	phash lntypes.Hash) error {
+
 	p, ok := m.payments[phash]
 	if !ok {
 		return paymentsdb.ErrPaymentNotInitiated
@@ -353,8 +356,8 @@ func (m *mockControlTowerOld) DeleteFailedAttempts(phash lntypes.Hash) error {
 	return nil
 }
 
-func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
-	a *paymentsdb.HTLCAttemptInfo) error {
+func (m *mockControlTowerOld) RegisterAttempt(_ context.Context,
+	phash lntypes.Hash, a *paymentsdb.HTLCAttemptInfo) error {
 
 	if m.registerAttempt != nil {
 		m.registerAttempt <- registerAttemptArgs{a}
@@ -407,8 +410,8 @@ func (m *mockControlTowerOld) RegisterAttempt(phash lntypes.Hash,
 	return nil
 }
 
-func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
-	pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
+func (m *mockControlTowerOld) SettleAttempt(_ context.Context,
+	phash lntypes.Hash, pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
 	*paymentsdb.HTLCAttempt, error) {
 
 	if m.settleAttempt != nil {
@@ -450,8 +453,9 @@ func (m *mockControlTowerOld) SettleAttempt(phash lntypes.Hash,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
-	failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error) {
+func (m *mockControlTowerOld) FailAttempt(_ context.Context, phash lntypes.Hash,
+	pid uint64, failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt,
+	error) {
 
 	if m.failAttempt != nil {
 		m.failAttempt <- failAttemptArgs{failInfo}
@@ -489,7 +493,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
+func (m *mockControlTowerOld) FailPayment(_ context.Context, phash lntypes.Hash,
 	reason paymentsdb.FailureReason) error {
 
 	m.Lock()
@@ -509,8 +513,8 @@ func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 	return nil
 }
 
-func (m *mockControlTowerOld) FetchPayment(phash lntypes.Hash) (
-	paymentsdb.DBMPPayment, error) {
+func (m *mockControlTowerOld) FetchPayment(_ context.Context,
+	phash lntypes.Hash) (paymentsdb.DBMPPayment, error) {
 
 	m.Lock()
 	defer m.Unlock()
@@ -545,7 +549,7 @@ func (m *mockControlTowerOld) fetchPayment(phash lntypes.Hash) (
 	return mp, nil
 }
 
-func (m *mockControlTowerOld) FetchInFlightPayments() (
+func (m *mockControlTowerOld) FetchInFlightPayments(_ context.Context) (
 	[]*paymentsdb.MPPayment, error) {
 
 	if m.fetchInFlight != nil {
@@ -733,26 +737,28 @@ type mockControlTower struct {
 
 var _ ControlTower = (*mockControlTower)(nil)
 
-func (m *mockControlTower) InitPayment(phash lntypes.Hash,
+func (m *mockControlTower) InitPayment(_ context.Context, phash lntypes.Hash,
 	c *paymentsdb.PaymentCreationInfo) error {
 
 	args := m.Called(phash, c)
 	return args.Error(0)
 }
 
-func (m *mockControlTower) DeleteFailedAttempts(phash lntypes.Hash) error {
+func (m *mockControlTower) DeleteFailedAttempts(_ context.Context,
+	phash lntypes.Hash) error {
+
 	args := m.Called(phash)
 	return args.Error(0)
 }
 
-func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
-	a *paymentsdb.HTLCAttemptInfo) error {
+func (m *mockControlTower) RegisterAttempt(_ context.Context,
+	phash lntypes.Hash, a *paymentsdb.HTLCAttemptInfo) error {
 
 	args := m.Called(phash, a)
 	return args.Error(0)
 }
 
-func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
+func (m *mockControlTower) SettleAttempt(_ context.Context, phash lntypes.Hash,
 	pid uint64, settleInfo *paymentsdb.HTLCSettleInfo) (
 	*paymentsdb.HTLCAttempt, error) {
 
@@ -766,8 +772,9 @@ func (m *mockControlTower) SettleAttempt(phash lntypes.Hash,
 	return attempt.(*paymentsdb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
-	failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt, error) {
+func (m *mockControlTower) FailAttempt(_ context.Context, phash lntypes.Hash,
+	pid uint64, failInfo *paymentsdb.HTLCFailInfo) (*paymentsdb.HTLCAttempt,
+	error) {
 
 	args := m.Called(phash, pid, failInfo)
 
@@ -779,15 +786,15 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	return attempt.(*paymentsdb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) FailPayment(phash lntypes.Hash,
+func (m *mockControlTower) FailPayment(_ context.Context, phash lntypes.Hash,
 	reason paymentsdb.FailureReason) error {
 
 	args := m.Called(phash, reason)
 	return args.Error(0)
 }
 
-func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
-	paymentsdb.DBMPPayment, error) {
+func (m *mockControlTower) FetchPayment(_ context.Context,
+	phash lntypes.Hash) (paymentsdb.DBMPPayment, error) {
 
 	args := m.Called(phash)
 
@@ -800,7 +807,7 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 	return payment, args.Error(1)
 }
 
-func (m *mockControlTower) FetchInFlightPayments() (
+func (m *mockControlTower) FetchInFlightPayments(_ context.Context) (
 	[]*paymentsdb.MPPayment, error) {
 
 	args := m.Called()

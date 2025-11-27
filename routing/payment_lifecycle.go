@@ -190,6 +190,10 @@ func (p *paymentLifecycle) decideNextStep(
 func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	*route.Route, error) {
 
+	// We need to make sure we can still do db operations after the context
+	// is cancelled.
+	cleanupCtx := context.WithoutCancel(ctx)
+
 	// When the payment lifecycle loop exits, we make sure to signal any
 	// sub goroutine of the HTLC attempt to exit, then wait for them to
 	// return.
@@ -328,7 +332,9 @@ lifecycle:
 	// Optionally delete the failed attempts from the database. Depends on
 	// the database options deleting attempts is not allowed so this will
 	// just be a no-op.
-	err = p.router.cfg.Control.DeleteFailedAttempts(p.identifier)
+	err = p.router.cfg.Control.DeleteFailedAttempts(
+		cleanupCtx, p.identifier,
+	)
 	if err != nil {
 		log.Errorf("Error deleting failed htlc attempts for payment "+
 			"%v: %v", p.identifier, err)
@@ -364,11 +370,18 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 				p.identifier.String())
 		}
 
+		// The context is already cancelled at this point, so we create
+		// a new context so the payment can successfully be marked as
+		// failed.
+		cleanupCtx := context.WithoutCancel(ctx)
+
 		// By marking the payment failed, depending on whether it has
 		// inflight HTLCs or not, its status will now either be
 		// `StatusInflight` or `StatusFailed`. In either case, no more
 		// HTLCs will be attempted.
-		err := p.router.cfg.Control.FailPayment(p.identifier, reason)
+		err := p.router.cfg.Control.FailPayment(
+			cleanupCtx, p.identifier, reason,
+		)
 		if err != nil {
 			return fmt.Errorf("FailPayment got %w", err)
 		}
@@ -388,6 +401,8 @@ func (p *paymentLifecycle) checkContext(ctx context.Context) error {
 // attempt.
 func (p *paymentLifecycle) requestRoute(
 	ps *paymentsdb.MPPaymentState) (*route.Route, error) {
+
+	ctx := context.TODO()
 
 	remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
@@ -430,7 +445,9 @@ func (p *paymentLifecycle) requestRoute(
 	log.Warnf("Marking payment %v permanently failed with no route: %v",
 		p.identifier, failureCode)
 
-	err = p.router.cfg.Control.FailPayment(p.identifier, failureCode)
+	err = p.router.cfg.Control.FailPayment(
+		ctx, p.identifier, failureCode,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("FailPayment got: %w", err)
 	}
@@ -584,6 +601,8 @@ func (p *paymentLifecycle) collectResult(
 func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 	remainingAmt lnwire.MilliSatoshi) (*paymentsdb.HTLCAttempt, error) {
 
+	ctx := context.TODO()
+
 	// If this route will consume the last remaining amount to send
 	// to the receiver, this will be our last shard (for now).
 	isLastAttempt := rt.ReceiverAmt() == remainingAmt
@@ -601,7 +620,7 @@ func (p *paymentLifecycle) registerAttempt(rt *route.Route,
 	// Switch for its whereabouts. The route is needed to handle the result
 	// when it eventually comes back.
 	err = p.router.cfg.Control.RegisterAttempt(
-		p.identifier, &attempt.HTLCAttemptInfo,
+		ctx, p.identifier, &attempt.HTLCAttemptInfo,
 	)
 
 	return attempt, err
@@ -798,6 +817,8 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 	attemptID uint64, reason *paymentsdb.FailureReason,
 	sendErr error) (*attemptResult, error) {
 
+	ctx := context.TODO()
+
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.identifier, *reason, sendErr)
 
@@ -806,7 +827,9 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 	// NOTE: we must fail the payment first before failing the attempt.
 	// Otherwise, once the attempt is marked as failed, another goroutine
 	// might make another attempt while we are failing the payment.
-	err := p.router.cfg.Control.FailPayment(p.identifier, *reason)
+	err := p.router.cfg.Control.FailPayment(
+		ctx, p.identifier, *reason,
+	)
 	if err != nil {
 		log.Errorf("Unable to fail payment: %v", err)
 		return nil, err
@@ -1001,6 +1024,8 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 func (p *paymentLifecycle) failAttempt(attemptID uint64,
 	sendError error) (*attemptResult, error) {
 
+	ctx := context.TODO()
+
 	log.Warnf("Attempt %v for payment %v failed: %v", attemptID,
 		p.identifier, sendError)
 
@@ -1017,7 +1042,7 @@ func (p *paymentLifecycle) failAttempt(attemptID uint64,
 	}
 
 	attempt, err := p.router.cfg.Control.FailAttempt(
-		p.identifier, attemptID, failInfo,
+		ctx, p.identifier, attemptID, failInfo,
 	)
 	if err != nil {
 		return nil, err
@@ -1114,7 +1139,9 @@ func (p *paymentLifecycle) patchLegacyPaymentHash(
 func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 	error) {
 
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	ctx := context.TODO()
+
+	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -1139,8 +1166,10 @@ func (p *paymentLifecycle) reloadInflightAttempts() (paymentsdb.DBMPPayment,
 func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 	*paymentsdb.MPPaymentState, error) {
 
+	ctx := context.TODO()
+
 	// Read the db to get the latest state of the payment.
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	payment, err := p.router.cfg.Control.FetchPayment(ctx, p.identifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1159,6 +1188,8 @@ func (p *paymentLifecycle) reloadPayment() (paymentsdb.DBMPPayment,
 // the htlcswitch.
 func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
 	result *htlcswitch.PaymentResult) (*attemptResult, error) {
+
+	ctx := context.TODO()
 
 	// If the result has an error, we need to further process it by failing
 	// the attempt and maybe fail the payment.
@@ -1181,7 +1212,7 @@ func (p *paymentLifecycle) handleAttemptResult(attempt *paymentsdb.HTLCAttempt,
 	// In case of success we atomically store settle result to the DB and
 	// move the shard to the settled state.
 	htlcAttempt, err := p.router.cfg.Control.SettleAttempt(
-		p.identifier, attempt.AttemptID,
+		ctx, p.identifier, attempt.AttemptID,
 		&paymentsdb.HTLCSettleInfo{
 			Preimage:   result.Preimage,
 			SettleTime: p.router.cfg.Clock.Now(),

@@ -922,8 +922,8 @@ func fetchPaymentByHash(ctx context.Context, db SQLQueries,
 // Returns ErrPaymentNotInitiated if no payment with the given hash exists.
 //
 // This is part of the DB interface.
-func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
-	ctx := context.TODO()
+func (s *SQLStore) FetchPayment(ctx context.Context,
+	paymentHash lntypes.Hash) (*MPPayment, error) {
 
 	var mpPayment *MPPayment
 
@@ -972,10 +972,8 @@ func (s *SQLStore) FetchPayment(paymentHash lntypes.Hash) (*MPPayment, error) {
 // While inflight payments are typically a small subset, this would improve
 // memory efficiency for nodes with unusually high numbers of concurrent
 // payments and would better leverage the existing pagination infrastructure.
-func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment,
+func (s *SQLStore) FetchInFlightPayments(ctx context.Context) ([]*MPPayment,
 	error) {
-
-	ctx := context.TODO()
 
 	var mpPayments []*MPPayment
 
@@ -1108,8 +1106,8 @@ func (s *SQLStore) FetchInFlightPayments() ([]*MPPayment,
 // the final step (step 5) in the payment lifecycle control flow and should be
 // called after a payment reaches a terminal state (succeeded or permanently
 // failed) to clean up historical failed attempts.
-func (s *SQLStore) DeleteFailedAttempts(paymentHash lntypes.Hash) error {
-	ctx := context.TODO()
+func (s *SQLStore) DeleteFailedAttempts(ctx context.Context,
+	paymentHash lntypes.Hash) error {
 
 	// In case we are configured to keep failed payment attempts, we exit
 	// early.
@@ -1206,10 +1204,8 @@ func computePaymentStatusFromDB(ctx context.Context, cfg *sqldb.QueryConfig,
 //
 // This method is part of the PaymentWriter interface, which is embedded in
 // the DB interface.
-func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
+func (s *SQLStore) DeletePayment(ctx context.Context, paymentHash lntypes.Hash,
 	failedHtlcsOnly bool) error {
-
-	ctx := context.TODO()
 
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
 		dbPayment, err := fetchPaymentByHash(ctx, db, paymentHash)
@@ -1269,10 +1265,8 @@ func (s *SQLStore) DeletePayment(paymentHash lntypes.Hash,
 // This method is part of the PaymentControl interface, which is embedded in
 // the PaymentWriter interface and ultimately the DB interface, representing
 // the first step in the payment lifecycle control flow.
-func (s *SQLStore) InitPayment(paymentHash lntypes.Hash,
+func (s *SQLStore) InitPayment(ctx context.Context, paymentHash lntypes.Hash,
 	paymentCreationInfo *PaymentCreationInfo) error {
-
-	ctx := context.TODO()
 
 	// Create the payment in the database.
 	err := s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
@@ -1502,10 +1496,9 @@ func (s *SQLStore) insertRouteHops(ctx context.Context, db SQLQueries,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 2 in the payment lifecycle control flow, called after InitPayment and
 // potentially multiple times for multi-path payments.
-func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
-	attempt *HTLCAttemptInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
+func (s *SQLStore) RegisterAttempt(ctx context.Context,
+	paymentHash lntypes.Hash, attempt *HTLCAttemptInfo) (*MPPayment,
+	error) {
 
 	var mpPayment *MPPayment
 
@@ -1629,10 +1622,8 @@ func (s *SQLStore) RegisterAttempt(paymentHash lntypes.Hash,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 3a in the payment lifecycle control flow (step 3b is FailAttempt),
 // called after RegisterAttempt when an HTLC successfully completes.
-func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
+func (s *SQLStore) SettleAttempt(ctx context.Context, paymentHash lntypes.Hash,
 	attemptID uint64, settleInfo *HTLCSettleInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 
@@ -1704,10 +1695,8 @@ func (s *SQLStore) SettleAttempt(paymentHash lntypes.Hash,
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 3b in the payment lifecycle control flow (step 3a is SettleAttempt),
 // called after RegisterAttempt when an HTLC fails.
-func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
+func (s *SQLStore) FailAttempt(ctx context.Context, paymentHash lntypes.Hash,
 	attemptID uint64, failInfo *HTLCFailInfo) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 
@@ -1793,10 +1782,8 @@ func (s *SQLStore) FailAttempt(paymentHash lntypes.Hash,
 // This method is part of the PaymentControl interface, which is embedded in
 // the PaymentWriter interface and ultimately the DB interface. It represents
 // step 4 in the payment lifecycle control flow.
-func (s *SQLStore) Fail(paymentHash lntypes.Hash,
+func (s *SQLStore) Fail(ctx context.Context, paymentHash lntypes.Hash,
 	reason FailureReason) (*MPPayment, error) {
-
-	ctx := context.TODO()
 
 	var mpPayment *MPPayment
 
@@ -1876,13 +1863,13 @@ func (s *SQLStore) Fail(paymentHash lntypes.Hash,
 // This method is part of the PaymentWriter interface, which is embedded in
 // the DB interface.
 //
-// TODO(ziggie): batch this call instead in the background so for dbs with
-// many payments it doesn't block the main thread.
-func (s *SQLStore) DeletePayments(failedOnly, failedHtlcsOnly bool) (int,
-	error) {
+// TODO(ziggie): batch and use iterator instead, moreover we dont need to fetch
+// the complete payment data for each payment, we can just fetch the payment ID
+// and the resolution types to decide if the payment is removable.
+func (s *SQLStore) DeletePayments(ctx context.Context, failedOnly,
+	failedHtlcsOnly bool) (int, error) {
 
 	var numPayments int
-	ctx := context.TODO()
 
 	extractCursor := func(row sqlc.FilterPaymentsRow) int64 {
 		return row.Payment.ID

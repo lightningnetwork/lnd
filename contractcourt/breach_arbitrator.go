@@ -689,6 +689,76 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 	return totalFunds, revokedFunds
 }
 
+// notifyConfirmedJusticeTx checks if any of the spend details match one of our
+// justice transactions. If a confirmed justice transaction is detected and we
+// haven't already notified about it, we call NotifyBroadcast on the aux sweeper
+// to generate asset-level proofs.
+func (b *BreachArbitrator) notifyConfirmedJusticeTx(spends []spend,
+	justiceTxs *justiceTxVariants, notifiedTxs map[chainhash.Hash]bool) {
+
+	// Check each spend to see if it's from one of our justice txs.
+	for _, s := range spends {
+		spendingTxHash := *s.detail.SpenderTxHash
+
+		// Skip if we've already notified about this transaction.
+		if notifiedTxs[spendingTxHash] {
+			continue
+		}
+
+		// Helper to check if a justice tx matches the spending tx.
+		matchesJusticeTx := func(jtx *justiceTxCtx) bool {
+			if jtx == nil {
+				return false
+			}
+			hash := jtx.justiceTx.TxHash()
+
+			return spendingTxHash.IsEqual(&hash)
+		}
+
+		var justiceCtx *justiceTxCtx
+		switch {
+		case matchesJusticeTx(justiceTxs.spendAll):
+			justiceCtx = justiceTxs.spendAll
+
+		case matchesJusticeTx(justiceTxs.spendCommitOuts):
+			justiceCtx = justiceTxs.spendCommitOuts
+
+		case matchesJusticeTx(justiceTxs.spendHTLCs):
+			justiceCtx = justiceTxs.spendHTLCs
+		}
+
+		// If this is one of our justice txs, notify the aux sweeper.
+		if justiceCtx != nil {
+			bumpReq := sweep.BumpRequest{
+				Inputs:          justiceCtx.inputs,
+				DeliveryAddress: justiceCtx.sweepAddr,
+				ExtraTxOut:      justiceCtx.extraTxOut,
+			}
+
+			err := fn.MapOptionZ(
+				b.cfg.AuxSweeper,
+				func(aux sweep.AuxSweeper) error {
+					// The transaction is already confirmed,
+					// so we pass skipBroadcast=true.
+					return aux.NotifyBroadcast(
+						&bumpReq, s.detail.SpendingTx,
+						justiceCtx.fee, nil, true,
+					)
+				},
+			)
+			if err != nil {
+				brarLog.Errorf("Failed to notify aux sweeper "+
+					"of confirmed justice tx %v: %v",
+					spendingTxHash, err)
+			} else {
+				// Mark this transaction as notified to avoid
+				// duplicate calls.
+				notifiedTxs[spendingTxHash] = true
+			}
+		}
+	}
+}
+
 // exactRetribution is a goroutine which is executed once a contract breach has
 // been detected by a breachObserver. This function is responsible for
 // punishing a counterparty for violating the channel contract by sweeping ALL
@@ -725,6 +795,25 @@ func (b *BreachArbitrator) exactRetribution(
 	// SpendEvents between each attempt to not re-register unnecessarily.
 	spendNtfns := make(map[wire.OutPoint]*chainntnfs.SpendEvent)
 
+	// Track which justice transactions we've already notified the aux
+	// sweeper about, to avoid duplicate NotifyBroadcast calls. This is
+	// needed because waitForSpendEvent registers a separate spend
+	// subscription for each breached output. When a single justice tx
+	// spends all outputs, the chain notifier delivers a SpendDetail to
+	// each subscription independently. Since the goroutines race to
+	// resolve their select on spendEv.Spend before the exit channel is
+	// closed, multiple goroutines will typically commit to the spend
+	// case and write to the allSpends channel, producing multiple
+	// entries in the returned []spend slice that all reference the same
+	// SpenderTxHash. Without deduplication, we would call
+	// NotifyBroadcast once per breached output rather than once per
+	// confirmed justice tx.
+	//
+	// Note that this map is not persisted across restarts. If lnd
+	// restarts mid-breach, the aux sweeper's NotifyBroadcast must
+	// handle duplicate calls idempotently.
+	notifiedJusticeTxs := make(map[chainhash.Hash]bool)
+
 	// Compute both the total value of funds being swept and the
 	// amount of funds that were revoked from the counter party.
 	var totalFunds, revokedFunds btcutil.Amount
@@ -742,24 +831,6 @@ justiceTxBroadcast:
 
 	brarLog.Debugf("Broadcasting justice tx: %v", lnutils.SpewLogClosure(
 		finalTx))
-
-	// As we're about to broadcast our breach transaction, we'll notify the
-	// aux sweeper of our broadcast attempt first.
-	err = fn.MapOptionZ(b.cfg.AuxSweeper, func(aux sweep.AuxSweeper) error {
-		bumpReq := sweep.BumpRequest{
-			Inputs:          finalTx.inputs,
-			DeliveryAddress: finalTx.sweepAddr,
-			ExtraTxOut:      finalTx.extraTxOut,
-		}
-
-		return aux.NotifyBroadcast(
-			&bumpReq, finalTx.justiceTx, finalTx.fee, nil,
-		)
-	})
-	if err != nil {
-		brarLog.Errorf("unable to notify broadcast: %w", err)
-		return
-	}
 
 	// We'll now attempt to broadcast the transaction which finalized the
 	// channel's retribution against the cheating counter party.
@@ -805,6 +876,13 @@ Loop:
 	for {
 		select {
 		case spends := <-spendChan:
+			// Check if any of the spends represent a confirmed
+			// justice transaction, and if so, notify the aux
+			// sweeper.
+			b.notifyConfirmedJusticeTx(
+				spends, justiceTxs, notifiedJusticeTxs,
+			)
+
 			// Update the breach info with the new spends.
 			t, r := updateBreachInfo(breachInfo, spends)
 			totalFunds += t

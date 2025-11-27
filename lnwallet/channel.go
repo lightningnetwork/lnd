@@ -2144,6 +2144,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
 			commitmentSecret, leaseExpiry, auxResult.AuxLeaves,
+			auxResolver,
 		)
 		if err != nil {
 			return nil, err
@@ -2158,7 +2159,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// are confident that no legacy format is in use.
 		br, ourAmt, theirAmt, err = createBreachRetributionLegacy(
 			revokedLogLegacy, chanState, keyRing, commitmentSecret,
-			ourScript, theirScript, leaseExpiry,
+			ourScript, theirScript, leaseExpiry, auxResolver,
 		)
 		if err != nil {
 			return nil, err
@@ -2348,8 +2349,9 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitHash chainhash.Hash,
 	commitmentSecret *btcec.PrivateKey, leaseExpiry uint32,
-	htlc *channeldb.HTLCEntry,
-	auxLeaves fn.Option[CommitAuxLeaves]) (HtlcRetribution, error) {
+	htlc *channeldb.HTLCEntry, auxLeaves fn.Option[CommitAuxLeaves],
+	spendTx *wire.MsgTx, auxResolver fn.Option[AuxContractResolver],
+	revokedLog *channeldb.RevocationLog) (HtlcRetribution, error) {
 
 	var emptyRetribution HtlcRetribution
 
@@ -2452,6 +2454,69 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		copy(secondLevelTapTweak[:], scriptTree.TapTweak())
 	}
 
+	// Determine the witness type for this HTLC revocation based on the
+	// channel type and whether it's incoming or outgoing.
+	var htlcWitnessType input.StandardWitnessType
+	isTaproot := chanState.ChanType.IsTaproot()
+	switch {
+	case isTaproot && htlc.Incoming.Val:
+		htlcWitnessType = input.TaprootHtlcAcceptedRevoke
+
+	case isTaproot && !htlc.Incoming.Val:
+		htlcWitnessType = input.TaprootHtlcOfferedRevoke
+
+	case !isTaproot && htlc.Incoming.Val:
+		htlcWitnessType = input.HtlcAcceptedRevoke
+
+	case !isTaproot && !htlc.Incoming.Val:
+		htlcWitnessType = input.HtlcOfferedRevoke
+	}
+
+	// Only taproot channels can be modified by aux channels, so we
+	// only need to resolve the aux blob for taproot channel types.
+	var resolutionBlob fn.Option[tlv.Blob]
+	if isTaproot {
+		htlcIDOpt := fn.MapOption(
+			func(v tlv.BigSizeT[uint64]) input.HtlcIndex {
+				return v.Int()
+			},
+		)(htlc.HtlcIndex.ValOpt())
+
+		resolveReq := ResolutionReq{
+			ChanPoint:   chanState.FundingOutpoint,
+			ChanType:    chanState.ChanType,
+			ShortChanID: chanState.ShortChanID(),
+			Initiator:   chanState.IsInitiator,
+			FundingBlob: chanState.CustomBlob,
+			Type:        htlcWitnessType,
+			CloseType:   Breach,
+			CommitTx:    spendTx,
+			SignDesc:    signDesc,
+			KeyRing:     keyRing,
+			CsvDelay:    theirDelay,
+			CommitFee:   chanState.RemoteCommitment.CommitFee,
+			PayHash:     fn.Some([32]byte(htlc.RHash.Val)),
+			HtlcID:      htlcIDOpt,
+			CltvDelay:   fn.Some(htlc.RefundTimeout.Val),
+		}
+		if revokedLog != nil {
+			resolveReq.CommitBlob = revokedLog.CustomBlob.ValOpt()
+		}
+
+		resolveBlob := fn.MapOptionZ(
+			auxResolver,
+			func(a AuxContractResolver) fn.Result[tlv.Blob] {
+				return a.ResolveContract(resolveReq)
+			},
+		)
+		if err := resolveBlob.Err(); err != nil {
+			return emptyRetribution, fmt.Errorf("unable to "+
+				"aux resolve HTLC: %w", err)
+		}
+
+		resolutionBlob = resolveBlob.OkToSome()
+	}
+
 	return HtlcRetribution{
 		SignDesc: signDesc,
 		OutPoint: wire.OutPoint{
@@ -2461,6 +2526,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		SecondLevelWitnessScript: secondLevelWitnessScript,
 		IsIncoming:               htlc.Incoming.Val,
 		SecondLevelTapTweak:      secondLevelTapTweak,
+		ResolutionBlob:           resolutionBlob,
 	}, nil
 }
 
@@ -2474,9 +2540,9 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
-	leaseExpiry uint32,
-	auxLeaves fn.Option[CommitAuxLeaves]) (*BreachRetribution, int64, int64,
-	error) {
+	leaseExpiry uint32, auxLeaves fn.Option[CommitAuxLeaves],
+	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	int64, int64, error) {
 
 	commitHash := revokedLog.CommitTxHash
 
@@ -2485,7 +2551,8 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	for i, htlc := range revokedLog.HTLCEntries {
 		hr, err := createHtlcRetribution(
 			chanState, keyRing, commitHash.Val,
-			commitmentSecret, leaseExpiry, htlc, auxLeaves,
+			commitmentSecret, leaseExpiry, htlc, auxLeaves, spendTx,
+			auxResolver, revokedLog,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -2590,8 +2657,9 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
 	commitmentSecret *btcec.PrivateKey,
-	ourScript, theirScript input.ScriptDescriptor,
-	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
+	ourScript, theirScript input.ScriptDescriptor, leaseExpiry uint32,
+	auxResolver fn.Option[AuxContractResolver]) (*BreachRetribution,
+	int64, int64, error) {
 
 	commitHash := revokedLog.CommitTx.TxHash()
 	ourOutpoint := wire.OutPoint{
@@ -2638,6 +2706,7 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 			chanState, keyRing, commitHash,
 			commitmentSecret, leaseExpiry, entry,
 			fn.None[CommitAuxLeaves](),
+			revokedLog.CommitTx, auxResolver, nil,
 		)
 		if err != nil {
 			return nil, 0, 0, err

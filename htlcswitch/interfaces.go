@@ -530,3 +530,51 @@ type AuxTrafficShaper interface {
 	// meaning that it's from a custom channel.
 	IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool
 }
+
+// AttemptStore defines the interface for storing and managing the results
+// of HTLC payment attempts. It is designed to support both local and remote
+// lifecycle controllers, allowing full control over result storage and cleanup.
+type AttemptStore interface {
+	// Initialize the payment attempt. This should be called before actually
+	// dispatching the HTLC to the network.
+	InitAttempt(attemptID uint64) error
+
+	// StoreResult stores the result of a given payment attempt (identified
+	// by attemptID). This will be called when a result is received from the
+	// network.
+	StoreResult(attemptID uint64, result *networkResult) error
+
+	// FailAttempt transitions an initialized attempt from an initialized
+	// to a failed state and records the provided reason. This is the
+	// synchronous rollback mechanism for attempts that fail before being
+	// committed to the forwarding engine. It returns an error if the
+	// underlying storage fails.
+	FailAttempt(attemptID uint64, reason *LinkError) error
+
+	// GetResult returns the network result for the specified attempt ID if
+	// it's available.
+	//
+	// NOTE: This method will return ErrAttemptResultNotAvailable for
+	// attempts that have been initialized via InitAttempt but for which a
+	// final result (settle/fail) has not yet been stored.
+	// ErrPaymentIDNotFound is returned for attempts that are unknown.
+	GetResult(attemptID uint64) (*networkResult, error)
+
+	// SubscribeResult subscribes to be notified when a result for a
+	// specific attempt ID becomes available. It returns a channel that will
+	// receive the result.
+	//
+	// NOTE: The returned channel will only receive a value for attempts
+	// that have a final result (settle/fail). It will not be notified of
+	// the initial pending state created by InitAttempt.
+	SubscribeResult(attemptID uint64) (<-chan *networkResult, error)
+
+	// CleanStore removes all attempt results from the store except for
+	// those listed in the keepPids map. This allows for a "delete all
+	// except" approach to cleanup.
+	CleanStore(keepPids map[uint64]struct{}) error
+
+	// FetchPendingAttempts returns a list of all attempt IDs that are
+	// currently in the pending state.
+	FetchPendingAttempts() ([]uint64, error)
+}

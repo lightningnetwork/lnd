@@ -208,8 +208,8 @@ func (t *TLSManager) generateOrRenewCert() (*tls.Config, error) {
 // is already written to disk, this function overwrites the plaintext key with
 // the encrypted form.
 func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
-	// Ensure we create TLS key and certificate if they don't exist.
-	if lnrpc.FileExists(t.cfg.TLSCertPath) ||
+	// Ensure we create TLS key and certificate if they don't both exist.
+	if lnrpc.FileExists(t.cfg.TLSCertPath) &&
 		lnrpc.FileExists(t.cfg.TLSKeyPath) {
 
 		// Handle discrepencies related to the TLSEncryptKey setting.

@@ -42,6 +42,16 @@ db.postgres.timeout=0
 Connection timeout is disabled, to account for situations where the database
 might be slow for unexpected reasons.
 
+Moreover for particular kv tables we also add the option to access the
+tables via a global lock (single wirter). This is a temorpary measure until 
+these particular tables have a native sql schema. This helps to mitigate
+resource exhaustion in case LND experiencing high concurrent load:
+
+* `db.postgres.walletdb-with-global-lock=true` to run LND with a single writer
+  for the walletdb_kv table (default is true).
+* `db.postgres.channeldb-with-global-lock=false` to run the channeldb_kv table
+  with a single writer (default is false).
+
 ## Important note about replication
 
 In case a replication architecture is planned, streaming replication should be avoided, as the master does not verify the replica is indeed identical, but it will only forward the edits queue, and let the slave catch up autonomously; synchronous mode, albeit slower, is paramount for `lnd` data integrity across the copies, as it will finalize writes only after the slave confirmed successful replication.

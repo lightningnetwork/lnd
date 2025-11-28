@@ -896,8 +896,8 @@ func (l *LightningPayment) Identifier() [32]byte {
 // will be returned which describes the path the successful payment traversed
 // within the network to reach the destination. Additionally, the payment
 // preimage will also be returned.
-func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
-	*route.Route, error) {
+func (r *ChannelRouter) SendPayment(ctx context.Context,
+	payment *LightningPayment) ([32]byte, *route.Route, error) {
 
 	paySession, shardTracker, err := r.PreparePayment(payment)
 	if err != nil {
@@ -908,7 +908,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 		spewPayment(payment))
 
 	return r.sendPayment(
-		context.Background(), payment.FeeLimit, payment.Identifier(),
+		ctx, payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 		payment.FirstHopCustomRecords,
 	)
@@ -1038,7 +1038,8 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
+func (r *ChannelRouter) SendToRoute(_ context.Context, htlcHash lntypes.Hash,
+	rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
@@ -1047,8 +1048,8 @@ func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 // SendToRouteSkipTempErr sends a payment using the provided route and fails
 // the payment ONLY when a terminal error is returned from the attempt.
-func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
-	rt *route.Route,
+func (r *ChannelRouter) SendToRouteSkipTempErr(_ context.Context,
+	htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
@@ -1066,6 +1067,11 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	firstHopCustomRecords lnwire.CustomRecords) (*paymentsdb.HTLCAttempt,
 	error) {
 
+	// TODO(ziggie): We cannot easily thread the context from the caller
+	// of this method because the payment lifecycle depends on the context
+	// to update the db. The Sending and Receiving of results is currently
+	// not cleanly separated which is the reason that we cannot easily
+	// cancel the context and therefore cancel the ongoing payment.
 	ctx := context.TODO()
 
 	// Helper function to fail a payment. It makes sure the payment is only
@@ -1179,7 +1185,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// NOTE: we use zero `remainingAmt` here to simulate the same effect of
 	// setting the lastShard to be false, which is used by previous
 	// implementation.
-	attempt, err := p.registerAttempt(rt, 0)
+	attempt, err := p.registerAttempt(ctx, rt, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1188,7 +1194,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// the `err` returned here has already been processed by
 	// `handleSwitchErr`, which means if there's a terminal failure, the
 	// payment has been failed.
-	result, err := p.sendAttempt(attempt)
+	result, err := p.sendAttempt(ctx, attempt)
 	if err != nil {
 		return nil, err
 	}
@@ -1216,7 +1222,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 
 	// The attempt was successfully sent, wait for the result to be
 	// available.
-	result, err = p.collectAndHandleResult(attempt)
+	result, err = p.collectAndHandleResult(ctx, attempt)
 	if err != nil {
 		return nil, err
 	}

@@ -51,6 +51,15 @@
 
 ## Performance Improvements
 
+* [Added new Postgres configuration 
+  options](https://github.com/lightningnetwork/lnd/pull/10394) 
+ `db.postgres.channeldb-with-global-lock` and 
+ `db.postgres.walletdb-with-global-lock` to allow fine-grained control over
+  database concurrency. The channeldb global lock defaults to `false` to enable
+  concurrent access, while the wallet global lock defaults to `true` to maintain
+  safe single-writer behavior until the wallet subsystem is fully 
+  concurrent-safe.
+
 ## Deprecations
 
 # Technical and Architectural Updates

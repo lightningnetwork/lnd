@@ -44,11 +44,13 @@ func (p *SqliteConfig) Validate() error {
 //
 //nolint:ll
 type PostgresConfig struct {
-	Dsn            string        `long:"dsn" description:"Database connection string."`
-	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
-	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
-	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
-	QueryConfig    `group:"query" namespace:"query"`
+	Dsn                     string        `long:"dsn" description:"Database connection string."`
+	Timeout                 time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
+	MaxConnections          int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
+	SkipMigrations          bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
+	ChannelDBWithGlobalLock bool          `long:"channeldb-with-global-lock" description:"Use a global lock for channeldb access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the revocation log is migrated to a native sql schema."`
+	WalletDBWithGlobalLock  bool          `long:"walletdb-with-global-lock" description:"Use a global lock for wallet database access. This ensures only a single writer at a time but reduces concurrency. This is a temporary workaround until the wallet subsystem is upgraded to a native sql schema."`
+	QueryConfig             `group:"query" namespace:"query"`
 }
 
 // Validate checks that the PostgresConfig values are valid.

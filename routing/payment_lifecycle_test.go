@@ -393,7 +393,7 @@ func TestRequestRouteSucceed(t *testing.T) {
 		mock.Anything,
 	).Return(dummyRoute, nil)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 	require.NoError(t, err, "expect no error")
 	require.Equal(t, dummyRoute, result, "returned route not matched")
 
@@ -430,7 +430,7 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 		mock.Anything,
 	).Return(nil, errDummy)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect an error is returned since it's critical.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -470,7 +470,7 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 		p.identifier, paymentsdb.FailureReasonNoRoute,
 	).Return(nil).Once()
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect no error is returned since it's not critical.
 	require.NoError(t, err, "expected no error")
@@ -513,7 +513,7 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 		mock.Anything,
 	).Return(nil, errNoTlvPayload)
 
-	result, err := p.requestRoute(ps)
+	result, err := p.requestRoute(t.Context(), ps)
 
 	// Expect an error is returned.
 	require.ErrorIs(t, err, errDummy, "error not matched")
@@ -599,7 +599,7 @@ func TestDecideNextStep(t *testing.T) {
 
 		// Once the setup is finished, run the test cases.
 		t.Run(tc.name, func(t *testing.T) {
-			step, err := p.decideNextStep(payment)
+			step, err := p.decideNextStep(t.Context(), payment)
 			require.Equal(t, tc.expectedStep, step)
 			require.ErrorIs(t, tc.expectedErr, err)
 		})
@@ -628,7 +628,7 @@ func TestDecideNextStepOnRouterQuit(t *testing.T) {
 	close(p.router.quit)
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and an error to be returned.
 	require.Equal(t, stepExit, step)
@@ -657,7 +657,7 @@ func TestDecideNextStepOnLifecycleQuit(t *testing.T) {
 	close(p.quit)
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and an error to be returned.
 	require.Equal(t, stepExit, step)
@@ -716,7 +716,7 @@ func TestDecideNextStepHandleAttemptResultSucceed(t *testing.T) {
 		mock.Anything).Return(attempt, nil).Once()
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepSkip and no error to be returned.
 	require.Equal(t, stepSkip, step)
@@ -774,7 +774,7 @@ func TestDecideNextStepHandleAttemptResultFail(t *testing.T) {
 		mock.Anything).Return(attempt, errDummy).Once()
 
 	// Call the method under test.
-	step, err := p.decideNextStep(payment)
+	step, err := p.decideNextStep(t.Context(), payment)
 
 	// We expect stepExit and the above error to be returned.
 	require.Equal(t, stepExit, step)
@@ -1280,6 +1280,156 @@ func TestResumePaymentSuccess(t *testing.T) {
 	require.Equal(t, 1, m.collectResultsCount)
 }
 
+// TestKeepFailedPaymentAttempts tests that DeleteFailedAttempts is
+// called or skipped based on the KeepFailedPaymentAttempts
+// configuration of the router.
+func TestKeepFailedPaymentAttempts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name                      string
+		keepFailedPaymentAttempts bool
+		expectDeleteCalled        bool
+	}{
+		{
+			name: "keep failed attempts - " +
+				"delete not called",
+			keepFailedPaymentAttempts: true,
+			expectDeleteCalled:        false,
+		},
+		{
+			name: "delete failed attempts - " +
+				"delete called",
+			keepFailedPaymentAttempts: false,
+			expectDeleteCalled:        true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a test paymentLifecycle with the initial two
+			// calls mocked.
+			p, m := setupTestPaymentLifecycle(t)
+
+			// Set the KeepFailedPaymentAttempts configuration.
+			p.router.cfg.KeepFailedPaymentAttempts =
+				tc.keepFailedPaymentAttempts
+
+			// Create a dummy route that will be returned by
+			// `RequestRoute`.
+			paymentAmt := lnwire.MilliSatoshi(10000)
+			rt := createDummyRoute(t, paymentAmt)
+
+			// We now enter the payment lifecycle loop.
+			//
+			// 1.1. calls `FetchPayment` and return the payment.
+			m.control.On("FetchPayment", p.identifier).
+				Return(m.payment, nil).Once()
+
+			// 1.2. calls `GetState` and return the state.
+			ps := &paymentsdb.MPPaymentState{
+				RemainingAmt: paymentAmt,
+			}
+			m.payment.On("GetState").Return(ps).Once()
+
+			// NOTE: GetStatus is only used to populate the logs
+			// which is not critical so we loosen the checks on how
+			// many times it's been called.
+			m.payment.On("GetStatus").
+				Return(paymentsdb.StatusInFlight)
+
+			// 1.3. decideNextStep now returns stepProceed.
+			m.payment.On("AllowMoreAttempts").
+				Return(true, nil).Once()
+
+			// 1.4. mock requestRoute to return an route.
+			m.paySession.On("RequestRoute",
+				paymentAmt, p.feeLimit,
+				uint32(ps.NumAttemptsInFlight),
+				uint32(p.currentHeight), mock.Anything,
+			).Return(rt, nil).Once()
+
+			// 1.5. mock `registerAttempt` to return an attempt.
+			//
+			// Mock NextPaymentID to always return the attemptID.
+			attemptID := uint64(1)
+			p.router.cfg.NextPaymentID = func() (uint64, error) {
+				return attemptID, nil
+			}
+
+			// Mock shardTracker to return the mock shard.
+			m.shardTracker.On("NewShard",
+				attemptID, true,
+			).Return(m.shard, nil).Once()
+
+			// Mock the methods on the shard.
+			m.shard.On("MPP").Return(&record.MPP{}).Twice().
+				On("AMP").Return(nil).Once().
+				On("Hash").Return(p.identifier).Once()
+
+			// Mock the time and expect it to be called.
+			m.clock.On("Now").Return(time.Now())
+
+			// We now register attempt and return no error.
+			m.control.On("RegisterAttempt",
+				p.identifier, mock.Anything,
+			).Return(nil).Once()
+
+			// 1.6. mock `sendAttempt` to succeed, which brings us
+			// into the next iteration of the lifecycle.
+			m.payer.On("SendHTLC",
+				mock.Anything, attemptID, mock.Anything,
+			).Return(nil).Once()
+
+			// We now enter the second iteration of the lifecycle
+			// loop.
+			//
+			// 2.1. calls `FetchPayment` and return the payment.
+			m.control.On("FetchPayment", p.identifier).
+				Return(m.payment, nil).Once()
+
+			// 2.2. calls `GetState` and return the state.
+			m.payment.On("GetState").Return(ps).
+				Run(func(args mock.Arguments) {
+					ps.RemainingAmt = 0
+				}).Once()
+
+			// 2.3. decideNextStep now returns stepExit and exits
+			// the loop.
+			m.payment.On("AllowMoreAttempts").
+				Return(false, nil).Once().
+				On("NeedWaitAttempts").Return(false, nil).Once()
+
+			// Conditionally expect DeleteFailedAttempts to be
+			// called based on the configuration.
+			if tc.expectDeleteCalled {
+				m.control.On("DeleteFailedAttempts",
+					p.identifier).Return(nil).Once()
+			}
+			// If expectDeleteCalled is false, we don't set up the
+			// expectation, which means the mock will fail if it's
+			// called.
+
+			// Finally, mock the `TerminalInfo` to return the
+			// settled attempt. Create a SettleAttempt.
+			testPreimage := lntypes.Preimage{1, 2, 3}
+			settledAttempt := makeSettledAttempt(
+				t, int(paymentAmt), testPreimage,
+			)
+			m.payment.On("TerminalInfo").
+				Return(settledAttempt, nil).Once()
+
+			// Send the payment and assert the preimage is matched.
+			sendPaymentAndAssertSucceeded(t, p, testPreimage)
+
+			// Expected collectResultAsync to called.
+			require.Equal(t, 1, m.collectResultsCount)
+		})
+	}
+}
+
 // TestResumePaymentSuccessWithTwoAttempts checks a successful payment flow
 // with two HTLC attempts.
 //
@@ -1467,7 +1617,7 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1513,7 +1663,7 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1539,7 +1689,7 @@ func TestCollectResultExitOnSwitchQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, htlcswitch.ErrSwitchExiting,
 		"expected switch exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1566,7 +1716,7 @@ func TestCollectResultExitOnRouterQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, ErrRouterShuttingDown, "expected router exit")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1592,7 +1742,7 @@ func TestCollectResultExitOnLifecycleQuit(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, ErrPaymentLifecycleExiting,
 		"expected lifecycle exit")
 	require.Nil(t, result, "expected nil attempt")
@@ -1636,7 +1786,7 @@ func TestCollectResultExitOnSettleErr(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.ErrorIs(t, err, errDummy, "expected settle error")
 	require.Nil(t, result, "expected nil attempt")
 }
@@ -1678,7 +1828,7 @@ func TestCollectResultSuccess(t *testing.T) {
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
-	result, err := p.collectAndHandleResult(attempt)
+	result, err := p.collectAndHandleResult(t.Context(), attempt)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, preimage, result.attempt.Settle.Preimage,
 		"preimage mismatch")
@@ -1762,7 +1912,9 @@ func TestHandleAttemptResultWithError(t *testing.T) {
 
 	// Call the method under test and expect the dummy error to be
 	// returned.
-	attemptResult, err := p.handleAttemptResult(attempt, result)
+	attemptResult, err := p.handleAttemptResult(
+		t.Context(), attempt, result,
+	)
 	require.ErrorIs(t, err, errDummy, "expected fail error")
 	require.Nil(t, attemptResult, "expected nil attempt result")
 }
@@ -1800,7 +1952,9 @@ func TestHandleAttemptResultSuccess(t *testing.T) {
 
 	// Call the method under test and expect the dummy error to be
 	// returned.
-	attemptResult, err := p.handleAttemptResult(attempt, result)
+	attemptResult, err := p.handleAttemptResult(
+		t.Context(), attempt, result,
+	)
 	require.NoError(t, err, "expected no error")
 	require.Equal(t, attempt, attemptResult.attempt)
 }
@@ -1846,7 +2000,7 @@ func TestReloadInflightAttemptsLegacy(t *testing.T) {
 	})
 
 	// Now call the method under test.
-	payment, err := p.reloadInflightAttempts()
+	payment, err := p.reloadInflightAttempts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, m.payment, payment)
 

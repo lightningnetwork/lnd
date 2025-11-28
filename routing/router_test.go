@@ -324,7 +324,9 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Send off the payment request to the router, route through pham nuwen
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -403,7 +405,9 @@ func TestSendPaymentRouteInfiniteLoopWithBadHopHint(t *testing.T) {
 
 	// Send off the payment request to the router, should succeed
 	// ignoring the bad channel id hint.
-	paymentPreImage, route, paymentErr := ctx.router.SendPayment(payment)
+	paymentPreImage, route, paymentErr := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, paymentErr, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -518,7 +522,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Send off the payment request to the router. The specified route
 	// should be attempted and the channel update should be received by
 	// graph and ignored because it is missing a valid signature.
-	_, err = ctx.router.SendToRoute(payment, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payment, rt, nil)
 	require.Error(t, err, "expected route to fail with channel update")
 
 	_, e1, e2, err = ctx.graph.FetchChannelEdgesByID(
@@ -538,7 +542,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	ctx.graphBuilder.setNextReject(false)
 
 	// Retry the payment using the same route as before.
-	_, err = ctx.router.SendToRoute(payment, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payment, rt, nil)
 	require.Error(t, err, "expected route to fail with channel update")
 
 	// This time a valid signature was supplied and the policy change should
@@ -634,7 +638,9 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	// Send off the payment request to the router, route through phamnuwen
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -741,7 +747,9 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
-	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -867,7 +875,9 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
-	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	paymentPreImage, route, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -990,7 +1000,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Send off the payment request to the router, this payment should
 	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
-	paymentPreImage, rt, err := ctx.router.SendPayment(payment)
+	paymentPreImage, rt, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -1016,7 +1028,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// w.r.t to the block height, and instead go through Pham Nuwen. We
 	// flip a bit in the payment hash to allow resending this payment.
 	payment.paymentHash[1] ^= 1
-	paymentPreImage, rt, err = ctx.router.SendPayment(payment)
+	paymentPreImage, rt, err = ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -1085,7 +1099,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
-	_, _, err = ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(t.Context(), payment)
 	require.Error(t, err, "payment didn't return error")
 
 	// The final error returned should also indicate that the peer wasn't
@@ -1130,7 +1144,9 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// This shouldn't return an error, as we'll make a payment attempt via
 	// the pham nuwen channel based on the assumption that there might be an
 	// intermittent issue with the songoku <-> sophon channel.
-	paymentPreImage, rt, err := ctx.router.SendPayment(payment)
+	paymentPreImage, rt, err := ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -1170,7 +1186,9 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// We flip a bit in the payment hash to allow resending this payment.
 	payment.paymentHash[1] ^= 1
-	paymentPreImage, rt, err = ctx.router.SendPayment(payment)
+	paymentPreImage, rt, err = ctx.router.SendPayment(
+		t.Context(), payment,
+	)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -1302,7 +1320,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// the route a->b->c is tried first. An unreadable faiure is returned
 	// which should pruning the channel a->b. We expect the payment to
 	// succeed via a->d.
-	_, _, err = ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(t.Context(), payment)
 	require.NoErrorf(t, err, "unable to send payment: %v",
 		payment.paymentHash)
 
@@ -1327,7 +1345,7 @@ func TestUnknownErrorSource(t *testing.T) {
 	// Send off the payment request to the router. We expect the payment to
 	// fail because both routes have been pruned.
 	payment.paymentHash[1] ^= 1
-	_, _, err = ctx.router.SendPayment(payment)
+	_, _, err = ctx.router.SendPayment(t.Context(), payment)
 	if err == nil {
 		t.Fatalf("expected payment to fail")
 	}
@@ -1423,7 +1441,9 @@ func TestSendToRouteStructuredError(t *testing.T) {
 			// update should be received by router and ignored
 			// because it is missing a valid
 			// signature.
-			_, err = ctx.router.SendToRoute(payment, rt, nil)
+			_, err = ctx.router.SendToRoute(
+				t.Context(), payment, rt, nil,
+			)
 
 			fErr, ok := err.(*htlcswitch.ForwardingError)
 			require.True(
@@ -1502,7 +1522,7 @@ func TestSendToRouteMaxHops(t *testing.T) {
 	// Send off the payment request to the router. We expect an error back
 	// indicating that the route is too long.
 	var payHash lntypes.Hash
-	_, err = ctx.router.SendToRoute(payHash, rt, nil)
+	_, err = ctx.router.SendToRoute(t.Context(), payHash, rt, nil)
 	if err != route.ErrMaxRouteHopsExceeded {
 		t.Fatalf("expected ErrMaxRouteHopsExceeded, but got %v", err)
 	}
@@ -2217,7 +2237,9 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	).Return(nil)
 
 	// Expect a successful send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.NoError(t, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2272,7 +2294,9 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 	}}
 
 	// Expect an error to be returned.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.ErrorIs(t, ErrSkipTempErr, err)
 	require.Nil(t, attempt)
 
@@ -2352,7 +2376,9 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.Equal(t, tempErr, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2436,7 +2462,9 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(&failureReason, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRouteSkipTempErr(payHash, rt, nil)
+	attempt, err := router.SendToRouteSkipTempErr(
+		t.Context(), payHash, rt, nil,
+	)
 	require.Equal(t, permErr, err)
 	require.Equal(t, testAttempt, attempt)
 
@@ -2525,7 +2553,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Expect a failed send to route.
-	attempt, err := router.SendToRoute(payHash, rt, nil)
+	attempt, err := router.SendToRoute(t.Context(), payHash, rt, nil)
 	require.Equal(t, tempErr, err)
 	require.Equal(t, testAttempt, attempt)
 

@@ -63,6 +63,11 @@ type RouterBackend struct {
 	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
 		route.Vertex, error)
 
+	// HasNode returns true if the node exists in the graph (i.e., has
+	// public channels), false otherwise. This means the node is a public
+	// node and should be reachable.
+	HasNode func(nodePub route.Vertex) (bool, error)
+
 	// FindRoute is a closure that abstracts away how we locate/query for
 	// routes.
 	FindRoute func(*routing.RouteRequest) (*route.Route, float64, error)

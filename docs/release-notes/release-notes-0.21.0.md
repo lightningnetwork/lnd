@@ -37,6 +37,10 @@
 
 ## RPC Additions
 
+* [SignCoordinatorStreams](https://github.com/lightningnetwork/lnd/pull/8754)
+  allows a remote signer to connect to the lnd node, if the
+  `remotesigner.allowinboundconnection` cfg value has been set to `true`.
+
 ## lncli Additions
 
 # Improvements
@@ -47,6 +51,11 @@
   specify an address for cooperative channel closures where funds will be sent.
   This applies to both funders and fundees, with the ability to override the
   value during channel opening or acceptance.
+
+* [Added](https://github.com/lightningnetwork/lnd/pull/8754) support for a new
+  remote signer type `outbound`, which makes an outbound connection to the
+  watch-only node, instead of requiring on an inbound connection from the
+  watch-only node.
 
 ## RPC Updates
 

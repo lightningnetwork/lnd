@@ -884,6 +884,82 @@ func TestPruneChannelGraphStaleEdges(t *testing.T) {
 	}
 }
 
+// TestIsZombieByAge tests that we can properly determine if a channel with no
+// edge policies is a zombie or not using the block timestamp that the
+// transaction that opened the channel was included in.
+//
+//nolint:ll
+func TestIsZombieByAge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		blockTimestamp     time.Time
+		channelPruneExpiry time.Duration
+		expectedPrune      bool
+	}{
+		{
+			name:               "old chan",
+			blockTimestamp:     time.Now().Add(-30 * 24 * time.Hour),
+			channelPruneExpiry: 14 * 24 * time.Hour,
+			expectedPrune:      true,
+		},
+		{
+			name:               "recent channel",
+			blockTimestamp:     time.Now().Add(-7 * 24 * time.Hour),
+			channelPruneExpiry: 14 * 24 * time.Hour,
+			expectedPrune:      false,
+		},
+		{
+			name:               "chan at threshold",
+			blockTimestamp:     time.Now().Add(-14 * 24 * time.Hour),
+			channelPruneExpiry: 14 * 24 * time.Hour,
+			expectedPrune:      true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create mock chain with a starting height.
+			const startingHeight = 100
+			mockChain := newMockChain(startingHeight)
+
+			// Create a block with the desired timestamp.
+			block := &wire.MsgBlock{
+				Header: wire.BlockHeader{
+					Timestamp: tc.blockTimestamp,
+				},
+			}
+
+			// Add the block at a specific height.
+			const channelBlockHeight = 101
+			mockChain.addBlock(block, channelBlockHeight, 0)
+
+			scid := lnwire.ShortChannelID{
+				BlockHeight: channelBlockHeight,
+				TxIndex:     0,
+				TxPosition:  0,
+			}
+
+			// Create a minimal builder config that consist the mock
+			// chain and the channel prune expiry we set.
+			cfg := &Config{
+				Chain:              mockChain,
+				ChannelPruneExpiry: tc.channelPruneExpiry,
+			}
+			builder := &Builder{
+				cfg: cfg,
+			}
+
+			// Test the method to see we are able to determine if
+			// the channel is a zombie or not.
+			isZombie, err := builder.IsZombieByAge(scid.ToUint64())
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedPrune, isZombie)
+		})
+	}
+}
+
 // TestPruneChannelGraphDoubleDisabled test that we can properly prune channels
 // with both edges disabled from our channel graph.
 func TestPruneChannelGraphDoubleDisabled(t *testing.T) {

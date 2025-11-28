@@ -3441,11 +3441,10 @@ func (c *KVStore) fetchLightningNode(tx kvdb.RTx,
 	return node, nil
 }
 
-// HasLightningNode determines if the graph has a vertex identified by the
-// target node identity public key. If the node exists in the database, a
-// timestamp of when the data for the node was lasted updated is returned along
-// with a true boolean. Otherwise, an empty time.Time is returned with a false
-// boolean.
+// HasNode determines if the graph has a vertex identified by the target node
+// identity public key. If the node exists in the database, a timestamp of when
+// the data for the node was lasted updated is returned along with a true
+// boolean. Otherwise, an empty time.Time is returned with a false boolean.
 func (c *KVStore) HasNode(_ context.Context,
 	nodePub [33]byte) (time.Time, bool, error) {
 

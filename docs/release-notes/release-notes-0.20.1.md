@@ -45,6 +45,14 @@
 
 ## RPC Updates
 
+ * The `EstimateRouteFee` RPC now implements an [LSP detection 
+   heuristic](https://github.com/lightningnetwork/lnd/pull/10396) that probes up
+   to 3 unique Lightning Service Providers when route hints indicate an LSP
+   setup. The implementation returns worst-case (most expensive) fee estimates
+   for conservative budgeting and includes griefing protection by limiting the
+   number of probed LSPs. It enhances the previous LSP design by being more
+   generic and more flexible.
+
 ## lncli Updates
 
 ## Breaking Changes

@@ -283,3 +283,19 @@ func (h *HarnessRPC) TrackPaymentV2(payHash []byte) TrackPaymentClient {
 
 	return client
 }
+
+// DeleteForwardingHistory makes a RPC call to the node's RouterClient and
+// asserts.
+//
+//nolint:ll
+func (h *HarnessRPC) DeleteForwardingHistory(
+	req *routerrpc.DeleteForwardingHistoryRequest) *routerrpc.DeleteForwardingHistoryResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.DeleteForwardingHistory(ctxt, req)
+	h.NoError(err, "DeleteForwardingHistory")
+
+	return resp
+}

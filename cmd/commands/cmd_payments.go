@@ -1936,6 +1936,132 @@ func deletePayments(ctx *cli.Context) error {
 	return nil
 }
 
+var deleteFwdHistoryCommand = cli.Command{
+	Name:      "deletefwdhistory",
+	Category:  "Payments",
+	Usage:     "Delete old forwarding history for privacy.",
+	ArgsUsage: "duration | before",
+	Description: `
+	Deletes forwarding history events older than a specified time. This is
+	useful for implementing data retention policies for privacy purposes. The
+	command permanently removes old forwarding events from the database and
+	returns statistics about the deletion including total fees earned.
+
+	Time can be specified in two ways:
+	1. Relative duration (standard Go or custom units): e.g., "-1w", "-24h", "-1M"
+	2. Absolute Unix timestamp: e.g., "1640995200"
+
+	Supported relative time units:
+	- Standard Go: ns, us/µs, ms, s, m, h (e.g., "-24h", "-1.5h")
+	- Custom units: d (days), w (weeks), M (months=30.44d), y (years=365.25d)
+
+	Examples:
+	  lncli deletefwdhistory --duration="-1M"    # Delete events older than ~1 month
+	  lncli deletefwdhistory --duration="-720h"  # Delete events older than ~1 month (same)
+	  lncli deletefwdhistory --before=1640995200 # Delete events before Jan 1, 2022
+	  lncli deletefwdhistory --duration="-1y" --batch_size=5000 # ~1 year
+
+	NOTE: As with deletepayments, removing events from the database frees up
+	disk space within bbolt, but that space is only reclaimed after compacting
+	the database. Consider enabling auto-compaction (db.bolt.auto-compact=true).
+
+	WARNING: This operation is irreversible. Deleted forwarding history cannot
+	be recovered. A minimum age validation is enforced to prevent accidental
+	deletion of very recent data.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "duration",
+			Usage: "delete events older than this relative duration " +
+				`(e.g., "-1w", "-1M", "-24h", "-720h")`,
+		},
+		cli.Uint64Flag{
+			Name:  "before",
+			Usage: "delete events before this Unix timestamp (seconds)",
+		},
+		cli.Uint64Flag{
+			Name: "batch_size",
+			Usage: "number of events to delete per database transaction " +
+				"(default: 10000, max: 50000)",
+		},
+	},
+	Action: actionDecorator(deleteFwdHistory),
+}
+
+func deleteFwdHistory(ctx *cli.Context) error {
+	ctxc := getContext()
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	// Show command help if no arguments or flags are provided.
+	if ctx.NArg() > 0 || (!ctx.IsSet("duration") && !ctx.IsSet("before")) {
+		_ = cli.ShowCommandHelp(ctx, "deletefwdhistory")
+		return nil
+	}
+
+	// User must specify exactly one of duration or before.
+	if ctx.IsSet("duration") && ctx.IsSet("before") {
+		return fmt.Errorf("cannot use both --duration and --before; " +
+			"specify one time parameter")
+	}
+
+	req := &routerrpc.DeleteForwardingHistoryRequest{}
+
+	switch {
+	case ctx.IsSet("duration"):
+		req.TimeSpec = &routerrpc.DeleteForwardingHistoryRequest_Duration{
+			Duration: ctx.String("duration"),
+		}
+
+	case ctx.IsSet("before"):
+		req.TimeSpec = &routerrpc.DeleteForwardingHistoryRequest_DeleteBeforeTime{
+			DeleteBeforeTime: ctx.Uint64("before"),
+		}
+
+	default:
+		return fmt.Errorf("either --duration or --before must be specified")
+	}
+
+	if ctx.IsSet("batch_size") {
+		req.BatchSize = uint32(ctx.Uint64("batch_size"))
+	}
+
+	fmt.Println("WARNING: This operation is irreversible " +
+		"and will permanently delete forwarding history.")
+	fmt.Print("Proceed? (yes/no): ")
+
+	var response string
+	_, err := fmt.Scanln(&response)
+	if err != nil {
+		return fmt.Errorf("failed to read confirmation: %w", err)
+	}
+
+	if response != "yes" {
+		fmt.Println("Operation cancelled.")
+		return nil
+	}
+
+	fmt.Println("Deleting forwarding history, this may take a while...")
+
+	resp, err := client.DeleteForwardingHistory(ctxc, req)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to delete forwarding history: %w", err,
+		)
+	}
+
+	fmt.Printf("\nDeletion complete:\n")
+	fmt.Printf("  Events deleted: %d\n", resp.EventsDeleted)
+	fmt.Printf("  Total fees: %d msat (%.8f BTC)\n",
+		resp.TotalFeeMsat,
+		float64(resp.TotalFeeMsat)/100000000000.0)
+	fmt.Printf("  Status: %s\n", resp.Status)
+
+	return nil
+}
+
 var estimateRouteFeeCommand = cli.Command{
 	Name:     "estimateroutefee",
 	Category: "Payments",

@@ -37,7 +37,16 @@
 
 ## RPC Additions
 
+* The `EstimateFee` RPC now supports [explicit input
+  selection](https://github.com/lightningnetwork/lnd/pull/10296). Users can
+  specify a list of outpoints to use as transaction inputs via the new
+  `outpoints` field in `EstimateFeeRequest`. The `show_outpoints` field can be
+  set to include the selected outpoints in the `EstimateFeeResponse`.
+
 ## lncli Additions
+
+* The `estimatefee` command now supports the `--utxos` flag to specify explicit
+  inputs for fee estimation.
 
 # Improvements
 ## Functional Updates
@@ -77,4 +86,5 @@
 
 * Boris Nagaev
 * Elle Mouton
+* hieblmi
 * Nishant Bansal

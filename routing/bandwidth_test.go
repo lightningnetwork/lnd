@@ -28,7 +28,14 @@ func TestBandwidthManager(t *testing.T) {
 		channelID         uint64
 		linkQuery         getLinkQuery
 		expectedBandwidth lnwire.MilliSatoshi
-		expectFound       bool
+		// checkErrIs checks for specific error types using errors.Is.
+		// This is preferred for typed/sentinel errors as it's
+		// refactor-safe and works with wrapped errors.
+		checkErrIs error
+		// checkErrContains checks if the error message contains a
+		// specific string. Only use this when the error doesn't have
+		// a specific type (e.g., errors.New with dynamic messages).
+		checkErrContains string
 	}{
 		{
 			name:      "channel not ours",
@@ -45,7 +52,7 @@ func TestBandwidthManager(t *testing.T) {
 				return nil, nil
 			},
 			expectedBandwidth: 0,
-			expectFound:       false,
+			checkErrIs:        ErrLocalChannelNotFound,
 		},
 		{
 			name:      "channel ours, link not online",
@@ -56,7 +63,7 @@ func TestBandwidthManager(t *testing.T) {
 				return nil, htlcswitch.ErrChannelLinkNotFound
 			},
 			expectedBandwidth: 0,
-			expectFound:       true,
+			checkErrIs:        htlcswitch.ErrChannelLinkNotFound,
 		},
 		{
 			name:      "channel ours, link not eligible",
@@ -69,7 +76,7 @@ func TestBandwidthManager(t *testing.T) {
 				}, nil
 			},
 			expectedBandwidth: 0,
-			expectFound:       true,
+			checkErrContains:  "not eligible",
 		},
 		{
 			name:      "channel ours, link can't add htlc",
@@ -84,7 +91,7 @@ func TestBandwidthManager(t *testing.T) {
 				}, nil
 			},
 			expectedBandwidth: 0,
-			expectFound:       true,
+			checkErrContains:  "can't add htlc",
 		},
 		{
 			name:      "channel ours, bandwidth available",
@@ -97,12 +104,10 @@ func TestBandwidthManager(t *testing.T) {
 				}, nil
 			},
 			expectedBandwidth: 321,
-			expectFound:       true,
 		},
 	}
 
 	for _, testCase := range testCases {
-		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
 			g := newMockGraph(t)
@@ -126,11 +131,30 @@ func TestBandwidthManager(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			bandwidth, found := m.availableChanBandwidth(
+			bandwidth, err := m.availableChanBandwidth(
 				testCase.channelID, 10,
 			)
 			require.Equal(t, testCase.expectedBandwidth, bandwidth)
-			require.Equal(t, testCase.expectFound, found)
+
+			// Check for specific error types.
+			switch {
+			case testCase.checkErrIs != nil:
+				require.ErrorIs(t, err, testCase.checkErrIs)
+
+			case testCase.checkErrContains != "":
+				// For errors without specific types, check the
+				// error message contains expected string.
+				require.Error(t, err)
+				require.Contains(
+					t, err.Error(),
+					testCase.checkErrContains,
+				)
+
+			default:
+				// If no error checks specified, expect no
+				// error.
+				require.NoError(t, err)
+			}
 		})
 	}
 }

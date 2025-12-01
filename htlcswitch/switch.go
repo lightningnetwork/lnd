@@ -1792,6 +1792,13 @@ func (s *Switch) Start() error {
 
 	log.Infof("HTLC Switch starting")
 
+	// Before starting the main event loop, we'll check for any orphaned
+	// HTLC attempts that may have been left behind by a previous crash.
+	if err := s.cleanupOrphanedAttempts(); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned attempts: %w",
+			err)
+	}
+
 	blockEpochStream, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
 		return err
@@ -1812,6 +1819,88 @@ func (s *Switch) Start() error {
 		_ = s.Stop()
 		log.Errorf("unable to reforward resolutions: %v", err)
 		return err
+	}
+
+	return nil
+}
+
+// cleanupOrphanedAttempts is a helper function that is called on startup to
+// clean up any orphaned HTLC attempts. An orphaned attempt is one that has
+// been initialized in the attempt store but for which no corresponding circuit
+// exists in the circuit map. This can happen if the node crashes after
+// initializing an attempt but before committing the circuit.
+func (s *Switch) cleanupOrphanedAttempts() error {
+	pending, err := s.attemptStore.FetchPendingAttempts()
+	if err != nil {
+		return fmt.Errorf("failed to fetch pending attempts: %w", err)
+	}
+
+	if len(pending) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d pending HTLC attempts, checking for orphans",
+		len(pending))
+
+	for _, attemptID := range pending {
+		// For each pending attempt, we check if a corresponding circuit
+		// exists.
+		inKey := CircuitKey{
+			ChanID: hop.Source,
+			HtlcID: attemptID,
+		}
+		circuit := s.circuits.LookupCircuit(inKey)
+
+		// If no circuit exists, this is an orphan from a crash
+		// between InitAttempt and CommitCircuits. We'll fail it with
+		// a temporary node failure.
+		if circuit == nil {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(no circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If a circuit *does* exist, we must perform a second check.
+		// If the circuit is still "half-open" (it has not been
+		// assigned a keystone by the outgoing link), then it's an
+		// orphan from a crash between CommitCircuits and the handoff
+		// to the link. We must also fail this to prevent a hang.
+		//
+		// TODO(calvin): cleanup of dangling circuits for locally
+		// initated payments as described here:
+		// https://github.com/lightningnetwork/lnd/issues/10423.
+		if !circuit.HasKeystone() {
+			log.Warnf("Found orphaned HTLC attempt with id %d "+
+				"(half-open circuit), failing", attemptID)
+
+			err := s.attemptStore.FailPendingAttempt(
+				attemptID,
+				NewLinkError(
+					&lnwire.FailTemporaryNodeFailure{},
+				),
+			)
+			if err != nil {
+				log.Errorf("Unable to fail orphaned attempt "+
+					"%d: %v", attemptID, err)
+			}
+
+			continue
+		}
+
+		// If the circuit exists and is fully open, it's a legitimate
+		// in-flight HTLC that will be resumed by the router.
 	}
 
 	return nil

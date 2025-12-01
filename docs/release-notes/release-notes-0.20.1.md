@@ -60,6 +60,12 @@
   safe single-writer behavior until the wallet subsystem is fully 
   concurrent-safe.
 
+* [Improved pathfinding 
+  efficiency](https://github.com/lightningnetwork/lnd/pull/10406) by 
+  identifying unusable local channels upfront and excluding them from route
+  construction, eliminating wasted retries and reducing pathfinding computation
+  overhead.
+
 ## Deprecations
 
 # Technical and Architectural Updates

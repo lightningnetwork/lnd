@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -5553,4 +5554,228 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 	}
 
 	require.NoError(t, interceptSwitch.Stop())
+}
+
+// TestSwitchDuplicateAttemptPrevention validates the behavior of the Switch and
+// its underlying stores with respect to re-use of HTLC attempt ID. We expect
+// the Switch to guarantee that only one HTLC will be forwarded for a given
+// attemptID until the ID is explicitly cleaned from the underlying attempt
+// store.
+func TestSwitchDuplicateAttemptPrevention(t *testing.T) {
+	t.Parallel()
+
+	alicePeer, err := newMockServer(t, "alice", testStartingHeight, nil,
+		testDefaultDelta)
+	require.NoError(t, err)
+
+	s, err := initSwitchWithTempDB(t, testStartingHeight)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	defer func() { _ = s.Stop() }()
+
+	chanID, _, aliceChanID, _ := genIDs()
+
+	aliceLink := newMockChannelLink(
+		s, chanID, aliceChanID, emptyScid,
+		alicePeer, true, false, false, false,
+	)
+	require.NoError(t, s.AddLink(aliceLink))
+
+	preimage, err := genPreimage()
+	require.NoError(t, err)
+	rhash := sha256.Sum256(preimage[:])
+	attemptID := uint64(123)
+
+	update := &lnwire.UpdateAddHTLC{
+		PaymentHash: rhash,
+		Amount:      lnwire.NewMSatFromSatoshis(1000),
+		ChanID:      chanID,
+	}
+
+	// --- Subtest 1: Duplicate in-flight attempt ---
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.NoError(t, err, "expected first SendHTLC to succeed")
+
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.ErrorIs(t, err, ErrDuplicateAdd, "expected duplicate attempt "+
+		"to fail while in-flight")
+
+	// --- Subtest 2: Duplicate after result rejected ---
+
+	// Launch a routine to await the result of the HTLC attempt.
+	errChan := make(chan error, 1)
+	go func() {
+		resultChan, err := s.GetAttemptResult(
+			attemptID, rhash,
+			newMockDeobfuscator(),
+		)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		result, ok := <-resultChan
+		if !ok {
+			errChan <- fmt.Errorf("result channel closed")
+			return
+		}
+		if result.Error != nil {
+			errChan <- result.Error
+			return
+		}
+		if result.Preimage != preimage {
+			errChan <- fmt.Errorf("preimage mismatch")
+			return
+		}
+		errChan <- nil
+	}()
+
+	select {
+	case pkt := <-aliceLink.packets:
+		require.NoError(t, aliceLink.completeCircuit(pkt))
+	case <-time.After(time.Second):
+		t.Fatal("packet not received")
+	}
+
+	// Send fulfillment packet.
+	settlePkt := &htlcPacket{
+		outgoingChanID: aliceLink.ShortChanID(),
+		outgoingHTLCID: 0,
+		htlc: &lnwire.UpdateFulfillHTLC{
+			PaymentPreimage: preimage,
+		},
+		amount: lnwire.NewMSatFromSatoshis(1000),
+	}
+	require.NoError(t, s.ForwardPackets(nil, settlePkt))
+
+	// The SendHTLC goroutine should complete successfully.
+	select {
+	case err := <-errChan:
+		require.NoError(t, err, "expected HTLC to complete "+
+			"successfully")
+	case <-time.After(time.Second):
+		t.Fatal("did not receive result")
+	}
+
+	// Attempt to reuse the attempt ID after the full settle or fail result
+	// is back from the network.
+	err = s.SendHTLC(aliceLink.ShortChanID(), attemptID, update)
+	require.ErrorIs(t, err, ErrDuplicateAdd, "expected reuse after result "+
+		"to fail")
+}
+
+// TestSwitchSendHTLCSyncRollback tests that if SendHTLC fails after the
+// attempt has been initialized, a final failure result is synchronously
+// stored in the attempt store. This is critical to prevent callers of
+// GetAttemptResult from hanging indefinitely.
+func TestSwitchSendHTLCSyncRollback(t *testing.T) {
+	t.Parallel()
+
+	// Create a new switch with a persistent attempt store.
+	s, err := initSwitchWithTempDB(t, 0)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { require.NoError(t, s.Stop()) })
+
+	// We will attempt to send an HTLC to a non-existent channel. This will
+	// cause SendHTLC to fail *after* the attempt has been initialized.
+	invalidScid := lnwire.NewShortChanIDFromInt(123)
+	attemptID := uint64(1)
+	htlc := &lnwire.UpdateAddHTLC{}
+
+	// The call to SendHTLC should fail.
+	err = s.SendHTLC(invalidScid, attemptID, htlc)
+	require.Error(t, err)
+
+	// Now, we check the attempt store for the result. We expect to find a
+	// final FAILED result, not ErrPaymentIDNotFound or
+	// ErrAttemptResultPending.
+	result, err := s.attemptStore.GetResult(attemptID)
+	require.NoError(t, err, "expected to find a final result")
+	require.NotNil(t, result, "result should not be nil")
+
+	// The result should be a failure message.
+	failMsg, ok := result.msg.(*lnwire.UpdateFailHTLC)
+	require.True(t, ok, "expected an UpdateFailHTLC message")
+
+	// Since this was a local failure, the reason should be an unencrypted
+	// failure message that we can decode.
+	require.True(t, result.unencrypted, "expected unencrypted failure")
+	reason, err := lnwire.DecodeFailure(
+		bytes.NewReader(failMsg.Reason), 0,
+	)
+	require.NoError(t, err, "unable to decode failure reason")
+
+	// We expect the specific failure to be an UnknownNextPeer error, since
+	// that's what our SendHTLC call should have failed with.
+	_, ok = reason.(*lnwire.FailUnknownNextPeer)
+	require.True(t, ok, "expected unknown next peer failure")
+
+	// Now, we'll call GetAttemptResult. Since the synchronous rollback
+	// should have already stored a final result, we expect this call to
+	// return immediately with a failed result.
+	resChan, err := s.GetAttemptResult(attemptID, lntypes.Hash{}, nil)
+	require.NoError(t, err, "GetAttemptResult should not fail")
+
+	// We expect to receive a result immediately.
+	select {
+	case result := <-resChan:
+		// The result should be a failure.
+		require.Error(t, result.Error, "expected a failed result")
+
+	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("GetAttemptResult should have returned immediately")
+	}
+}
+
+// TestSwitchGetAttemptResultHangsOnOrphanedAttempt tests that a caller to
+// GetAttemptResult will hang if an attempt is orphaned in the pending state,
+// and that the synchronous rollback (via FailAttempt) fixes this.
+func TestSwitchGetAttemptResultHangsOnOrphanedAttempt(t *testing.T) {
+	t.Parallel()
+
+	s, err := initSwitchWithTempDB(t, 0)
+	require.NoError(t, err)
+	require.NoError(t, s.Start())
+	t.Cleanup(func() { require.NoError(t, s.Stop()) })
+
+	// Manually initialize an attempt in the store. This simulates the "bad"
+	// state where an attempt is pending but has no corresponding circuit,
+	// which our SendHTLC changes are designed to prevent.
+	attemptID := uint64(1)
+	err = s.attemptStore.InitAttempt(attemptID)
+	require.NoError(t, err, "unable to initialize attempt")
+
+	// Now, call GetAttemptResult. This function returns a channel that will
+	// deliver the result.
+	resChan, err := s.GetAttemptResult(
+		attemptID, lntypes.Hash{}, nil,
+	)
+	require.NoError(t, err)
+
+	// We expect the call to hang. We'll use a timeout to verify that no
+	// result is received from the channel.
+	select {
+	case <-resChan:
+		t.Fatalf("received result unexpectedly, should have hung")
+	case <-time.After(100 * time.Millisecond):
+		// This is the expected path, the call has "hung" for 100ms.
+	}
+
+	// Now, simulate the fix by manually calling FailAttempt. This is what
+	// SendHTLC now does synchronously on failure.
+	err = s.attemptStore.FailAttempt(attemptID, NewLinkError(
+		&lnwire.FailTemporaryNodeFailure{}),
+	)
+	require.NoError(t, err, "unable to fail attempt")
+
+	// The channel should now un-block and deliver the final failed
+	// result.
+	select {
+	case result := <-resChan:
+		// We expect a result with an error, indicating failure.
+		require.Error(t, result.Error, "expected a failed result")
+	case <-time.After(1 * time.Second):
+		t.Fatalf("did not receive result after manual failure")
+	}
 }

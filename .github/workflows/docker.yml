@@ -29,7 +29,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Git checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check PGP key expirations
         run: scripts/check-pgp-expiry.sh

@@ -1,6 +1,7 @@
 package htlcswitch
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
@@ -5604,5 +5605,133 @@ func TestSwitchFailOrphanedAttempt(t *testing.T) {
 		require.Error(t, result.Error, "expected a failed result")
 	case <-time.After(1 * time.Second):
 		t.Fatalf("did not receive result after manual failure")
+	}
+}
+
+// TestSwitchOrphanCleanup tests that the switch's startup procedure will
+// correctly identify and clean up any orphaned attempts. This includes both
+// simple pending orphans (from a crash after InitAttempt) and "half-open"
+// circuit orphans (from a crash after CommitCircuits).
+func TestSwitchOrphanCleanup(t *testing.T) {
+	t.Parallel()
+
+	const attemptID = uint64(1)
+
+	testCases := []struct {
+		name        string
+		setupOrphan func(t *testing.T, s *Switch, cdb *channeldb.DB)
+	}{
+		{
+			name: "pre-commit orphan",
+			setupOrphan: func(t *testing.T, s *Switch,
+				_ *channeldb.DB) {
+
+				// Manually initialize an attempt to simulate
+				// the state of the database if the node crashed
+				// after InitAttempt but before CommitCircuits.
+				err := s.attemptStore.InitAttempt(attemptID)
+				require.NoError(t, err, "unable to init")
+			},
+		},
+		{
+			name: "half-open circuit orphan",
+			setupOrphan: func(t *testing.T, s *Switch,
+				_ *channeldb.DB) {
+
+				// Manually initialize an attempt and commit a
+				// circuit to simulate the state of the database
+				// if the node crashed after CommitCircuits but
+				// before the packet was handed off to the link.
+				err := s.attemptStore.InitAttempt(attemptID)
+				require.NoError(t, err, "unable to init")
+
+				htlc := &lnwire.UpdateAddHTLC{
+					PaymentHash: lntypes.Hash{0x01},
+				}
+
+				// We'll create a dummy outgoing channel ID to
+				// attach to the circuit. The existence of an
+				// outgoingChanID is what makes this a
+				// "half-open" orphan, as the switch knows it
+				// was intended to be forwarded somewhere.
+				const outgoingChanID = 123
+				packet := &htlcPacket{
+					incomingChanID: hop.Source,
+					incomingHTLCID: attemptID,
+					outgoingChanID: lnwire.
+						NewShortChanIDFromInt(
+							outgoingChanID,
+						),
+					htlc:   htlc,
+					amount: htlc.Amount,
+				}
+
+				circuit := newPaymentCircuit(
+					&htlc.PaymentHash, packet,
+				)
+				_, err = s.circuits.CommitCircuits(circuit)
+				require.NoError(t, err, "commit failed")
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a temporary database path that will persist
+			// across restarts.
+			tempPath := t.TempDir()
+
+			// First, we'll create a database and a switch
+			// instance.
+			cdb1 := channeldb.OpenForTesting(t, tempPath)
+			s1, err := initSwitchWithDB(0, cdb1)
+			require.NoError(t, err)
+			require.NoError(t, s1.Start())
+
+			// Call the specific setup function for this test case
+			// to create the desired orphan state.
+			tc.setupOrphan(t, s1, cdb1)
+
+			// We must stop the switch and close its database to
+			// ensure the state is flushed to disk at tempPath.
+			require.NoError(t, s1.Stop())
+			require.NoError(t, cdb1.Close())
+
+			// Now, we'll create a new database instance from the
+			// same path and a new switch. This simulates a node
+			// restart.
+			cdb2 := channeldb.OpenForTesting(t, tempPath)
+			t.Cleanup(func() { cdb2.Close() })
+
+			s2, err := initSwitchWithDB(0, cdb2)
+			require.NoError(t, err)
+			require.NoError(t, s2.Start())
+			t.Cleanup(func() { require.NoError(t, s2.Stop()) })
+
+			// After startup, we query the store for our orphaned
+			// attempt ID. We expect to find a final FAILED
+			// result, as the janitor should have cleaned it up.
+			result, err := s2.attemptStore.GetResult(attemptID)
+			require.NoError(t, err, "expected final result")
+			require.NotNil(t, result, "result should not be nil")
+
+			// The result should be a failure message.
+			failMsg, ok := result.msg.(*lnwire.UpdateFailHTLC)
+			require.True(t, ok, "expected fail message")
+
+			// The cleanup routine uses a generic failure reason.
+			require.True(t, result.unencrypted, "unencrypted")
+			reason, err := lnwire.DecodeFailure(
+				bytes.NewReader(failMsg.Reason), 0,
+			)
+			require.NoError(t, err, "unable to decode failure")
+
+			// We expect a FailTemporaryNodeFailure.
+			_, ok = reason.(*lnwire.FailTemporaryNodeFailure)
+			require.True(t, ok, "expected temp node failure")
+		})
 	}
 }

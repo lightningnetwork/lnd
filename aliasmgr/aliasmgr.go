@@ -87,6 +87,18 @@ var (
 	ErrAliasNotFound = fmt.Errorf("alias not found")
 )
 
+const (
+	// AliasFlagNone indicates standard alias behavior where the alias
+	// will not be added to aliasToBase after the channel is confirmed.
+	AliasFlagNone byte = 0x00
+
+	// AliasFlagPersistent indicates the alias should persist in the
+	// aliasToBase map even after the base SCID is confirmed. This is
+	// useful for manually added aliases that need to remain accessible
+	// via FindBaseSCID after 6 confirmations.
+	AliasFlagPersistent byte = 0x01
+)
+
 // Manager is a struct that handles aliases for LND. It has an underlying
 // database that can allocate aliases for channels, stores the peer's last
 // alias for use in our hop hints, and contains mappings that both the Switch
@@ -146,6 +158,12 @@ func (m *Manager) populateMaps() error {
 	// populate the Manager's actual maps.
 	aliasMap := make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
 
+	// This map tracks aliases that have the persistent flag set and should
+	// remain in aliasToBase even after confirmation.
+	persistentAliasMap := make(
+		map[lnwire.ShortChannelID]lnwire.ShortChannelID,
+	)
+
 	// This map caches the ChannelID/alias SCIDs stored in the database and
 	// is used to populate the Manager's cache.
 	peerAliasMap := make(map[lnwire.ChannelID]lnwire.ShortChannelID)
@@ -177,14 +195,23 @@ func (m *Manager) populateMaps() error {
 
 		err = aliasToBaseBucket.ForEach(func(k, v []byte) error {
 			// The key will be the alias SCID and the value will be
-			// the base SCID.
+			// the base SCID (8 bytes) optionally followed by flags
+			// (1 byte).
 			aliasScid := lnwire.NewShortChanIDFromInt(
 				byteOrder.Uint64(k),
 			)
 			baseScid := lnwire.NewShortChanIDFromInt(
-				byteOrder.Uint64(v),
+				byteOrder.Uint64(v[:8]),
 			)
 			aliasMap[aliasScid] = baseScid
+
+			// Check if the persistent flag is set. Backward
+			// compatible: old entries have len(v) == 8, new entries
+			// have len(v) == 9.
+			if len(v) > 8 && (v[8]&AliasFlagPersistent) != 0 {
+				persistentAliasMap[aliasScid] = baseScid
+			}
+
 			return nil
 		})
 		if err != nil {
@@ -214,6 +241,9 @@ func (m *Manager) populateMaps() error {
 	}, func() {
 		baseConfMap = make(map[lnwire.ShortChannelID]struct{})
 		aliasMap = make(map[lnwire.ShortChannelID]lnwire.ShortChannelID)
+		persistentAliasMap = make(
+			map[lnwire.ShortChannelID]lnwire.ShortChannelID,
+		)
 		peerAliasMap = make(map[lnwire.ChannelID]lnwire.ShortChannelID)
 	})
 	if err != nil {
@@ -230,6 +260,13 @@ func (m *Manager) populateMaps() error {
 			continue
 		}
 
+		m.aliasToBase[aliasSCID] = baseSCID
+	}
+
+	// Add persistent aliases to aliasToBase even if they're confirmed.
+	// This allows FindBaseSCID to work for manually-added aliases that
+	// should survive confirmation.
+	for aliasSCID, baseSCID := range persistentAliasMap {
 		m.aliasToBase[aliasSCID] = baseSCID
 	}
 
@@ -252,7 +289,9 @@ type addAliasCfg struct {
 type AddLocalAliasOption func(cfg *addAliasCfg)
 
 // WithBaseLookup is a functional option that controls whether a reverse lookup
-// will be stored from the alias to the base scid.
+// will be stored from the alias to the base scid. This reverse lookup is
+// persisted across restarts and remains until DeleteLocalAlias is called,
+// including after channel confirmation or closure.
 func WithBaseLookup() AddLocalAliasOption {
 	return func(cfg *addAliasCfg) {
 		cfg.baseLookup = true
@@ -266,9 +305,9 @@ func WithBaseLookup() AddLocalAliasOption {
 // flag is used to signal whether this function should also trigger an update on
 // the htlcswitch scid alias maps.
 //
-// NOTE: The following aliases will not be persisted (will be lost on restart):
-//   - Aliases that were created without gossip flag.
-//   - Aliases that correspond to confirmed channels.
+// NOTE: Without WithBaseLookup, reverse lookups are not restored on restart
+// for aliases created without the gossip flag or for confirmed channels.
+// The underlying alias records remain stored until DeleteLocalAlias is called.
 func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 	gossip, linkUpdate bool, opts ...AddLocalAliasOption) error {
 
@@ -315,14 +354,25 @@ func (m *Manager) AddLocalAlias(alias, baseScid lnwire.ShortChannelID,
 			return err
 		}
 
-		var (
-			aliasBytes [8]byte
-			baseBytes  [8]byte
-		)
-
+		var aliasBytes [8]byte
 		byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
-		byteOrder.PutUint64(baseBytes[:], baseScid.ToUint64())
-		return aliasToBaseBucket.Put(aliasBytes[:], baseBytes[:])
+
+		// Write base SCID (8 bytes) + flags (1 byte).
+		// Always write 9 bytes for consistency and future
+		// extensibility.
+		var valueBytes [9]byte
+		byteOrder.PutUint64(valueBytes[:8], baseScid.ToUint64())
+
+		// Set the persistent flag if baseLookup is requested.
+		// The baseLookup option indicates this is a manually-added
+		// alias that should persist even after confirmation.
+		if cfg.baseLookup {
+			valueBytes[8] = AliasFlagPersistent
+		} else {
+			valueBytes[8] = AliasFlagNone
+		}
+
+		return aliasToBaseBucket.Put(aliasBytes[:], valueBytes[:])
 	}, func() {})
 	if err != nil {
 		return err
@@ -396,6 +446,7 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 	m.Lock()
 	defer m.Unlock()
 
+	var aliasesToDelete []lnwire.ShortChannelID
 	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
 		baseConfBucket, err := tx.CreateTopLevelBucket(confirmedBucket)
 		if err != nil {
@@ -404,18 +455,46 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 
 		var baseBytes [8]byte
 		byteOrder.PutUint64(baseBytes[:], baseScid.ToUint64())
-		return baseConfBucket.Put(baseBytes[:], []byte{})
-	}, func() {})
+		err = baseConfBucket.Put(baseBytes[:], []byte{})
+		if err != nil {
+			return err
+		}
+
+		// Now we'll inspect only the aliases that belong to this base
+		// SCID and collect the ones that don't have the persistency
+		// flag set. The in-memory map is only mutated after the
+		// transaction commits, as this closure may be retried or the
+		// commit may fail.
+		aliasToBaseBucket, err := tx.CreateTopLevelBucket(aliasBucket)
+		if err != nil {
+			return err
+		}
+
+		for _, alias := range m.baseToSet[baseScid] {
+			var aliasBytes [8]byte
+			byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
+
+			v := aliasToBaseBucket.Get(aliasBytes[:])
+			persist := len(v) > 8 &&
+				(v[8]&AliasFlagPersistent) != 0
+
+			if !persist {
+				aliasesToDelete = append(aliasesToDelete, alias)
+			}
+		}
+
+		return nil
+	}, func() {
+		aliasesToDelete = nil
+	})
 	if err != nil {
 		return err
 	}
 
-	// Now that the database state has been updated, we'll delete all of
-	// the aliasToBase mappings for this SCID.
-	for alias, base := range m.aliasToBase {
-		if base.ToUint64() == baseScid.ToUint64() {
-			delete(m.aliasToBase, alias)
-		}
+	// Now that the database state has been updated, we'll delete the
+	// non-persistent aliases from the Manager's cache.
+	for _, alias := range aliasesToDelete {
+		delete(m.aliasToBase, alias)
 	}
 
 	return nil

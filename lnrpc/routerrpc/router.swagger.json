@@ -615,7 +615,7 @@
     },
     "/v2/router/x/findbasealias": {
       "post": {
-        "summary": "XFindBaseLocalChanAlias is an experimental API that looks up the base scid\nfor a local chan alias that was registered during the current runtime.",
+        "summary": "XFindBaseLocalChanAlias is an experimental API that looks up the base scid\nfor a local chan alias. This includes persistent aliases that were added in\nprevious runtimes.",
         "operationId": "Router_XFindBaseLocalChanAlias",
         "responses": {
           "200": {

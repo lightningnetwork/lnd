@@ -1868,7 +1868,10 @@ func (s *Server) XAddLocalChanAliases(_ context.Context,
 			// We set the baseLookup flag as we want the alias
 			// manager to keep a mapping from the alias back to its
 			// base scid, in order to be able to provide it via the
-			// FindBaseLocalChanAlias RPC.
+			// FindBaseLocalChanAlias RPC. The baseLookup flag also
+			// marks these manually-added aliases as persistent so
+			// they'll survive through channel confirmation and
+			// restarts.
 			err = s.cfg.AliasMgr.AddLocalAlias(
 				aliasScid, baseScid, false, true,
 				aliasmgr.WithBaseLookup(),

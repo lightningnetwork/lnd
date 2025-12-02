@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -303,6 +304,10 @@ type Config struct {
 	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
 	// onion blobs.
 	Sphinx *hop.OnionProcessor
+
+	// SphinxRouterNoReplayLog is the router used to decode sphinx onion
+	// blobs from an onion_message_packet.
+	SphinxRouterNoReplayLog *sphinx.Router
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.

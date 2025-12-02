@@ -160,6 +160,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/routerrpc.Router/XFindBaseLocalChanAlias": {{
+			Entity: "offchain",
+			Action: "read",
+		}},
 	}
 
 	// DefaultRouterMacFilename is the default name of the router macaroon
@@ -1898,7 +1902,10 @@ func (s *Server) XAddLocalChanAliases(_ context.Context,
 			// We set the baseLookup flag as we want the alias
 			// manager to keep a mapping from the alias back to its
 			// base scid, in order to be able to provide it via the
-			// FindBaseLocalChanAlias RPC.
+			// FindBaseLocalChanAlias RPC. The baseLookup flag also
+			// marks these manually-added aliases as persistent so
+			// they'll survive through channel confirmation and
+			// restarts.
 			err = s.cfg.AliasMgr.AddLocalAlias(
 				aliasScid, baseScid, false, true,
 				aliasmgr.WithBaseLookup(),
@@ -1947,7 +1954,8 @@ func (s *Server) XDeleteLocalChanAliases(_ context.Context,
 }
 
 // XFindBaseLocalChanAlias is an experimental API that looks up the base scid
-// for a local chan alias that was registered.
+// for a local chan alias. This includes persistent aliases that were added in
+// previous runtimes.
 func (s *Server) XFindBaseLocalChanAlias(_ context.Context,
 	in *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
 

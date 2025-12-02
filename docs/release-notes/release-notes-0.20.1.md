@@ -55,6 +55,11 @@
 
 ## Functional Enhancements
 
+- Aliases that are added via the `XAddLocalChanAliases` RPC will now be
+persisted on restart and will be reloaded even for confirmed channels. The only
+way to delete an alias added via the RPC is by calling the
+`XDeleteLocalChanAliases` RPC endpoint. See more on the
+[Github PR](https://github.com/lightningnetwork/lnd/pull/10411).
 ## RPC Additions
 
 ## lncli Additions

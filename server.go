@@ -383,6 +383,8 @@ type server struct {
 
 	sphinx *hop.OnionProcessor
 
+	sphinxRouterNoReplayLog *sphinx.Router
+
 	towerClientMgr *wtclient.Manager
 
 	connMgr *connmgr.ConnManager
@@ -611,6 +613,12 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 	)
 	sphinxRouter := sphinx.NewRouter(nodeKeyECDH, replayLog)
 
+	// TODO(gijs): remove the memory replay log once lightning-onion
+	// supports it.
+	sphinxRouterNoReplayLog := sphinx.NewRouter(
+		nodeKeyECDH, sphinx.NewMemoryReplayLog(),
+	)
+
 	writeBufferPool := pool.NewWriteBuffer(
 		pool.DefaultWriteBufferGCInterval,
 		pool.DefaultWriteBufferExpiryInterval,
@@ -707,7 +715,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 
 		// TODO(roasbeef): derive proper onion key based on rotation
 		// schedule
-		sphinx: hop.NewOnionProcessor(sphinxRouter),
+		sphinx:                  hop.NewOnionProcessor(sphinxRouter),
+		sphinxRouterNoReplayLog: sphinxRouterNoReplayLog,
 
 		torController: torController,
 
@@ -2335,6 +2344,15 @@ func (s *server) Start(ctx context.Context) error {
 			return
 		}
 
+		cleanup = cleanup.add(func() error {
+			s.sphinxRouterNoReplayLog.Stop()
+			return nil
+		})
+		if err := s.sphinxRouterNoReplayLog.Start(); err != nil {
+			startErr = err
+			return
+		}
+
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 		if err := s.chanStatusMgr.Start(); err != nil {
 			startErr = err
@@ -2602,6 +2620,9 @@ func (s *server) Stop() error {
 
 		// Stop dispatching blocks to other systems immediately.
 		s.blockbeatDispatcher.Stop()
+
+		// Shutdown the onion router for onion messaging.
+		s.sphinxRouterNoReplayLog.Stop()
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
@@ -4396,6 +4417,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		BestBlockView:           s.cc.BestBlockTracker,
 		RoutingPolicy:           s.cc.RoutingPolicy,
 		Sphinx:                  s.sphinx,
+		SphinxRouterNoReplayLog: s.sphinxRouterNoReplayLog,
 		WitnessBeacon:           s.witnessBeacon,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,

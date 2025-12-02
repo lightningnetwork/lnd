@@ -1113,6 +1113,10 @@ func (m *mockCircuitMap) FailCircuit(inKey CircuitKey) (*PaymentCircuit,
 	return nil, nil
 }
 
+func (m *mockCircuitMap) HasCircuit(inKey CircuitKey) bool {
+	return false
+}
+
 func (m *mockCircuitMap) LookupCircuit(inKey CircuitKey) *PaymentCircuit {
 	return <-m.lookup
 }

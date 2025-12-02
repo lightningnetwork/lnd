@@ -545,10 +545,16 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 // after a crash/restart or connection loss.
 //
 // Returns:
-//   - *PaymentResult: The result if the attempt completed
-//   - ErrPaymentIDNotFound: If no result exists (attempt never sent or still in-flight)
+//   - (*PaymentResult, nil): If the attempt completed with a result
+//   - (nil, nil): If no result exists yet (never sent or still in-flight)
+//   - (nil, error): If an error occurred querying the result store
 func (s *Switch) GetPaymentResult(attemptID uint64) (*PaymentResult, error) {
 	netResult, err := s.networkResults.getResult(attemptID)
+	if err == ErrPaymentIDNotFound {
+		// No result available - not an error, just means attempt
+		// was never sent or is still in-flight
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -572,6 +578,32 @@ func (s *Switch) GetPaymentResult(attemptID uint64) (*PaymentResult, error) {
 	}
 
 	return paymentResult, nil
+}
+
+// IsAttemptInFlight checks if a payment attempt is currently in-flight
+// (circuit exists but no result available yet).
+//
+// This is useful for external callers during reconciliation to distinguish
+// between attempts that were never sent vs attempts that are still waiting
+// for a result from the network.
+//
+// Returns:
+//   - true: Attempt is in-flight (circuit exists, no result yet)
+//   - false: Attempt not in-flight (never sent, or completed)
+func (s *Switch) IsAttemptInFlight(attemptID uint64) bool {
+	// First check if result exists
+	_, err := s.networkResults.getResult(attemptID)
+	if err == nil {
+		// Result exists - not in-flight anymore
+		return false
+	}
+
+	// No result - check if circuit exists (in-flight)
+	circuitKey := CircuitKey{
+		ChanID: hop.Source,
+		HtlcID: attemptID,
+	}
+	return s.circuits.HasCircuit(circuitKey)
 }
 
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
@@ -607,7 +639,20 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 		return fmt.Errorf("failed to check result: %w", err)
 	}
 
-	// No result exists - proceed with send
+	// Check if circuit already exists (handles retries while in-flight)
+	// This catches duplicates early before doing expensive dynamic checks
+	circuitKey := CircuitKey{
+		ChanID: hop.Source,
+		HtlcID: attemptID,
+	}
+	if s.circuits.HasCircuit(circuitKey) {
+		// Circuit exists - this attempt is already in-flight
+		log.Debugf("Attempt %d already in-flight, circuit exists",
+			attemptID)
+		return ErrDuplicateAdd
+	}
+
+	// No result and no circuit - proceed with send
 	// Lock remains held through dynamic checks and circuit commit
 
 	// Generate and send new update packet, if error will be received on

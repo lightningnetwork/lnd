@@ -118,6 +118,10 @@ type CircuitMap interface {
 	// settles/fails from being accepted for the same circuit.
 	FailCircuit(inKey CircuitKey) (*PaymentCircuit, error)
 
+	// HasCircuit returns true if a circuit with the given incoming circuit
+	// key exists in the circuit map.
+	HasCircuit(inKey CircuitKey) bool
+
 	// LookupByPaymentHash queries the circuit map and returns all open
 	// circuits that use the given payment hash.
 	LookupByPaymentHash(hash [32]byte) []*PaymentCircuit
@@ -1066,6 +1070,16 @@ func (cm *circuitMap) CloseCircuit(outKey CircuitKey) (*PaymentCircuit, error) {
 	cm.closed[circuit.Incoming] = struct{}{}
 
 	return circuit, nil
+}
+
+// HasCircuit returns true if a circuit with the given incoming circuit key
+// exists in the circuit map (in pending state).
+func (cm *circuitMap) HasCircuit(inKey CircuitKey) bool {
+	cm.mtx.RLock()
+	defer cm.mtx.RUnlock()
+
+	_, exists := cm.pending[inKey]
+	return exists
 }
 
 // DeleteCircuits destroys the target circuits by removing them from the circuit

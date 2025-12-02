@@ -396,7 +396,7 @@ var estimateFeeCommand = cli.Command{
 	    '{"ExampleAddr": NumCoinsInSatoshis, "SecondAddr": NumCoins}'
 	`,
 	Flags: []cli.Flag{
-		cli.Uint64Flag{
+		cli.Int64Flag{
 			Name: "conf_target",
 			Usage: "the number of blocks that the transaction " +
 				"should be confirmed on-chain within",

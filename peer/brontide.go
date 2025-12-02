@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -301,9 +302,13 @@ type Config struct {
 	// the Brontide.
 	RoutingPolicy models.ForwardingPolicy
 
-	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
-	// onion blobs.
-	Sphinx *hop.OnionProcessor
+	// SphinxPayment is used when setting up ChannelLinks so they can decode
+	// sphinx onion blobs.
+	SphinxPayment *hop.OnionProcessor
+
+	// SphinxOnionMsg is the router used to decode sphinx onion blobs from
+	// an onion_message_packet.
+	SphinxOnionMsg *sphinx.Router
 
 	// WitnessBeacon is used when setting up ChannelLinks so they can add any
 	// preimages that they learn.
@@ -910,6 +915,9 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
+	// The onion message endpoint is used to handle incoming onion messages
+	// **from** this peer. This uses the message multiplexer to route
+	// messages to the endpoint for further processing.
 	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
 		p.cfg.OnionMessageServer,
 	)
@@ -1446,8 +1454,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	//nolint:ll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
-		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		DecodeHopIterators:     p.cfg.SphinxPayment.DecodeHopIterators,
+		ExtractErrorEncrypter:  p.cfg.SphinxPayment.ExtractErrorEncrypter,
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,
@@ -2575,6 +2583,15 @@ func messageSummary(msg lnwire.Message) string {
 			"stamp_range=%v", msg.ChainHash,
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
+
+	case *lnwire.OnionMessage:
+		var pathKey []byte
+		if msg.PathKey != nil {
+			pathKey = msg.PathKey.SerializeCompressed()
+		}
+
+		return fmt.Sprintf("path_key=%x, onion_len=%v", pathKey,
+			len(msg.OnionBlob))
 
 	case *lnwire.Stfu:
 		return fmt.Sprintf("chan_id=%v, initiator=%v", msg.ChanID,

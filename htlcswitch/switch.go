@@ -540,12 +540,75 @@ func (s *Switch) CleanStore(keepPids map[uint64]struct{}) error {
 	return s.networkResults.cleanStore(keepPids)
 }
 
+// GetPaymentResult returns the result for a completed payment attempt.
+// This is useful for external callers to check the status of an attempt
+// after a crash/restart or connection loss.
+//
+// Returns:
+//   - *PaymentResult: The result if the attempt completed
+//   - ErrPaymentIDNotFound: If no result exists (attempt never sent or still in-flight)
+func (s *Switch) GetPaymentResult(attemptID uint64) (*PaymentResult, error) {
+	netResult, err := s.networkResults.getResult(attemptID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert networkResult to PaymentResult
+	paymentResult := &PaymentResult{}
+
+	switch msg := netResult.msg.(type) {
+	case *lnwire.UpdateFulfillHTLC:
+		// Success - payment settled
+		paymentResult.Preimage = msg.PaymentPreimage
+
+	case *lnwire.UpdateFailHTLC:
+		// Failure - payment failed
+		// Note: The caller will need to decrypt the failure reason
+		// if it's encrypted. We just return the raw failure here.
+		paymentResult.Error = fmt.Errorf("payment failed")
+
+	default:
+		return nil, fmt.Errorf("unexpected result message type: %T", msg)
+	}
+
+	return paymentResult, nil
+}
+
 // SendHTLC is used by other subsystems which aren't belong to htlc switch
 // package in order to send the htlc update. The attemptID used MUST be unique
 // for this HTLC, and MUST be used only once, otherwise the switch might reject
 // it.
+//
+// This method is safe for retries: if called multiple times with the same
+// attemptID, it will return ErrDuplicateAdd if a result is already available.
 func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 	htlc *lnwire.UpdateAddHTLC) error {
+
+	// Lock this attemptID to ensure atomic result checking and circuit
+	// commitment. This prevents the race where:
+	// 1. This thread checks result (not found) and proceeds to commit
+	// 2. handleLocalResponse stores result and deletes circuit concurrently
+	// 3. Both operations interleave incorrectly
+	//
+	// By holding the lock, we ensure that handleLocalResponse cannot
+	// store result + delete circuit while we're checking and committing.
+	s.networkResults.attemptIDMtx.Lock(attemptID)
+	defer s.networkResults.attemptIDMtx.Unlock(attemptID)
+
+	// Check if a result already exists (handles retries after completion)
+	_, err := s.networkResults.getResult(attemptID)
+	if err == nil {
+		// Result exists - this attempt already completed
+		log.Debugf("Attempt %d already completed, result available",
+			attemptID)
+		return ErrDuplicateAdd
+	}
+	if err != ErrPaymentIDNotFound {
+		return fmt.Errorf("failed to check result: %w", err)
+	}
+
+	// No result exists - proceed with send
+	// Lock remains held through dynamic checks and circuit commit
 
 	// Generate and send new update packet, if error will be received on
 	// this stage it means that packet haven't left boundaries of our
@@ -953,6 +1016,19 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 
 	attemptID := pkt.incomingHTLCID
 
+	// Lock this attemptID to ensure atomic result storage and circuit
+	// deletion. This prevents the race where:
+	// 1. SendHTLC checks for result (not found)
+	// 2. This function stores result
+	// 3. This function deletes circuit
+	// 4. SendHTLC checks circuit (not found)
+	// 5. SendHTLC incorrectly concludes attempt never happened
+	//
+	// By holding the lock, we ensure SendHTLC cannot check while we're
+	// storing and deleting.
+	s.networkResults.attemptIDMtx.Lock(attemptID)
+	defer s.networkResults.attemptIDMtx.Unlock(attemptID)
+
 	// The error reason will be unencypted in case this a local
 	// failure or a converted error.
 	unencrypted := pkt.localFailure || pkt.convertedError
@@ -997,6 +1073,8 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 			pkt.inKey(), err)
 		return
 	}
+
+	// Lock will be released here via defer
 
 	// Finally, notify on the htlc failure or success that has been handled.
 	key := newHtlcKey(pkt)

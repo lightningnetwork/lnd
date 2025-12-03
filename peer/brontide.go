@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -473,6 +474,9 @@ type Config struct {
 	// onion messages to subscribers.
 	OnionMessageServer *subscribe.Server
 
+	// ActorSystem is the server wide actor system.
+	ActorSystem *actor.ActorSystem
+
 	// ShouldFwdExpEndorsement is a closure that indicates whether
 	// experimental endorsement signals should be set.
 	ShouldFwdExpEndorsement func() bool
@@ -645,6 +649,11 @@ type Brontide struct {
 	// msg router. If so, then we don't worry about stopping the msg router
 	// when a peer disconnects.
 	globalMsgRouter bool
+
+	// onionPeerActorRef is an optional actor ref that points to the onion
+	// actor created for this peer **only if** the remote peer supports
+	// onion messaging.
+	onionPeerActorRef fn.Option[onionmessage.OnionPeerActorRef]
 
 	startReady chan struct{}
 
@@ -908,6 +917,20 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
+	// If the remote peer supports onion messages, then we'll spawn the
+	// onion peer actor, which will be used to send onion messages **to**
+	// the remote peer.
+	if p.remoteFeatures.HasFeature(lnwire.OnionMessagesOptional) {
+		p.log.Infof("Remote peer supports onion messages, " +
+			"registering onion message actor")
+		sender := func(msg *lnwire.OnionMessage) {
+			p.SendMessageLazy(false, msg)
+		}
+		onionPeerActorRef := onionmessage.SpawnOnionPeerActor(
+			p.cfg.ActorSystem, sender, p.cfg.PubKeyBytes,
+		)
+		p.onionPeerActorRef = fn.Some(onionPeerActorRef)
+	}
 	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
 		p.cfg.OnionMessageServer,
 	)
@@ -1676,6 +1699,12 @@ func (p *Brontide) Disconnect(reason error) {
 			router.Stop()
 		})
 	}
+
+	// If we have an onion peer actor, stop and remove it from the actor
+	// system.
+	p.onionPeerActorRef.WhenSome(func(ref onionmessage.OnionPeerActorRef) {
+		p.cfg.ActorSystem.StopAndRemoveActor(ref.ID())
+	})
 }
 
 // String returns the string representation of this peer.

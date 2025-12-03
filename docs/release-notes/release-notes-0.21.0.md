@@ -31,6 +31,12 @@
   or key) existed. The manager now correctly regenerates both files when either
   is missing, preventing "file not found" errors on startup.
 
+- [Fixed spurious error logs](https://github.com/lightningnetwork/lnd/pull/10413)
+  when the invoice expiry watcher attempts to cancel invoices with HTLCs that
+  have already settled. This occurs because the watcher eventually attempts to
+  cancel all invoices, and settled ones would previously produce benign
+  "Unable to cancel invoice: htlc already settled" error messages in the logs.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -82,5 +88,9 @@
 
 * Boris Nagaev
 * Elle Mouton
+<<<<<<< HEAD
 * Mohamed Awnallah
+=======
+* hieblmi
+>>>>>>> a55afd897 (docs: update release notes)
 * Nishant Bansal

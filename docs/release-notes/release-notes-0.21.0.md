@@ -26,6 +26,11 @@
   sub-server is still starting. This allows clients to reliably detect the
   transient condition and retry without brittle string matching.
 
+- [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10399) where the
+  TLS manager would fail to start if only one of the TLS pair files (certificate
+  or key) existed. The manager now correctly regenerates both files when either
+  is missing, preventing "file not found" errors on startup.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 
@@ -77,4 +82,5 @@
 
 * Boris Nagaev
 * Elle Mouton
+* Mohamed Awnallah
 * Nishant Bansal

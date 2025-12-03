@@ -31,6 +31,11 @@
 * Fix a bug where [repeated network
   addresses](https://github.com/lightningnetwork/lnd/pull/10341) were added to
   the node announcement and `getinfo` output.
+ 
+* [Fix source node race 
+  condition](https://github.com/lightningnetwork/lnd/pull/10371) which could
+  prevent a node from starting up if two goroutines attempt to update the 
+  node's announcement at the same time.
   
 * [Fix a startup issue in LND when encountering a 
   deserialization issue](https://github.com/lightningnetwork/lnd/pull/10383) 

@@ -353,6 +353,8 @@ func (ew *InvoiceExpiryWatcher) expireInvoice(hash lntypes.Hash, force bool) {
 
 	case errors.Is(err, ErrInvoiceAlreadySettled):
 
+	case errors.Is(err, ErrHTLCAlreadySettled):
+
 	case errors.Is(err, ErrInvoiceNotFound):
 		// It's possible that the user has manually canceled the invoice
 		// which will then be deleted by the garbage collector resulting

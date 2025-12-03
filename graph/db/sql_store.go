@@ -2022,9 +2022,25 @@ func (s *SQLStore) FetchChannelEdgesByID(chanID uint64) (
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it.
-			edge = &models.ChannelEdgeInfo{}
-			copy(edge.NodeKey1Bytes[:], zombie.NodeKey1)
-			copy(edge.NodeKey2Bytes[:], zombie.NodeKey2)
+			node1, err := route.NewVertexFromBytes(zombie.NodeKey1)
+			if err != nil {
+				return err
+			}
+			node2, err := route.NewVertexFromBytes(zombie.NodeKey2)
+			if err != nil {
+				return err
+			}
+			zombieEdge, err := models.NewV1Channel(
+				0,
+				chainhash.Hash{},
+				node1,
+				node2,
+				&models.ChannelV1Fields{},
+			)
+			if err != nil {
+				return err
+			}
+			edge = zombieEdge
 
 			return ErrZombieEdge
 		} else if err != nil {
@@ -2739,6 +2755,7 @@ func (s *SQLStore) ChannelView() ([]EdgePoint, error) {
 		handleChannel := func(_ context.Context,
 			channel sqlc.ListChannelsPaginatedRow) error {
 
+			// TODO(elle): update to handle V2 channels.
 			pkScript, err := genMultiSigP2WSH(
 				channel.BitcoinKey1, channel.BitcoinKey2,
 			)
@@ -2946,6 +2963,12 @@ func (s *SQLStore) DisconnectBlockAtHeight(height uint32) (
 func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 	proof *models.ChannelAuthProof) error {
 
+	// For now, we only support v1 channel proofs.
+	if proof.Version != lnwire.GossipVersion1 {
+		return fmt.Errorf("only v1 channel proofs supported, got v%d",
+			proof.Version)
+	}
+
 	var (
 		ctx       = context.TODO()
 		scidBytes = channelIDToBytes(scid.ToUint64())
@@ -2955,10 +2978,10 @@ func (s *SQLStore) AddEdgeProof(scid lnwire.ShortChannelID,
 		res, err := db.AddV1ChannelProof(
 			ctx, sqlc.AddV1ChannelProofParams{
 				Scid:              scidBytes,
-				Node1Signature:    proof.NodeSig1Bytes,
-				Node2Signature:    proof.NodeSig2Bytes,
-				Bitcoin1Signature: proof.BitcoinSig1Bytes,
-				Bitcoin2Signature: proof.BitcoinSig2Bytes,
+				Node1Signature:    proof.NodeSig1(),
+				Node2Signature:    proof.NodeSig2(),
+				Bitcoin1Signature: proof.BitcoinSig1(),
+				Bitcoin2Signature: proof.BitcoinSig2(),
 			},
 		)
 		if err != nil {
@@ -4112,14 +4135,26 @@ func marshalExtraOpaqueData(data []byte) (map[uint64][]byte, error) {
 func insertChannel(ctx context.Context, db SQLQueries,
 	edge *models.ChannelEdgeInfo) error {
 
+	v := lnwire.GossipVersion1
+
+	// For now, we only support V1 channel edges in the SQL store.
+	if edge.Version != v {
+		return fmt.Errorf("only V1 channel edges supported, got V%d",
+			edge.Version)
+	}
+
 	// Make sure that at least a "shell" entry for each node is present in
 	// the nodes table.
-	node1DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey1Bytes)
+	node1DBID, err := maybeCreateShellNode(
+		ctx, db, v, edge.NodeKey1Bytes,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
 
-	node2DBID, err := maybeCreateShellNode(ctx, db, edge.NodeKey2Bytes)
+	node2DBID, err := maybeCreateShellNode(
+		ctx, db, v, edge.NodeKey2Bytes,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create shell node: %w", err)
 	}
@@ -4130,23 +4165,27 @@ func insertChannel(ctx context.Context, db SQLQueries,
 	}
 
 	createParams := sqlc.CreateChannelParams{
-		Version:     int16(lnwire.GossipVersion1),
-		Scid:        channelIDToBytes(edge.ChannelID),
-		NodeID1:     node1DBID,
-		NodeID2:     node2DBID,
-		Outpoint:    edge.ChannelPoint.String(),
-		Capacity:    capacity,
-		BitcoinKey1: edge.BitcoinKey1Bytes[:],
-		BitcoinKey2: edge.BitcoinKey2Bytes[:],
+		Version:  int16(v),
+		Scid:     channelIDToBytes(edge.ChannelID),
+		NodeID1:  node1DBID,
+		NodeID2:  node2DBID,
+		Outpoint: edge.ChannelPoint.String(),
+		Capacity: capacity,
 	}
+	edge.BitcoinKey1Bytes.WhenSome(func(vertex route.Vertex) {
+		createParams.BitcoinKey1 = vertex[:]
+	})
+	edge.BitcoinKey2Bytes.WhenSome(func(vertex route.Vertex) {
+		createParams.BitcoinKey2 = vertex[:]
+	})
 
 	if edge.AuthProof != nil {
 		proof := edge.AuthProof
 
-		createParams.Node1Signature = proof.NodeSig1Bytes
-		createParams.Node2Signature = proof.NodeSig2Bytes
-		createParams.Bitcoin1Signature = proof.BitcoinSig1Bytes
-		createParams.Bitcoin2Signature = proof.BitcoinSig2Bytes
+		createParams.Node1Signature = proof.NodeSig1()
+		createParams.Node2Signature = proof.NodeSig2()
+		createParams.Bitcoin1Signature = proof.BitcoinSig1()
+		createParams.Bitcoin2Signature = proof.BitcoinSig2()
 	}
 
 	// Insert the new channel record.
@@ -4199,12 +4238,12 @@ func insertChannel(ctx context.Context, db SQLQueries,
 // created. The ID of the node is returned. A shell node only has a protocol
 // version and public key persisted.
 func maybeCreateShellNode(ctx context.Context, db SQLQueries,
-	pubKey route.Vertex) (int64, error) {
+	v lnwire.GossipVersion, pubKey route.Vertex) (int64, error) {
 
 	dbNode, err := db.GetNodeByPubKey(
 		ctx, sqlc.GetNodeByPubKeyParams{
 			PubKey:  pubKey[:],
-			Version: int16(lnwire.GossipVersion1),
+			Version: int16(v),
 		},
 	)
 	// The node exists. Return the ID.
@@ -4217,7 +4256,7 @@ func maybeCreateShellNode(ctx context.Context, db SQLQueries,
 	// Otherwise, the node does not exist, so we create a shell entry for
 	// it.
 	id, err := db.UpsertNode(ctx, sqlc.UpsertNodeParams{
-		Version: int16(lnwire.GossipVersion1),
+		Version: int16(v),
 		PubKey:  pubKey[:],
 	})
 	if err != nil {
@@ -4320,33 +4359,47 @@ func buildEdgeInfoWithBatchData(chain chainhash.Hash,
 		recs = make([]byte, 0)
 	}
 
-	var btcKey1, btcKey2 route.Vertex
-	copy(btcKey1[:], dbChan.BitcoinKey1)
-	copy(btcKey2[:], dbChan.BitcoinKey2)
+	btcKey1, err := route.NewVertexFromBytes(dbChan.BitcoinKey1)
+	if err != nil {
+		return nil, err
+	}
+	btcKey2, err := route.NewVertexFromBytes(dbChan.BitcoinKey2)
+	if err != nil {
+		return nil, err
+	}
 
-	channel := &models.ChannelEdgeInfo{
-		ChainHash:        chain,
-		ChannelID:        byteOrder.Uint64(dbChan.Scid),
-		NodeKey1Bytes:    node1,
-		NodeKey2Bytes:    node2,
-		BitcoinKey1Bytes: btcKey1,
-		BitcoinKey2Bytes: btcKey2,
-		ChannelPoint:     *op,
-		Capacity:         btcutil.Amount(dbChan.Capacity.Int64),
-		Features:         fv,
-		ExtraOpaqueData:  recs,
+	channel, err := models.NewV1Channel(
+		byteOrder.Uint64(dbChan.Scid),
+		chain,
+		node1,
+		node2,
+		&models.ChannelV1Fields{
+			BitcoinKey1Bytes: btcKey1,
+			BitcoinKey2Bytes: btcKey2,
+			ExtraOpaqueData:  recs,
+		},
+		models.WithChannelPoint(*op),
+		models.WithCapacity(btcutil.Amount(dbChan.Capacity.Int64)),
+		models.WithFeatures(fv.RawFeatureVector),
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// We always set all the signatures at the same time, so we can
 	// safely check if one signature is present to determine if we have the
 	// rest of the signatures for the auth proof.
 	if len(dbChan.Bitcoin1Signature) > 0 {
-		channel.AuthProof = &models.ChannelAuthProof{
-			NodeSig1Bytes:    dbChan.Node1Signature,
-			NodeSig2Bytes:    dbChan.Node2Signature,
-			BitcoinSig1Bytes: dbChan.Bitcoin1Signature,
-			BitcoinSig2Bytes: dbChan.Bitcoin2Signature,
+		// For v1 channels, we have four signatures.
+		if dbChan.Version == int16(lnwire.GossipVersion1) {
+			channel.AuthProof = models.NewV1ChannelAuthProof(
+				dbChan.Node1Signature,
+				dbChan.Node2Signature,
+				dbChan.Bitcoin1Signature,
+				dbChan.Bitcoin2Signature,
+			)
 		}
+		// TODO(elle): Add v2 support when needed.
 	}
 
 	return channel, nil

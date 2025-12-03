@@ -370,6 +370,8 @@ github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display h1:Y2WiPkBS
 github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20251113231738-54355092273f h1:gLg51krPAkA7IDtPzr+KqWENSr20DboNn1sPon6N07E=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20251113231738-54355092273f/go.mod h1:nP85zMHG7c0si/eHBbSQpuDCtnIXfSvFrK3tW6YWzmU=
+github.com/lightningnetwork/lnd/actor v0.0.3 h1:m+v0UuHdEUg4S82J4aC40pGonScckzsu1K9sdZeAo5Y=
+github.com/lightningnetwork/lnd/actor v0.0.3/go.mod h1:RKgQPYHLVHuIRdMF/Q8+NPV2Nva3F66ZsULD2+TskKc=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=
 github.com/lightningnetwork/lnd/cert v1.2.2/go.mod h1:jQmFn/Ez4zhDgq2hnYSw8r35bqGVxViXhX6Cd7HXM6U=
 github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=

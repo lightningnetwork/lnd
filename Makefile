@@ -68,12 +68,28 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
+# Docker cache mounting strategy:
+# - CI (GitHub Actions): Use bind mounts to host paths that GA caches persist.
+# - Local: Use Docker named volumes (much faster on macOS/Windows due to
+#   avoiding slow host-syncing overhead).
+# Paths inside container must match GOCACHE/GOMODCACHE in tools/Dockerfile.
+ifdef CI
+# CI mode: bind mount to host paths that GitHub Actions caches.
 DOCKER_TOOLS = docker run \
   --rm \
-  -v $(shell bash -c "$(GOCC) env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
-  -v $(shell bash -c "$(GOCC) env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
-  -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
+  -v $${HOME}/.cache/go-build:/tmp/build/.cache \
+  -v $${HOME}/go/pkg/mod:/tmp/build/.modcache \
+  -v $${HOME}/.cache/golangci-lint:/root/.cache/golangci-lint \
   -v $$(pwd):/build lnd-tools
+else
+# Local mode: Docker named volumes for fast macOS/Windows performance.
+DOCKER_TOOLS = docker run \
+  --rm \
+  -v lnd-go-build-cache:/tmp/build/.cache \
+  -v lnd-go-mod-cache:/tmp/build/.modcache \
+  -v lnd-go-lint-cache:/root/.cache/golangci-lint \
+  -v $$(pwd):/build lnd-tools
+endif
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"

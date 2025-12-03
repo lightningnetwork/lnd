@@ -133,28 +133,98 @@ func (b *missionControlStore) clear() error {
 }
 
 // fetchAll returns all results currently stored in the database.
+// It also removes any corrupted entries that fail to deserialize from both
+// the database and the in-memory tracking structures.
 func (b *missionControlStore) fetchAll() ([]*paymentResult, error) {
 	var results []*paymentResult
+	var corruptedKeys [][]byte
 
+	// Read all results and identify corrupted entries.
 	err := b.db.view(func(resultBucket kvdb.RBucket) error {
 		results = make([]*paymentResult, 0)
+		corruptedKeys = make([][]byte, 0)
 
-		return resultBucket.ForEach(func(k, v []byte) error {
+		err := resultBucket.ForEach(func(k, v []byte) error {
 			result, err := deserializeResult(k, v)
+
+			// In case of an error, track the key for removal.
 			if err != nil {
-				return err
+				log.Warnf("Failed to deserialize mission "+
+					"control entry (key=%x): %v", k, err)
+
+				// Make a copy of the key since ForEach reuses
+				// the slice.
+				keyCopy := make([]byte, len(k))
+				copy(keyCopy, k)
+				corruptedKeys = append(corruptedKeys, keyCopy)
+
+				return nil
 			}
 
 			results = append(results, result)
 
 			return nil
 		})
+		if err != nil {
+			return err
+		}
 
+		return nil
 	}, func() {
 		results = nil
+		corruptedKeys = nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Delete corrupted entries from the database which were identified
+	// when loading the results from the database.
+	//
+	// TODO: This code part should eventually be removed once we move the
+	// mission control store to a native sql database and have to do a
+	// full migration of the data.
+	if len(corruptedKeys) > 0 {
+		err = b.db.update(func(resultBucket kvdb.RwBucket) error {
+			for _, key := range corruptedKeys {
+				if err := resultBucket.Delete(key); err != nil {
+					return fmt.Errorf("failed to delete "+
+						"corrupted entry: %w", err)
+				}
+			}
+
+			return nil
+		}, func() {})
+		if err != nil {
+			return nil, err
+		}
+
+		// Build a set of corrupted keys.
+		corruptedSet := make(map[string]struct{}, len(corruptedKeys))
+		for _, key := range corruptedKeys {
+			corruptedSet[string(key)] = struct{}{}
+		}
+
+		// Remove corrupted keys from in-memory map.
+		for keyStr := range corruptedSet {
+			delete(b.keysMap, keyStr)
+		}
+
+		// Remove from the keys list in a single pass.
+		for e := b.keys.Front(); e != nil; {
+			next := e.Next()
+			keyVal, ok := e.Value.(string)
+			if ok {
+				_, isCorrupted := corruptedSet[keyVal]
+				if isCorrupted {
+					b.keys.Remove(e)
+				}
+			}
+			e = next
+		}
+
+		log.Infof("Removed %d corrupted mission control entries",
+			len(corruptedKeys))
 	}
 
 	return results, nil

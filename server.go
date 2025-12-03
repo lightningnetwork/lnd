@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
@@ -422,6 +423,10 @@ type server struct {
 
 	onionMessageServer *subscribe.Server
 
+	// actorSystem is the actor system tasked with handling actors that are
+	// created for this server.
+	actorSystem *actor.ActorSystem
+
 	// txPublisher is a publisher with fee-bumping capability.
 	txPublisher *sweep.TxPublisher
 
@@ -735,6 +740,8 @@ func newServer(ctx context.Context, cfg *Config, listenAddrs []net.Addr,
 		customMessageServer: subscribe.NewServer(),
 
 		onionMessageServer: subscribe.NewServer(),
+
+		actorSystem: actor.NewActorSystem(),
 
 		tlsManager: tlsManager,
 
@@ -2616,6 +2623,11 @@ func (s *server) Stop() error {
 		// Shutdown the onion router for onion messaging.
 		s.sphinxOnionMsg.Stop()
 
+		// Shutdown the actor system to stop all actors.
+		if err := s.actorSystem.Shutdown(); err != nil {
+			srvrLog.Warnf("failed to stop actorSystem: %v", err)
+		}
+
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop chanStatusMgr: %v", err)
@@ -4417,6 +4429,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		OnionMessageServer:      s.onionMessageServer,
+		ActorSystem:             s.actorSystem,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement1, error) {
 

@@ -317,6 +317,14 @@ const (
 	// support for the special custom taproot overlay channel.
 	SimpleTaprootOverlayChansRequired = 2026
 
+	// OnionMessagesRequired is a required feature bit that indicates that
+	// the node can forward onion messages.
+	OnionMessagesRequired = 38
+
+	// OnionMessagesOptional is an optional feature bit that indicates
+	// that the node can forward onion messages.
+	OnionMessagesOptional = 39
+
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.
 	//

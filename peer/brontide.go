@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/actor"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/brontide"
 	"github.com/lightningnetwork/lnd/buffer"
@@ -484,6 +485,9 @@ type Config struct {
 	// experimental accountability signals should be set.
 	ShouldFwdExpAccountability func() bool
 
+	// ActorSystem is the server wide actor system.
+	ActorSystem *actor.ActorSystem
+
 	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
 	// disconnected if a pong is not received in time or is mismatched.
 	NoDisconnectOnPongFailure bool
@@ -915,9 +919,26 @@ func (p *Brontide) Start() error {
 		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
-	// The onion message endpoint is used to handle incoming onion messages
-	// **from** this peer. This uses the message multiplexer to route
-	// messages to the endpoint for further processing.
+	// If the remote peer supports onion messages, then we'll spawn the
+	// onion peer actor, which will be used to send onion messages **to**
+	// the remote peer.
+	if p.remoteFeatures.HasFeature(lnwire.OnionMessagesOptional) {
+		p.log.Infof("Remote peer supports onion messages, " +
+			"registering onion message actor")
+		sender := func(msg *lnwire.OnionMessage) {
+			if err := p.SendMessageLazy(false, msg); err != nil {
+				p.log.Warnf("Failed to send onion message: %v",
+					err)
+			}
+		}
+		_, err := onionmessage.SpawnOnionPeerActor(
+			p.cfg.ActorSystem, sender, p.PubKey(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to spawn onion peer "+
+				"actor: %w", err)
+		}
+	}
 	onionMessageEndpoint := onionmessage.NewOnionEndpoint(
 		p.cfg.OnionMessageServer,
 	)
@@ -1696,6 +1717,9 @@ func (p *Brontide) Disconnect(reason error) {
 			router.Stop()
 		})
 	}
+
+	// Stop the onion peer actor if one was spawned for this peer.
+	onionmessage.StopPeerActor(p.cfg.ActorSystem, p.PubKey())
 }
 
 // String returns the string representation of this peer.

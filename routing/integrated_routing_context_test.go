@@ -25,14 +25,18 @@ type mockBandwidthHints struct {
 }
 
 func (m *mockBandwidthHints) availableChanBandwidth(channelID uint64,
-	_ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
+	_ lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	if m.hints == nil {
-		return 0, false
+		return 0, ErrLocalChannelNotFound
 	}
 
 	balance, ok := m.hints[channelID]
-	return balance, ok
+	if !ok {
+		return 0, ErrLocalChannelNotFound
+	}
+
+	return balance, nil
 }
 
 func (m *mockBandwidthHints) isCustomHTLCPayment() bool {

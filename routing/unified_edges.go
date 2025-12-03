@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -285,32 +286,32 @@ func (u *edgeUnifier) getEdgeLocal(netAmtReceived lnwire.MilliSatoshi,
 		// channel selection. The disabled flag is ignored for local
 		// channels.
 
-		// Retrieve bandwidth for this local channel. If not
-		// available, assume this channel has enough bandwidth.
-		//
-		// TODO(joostjager): Possibly change to skipping this
-		// channel. The bandwidth hint is expected to be
-		// available.
-		bandwidth, ok := bandwidthHints.availableChanBandwidth(
+		// Retrieve bandwidth for this local channel.
+		bandwidth, err := bandwidthHints.availableChanBandwidth(
 			edge.policy.ChannelID, amt,
 		)
-		if !ok {
-			log.Warnf("Cannot get bandwidth for edge %v, use max "+
-				"instead", edge.policy.ChannelID)
+		if err != nil {
+			// If the channel is not in our local channels map, use
+			// max bandwidth as a fallback.
+			if errors.Is(err, ErrLocalChannelNotFound) {
+				log.Warnf("Cannot get bandwidth for edge %v, "+
+					"use max instead",
+					edge.policy.ChannelID)
 
-			bandwidth = lnwire.MaxMilliSatoshi
+				bandwidth = lnwire.MaxMilliSatoshi
+			} else {
+				// Channel is local but unusable (offline, HTLC
+				// limits, etc.). Skip this edge entirely to
+				// avoid attempting to route through a channel
+				// that cannot carry the payment.
+				log.Debugf("Skipped local edge %v: channel "+
+					"unusable: %v", edge.policy.ChannelID,
+					err)
+
+				continue
+			}
 		}
 
-		// TODO(yy): if the above `!ok` is chosen, we'd have
-		// `bandwidth` to be the max value, which will end up having
-		// the `maxBandwidth` to be have the largest value and this
-		// edge will be the chosen one. This is wrong in two ways,
-		// 1. we need to understand why `availableChanBandwidth` cannot
-		// find bandwidth for this edge as something is wrong with this
-		// channel, and,
-		// 2. this edge is likely NOT the local channel with the
-		// highest available bandwidth.
-		//
 		// Skip channels that can't carry the payment.
 		if amt > bandwidth {
 			log.Debugf("Skipped edge %v: not enough bandwidth, "+

@@ -684,7 +684,7 @@ func (r *rbfCloserTestHarness) assertSingleRbfIteration(
 func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 	initEvent *OfferReceivedEvent, balanceAfterClose,
 	absoluteFee btcutil.Amount, sequence uint32, iteration bool,
-	sendInit bool) {
+	trigger func()) {
 
 	ctx := r.T.Context()
 
@@ -696,7 +696,9 @@ func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
 		absoluteFee, balanceAfterClose, false,
 	)
 
-	if sendInit {
+	if trigger != nil {
+		trigger()
+	} else {
 		r.chanCloser.SendEvent(ctx, initEvent)
 	}
 
@@ -1386,10 +1388,13 @@ func TestRbfChannelFlushingTransitions(t *testing.T) {
 		// Now we'll send in the channel flushed event, and assert that
 		// this triggers a remote RBF iteration (we process their early
 		// offer and send our sig).
-		closeHarness.chanCloser.SendEvent(ctx, &flushEvent)
 		closeHarness.assertSingleRemoteRbfIteration(
 			remoteOffer, absoluteFee, absoluteFee, sequence, true,
-			false,
+			func() {
+				closeHarness.chanCloser.SendEvent(
+					ctx, &flushEvent,
+				)
+			},
 		)
 	})
 
@@ -1857,7 +1862,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			false, nil,
 		)
 
 		// Next, we'll receive an offer from the remote party, and drive
@@ -1867,7 +1872,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		absoluteFee = feeOffer.SigMsg.FeeSatoshis
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, true,
+			true, nil,
 		)
 
 		closeHarness.assertNoStateTransitions()
@@ -1950,7 +1955,7 @@ func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			false, true,
+			false, nil,
 		)
 	})
 
@@ -2048,7 +2053,7 @@ func TestRbfCloseErr(t *testing.T) {
 		// sig.
 		closeHarness.assertSingleRemoteRbfIteration(
 			feeOffer, balanceAfterClose, absoluteFee, sequence,
-			true, true,
+			true, nil,
 		)
 	})
 

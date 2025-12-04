@@ -31,6 +31,14 @@
   or key) existed. The manager now correctly regenerates both files when either
   is missing, preventing "file not found" errors on startup.
 
+- [Fixed race conditions](https://github.com/lightningnetwork/lnd/pull/10420) in
+  the channel graph database. The `Node.PubKey()` and
+  `ChannelEdgeInfo.NodeKey1/NodeKey2()` methods had check-then-act races when
+  caching parsed public keys. Additionally, `DisconnectBlockAtHeight` was
+  accessing the reject and channel caches without proper locking. The caching
+  has been removed from the public key parsing methods, and proper mutex
+  protection has been added to the cache access in `DisconnectBlockAtHeight`.
+
 # New Features
 
 - Basic Support for [onion messaging forwarding](https://github.com/lightningnetwork/lnd/pull/9868) 

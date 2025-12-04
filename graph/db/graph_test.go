@@ -406,6 +406,63 @@ func TestSourceNode(t *testing.T) {
 	compareNodes(t, testNode, sourceNode)
 }
 
+// TestSetSourceNodeSameTimestamp tests that SetSourceNode accepts updates
+// with the same timestamp. This is necessary because multiple code paths
+// (setSelfNode, createNewHiddenService, RPC updates) can race during startup,
+// reading the same old timestamp and independently incrementing it to the same
+// new value. For our own node, we want parameter changes to persist even with
+// timestamp collisions (unlike network gossip where same timestamp means same
+// content).
+func TestSetSourceNodeSameTimestamp(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	graph := MakeTestGraph(t)
+
+	// Create and set the initial source node.
+	testNode := createTestVertex(t)
+	require.NoError(t, graph.SetSourceNode(ctx, testNode))
+
+	// Verify the source node was set correctly.
+	sourceNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	compareNodes(t, testNode, sourceNode)
+
+	// Create a modified version of the node with the same timestamp but
+	// different parameters (e.g., different alias and color). This
+	// simulates the race condition where multiple goroutines read the
+	// same old timestamp, independently increment it, and try to update
+	// with different changes.
+	modifiedNode := &models.Node{
+		PubKeyBytes:          testNode.PubKeyBytes,
+		HaveNodeAnnouncement: true,
+		// Same timestamp.
+		LastUpdate: testNode.LastUpdate,
+		// Different alias.
+		Alias:        "different-alias",
+		Color:        color.RGBA{R: 100, G: 200, B: 50, A: 0},
+		Addresses:    testNode.Addresses,
+		Features:     testNode.Features,
+		AuthSigBytes: testNode.AuthSigBytes,
+	}
+
+	// Attempt to set the source node with the same timestamp but
+	// different parameters. This should now succeed for both SQL and KV
+	// stores. The SQL store uses UpsertSourceNode which removes the
+	// strict timestamp constraint, allowing last-write-wins semantics.
+	require.NoError(t, graph.SetSourceNode(ctx, modifiedNode))
+
+	// Verify that the parameter changes actually persisted.
+	updatedNode, err := graph.SourceNode(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "different-alias", updatedNode.Alias)
+	require.Equal(
+		t, color.RGBA{R: 100, G: 200, B: 50, A: 0},
+		updatedNode.Color,
+	)
+	require.Equal(t, testNode.LastUpdate, updatedNode.LastUpdate)
+}
+
 // TestEdgeInsertionDeletion tests the basic CRUD operations for channel edges.
 func TestEdgeInsertionDeletion(t *testing.T) {
 	t.Parallel()

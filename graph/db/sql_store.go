@@ -55,6 +55,7 @@ type SQLQueries interface {
 		Node queries.
 	*/
 	UpsertNode(ctx context.Context, arg sqlc.UpsertNodeParams) (int64, error)
+	UpsertSourceNode(ctx context.Context, arg sqlc.UpsertSourceNodeParams) (int64, error)
 	GetNodeByPubKey(ctx context.Context, arg sqlc.GetNodeByPubKeyParams) (sqlc.GraphNode, error)
 	GetNodesByIDs(ctx context.Context, ids []int64) ([]sqlc.GraphNode, error)
 	GetNodeIDByPubKey(ctx context.Context, arg sqlc.GetNodeIDByPubKeyParams) (int64, error)
@@ -532,7 +533,14 @@ func (s *SQLStore) SetSourceNode(ctx context.Context,
 	node *models.Node) error {
 
 	return s.db.ExecTx(ctx, sqldb.WriteTxOpt(), func(db SQLQueries) error {
-		id, err := upsertNode(ctx, db, node)
+		// For the source node, we use a less strict upsert that allows
+		// updates even when the timestamp hasn't changed. This handles
+		// the race condition where multiple goroutines (e.g.,
+		// setSelfNode, createNewHiddenService, RPC updates) read the
+		// same old timestamp, independently increment it, and try to
+		// write concurrently. We want all parameter changes to persist,
+		// even if timestamps collide.
+		id, err := upsertSourceNode(ctx, db, node)
 		if err != nil {
 			return fmt.Errorf("unable to upsert source node: %w",
 				err)
@@ -3602,6 +3610,135 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 	return features, nil
 }
 
+// upsertNodeAncillaryData updates the node's features, addresses, and extra
+// signed fields. This is common logic shared by upsertNode and
+// upsertSourceNode.
+func upsertNodeAncillaryData(ctx context.Context, db SQLQueries,
+	nodeID int64, node *models.Node) error {
+
+	// Update the node's features.
+	err := upsertNodeFeatures(ctx, db, nodeID, node.Features)
+	if err != nil {
+		return fmt.Errorf("inserting node features: %w", err)
+	}
+
+	// Update the node's addresses.
+	err = upsertNodeAddresses(ctx, db, nodeID, node.Addresses)
+	if err != nil {
+		return fmt.Errorf("inserting node addresses: %w", err)
+	}
+
+	// Convert the flat extra opaque data into a map of TLV types to
+	// values.
+	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
+	if err != nil {
+		return fmt.Errorf("unable to marshal extra opaque data: %w",
+			err)
+	}
+
+	// Update the node's extra signed fields.
+	err = upsertNodeExtraSignedFields(ctx, db, nodeID, extra)
+	if err != nil {
+		return fmt.Errorf("inserting node extra TLVs: %w", err)
+	}
+
+	return nil
+}
+
+// populateNodeParams populates the common node parameters from a models.Node.
+// This is a helper for building UpsertNodeParams and UpsertSourceNodeParams.
+func populateNodeParams(node *models.Node,
+	setParams func(lastUpdate sql.NullInt64, alias,
+		colorStr sql.NullString, signature []byte)) {
+
+	if !node.HaveNodeAnnouncement {
+		return
+	}
+
+	lastUpdate := sqldb.SQLInt64(node.LastUpdate.Unix())
+	alias := sqldb.SQLStrValid(node.Alias)
+	colorStr := sqldb.SQLStrValid(EncodeHexColor(node.Color))
+
+	setParams(lastUpdate, alias, colorStr, node.AuthSigBytes)
+}
+
+// buildNodeUpsertParams builds the parameters for upserting a node using the
+// strict UpsertNode query (requires timestamp to be increasing).
+func buildNodeUpsertParams(node *models.Node) sqlc.UpsertNodeParams {
+	params := sqlc.UpsertNodeParams{
+		Version: int16(ProtocolV1),
+		PubKey:  node.PubKeyBytes[:],
+	}
+
+	populateNodeParams(
+		node, func(lastUpdate sql.NullInt64, alias,
+			colorStr sql.NullString,
+			signature []byte) {
+
+			params.LastUpdate = lastUpdate
+			params.Alias = alias
+			params.Color = colorStr
+			params.Signature = signature
+		},
+	)
+
+	return params
+}
+
+// buildSourceNodeUpsertParams builds the parameters for upserting the source
+// node using the lenient UpsertSourceNode query (allows same timestamp).
+func buildSourceNodeUpsertParams(
+	node *models.Node) sqlc.UpsertSourceNodeParams {
+
+	params := sqlc.UpsertSourceNodeParams{
+		Version: int16(ProtocolV1),
+		PubKey:  node.PubKeyBytes[:],
+	}
+
+	populateNodeParams(
+		node, func(lastUpdate sql.NullInt64, alias,
+			colorStr sql.NullString, signature []byte) {
+
+			params.LastUpdate = lastUpdate
+			params.Alias = alias
+			params.Color = colorStr
+			params.Signature = signature
+		},
+	)
+
+	return params
+}
+
+// upsertSourceNode upserts the source node record into the database using a
+// less strict upsert that allows updates even when the timestamp hasn't
+// changed. This is necessary to handle concurrent updates to our own node
+// during startup and runtime. The node's features, addresses and extra TLV
+// types are also updated. The node's DB ID is returned.
+func upsertSourceNode(ctx context.Context, db SQLQueries,
+	node *models.Node) (int64, error) {
+
+	params := buildSourceNodeUpsertParams(node)
+
+	nodeID, err := db.UpsertSourceNode(ctx, params)
+	if err != nil {
+		return 0, fmt.Errorf("upserting source node(%x): %w",
+			node.PubKeyBytes, err)
+	}
+
+	// We can exit here if we don't have the announcement yet.
+	if !node.HaveNodeAnnouncement {
+		return nodeID, nil
+	}
+
+	// Update the ancillary node data (features, addresses, extra fields).
+	err = upsertNodeAncillaryData(ctx, db, nodeID, node)
+	if err != nil {
+		return 0, err
+	}
+
+	return nodeID, nil
+}
+
 // upsertNode upserts the node record into the database. If the node already
 // exists, then the node's information is updated. If the node doesn't exist,
 // then a new node is created. The node's features, addresses and extra TLV
@@ -3609,17 +3746,7 @@ func getNodeFeatures(ctx context.Context, db SQLQueries,
 func upsertNode(ctx context.Context, db SQLQueries,
 	node *models.Node) (int64, error) {
 
-	params := sqlc.UpsertNodeParams{
-		Version: int16(ProtocolV1),
-		PubKey:  node.PubKeyBytes[:],
-	}
-
-	if node.HaveNodeAnnouncement {
-		params.LastUpdate = sqldb.SQLInt64(node.LastUpdate.Unix())
-		params.Color = sqldb.SQLStrValid(EncodeHexColor(node.Color))
-		params.Alias = sqldb.SQLStrValid(node.Alias)
-		params.Signature = node.AuthSigBytes
-	}
+	params := buildNodeUpsertParams(node)
 
 	nodeID, err := db.UpsertNode(ctx, params)
 	if err != nil {
@@ -3632,30 +3759,10 @@ func upsertNode(ctx context.Context, db SQLQueries,
 		return nodeID, nil
 	}
 
-	// Update the node's features.
-	err = upsertNodeFeatures(ctx, db, nodeID, node.Features)
+	// Update the ancillary node data (features, addresses, extra fields).
+	err = upsertNodeAncillaryData(ctx, db, nodeID, node)
 	if err != nil {
-		return 0, fmt.Errorf("inserting node features: %w", err)
-	}
-
-	// Update the node's addresses.
-	err = upsertNodeAddresses(ctx, db, nodeID, node.Addresses)
-	if err != nil {
-		return 0, fmt.Errorf("inserting node addresses: %w", err)
-	}
-
-	// Convert the flat extra opaque data into a map of TLV types to
-	// values.
-	extra, err := marshalExtraOpaqueData(node.ExtraOpaqueData)
-	if err != nil {
-		return 0, fmt.Errorf("unable to marshal extra opaque data: %w",
-			err)
-	}
-
-	// Update the node's extra signed fields.
-	err = upsertNodeExtraSignedFields(ctx, db, nodeID, extra)
-	if err != nil {
-		return 0, fmt.Errorf("inserting node extra TLVs: %w", err)
+		return 0, err
 	}
 
 	return nodeID, nil

@@ -77,7 +77,7 @@ LIMIT $3;
 SELECT EXISTS (
     SELECT 1
     FROM graph_channels c
-    JOIN graph_nodes n ON n.id = c.node_id_1 OR n.id = c.node_id_2
+    JOIN graph_nodes n ON n.id = c.node_id_1
     -- NOTE: we hard-code the version here since the clauses
     -- here that determine if a node is public is specific
     -- to the V1 gossip protocol. In V1, a node is public
@@ -86,6 +86,13 @@ SELECT EXISTS (
     -- announcement. It is enough to just check that we have
     -- one of the signatures since we only ever set them
     -- together.
+    WHERE c.version = 1
+      AND c.bitcoin_1_signature IS NOT NULL
+      AND n.pub_key = $1
+    UNION ALL
+    SELECT 1
+    FROM graph_channels c
+    JOIN graph_nodes n ON n.id = c.node_id_2
     WHERE c.version = 1
       AND c.bitcoin_1_signature IS NOT NULL
       AND n.pub_key = $1

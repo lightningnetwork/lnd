@@ -131,6 +131,15 @@ type RouterClient interface {
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
 	// for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(ctx context.Context, in *FindBaseAliasRequest, opts ...grpc.CallOption) (*FindBaseAliasResponse, error)
+	// lncli: `deletefwdhistory`
+	// DeleteForwardingHistory allows the caller to delete forwarding history
+	// events older than a specified time. This is useful for implementing data
+	// retention policies for privacy purposes. The call deletes events in batches
+	// and returns statistics including the total number of events deleted and the
+	// aggregate fees earned from those events. The deletion is performed in a
+	// transaction-safe manner with configurable batch sizes to avoid holding
+	// large database locks.
+	DeleteForwardingHistory(ctx context.Context, in *DeleteForwardingHistoryRequest, opts ...grpc.CallOption) (*DeleteForwardingHistoryResponse, error)
 }
 
 type routerClient struct {
@@ -493,6 +502,15 @@ func (c *routerClient) XFindBaseLocalChanAlias(ctx context.Context, in *FindBase
 	return out, nil
 }
 
+func (c *routerClient) DeleteForwardingHistory(ctx context.Context, in *DeleteForwardingHistoryRequest, opts ...grpc.CallOption) (*DeleteForwardingHistoryResponse, error) {
+	out := new(DeleteForwardingHistoryResponse)
+	err := c.cc.Invoke(ctx, "/routerrpc.Router/DeleteForwardingHistory", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RouterServer is the server API for Router service.
 // All implementations must embed UnimplementedRouterServer
 // for forward compatibility
@@ -609,6 +627,15 @@ type RouterServer interface {
 	// XFindBaseLocalChanAlias is an experimental API that looks up the base scid
 	// for a local chan alias that was registered during the current runtime.
 	XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error)
+	// lncli: `deletefwdhistory`
+	// DeleteForwardingHistory allows the caller to delete forwarding history
+	// events older than a specified time. This is useful for implementing data
+	// retention policies for privacy purposes. The call deletes events in batches
+	// and returns statistics including the total number of events deleted and the
+	// aggregate fees earned from those events. The deletion is performed in a
+	// transaction-safe manner with configurable batch sizes to avoid holding
+	// large database locks.
+	DeleteForwardingHistory(context.Context, *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse, error)
 	mustEmbedUnimplementedRouterServer()
 }
 
@@ -678,6 +705,9 @@ func (UnimplementedRouterServer) XDeleteLocalChanAliases(context.Context, *Delet
 }
 func (UnimplementedRouterServer) XFindBaseLocalChanAlias(context.Context, *FindBaseAliasRequest) (*FindBaseAliasResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XFindBaseLocalChanAlias not implemented")
+}
+func (UnimplementedRouterServer) DeleteForwardingHistory(context.Context, *DeleteForwardingHistoryRequest) (*DeleteForwardingHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteForwardingHistory not implemented")
 }
 func (UnimplementedRouterServer) mustEmbedUnimplementedRouterServer() {}
 
@@ -1096,6 +1126,24 @@ func _Router_XFindBaseLocalChanAlias_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Router_DeleteForwardingHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteForwardingHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RouterServer).DeleteForwardingHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/routerrpc.Router/DeleteForwardingHistory",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RouterServer).DeleteForwardingHistory(ctx, req.(*DeleteForwardingHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Router_ServiceDesc is the grpc.ServiceDesc for Router service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1158,6 +1206,10 @@ var Router_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "XFindBaseLocalChanAlias",
 			Handler:    _Router_XFindBaseLocalChanAlias_Handler,
+		},
+		{
+			MethodName: "DeleteForwardingHistory",
+			Handler:    _Router_DeleteForwardingHistory_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -33,11 +33,9 @@ type ChannelEdgeInfo struct {
 
 	// NodeKey1Bytes is the raw public key of the first node.
 	NodeKey1Bytes [33]byte
-	nodeKey1      *btcec.PublicKey
 
 	// NodeKey2Bytes is the raw public key of the first node.
 	NodeKey2Bytes [33]byte
-	nodeKey2      *btcec.PublicKey
 
 	// BitcoinKey1Bytes is the raw public key of the first node.
 	BitcoinKey1Bytes [33]byte
@@ -84,10 +82,8 @@ type ChannelEdgeInfo struct {
 func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
 	bitcoinKey2 *btcec.PublicKey) {
 
-	c.nodeKey1 = nodeKey1
-	copy(c.NodeKey1Bytes[:], c.nodeKey1.SerializeCompressed())
+	copy(c.NodeKey1Bytes[:], nodeKey1.SerializeCompressed())
 
-	c.nodeKey2 = nodeKey2
 	copy(c.NodeKey2Bytes[:], nodeKey2.SerializeCompressed())
 
 	c.bitcoinKey1 = bitcoinKey1
@@ -101,42 +97,16 @@ func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
 // the creation of this channel. A node is considered "first" if the
 // lexicographical ordering the its serialized public key is "smaller" than
 // that of the other node involved in channel creation.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
 func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
-	if c.nodeKey1 != nil {
-		return c.nodeKey1, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.nodeKey1 = key
-
-	return key, nil
+	return btcec.ParsePubKey(c.NodeKey1Bytes[:])
 }
 
 // NodeKey2 is the identity public key of the "second" node that was involved in
 // the creation of this channel. A node is considered "second" if the
 // lexicographical ordering the its serialized public key is "larger" than that
 // of the other node involved in channel creation.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
 func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
-	if c.nodeKey2 != nil {
-		return c.nodeKey2, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.nodeKey2 = key
-
-	return key, nil
+	return btcec.ParsePubKey(c.NodeKey2Bytes[:])
 }
 
 // BitcoinKey1 is the Bitcoin multi-sig key belonging to the first node, that

@@ -468,9 +468,9 @@ type Config struct {
 	// onion messages to subscribers.
 	OnionMessageServer *subscribe.Server
 
-	// ShouldFwdExpEndorsement is a closure that indicates whether
-	// experimental endorsement signals should be set.
-	ShouldFwdExpEndorsement func() bool
+	// ShouldFwdExpAccountability is a closure that indicates whether
+	// experimental accountability signals should be set.
+	ShouldFwdExpAccountability func() bool
 
 	// NoDisconnectOnPongFailure indicates whether the peer should *not* be
 	// disconnected if a pong is not received in time or is mismatched.
@@ -1460,25 +1460,25 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		PendingCommitTicker: ticker.New(
 			p.cfg.PendingCommitInterval,
 		),
-		BatchSize:               p.cfg.ChannelCommitBatchSize,
-		UnsafeReplay:            p.cfg.UnsafeReplay,
-		MinUpdateTimeout:        htlcswitch.DefaultMinLinkFeeUpdateTimeout,
-		MaxUpdateTimeout:        htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
-		OutgoingCltvRejectDelta: p.cfg.OutgoingCltvRejectDelta,
-		TowerClient:             p.cfg.TowerClient,
-		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
-		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
-		MaxAnchorsCommitFeeRate: p.cfg.MaxAnchorsCommitFeeRate,
-		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
-		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
-		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
-		NotifyInactiveLinkEvent: p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
-		HtlcNotifier:            p.cfg.HtlcNotifier,
-		GetAliases:              p.cfg.GetAliases,
-		PreviouslySentShutdown:  shutdownMsg,
-		DisallowRouteBlinding:   p.cfg.DisallowRouteBlinding,
-		MaxFeeExposure:          p.cfg.MaxFeeExposure,
-		ShouldFwdExpEndorsement: p.cfg.ShouldFwdExpEndorsement,
+		BatchSize:                  p.cfg.ChannelCommitBatchSize,
+		UnsafeReplay:               p.cfg.UnsafeReplay,
+		MinUpdateTimeout:           htlcswitch.DefaultMinLinkFeeUpdateTimeout,
+		MaxUpdateTimeout:           htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
+		OutgoingCltvRejectDelta:    p.cfg.OutgoingCltvRejectDelta,
+		TowerClient:                p.cfg.TowerClient,
+		MaxOutgoingCltvExpiry:      p.cfg.MaxOutgoingCltvExpiry,
+		MaxFeeAllocation:           p.cfg.MaxChannelFeeAllocation,
+		MaxAnchorsCommitFeeRate:    p.cfg.MaxAnchorsCommitFeeRate,
+		NotifyActiveLink:           p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
+		NotifyActiveChannel:        p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
+		NotifyInactiveChannel:      p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
+		NotifyInactiveLinkEvent:    p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
+		HtlcNotifier:               p.cfg.HtlcNotifier,
+		GetAliases:                 p.cfg.GetAliases,
+		PreviouslySentShutdown:     shutdownMsg,
+		DisallowRouteBlinding:      p.cfg.DisallowRouteBlinding,
+		MaxFeeExposure:             p.cfg.MaxFeeExposure,
+		ShouldFwdExpAccountability: p.cfg.ShouldFwdExpAccountability,
 		DisallowQuiescence: p.cfg.DisallowQuiescence ||
 			!p.remoteFeatures.HasFeature(lnwire.QuiescenceOptional),
 		AuxTrafficShaper:     p.cfg.AuxTrafficShaper,

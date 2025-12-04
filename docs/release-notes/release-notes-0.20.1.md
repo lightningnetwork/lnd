@@ -42,6 +42,11 @@
   in the mission control store. Now we skip over potential errors and also
   delete them from the store.
 
+* A bug in the [implementation of
+  `FlatMap`](https://github.com/lightningnetwork/lnd/pull/10403) in the `fn`
+  package has been corrected by applying the provided function when the result
+  is `Ok` and propagate the error unchanged when it is `Err`.
+
 # New Features
 
 ## Functional Enhancements

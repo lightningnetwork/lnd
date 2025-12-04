@@ -127,6 +127,9 @@ This will mitigate the poor Postgres performance on kvdb.
 
 This stage unlocks true SQL performance by restructuring data into relational tables. Migration is **per-subsystem** and **incremental**.
 
+The migration steps are automatically applied when LND is restarted after step 1 was successfully completed and the config value db.use-native-sql=true is set.
+You will see log lines from the `SQLD` subsystem about the migration, such as `Starting migration of invoices from KV to SQL`.
+
 ### Subsystem Readiness
 
 | Subsystem           | Relational Backend | Migration Script | Status |

@@ -21,6 +21,11 @@ const (
 	DefaultMaxLogFileSize = 20
 )
 
+// SwitchRPC is a build-time variable that indicates whether a remote
+// router is in control of the payment lifecycle. This is true when the
+// 'switchrpc' build tag is active.
+var SwitchRPC bool
+
 // LogConfig holds logging configuration options.
 //
 //nolint:ll

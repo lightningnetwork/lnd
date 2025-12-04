@@ -229,6 +229,10 @@ type Config struct {
 
 	// IsAlias returns whether or not a given SCID is an alias.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// RemoteRouter is a boolean that indicates whether the payment
+	// lifecycle is managed by a remote router.
+	RemoteRouter bool
 }
 
 // Switch is the central messaging bus for all incoming/outgoing HTLCs.
@@ -371,6 +375,13 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		return nil, err
 	}
 
+	networkResultStore, err := newNetworkResultStore(
+		cfg.DB, cfg.RemoteRouter,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Switch{
 		bestHeight:        currentHeight,
 		cfg:               &cfg,
@@ -380,7 +391,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		interfaceIndex:    make(map[[33]byte]map[lnwire.ChannelID]ChannelLink),
 		pendingLinkIndex:  make(map[lnwire.ChannelID]ChannelLink),
 		linkStopIndex:     make(map[lnwire.ChannelID]chan struct{}),
-		networkResults:    newNetworkResultStore(cfg.DB),
+		networkResults:    networkResultStore,
 		htlcPlex:          make(chan *plexPacket),
 		chanCloseRequests: make(chan *ChanClose),
 		resolutionMsgs:    make(chan *resolutionMsg),

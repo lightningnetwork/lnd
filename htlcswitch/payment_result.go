@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 
@@ -26,6 +27,15 @@ var (
 	// ErrPaymentIDAlreadyExists is returned if we try to write a pending
 	// payment whose paymentID already exists.
 	ErrPaymentIDAlreadyExists = errors.New("paymentID already exists")
+
+	// remoteRouterMarkerBucket is a bucket that contains the marker
+	// key used to indicate that the htlcswitch's payment attempt
+	// history is being managed by an external router.
+	remoteRouterMarkerBucket = []byte("remote-router-marker-bucket")
+
+	// remoteRouterMarkerKey is the key that will be present in the
+	// marker bucket if the switch is remote-managed.
+	remoteRouterMarkerKey = []byte("remote-router-marker-key")
 )
 
 // PaymentResult wraps a decoded result received from the network after a
@@ -85,6 +95,9 @@ func deserializeNetworkResult(r io.Reader) (*networkResult, error) {
 type networkResultStore struct {
 	backend kvdb.Backend
 
+	// isRemote indicates that the store is being used in remote mode.
+	isRemote bool
+
 	// results is a map from paymentIDs to channels where subscribers to
 	// payment results will be notified.
 	results    map[uint64][]chan *networkResult
@@ -96,12 +109,68 @@ type networkResultStore struct {
 	attemptIDMtx *multimutex.Mutex[uint64]
 }
 
-func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
+func newNetworkResultStore(db kvdb.Backend,
+	isRemote bool) (*networkResultStore, error) {
+
+	// Check for a state mismatch. If this is a local-managed router
+	// but the database has been marked for remote management, we must
+	// exit to prevent data loss.
+	if !isRemote {
+		var isMarkedRemote bool
+		err := db.View(func(tx kvdb.RTx) error {
+			bucket := tx.ReadBucket(remoteRouterMarkerBucket)
+			if bucket != nil &&
+				bucket.Get(remoteRouterMarkerKey) != nil {
+
+				isMarkedRemote = true
+			}
+
+			return nil
+		}, func() {
+			isMarkedRemote = false
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to check for remote "+
+				"router marker: %w", err)
+		}
+
+		if isMarkedRemote {
+			return nil, fmt.Errorf("the htlc attempt database is " +
+				"marked for remote management by a switchrpc " +
+				"build, but this binary is in local " +
+				"management mode. Halting to prevent data " +
+				"loss. To use this database, restart with an " +
+				"lnd build that includes the `switchrpc` " +
+				"build tag")
+		}
+	}
+
+	// If we are in remote-managed mode, write the marker. This is
+	// placed after the check above to ensure we don't write and then
+	// immediately fail in a misconfigured dev environment.
+	if isRemote {
+		err := db.Update(func(tx kvdb.RwTx) error {
+			bucket, err := tx.CreateTopLevelBucket(
+				remoteRouterMarkerBucket,
+			)
+			if err != nil {
+				return err
+			}
+
+			return bucket.Put(remoteRouterMarkerKey, []byte{0x01})
+		}, func() {})
+		if err != nil {
+			return nil, fmt.Errorf("unable to write remote "+
+				"router marker: %w", err)
+		}
+	}
+
 	return &networkResultStore{
 		backend:      db,
+		isRemote:     isRemote,
 		results:      make(map[uint64][]chan *networkResult),
 		attemptIDMtx: multimutex.NewMutex[uint64](),
-	}
+	}, nil
 }
 
 // storeResult stores the networkResult for the given attemptID, and notifies
@@ -292,6 +361,18 @@ func (store *networkResultStore) cleanStore(keep map[uint64]struct{}) error {
 		if len(toClean) > 0 {
 			log.Infof("Removed %d stale entries from network "+
 				"result store", len(toClean))
+		}
+
+		// If this was a total cleanup and we are in remote mode,
+		// delete the marker.
+		if len(keep) == 0 && store.isRemote {
+			err := tx.DeleteTopLevelBucket(remoteRouterMarkerBucket)
+
+			if err != nil && !errors.Is(
+				err, kvdb.ErrBucketNotFound) {
+
+				return err
+			}
 		}
 
 		return nil

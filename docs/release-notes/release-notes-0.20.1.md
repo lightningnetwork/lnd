@@ -37,6 +37,11 @@
   in the mission control store. Now we skip over potential errors and also
   delete them from the store.
 
+* [Fixed an issue](https://github.com/lightningnetwork/lnd/pull/10399) where the
+  TLS manager would fail to start if only one of the TLS pair files (certificate
+  or key) existed. The manager now correctly regenerates both files when either
+  is missing, preventing "file not found" errors on startup.
+
 # New Features
 
 ## Functional Enhancements

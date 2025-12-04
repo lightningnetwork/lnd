@@ -1,7 +1,6 @@
 package routerrpc
 
 import (
-	"bytes"
 	"context"
 	crand "crypto/rand"
 	"errors"
@@ -44,6 +43,12 @@ const (
 	// DefaultPaymentTimeout is the default value of time we should spend
 	// when attempting to fulfill the payment.
 	DefaultPaymentTimeout int32 = 60
+
+	// MaxLspsToProbe is the maximum number of LSPs to probe when
+	// estimating fees for worst-case fee estimation. This is a
+	// precautionary measure to prevent the estimation from taking too
+	// long, and it is also a griefing protection.
+	MaxLspsToProbe = 3
 )
 
 var (
@@ -171,10 +176,9 @@ var (
 	DefaultRouterMacFilename = "router.macaroon"
 )
 
-// FetchChannelEndpoints returns the pubkeys of both endpoints of the
-// given channel id if it exists in the graph.
-type FetchChannelEndpoints func(chanID uint64) (route.Vertex, route.Vertex,
-	error)
+// HasNode returns true if the node exists in the graph (i.e., has public
+// channels), false otherwise.
+type HasNode func(nodePub route.Vertex) (bool, error)
 
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
@@ -561,7 +565,8 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 	// If the hints don't indicate an LSP then chances are that our probe
 	// payment won't be blocked along the route to the destination. We send
 	// a probe payment with unmodified route hints.
-	if !isLSP(hints, s.cfg.RouterBackend.FetchChannelEndpoints) {
+	invoiceTargetCompressed := payReq.Destination.SerializeCompressed()
+	if !isLSP(hints, invoiceTargetCompressed, s.cfg.RouterBackend.HasNode) {
 		log.Infof("No LSP detected, probing destination %x",
 			probeRequest.Dest)
 
@@ -569,200 +574,342 @@ func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
 		return s.sendProbePayment(ctx, probeRequest)
 	}
 
-	// If the heuristic indicates an LSP we modify the route hints to allow
-	// probing the LSP.
-	lspAdjustedRouteHints, lspHint, err := prepareLspRouteHints(
-		hints, *payReq.MilliSat,
+	// If the heuristic indicates an LSP, we filter and group route hints by
+	// public LSP nodes, then probe each unique LSP separately and return
+	// the cheapest route.
+	lspGroups, err := prepareLspRouteHints(
+		hints, *payReq.MilliSat, s.cfg.RouterBackend.HasNode,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set the destination to the LSP node ID.
-	lspDest := lspHint.NodeID.SerializeCompressed()
-	probeRequest.Dest = lspDest
+	log.Infof("LSP detected, found %d unique public LSP node(s) to probe",
+		len(lspGroups))
 
-	log.Infof("LSP detected, probing LSP with destination: %x", lspDest)
-
-	// The adjusted route hints serve the payment probe to find the last
-	// public hop to the LSP on the route.
-	if len(lspAdjustedRouteHints) > 0 {
-		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(
-			lspAdjustedRouteHints,
-		)
+	// Probe up to MaxLspsToProbe LSPs and track the most expensive route
+	// for worst-case fee estimation.
+	if len(lspGroups) > MaxLspsToProbe {
+		log.Debugf("Limiting LSP probes from %d to %d for worst-case "+
+			"fee estimation", len(lspGroups), MaxLspsToProbe)
 	}
+	var (
+		worstCaseResp    *RouteFeeResponse
+		worstCaseLspDest route.Vertex
+		probeCount       int
+	)
 
-	// The payment probe will be able to calculate the fee up until the LSP
-	// node. The fee of the last hop has to be calculated manually. Since
-	// the last hop's fee amount has to be sent across the payment path we
-	// have to add it to the original payment amount. Only then will the
-	// payment probe be able to determine the correct fee to the last hop
-	// prior to the private destination. For example, if the user wants to
-	// send 1000 sats to a private destination and the last hop's fee is 10
-	// sats, then 1010 sats will have to arrive at the last hop. This means
-	// that the probe has to be dispatched with 1010 sats to correctly
-	// calculate the routing fee.
-	//
-	// Calculate the hop fee for the last hop manually.
-	hopFee := lspHint.HopFee(*payReq.MilliSat)
-	if err != nil {
-		return nil, err
-	}
+	for lspKey, group := range lspGroups {
+		if probeCount >= MaxLspsToProbe {
+			break
+		}
+		probeCount++
 
-	// Add the last hop's fee to the requested payment amount that we want
-	// to get an estimate for.
-	probeRequest.AmtMsat += int64(hopFee)
+		lspHint := group.LspHopHint
 
-	// Use the hop hint's cltv delta as the payment request's final cltv
-	// delta. The actual final cltv delta of the invoice will be added to
-	// the payment probe's cltv delta.
-	probeRequest.FinalCltvDelta = int32(lspHint.CLTVExpiryDelta)
+		log.Infof("Probing LSP with destination: %v", lspKey)
 
-	// Dispatch the payment probe with adjusted fee amount.
-	resp, err := s.sendProbePayment(ctx, probeRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send probe payment to "+
-			"LSP with destination %x: %w", lspDest, err)
-	}
+		// Create a new probe request for this LSP.
+		lspProbeRequest := &SendPaymentRequest{
+			TimeoutSeconds:   probeRequest.TimeoutSeconds,
+			Dest:             lspKey[:],
+			MaxParts:         probeRequest.MaxParts,
+			AllowSelfPayment: probeRequest.AllowSelfPayment,
+			AmtMsat:          amtMsat,
+			PaymentHash:      probeRequest.PaymentHash,
+			FeeLimitSat:      probeRequest.FeeLimitSat,
+			FinalCltvDelta:   int32(lspHint.CLTVExpiryDelta),
+			DestFeatures:     probeRequest.DestFeatures,
+		}
 
-	// If the payment probe failed we only return the failure reason and
-	// leave the probe result params unaltered.
-	if resp.FailureReason != lnrpc.PaymentFailureReason_FAILURE_REASON_NONE { //nolint:ll
-		return resp, nil
-	}
+		// Copy the payment address if present.
+		if len(probeRequest.PaymentAddr) > 0 {
+			copy(
+				lspProbeRequest.PaymentAddr,
+				probeRequest.PaymentAddr,
+			)
+		}
 
-	// The probe succeeded, so we can add the last hop's fee to fee the
-	// payment probe returned.
-	resp.RoutingFeeMsat += int64(hopFee)
+		// Set the adjusted route hints for this LSP.
+		if len(group.AdjustedRouteHints) > 0 {
+			lspProbeRequest.RouteHints = invoicesrpc.
+				CreateRPCRouteHints(group.AdjustedRouteHints)
+		}
 
-	// Add the final cltv delta of the invoice to the payment probe's total
-	// cltv delta. This is the cltv delta for the hop behind the LSP.
-	resp.TimeLockDelay += int64(payReq.MinFinalCLTVExpiry())
+		// Calculate the hop fee for the last hop manually.
+		hopFee := lspHint.HopFee(*payReq.MilliSat)
 
-	return resp, nil
-}
+		// Add the last hop's fee to the probe amount.
+		lspProbeRequest.AmtMsat += int64(hopFee)
 
-// isLSP checks if the route hints indicate an LSP. An LSP is indicated with
-// true if the destination hop hint in each route hint has the same node id,
-// false otherwise. If the destination hop hint of any route hint contains a
-// public channel, the function returns false because we can directly send a
-// probe to the final destination.
-func isLSP(routeHints [][]zpay32.HopHint,
-	fetchChannelEndpoints FetchChannelEndpoints) bool {
-
-	if len(routeHints) == 0 || len(routeHints[0]) == 0 {
-		return false
-	}
-
-	destHopHint := routeHints[0][len(routeHints[0])-1]
-
-	// If the destination hop hint of the first route hint contains a public
-	// channel we can send a probe to it directly, hence we don't signal an
-	// LSP.
-	_, _, err := fetchChannelEndpoints(destHopHint.ChannelID)
-	if err == nil {
-		return false
-	}
-
-	for i := 1; i < len(routeHints); i++ {
-		// Skip empty route hints.
-		if len(routeHints[i]) == 0 {
+		// Dispatch the payment probe for this LSP.
+		resp, err := s.sendProbePayment(ctx, lspProbeRequest)
+		if err != nil {
+			log.Warnf("Failed to probe LSP %v: %v", lspKey, err)
 			continue
 		}
 
-		lastHop := routeHints[i][len(routeHints[i])-1]
+		// If the probe failed, skip this LSP.
+		if resp.FailureReason !=
+			lnrpc.PaymentFailureReason_FAILURE_REASON_NONE {
 
-		// If the last hop hint of any route hint contains a public
-		// channel we can send a probe to it directly, hence we don't
-		// signal an LSP.
-		_, _, err = fetchChannelEndpoints(lastHop.ChannelID)
-		if err == nil {
-			return false
+			log.Debugf("Probe to LSP %v failed with reason: %v",
+				lspKey, resp.FailureReason)
+
+			continue
 		}
 
-		matchesDestNode := bytes.Equal(
-			lastHop.NodeID.SerializeCompressed(),
-			destHopHint.NodeID.SerializeCompressed(),
-		)
-		if !matchesDestNode {
+		// The probe succeeded, add the last hop's fee.
+		resp.RoutingFeeMsat += int64(hopFee)
+
+		// Add the final cltv delta of the invoice.
+		resp.TimeLockDelay += int64(payReq.MinFinalCLTVExpiry())
+
+		log.Infof("Probe to LSP %v succeeded with fee: %d msat",
+			lspKey, resp.RoutingFeeMsat)
+
+		// Track the most expensive route for worst-case estimation.
+		// We solely consider the routing fee for the worst-case
+		// estimation.
+		if worstCaseResp == nil ||
+			resp.RoutingFeeMsat > worstCaseResp.RoutingFeeMsat {
+
+			if worstCaseResp != nil {
+				log.Debugf("LSP %v has higher fee "+
+					"(%d msat) than current worst-case "+
+					"%v (%d msat), updating worst-case "+
+					"estimate", lspKey,
+					resp.RoutingFeeMsat, worstCaseLspDest,
+					worstCaseResp.RoutingFeeMsat)
+			}
+
+			worstCaseResp = resp
+			worstCaseLspDest = lspKey
+		} else {
+			log.Debugf("LSP %v fee (%d msat) is lower than "+
+				"current worst-case %v (%d msat), keeping "+
+				"worst-case estimate", lspKey,
+				resp.RoutingFeeMsat, worstCaseLspDest,
+				worstCaseResp.RoutingFeeMsat)
+		}
+	}
+
+	// If no LSP probe succeeded, return an error.
+	if worstCaseResp == nil {
+		return nil, fmt.Errorf("all LSP probe payments failed")
+	}
+
+	log.Infof("Returning worst-case route via LSP %v with fee: %d msat, "+
+		"timelock: %d", worstCaseLspDest, worstCaseResp.RoutingFeeMsat,
+		worstCaseResp.TimeLockDelay)
+
+	return worstCaseResp, nil
+}
+
+// isLSP checks if the route hints indicate an LSP setup. An LSP setup is
+// identified when the invoice destination is private but the final hop in the
+// route hints is a public node (the LSP). This function implements three rules:
+//
+//  1. If the invoice target is a public node (exists in graph) => isLsp = false
+//     We can route directly to the target, so no LSP is involved.
+//
+//  2. If at least one destination hop hint (last hop in route hint) is public
+//     => isLsp = true. The public destination hop is the LSP, and the actual
+//     invoice target is a private node behind it.
+//
+//  3. If all destination hop hints are private nodes => isLsp = false.
+//     We assume this is NOT an LSP setup. Instead, we expect the route hints
+//     contain public nodes earlier in the path (not the final hop) that our
+//     pathfinder can route to. For example:
+//     The pathfinder will route to PublicNode and use the hints from there.
+//     Note: If no public nodes exist anywhere in the route hints, the
+//     destination would be unreachable (malformed invoice), but we don't
+//     validate that here.
+func isLSP(routeHints [][]zpay32.HopHint, invoiceTarget []byte,
+	hasNode HasNode) bool {
+
+	if len(routeHints) == 0 || len(routeHints[0]) == 0 {
+		log.Debugf("No route hints provided, this is not an LSP setup")
+		return false
+	}
+
+	// Rule 1: If the invoice target is a public node (exists in the graph),
+	// we can route directly to it, so it's not an LSP setup.
+	if len(invoiceTarget) > 0 {
+		var targetVertex route.Vertex
+		copy(targetVertex[:], invoiceTarget)
+
+		isPublic, err := hasNode(targetVertex)
+		if err != nil {
+			log.Warnf("Failed to check if invoice target %x is "+
+				"public: %v", invoiceTarget, err)
+
+			return false
+		}
+		if isPublic {
+			log.Infof("Invoice target %x is a public node in the "+
+				"graph, this is NOT an LSP setup",
+				invoiceTarget)
+
 			return false
 		}
 	}
 
-	// We ensured that the destination hop hint doesn't contain a public
-	// channel, and that all destination hop hints of all route hints match,
-	// so we signal an LSP.
-	return true
+	for _, hopHints := range routeHints {
+		// Skip empty route hints.
+		if len(hopHints) == 0 {
+			continue
+		}
+
+		lastHop := hopHints[len(hopHints)-1]
+		lastHopNodeCompressed := lastHop.NodeID.SerializeCompressed()
+
+		// Check if this destination hop hint node is public.
+		// Rule 2: If we find a public node, we can exit early.
+		var lastHopVertex route.Vertex
+		copy(lastHopVertex[:], lastHopNodeCompressed)
+
+		isPublic, err := hasNode(lastHopVertex)
+		if err != nil {
+			log.Warnf("Failed to check if destination hop "+
+				"hint %x is public: %v", lastHopNodeCompressed,
+				err)
+
+			continue
+		}
+		if isPublic {
+			log.Infof("Destination hop hint %x is a public node, "+
+				"this is an LSP setup", lastHopNodeCompressed)
+
+			return true
+		}
+	}
+
+	// Rule 3: If all destination hop hints are private nodes (not in the
+	// graph), this is NOT an LSP setup. We assume the route hints contain
+	// public nodes earlier in the path that we can route through using
+	// standard pathfinding with the hints.
+	log.Infof("All destination hop hints are private, this is NOT an " +
+		"LSP setup")
+
+	return false
+}
+
+// LspRouteGroup represents a group of route hints that share the same public
+// LSP destination node. This is needed when probing LSPs separately to find
+// the cheapest route.
+type LspRouteGroup struct {
+	// LspHopHint is the hop hint for the LSP node with worst-case fees and
+	// CLTV delta.
+	LspHopHint *zpay32.HopHint
+
+	// AdjustedRouteHints are the route hints with the LSP hop stripped off.
+	AdjustedRouteHints [][]zpay32.HopHint
 }
 
 // prepareLspRouteHints assumes that the isLsp heuristic returned true for the
-// route hints passed in here. It constructs a modified list of route hints that
-// allows the caller to probe the LSP, which itself is returned as a separate
-// hop hint.
+// route hints passed in here. It filters route hints to only include those with
+// public destination nodes, groups them by unique LSP node, and returns a map
+// of LSP groups keyed by the LSP node's compressed public key.
 func prepareLspRouteHints(routeHints [][]zpay32.HopHint,
-	amt lnwire.MilliSatoshi) ([][]zpay32.HopHint, *zpay32.HopHint, error) {
+	amt lnwire.MilliSatoshi,
+	hasNode HasNode) (map[route.Vertex]*LspRouteGroup, error) {
 
+	// This should never happen, but we check for it for completeness.
+	// Because the isLSP heuristic already checked that the route hints are
+	// not empty.
 	if len(routeHints) == 0 {
-		return nil, nil, fmt.Errorf("no route hints provided")
+		return nil, fmt.Errorf("no route hints provided")
 	}
 
-	// Create the LSP hop hint. We are probing for the worst case fee and
-	// cltv delta. So we look for the max values amongst all LSP hop hints.
-	refHint := routeHints[0][len(routeHints[0])-1]
-	refHint.CLTVExpiryDelta = maxLspCltvDelta(routeHints)
-	refHint.FeeBaseMSat, refHint.FeeProportionalMillionths = maxLspFee(
-		routeHints, amt,
-	)
+	// Map to group route hints by LSP node pubkey.
+	lspGroups := make(map[route.Vertex]*LspRouteGroup)
 
-	// We construct a modified list of route hints that allows the caller to
-	// probe the LSP.
-	adjustedHints := make([][]zpay32.HopHint, 0, len(routeHints))
+	for _, routeHint := range routeHints {
+		// Skip empty route hints.
+		if len(routeHint) == 0 {
+			continue
+		}
 
-	// Strip off the LSP hop hint from all route hints.
-	for i := 0; i < len(routeHints); i++ {
-		hint := routeHints[i]
-		if len(hint) > 1 {
-			adjustedHints = append(
-				adjustedHints, hint[:len(hint)-1],
+		// Get the destination hop hint (last hop in the route).
+		destHop := routeHint[len(routeHint)-1]
+		destNodeCompressed := destHop.NodeID.SerializeCompressed()
+
+		// Check if this destination node is public.
+		var destVertex route.Vertex
+		copy(destVertex[:], destNodeCompressed)
+
+		isPublic, err := hasNode(destVertex)
+		if err != nil {
+			log.Warnf("Failed to check if dest hop hint %x is "+
+				"public: %v", destNodeCompressed, err)
+
+			continue
+		}
+
+		// Skip private destination nodes - we only probe public LSPs.
+		if !isPublic {
+			log.Debugf("Skipping route hint with private dest "+
+				"node %x", destNodeCompressed)
+
+			continue
+		}
+
+		// Use the compressed pubkey as the map key.
+		var lspKey route.Vertex
+		copy(lspKey[:], destNodeCompressed)
+
+		// Get or create the LSP group for this node.
+		group, exists := lspGroups[lspKey]
+		if !exists {
+			//nolint:ll
+			lspHop := zpay32.HopHint{
+				NodeID:                    destHop.NodeID,
+				ChannelID:                 destHop.ChannelID,
+				FeeBaseMSat:               destHop.FeeBaseMSat,
+				FeeProportionalMillionths: destHop.FeeProportionalMillionths,
+				CLTVExpiryDelta:           destHop.CLTVExpiryDelta,
+			}
+			group = &LspRouteGroup{
+				LspHopHint:         &lspHop,
+				AdjustedRouteHints: make([][]zpay32.HopHint, 0),
+			}
+			lspGroups[lspKey] = group
+		}
+
+		// Update the LSP hop hint with worst-case (max) fees and CLTV.
+		hopFee := destHop.HopFee(amt)
+		currentMaxFee := group.LspHopHint.HopFee(amt)
+		if hopFee > currentMaxFee {
+			group.LspHopHint.FeeBaseMSat = destHop.FeeBaseMSat
+			group.LspHopHint.FeeProportionalMillionths = destHop.
+				FeeProportionalMillionths
+		}
+
+		if destHop.CLTVExpiryDelta > group.LspHopHint.CLTVExpiryDelta {
+			group.LspHopHint.CLTVExpiryDelta = destHop.
+				CLTVExpiryDelta
+		}
+
+		// Add the route hint with the LSP hop stripped off (if there
+		// are hops before the LSP).
+		if len(routeHint) > 1 {
+			group.AdjustedRouteHints = append(
+				group.AdjustedRouteHints,
+				routeHint[:len(routeHint)-1],
 			)
 		}
 	}
 
-	return adjustedHints, &refHint, nil
-}
-
-// maxLspFee returns base fee and fee rate amongst all LSP route hints that
-// results in the overall highest fee for the given amount.
-func maxLspFee(routeHints [][]zpay32.HopHint, amt lnwire.MilliSatoshi) (uint32,
-	uint32) {
-
-	var maxFeePpm uint32
-	var maxBaseFee uint32
-	var maxTotalFee lnwire.MilliSatoshi
-	for _, rh := range routeHints {
-		lastHop := rh[len(rh)-1]
-		lastHopFee := lastHop.HopFee(amt)
-		if lastHopFee > maxTotalFee {
-			maxTotalFee = lastHopFee
-			maxBaseFee = lastHop.FeeBaseMSat
-			maxFeePpm = lastHop.FeeProportionalMillionths
-		}
+	if len(lspGroups) == 0 {
+		return nil, fmt.Errorf("no public LSP nodes found in " +
+			"route hints")
 	}
 
-	return maxBaseFee, maxFeePpm
-}
+	log.Infof("Found %d unique public LSP node(s) in route hints",
+		len(lspGroups))
 
-// maxLspCltvDelta returns the maximum cltv delta amongst all LSP route hints.
-func maxLspCltvDelta(routeHints [][]zpay32.HopHint) uint16 {
-	var maxCltvDelta uint16
-	for _, rh := range routeHints {
-		rhLastHop := rh[len(rh)-1]
-		if rhLastHop.CLTVExpiryDelta > maxCltvDelta {
-			maxCltvDelta = rhLastHop.CLTVExpiryDelta
-		}
-	}
-
-	return maxCltvDelta
+	return lspGroups, nil
 }
 
 // probePaymentStream is a custom implementation of the grpc.ServerStream

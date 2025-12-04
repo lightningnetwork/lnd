@@ -18,7 +18,6 @@ import (
 type Node struct {
 	// PubKeyBytes is the raw bytes of the public key of the target node.
 	PubKeyBytes [33]byte
-	pubKey      *btcec.PublicKey
 
 	// HaveNodeAnnouncement indicates whether we received a node
 	// announcement for this particular node. If true, the remaining fields
@@ -62,21 +61,8 @@ type Node struct {
 
 // PubKey is the node's long-term identity public key. This key will be used to
 // authenticated any advertisements/updates sent by the node.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (l *Node) PubKey() (*btcec.PublicKey, error) {
-	if l.pubKey != nil {
-		return l.pubKey, nil
-	}
-
-	key, err := btcec.ParsePubKey(l.PubKeyBytes[:])
-	if err != nil {
-		return nil, err
-	}
-	l.pubKey = key
-
-	return key, nil
+func (n *Node) PubKey() (*btcec.PublicKey, error) {
+	return btcec.ParsePubKey(n.PubKeyBytes[:])
 }
 
 // AuthSig is a signature under the advertised public key which serves to
@@ -91,7 +77,6 @@ func (l *Node) AuthSig() (*ecdsa.Signature, error) {
 // AddPubKey is a setter-link method that can be used to swap out the public
 // key for a node.
 func (l *Node) AddPubKey(key *btcec.PublicKey) {
-	l.pubKey = key
 	copy(l.PubKeyBytes[:], key.SerializeCompressed())
 }
 

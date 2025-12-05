@@ -1386,9 +1386,13 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 			continue
 		}
 
-		notifyRate := pendingClose.ClosePending.FeePerVbyte
+		// Prefer FeePerKw when set, falling back to FeePerVbyte.
+		notifyRate := uint64(pendingClose.ClosePending.FeePerVbyte)
+		if pendingClose.ClosePending.FeePerKw != 0 {
+			notifyRate = pendingClose.ClosePending.FeePerKw / 250
+		}
 		if closeOpts.localTxOnly &&
-			notifyRate != int64(closeReq.SatPerVbyte) {
+			notifyRate != closeReq.SatPerVbyte {
 
 			continue
 		}

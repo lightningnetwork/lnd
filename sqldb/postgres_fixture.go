@@ -60,6 +60,7 @@ func NewTestPgFixture(t testing.TB, expiry time.Duration) *TestPgFixture {
 			"-c", "log_statement=all",
 			"-c", "log_destination=stderr",
 			"-c", "max_connections=5000",
+			"-c", "max_pred_locks_per_transaction=256",
 		},
 	}, func(config *docker.HostConfig) {
 		// Set AutoRemove to true so that stopped container goes away

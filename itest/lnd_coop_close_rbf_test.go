@@ -47,7 +47,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	alicePendingUpdate := aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)
 	require.Equal(
-		ht, int64(aliceFeeRate), alicePendingUpdate.FeePerVbyte,
+		ht, int64(aliceFeeRate), int64(alicePendingUpdate.FeePerKw/250),
 	)
 	require.True(ht, alicePendingUpdate.LocalCloseTx)
 
@@ -62,7 +62,9 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	// Confirm that this new update was at 10 sat/vb.
 	bobPendingUpdate := bobCloseUpdate.GetClosePending()
 	require.NotNil(ht, bobCloseUpdate)
-	require.Equal(ht, bobPendingUpdate.FeePerVbyte, int64(bobFeeRate))
+	require.Equal(
+		ht, int64(bobPendingUpdate.FeePerKw/250), int64(bobFeeRate),
+	)
 	require.True(ht, bobPendingUpdate.LocalCloseTx)
 
 	var err error
@@ -73,7 +75,9 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	require.NoError(ht, err)
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)
-	require.Equal(ht, alicePendingUpdate.FeePerVbyte, int64(bobFeeRate))
+	require.Equal(
+		ht, int64(alicePendingUpdate.FeePerKw/250), int64(bobFeeRate),
+	)
 	require.False(ht, alicePendingUpdate.LocalCloseTx)
 
 	// We'll now attempt to make a fee update that increases Alice's fee
@@ -89,7 +93,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)
 	require.Equal(
-		ht, alicePendingUpdate.FeePerVbyte,
+		ht, int64(alicePendingUpdate.FeePerKw/250),
 		int64(aliceRejectedFeeRate),
 	)
 	require.True(ht, alicePendingUpdate.LocalCloseTx)
@@ -123,7 +127,7 @@ func testCoopCloseRbf(ht *lntest.HarnessTest) {
 	alicePendingUpdate = aliceCloseUpdate.GetClosePending()
 	require.NotNil(ht, aliceCloseUpdate)
 	require.Equal(
-		ht, alicePendingUpdate.FeePerVbyte, int64(aliceFeeRate),
+		ht, int64(alicePendingUpdate.FeePerKw/250), int64(aliceFeeRate),
 	)
 	require.True(ht, alicePendingUpdate.LocalCloseTx)
 

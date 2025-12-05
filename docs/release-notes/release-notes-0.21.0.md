@@ -63,6 +63,12 @@
 
 ## Deprecations
 
+### ⚠️ **Warning:** The deprecated fee rate option --sat_per_byte will be removed in release version **0.22**
+
+  The following RPCs will be impacted: sendcoins, sendmany, openchannel,
+  closechannel, closeallchannels and wallet bumpfee.
+
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 

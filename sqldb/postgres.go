@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path"
 	"strings"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4/database"
 	pgx_migrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:ll
 	_ "github.com/jackc/pgx/v5"
@@ -148,6 +150,33 @@ func (s *PostgresStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
 }
 
+// postgresMigrationExecutor implements MigrationExecutor using a single reusable
+// migrate driver to avoid holding multiple database connections.
+type postgresMigrationExecutor struct {
+	driver database.Driver
+	dbName string
+	fs     fs.FS
+}
+
+// ExecuteMigrations runs migrations using the pre-created driver.
+func (p *postgresMigrationExecutor) ExecuteMigrations(target MigrationTarget) error {
+	return applyMigrations(p.fs, p.driver, "sqlc/migrations", p.dbName, target)
+}
+
+// GetSchemaVersion returns the current schema version using the pre-created driver.
+func (p *postgresMigrationExecutor) GetSchemaVersion() (int, bool, error) {
+	version, dirty, err := p.driver.Version()
+	if err != nil {
+		return 0, false, err
+	}
+	return version, dirty, nil
+}
+
+// SetSchemaVersion sets the schema version using the pre-created driver.
+func (p *postgresMigrationExecutor) SetSchemaVersion(version int, dirty bool) error {
+	return p.driver.SetVersion(version, dirty)
+}
+
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
 // Postgres database.
 func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
@@ -158,7 +187,30 @@ func (s *PostgresStore) ApplyAllMigrations(ctx context.Context,
 		return nil
 	}
 
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
+	// Create a single migrate driver that will be reused for all migration
+	// operations to avoid holding multiple database connections.
+	dbName, err := getDatabaseNameFromDSN(s.cfg.Dsn)
+	if err != nil {
+		return err
+	}
+
+	driver, err := pgx_migrate.WithInstance(s.DB, &pgx_migrate.Config{})
+	if err != nil {
+		return errPostgresMigration(err)
+	}
+
+	// Note: We don't call driver.Close() here because it closes the
+	// underlying *sql.DB. The single connection held by the driver will
+	// be cleaned up when the *sql.DB is closed.
+
+	// Create a migration executor that reuses this driver.
+	executor := &postgresMigrationExecutor{
+		driver: driver,
+		dbName: dbName,
+		fs:     newReplacerFS(sqlSchemas, postgresSchemaReplacements),
+	}
+
+	return ApplyMigrations(ctx, s.BaseDB, executor, migrations)
 }
 
 func errPostgresMigration(err error) error {
@@ -177,6 +229,10 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	if err != nil {
 		return errPostgresMigration(err)
 	}
+
+	// Note: We don't call driver.Close() here because it closes the
+	// underlying *sql.DB. The connection held by the driver will be
+	// cleaned up when the *sql.DB is closed.
 
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.

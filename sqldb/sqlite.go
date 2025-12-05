@@ -6,10 +6,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"path/filepath"
 	"testing"
 
+	"github.com/golang-migrate/migrate/v4/database"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
@@ -157,6 +159,32 @@ func (s *SqliteStore) GetBaseDB() *BaseDB {
 	return s.BaseDB
 }
 
+// sqliteMigrationExecutor implements MigrationExecutor using a single reusable
+// migrate driver to avoid holding multiple database connections.
+type sqliteMigrationExecutor struct {
+	driver database.Driver
+	fs     fs.FS
+}
+
+// ExecuteMigrations runs migrations using the pre-created driver.
+func (s *sqliteMigrationExecutor) ExecuteMigrations(target MigrationTarget) error {
+	return applyMigrations(s.fs, s.driver, "sqlc/migrations", "sqlite", target)
+}
+
+// GetSchemaVersion returns the current schema version using the pre-created driver.
+func (s *sqliteMigrationExecutor) GetSchemaVersion() (int, bool, error) {
+	version, dirty, err := s.driver.Version()
+	if err != nil {
+		return 0, dirty, err
+	}
+	return version, dirty, nil
+}
+
+// SetSchemaVersion sets the schema version using the pre-created driver.
+func (s *sqliteMigrationExecutor) SetSchemaVersion(version int, dirty bool) error {
+	return s.driver.SetVersion(version, dirty)
+}
+
 // ApplyAllMigrations applies both the SQLC and custom in-code migrations to the
 // SQLite database.
 func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
@@ -167,7 +195,26 @@ func (s *SqliteStore) ApplyAllMigrations(ctx context.Context,
 		return nil
 	}
 
-	return ApplyMigrations(ctx, s.BaseDB, s, migrations)
+	// Create a single migrate driver that will be reused for all migration
+	// operations to avoid holding multiple database connections.
+	driver, err := sqlite_migrate.WithInstance(
+		s.DB, &sqlite_migrate.Config{},
+	)
+	if err != nil {
+		return errSqliteMigration(err)
+	}
+
+	// Note: We don't call driver.Close() here because it closes the
+	// underlying *sql.DB. The single connection held by the driver will
+	// be cleaned up when the *sql.DB is closed.
+
+	// Create a migration executor that reuses this driver.
+	executor := &sqliteMigrationExecutor{
+		driver: driver,
+		fs:     newReplacerFS(sqlSchemas, sqliteSchemaReplacements),
+	}
+
+	return ApplyMigrations(ctx, s.BaseDB, executor, migrations)
 }
 
 func errSqliteMigration(err error) error {
@@ -183,6 +230,10 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 	if err != nil {
 		return errSqliteMigration(err)
 	}
+
+	// Note: We intentionally don't call driver.Close() here because it would
+	// close the underlying *sql.DB that we passed to WithInstance. The
+	// driver will be cleaned up when the *sql.DB is closed.
 
 	// Populate the database with our set of schemas based on our embedded
 	// in-memory file system.

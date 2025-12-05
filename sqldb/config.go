@@ -7,12 +7,19 @@ import (
 )
 
 const (
-	// defaultMaxConns is the number of permitted active and idle
+	// defaultMaxConnsPostgres is the number of permitted active and idle
 	// connections. We want to limit this so it isn't unlimited. We use the
 	// same value for the number of idle connections as, this can speed up
 	// queries given a new connection doesn't need to be established each
 	// time.
-	defaultMaxConns = 25
+	defaultMaxConnsPostgres = 10
+
+	// defaultMaxConnsSqlite is the number of permitted active and idle
+	// connections. We want to limit this to 2 because SQLite allows for
+	// concurrent reads however writers are limited to 1 so we select 2 here
+	// to allow for concurrent reads but keep the number of connections low
+	// to avoid write contention.
+	defaultMaxConnsSqlite = 2
 
 	// connIdleLifetime is the amount of time a connection can be idle.
 	connIdleLifetime = 5 * time.Minute

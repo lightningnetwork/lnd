@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -509,7 +510,7 @@ func (c *ChannelFlushing) ProcessEvent(event ProtocolEvent,
 		localTxOut, remoteTxOut := closeTerms.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
-			idealFeeRate.FeePerKWeight(),
+			idealFeeRate,
 		)
 
 		chancloserLog.Infof("ChannelPoint(%v): using ideal_fee=%v, "+
@@ -752,7 +753,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent,
 		localTxOut, remoteTxOut := l.DeriveCloseTxOuts()
 		absoluteFee := env.FeeEstimator.EstimateFee(
 			env.ChanType, localTxOut, remoteTxOut,
-			msg.TargetFeeRate.FeePerKWeight(),
+			msg.TargetFeeRate,
 		)
 
 		// If we can't actually pay for fees here, then we'll just do a
@@ -1128,10 +1129,15 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent,
 		// We'll also compute the final fee rate that the remote party
 		// paid based off the absolute fee and the size of the closing
 		// transaction.
-		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
-		feeRate := chainfee.SatPerVByte(
-			int64(msg.SigMsg.FeeSatoshis) / vSize,
+		weight := blockchain.GetTransactionWeight(
+			btcutil.NewTx(closeTx),
 		)
+
+		// Convert absolute fee to a fee rate in sat/kw, rounding up.
+		fee := int64(msg.SigMsg.FeeSatoshis)
+		rate := ((fee * 1000) + weight - 1) / weight
+
+		feeRate := chainfee.SatPerKWeight(rate)
 
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.

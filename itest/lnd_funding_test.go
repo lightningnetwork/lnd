@@ -219,7 +219,6 @@ func runBasicFundingTest(ht *lntest.HarnessTest, carolCommitType,
 		return
 	}
 
-
 	// NOTE: With both staging and final feature bits advertised by default,
 	// cross-type negotiation (e.g., Carol wants FINAL, Dave prefers STAGING)
 	// will succeed because explicit channel_type takes precedence. The

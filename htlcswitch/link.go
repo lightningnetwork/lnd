@@ -909,7 +909,8 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 	// First, we'll generate our ChanSync message to send to the other
 	// side. Based on this message, the remote party will decide if they
-	// need to retransmit any data or not.
+	// need to retransmit any data or not. The nonce format is derived from
+	// the channel type internally.
 	localChanSyncMsg, err := chanState.ChanSyncMsg()
 	if err != nil {
 		return fmt.Errorf("unable to generate chan sync message for "+
@@ -959,10 +960,21 @@ func (l *channelLink) syncChanStates(ctx context.Context) error {
 
 			// If this is a taproot channel, then we'll send the
 			// very same nonce that we sent above, as they should
-			// take the latest verification nonce we send.
+			// take the latest verification nonce we send. We use
+			// LocalVerNonce to extract from the correct field
+			// (map-based for final, legacy for staging).
 			if chanState.ChanType.IsTaproot() {
-				//nolint:ll
-				channelReadyMsg.NextLocalNonce = localChanSyncMsg.LocalNonce
+				nonce, err := localChanSyncMsg.LocalVerNonce(
+					chanState.FundingOutpoint.Hash,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to "+
+						"extract nonce for "+
+						"channel_ready resend: %w",
+						err)
+				}
+
+				channelReadyMsg.NextLocalNonce = lnwire.SomeMusig2Nonce(nonce) //nolint:ll
 			}
 
 			// For channels that negotiated the option-scid-alias

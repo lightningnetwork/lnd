@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sync"
 
@@ -861,6 +862,11 @@ type channelOpts struct {
 	auxHtlcValidator fn.Option[AuxHtlcValidator]
 
 	skipNonceInit bool
+
+	// customSigningRand is an optional custom random source for generating
+	// deterministic JIT signing nonces in MuSig2 sessions. This should
+	// only be set in tests that need reproducible signatures.
+	customSigningRand fn.Option[io.Reader]
 }
 
 // WithLocalMusigNonces is used to bind an existing verification/local nonce to
@@ -913,11 +919,10 @@ func WithAuxResolver(resolver AuxContractResolver) ChannelOpt {
 }
 
 // WithAuxHtlcValidator is used to specify a custom HTLC validator for the
-// channel. This validator will be called during HTLC addition to perform
-// final validation checks against the most up-to-date channel state.
+// channel.
 func WithAuxHtlcValidator(validator AuxHtlcValidator) ChannelOpt {
 	return func(o *channelOpts) {
-		o.auxHtlcValidator = fn.Some(validator)
+		o.auxHtlcValidator = fn.Some[AuxHtlcValidator](validator)
 	}
 }
 
@@ -9535,20 +9540,24 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 			return nil, err
 		}
 
-		// Populate the legacy LocalNonce field for backwards
-		// compatibility.
-		revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(
-			nextVerificationNonce.PubNonce,
-		)
-
-		// Also populate the new LocalNonces field. For revoke and ack,
-		// we'll key our nonce by the funding txid.
 		fundingTxid := lc.channelState.FundingOutpoint.Hash
-		noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
-		noncesMap[fundingTxid] = nextVerificationNonce.PubNonce
-		revocationMsg.LocalNonces = lnwire.SomeLocalNonces(
-			lnwire.LocalNoncesData{NoncesMap: noncesMap},
-		)
+		nonce := nextVerificationNonce.PubNonce
+
+		// Set the appropriate nonce field based on the channel type.
+		// Final taproot channels use the map-based LocalNonces field,
+		// while staging taproot channels use the legacy single
+		// LocalNonce field.
+		if lc.channelState.ChanType.IsTaprootFinal() {
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			noncesMap[fundingTxid] = nonce
+			revocationMsg.LocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{
+					NoncesMap: noncesMap,
+				},
+			)
+		} else {
+			revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(nonce)
+		}
 	}
 
 	return revocationMsg, nil

@@ -1914,6 +1914,7 @@ func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
 // modify our typical chan sync message to ensure they force close even if
 // we're on the very first state.
 func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -1993,18 +1994,21 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 				"nonce: %w", err)
 		}
 
-		// Populate the legacy LocalNonce field for backwards
-		// compatibility.
-		nextTaprootNonce = lnwire.SomeMusig2Nonce(nextNonce.PubNonce)
-
-		// Also populate the new LocalNonces field. For channel
-		// re-establishment, we'll key our nonce by the funding txid.
 		fundingTxid := c.FundingOutpoint.Hash
-		noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
-		noncesMap[fundingTxid] = nextNonce.PubNonce
-		nextLocalNonces = lnwire.SomeLocalNonces(
-			lnwire.LocalNoncesData{NoncesMap: noncesMap},
-		)
+		nonce := nextNonce.PubNonce
+
+		// Final taproot channels use the map-based LocalNonces
+		// field keyed by funding TXID. Staging channels use the
+		// legacy single LocalNonce field.
+		if c.ChanType.IsTaprootFinal() {
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			noncesMap[fundingTxid] = nonce
+			nextLocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{NoncesMap: noncesMap},
+			)
+		} else {
+			nextTaprootNonce = lnwire.SomeMusig2Nonce(nonce)
+		}
 	}
 
 	return &lnwire.ChannelReestablish{

@@ -2,9 +2,11 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -100,6 +102,42 @@ type ChannelReestablish struct {
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
 	ExtraData ExtraOpaqueData
+}
+
+// LocalVerNonce extracts the local verification nonce from the message,
+// checking the map-based LocalNonces field first (keyed by fundingTxid), then
+// falling back to the legacy single LocalNonce field. This abstracts over the
+// two nonce formats used by staging vs final taproot channels.
+func (a *ChannelReestablish) LocalVerNonce(
+	fundingTxid chainhash.Hash) (Musig2Nonce, error) {
+
+	// Prefer the map-based field (final taproot channels).
+	if a.LocalNonces.IsSome() {
+		noncesData, err := a.LocalNonces.UnwrapOrErr(
+			fmt.Errorf("local nonces not present"),
+		)
+		if err != nil {
+			return Musig2Nonce{}, err
+		}
+
+		nonce, ok := noncesData.NoncesMap[fundingTxid]
+		if !ok {
+			return Musig2Nonce{}, fmt.Errorf("missing nonce "+
+				"for funding txid %v", fundingTxid)
+		}
+
+		return nonce, nil
+	}
+
+	// Fall back to legacy single nonce field (staging taproot channels).
+	nonce, err := a.LocalNonce.UnwrapOrErrV(
+		fmt.Errorf("remote verification nonce not sent"),
+	)
+	if err != nil {
+		return Musig2Nonce{}, err
+	}
+
+	return nonce, nil
 }
 
 // A compile time check to ensure ChannelReestablish implements the

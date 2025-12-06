@@ -67,15 +67,37 @@ func generateAndProcessRevocation(t *testing.T, chanType channeldb.ChannelType,
 }
 
 // TestRevokeAndAckTaprootLocalNonces tests that the RevokeAndAck message
-// properly populates and parses both the legacy LocalNonce field and the new
-// LocalNonces field for taproot channels. This ensures backwards compatibility
-// while supporting future splice operations that may require multiple nonces.
+// properly populates the nonce fields based on the peer's feature bits.
+// With the default (legacy) nonce type, only LocalNonce is populated.
+// With the map nonce type, only LocalNonces is populated.
+// This ensures backwards compatibility while supporting production peers.
 func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 	t.Parallel()
 
 	chanType := channeldb.SimpleTaprootFeatureBit
 
-	t.Run("both fields populated", func(t *testing.T) {
+	t.Run("legacy nonce type only populates LocalNonce", func(t *testing.T) {
+		t.Parallel()
+
+		// Default behavior uses TaprootNonceTypeLegacy which only
+		// populates the LocalNonce field.
+		revMsg, _, _, err := generateAndProcessRevocation(
+			t, chanType, nil,
+		)
+		require.NoError(t, err)
+
+		// Verify only LocalNonce is populated (legacy behavior).
+		require.True(
+			t, revMsg.LocalNonce.IsSome(),
+			"LocalNonce should be populated for legacy nonce type",
+		)
+		require.True(
+			t, revMsg.LocalNonces.IsNone(),
+			"LocalNonces should NOT be populated for legacy nonce type",
+		)
+	})
+
+	t.Run("extracted nonce from legacy field", func(t *testing.T) {
 		t.Parallel()
 
 		revMsg, _, _, err := generateAndProcessRevocation(
@@ -83,54 +105,8 @@ func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		// Verify both fields are populated.
-		require.True(
-			t, revMsg.LocalNonce.IsSome(),
-			"LocalNonce should be populated",
-		)
-		require.True(
-			t, revMsg.LocalNonces.IsSome(),
-			"LocalNonces should be populated",
-		)
-	})
-
-	t.Run("nonces match between fields", func(t *testing.T) {
-		t.Parallel()
-
-		revMsg, _, bobChannel, err := generateAndProcessRevocation(
-			t, chanType, nil,
-		)
-		require.NoError(t, err)
-
-		// Verify that the noncee map field is populated and is keyed
-		// properly.
-		noncesData := revMsg.LocalNonces.UnwrapOrFail(t)
-		require.Len(
-			t, noncesData.NoncesMap, 1,
-			"LocalNonces map should contain exactly one entry",
-		)
-		var mapNonce lnwire.Musig2Nonce
-		for txid, nonce := range noncesData.NoncesMap {
-			mapNonce = nonce
-
-			// Verify it's keyed by funding txid.
-			//
-			//nolint:ll
-			fundingTxid := bobChannel.channelState.FundingOutpoint.Hash
-			require.Equal(
-				t, fundingTxid, txid,
-				"Nonce should be keyed by funding txid",
-			)
-			break
-		}
-
+		// Verify we can extract the nonce from the legacy field.
 		legacyNonce := revMsg.LocalNonce.UnwrapOrFailV(t)
-
-		// Both nonces should match.
-		require.Equal(
-			t, legacyNonce, mapNonce,
-			"Nonces in LocalNonce and LocalNonces should match",
-		)
 		extractedNonce := extractRevocationNonce(t, revMsg)
 		require.Equal(
 			t, legacyNonce, extractedNonce,
@@ -141,15 +117,29 @@ func TestRevokeAndAckTaprootLocalNonces(t *testing.T) {
 	t.Run("receive with only LocalNonces field", func(t *testing.T) {
 		t.Parallel()
 
-		// Modify the message to clear the LocalNonce field.
-		clearLocalNonce := func(rev *lnwire.RevokeAndAck) {
+		// Modify the message to move the nonce from LocalNonce to
+		// LocalNonces field, simulating a peer using the map-based
+		// nonce format.
+		moveToLocalNonces := func(rev *lnwire.RevokeAndAck) {
+			// Get the nonce from the legacy field.
+			legacyNonce := rev.LocalNonce.UnwrapOrFailV(t)
+
+			// Move it to the LocalNonces map field.
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			// Use a dummy txid for the test.
+			noncesMap[chainhash.Hash{}] = legacyNonce
+			rev.LocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{NoncesMap: noncesMap},
+			)
+
+			// Clear the legacy field.
 			rev.LocalNonce = lnwire.OptMusig2NonceTLV{}
 		}
 
 		// They should still work properly as the other nonce is
 		// available.
 		_, _, _, err := generateAndProcessRevocation(
-			t, chanType, clearLocalNonce,
+			t, chanType, moveToLocalNonces,
 		)
 		require.NoError(
 			t, err,

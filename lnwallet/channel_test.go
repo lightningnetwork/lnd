@@ -3559,7 +3559,9 @@ func testChanSyncOweCommitment(t *testing.T, chanType channeldb.ChannelType) {
 }
 
 // TestChanSyncTaprootLocalNonces tests the nonce synchronization behavior for
-// taproot channels using both LocalNonce and LocalNonces fields.
+// taproot channels. The nonce field populated depends on the nonce type:
+// - TaprootNonceTypeLegacy (default): only LocalNonce is populated
+// - TaprootNonceTypeMap: only LocalNonces is populated
 func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	t.Parallel()
 
@@ -3567,54 +3569,54 @@ func TestChanSyncTaprootLocalNonces(t *testing.T) {
 	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err)
 
-	t.Run("both fields populated", func(t *testing.T) {
+	t.Run("legacy nonce type only populates LocalNonce", func(t *testing.T) {
 		assertNoChanSyncNeeded(t, aliceChannel, bobChannel)
 
+		// Default uses TaprootNonceTypeLegacy.
 		aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg()
 		require.NoError(t, err)
 		bobChanSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
 		require.NoError(t, err)
 
+		// Only LocalNonce should be populated.
 		require.True(t, aliceChanSyncMsg.LocalNonce.IsSome())
-		require.True(t, aliceChanSyncMsg.LocalNonces.IsSome())
+		require.True(t, aliceChanSyncMsg.LocalNonces.IsNone())
 		require.True(t, bobChanSyncMsg.LocalNonce.IsSome())
-		require.True(t, bobChanSyncMsg.LocalNonces.IsSome())
+		require.True(t, bobChanSyncMsg.LocalNonces.IsNone())
 	})
 
-	t.Run("nonces match between fields", func(t *testing.T) {
-		aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg()
+	t.Run("map nonce type only populates LocalNonces", func(t *testing.T) {
+		// Use TaprootNonceTypeMap.
+		aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg(
+			channeldb.WithChanSyncNonceType(lnwire.TaprootNonceTypeMap),
+		)
 		require.NoError(t, err)
 
-		aliceLegacyNonce := aliceChanSyncMsg.LocalNonce.UnwrapOrFailV(t)
-		aliceNoncesData := aliceChanSyncMsg.LocalNonces.UnwrapOrFail(t)
-		require.Len(t, aliceNoncesData.NoncesMap, 1)
+		// Only LocalNonces should be populated.
+		require.True(t, aliceChanSyncMsg.LocalNonce.IsNone())
+		require.True(t, aliceChanSyncMsg.LocalNonces.IsSome())
 
-		var aliceMapNonce lnwire.Musig2Nonce
-		for _, nonce := range aliceNoncesData.NoncesMap {
-			aliceMapNonce = nonce
-			break
-		}
-		require.Equal(t, aliceLegacyNonce, aliceMapNonce)
-
-		extractedNonce := extractCommitmentNonce(t, aliceChanSyncMsg)
-		require.Equal(t, aliceLegacyNonce, extractedNonce)
+		noncesData := aliceChanSyncMsg.LocalNonces.UnwrapOrFail(t)
+		require.Len(t, noncesData.NoncesMap, 1)
 	})
 
 	t.Run("sync with only LocalNonces field", func(t *testing.T) {
-		aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg()
+		// Alice uses map nonce type (sends LocalNonces).
+		aliceChanSyncMsg, err := aliceChannel.channelState.ChanSyncMsg(
+			channeldb.WithChanSyncNonceType(lnwire.TaprootNonceTypeMap),
+		)
 		require.NoError(t, err)
 		bobChanSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
 		require.NoError(t, err)
-
-		aliceModifiedMsg := *aliceChanSyncMsg
-		aliceModifiedMsg.LocalNonce = lnwire.OptMusig2NonceTLV{}
 
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
 			PubNonce: extractCommitmentNonce(t, bobChanSyncMsg),
 		}
 
+		// Bob should be able to process Alice's message with only
+		// LocalNonces.
 		bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(
-			ctxb, &aliceModifiedMsg,
+			ctxb, aliceChanSyncMsg,
 		)
 		require.NoError(t, err)
 		require.Empty(t, bobMsgsToSend)

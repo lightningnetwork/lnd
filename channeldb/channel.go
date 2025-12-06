@@ -1752,6 +1752,26 @@ func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
 	return musig2.GenNonces(pubKeyOpt, shaChainRand)
 }
 
+// chanSyncCfg holds configuration options for ChanSyncMsg.
+type chanSyncCfg struct {
+	// taprootNonceType specifies which nonce format to use when
+	// constructing the ChannelReestablish message for the peer.
+	taprootNonceType lnwire.TaprootNonceType
+}
+
+// ChanSyncOpt is a functional option that can be used to modify the behavior of
+// ChanSyncMsg.
+type ChanSyncOpt func(*chanSyncCfg)
+
+// WithChanSyncNonceType specifies which nonce format to use when constructing
+// the ChannelReestablish message. This is determined by the peer's advertised
+// feature bits.
+func WithChanSyncNonceType(nonceType lnwire.TaprootNonceType) ChanSyncOpt {
+	return func(cfg *chanSyncCfg) {
+		cfg.taprootNonceType = nonceType
+	}
+}
+
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
 // reconnection with the remote peer that we're maintaining this channel with.
 // The information contained within this message is necessary to re-sync our
@@ -1767,7 +1787,16 @@ func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
 // If this is a restored channel, having status ChanStatusRestored, then we'll
 // modify our typical chan sync message to ensure they force close even if
 // we're on the very first state.
-func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
+func (c *OpenChannel) ChanSyncMsg(
+	opts ...ChanSyncOpt) (*lnwire.ChannelReestablish, error) {
+
+	cfg := &chanSyncCfg{
+		taprootNonceType: lnwire.TaprootNonceTypeLegacy,
+	}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	c.Lock()
 	defer c.Unlock()
 
@@ -1847,17 +1876,24 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 				"nonce: %w", err)
 		}
 
-		// Populate the legacy LocalNonce field for backwards compatibility.
-		nextTaprootNonce = lnwire.SomeMusig2Nonce(nextNonce.PubNonce)
-
-		// Also populate the new LocalNonces field. For channel
-		// re-establishment, we'll key our nonce by the funding txid.
 		fundingTxid := c.FundingOutpoint.Hash
-		noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
-		noncesMap[fundingTxid] = nextNonce.PubNonce
-		nextLocalNonces = lnwire.SomeLocalNonces(
-			lnwire.LocalNoncesData{NoncesMap: noncesMap},
-		)
+		nonce := nextNonce.PubNonce
+
+		// Set the appropriate nonce field based on the peer's feature
+		// bits. If they support the final taproot channel feature bits,
+		// we use the map-based LocalNonces field. Otherwise, we use
+		// the legacy single LocalNonce field.
+		switch cfg.taprootNonceType {
+		case lnwire.TaprootNonceTypeLegacy:
+			nextTaprootNonce = lnwire.SomeMusig2Nonce(nonce)
+
+		case lnwire.TaprootNonceTypeMap:
+			noncesMap := make(map[chainhash.Hash]lnwire.Musig2Nonce)
+			noncesMap[fundingTxid] = nonce
+			nextLocalNonces = lnwire.SomeLocalNonces(
+				lnwire.LocalNoncesData{NoncesMap: noncesMap},
+			)
+		}
 	}
 
 	return &lnwire.ChannelReestablish{

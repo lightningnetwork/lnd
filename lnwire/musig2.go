@@ -67,3 +67,37 @@ func SomeMusig2Nonce(nonce Musig2Nonce) OptMusig2NonceTLV {
 		tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
 	)
 }
+
+// TaprootNonceType indicates which nonce format to use for taproot channel
+// messages like revoke_and_ack and channel_reestablish.
+type TaprootNonceType uint8
+
+const (
+	// TaprootNonceTypeLegacy indicates that only the single LocalNonce
+	// field should be populated. This is used for peers that support the
+	// staging taproot channel feature bits (180/181).
+	TaprootNonceTypeLegacy TaprootNonceType = iota
+
+	// TaprootNonceTypeMap indicates that only the LocalNonces map-based
+	// field should be populated. This is used for peers that support the
+	// final taproot channel feature bits (80/81).
+	TaprootNonceTypeMap
+)
+
+// DetermineTaprootNonceType returns the appropriate nonce type based on the
+// peer's advertised feature bits. If the peer supports the final taproot
+// channel feature bits (80/81), we use the map-based LocalNonces field.
+// Otherwise, we fall back to the legacy single LocalNonce field.
+func DetermineTaprootNonceType(features *FeatureVector) TaprootNonceType {
+	if features == nil {
+		return TaprootNonceTypeLegacy
+	}
+
+	if features.HasFeature(SimpleTaprootChannelsOptionalFinal) ||
+		features.HasFeature(SimpleTaprootChannelsRequiredFinal) {
+
+		return TaprootNonceTypeMap
+	}
+
+	return TaprootNonceTypeLegacy
+}

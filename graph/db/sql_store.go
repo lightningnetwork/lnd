@@ -1126,6 +1126,11 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 		for hasMore {
 			var batch []ChannelEdge
 
+			// Acquire read lock before starting transaction to
+			// ensure consistent lock ordering (cacheMu -> DB) and
+			// prevent deadlock with write operations.
+			s.cacheMu.RLock()
+
 			err := s.db.ExecTx(ctx, sqldb.ReadTxOpt(),
 				func(db SQLQueries) error {
 					//nolint:ll
@@ -1178,11 +1183,11 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 							continue
 						}
 
-						s.cacheMu.RLock()
+						// Check cache (we already hold
+						// shared read lock).
 						channel, ok := s.chanCache.get(
 							chanIDInt,
 						)
-						s.cacheMu.RUnlock()
 						if ok {
 							hits++
 							total++
@@ -1215,6 +1220,9 @@ func (s *SQLStore) ChanUpdatesInHorizon(startTime, endTime time.Time,
 						map[uint64]ChannelEdge,
 					)
 				})
+
+			// Release read lock after transaction completes.
+			s.cacheMu.RUnlock()
 
 			if err != nil {
 				log.Errorf("ChanUpdatesInHorizon "+
